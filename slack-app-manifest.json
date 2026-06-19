@@ -1,0 +1,77 @@
+{
+    "display_information": {
+        "name": "CoachAven",
+        "description": "I help answer questions in Slack!",
+        "background_color": "#001b6b"
+    },
+    "features": {
+        "app_home": {
+            "home_tab_enabled": false,
+            "messages_tab_enabled": true,
+            "messages_tab_read_only_enabled": false
+        },
+        "bot_user": {
+            "display_name": "CoachAven",
+            "always_online": true
+        },
+        "slash_commands": [
+            {
+                "command": "/aven",
+                "description": "Get back a private answer!",
+                "usage_hint": "Put your question here!",
+                "should_escape": false
+            }
+        ]
+    },
+    "oauth_config": {
+        "scopes": {
+            "user": [
+                "channels:history",
+                "channels:read",
+                "groups:read",
+                "im:read",
+                "mpim:history",
+                "mpim:read",
+                "search:read"
+            ],
+            "bot": [
+                "app_mentions:read",
+                "channels:history",
+                "channels:join",
+                "channels:read",
+                "chat:write",
+                "commands",
+                "groups:history",
+                "groups:read",
+                "im:history",
+                "im:read",
+                "im:write",
+                "mpim:history",
+                "reactions:write",
+                "reactions:read",
+                "usergroups:read",
+                "users:read.email",
+                "users:read"
+            ]
+        },
+        "pkce_enabled": false
+    },
+    "settings": {
+        "event_subscriptions": {
+            "bot_events": [
+                "app_mention",
+                "message.channels",
+                "message.groups",
+                "message.im",
+                "message.mpim"
+            ]
+        },
+        "interactivity": {
+            "is_enabled": true
+        },
+        "org_deploy_enabled": false,
+        "socket_mode_enabled": true,
+        "token_rotation_enabled": false,
+        "is_mcp_enabled": false
+    }
+}

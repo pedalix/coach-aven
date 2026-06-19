@@ -1,0 +1,22 @@
+{
+  "projects": [
+    {
+      "slug": "caldora",
+      "repos": ["BluefinOrg/REPLACE-caldora-repo"],
+      "env": {},
+      "mcp": []
+    },
+    {
+      "slug": "cms-general",
+      "repos": ["BluefinOrg/REPLACE-cms-repo-a", "BluefinOrg/REPLACE-cms-repo-b"],
+      "env": {},
+      "mcp": []
+    },
+    {
+      "slug": "dorfberg-monitoring",
+      "repos": ["BluefinOrg/REPLACE-dorfberg-repo"],
+      "env": {},
+      "mcp": []
+    }
+  ]
+}

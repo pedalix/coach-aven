@@ -1,0 +1,6 @@
+node_modules/
+state.json
+projects.config.json
+*.log
+# .env is already ignored repo-wide; the GitHub App private key too:
+github-app-private-key.pem

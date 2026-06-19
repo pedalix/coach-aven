@@ -1,0 +1,26 @@
+{
+  "name": "bluefin-thin-orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Per-project isolated coding-agent sandboxes on self-hosted Daytona (thin orchestrator).",
+  "bin": {
+    "orch": "./src/cli.ts"
+  },
+  "scripts": {
+    "orch": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@daytonaio/sdk": "0.187.0",
+    "@octokit/auth-app": "^7.1.5",
+    "@slack/bolt": "^4.7.3",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}
