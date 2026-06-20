@@ -49,11 +49,24 @@ export interface TurnResult {
   isError: boolean;
 }
 
+// AskUserQuestion tool shape (verified against the live CLI). The agent asks one or
+// more questions; we answer via control_response allow+updatedInput.answers, keyed by
+// question TEXT → chosen label(s).
+export interface AskQuestion {
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options: { label: string; description?: string }[];
+}
+export type QuestionAnswers = Record<string, string>; // question text → label (multi: comma-joined)
+export type OnQuestion = (questions: AskQuestion[]) => Promise<QuestionAnswers>;
+
 const STREAM_MAX_MS = (Number(process.env.STREAM_MAX_MINUTES) || 15) * 60_000;
 
 interface PendingTurn {
   resolve: (r: TurnResult) => void;
   onStep?: (s: string) => void;
+  onQuestion?: OnQuestion;
   settled: boolean;
   canceled: boolean;
   timer: ReturnType<typeof setTimeout>;
@@ -91,10 +104,13 @@ export class ClaudeSession {
     const sys = this.opts.systemPrompt ? `--append-system-prompt ${sq(this.opts.systemPrompt)} ` : '';
     // No positional prompt → persistent mode (turns stream in via stdin). --verbose is
     // mandatory with stream-json. --strict-mcp-config ignores the repo's own .mcp.json.
+    // BOTH --dangerously-skip-permissions AND --permission-prompt-tool stdio: verified
+    // to coexist — normal tools auto-run (bypass, no round-trip) while AskUserQuestion
+    // STILL fires a can_use_tool control_request we answer (→ Slack buttons).
     const command =
       `cd ${sq(this.opts.cwd)} && ${CC_TOKEN_ENV} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
       `claude --output-format stream-json --input-format stream-json --verbose ` +
-      `--dangerously-skip-permissions --strict-mcp-config ${resume}${sys}`;
+      `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ${resume}${sys}`;
     const started = await this.sandbox.process.executeSessionCommand(
       this.sessionKey,
       { command, runAsync: true },
@@ -109,7 +125,13 @@ export class ClaudeSession {
   }
 
   // Push a user turn; resolves when its `result` arrives. signal → clean interrupt.
-  async send(text: string, onStep?: (s: string) => void, signal?: AbortSignal): Promise<TurnResult> {
+  // onQuestion is invoked when the agent calls AskUserQuestion (→ Slack buttons).
+  async send(
+    text: string,
+    onStep?: (s: string) => void,
+    signal?: AbortSignal,
+    onQuestion?: OnQuestion,
+  ): Promise<TurnResult> {
     if (this.dead || !this.cmdId) return { status: 'error', resultText: 'session not open', isError: true };
     if (this.pending) return { status: 'error', resultText: 'session busy', isError: true };
 
@@ -117,6 +139,7 @@ export class ClaudeSession {
       const p: PendingTurn = {
         resolve,
         onStep,
+        onQuestion,
         settled: false,
         canceled: false,
         timer: setTimeout(() => {
@@ -150,14 +173,19 @@ export class ClaudeSession {
 
   // Write a control_request{interrupt} to stdin — aborts the current turn cleanly.
   async interrupt(): Promise<void> {
+    await this.write({
+      request_id: `int-${Date.now()}`,
+      type: 'control_request',
+      request: { subtype: 'interrupt' },
+    });
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async write(obj: any): Promise<void> {
     if (this.dead || !this.cmdId) return;
-    const req =
-      JSON.stringify({
-        request_id: `int-${Date.now()}`,
-        type: 'control_request',
-        request: { subtype: 'interrupt' },
-      }) + '\n';
-    await this.sandbox.process.sendSessionCommandInput(this.sessionKey, this.cmdId, req).catch(() => {});
+    await this.sandbox.process
+      .sendSessionCommandInput(this.sessionKey, this.cmdId, JSON.stringify(obj) + '\n')
+      .catch(() => {});
   }
 
   async close(): Promise<void> {
@@ -193,13 +221,39 @@ export class ClaudeSession {
       for (const b of ev.message.content) {
         if (b?.type === 'tool_use') this.pending?.onStep?.(stepLabel(b.name, b.input ?? {}));
       }
+    } else if (t === 'control_request' && ev.request?.subtype === 'can_use_tool') {
+      void this.handleCanUseTool(ev); // AskUserQuestion → Slack; everything else auto-allow
     } else if (t === 'result') {
       if (ev.session_id) this.claudeSessionId = ev.session_id; // authoritative per-turn id
       const resultText = typeof ev.result === 'string' ? ev.result : '';
       const status: TurnResult['status'] = this.pending?.canceled ? 'canceled' : 'ok';
       this.settle({ status, resultText, isError: !!ev.is_error });
     }
-    // control_request (can_use_tool) / control_response (interrupt ack): Phase 2.
+  }
+
+  // Answer a can_use_tool control_request. With bypass on, normal tools never reach
+  // here — only AskUserQuestion does. We escalate that to onQuestion (Slack buttons)
+  // and reply allow+updatedInput.answers; anything else is defensively auto-allowed.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async handleCanUseTool(ev: any): Promise<void> {
+    const requestId = ev.request_id;
+    const input = ev.request?.input ?? {};
+    const allow = (updatedInput: unknown) =>
+      this.write({
+        type: 'control_response',
+        response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow', updatedInput } },
+      });
+
+    if (ev.request.tool_name === 'AskUserQuestion' && this.pending?.onQuestion) {
+      try {
+        const answers = await this.pending.onQuestion(input.questions ?? []);
+        await allow({ ...input, answers });
+      } catch {
+        await allow(input); // canceled/failed → no answers = the agent sees a dismissal
+      }
+      return;
+    }
+    await allow(input);
   }
 
   private onExit(): void {

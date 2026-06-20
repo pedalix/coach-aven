@@ -11,15 +11,21 @@ import {
   repoName,
   projectDir,
 } from './project.js';
-import { ClaudeSession } from './claudeSession.js';
+import { ClaudeSession, type OnQuestion } from './claudeSession.js';
 
 // "Chat with the project": ensure the sandbox + clone ALL the project's repos, then
 // drive a persistent Claude process over it (the agent can read AND edit; it pushes /
 // opens a PR only if asked). Each ask() is a turn on the same long-lived conversation.
 export interface ChatSession {
   // onStep receives a human-readable line per agent tool call (for live UI progress).
-  // signal aborts the in-flight turn cleanly (→ throws 'canceled').
-  ask(prompt: string, onStep?: (step: string) => void, signal?: AbortSignal): Promise<string>;
+  // signal aborts the in-flight turn cleanly (→ throws 'canceled'). onQuestion is
+  // invoked when the agent calls AskUserQuestion (→ render options as Slack buttons).
+  ask(
+    prompt: string,
+    onStep?: (step: string) => void,
+    signal?: AbortSignal,
+    onQuestion?: OnQuestion,
+  ): Promise<string>;
   // The Claude conversation id, known after the first turn. Persist it so a restarted
   // bot can resume the same thread via openChat({ resumeSessionId }).
   sessionId(): string | undefined;
@@ -61,7 +67,10 @@ function buildSystemPrompt(slug: string, cwd: string, repos: string[]): string {
   }
   lines.push(
     `To make changes, create a branch in the relevant repository and open a PR with the gh CLI. ` +
-      `Replies render in Slack — be concise and use code blocks for code.`,
+      `Replies render in Slack — be concise and use code blocks for code. ` +
+      `When a decision is yours to make but you're genuinely unsure between approaches, or an ` +
+      `action is risky/irreversible, use the AskUserQuestion tool to present the options instead ` +
+      `of guessing — the user answers with a button click.`,
   );
   return lines.join('\n');
 }
@@ -110,15 +119,16 @@ export async function openChat(
       prompt: string,
       onStep?: (step: string) => void,
       signal?: AbortSignal,
+      onQuestion?: OnQuestion,
     ): Promise<string> => {
       let s = await ensureSession();
-      let r = await s.send(prompt, onStep, signal);
+      let r = await s.send(prompt, onStep, signal, onQuestion);
       // The persistent process may have died (sandbox auto-stopped between turns) —
       // re-open once with --resume and retry.
       if (r.status === 'error') {
         session = undefined;
         s = await ensureSession();
-        r = await s.send(prompt, onStep, signal);
+        r = await s.send(prompt, onStep, signal, onQuestion);
       }
       if (s.sessionId()) sessionId = s.sessionId(); // track from init/result (covers forks)
 
