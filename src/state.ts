@@ -1,28 +1,14 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
-// MVP state store: a single JSON file mapping projects → their warm sandbox and
-// tasks. Swap for SQLite later if concurrency demands it. Writes are atomic-ish
-// (write whole file each mutation; single-process orchestrator for now).
-
-export interface TaskRecord {
-  id: string;
-  branch: string;
-  worktreePath: string;
-  composeProject: string;
-  prompt: string;
-  status: 'created' | 'running' | 'awaiting-input' | 'done' | 'failed';
-  prUrl?: string;
-  createdAt: string;
-  updatedAt: string;
-}
+// MVP state store: a single JSON file mapping projects → their warm sandbox, plus
+// chat-thread → Claude-session bindings. Swap for SQLite later if concurrency demands
+// it. Writes are atomic-ish (write whole file each mutation; single-process for now).
 
 export interface ProjectRecord {
   slug: string;
-  repo: string; // "Org/name"
+  repo: string; // primary repo, "Org/name"
   sandboxName: string;
-  defaultBranch?: string;
   clonedAt?: string;
-  tasks: Record<string, TaskRecord>;
 }
 
 // A chat thread (e.g. a Slack thread) bound to a project's Claude session. Lets a
@@ -69,7 +55,6 @@ export class Store {
       slug,
       repo,
       sandboxName: `proj-${slug}`,
-      tasks: {},
     };
     this.data.projects[slug] = rec;
     this.save();
@@ -79,17 +64,6 @@ export class Store {
   setProject(rec: ProjectRecord) {
     this.data.projects[rec.slug] = rec;
     this.save();
-  }
-
-  upsertTask(slug: string, task: TaskRecord) {
-    const proj = this.data.projects[slug];
-    if (!proj) throw new Error(`Unknown project: ${slug}`);
-    proj.tasks[task.id] = task;
-    this.save();
-  }
-
-  listProjects(): ProjectRecord[] {
-    return Object.values(this.data.projects);
   }
 
   getChat(threadTs: string): ChatRecord | undefined {

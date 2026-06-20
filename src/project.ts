@@ -1,7 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { Sandbox } from '@daytonaio/sdk';
 import type { Config } from './config.js';
-import type { ProjectRecord } from './state.js';
 import { exec } from './daytona.js';
 import { log } from './log.js';
 
@@ -34,17 +33,10 @@ export async function provisionTooling(sandbox: Sandbox) {
   log.info('tooling provisioned');
 }
 
-// Layout inside the sandbox:
-//   <workDir>/<slug>/main          ← the canonical clone (default branch)
-//   <workDir>/<slug>/task-<id>     ← per-task git worktree (own branch)
+// Layout inside the sandbox: <workDir>/<slug>/<repoName> per repo (a project = one
+// sandbox holding all its repos side by side).
 export function projectDir(cfg: Config, slug: string) {
   return `${cfg.sandbox.workDir}/${slug}`;
-}
-export function mainCheckout(cfg: Config, slug: string) {
-  return `${projectDir(cfg, slug)}/main`;
-}
-export function worktreeDir(cfg: Config, slug: string, taskId: string) {
-  return `${projectDir(cfg, slug)}/task-${taskId}`;
 }
 export function repoName(repo: string): string {
   return repo.split('/')[1] ?? repo;
@@ -85,30 +77,6 @@ export async function seedClaudeAuth(sandbox: Sandbox, token: string) {
 // Prefix that injects the token without leaking it into the command string/logs.
 export const CC_TOKEN_ENV = 'CLAUDE_CODE_OAUTH_TOKEN=$(cat /root/.cc-token)';
 
-// First-time clone of the project's default branch into <slug>/main. Idempotent:
-// if the checkout already has a .git, we fetch instead of re-cloning.
-export async function ensureClone(
-  sandbox: Sandbox,
-  cfg: Config,
-  proj: ProjectRecord,
-): Promise<{ defaultBranch: string }> {
-  const dir = mainCheckout(cfg, proj.slug);
-  const exists = await exec(sandbox, `test -d ${dir}/.git && echo yes || echo no`);
-  if (exists.result.trim() === 'yes') {
-    log.step(`repo present — fetching latest in ${dir}`);
-    await exec(sandbox, `git -C ${dir} fetch --all --prune`, { check: true, timeout: 600 });
-  } else {
-    log.step(`cloning ${proj.repo} → ${dir}`);
-    await exec(sandbox, `mkdir -p ${projectDir(cfg, proj.slug)}`, { check: true });
-    await exec(sandbox, `git clone https://github.com/${proj.repo}.git ${dir}`, {
-      check: true,
-      timeout: 900, // 640 MB repo over the box's link
-    });
-  }
-  const branch = await exec(sandbox, `git -C ${dir} rev-parse --abbrev-ref HEAD`, { check: true });
-  return { defaultBranch: branch.result.trim() };
-}
-
 // Clone (or fetch) a single repo into its own <slug>/<repoName> dir. Used by the chat
 // path so a project can hold N repos. Idempotent.
 export async function cloneRepo(sandbox: Sandbox, cfg: Config, slug: string, repo: string) {
@@ -127,28 +95,3 @@ export async function cloneRepo(sandbox: Sandbox, cfg: Config, slug: string, rep
   }
 }
 
-// Create an isolated worktree + branch for a task. COMPOSE_PROJECT_NAME is derived
-// from the task id so each task's Sail (Postgres/mail) stack is isolated.
-export async function addWorktree(
-  sandbox: Sandbox,
-  cfg: Config,
-  slug: string,
-  taskId: string,
-  baseBranch: string,
-): Promise<{ worktreePath: string; branch: string; composeProject: string }> {
-  const main = mainCheckout(cfg, slug);
-  const wt = worktreeDir(cfg, slug, taskId);
-  const branch = `task-${taskId}`;
-  const composeProject = `t${taskId}`.replace(/[^a-z0-9]/gi, '').toLowerCase();
-
-  const present = await exec(sandbox, `test -d ${wt} && echo yes || echo no`);
-  if (present.result.trim() === 'yes') {
-    log.step(`worktree ${wt} already exists — reusing`);
-    return { worktreePath: wt, branch, composeProject };
-  }
-  log.step(`git worktree add ${wt} (branch ${branch} off ${baseBranch})`);
-  await exec(sandbox, `git -C ${main} worktree add -b ${branch} ${wt} origin/${baseBranch}`, {
-    check: true,
-  });
-  return { worktreePath: wt, branch, composeProject };
-}
