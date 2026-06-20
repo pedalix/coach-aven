@@ -61,6 +61,10 @@ export async function runSlack(cfg: Config): Promise<void> {
     done: boolean;
   }
   const pendingQuestions = new Map<string, PendingQuestion>();
+  // qids that reached a terminal state normally (answered/submitted/canceled). A late
+  // click on one of these is a no-op (the message already shows the right final state) —
+  // distinct from an UNKNOWN qid (bot restart / genuinely old), which gets "expired".
+  const completedQuestions = new Set<string>();
   let questionSeq = 0;
 
   function answeredAll(entry: PendingQuestion): boolean {
@@ -71,6 +75,7 @@ export async function runSlack(cfg: Config): Promise<void> {
   function finalizeQuestion(entry: PendingQuestion, qid: string): void {
     entry.done = true;
     pendingQuestions.delete(qid);
+    completedQuestions.add(qid);
     const answers: QuestionAnswers = {};
     entry.questions.forEach((q, qi) => {
       const set = entry.picks.get(qi);
@@ -122,6 +127,7 @@ export async function runSlack(cfg: Config): Promise<void> {
           const onAbort = () => {
             if (entry.done || !pendingQuestions.delete(qid)) return;
             entry.done = true;
+            completedQuestions.add(qid);
             void client.chat
               .update({ channel, ts: entry.ts, text: '🚫 Canceled', blocks: [] })
               .catch(() => {});
@@ -519,7 +525,10 @@ export async function runSlack(cfg: Config): Promise<void> {
       return;
     }
     const entry = pendingQuestions.get(v.qid);
-    if (!entry || entry.done) return void markStale(client, body);
+    if (!entry || entry.done) {
+      if (!completedQuestions.has(v.qid)) await markStale(client, body);
+      return;
+    }
 
     const q = entry.questions[v.qi];
     let set = entry.picks.get(v.qi) ?? new Set<number>();
@@ -554,7 +563,10 @@ export async function runSlack(cfg: Config): Promise<void> {
       return;
     }
     const entry = pendingQuestions.get(v.qid);
-    if (!entry || entry.done) return void markStale(client, body);
+    if (!entry || entry.done) {
+      if (!completedQuestions.has(v.qid)) await markStale(client, body);
+      return;
+    }
     if (!answeredAll(entry)) return; // ignore until every question has a selection
     await client.chat
       .update({ channel: entry.channel, ts: entry.ts, text: '✅ Answered', blocks: questionBlocks(entry.questions, entry.picks, entry.multi, v.qid, true) })
