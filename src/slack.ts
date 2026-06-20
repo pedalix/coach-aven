@@ -95,7 +95,7 @@ export async function runSlack(cfg: Config): Promise<void> {
     signal: AbortSignal,
     track: (qid: string) => void,
   ): OnQuestion {
-    return (questions) =>
+    return (questions, toolSignal) =>
       new Promise<QuestionAnswers>((resolve, reject) => {
         const qid = `q${++questionSeq}`;
         track(qid);
@@ -117,6 +117,8 @@ export async function runSlack(cfg: Config): Promise<void> {
             done: false,
           };
           pendingQuestions.set(qid, entry);
+          // Abort on EITHER the turn cancel (✖ Cancel) OR this question being withdrawn
+          // by claude (control_cancel_request → toolSignal).
           const onAbort = () => {
             if (entry.done || !pendingQuestions.delete(qid)) return;
             entry.done = true;
@@ -125,8 +127,11 @@ export async function runSlack(cfg: Config): Promise<void> {
               .catch(() => {});
             reject(new Error('canceled'));
           };
-          if (signal.aborted) onAbort();
-          else signal.addEventListener('abort', onAbort, { once: true });
+          if (signal.aborted || toolSignal?.aborted) onAbort();
+          else {
+            signal.addEventListener('abort', onAbort, { once: true });
+            toolSignal?.addEventListener('abort', onAbort, { once: true });
+          }
         })().catch(reject);
       });
   }

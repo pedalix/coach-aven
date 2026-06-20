@@ -53,7 +53,9 @@ export interface AskQuestion {
   options: { label: string; description?: string }[];
 }
 export type QuestionAnswers = Record<string, string>; // question text → label(s)
-export type OnQuestion = (questions: AskQuestion[]) => Promise<QuestionAnswers>;
+// signal aborts THIS question specifically (claude withdrew its can_use_tool) — distinct
+// from the turn-level cancel the consumer may also listen to.
+export type OnQuestion = (questions: AskQuestion[], signal?: AbortSignal) => Promise<QuestionAnswers>;
 
 export interface TurnResult {
   status: 'ok' | 'canceled' | 'timeout' | 'error' | 'busy';
@@ -91,6 +93,9 @@ export class ClaudeSession {
   private pending?: PendingTurn;
   private dead = false;
   private turnStarted = false; // did the current turn emit any output yet?
+  // can_use_tool requests still awaiting our reply → AbortControllers so a
+  // control_cancel_request can abort the matching pending question (Slack buttons).
+  private inflightTools = new Map<string, AbortController>();
 
   constructor(
     private readonly sandbox: Sandbox,
@@ -244,6 +249,11 @@ export class ClaudeSession {
     } else if (t === 'control_request' && ev.request?.subtype === 'can_use_tool') {
       this.turnStarted = true;
       void this.handleCanUseTool(ev); // AskUserQuestion → Slack; everything else auto-allow
+    } else if (t === 'control_cancel_request') {
+      // claude withdrew a still-open can_use_tool (e.g. the turn was interrupted while
+      // we were waiting on a Slack answer) — abort the matching question so its buttons
+      // close instead of resolving into a dead request id.
+      this.inflightTools.get(ev.request_id)?.abort();
     } else if (t === 'result') {
       this.turnStarted = true;
       if (ev.session_id) this.claudeSessionId = ev.session_id; // authoritative per-turn id
@@ -260,26 +270,32 @@ export class ClaudeSession {
   private async handleCanUseTool(ev: any): Promise<void> {
     const requestId = ev.request_id;
     const input = ev.request?.input ?? {};
+    const ac = new AbortController(); // aborted by a control_cancel_request for this id
+    this.inflightTools.set(requestId, ac);
     const allow = (updatedInput: unknown) =>
       this.write({
         type: 'control_response',
         response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow', updatedInput } },
       });
 
-    if (ev.request.tool_name === 'AskUserQuestion' && this.pending?.onQuestion) {
-      try {
-        const answers = await this.pending.onQuestion(input.questions ?? []);
-        await allow({ ...input, answers });
-      } catch {
-        // canceled → the interrupt tears the turn down; don't ALSO answer (would be a
-        // second, racing control message). Only dismiss (allow w/o answers) on a
-        // genuine question failure that isn't a cancel.
-        if (this.pending?.canceled) return;
-        await allow(input);
+    try {
+      if (ev.request.tool_name === 'AskUserQuestion' && this.pending?.onQuestion) {
+        try {
+          const answers = await this.pending.onQuestion(input.questions ?? [], ac.signal);
+          if (ac.signal.aborted) return; // claude withdrew the request — don't respond
+          await allow({ ...input, answers });
+        } catch {
+          // Withdrawn by claude, or the turn was canceled (interrupt tears it down) —
+          // don't ALSO send a control_response (would be a second, racing message).
+          if (ac.signal.aborted || this.pending?.canceled) return;
+          await allow(input); // a genuine question failure → dismiss (allow w/o answers)
+        }
+        return;
       }
-      return;
+      await allow(input);
+    } finally {
+      this.inflightTools.delete(requestId);
     }
-    await allow(input);
   }
 
   private onExit(): void {
