@@ -49,46 +49,77 @@ export async function runSlack(cfg: Config): Promise<void> {
   let turnSeq = 0;
 
   // Pending AskUserQuestion prompts: the agent asked, we posted option buttons, and
-  // we're waiting for clicks. Keyed by a questionId carried on each button.
+  // we're waiting for clicks. Keyed by a questionId carried on each button. `picks` maps
+  // a question index → the set of selected option indices (single-select = a set of 1).
   interface PendingQuestion {
     questions: AskQuestion[];
-    answers: Map<number, string>; // question index → chosen label
+    picks: Map<number, Set<number>>;
+    multi: boolean; // any question is multiSelect → needs an explicit Submit
     resolve: (a: QuestionAnswers) => void;
     channel: string;
     ts: string;
+    done: boolean;
   }
   const pendingQuestions = new Map<string, PendingQuestion>();
   let questionSeq = 0;
 
+  function answeredAll(entry: PendingQuestion): boolean {
+    return entry.questions.every((_, qi) => (entry.picks.get(qi)?.size ?? 0) > 0);
+  }
+  // Resolve a question: project picks → answers (question text → comma-joined labels,
+  // the verified wire format), mark done, and remove from the registry.
+  function finalizeQuestion(entry: PendingQuestion, qid: string): void {
+    entry.done = true;
+    pendingQuestions.delete(qid);
+    const answers: QuestionAnswers = {};
+    entry.questions.forEach((q, qi) => {
+      const set = entry.picks.get(qi);
+      if (set && set.size) {
+        answers[q.question] = [...set]
+          .map((oi) => q.options[oi]?.label)
+          .filter(Boolean)
+          .join(', ');
+      }
+    });
+    entry.resolve(answers);
+  }
+
   // Build the onQuestion handler for a turn: post the agent's questions as Slack option
-  // buttons and resolve once every question is answered. Aborting the turn rejects it
-  // (→ the agent sees a dismissal). Bound to this turn's channel/thread/signal.
+  // buttons and resolve once answered (single-select: on click; multi-select: on Submit).
+  // Aborting the turn rejects it (the interrupt then tears the turn down). `track`
+  // records the questionId so the turn can purge a still-open question when it settles.
   function makeOnQuestion(
     client: bolt.webApi.WebClient,
     channel: string,
     threadTs: string | undefined,
     signal: AbortSignal,
+    track: (qid: string) => void,
   ): OnQuestion {
     return (questions) =>
       new Promise<QuestionAnswers>((resolve, reject) => {
         const qid = `q${++questionSeq}`;
+        track(qid);
+        const multi = questions.some((q) => q.multiSelect);
         void (async () => {
           const posted = await client.chat.postMessage({
             channel,
             thread_ts: threadTs,
             text: '❓ The agent has a question',
-            blocks: questionBlocks(questions, new Map(), qid),
+            blocks: questionBlocks(questions, new Map(), multi, qid, false),
           });
           const entry: PendingQuestion = {
             questions,
-            answers: new Map(),
+            picks: new Map(),
+            multi,
             resolve,
             channel,
             ts: posted.ts as string,
+            done: false,
           };
           pendingQuestions.set(qid, entry);
           const onAbort = () => {
-            if (!pendingQuestions.delete(qid)) return;
+            if (entry.done || !pendingQuestions.delete(qid)) return;
+            entry.done = true;
             void client.chat
               .update({ channel, ts: entry.ts, text: '🚫 Canceled', blocks: [] })
               .catch(() => {});
@@ -297,6 +328,7 @@ export async function runSlack(cfg: Config): Promise<void> {
       }
     };
     const heartbeat = setInterval(() => void flush(), 4000);
+    const turnQs = new Set<string>(); // questionIds this turn opened (for cleanup on settle)
 
     try {
       const chat = await sessionFor(key, project); // prepare (warm sandbox + clone) here
@@ -309,9 +341,18 @@ export async function runSlack(cfg: Config): Promise<void> {
           void flush();
         },
         ac.signal,
-        makeOnQuestion(client, channel, threadTs, ac.signal),
+        makeOnQuestion(client, channel, threadTs, ac.signal, (qid) => turnQs.add(qid)),
       );
       persist(key, project.slug, chat);
+      if (chat.contextLost()) {
+        await client.chat
+          .postMessage({
+            channel,
+            thread_ts: threadTs,
+            text: '⚠️ Lost the previous session context (the sandbox was rebuilt) — starting fresh.',
+          })
+          .catch(() => {});
+      }
       finished = true;
       clearInterval(heartbeat);
       const capped = answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
@@ -331,6 +372,19 @@ export async function runSlack(cfg: Config): Promise<void> {
         if (msgTs) {
           await react(client, channel, msgTs, 'eyes', 'remove');
           await react(client, channel, msgTs, 'x', 'add');
+        }
+      }
+    } finally {
+      // Purge any question this turn left open (errored/timed out without an answer or
+      // cancel) so its buttons don't linger as dead clicks.
+      for (const qid of turnQs) {
+        const entry = pendingQuestions.get(qid);
+        if (entry && !entry.done) {
+          entry.done = true;
+          pendingQuestions.delete(qid);
+          await client.chat
+            .update({ channel: entry.channel, ts: entry.ts, text: '⌛ Question closed', blocks: [] })
+            .catch(() => {});
         }
       }
     }
@@ -438,46 +492,69 @@ export async function runSlack(cfg: Config): Promise<void> {
     if (turnId) running.get(turnId)?.abort();
   });
 
-  // ── option button → record an AskUserQuestion answer; resolve when all answered ──
+  // Update a stale/expired question message (click landed but the entry is gone — turn
+  // ended, bot restarted, etc.) so the user gets feedback instead of a dead button.
+  async function markStale(client: bolt.webApi.WebClient, body: unknown): Promise<void> {
+    const b = body as { channel?: { id?: string }; message?: { ts?: string } };
+    if (b.channel?.id && b.message?.ts) {
+      await client.chat
+        .update({ channel: b.channel.id, ts: b.message.ts, text: '⌛ This question has expired', blocks: [] })
+        .catch(() => {});
+    }
+  }
+
+  // ── option button → toggle/select; resolve single-select on click, multi on Submit ──
   // action_id is `answer_q:<qid>:<qi>:<oi>` (unique per button); match the family.
-  app.action(/^answer_q:/, async ({ ack, action, client }) => {
+  app.action(/^answer_q:/, async ({ ack, action, client, body }) => {
     await ack();
-    let v: { qid: string; qi: number; label: string };
+    let v: { qid: string; qi: number; oi: number };
     try {
       v = JSON.parse((action as { value?: string }).value ?? '');
     } catch {
       return;
     }
     const entry = pendingQuestions.get(v.qid);
-    if (!entry) return; // already answered / canceled / expired
-    entry.answers.set(v.qi, v.label);
+    if (!entry || entry.done) return void markStale(client, body);
 
-    if (entry.answers.size >= entry.questions.length) {
-      pendingQuestions.delete(v.qid);
-      const answers: QuestionAnswers = {};
-      entry.questions.forEach((q, qi) => {
-        const label = entry.answers.get(qi);
-        if (label) answers[q.question] = label;
-      });
+    const q = entry.questions[v.qi];
+    let set = entry.picks.get(v.qi) ?? new Set<number>();
+    if (q?.multiSelect) {
+      if (set.has(v.oi)) set.delete(v.oi);
+      else set.add(v.oi);
+    } else {
+      set = new Set([v.oi]); // single-select: replace
+    }
+    entry.picks.set(v.qi, set);
+
+    // Single-select group auto-resolves once every question has a pick; multi waits for Submit.
+    if (!entry.multi && answeredAll(entry)) {
       await client.chat
-        .update({
-          channel: entry.channel,
-          ts: entry.ts,
-          text: '✅ Answered',
-          blocks: questionBlocks(entry.questions, entry.answers, v.qid),
-        })
+        .update({ channel: entry.channel, ts: entry.ts, text: '✅ Answered', blocks: questionBlocks(entry.questions, entry.picks, entry.multi, v.qid, true) })
         .catch(() => {});
-      entry.resolve(answers);
+      finalizeQuestion(entry, v.qid);
     } else {
       await client.chat
-        .update({
-          channel: entry.channel,
-          ts: entry.ts,
-          text: '❓ The agent has a question',
-          blocks: questionBlocks(entry.questions, entry.answers, v.qid),
-        })
+        .update({ channel: entry.channel, ts: entry.ts, text: '❓ The agent has a question', blocks: questionBlocks(entry.questions, entry.picks, entry.multi, v.qid, false) })
         .catch(() => {});
     }
+  });
+
+  // ── Submit button (multi-select) → resolve once every question has ≥1 selection ──
+  app.action(/^submit_q:/, async ({ ack, action, client, body }) => {
+    await ack();
+    let v: { qid: string };
+    try {
+      v = JSON.parse((action as { value?: string }).value ?? '');
+    } catch {
+      return;
+    }
+    const entry = pendingQuestions.get(v.qid);
+    if (!entry || entry.done) return void markStale(client, body);
+    if (!answeredAll(entry)) return; // ignore until every question has a selection
+    await client.chat
+      .update({ channel: entry.channel, ts: entry.ts, text: '✅ Answered', blocks: questionBlocks(entry.questions, entry.picks, entry.multi, v.qid, true) })
+      .catch(() => {});
+    finalizeQuestion(entry, v.qid);
   });
 
   await app.start();
@@ -520,36 +597,67 @@ function statusBlocks(text: string, turnId: string): any[] {
 // Render an AskUserQuestion prompt as Slack blocks: each question is a section listing
 // its options; unanswered questions show option buttons, answered ones show the pick.
 // (v1 treats every question as single-select — one click answers it.)
+// Render an AskUserQuestion prompt as Slack blocks. `picks` = chosen option indices per
+// question (selected options get a ✓). When `done`, render a buttonless summary. For
+// multi-select questions a single "Submit" button finalizes. Button `value` carries ONLY
+// indices {qid,qi,oi} (never the label) so it can't blow Slack's 2000-char value cap.
+// Slack allows max 25 elements per actions block; we cap options at 24 and note any drop.
+const MAX_OPTION_BUTTONS = 24;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-function questionBlocks(questions: AskQuestion[], answers: Map<number, string>, qid: string): any[] {
+function questionBlocks(
+  questions: AskQuestion[],
+  picks: Map<number, Set<number>>,
+  multi: boolean,
+  qid: string,
+  done: boolean,
+): any[] {
+  const intro = done
+    ? '✅ *Answered*'
+    : `❓ *The agent needs your input*${multi ? '  _(pick one or more, then Submit)_' : ''}`;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const blocks: any[] = [
-    { type: 'section', text: { type: 'mrkdwn', text: '❓ *The agent needs your input*' } },
-  ];
+  const blocks: any[] = [{ type: 'section', text: { type: 'mrkdwn', text: intro } }];
+
   questions.forEach((q, qi) => {
+    const set = picks.get(qi) ?? new Set<number>();
     const head = `*${q.header ? `${q.header}: ` : ''}${q.question}*`;
-    const picked = answers.get(qi);
-    if (picked) {
-      blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `${head}\n✓ *${picked}*` } });
-      return;
-    }
-    const opts = q.options
-      .map((o) => `• *${o.label}*${o.description ? ` — ${o.description}` : ''}`)
+    const shown = q.options.slice(0, MAX_OPTION_BUTTONS);
+    const dropped = q.options.length - shown.length;
+    const optLines = shown
+      .map((o, oi) => `${set.has(oi) ? '✅' : '•'} *${o.label}*${o.description ? ` — ${o.description}` : ''}`)
       .join('\n');
-    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `${head}\n${opts}` } });
+    const note = dropped > 0 ? `\n_(+${dropped} more not shown — reply in thread to pick)_` : '';
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `${head}\n${optLines}${note}` } });
+    if (!done) {
+      blocks.push({
+        type: 'actions',
+        block_id: `${qid}:${qi}`,
+        // action_id must be UNIQUE within a message — Slack rejects duplicates. Routed via
+        // the `answer_q:` regex handler; value carries only indices (label-length-safe).
+        elements: shown.map((o, oi) => ({
+          type: 'button',
+          text: { type: 'plain_text', text: o.label.slice(0, 75) },
+          action_id: `answer_q:${qid}:${qi}:${oi}`,
+          value: JSON.stringify({ qid, qi, oi }),
+        })),
+      });
+    }
+  });
+
+  if (multi && !done) {
     blocks.push({
       type: 'actions',
-      block_id: `${qid}:${qi}`,
-      elements: q.options.slice(0, 10).map((o, oi) => ({
-        type: 'button',
-        text: { type: 'plain_text', text: o.label.slice(0, 75) },
-        // action_id must be UNIQUE within a message — Slack rejects duplicates. Route
-        // them all via the `answer_q:` regex handler; the choice rides in `value`.
-        action_id: `answer_q:${qid}:${qi}:${oi}`,
-        value: JSON.stringify({ qid, qi, label: o.label }),
-      })),
+      block_id: `${qid}:submit`,
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: 'Submit' },
+          style: 'primary',
+          action_id: `submit_q:${qid}`,
+          value: JSON.stringify({ qid }),
+        },
+      ],
     });
-  });
+  }
   return blocks;
 }
 

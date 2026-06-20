@@ -29,6 +29,19 @@ export interface ChatSession {
   // The Claude conversation id, known after the first turn. Persist it so a restarted
   // bot can resume the same thread via openChat({ resumeSessionId }).
   sessionId(): string | undefined;
+  // One-shot flag: true once if a resume id was set but its transcript was gone (sandbox
+  // rebuilt) so we started fresh — the caller should warn the user. Resets on read.
+  contextLost(): boolean;
+}
+
+// Serialize per-sandbox preparation so two conversations sharing one project sandbox
+// don't race on clone / auth-file writes / tooling install (a project = one sandbox).
+const sandboxLocks = new Map<string, Promise<unknown>>();
+function withSandboxLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  const prev = sandboxLocks.get(name) ?? Promise.resolve();
+  const run = prev.then(fn, fn); // run fn after prev settles, regardless of outcome
+  sandboxLocks.set(name, run.catch(() => {}));
+  return run;
 }
 
 // Prepare a project's sandbox for the chat path: snapshot active, sandbox started,
@@ -93,28 +106,48 @@ export async function openChat(
   store: Store,
   opts: { slug: string; repos: string[]; resumeSessionId?: string },
 ): Promise<ChatSession> {
-  const prep = await prepareChat(cfg, store, opts.slug, opts.repos);
+  const prep = await withSandboxLock(opts.slug, () => prepareChat(cfg, store, opts.slug, opts.repos));
   const { daytona, proj, cwd } = prep;
   let sandbox = prep.sandbox;
   let sessionId: string | undefined = opts.resumeSessionId;
   let session: ClaudeSession | undefined;
+  let droppedResume = false;
   const systemPrompt = buildSystemPrompt(opts.slug, cwd, opts.repos);
 
   // Wake the sandbox (it auto-stops on idle) + re-seed the CC token, then (re)open the
   // persistent Claude process if we don't have a live one (first turn, or after death).
+  // Sandbox-scoped lock: don't let sibling conversations re-prepare the box concurrently.
   async function ensureSession(): Promise<ClaudeSession> {
-    sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, opts.slug);
-    await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
-    if (session && !session.isDead()) return session;
-    const resume =
-      sessionId && (await sessionTranscriptValid(sandbox, cwd, sessionId)) ? sessionId : undefined;
-    session = new ClaudeSession(sandbox, { cwd, resumeSessionId: resume, systemPrompt });
-    await session.open();
-    return session;
+    if (session && !session.isDead()) {
+      // still need to keep the box awake + token fresh for the next turn
+      await withSandboxLock(opts.slug, async () => {
+        sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, opts.slug);
+        await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
+      });
+      return session;
+    }
+    return withSandboxLock(opts.slug, async () => {
+      if (session && !session.isDead()) return session;
+      sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, opts.slug);
+      await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
+      let resume: string | undefined;
+      if (sessionId) {
+        if (await sessionTranscriptValid(sandbox, cwd, sessionId)) resume = sessionId;
+        else droppedResume = true; // had an id but its transcript is gone → start fresh
+      }
+      session = new ClaudeSession(sandbox, { cwd, resumeSessionId: resume, systemPrompt });
+      await session.open();
+      return session;
+    });
   }
 
   return {
     sessionId: () => sessionId,
+    contextLost: () => {
+      const v = droppedResume;
+      droppedResume = false;
+      return v;
+    },
     ask: async (
       prompt: string,
       onStep?: (step: string) => void,
@@ -123,9 +156,10 @@ export async function openChat(
     ): Promise<string> => {
       let s = await ensureSession();
       let r = await s.send(prompt, onStep, signal, onQuestion);
-      // The persistent process may have died (sandbox auto-stopped between turns) —
-      // re-open once with --resume and retry.
-      if (r.status === 'error') {
+      // Retry ONLY if the process died before the turn produced any output (started ===
+      // false) — re-sending a turn that already ran tools could double-apply (duplicate
+      // commits/PRs). A turn that began mutating is surfaced as an error instead.
+      if (r.status === 'error' && !r.started && !signal?.aborted) {
         session = undefined;
         s = await ensureSession();
         r = await s.send(prompt, onStep, signal, onQuestion);
@@ -134,7 +168,15 @@ export async function openChat(
 
       if (r.status === 'canceled') throw new Error('canceled');
       if (r.status === 'timeout') throw new Error('timed out (no result within the time limit)');
-      if (r.status === 'error' || r.isError) throw new Error(r.resultText?.trim() || 'claude error');
+      if (r.status === 'busy') throw new Error('the session is busy with another turn — try again');
+      if (r.status === 'error' || r.isError) {
+        const base = r.resultText?.trim() || 'claude error';
+        throw new Error(
+          r.started
+            ? `${base}\n(the turn was interrupted mid-execution — check the repo state before resending)`
+            : base,
+        );
+      }
       return r.resultText.trim() || '(no output)';
     },
   };

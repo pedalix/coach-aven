@@ -43,25 +43,30 @@ export function stepLabel(name: string, input: Record<string, unknown> = {}): st
   }
 }
 
-export interface TurnResult {
-  status: 'ok' | 'canceled' | 'timeout' | 'error';
-  resultText: string;
-  isError: boolean;
-}
-
 // AskUserQuestion tool shape (verified against the live CLI). The agent asks one or
 // more questions; we answer via control_response allow+updatedInput.answers, keyed by
-// question TEXT → chosen label(s).
+// question TEXT → chosen label(s) (multi-select: labels comma-joined, per Happy).
 export interface AskQuestion {
   question: string;
   header?: string;
   multiSelect?: boolean;
   options: { label: string; description?: string }[];
 }
-export type QuestionAnswers = Record<string, string>; // question text → label (multi: comma-joined)
+export type QuestionAnswers = Record<string, string>; // question text → label(s)
 export type OnQuestion = (questions: AskQuestion[]) => Promise<QuestionAnswers>;
 
+export interface TurnResult {
+  status: 'ok' | 'canceled' | 'timeout' | 'error' | 'busy';
+  resultText: string;
+  isError: boolean;
+  // Whether the turn produced ANY output before ending. A turn that died with
+  // started=false never ran tools → safe to auto-retry; started=true may have already
+  // mutated the repo → must NOT be blindly re-sent (avoids double-apply).
+  started: boolean;
+}
+
 const STREAM_MAX_MS = (Number(process.env.STREAM_MAX_MINUTES) || 15) * 60_000;
+const CANCEL_GRACE_MS = 10_000; // after interrupt, wait this long for the canceled result
 
 interface PendingTurn {
   resolve: (r: TurnResult) => void;
@@ -70,6 +75,7 @@ interface PendingTurn {
   settled: boolean;
   canceled: boolean;
   timer: ReturnType<typeof setTimeout>;
+  cancelTimer?: ReturnType<typeof setTimeout>;
 }
 
 // A persistent `claude` process driven over Daytona stdin/stdout in bidirectional
@@ -84,6 +90,7 @@ export class ClaudeSession {
   private claudeSessionId?: string;
   private pending?: PendingTurn;
   private dead = false;
+  private turnStarted = false; // did the current turn emit any output yet?
 
   constructor(
     private readonly sandbox: Sandbox,
@@ -132,8 +139,11 @@ export class ClaudeSession {
     signal?: AbortSignal,
     onQuestion?: OnQuestion,
   ): Promise<TurnResult> {
-    if (this.dead || !this.cmdId) return { status: 'error', resultText: 'session not open', isError: true };
-    if (this.pending) return { status: 'error', resultText: 'session busy', isError: true };
+    if (this.dead || !this.cmdId)
+      return { status: 'error', resultText: 'session not open', isError: true, started: false };
+    if (this.pending)
+      return { status: 'busy', resultText: 'session busy', isError: true, started: false };
+    this.turnStarted = false;
 
     return await new Promise<TurnResult>((resolve) => {
       const p: PendingTurn = {
@@ -142,16 +152,25 @@ export class ClaudeSession {
         onQuestion,
         settled: false,
         canceled: false,
+        // Hard max-runtime: the process state is unknown after this, so mark the session
+        // dead (force a fresh --resume next turn) rather than reusing it.
         timer: setTimeout(() => {
-          void this.interrupt(); // try to unstick; don't kill the process
+          this.dead = true;
+          void this.interrupt();
           this.settle({ status: 'timeout', resultText: '', isError: true });
         }, STREAM_MAX_MS),
       };
       this.pending = p;
 
       const onAbort = () => {
+        if (p.settled) return;
         p.canceled = true;
-        void this.interrupt(); // clean cancel: control message, NOT a kill
+        void this.interrupt(); // clean cancel — wait for the resulting `result` to settle
+        // Fallback: if the interrupt produces no result, force-settle and retire the session.
+        p.cancelTimer = setTimeout(() => {
+          this.dead = true;
+          this.settle({ status: 'canceled', resultText: '', isError: true });
+        }, CANCEL_GRACE_MS);
       };
       if (signal) {
         if (signal.aborted) onAbort();
@@ -218,12 +237,15 @@ export class ClaudeSession {
     if (t === 'system' && ev.subtype === 'init') {
       if (ev.session_id) this.claudeSessionId = ev.session_id; // initial + fork/compact
     } else if (t === 'assistant' && Array.isArray(ev.message?.content)) {
+      this.turnStarted = true;
       for (const b of ev.message.content) {
         if (b?.type === 'tool_use') this.pending?.onStep?.(stepLabel(b.name, b.input ?? {}));
       }
     } else if (t === 'control_request' && ev.request?.subtype === 'can_use_tool') {
+      this.turnStarted = true;
       void this.handleCanUseTool(ev); // AskUserQuestion → Slack; everything else auto-allow
     } else if (t === 'result') {
+      this.turnStarted = true;
       if (ev.session_id) this.claudeSessionId = ev.session_id; // authoritative per-turn id
       const resultText = typeof ev.result === 'string' ? ev.result : '';
       const status: TurnResult['status'] = this.pending?.canceled ? 'canceled' : 'ok';
@@ -249,7 +271,11 @@ export class ClaudeSession {
         const answers = await this.pending.onQuestion(input.questions ?? []);
         await allow({ ...input, answers });
       } catch {
-        await allow(input); // canceled/failed → no answers = the agent sees a dismissal
+        // canceled → the interrupt tears the turn down; don't ALSO answer (would be a
+        // second, racing control message). Only dismiss (allow w/o answers) on a
+        // genuine question failure that isn't a cancel.
+        if (this.pending?.canceled) return;
+        await allow(input);
       }
       return;
     }
@@ -257,16 +283,28 @@ export class ClaudeSession {
   }
 
   private onExit(): void {
+    // Flush a trailing partial line — a completed turn's `result` may sit in the buffer
+    // with no final newline; parse it so the turn settles ok instead of a false error.
+    const tail = this.buf.trim();
+    this.buf = '';
+    if (tail) {
+      try {
+        this.handle(JSON.parse(tail));
+      } catch {
+        /* ignore */
+      }
+    }
     this.dead = true;
     this.settle({ status: 'error', resultText: 'claude process exited', isError: true });
   }
 
-  private settle(r: TurnResult): void {
+  private settle(r: Omit<TurnResult, 'started'> & { started?: boolean }): void {
     const p = this.pending;
     if (!p || p.settled) return;
     p.settled = true;
     clearTimeout(p.timer);
+    if (p.cancelTimer) clearTimeout(p.cancelTimer);
     this.pending = undefined;
-    p.resolve(r);
+    p.resolve({ ...r, started: r.started ?? this.turnStarted });
   }
 }
