@@ -267,6 +267,14 @@ export async function runSlack(cfg: Config): Promise<void> {
     }
   }
 
+  // A message starting with this prefix is a human-only NOTE: the bot stays out entirely
+  // (no turn, no agent run), just a quiet reaction to confirm it saw and skipped it. Lets
+  // you jot something for yourself or a colleague mid-thread without triggering Claude.
+  // `!`, not `/`-anything: a leading `/` collides with Slack's slash-command UI.
+  const NOTE_PREFIX = process.env.SLACK_NOTE_PREFIX || '!';
+  const NOTE_REACTION = process.env.SLACK_NOTE_REACTION || 'shushing_face';
+  const isNote = (text: string): boolean => text.trim().startsWith(NOTE_PREFIX);
+
   // Enqueue a turn for `key` and post its status message immediately (so a queued turn
   // shows "in queue" right away). Turns for the same key run strictly one at a time;
   // canceling the running one lets the next start. msgTs is the user's message to react
@@ -280,6 +288,11 @@ export async function runSlack(cfg: Config): Promise<void> {
     project: ProjectConfig,
     question: string,
   ): Promise<void> {
+    if (isNote(question)) {
+      // Human-only note — leave the agent out entirely; just acknowledge we skipped it.
+      if (msgTs) await react(client, channel, msgTs, NOTE_REACTION, 'add');
+      return;
+    }
     if (msgTs) await react(client, channel, msgTs, 'eyes', 'add');
     const turnId = `t${++turnSeq}`;
     const ac = new AbortController();
