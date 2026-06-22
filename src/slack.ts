@@ -150,6 +150,7 @@ export async function runSlack(cfg: Config): Promise<void> {
       slug: project.slug,
       repos: project.repos,
       resumeSessionId: prior?.sessionId,
+      systemPrompt: project.systemPrompt,
     });
     live.set(key, chat);
     return chat;

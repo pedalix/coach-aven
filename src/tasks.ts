@@ -68,23 +68,34 @@ async function prepareChat(cfg: Config, store: Store, slug: string, repos: strin
   return { daytona, sandbox, proj, cwd };
 }
 
-// Orient the agent: who it is, where the repos live (esp. multi-repo), how to work.
-function buildSystemPrompt(slug: string, cwd: string, repos: string[]): string {
+// Layer 1 (orchestrator-owned) system prompt: the mechanics true for ALL projects —
+// identity, repo layout, branch/PR convention, AskUserQuestion. `projectPrompt` (layer 2,
+// from the project config) is APPENDED after it, never overrides. (Layer 3 = each repo's
+// own CLAUDE.md, auto-loaded by Claude Code when working in that repo.)
+function buildSystemPrompt(slug: string, cwd: string, repos: string[], projectPrompt?: string): string {
   const lines = [`You are the coding assistant for the project "${slug}", reachable from a Slack channel.`];
   if (repos.length === 1) {
     lines.push(`Your working directory is the repository ${repos[0]} (cwd: ${cwd}).`);
   } else {
     lines.push(`This project has ${repos.length} repositories cloned side by side under ${cwd} (your cwd):`);
     for (const r of repos) lines.push(`  - ${repoName(r)}/   (${r})`);
-    lines.push(`Each is its own git checkout — read that repo's own CLAUDE.md when you work in it.`);
+    lines.push(
+      `Each is its own git checkout — cd into a repo and read ITS own CLAUDE.md before working there ` +
+        `(sub-repo CLAUDE.md files are not auto-loaded from the project root).`,
+    );
   }
   lines.push(
     `To make changes, create a branch in the relevant repository and open a PR with the gh CLI. ` +
+      `For a change spanning multiple repos, branch and open a separate PR in each repo, sharing a ` +
+      `feature name and noting the merge order in the PR descriptions. ` +
       `Replies render in Slack — be concise and use code blocks for code. ` +
       `When a decision is yours to make but you're genuinely unsure between approaches, or an ` +
       `action is risky/irreversible, use the AskUserQuestion tool to present the options instead ` +
       `of guessing — the user answers with a button click.`,
   );
+  if (projectPrompt?.trim()) {
+    lines.push('', '--- Project-specific instructions ---', projectPrompt.trim());
+  }
   return lines.join('\n');
 }
 
@@ -104,7 +115,7 @@ async function sessionTranscriptValid(
 export async function openChat(
   cfg: Config,
   store: Store,
-  opts: { slug: string; repos: string[]; resumeSessionId?: string },
+  opts: { slug: string; repos: string[]; resumeSessionId?: string; systemPrompt?: string },
 ): Promise<ChatSession> {
   const prep = await withSandboxLock(opts.slug, () => prepareChat(cfg, store, opts.slug, opts.repos));
   const { daytona, proj, cwd } = prep;
@@ -112,7 +123,7 @@ export async function openChat(
   let sessionId: string | undefined = opts.resumeSessionId;
   let session: ClaudeSession | undefined;
   let droppedResume = false;
-  const systemPrompt = buildSystemPrompt(opts.slug, cwd, opts.repos);
+  const systemPrompt = buildSystemPrompt(opts.slug, cwd, opts.repos, opts.systemPrompt);
 
   // Wake the sandbox (it auto-stops on idle) + re-seed the CC token, then (re)open the
   // persistent Claude process if we don't have a live one (first turn, or after death).

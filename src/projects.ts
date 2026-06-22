@@ -12,6 +12,11 @@ export interface ProjectConfig {
   slug: string; // short id + sandbox suffix (proj-<slug>); channel = bluefin-aven-<slug>
   repos: string[]; // ["Org/name", ...]; repos[0] is primary (v1 clones/uses it)
   slackChannel?: string; // optional explicit channel-id override (else bound by name)
+  // Project-specific system-prompt layer, APPENDED after the orchestrator's base prompt
+  // (never overrides it). Project context the orchestrator can't know: domain, what each
+  // repo is + how they relate, merge/deploy-order rules, docs links. Repo CODING
+  // conventions belong in each repo's own CLAUDE.md, not here.
+  systemPrompt?: string;
   env?: Record<string, string>; // per-project env/secrets seeded into the sandbox (reserved)
   mcp?: unknown[]; // per-project MCP servers materialized into the sandbox (reserved)
 }
