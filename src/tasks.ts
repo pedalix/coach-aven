@@ -31,6 +31,9 @@ export interface ChatSession {
   // The Claude conversation id, known after the first turn. Persist it so a restarted
   // bot can resume the same thread via openChat({ resumeSessionId }).
   sessionId(): string | undefined;
+  // The running Daytona command's coordinates — persist so a restarted bot can REATTACH
+  // (openChat({ attach })) to the still-running claude instead of spawning a duplicate.
+  attachInfo(): { sessionKey: string; cmdId: string } | undefined;
   // One-shot flag: true once if a resume id was set but its transcript was gone (sandbox
   // rebuilt) so we started fresh — the caller should warn the user. Resets on read.
   contextLost(): boolean;
@@ -123,6 +126,12 @@ export async function openChat(
     resumeSessionId?: string;
     systemPrompt?: string;
     mcp?: McpServerSpec[];
+    // A still-running Daytona command from before a bot restart — reattach to it instead
+    // of spawning a fresh process (tried once; falls back to --resume if it's gone).
+    attach?: { sessionKey: string; cmdId: string };
+    // Called whenever a session (re)opens, with its command coords — persist immediately
+    // so even a mid-FIRST-turn crash leaves a reattachable record.
+    onOpen?: (info: { sessionKey: string; cmdId: string }) => void;
   },
 ): Promise<ChatSession> {
   const prep = await withSandboxLock(opts.slug, () => prepareChat(cfg, store, opts.slug, opts.repos));
@@ -131,7 +140,12 @@ export async function openChat(
   let sessionId: string | undefined = opts.resumeSessionId;
   let session: ClaudeSession | undefined;
   let droppedResume = false;
+  let attach = opts.attach; // consumed once: cleared after the first (re)open attempt
   const systemPrompt = buildSystemPrompt(opts.slug, cwd, opts.repos, opts.systemPrompt);
+  const emitOpen = () => {
+    const a = session?.attachInfo();
+    if (a) opts.onOpen?.(a);
+  };
 
   // Wake the sandbox (it auto-stops on idle) + re-seed the CC token & MCP config (in case
   // a restart reset the fs), then (re)open the persistent Claude process if we don't have
@@ -150,6 +164,28 @@ export async function openChat(
       sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, opts.slug);
       await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
       const mcpConfigPath = await seedMcpConfig(sandbox, opts.mcp);
+      // Bot restarted while a command was still running? Reattach to it once, rather than
+      // spawning a duplicate that would fight over the same working tree. If the command
+      // already finished/vanished, attach throws → fall through to a fresh --resume open.
+      if (attach) {
+        const target = attach;
+        attach = undefined;
+        try {
+          const reattached = new ClaudeSession(sandbox, {
+            cwd,
+            systemPrompt,
+            mcpConfigPath,
+            attach: target,
+            resumeSessionId: sessionId, // seed claudeSessionId; not used to relaunch
+          });
+          await reattached.open();
+          session = reattached;
+          emitOpen();
+          return session;
+        } catch {
+          /* command gone → fresh open below */
+        }
+      }
       let resume: string | undefined;
       if (sessionId) {
         if (await sessionTranscriptValid(sandbox, cwd, sessionId)) resume = sessionId;
@@ -157,12 +193,14 @@ export async function openChat(
       }
       session = new ClaudeSession(sandbox, { cwd, resumeSessionId: resume, systemPrompt, mcpConfigPath });
       await session.open();
+      emitOpen();
       return session;
     });
   }
 
   return {
     sessionId: () => sessionId,
+    attachInfo: () => session?.attachInfo(),
     contextLost: () => {
       const v = droppedResume;
       droppedResume = false;

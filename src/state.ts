@@ -16,7 +16,12 @@ export interface ProjectRecord {
 export interface ChatRecord {
   threadTs: string;
   slug: string;
-  sessionId?: string; // Claude conversation id
+  sessionId?: string; // Claude conversation id (for --resume)
+  // The Daytona session-command driving this thread's persistent claude process. Lets a
+  // restarted bot REATTACH to it (it keeps running in the sandbox) instead of spawning a
+  // duplicate — see ClaudeSession.attach.
+  sessionKey?: string;
+  cmdId?: string;
   updatedAt: string;
 }
 

@@ -152,16 +152,34 @@ export async function runSlack(cfg: Config): Promise<void> {
       resumeSessionId: prior?.sessionId,
       systemPrompt: project.systemPrompt,
       mcp: project.mcp,
+      // Survive bot restarts: reattach to the command this thread was driving (if it's
+      // still running), and persist the command coords the moment a session (re)opens so
+      // even a crash mid-first-turn leaves a reattachable record.
+      attach: prior?.sessionKey && prior?.cmdId ? { sessionKey: prior.sessionKey, cmdId: prior.cmdId } : undefined,
+      onOpen: (info) => {
+        const cur = store.getChat(key);
+        store.setChat({
+          threadTs: key,
+          slug: project.slug,
+          sessionId: cur?.sessionId,
+          sessionKey: info.sessionKey,
+          cmdId: info.cmdId,
+          updatedAt: new Date().toISOString(),
+        });
+      },
     });
     live.set(key, chat);
     return chat;
   }
 
   function persist(key: string, slug: string, chat: ChatSession): void {
+    const att = chat.attachInfo();
     store.setChat({
       threadTs: key,
       slug,
       sessionId: chat.sessionId(),
+      sessionKey: att?.sessionKey,
+      cmdId: att?.cmdId,
       updatedAt: new Date().toISOString(),
     });
   }

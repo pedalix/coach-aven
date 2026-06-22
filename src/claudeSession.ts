@@ -86,7 +86,7 @@ interface PendingTurn {
 // alive for the next turn. Cancel via a control_request{interrupt} written to stdin —
 // NEVER by killing the process (killing corrupts the conversation + zombies the cmd).
 export class ClaudeSession {
-  private readonly sessionKey = `claude-sess-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+  private sessionKey: string;
   private cmdId?: string;
   private buf = '';
   private claudeSessionId?: string;
@@ -104,8 +104,17 @@ export class ClaudeSession {
       resumeSessionId?: string;
       systemPrompt?: string;
       mcpConfigPath?: string;
+      // Reattach to an already-running command (the bot restarted; claude kept running in
+      // the sandbox) instead of spawning a fresh process — see open().
+      attach?: { sessionKey: string; cmdId: string };
     },
-  ) {}
+  ) {
+    this.sessionKey =
+      opts.attach?.sessionKey ?? `claude-sess-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    // On reattach there's no init event to learn it from until the next turn — seed the
+    // known conversation id so sessionId() (→ persistence) is correct immediately.
+    if (opts.attach) this.claudeSessionId = opts.resumeSessionId;
+  }
 
   sessionId(): string | undefined {
     return this.claudeSessionId;
@@ -113,9 +122,47 @@ export class ClaudeSession {
   isDead(): boolean {
     return this.dead;
   }
+  // The Daytona session-command coordinates, for persistence → a restarted bot reattaches.
+  attachInfo(): { sessionKey: string; cmdId: string } | undefined {
+    return this.cmdId ? { sessionKey: this.sessionKey, cmdId: this.cmdId } : undefined;
+  }
 
   // Start the persistent process and begin streaming its stdout in the background.
+  // When opts.attach is set, REATTACH to the existing command instead of spawning: the
+  // bot restarted but the claude process kept running in the sandbox. We verify it's
+  // still alive, then re-subscribe to its log stream (which replays history + tails).
+  // Throws if the command already finished/vanished, so the caller falls back to a fresh
+  // --resume open.
   async open(): Promise<void> {
+    if (this.opts.attach) {
+      const { sessionKey, cmdId } = this.opts.attach;
+      const cmd = await this.sandbox.process
+        .getSessionCommand(sessionKey, cmdId)
+        .catch(() => undefined);
+      if (!cmd || cmd.exitCode != null) throw new Error('attach: command no longer running');
+      // Re-subscribing replays the whole log from the start. Snapshot the current stdout
+      // length and skip exactly that many chars so we process only NEW output — otherwise a
+      // replayed past `result` would settle the next turn's pending with stale text.
+      const snap = await this.sandbox.process.getSessionCommandLogs(sessionKey, cmdId);
+      let skip = (snap.stdout ?? '').length;
+      this.cmdId = cmdId;
+      const onStdout = (c: string) => {
+        if (skip > 0) {
+          if (c.length <= skip) {
+            skip -= c.length;
+            return;
+          }
+          c = c.slice(skip);
+          skip = 0;
+        }
+        this.onChunk(c);
+      };
+      void this.sandbox.process
+        .getSessionCommandLogs(sessionKey, cmdId, onStdout, () => {})
+        .then(() => this.onExit())
+        .catch(() => this.onExit());
+      return;
+    }
     await this.sandbox.process.createSession(this.sessionKey);
     const resume = this.opts.resumeSessionId ? `--resume ${this.opts.resumeSessionId} ` : '';
     const sys = this.opts.systemPrompt ? `--append-system-prompt ${sq(this.opts.systemPrompt)} ` : '';
