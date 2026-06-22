@@ -8,6 +8,7 @@ import {
   seedMcpConfig,
   provisionTooling,
   cloneRepo,
+  reapWorktrees,
   repoCheckout,
   repoName,
   projectDir,
@@ -66,6 +67,8 @@ async function prepareChat(cfg: Config, store: Store, slug: string, repos: strin
   await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
 
   for (const repo of repos) await cloneRepo(sandbox, cfg, slug, repo);
+  // Agents work in per-task worktrees (see the base prompt); reap finished/orphaned ones.
+  for (const repo of repos) await reapWorktrees(sandbox, repoCheckout(cfg, slug, repo));
   const cwd = repos.length === 1 ? repoCheckout(cfg, slug, repos[0]) : projectDir(cfg, slug);
 
   proj.clonedAt = proj.clonedAt ?? new Date().toISOString();
@@ -90,13 +93,18 @@ function buildSystemPrompt(slug: string, cwd: string, repos: string[], projectPr
     );
   }
   lines.push(
-    `To make changes, ALWAYS branch from the up-to-date default branch — do NOT branch from whatever ` +
-      `is currently checked out (this sandbox is reused across sessions and may be left on an old ` +
-      `branch from previous work). In the relevant repo first run \`git fetch origin\`, then create your ` +
-      `branch off the fresh remote default: \`git checkout -b <branch> origin/main\` (the default is ` +
-      `usually main; if unsure, check \`git remote show origin\` for "HEAD branch"). Then open a PR ` +
-      `against that default branch with the gh CLI. ` +
-      `For a change spanning multiple repos, branch and open a separate PR in each repo, sharing a ` +
+    `To make changes, work in a DEDICATED git worktree forked from the fresh remote default — never ` +
+      `edit the shared checkout in place (this sandbox is reused across sessions and may be left on an ` +
+      `old branch from previous work). In the relevant repo: ` +
+      `(1) \`git fetch origin\`; ` +
+      `(2) \`git worktree add -b <branch> <path> origin/main\` — fork from the fresh remote default ` +
+      `(usually main; if unsure, check \`git remote show origin\` for "HEAD branch"), and put <path> in ` +
+      `a sibling dir, e.g. ../<repo>-wt/<branch>; ` +
+      `(3) cd into <path>, make your changes there, commit, push, and open a PR against the default ` +
+      `branch with the gh CLI; ` +
+      `(4) when the PR is open you may \`git worktree remove <path>\` (the orchestrator also reaps ` +
+      `finished worktrees automatically). ` +
+      `For a change spanning multiple repos, do this in each relevant repo, sharing a ` +
       `feature name and noting the merge order in the PR descriptions. ` +
       `Replies render in Slack — be concise and use code blocks for code. ` +
       `When a decision is yours to make but you're genuinely unsure between approaches, or an ` +

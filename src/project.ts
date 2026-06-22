@@ -108,6 +108,35 @@ export async function seedMcpConfig(
   return MCP_CONFIG_PATH;
 }
 
+// Integer hours (busybox `$(( ))` in the sandbox is integer-only — a float would break it).
+const REAP_HOURS = Math.floor(Number(process.env.WORKTREE_REAP_HOURS)) || 12;
+
+// Reap finished/orphaned git worktrees in a repo (agents work in per-task worktrees; some
+// outlive their session). Removes only worktrees that are SAFE to drop: not the main
+// checkout, clean (no uncommitted changes), with nothing unpushed/unmerged
+// (`rev-list HEAD --not --remotes` empty → every commit is already on a remote, zero data
+// loss), and idle longer than WORKTREE_REAP_HOURS (so an active conversation's worktree is
+// left alone). Run at prepareChat — lazy, no background timer to lose across restarts.
+export async function reapWorktrees(sandbox: Sandbox, repoDir: string) {
+  const script =
+    `cd ${repoDir} 2>/dev/null || exit 0\n` +
+    `git worktree prune 2>/dev/null\n` +
+    `main=$(git rev-parse --show-toplevel 2>/dev/null)\n` +
+    `now=$(date +%s)\n` +
+    `git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' | while read wt; do\n` +
+    `  [ "$wt" = "$main" ] && continue\n` +
+    `  [ -d "$wt" ] || continue\n` +
+    `  [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ] && continue\n` +
+    `  [ -n "$(git -C "$wt" rev-list HEAD --not --remotes 2>/dev/null)" ] && continue\n` +
+    `  ct=$(git -C "$wt" log -1 --format=%ct 2>/dev/null || echo $now)\n` +
+    `  [ $(( now - ct )) -lt $(( ${REAP_HOURS} * 3600 )) ] && continue\n` +
+    `  git worktree remove "$wt" --force 2>/dev/null && echo "reaped $wt"\n` +
+    `done`;
+  const r = await exec(sandbox, script);
+  const reaped = r.result.split('\n').filter((l) => l.startsWith('reaped ')).length;
+  if (reaped > 0) log.info(`reaped ${reaped} finished worktree(s) under ${repoDir}`);
+}
+
 // Clone (or fetch) a single repo into its own <slug>/<repoName> dir. Used by the chat
 // path so a project can hold N repos. Idempotent.
 export async function cloneRepo(sandbox: Sandbox, cfg: Config, slug: string, repo: string) {
