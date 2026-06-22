@@ -90,7 +90,12 @@ function buildSystemPrompt(slug: string, cwd: string, repos: string[], projectPr
     );
   }
   lines.push(
-    `To make changes, create a branch in the relevant repository and open a PR with the gh CLI. ` +
+    `To make changes, ALWAYS branch from the up-to-date default branch — do NOT branch from whatever ` +
+      `is currently checked out (this sandbox is reused across sessions and may be left on an old ` +
+      `branch from previous work). In the relevant repo first run \`git fetch origin\`, then create your ` +
+      `branch off the fresh remote default: \`git checkout -b <branch> origin/main\` (the default is ` +
+      `usually main; if unsure, check \`git remote show origin\` for "HEAD branch"). Then open a PR ` +
+      `against that default branch with the gh CLI. ` +
       `For a change spanning multiple repos, branch and open a separate PR in each repo, sharing a ` +
       `feature name and noting the merge order in the PR descriptions. ` +
       `Replies render in Slack — be concise and use code blocks for code. ` +
