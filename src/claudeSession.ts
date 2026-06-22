@@ -99,7 +99,12 @@ export class ClaudeSession {
 
   constructor(
     private readonly sandbox: Sandbox,
-    private readonly opts: { cwd: string; resumeSessionId?: string; systemPrompt?: string },
+    private readonly opts: {
+      cwd: string;
+      resumeSessionId?: string;
+      systemPrompt?: string;
+      mcpConfigPath?: string;
+    },
   ) {}
 
   sessionId(): string | undefined {
@@ -114,6 +119,9 @@ export class ClaudeSession {
     await this.sandbox.process.createSession(this.sessionKey);
     const resume = this.opts.resumeSessionId ? `--resume ${this.opts.resumeSessionId} ` : '';
     const sys = this.opts.systemPrompt ? `--append-system-prompt ${sq(this.opts.systemPrompt)} ` : '';
+    // --strict-mcp-config ignores the repo's own .mcp.json; --mcp-config adds ONLY our
+    // per-project servers (e.g. Grafana). Without it, --strict-mcp-config = no servers.
+    const mcp = this.opts.mcpConfigPath ? `--mcp-config ${sq(this.opts.mcpConfigPath)} ` : '';
     // No positional prompt → persistent mode (turns stream in via stdin). --verbose is
     // mandatory with stream-json. --strict-mcp-config ignores the repo's own .mcp.json.
     // BOTH --dangerously-skip-permissions AND --permission-prompt-tool stdio: verified
@@ -122,7 +130,7 @@ export class ClaudeSession {
     const command =
       `cd ${sq(this.opts.cwd)} && ${CC_TOKEN_ENV} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
       `claude --output-format stream-json --input-format stream-json --verbose ` +
-      `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ${resume}${sys}`;
+      `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ${mcp}${resume}${sys}`;
     const started = await this.sandbox.process.executeSessionCommand(
       this.sessionKey,
       { command, runAsync: true },

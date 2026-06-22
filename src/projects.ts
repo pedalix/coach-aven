@@ -8,6 +8,16 @@ import { existsSync, readFileSync } from 'node:fs';
 // wire (an explicit `slackChannel` id still overrides). A project owns its repos, MCP
 // servers, and env/secrets. ALL repos are cloned side by side (e.g. cms-general's
 // several codebases); `mcp` and `env` are modeled now, wired later.
+// A per-project MCP server (Claude Code mcpServers entry shape). `env` values may use
+// ${ENV_NAME} refs, resolved from the ORCHESTRATOR's process.env at materialization —
+// so secrets (e.g. a Grafana token) live in the orchestrator's .env, not this config.
+export interface McpServerSpec {
+  name: string;
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
 export interface ProjectConfig {
   slug: string; // short id + sandbox suffix (proj-<slug>); channel = bluefin-aven-<slug>
   repos: string[]; // ["Org/name", ...]; repos[0] is primary (v1 clones/uses it)
@@ -18,7 +28,7 @@ export interface ProjectConfig {
   // conventions belong in each repo's own CLAUDE.md, not here.
   systemPrompt?: string;
   env?: Record<string, string>; // per-project env/secrets seeded into the sandbox (reserved)
-  mcp?: unknown[]; // per-project MCP servers materialized into the sandbox (reserved)
+  mcp?: McpServerSpec[]; // per-project MCP servers → materialized into --mcp-config in the sandbox
 }
 
 export interface ProjectsRegistry {

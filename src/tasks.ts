@@ -5,12 +5,14 @@ import { getGitHubToken } from './github.js';
 import {
   seedGitHubAuth,
   seedClaudeAuth,
+  seedMcpConfig,
   provisionTooling,
   cloneRepo,
   repoCheckout,
   repoName,
   projectDir,
 } from './project.js';
+import type { McpServerSpec } from './projects.js';
 import { ClaudeSession, type OnQuestion } from './claudeSession.js';
 
 // "Chat with the project": ensure the sandbox + clone ALL the project's repos, then
@@ -115,7 +117,13 @@ async function sessionTranscriptValid(
 export async function openChat(
   cfg: Config,
   store: Store,
-  opts: { slug: string; repos: string[]; resumeSessionId?: string; systemPrompt?: string },
+  opts: {
+    slug: string;
+    repos: string[];
+    resumeSessionId?: string;
+    systemPrompt?: string;
+    mcp?: McpServerSpec[];
+  },
 ): Promise<ChatSession> {
   const prep = await withSandboxLock(opts.slug, () => prepareChat(cfg, store, opts.slug, opts.repos));
   const { daytona, proj, cwd } = prep;
@@ -125,15 +133,15 @@ export async function openChat(
   let droppedResume = false;
   const systemPrompt = buildSystemPrompt(opts.slug, cwd, opts.repos, opts.systemPrompt);
 
-  // Wake the sandbox (it auto-stops on idle) + re-seed the CC token, then (re)open the
-  // persistent Claude process if we don't have a live one (first turn, or after death).
-  // Sandbox-scoped lock: don't let sibling conversations re-prepare the box concurrently.
+  // Wake the sandbox (it auto-stops on idle) + re-seed the CC token & MCP config (in case
+  // a restart reset the fs), then (re)open the persistent Claude process if we don't have
+  // a live one. Sandbox-scoped lock: don't let siblings re-prepare the box concurrently.
   async function ensureSession(): Promise<ClaudeSession> {
     if (session && !session.isDead()) {
-      // still need to keep the box awake + token fresh for the next turn
       await withSandboxLock(opts.slug, async () => {
         sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, opts.slug);
         await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
+        await seedMcpConfig(sandbox, opts.mcp);
       });
       return session;
     }
@@ -141,12 +149,13 @@ export async function openChat(
       if (session && !session.isDead()) return session;
       sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, opts.slug);
       await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
+      const mcpConfigPath = await seedMcpConfig(sandbox, opts.mcp);
       let resume: string | undefined;
       if (sessionId) {
         if (await sessionTranscriptValid(sandbox, cwd, sessionId)) resume = sessionId;
         else droppedResume = true; // had an id but its transcript is gone → start fresh
       }
-      session = new ClaudeSession(sandbox, { cwd, resumeSessionId: resume, systemPrompt });
+      session = new ClaudeSession(sandbox, { cwd, resumeSessionId: resume, systemPrompt, mcpConfigPath });
       await session.open();
       return session;
     });
