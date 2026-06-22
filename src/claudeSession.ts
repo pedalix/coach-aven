@@ -96,6 +96,10 @@ export class ClaudeSession {
   // can_use_tool requests still awaiting our reply → AbortControllers so a
   // control_cancel_request can abort the matching pending question (Slack buttons).
   private inflightTools = new Map<string, AbortController>();
+  // On reattach: the last turn's result if the conversation was already idle in the
+  // snapshot (the turn completed during the bot's downtime). Consumed once by adoptInflight.
+  private snapshotResult?: TurnResult;
+  private attached = false; // opened by reattaching to a running command (vs fresh spawn)
 
   constructor(
     private readonly sandbox: Sandbox,
@@ -145,7 +149,9 @@ export class ClaudeSession {
       // replayed past `result` would settle the next turn's pending with stale text.
       const snap = await this.sandbox.process.getSessionCommandLogs(sessionKey, cmdId);
       let skip = (snap.stdout ?? '').length;
+      this.parseSnapshot(snap.stdout ?? ''); // detect a turn that finished during downtime
       this.cmdId = cmdId;
+      this.attached = true;
       const onStdout = (c: string) => {
         if (skip > 0) {
           if (c.length <= skip) {
@@ -247,6 +253,73 @@ export class ClaudeSession {
             isError: true,
           }),
         );
+    });
+  }
+
+  // Scan a reattach snapshot: if its LAST event is a `result`, the conversation is idle —
+  // the turn that was in flight when the bot died already completed during the downtime, so
+  // capture its result for adoptInflight. (Mid-turn → last event isn't a result → wait live.)
+  private parseSnapshot(stdout: string): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let lastEvent: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let lastResult: any;
+    for (const ln of stdout.split('\n')) {
+      const t = ln.trim();
+      if (!t) continue;
+      try {
+        const ev = JSON.parse(t);
+        lastEvent = ev;
+        if (ev.session_id) this.claudeSessionId = ev.session_id;
+        if (ev.type === 'result') lastResult = ev;
+      } catch {
+        /* skip non-JSON noise */
+      }
+    }
+    if (lastEvent?.type === 'result' && lastResult) {
+      this.snapshotResult = {
+        status: lastResult.is_error ? 'error' : 'ok',
+        resultText: typeof lastResult.result === 'string' ? lastResult.result : '',
+        isError: !!lastResult.is_error,
+        started: true,
+      };
+    }
+  }
+
+  // Resume the turn that was in flight when the bot restarted (no stdin write — it's
+  // already running, or done). If it completed during the downtime, return that result
+  // from the snapshot; otherwise wait for the live `result`.
+  async adoptInflight(onStep?: (s: string) => void, signal?: AbortSignal): Promise<TurnResult> {
+    if (this.dead || !this.cmdId)
+      return { status: 'error', resultText: 'session not open', isError: true, started: false };
+    // Reattach fell back to a fresh spawn (sandbox had stopped, claude gone) → there is no
+    // in-flight turn to recover; don't wait for a result that will never come.
+    if (!this.attached)
+      return { status: 'error', resultText: 'not reattached', isError: true, started: false };
+    if (this.snapshotResult) {
+      const r = this.snapshotResult;
+      this.snapshotResult = undefined;
+      return r;
+    }
+    if (this.pending)
+      return { status: 'busy', resultText: 'session busy', isError: true, started: true };
+    return await new Promise<TurnResult>((resolve) => {
+      const p: PendingTurn = {
+        resolve,
+        onStep,
+        settled: false,
+        canceled: false,
+        timer: setTimeout(() => {
+          this.dead = true;
+          this.settle({ status: 'timeout', resultText: '', isError: true });
+        }, STREAM_MAX_MS),
+      };
+      this.pending = p;
+      if (signal) {
+        const onAbort = () => this.settle({ status: 'canceled', resultText: '', isError: true });
+        if (signal.aborted) onAbort();
+        else signal.addEventListener('abort', onAbort, { once: true });
+      }
     });
   }
 

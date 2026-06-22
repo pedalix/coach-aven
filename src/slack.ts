@@ -156,17 +156,7 @@ export async function runSlack(cfg: Config): Promise<void> {
       // still running), and persist the command coords the moment a session (re)opens so
       // even a crash mid-first-turn leaves a reattachable record.
       attach: prior?.sessionKey && prior?.cmdId ? { sessionKey: prior.sessionKey, cmdId: prior.cmdId } : undefined,
-      onOpen: (info) => {
-        const cur = store.getChat(key);
-        store.setChat({
-          threadTs: key,
-          slug: project.slug,
-          sessionId: cur?.sessionId,
-          sessionKey: info.sessionKey,
-          cmdId: info.cmdId,
-          updatedAt: new Date().toISOString(),
-        });
-      },
+      onOpen: (info) => store.patchChat(key, project.slug, { sessionKey: info.sessionKey, cmdId: info.cmdId }),
     });
     live.set(key, chat);
     return chat;
@@ -174,13 +164,10 @@ export async function runSlack(cfg: Config): Promise<void> {
 
   function persist(key: string, slug: string, chat: ChatSession): void {
     const att = chat.attachInfo();
-    store.setChat({
-      threadTs: key,
-      slug,
+    store.patchChat(key, slug, {
       sessionId: chat.sessionId(),
       sessionKey: att?.sessionKey,
       cmdId: att?.cmdId,
-      updatedAt: new Date().toISOString(),
     });
   }
 
@@ -374,6 +361,11 @@ export async function runSlack(cfg: Config): Promise<void> {
     const heartbeat = setInterval(() => void flush(), 4000);
     const turnQs = new Set<string>(); // questionIds this turn opened (for cleanup on settle)
 
+    // Mark this turn in flight so a restart can reattach and finalize THIS status message
+    // (channel, ts) instead of leaving it frozen on "Working…". Cleared in finally.
+    store.patchChat(key, project.slug, {
+      inflight: { channel, statusTs: ts, msgThreadTs: threadTs, startedAt: new Date().toISOString() },
+    });
     try {
       const chat = await sessionFor(key, project); // prepare (warm sandbox + clone) here
       phase = '🔎 Working…';
@@ -419,6 +411,7 @@ export async function runSlack(cfg: Config): Promise<void> {
         }
       }
     } finally {
+      store.patchChat(key, project.slug, { inflight: undefined }); // turn settled — clear marker
       // Purge any question this turn left open (errored/timed out without an answer or
       // cancel) so its buttons don't linger as dead clicks.
       for (const qid of turnQs) {
@@ -607,8 +600,67 @@ export async function runSlack(cfg: Config): Promise<void> {
     finalizeQuestion(entry, v.qid);
   });
 
+  // On startup, finalize any turn that was still "Working…" when the bot last stopped:
+  // reattach to its command (still running, or finished during the downtime) and rewrite
+  // its status message with the recovered result. Best-effort, per chat, never blocks.
+  async function resumeInflightTurns(): Promise<void> {
+    const client = app.client;
+    for (const chat of store.allChats()) {
+      const inf = chat.inflight;
+      if (!inf || !chat.sessionKey || !chat.cmdId) continue;
+      const project = resolveBySlug(registry, chat.slug);
+      if (!project) {
+        store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
+        continue;
+      }
+      void (async () => {
+        try {
+          await client.chat
+            .update({
+              channel: inf.channel,
+              ts: inf.statusTs,
+              text: '🔄 Reconnected after a restart — recovering this turn…',
+              blocks: [],
+            })
+            .catch(() => {});
+          const cs = await sessionFor(chat.threadTs, project);
+          const r = await cs.adoptInflight();
+          persist(chat.threadTs, project.slug, cs);
+          if (r.ok) {
+            const capped = r.text.slice(0, MAX_SLACK_TEXT) || '(no output)';
+            await client.chat.update({
+              channel: inf.channel,
+              ts: inf.statusTs,
+              text: fallbackText(capped),
+              blocks: answerBlocks(capped),
+            });
+          } else {
+            await client.chat.update({
+              channel: inf.channel,
+              ts: inf.statusTs,
+              text: `⚠️ The bot restarted mid-turn and couldn't recover the live result (${r.status}). The work may have finished in the thread or a PR — send a new message to continue.`,
+              blocks: [],
+            });
+          }
+        } catch {
+          await client.chat
+            .update({
+              channel: inf.channel,
+              ts: inf.statusTs,
+              text: "⚠️ The bot restarted mid-turn; couldn't recover this status. Send a new message to continue.",
+              blocks: [],
+            })
+            .catch(() => {});
+        } finally {
+          store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
+        }
+      })();
+    }
+  }
+
   await app.start();
   log.info(`Slack bot running (Socket Mode) — ${summary(registry)}`);
+  void resumeInflightTurns();
 }
 
 // Slack's `markdown` block renders standard Markdown (bold, headers, lists, links,

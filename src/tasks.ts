@@ -35,6 +35,10 @@ export interface ChatSession {
   // The running Daytona command's coordinates — persist so a restarted bot can REATTACH
   // (openChat({ attach })) to the still-running claude instead of spawning a duplicate.
   attachInfo(): { sessionKey: string; cmdId: string } | undefined;
+  // Recover the turn that was in flight when the bot last restarted: reattach + return its
+  // result (from the snapshot if it finished during downtime, else wait for the live
+  // result). ok=false when it couldn't be recovered (timeout/error/dead).
+  adoptInflight(onStep?: (step: string) => void): Promise<{ ok: boolean; status: string; text: string }>;
   // One-shot flag: true once if a resume id was set but its transcript was gone (sandbox
   // rebuilt) so we started fresh — the caller should warn the user. Resets on read.
   contextLost(): boolean;
@@ -249,6 +253,13 @@ export async function openChat(
         );
       }
       return r.resultText.trim() || '(no output)';
+    },
+    adoptInflight: async (onStep?: (step: string) => void) => {
+      const s = await ensureSession(); // reattach (attach path) — parses the snapshot
+      const r = await s.adoptInflight(onStep);
+      if (s.sessionId()) sessionId = s.sessionId();
+      const ok = r.status === 'ok' && !r.isError;
+      return { ok, status: r.status, text: r.resultText.trim() || '(no output)' };
     },
   };
 }

@@ -22,6 +22,10 @@ export interface ChatRecord {
   // duplicate — see ClaudeSession.attach.
   sessionKey?: string;
   cmdId?: string;
+  // A turn whose Slack status message was still "Working…" when the bot last wrote state.
+  // On startup the bot reattaches and finalizes this message with the recovered result —
+  // see resumeInflightTurns. Cleared when the turn completes.
+  inflight?: { channel: string; statusTs: string; msgThreadTs?: string; startedAt: string };
   updatedAt: string;
 }
 
@@ -75,8 +79,27 @@ export class Store {
     return this.data.chats?.[threadTs];
   }
 
+  allChats(): ChatRecord[] {
+    return Object.values(this.data.chats ?? {});
+  }
+
   setChat(rec: ChatRecord) {
     (this.data.chats ??= {})[rec.threadTs] = rec;
+    this.save();
+  }
+
+  // Merge a partial update into a chat record (creating it if absent) without clobbering
+  // fields written by a different code path. A key set to `undefined` is deleted. Several
+  // concerns touch one record concurrently — sessionId (persist), sessionKey/cmdId (open),
+  // inflight (turn start/end) — so they must merge, not overwrite.
+  patchChat(threadTs: string, slug: string, patch: Partial<ChatRecord>) {
+    const chats = (this.data.chats ??= {});
+    const cur = chats[threadTs] ?? { threadTs, slug, updatedAt: '' };
+    const next = { ...cur, ...patch, threadTs, slug, updatedAt: new Date().toISOString() };
+    for (const k of Object.keys(patch) as (keyof ChatRecord)[]) {
+      if (patch[k] === undefined) delete next[k];
+    }
+    chats[threadTs] = next;
     this.save();
   }
 }
