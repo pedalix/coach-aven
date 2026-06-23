@@ -142,6 +142,31 @@ npm run orch -- project:list
 so the org-wide App still yields a per-sandbox token limited to that project. See
 [`../chat-agent-v1.md`](../chat-agent-v1.md) for the full token model.
 
+## Hosting (production)
+
+Deployed as a **systemd service** on the shared Hetzner VM `lumora-one`, alongside Lumora and
+`aven.guru`. It's just the control plane — one long-lived Node process holding a Slack
+**Socket-Mode** connection and driving Daytona over HTTPS — so it's tiny, needs **no nginx,
+no ports, no TLS** (Socket Mode dials *out*), and never touches the host's shared `80/443`. All
+heavy work runs inside Daytona, not on the box.
+
+Manual, scripted deploy (mirrors the `aven` prod pattern). See [`infra/prod/README.md`](infra/prod/README.md).
+
+```bash
+cp infra/prod/.env.example infra/prod/.env   # deploy target (host/users/remote dir)
+npm run prod:install        # root: REMOTE_DIR + systemd unit (enabled) + scoped sudoers + journal group
+npm run prod:push-secrets   # upload .env, github-app-private-key.pem, projects.config.json
+npm run prod:deploy         # upload code, npm ci, restart, health-check Socket Mode
+
+npm run prod:logs           # journalctl -u coach-aven -f
+npm run prod:status         # systemctl status + is-active
+npm run prod:restart        # / prod:stop / prod:start / prod:down
+```
+
+`deploy` ships **code only** — it never overwrites the server's `.env`, GitHub key,
+`projects.config.json`, or `state.json` (server-owned, survives releases). Rotate secrets with
+`push-secrets` then `restart`.
+
 ## Notes / gotchas
 
 - **GitHub token lifetime** ≈ 1h. `runTask`/`attachTask` re-mint and re-seed it; a single agent
@@ -153,4 +178,5 @@ so the org-wide App still yields a per-sandbox token limited to that project. Se
   so it never lands in command logs. A git credential helper + `gh auth login --with-token`
   read it.
 - **State** is a single `state.json` (gitignored). Single-process only for now.
-- The orchestrator runs on a laptop/server now; the eventual PM-trigger flow wraps `runTask`.
+- The orchestrator runs as a systemd service on `lumora-one` (see [Hosting](#hosting-production));
+  the eventual PM-trigger flow wraps `runTask`.
