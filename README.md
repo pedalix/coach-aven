@@ -169,6 +169,8 @@ npm run prod:restart        # / prod:stop / prod:start / prod:down
 
 ### Local dev vs prod
 
+**Setting up a dev box?** See [`docs/local-dev.md`](docs/local-dev.md) for the full step-by-step.
+
 Both read their own files (dev: local `.env`/`state.json`/`projects.config.json`; prod: the
 copies on the box), so most config is already separate **by location**. The only shared external
 resources are Slack and Daytona — isolate those in your **local** `.env`:
