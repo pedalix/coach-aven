@@ -68,7 +68,9 @@ function githubAuth(): GitHubAuth {
 export interface Config {
   daytona: { apiUrl: string; apiKey: string; organizationId: string };
   snapshot: { name: string; image: string; cpu: number; memory: number; disk: number };
-  sandbox: { autoStopMinutes: number; workDir: string };
+  // namePrefix isolates dev from prod on a SHARED Daytona: dev → `dev-proj-<slug>`,
+  // prod → `proj-<slug>`, so the two never share a warm sandbox (set SANDBOX_NAME_PREFIX).
+  sandbox: { autoStopMinutes: number; workDir: string; namePrefix: string };
   claudeOauthToken: string;
   github: GitHubAuth;
   // Slack is only needed for the `slack` command; undefined otherwise.
@@ -94,6 +96,7 @@ export function loadConfig(): Config {
     sandbox: {
       autoStopMinutes: num('SANDBOX_AUTOSTOP_MINUTES', 30),
       workDir: process.env.SANDBOX_WORK_DIR || '/root/work',
+      namePrefix: process.env.SANDBOX_NAME_PREFIX || 'proj-',
     },
     claudeOauthToken: resolveClaudeToken(),
     github: githubAuth(),

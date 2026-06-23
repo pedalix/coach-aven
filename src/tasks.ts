@@ -63,7 +63,7 @@ async function prepareChat(cfg: Config, store: Store, slug: string, repos: strin
   const daytona = makeDaytona(cfg);
   await ensureSnapshot(daytona, cfg);
 
-  const proj = store.upsertProject(slug, repos[0]);
+  const proj = store.upsertProject(slug, repos[0], cfg.sandbox.namePrefix);
   const sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, slug);
   await provisionTooling(sandbox);
 

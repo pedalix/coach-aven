@@ -167,6 +167,23 @@ npm run prod:restart        # / prod:stop / prod:start / prod:down
 `projects.config.json`, or `state.json` (server-owned, survives releases). Rotate secrets with
 `push-secrets` then `restart`.
 
+### Local dev vs prod
+
+Both read their own files (dev: local `.env`/`state.json`/`projects.config.json`; prod: the
+copies on the box), so most config is already separate **by location**. The only shared external
+resources are Slack and Daytona — isolate those in your **local** `.env`:
+
+- **Slack** — use a **separate Slack app** for dev. Socket Mode delivers each event to only one
+  connected socket, so a dev bot sharing prod's app would steal ~half of prod's events. Give the
+  dev app its own `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN`, and set `SLACK_CHANNEL_PREFIX=dev-bluefin-aven-`
+  so it only answers in dev channels (prod keeps the default `bluefin-aven-`).
+- **Daytona** — both hit the same server, so set `SANDBOX_NAME_PREFIX=dev-proj-` locally. Dev
+  sandboxes become `dev-proj-<slug>` and never collide with prod's `proj-<slug>` warm sandboxes.
+- **Repos** — point dev's `projects.config.json` at a throwaway/test repo so dev tasks don't open
+  PRs against real project repos.
+
+Prod (the box) just keeps the defaults — no extra env needed.
+
 ## Notes / gotchas
 
 - **GitHub token lifetime** ≈ 1h. `runTask`/`attachTask` re-mint and re-seed it; a single agent

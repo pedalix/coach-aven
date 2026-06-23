@@ -53,7 +53,10 @@ export class Store {
     return this.data.projects[slug];
   }
 
-  upsertProject(slug: string, repo: string): ProjectRecord {
+  // namePrefix lets dev/prod share one Daytona without colliding on warm sandboxes
+  // (dev → `dev-proj-<slug>`). Only applied at creation; existing records keep their
+  // stored name, so a prod state.json is never re-prefixed.
+  upsertProject(slug: string, repo: string, namePrefix = 'proj-'): ProjectRecord {
     const existing = this.data.projects[slug];
     if (existing) {
       existing.repo = repo;
@@ -63,7 +66,7 @@ export class Store {
     const rec: ProjectRecord = {
       slug,
       repo,
-      sandboxName: `proj-${slug}`,
+      sandboxName: `${namePrefix}${slug}`,
     };
     this.data.projects[slug] = rec;
     this.save();
