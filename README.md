@@ -1,9 +1,12 @@
-# Thin Orchestrator
+# CoachAven
 
-Per-project, isolated coding-agent sandboxes on our self-hosted **Daytona**, driven by a
-small TypeScript control program. No AgentBox, no S3, no SSH gateway — see
-[`../thin-orchestrator-handoff.md`](../thin-orchestrator-handoff.md) for the full design and
-the reasoning behind every choice.
+A Slack coding agent that runs per-project, isolated **Claude Code** sandboxes on our
+self-hosted **Daytona**, driven by a small TypeScript control program. One warm sandbox per
+project; the agent reads and edits the repo and opens PRs, reachable from a Slack channel.
+No AgentBox, no S3, no SSH gateway.
+
+> Extracted from `bluefin-infra/daytona/orchestrator` into its own repo. Run with
+> `npm install && npm run orch -- slack` (see `.env.example` + `projects.config.example.json`).
 
 **Model:** one warm **sandbox per project** (a `docker:28-dind`-based image with git/gh/Node +
 Claude Code), N parallel **tasks per project via `git worktree`** (each task = own branch +

@@ -1,9 +1,9 @@
 {
-  "name": "bluefin-thin-orchestrator",
+  "name": "coach-aven",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Per-project isolated coding-agent sandboxes on self-hosted Daytona (thin orchestrator).",
+  "description": "CoachAven — a Slack coding agent running per-project Claude Code sandboxes on self-hosted Daytona.",
   "bin": {
     "orch": "./src/cli.ts"
   },

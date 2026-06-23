@@ -2,5 +2,8 @@ node_modules/
 state.json
 projects.config.json
 *.log
-# .env is already ignored repo-wide; the GitHub App private key too:
+# secrets — standalone repo, so ignore them here (no parent repo to do it):
+.env
+.env.*
+!.env.example
 github-app-private-key.pem
