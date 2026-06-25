@@ -31,14 +31,18 @@ on this box — so the footprint here is tiny.
 
 | Path | Role |
 | --- | --- |
-| `deploy.sh` | install / push-secrets / deploy / logs / status / start·stop·restart / ssh / down |
+| `deploy.sh` | install / export·import / deploy / logs / status / start·stop·restart / ssh / down |
 | `coach-aven.service.tmpl` | systemd unit template (placeholders rendered at install) |
 | `.env.example` | deploy-target config (host, users, remote dir, service name) |
 | `.env` | filled-in target config (gitignored; copy from `.env.example`) |
+| `runtime/` | **prod's** runtime secrets/config (gitignored) — see below |
 
-The app's **runtime** secrets/config are NOT here — they live at the repo root
-(`.env`, `github-app-private-key.pem`, `projects.config.json`) and are uploaded
-by `push-secrets`.
+The app's **runtime** secrets/config live in **`infra/prod/runtime/`** — a separate,
+gitignored copy of `.env`, `github-app-private-key.pem`, `projects.config.json` that
+is the **prod truth**, deliberately kept apart from the repo-root files (those are
+your **local-dev** runtime, per [`../../docs/local-dev.md`](../../docs/local-dev.md)).
+`export` uploads `runtime/` to the box; `import` pulls the box's live copies back into
+it. To populate it from a running prod, just `npm run prod:import`.
 
 ## Prerequisites
 
@@ -46,8 +50,9 @@ by `push-secrets`.
   (`root` to install the unit + sudoers; `deployer` runs the service + owns files).
   Uses your default SSH keys/agent.
 - `infra/prod/.env` filled in (`cp .env.example .env`).
-- The repo-root runtime files present and filled in: `.env`,
-  `github-app-private-key.pem`, `projects.config.json`.
+- The prod runtime files present in `infra/prod/runtime/`: `.env`,
+  `github-app-private-key.pem`, `projects.config.json` (copy from
+  `runtime/.env.example`, or pull a running prod with `npm run prod:import`).
 
 The box already has system Node 22 + git, so nothing to provision.
 
@@ -56,7 +61,7 @@ The box already has system Node 22 + git, so nothing to provision.
 ```bash
 npm run prod:install         # root: REMOTE_DIR + systemd unit (enabled, not started)
                              #       + narrow sudoers for deployer + journal-read group
-npm run prod:push-secrets    # upload .env, the GitHub App key, projects.config.json
+npm run prod:export          # upload infra/prod/runtime/ → .env, GitHub App key, projects.config.json
 npm run prod:deploy          # upload code, npm ci, restart, health-check Socket Mode
 ```
 
@@ -68,13 +73,21 @@ npm run prod:deploy          # re-upload code → npm ci → restart → health-
 
 `deploy` ships **code only**. It never overwrites the server's `.env`, GitHub key,
 `projects.config.json`, or the orchestrator's `state.json` (server-owned, survives
-releases). Rotate secrets with `push-secrets` then `restart`.
+releases).
+
+Change a secret or the project list (`infra/prod/runtime/`) then `export` → `restart`.
+Note: `projects.config.json` is read **once at boot** — editing the project list always
+needs a `restart` to take effect, even when no env var changed. `import` is the reverse
+of `export`: pull the box's live runtime back into `infra/prod/runtime/` (e.g. to capture
+a change made directly on the box, or to seed the dir on a fresh clone).
 
 ## Day-2 commands
 
 | Command | What it does |
 | --- | --- |
 | `npm run prod:deploy` | Release: upload → `npm ci` → restart → health-check |
+| `npm run prod:export` | Upload `infra/prod/runtime/` → the box (alias: `prod:push-secrets`) |
+| `npm run prod:import` | Pull the box's runtime back into `infra/prod/runtime/` |
 | `npm run prod:status` | `systemctl status` + `is-active` |
 | `npm run prod:logs` | Tail the service journal (`journalctl -u coach-aven -f`) |
 | `npm run prod:restart` | Restart the service (deployer, via scoped sudoers) |
@@ -84,10 +97,10 @@ releases). Rotate secrets with `push-secrets` then `restart`.
 
 ## Runtime token note
 
-The app resolves its Claude token from `CLAUDE_CODE_OAUTH_TOKEN` in the repo-root
-`.env` (a stable `claude setup-token` value — recommended for an unattended
-service). The `~/.claude` credentials fallback is for dev boxes only; don't rely
-on it here.
+The app resolves its Claude token from `CLAUDE_CODE_OAUTH_TOKEN` in the prod runtime
+`.env` (`infra/prod/runtime/.env`, uploaded by `export`) — a stable `claude setup-token`
+value, recommended for an unattended service. The `~/.claude` credentials fallback is
+for dev boxes only; don't rely on it here.
 
 ## What this is NOT (yet)
 

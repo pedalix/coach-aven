@@ -8,9 +8,13 @@
 #
 #   install        Root stage: create REMOTE_DIR (deployer-owned), render + install
 #                  the systemd unit, daemon-reload, enable (NOT start). Idempotent.
-#   push-secrets   Upload the gitignored runtime files the app needs at REMOTE_DIR:
-#                  .env, github-app-private-key.pem, projects.config.json. Run once,
-#                  and again whenever any of them change. NEVER touches state.json.
+#   export         Upload the gitignored prod-runtime files the app needs at REMOTE_DIR:
+#                  .env, github-app-private-key.pem, projects.config.json — read from
+#                  infra/prod/runtime/ (SEPARATE from the repo-root local-dev files).
+#                  Run once, and again whenever any change. NEVER touches state.json.
+#                  (alias: push-secrets)
+#   import         The reverse: download the box's live runtime files into
+#                  infra/prod/runtime/ so it mirrors prod. (alias: pull)
 #   deploy         Upload the repo (code only), `npm ci` on the server, restart the
 #                  service, health-check for the "Slack bot running" log line. The release.
 #   logs           Tail the service logs (journalctl -f).
@@ -19,9 +23,10 @@
 #   ssh            Interactive SSH session (deployer).
 #   down           Stop AND disable the service (leaves files + unit in place).
 #
-# First run order:  install → push-secrets → deploy
+# First run order:  install → export → deploy
 # Update code:      deploy
-# Rotate secrets:   push-secrets → restart
+# Rotate secrets:   export → restart
+# Sync from box:    import   (pull prod runtime back into infra/prod/runtime/)
 #
 # Config: infra/prod/.env (copy from .env.example). SSH uses your default keys/
 # agent (deployer@HOST and root@HOST must both work). Needs: ssh, scp, tar.
@@ -30,6 +35,12 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 ENV_FILE="$HERE/.env"
+# Prod runtime truth (gitignored). SEPARATE from the repo-root files, which are your
+# LOCAL DEV runtime. `export` uploads these to the box; `import` pulls the box's copies
+# back down here so this dir always mirrors prod.
+RUNTIME_DIR="$HERE/runtime"
+# The runtime files the app needs at REMOTE_DIR (uploaded by export, pulled by import).
+RUNTIME_FILES=(.env github-app-private-key.pem projects.config.json)
 
 log()  { printf '\033[1;36m▶ %s\033[0m\n' "$*" >&2; }
 ok()   { printf '\033[1;32m✓ %s\033[0m\n' "$*" >&2; }
@@ -94,21 +105,39 @@ cmd_install() {
   ok "unit installed + enabled (not started yet — run push-secrets, then deploy)"
 }
 
-cmd_push_secrets() {
+# export (a.k.a. push-secrets): upload the local prod-runtime truth → the box.
+cmd_export() {
   preflight_ssh
   local missing=0
-  for f in .env github-app-private-key.pem projects.config.json; do
-    [[ -f "$REPO_ROOT/$f" ]] || { warn "missing $REPO_ROOT/$f"; missing=1; }
+  for f in "${RUNTIME_FILES[@]}"; do
+    [[ -f "$RUNTIME_DIR/$f" ]] || { warn "missing $RUNTIME_DIR/$f"; missing=1; }
   done
-  [[ "$missing" == 0 ]] || die "fill in the runtime files at the repo root first"
+  [[ "$missing" == 0 ]] || die "fill in the prod-runtime files first (cp from .env.example, or run: import)"
 
-  log "Uploading runtime secrets/config to $DEPLOYER:$REMOTE_DIR"
+  log "Uploading prod runtime ($RUNTIME_DIR) → $DEPLOYER:$REMOTE_DIR"
   dssh "mkdir -p $REMOTE_DIR"
-  scp "${SSH_OPTS[@]}" -q "$REPO_ROOT/.env"                       "$DEPLOYER:$REMOTE_DIR/.env"
-  scp "${SSH_OPTS[@]}" -q "$REPO_ROOT/github-app-private-key.pem" "$DEPLOYER:$REMOTE_DIR/github-app-private-key.pem"
-  scp "${SSH_OPTS[@]}" -q "$REPO_ROOT/projects.config.json"       "$DEPLOYER:$REMOTE_DIR/projects.config.json"
+  for f in "${RUNTIME_FILES[@]}"; do
+    scp "${SSH_OPTS[@]}" -q "$RUNTIME_DIR/$f" "$DEPLOYER:$REMOTE_DIR/$f"
+  done
   dssh "chmod 600 $REMOTE_DIR/.env $REMOTE_DIR/github-app-private-key.pem"
-  ok "secrets in place (state.json left untouched)"
+  ok "runtime in place (state.json left untouched) — run: restart"
+}
+
+# import (pull): download the box's live runtime files → here, so $RUNTIME_DIR mirrors
+# prod. The reverse of export. state.json is server-owned and deliberately NOT pulled.
+cmd_import() {
+  preflight_ssh
+  mkdir -p "$RUNTIME_DIR"
+  log "Downloading prod runtime from $DEPLOYER:$REMOTE_DIR → $RUNTIME_DIR"
+  for f in "${RUNTIME_FILES[@]}"; do
+    if dssh "test -f $REMOTE_DIR/$f" </dev/null; then
+      scp "${SSH_OPTS[@]}" -q "$DEPLOYER:$REMOTE_DIR/$f" "$RUNTIME_DIR/$f"
+    else
+      warn "no $REMOTE_DIR/$f on the box — skipped"
+    fi
+  done
+  chmod 600 "$RUNTIME_DIR/.env" "$RUNTIME_DIR/github-app-private-key.pem" 2>/dev/null || true
+  ok "prod runtime pulled into $RUNTIME_DIR"
 }
 
 cmd_deploy() {
@@ -126,6 +155,7 @@ cmd_deploy() {
     --exclude='./projects.config.json' \
     --exclude='./state.json' \
     --exclude='./infra/prod/.env' \
+    --exclude='./infra/prod/runtime' \
     . \
   | dssh "tar xzf - -C $REMOTE_DIR"
 
@@ -172,7 +202,8 @@ need ssh; need scp; need tar
 load_env
 case "${1:-}" in
   install)      cmd_install ;;
-  push-secrets) cmd_push_secrets ;;
+  export|push-secrets) cmd_export ;;
+  import|pull)  cmd_import ;;
   deploy)       cmd_deploy ;;
   logs)         cmd_logs ;;
   status)       cmd_status ;;

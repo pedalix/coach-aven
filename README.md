@@ -155,17 +155,21 @@ Manual, scripted deploy (mirrors the `aven` prod pattern). See [`infra/prod/READ
 ```bash
 cp infra/prod/.env.example infra/prod/.env   # deploy target (host/users/remote dir)
 npm run prod:install        # root: REMOTE_DIR + systemd unit (enabled) + scoped sudoers + journal group
-npm run prod:push-secrets   # upload .env, github-app-private-key.pem, projects.config.json
+npm run prod:export         # upload infra/prod/runtime/ → .env, github-app-private-key.pem, projects.config.json
 npm run prod:deploy         # upload code, npm ci, restart, health-check Socket Mode
 
+npm run prod:import         # reverse of export: pull the box's runtime into infra/prod/runtime/
 npm run prod:logs           # journalctl -u coach-aven -f
 npm run prod:status         # systemctl status + is-active
 npm run prod:restart        # / prod:stop / prod:start / prod:down
 ```
 
+The app's runtime secrets/config live in **`infra/prod/runtime/`** (gitignored, prod truth) —
+kept separate from the repo-root `.env`/`projects.config.json`, which are your **local dev**.
 `deploy` ships **code only** — it never overwrites the server's `.env`, GitHub key,
-`projects.config.json`, or `state.json` (server-owned, survives releases). Rotate secrets with
-`push-secrets` then `restart`.
+`projects.config.json`, or `state.json` (server-owned, survives releases). Change a secret or
+the project list in `infra/prod/runtime/`, then `export` → `restart` (the project list is read
+once at boot, so a restart is always required for it to take effect).
 
 ### Local dev vs prod
 
