@@ -144,6 +144,15 @@ export async function cloneRepo(sandbox: Sandbox, cfg: Config, slug: string, rep
   const exists = await exec(sandbox, `test -d ${dir}/.git && echo yes || echo no`);
   if (exists.result.trim() === 'yes') {
     log.step(`repo present — fetching ${repo}`);
+    // Heal a token baked into the remote URL by a previous session. If something embedded
+    // `https://x-access-token:<token>@github.com/...` into .git/config, git uses THAT token
+    // and bypasses the credential helper — and since it's a ~1h installation token, every
+    // fetch/push fails once it expires (the helper's fresh token never gets a look-in). Force
+    // the canonical tokenless URL so auth always flows through the fresh-token helper. Shared
+    // .git config means this also heals every worktree of the repo.
+    await exec(sandbox, `git -C ${dir} remote set-url origin https://github.com/${repo}.git`, {
+      check: true,
+    });
     await exec(sandbox, `git -C ${dir} fetch --all --prune`, { check: true, timeout: 600 });
   } else {
     log.step(`cloning ${repo} → ${dir}`);

@@ -106,6 +106,10 @@ function buildSystemPrompt(slug: string, cwd: string, repos: string[], projectPr
       `a sibling dir, e.g. ../<repo>-wt/<branch>; ` +
       `(3) cd into <path>, make your changes there, commit, push, and open a PR against the default ` +
       `branch with the gh CLI; ` +
+      `git auth is already configured via a credential helper (and gh) — use the plain ` +
+      `https://github.com/<org>/<repo>.git remote and NEVER embed a token in a remote URL ` +
+      `(no x-access-token:<token>@github.com): a baked-in token expires within the hour and ` +
+      `breaks later pushes; ` +
       `(4) when the PR is open you may \`git worktree remove <path>\` (the orchestrator also reaps ` +
       `finished worktrees automatically). ` +
       `For a change spanning multiple repos, do this in each relevant repo, sharing a ` +
@@ -164,14 +168,18 @@ export async function openChat(
     if (a) opts.onOpen?.(a);
   };
 
-  // Wake the sandbox (it auto-stops on idle) + re-seed the CC token & MCP config (in case
-  // a restart reset the fs), then (re)open the persistent Claude process if we don't have
-  // a live one. Sandbox-scoped lock: don't let siblings re-prepare the box concurrently.
+  // Wake the sandbox (it auto-stops on idle) + re-seed the CC token, the GitHub token, &
+  // MCP config, then (re)open the persistent Claude process if we don't have a live one.
+  // Re-seeding the GitHub token EVERY turn is load-bearing: it's a ~1h installation token,
+  // so a warm sandbox that handled the first message would otherwise hit "Bad credentials"
+  // on a later `git push`/`gh pr create` (e.g. topping up commits on an open PR an hour on).
+  // Sandbox-scoped lock: don't let siblings re-prepare the box concurrently.
   async function ensureSession(): Promise<ClaudeSession> {
     if (session && !session.isDead()) {
       await withSandboxLock(opts.slug, async () => {
         sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, opts.slug);
         await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
+        await seedGitHubAuth(sandbox, await getGitHubToken(cfg, opts.repos));
         await seedMcpConfig(sandbox, opts.mcp);
       });
       return session;
@@ -180,6 +188,7 @@ export async function openChat(
       if (session && !session.isDead()) return session;
       sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, opts.slug);
       await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
+      await seedGitHubAuth(sandbox, await getGitHubToken(cfg, opts.repos));
       const mcpConfigPath = await seedMcpConfig(sandbox, opts.mcp);
       // Bot restarted while a command was still running? Reattach to it once, rather than
       // spawning a duplicate that would fight over the same working tree. If the command
