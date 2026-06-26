@@ -95,6 +95,37 @@ a change made directly on the box, or to seed the dir on a fresh clone).
 | `npm run prod:ssh` | Interactive shell on the VM (deployer) |
 | `npm run prod:down` | Stop **and disable** the service (root) |
 
+## Releases (CI/CD)
+
+Deploys also run automatically from GitHub Actions
+([`.github/workflows/release.yml`](../../.github/workflows/release.yml)) — the manual
+`npm run prod:deploy` above still works and is unchanged. The pipeline is
+**tag-triggered**: pushing a `vX.Y.Z` tag typechecks the code, publishes a GitHub Release
+from the matching [`CHANGELOG.md`](../../CHANGELOG.md) section, then SSHes into the box and
+runs `deploy.sh deploy` (upload → `npm ci` → restart → health-check). It uses only the
+**deployer** key — never root — so `deploy.sh`'s preflight is split accordingly.
+
+Cut a release:
+
+```bash
+# 1. Move the CHANGELOG "Unreleased" notes under "## [X.Y.Z] - YYYY-MM-DD"
+# 2. Bump "version" in package.json to X.Y.Z; commit; merge to main
+git tag vX.Y.Z && git push origin vX.Y.Z      # tag push → release + deploy
+```
+
+`workflow_dispatch` can also deploy an arbitrary ref by hand (no release is cut).
+
+**One-time setup** (GitHub → Settings → Environments → **production**):
+
+| Secret | Value |
+| --- | --- |
+| `DEPLOY_SSH_KEY` | Passphrase-less private key for `deployer@<box>` |
+| `DEPLOY_ENV` | The full contents of `infra/prod/.env` (host, users, remote dir, service name) |
+
+CI deploys **code only**, exactly like the manual path — it never touches the box's
+runtime secrets, `projects.config.json`, or `state.json`. Changing the project list or a
+secret is still `npm run prod:export` → `restart`.
+
 ## Runtime token note
 
 The app resolves its Claude token from `CLAUDE_CODE_OAUTH_TOKEN` in the prod runtime
@@ -104,7 +135,6 @@ for dev boxes only; don't rely on it here.
 
 ## What this is NOT (yet)
 
-- No CI/CD — releases are manual (`npm run prod:deploy`), by design.
 - No nginx / public URL — Socket Mode only; the bot is reachable from Slack, not
   the web.
 - State is a JSON file on the box (`/var/www/coach-aven/state.json`) — snapshot it

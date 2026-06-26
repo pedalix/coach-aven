@@ -1,0 +1,104 @@
+name: Release & Deploy
+
+# Tag-triggered release pipeline for the CoachAven orchestrator.
+#
+# Cutting a release:
+#   1. Move the CHANGELOG "Unreleased" notes under a new `## [X.Y.Z] - YYYY-MM-DD`.
+#   2. Bump "version" in package.json to X.Y.Z, commit, merge to main.
+#   3. Tag it:  git tag vX.Y.Z && git push origin vX.Y.Z
+#
+# The tag push runs: verify (typecheck) → GitHub Release (notes from CHANGELOG) →
+# SSH deploy to the shared Hetzner box via infra/prod/deploy.sh (deployer key only).
+#
+# Required config (GitHub → Settings → Environments → "production"):
+#   secrets.DEPLOY_SSH_KEY  — private key for deployer@<box> (passphrase-less)
+#   secrets.DEPLOY_ENV      — the full contents of infra/prod/.env
+#                             (DEPLOY_HOST/DEPLOY_USER/ROOT_USER/REMOTE_DIR/SERVICE_NAME)
+# Runtime app secrets (.env, GitHub App key, projects.config.json) are NOT managed here —
+# they live on the box and are pushed manually with `npm run prod:export`.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref (tag / branch / sha) to deploy'
+        required: true
+        default: 'main'
+
+# Never let two prod deploys overlap on the shared box; queue them instead.
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
+  release:
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract changelog notes for this tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v ver="$version" '
+            $0 ~ "^## \\[" ver "\\]" { flag = 1; next }
+            flag && /^## \[/ { exit }
+            flag { print }
+          ' CHANGELOG.md > notes.md || true
+          # Trim leading/trailing blank lines.
+          sed -i -e '/./,$!d' notes.md
+          if [ -s notes.md ]; then
+            echo "NOTES_ARGS=--notes-file notes.md" >> "$GITHUB_ENV"
+          else
+            echo "No CHANGELOG section for $version — using auto-generated notes."
+            echo "NOTES_ARGS=--generate-notes" >> "$GITHUB_ENV"
+          fi
+      - name: Create or update the GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" $NOTES_ARGS
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --verify-tag $NOTES_ARGS
+          fi
+
+  deploy:
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || github.ref }}
+      - name: Configure deployer SSH key
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          cat > ~/.ssh/id_ed25519 <<'KEY'
+          ${{ secrets.DEPLOY_SSH_KEY }}
+          KEY
+          chmod 600 ~/.ssh/id_ed25519
+      - name: Write deploy target config (infra/prod/.env)
+        run: |
+          cat > infra/prod/.env <<'ENVFILE'
+          ${{ secrets.DEPLOY_ENV }}
+          ENVFILE
+      - name: Deploy to prod (upload → npm ci → restart → health-check)
+        run: bash infra/prod/deploy.sh deploy

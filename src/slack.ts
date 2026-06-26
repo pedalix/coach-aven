@@ -144,7 +144,11 @@ export async function runSlack(cfg: Config): Promise<void> {
       });
   }
 
-  async function sessionFor(key: string, project: ProjectConfig): Promise<ChatSession> {
+  async function sessionFor(
+    key: string,
+    project: ProjectConfig,
+    slackUrl?: string,
+  ): Promise<ChatSession> {
     const existing = live.get(key);
     if (existing) return existing;
     const prior = store.getChat(key);
@@ -153,6 +157,7 @@ export async function runSlack(cfg: Config): Promise<void> {
       repos: project.repos,
       resumeSessionId: prior?.sessionId,
       systemPrompt: project.systemPrompt,
+      slackUrl,
       mcp: project.mcp,
       // Survive bot restarts: reattach to the command this thread was driving (if it's
       // still running), and persist the command coords the moment a session (re)opens so
@@ -414,8 +419,19 @@ export async function runSlack(cfg: Config): Promise<void> {
     store.patchChat(key, project.slug, {
       inflight: { channel, statusTs: ts, msgThreadTs: threadTs, startedAt: new Date().toISOString() },
     });
+    // Best-effort permalink to this thread so the agent can link a PR back to the Slack
+    // discussion. Only meaningful for channel threads (threadTs set); DMs have none.
+    let slackUrl: string | undefined;
+    if (threadTs) {
+      try {
+        const pl = await client.chat.getPermalink({ channel, message_ts: threadTs });
+        slackUrl = pl.permalink as string | undefined;
+      } catch {
+        /* no permalink (DM / missing scope) — traceability line is simply omitted */
+      }
+    }
     try {
-      const chat = await sessionFor(key, project); // prepare (warm sandbox + clone) here
+      const chat = await sessionFor(key, project, slackUrl); // prepare (warm sandbox + clone) here
       phase = '🔎 Working…';
       await flush(true);
       const answer = await chat.ask(
@@ -440,7 +456,15 @@ export async function runSlack(cfg: Config): Promise<void> {
       finished = true;
       clearInterval(heartbeat);
       const capped = answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
-      await client.chat.update({ channel, ts, text: fallbackText(capped), blocks: answerBlocks(capped) });
+      // Offer the "Open a PR" follow-up only in build channels (thread sessions), not in
+      // the private /aven + DM Q&A paths where it would just be noise.
+      const followUp = key.startsWith('thread:') ? { key, channel, threadTs } : undefined;
+      await client.chat.update({
+        channel,
+        ts,
+        text: fallbackText(capped),
+        blocks: answerBlocks(capped, followUp),
+      });
       if (msgTs) {
         await react(client, channel, msgTs, 'eyes', 'remove');
         await react(client, channel, msgTs, 'white_check_mark', 'add');
@@ -597,6 +621,45 @@ export async function runSlack(cfg: Config): Promise<void> {
     if (turnId) running.get(turnId)?.abort();
   });
 
+  // ── "🔗 View PR" link button → opens the URL itself; just ack the interaction ──
+  app.action(/^pr_link:/, async ({ ack }) => {
+    await ack();
+  });
+
+  // ── "🔀 Open a PR" button → enqueue a follow-up turn asking the agent to PR its work ──
+  const FOLLOW_UP_PR_PROMPT =
+    'Open a pull request for the work in this conversation: in the relevant repo, make sure your ' +
+    'changes are committed on a dedicated worktree/branch forked from origin/main, push it, and open ' +
+    'a PR against the default branch with the gh CLI. If there is nothing to submit yet, say so ' +
+    'instead of opening an empty PR.';
+  app.action('make_pr', async ({ ack, action, client }) => {
+    await ack();
+    let v: { key: string; channel: string; threadTs?: string };
+    try {
+      v = JSON.parse((action as { value?: string }).value ?? '');
+    } catch {
+      return;
+    }
+    const slug = slugForKey(v.key);
+    const project = slug ? resolveBySlug(registry, slug) : undefined;
+    if (!project) return;
+    await liveTurn(client, v.channel, undefined, v.threadTs, v.key, project, FOLLOW_UP_PR_PROMPT);
+  });
+
+  // ── App Home tab → a self-documenting dashboard: projects, channels, how to use me ──
+  app.event('app_home_opened', async ({ event, client }) => {
+    const e = event as { user: string; tab?: string };
+    if (e.tab && e.tab !== 'home') return; // ignore the messages-tab open
+    try {
+      await client.views.publish({
+        user_id: e.user,
+        view: { type: 'home', blocks: homeBlocks(registry, CHANNEL_PREFIX) },
+      });
+    } catch (err) {
+      log.error(`home publish failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  });
+
   // Update a stale/expired question message (click landed but the entry is gone — turn
   // ended, bot restarted, etc.) so the user gets feedback instead of a dead button.
   async function markStale(client: bolt.webApi.WebClient, body: unknown): Promise<void> {
@@ -735,14 +798,59 @@ export async function runSlack(cfg: Config): Promise<void> {
 // tables) natively — so we send Claude's output verbatim instead of converting to
 // the lossy legacy mrkdwn. Each markdown block caps ~12k chars; chunk longer answers.
 const SLACK_MD_BLOCK_LIMIT = 11900;
+
+// Pull GitHub PR URLs out of an answer so we can surface them as clickable buttons
+// instead of leaving them buried in prose. Deduped, original order.
+function prUrls(text: string): string[] {
+  const m = text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g);
+  return m ? [...new Set(m)] : [];
+}
+
+// Context a completed answer needs to offer a one-click "Open a PR" follow-up: which
+// conversation to enqueue the turn under, and where to post it.
+interface FollowUp {
+  key: string;
+  channel: string;
+  threadTs?: string;
+}
+
+// Render the answer as markdown block(s), then an action row: link buttons to any PR(s)
+// the agent opened, or — if it didn't open one — an "Open a PR" button that enqueues a
+// follow-up turn (only when `followUp` context is supplied, i.e. a live thread/DM turn).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
-function answerBlocks(answer: string): any[] {
+function answerBlocks(answer: string, followUp?: FollowUp): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blocks: any[] = [];
   for (let i = 0; i < answer.length; i += SLACK_MD_BLOCK_LIMIT) {
     blocks.push({ type: 'markdown', text: answer.slice(i, i + SLACK_MD_BLOCK_LIMIT) });
   }
-  return blocks.length ? blocks : [{ type: 'markdown', text: '(no output)' }];
+  if (!blocks.length) blocks.push({ type: 'markdown', text: '(no output)' });
+
+  const prs = prUrls(answer);
+  if (prs.length) {
+    blocks.push({
+      type: 'actions',
+      elements: prs.slice(0, 5).map((url, i) => ({
+        type: 'button',
+        text: { type: 'plain_text', text: prs.length === 1 ? '🔗 View PR' : `🔗 PR #${url.split('/').pop()}` },
+        url,
+        action_id: `pr_link:${i}`,
+      })),
+    });
+  } else if (followUp) {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '🔀 Open a PR' },
+          action_id: 'make_pr',
+          value: JSON.stringify({ key: followUp.key, channel: followUp.channel, threadTs: followUp.threadTs }),
+        },
+      ],
+    });
+  }
+  return blocks;
 }
 // Live status as a section + a "✖ Cancel" button carrying the turnId. Used while a turn
 // runs; replaced by the answer (markdown blocks) or a plain status on cancel/error.
@@ -865,6 +973,60 @@ function statusReportBlocks(r: StatusReport): any[] {
   });
   const health = `_Daytona ${r.daytonaOk ? '✅' : '⚠️'} · GitHub ${r.githubOk ? '✅' : '⚠️'} · Slack ✅_`;
   return [{ type: 'section', text: { type: 'mrkdwn', text: `${head}\n\n${lines.join('\n')}\n\n${health}` } }];
+}
+
+// ── App Home tab ────────────────────────────────────────────────────────────
+// "Org/name" → "name", for compact display.
+const shortRepo = (full: string): string => full.split('/').pop() ?? full;
+
+// The Home tab: what I am, every project + the channel that drives it, and a usage
+// cheat-sheet. Self-serve onboarding so colleagues don't have to read the README.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blocks: any[] = [
+    { type: 'header', text: { type: 'plain_text', text: '🧭 CoachAven' } },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: "I'm a coding agent living in your project channels — mention me to investigate, build, and open PRs without leaving Slack.",
+      },
+    },
+    { type: 'divider' },
+    { type: 'section', text: { type: 'mrkdwn', text: `*Projects* (${reg.projects.length})` } },
+  ];
+  for (const p of reg.projects) {
+    const channel = p.slackChannel ? '_(custom channel)_' : `#${prefix}${p.slug}`;
+    const repos = p.repos.map((r) => `\`${shortRepo(r)}\``).join(', ');
+    blocks.push({
+      type: 'section',
+      text: { type: 'mrkdwn', text: `• *${p.slug}* — ${channel}\n   ${plural(p.repos.length, 'repo')}: ${repos}` },
+    });
+  }
+  blocks.push(
+    { type: 'divider' },
+    { type: 'section', text: { type: 'mrkdwn', text: '*How to use me*' } },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text:
+          '• *Build / collaborate* — `@CoachAven <task>` in a project channel. I reply in a thread; keep replying (no need to re-mention) and I remember the conversation.\n' +
+          '• *Quick private answer* — `/aven <question>` in a project channel. I answer privately in our DM.\n' +
+          "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
+          '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
+          '• *Status* — `/aven status` for a live view of sandboxes, sessions, and open PRs.',
+      },
+    },
+    {
+      type: 'context',
+      elements: [
+        { type: 'mrkdwn', text: 'I work on a dedicated branch and open a PR for review — I never push straight to the default branch.' },
+      ],
+    },
+  );
+  return blocks;
 }
 
 // Plain-text fallback (notifications / accessibility) required alongside blocks.

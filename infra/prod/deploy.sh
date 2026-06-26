@@ -61,14 +61,20 @@ load_env() {
 dssh() { ssh "${SSH_OPTS[@]}" "$DEPLOYER" "$@"; }
 rssh() { ssh "${SSH_OPTS[@]}" "$ROOT" "$@"; }
 
-preflight_ssh() {
-  rssh "echo ok" </dev/null >/dev/null 2>&1 || die "cannot SSH as $ROOT (need root for the systemd unit)"
+# Day-2 ops (export/import/deploy) only need the deployer; root is required just for
+# install (systemd unit + sudoers) and down (disable). Split so a deployer-only caller
+# — notably CI, which must NOT hold a root key — can deploy without a root login.
+preflight_deployer() {
   dssh "echo ok" </dev/null >/dev/null 2>&1 || die "cannot SSH as $DEPLOYER (need deployer for files + service)"
+}
+preflight_root() {
+  rssh "echo ok" </dev/null >/dev/null 2>&1 || die "cannot SSH as $ROOT (need root for the systemd unit)"
 }
 
 # ---- commands ---------------------------------------------------------------
 cmd_install() {
-  preflight_ssh
+  preflight_root
+  preflight_deployer
   [[ -f "$HERE/coach-aven.service.tmpl" ]] || die "missing $HERE/coach-aven.service.tmpl"
 
   log "Root stage: preparing $REMOTE_DIR (owned by $DEPLOY_USER)"
@@ -107,7 +113,7 @@ cmd_install() {
 
 # export (a.k.a. push-secrets): upload the local prod-runtime truth → the box.
 cmd_export() {
-  preflight_ssh
+  preflight_deployer
   local missing=0
   for f in "${RUNTIME_FILES[@]}"; do
     [[ -f "$RUNTIME_DIR/$f" ]] || { warn "missing $RUNTIME_DIR/$f"; missing=1; }
@@ -126,7 +132,7 @@ cmd_export() {
 # import (pull): download the box's live runtime files → here, so $RUNTIME_DIR mirrors
 # prod. The reverse of export. state.json is server-owned and deliberately NOT pulled.
 cmd_import() {
-  preflight_ssh
+  preflight_deployer
   mkdir -p "$RUNTIME_DIR"
   log "Downloading prod runtime from $DEPLOYER:$REMOTE_DIR → $RUNTIME_DIR"
   for f in "${RUNTIME_FILES[@]}"; do
@@ -141,7 +147,7 @@ cmd_import() {
 }
 
 cmd_deploy() {
-  preflight_ssh
+  preflight_deployer
   dssh "test -f $REMOTE_DIR/.env" </dev/null \
     || die "no $REMOTE_DIR/.env on the box — run push-secrets first"
 
@@ -190,7 +196,7 @@ cmd_stop()    { dssh "sudo systemctl stop   ${SERVICE_NAME}.service" && ok "stop
 cmd_restart() { dssh "sudo systemctl restart ${SERVICE_NAME}.service" && ok "restarted"; }
 cmd_ssh()     { exec ssh "${SSH_OPTS[@]}" "$DEPLOYER"; }
 cmd_down() {
-  preflight_ssh
+  preflight_root
   warn "Stopping and DISABLING ${SERVICE_NAME} (files + unit stay; re-run 'install' to re-enable, then 'start')."
   # disable flips the enablement symlink → needs root (deployer's sudoers covers
   # only start/stop/restart, not disable).

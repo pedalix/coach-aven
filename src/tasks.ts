@@ -84,7 +84,13 @@ async function prepareChat(cfg: Config, store: Store, slug: string, repos: strin
 // identity, repo layout, branch/PR convention, AskUserQuestion. `projectPrompt` (layer 2,
 // from the project config) is APPENDED after it, never overrides. (Layer 3 = each repo's
 // own CLAUDE.md, auto-loaded by Claude Code when working in that repo.)
-function buildSystemPrompt(slug: string, cwd: string, repos: string[], projectPrompt?: string): string {
+function buildSystemPrompt(
+  slug: string,
+  cwd: string,
+  repos: string[],
+  projectPrompt?: string,
+  slackUrl?: string,
+): string {
   const lines = [`You are the coding assistant for the project "${slug}", reachable from a Slack channel.`];
   if (repos.length === 1) {
     lines.push(`Your working directory is the repository ${repos[0]} (cwd: ${cwd}).`);
@@ -119,6 +125,14 @@ function buildSystemPrompt(slug: string, cwd: string, repos: string[], projectPr
       `action is risky/irreversible, use the AskUserQuestion tool to present the options instead ` +
       `of guessing — the user answers with a button click.`,
   );
+  if (slackUrl) {
+    lines.push(
+      '',
+      `This conversation is the Slack thread ${slackUrl} — when you open a PR for work from it, ` +
+        `include that link in the PR description (e.g. a "Slack thread: <url>" line) so reviewers can ` +
+        `trace the change back to the discussion.`,
+    );
+  }
   if (projectPrompt?.trim()) {
     lines.push('', '--- Project-specific instructions ---', projectPrompt.trim());
   }
@@ -146,6 +160,9 @@ export async function openChat(
     repos: string[];
     resumeSessionId?: string;
     systemPrompt?: string;
+    // Permalink to the Slack thread, woven into the system prompt so the agent can link a
+    // PR back to the discussion. Set only for channel threads (DMs have no shareable link).
+    slackUrl?: string;
     mcp?: McpServerSpec[];
     // A still-running Daytona command from before a bot restart — reattach to it instead
     // of spawning a fresh process (tried once; falls back to --resume if it's gone).
@@ -162,7 +179,7 @@ export async function openChat(
   let session: ClaudeSession | undefined;
   let droppedResume = false;
   let attach = opts.attach; // consumed once: cleared after the first (re)open attempt
-  const systemPrompt = buildSystemPrompt(opts.slug, cwd, opts.repos, opts.systemPrompt);
+  const systemPrompt = buildSystemPrompt(opts.slug, cwd, opts.repos, opts.systemPrompt, opts.slackUrl);
   const emitOpen = () => {
     const a = session?.attachInfo();
     if (a) opts.onOpen?.(a);
