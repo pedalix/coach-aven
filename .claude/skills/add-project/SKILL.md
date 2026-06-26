@@ -39,11 +39,41 @@ Use AskUserQuestion / plain questions to collect:
 3. **systemPrompt** (optional) — project context appended after the base prompt:
    domain, what each repo is + how they relate, merge/deploy-order rules, doc links.
    (Repo coding conventions belong in each repo's own CLAUDE.md, not here.)
+   Don't make the user write this from scratch — in Step 1.5 OFFER to generate it.
 4. **MCP servers?** (optional) — e.g. a Grafana MCP like caldora's. If yes, collect
    per server: name, command, args, and any env values. Env secrets are referenced as
    `${VAR_NAME}` in the config and the real value goes into `runtime/.env`.
 
 Echo back the assembled project object and confirm before writing.
+
+## Step 1.5 — generate the systemPrompt (don't make the user write it)
+
+Offer to generate it. Two cases:
+
+**No shared-observability MCP →** write 2–4 factual sentences from the repos: what each
+repo is (stack/role) and how they relate (frontend↔backend, shared lib, deploy order).
+Read READMEs via `gh api repos/<Org>/<repo>/contents/README.md` if unsure. Coding
+conventions stay in each repo's CLAUDE.md, not here. Done.
+
+**Has a Grafana/observability MCP on a SHARED stack (holds other projects too) →** the
+prompt must scope every query to this project and exclude siblings. Mine the REAL labels
+first (one command), then bake them in:
+
+```bash
+scripts/grafana-probe.sh '<selector>' '<metric_prefix>'   # e.g. 'app="holidayshop-dorfberg"' 'holidayshop_'
+```
+
+It prints the datasource catalog, this project's scoped Loki labels/values, the matching
+Prometheus metrics + their distinguishing label, and who else shares the metric prefix.
+(It hits the Grafana API directly with the read-only token in `runtime/.env` — works for
+a NEW project before any sandbox exists. For an EXISTING project you *can* instead mine
+real past queries from its sandbox with `scripts/peek-sandbox.ts <proj-slug> '<cmd>'`,
+but the probe is simpler — don't reach for the sandbox unless the API can't answer.)
+
+Then write the prompt with: datasource catalog, this project's exact selectors
+(metric prefix + label=value), a tenant note if data splits by a `tenant`/`site_id`
+label, and an explicit EXCLUDE list of sibling projects. Model it on the existing
+`caldora` / `holidayshop-dorfberg` prompts. Show it and move on — don't belabor variants.
 
 ## Step 2 — edit the prod config
 

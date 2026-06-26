@@ -12,7 +12,6 @@
 #                  .env, github-app-private-key.pem, projects.config.json — read from
 #                  infra/prod/runtime/ (SEPARATE from the repo-root local-dev files).
 #                  Run once, and again whenever any change. NEVER touches state.json.
-#                  (alias: push-secrets)
 #   import         The reverse: download the box's live runtime files into
 #                  infra/prod/runtime/ so it mirrors prod. (alias: pull)
 #   deploy         Upload the repo (code only), `npm ci` on the server, restart the
@@ -108,10 +107,10 @@ cmd_install() {
             && install -m 440 -o root -g root /etc/sudoers.d/${SERVICE_NAME}.tmp /etc/sudoers.d/${SERVICE_NAME} \
             && rm -f /etc/sudoers.d/${SERVICE_NAME}.tmp \
             && usermod -aG systemd-journal ${DEPLOY_USER}"
-  ok "unit installed + enabled (not started yet — run push-secrets, then deploy)"
+  ok "unit installed + enabled (not started yet — run export, then deploy)"
 }
 
-# export (a.k.a. push-secrets): upload the local prod-runtime truth → the box.
+# export: upload the local prod-runtime truth → the box.
 cmd_export() {
   preflight_deployer
   local missing=0
@@ -149,7 +148,7 @@ cmd_import() {
 cmd_deploy() {
   preflight_deployer
   dssh "test -f $REMOTE_DIR/.env" </dev/null \
-    || die "no $REMOTE_DIR/.env on the box — run push-secrets first"
+    || die "no $REMOTE_DIR/.env on the box — run export first"
 
   log "Uploading repo (code only) to $DEPLOYER:$REMOTE_DIR"
   dssh "mkdir -p $REMOTE_DIR"
@@ -208,7 +207,7 @@ need ssh; need scp; need tar
 load_env
 case "${1:-}" in
   install)      cmd_install ;;
-  export|push-secrets) cmd_export ;;
+  export)       cmd_export ;;
   import|pull)  cmd_import ;;
   deploy)       cmd_deploy ;;
   logs)         cmd_logs ;;
