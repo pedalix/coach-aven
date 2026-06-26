@@ -1,0 +1,28 @@
+# Groups GitHub's auto-generated release notes (used by the release workflow's
+# `gh release create --generate-notes`). PRs are bucketed by their labels; label a PR
+# `feature`/`fix`/`ci` etc. to place it, otherwise it falls into "Other changes".
+changelog:
+  exclude:
+    labels:
+      - norelease
+  categories:
+    - title: ✨ Features
+      labels:
+        - feature
+        - enhancement
+    - title: 🐛 Fixes
+      labels:
+        - fix
+        - bug
+    - title: 🔧 CI / Chore
+      labels:
+        - ci
+        - chore
+        - dependencies
+    - title: 📝 Docs
+      labels:
+        - docs
+        - documentation
+    - title: Other changes
+      labels:
+        - "*"

@@ -9,14 +9,18 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 - `npm run typecheck` — `tsc --noEmit`. Must pass before every commit.
 - `npm test` — Node's built-in runner over `src/**/*.test.ts`. Must pass before every commit.
 - `npm run orch -- slack` — run the bot locally (needs a dev Slack app + `.env`; see `README.md`).
-- Prod deploy / releases — tag `vX.Y.Z` (see `infra/prod/README.md`); CI runs typecheck + test → deploy.
+- Release — merge PRs to `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag
+  triggers CI (typecheck + test → GitHub Release → deploy). No changelog or version edits.
 
 ## Conventions
 
 - **Changing Slack UI/UX → update the App Home tab.** The Home tab (`homeBlocks` in
   `src/slack.ts`) is the user-facing cheat-sheet. Any new command, button, or changed
   interaction MUST be reflected there in the same change, or it silently goes stale.
-- **Every user-facing change gets a `CHANGELOG.md` `[Unreleased]` entry** (Keep a Changelog).
+- **Release notes are auto-generated from merged PR titles** (GitHub Releases — `CHANGELOG.md`
+  is just a pointer there). So write clear, human-readable PR titles, and label PRs
+  (`feature`/`fix`/`ci`/`docs`) so they group per `.github/release.yml`. The git tag is the
+  version of record; `package.json`'s `version` is not maintained.
 - **Pure logic lives in its own module with tests.** Anything testable without Slack/Daytona
   (parsing, matching, formatting) goes in a standalone file (e.g. `src/schedule.ts`) with a
   `*.test.ts` beside it — don't bury it inside `src/slack.ts`.

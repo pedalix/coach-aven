@@ -2,12 +2,13 @@ name: Release & Deploy
 
 # Tag-triggered release pipeline for the CoachAven orchestrator.
 #
-# Cutting a release:
-#   1. Move the CHANGELOG "Unreleased" notes under a new `## [X.Y.Z] - YYYY-MM-DD`.
-#   2. Bump "version" in package.json to X.Y.Z, commit, merge to main.
-#   3. Tag it:  git tag vX.Y.Z && git push origin vX.Y.Z
+# Cutting a release: merge your PRs to main, then:
+#   git tag vX.Y.Z && git push origin vX.Y.Z
+# No changelog or version edits — the tag IS the version of record. Release notes are
+# generated from the PRs merged since the previous tag (grouped per .github/release.yml),
+# so write human-readable PR titles.
 #
-# The tag push runs: verify (typecheck) → GitHub Release (notes from CHANGELOG) →
+# The tag push runs: verify (typecheck + tests) → GitHub Release (auto-generated notes) →
 # SSH deploy to the shared Hetzner box via infra/prod/deploy.sh (deployer key only).
 #
 # Required config (GitHub → Settings → Environments → "production"):
@@ -55,30 +56,16 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
-      - name: Extract changelog notes for this tag
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          awk -v ver="$version" '
-            $0 ~ "^## \\[" ver "\\]" { flag = 1; next }
-            flag && /^## \[/ { exit }
-            flag { print }
-          ' CHANGELOG.md > notes.md || true
-          # Trim leading/trailing blank lines.
-          sed -i -e '/./,$!d' notes.md
-          if [ -s notes.md ]; then
-            echo "NOTES_ARGS=--notes-file notes.md" >> "$GITHUB_ENV"
-          else
-            echo "No CHANGELOG section for $version — using auto-generated notes."
-            echo "NOTES_ARGS=--generate-notes" >> "$GITHUB_ENV"
-          fi
-      - name: Create or update the GitHub Release
+      - name: Create the GitHub Release (notes auto-generated from merged PRs)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" $NOTES_ARGS
+            echo "Release $GITHUB_REF_NAME already exists — leaving its notes as-is."
           else
-            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --verify-tag $NOTES_ARGS
+            # --generate-notes builds the body from PRs merged since the previous tag,
+            # categorized per .github/release.yml.
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --verify-tag --generate-notes
           fi
 
   deploy:
