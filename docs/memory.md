@@ -186,18 +186,24 @@ So dreaming is framed around *quality*, with persistence as a secondary safety n
   pre-dream copy (the `state.json` backup doubles as this) so a bad dream is recoverable.
   Memory is read by humans via `/aven memory`, so drift is catchable.
 
-### Shape
+### Shape (v1, implemented)
 
-A new **routine kind** layered on the existing routines mechanism (not a second scheduler):
-a per-project `dream` job that enqueues a dreaming turn on its cron, gated on recent
-activity. Sequencing: build **`/aven memory` (read) first** — you want to *see* memory
-before letting a dream rewrite it; `/aven memory` is both a utility and the trust tool for
-dreaming.
+A new **routine kind** (`kind: 'dream'`) on the existing routines mechanism — not a second
+scheduler. Managed with `/aven dream [on|off|now]` (bare = status); enabling creates one
+nightly dream routine per project channel (default `0 3 * * *`, in `AVEN_TZ`). The scheduler
+fires it like any routine; `fireRoutine` dispatches dreams to `fireDream`, which:
 
-### Open decisions
+- runs **silently** via the no-UI turn runner (`runAsk` + `DREAM_FRAMING`) — no channel post;
+- **skips if the project has a live turn** (`projectBusy`), to avoid racing a user on memory;
+- **logs a one-line digest** (`dreamDigest`) to the journal and stores it on the routine
+  (`lastSummary`), surfaced by `/aven dream` and `/aven routines` — visibility without noise.
 
-- **Silent vs. digest:** does a dream curate silently, or also post a short channel digest
-  ("tidied memory; here's what I learned / what's still open")? — *to decide.*
+### Decided / deferred within Dreaming
+
+- **Silent + logged digest** (chosen): curate quietly, log a one-line digest; no channel spam.
+- **Activity gate** (deferred): v1 dreams on schedule whenever enabled and the project isn't
+  busy; "only if there was activity since the last dream" needs a per-project last-activity
+  signal and is left for later.
 
 ## Deferred / future
 
