@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { dreamDigest, DREAM_FRAMING } from './dream.js';
+import { dreamDigest, dreamPrompt } from './dream.js';
 
 test('dreamDigest takes the first non-empty line, stripped of markdown', () => {
   assert.equal(dreamDigest('\n\n  **Merged** two `notes` files.\nmore detail here'), 'Merged two notes files.');
@@ -17,6 +17,14 @@ test('dreamDigest caps length with an ellipsis', () => {
   assert.ok(d.endsWith('…'));
 });
 
-test('DREAM_FRAMING forbids code changes', () => {
-  assert.match(DREAM_FRAMING, /Do NOT modify code/);
+test('dreamPrompt forbids code changes and points at this project memory + transcripts', () => {
+  const p = dreamPrompt('/root/work/caldora');
+  assert.match(p, /do\s+NOT modify code/i);
+  // derives the memory dir and the sibling transcript dir from the cwd
+  assert.match(p, /\/root\/\.claude\/projects\/-root-work-caldora\/memory\//);
+  assert.match(p, /\/root\/\.claude\/projects\/-root-work-caldora\/\*\.jsonl/);
+  // the multi-phase structure that the terse version lacked
+  assert.match(p, /Phase 1 — Orient/);
+  assert.match(p, /Phase 2 — Gather recent signal/);
+  assert.match(p, /Phase 4 — Prune & index/);
 });

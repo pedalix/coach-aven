@@ -14,7 +14,7 @@ import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn } from './fo
 import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
-import { DREAM_FRAMING, dreamDigest } from './dream.js';
+import { dreamPrompt, dreamDigest } from './dream.js';
 import { snapshotMemory, memoryRepoDir, readSnapshotFile, snapshotLog } from './memjournal.js';
 import { countOpenPRs } from './github.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
@@ -1210,7 +1210,7 @@ export async function runSlack(cfg: Config): Promise<void> {
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
     void (async () => {
       try {
-        const digest = dreamDigest(await runAsk(key, project, DREAM_FRAMING));
+        const digest = dreamDigest(await runAsk(key, project, dreamPrompt(projectCwd(cfg, project.slug, project.repos))));
         store.patchRoutine(r.id, { lastSummary: digest });
         log.info(`dream ${r.id} (${project.slug}): ${digest}`);
         // Journal the consolidated memory (the sandbox is awake from the dream just now).
