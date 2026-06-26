@@ -10,6 +10,7 @@
   "scripts": {
     "orch": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test 'src/**/*.test.ts'",
     "prod:install": "infra/prod/deploy.sh install",
     "prod:export": "infra/prod/deploy.sh export",
     "prod:import": "infra/prod/deploy.sh import",

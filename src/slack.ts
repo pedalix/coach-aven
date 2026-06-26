@@ -1,6 +1,6 @@
 import bolt from '@slack/bolt';
 import type { Config } from './config.js';
-import { Store } from './state.js';
+import { Store, type RoutineRecord } from './state.js';
 import {
   loadProjects,
   resolveByChannel,
@@ -9,6 +9,7 @@ import {
   type ProjectsRegistry,
 } from './projects.js';
 import { openChat, type ChatSession } from './tasks.js';
+import { parseSchedule, dueRoutines } from './schedule.js';
 import { makeDaytona, listSandboxStates } from './daytona.js';
 import { countOpenPRs } from './github.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
@@ -19,6 +20,12 @@ const { App } = bolt;
 // Slack hard-caps a single message at 40k chars; leave headroom.
 const MAX_SLACK_TEXT = 39000;
 const THINKING = ':hourglass_flowing_sand: thinking…';
+
+// The slash command this bot answers to. DEV runs a SEPARATE Slack app in the same
+// workspace (e.g. devcoachaven), and Slack forbids two apps owning the same command — so
+// dev sets SLACK_COMMAND (e.g. /dev-aven) to match its app's manifest. Default: /aven.
+// Used for both the Bolt registration and every user-facing help string.
+const CMD = ((c) => (c.startsWith('/') ? c : `/${c}`))((process.env.SLACK_COMMAND || '/aven').trim());
 
 // One Slack bot, MANY channels. Each channel is bound to a project (channel = context =
 // the project's own isolated sandbox, proj-<slug>); naming convention bluefin-{project}.
@@ -49,6 +56,11 @@ export async function runSlack(cfg: Config): Promise<void> {
   const queues = new Map<string, Promise<void>>();
   const running = new Map<string, AbortController>();
   let turnSeq = 0;
+
+  // Scheduled report jobs: dedupe a routine to one fire per matched wall-clock minute
+  // (overlapping ticks / a quick restart shouldn't double-post). Maps routine id → the
+  // "month-day hh:mm" it last fired on.
+  const firedThisMinute = new Map<string, string>();
 
   // Pending AskUserQuestion prompts: the agent asked, we posted option buttons, and
   // we're waiting for clicks. Keyed by a questionId carried on each button. `picks` maps
@@ -554,13 +566,16 @@ export async function runSlack(cfg: Config): Promise<void> {
   });
 
   // ── /aven → private answer in the user's DM (per project) ───────────────────
-  app.command('/aven', async ({ command, ack, respond, client }) => {
+  app.command(CMD, async ({ command, ack, respond, client }) => {
     await ack(); // Slack needs an ack within 3s; the real work runs after.
+
+    const cmdText = (command.text ?? '').trim();
+    const verb = cmdText.split(/\s+/)[0]?.toLowerCase();
 
     // `/aven status` → a live ops snapshot (sandboxes, sessions, in-flight turns, PRs).
     // Reserved keyword, intercepted before project resolution so it works in ANY channel
     // (it's a fleet-wide view, not bound to one project).
-    if ((command.text ?? '').trim().toLowerCase() === 'status') {
+    if (verb === 'status') {
       await respond({ response_type: 'ephemeral', text: ':bar_chart: Gathering status…' });
       try {
         const report = await collectStatus();
@@ -576,13 +591,42 @@ export async function runSlack(cfg: Config): Promise<void> {
       return;
     }
 
+    // `/aven schedule <when> | <prompt>` → create a read-only report job in this channel.
+    if (verb === 'schedule') {
+      const r = await handleSchedule(client, command.channel_id, command.user_id, cmdText);
+      await respond({ response_type: 'ephemeral', ...r });
+      return;
+    }
+    // `/aven routines [run|on|off|rm <id>]` → list/manage this channel's report jobs.
+    if (verb === 'routines') {
+      const rargs = cmdText.split(/\s+/).slice(1);
+      if (rargs[0]?.toLowerCase() === 'run') {
+        // Fire a job on demand (testing / "run the digest now") — needs the client, so
+        // it's handled here rather than in the pure handleRoutines.
+        const id = rargs[1];
+        const r = id ? store.getRoutine(id) : undefined;
+        if (!r || r.channel !== command.channel_id) {
+          await respond({ response_type: 'ephemeral', text: `:x: No job \`${id ?? ''}\` in this channel.` });
+          return;
+        }
+        const ok = fireRoutine(client, r);
+        await respond({
+          response_type: 'ephemeral',
+          text: ok ? `:rocket: Running *${r.id}* now…` : `:hourglass_flowing_sand: *${r.id}* is already running.`,
+        });
+        return;
+      }
+      await respond({ response_type: 'ephemeral', ...handleRoutines(command.channel_id, cmdText) });
+      return;
+    }
+
     const { project, question, error } = await pickProject(client, command.channel_id, command.text ?? '');
     if (error) {
       await respond({ response_type: 'ephemeral', text: info(error) });
       return;
     }
     if (!question) {
-      await respond({ response_type: 'ephemeral', text: 'Ask me something: `/aven <your question>`' });
+      await respond({ response_type: 'ephemeral', text: `Ask me something: \`${CMD} <your question>\`` });
       return;
     }
     const key = `cmd:${command.user_id}:${project!.slug}`;
@@ -789,9 +833,111 @@ export async function runSlack(cfg: Config): Promise<void> {
     }
   }
 
+  // ── /aven schedule → create a read-only report job bound to this channel ─────
+  // Returns an ephemeral payload (text + optional blocks). The project is resolved from
+  // the channel binding only (not the text), so a job can't be created in an unbound chat.
+  async function handleSchedule(
+    client: bolt.webApi.WebClient,
+    channelId: string,
+    userId: string,
+    cmdText: string,
+  ): Promise<{ text: string; blocks?: unknown[] }> {
+    const usage =
+      `Usage: \`${CMD} schedule <when> | <what to report>\`\n` +
+      '`<when>` = `daily 9:00`, `weekdays 9:00`, `weekly mon 9:00`, or `cron 0 9 * * 1-5`' +
+      ` (times in ${ROUTINE_TZ}).`;
+    const rest = cmdText.slice('schedule'.length).trim();
+    const bar = rest.indexOf('|');
+    if (bar < 0) return { text: `:information_source: ${usage}` };
+    const when = rest.slice(0, bar).trim();
+    const prompt = rest.slice(bar + 1).trim();
+    if (!when || !prompt) return { text: `:information_source: ${usage}` };
+
+    const sched = parseSchedule(when);
+    if ('error' in sched) return { text: `:x: ${sched.error}` };
+
+    const { project } = await pickProject(client, channelId, '');
+    if (!project) {
+      return {
+        text: ':x: Schedule a job from a project channel (e.g. `' + `${CHANNEL_PREFIX}${registry.projects[0]?.slug ?? 'caldora'}` + '`).',
+      };
+    }
+    const rec = store.addRoutine({
+      slug: project.slug,
+      channel: channelId,
+      cron: sched.cron,
+      tz: ROUTINE_TZ,
+      spec: sched.spec,
+      prompt,
+      enabled: true,
+      createdBy: userId,
+    });
+    return {
+      text:
+        `:white_check_mark: Scheduled *${rec.id}* — \`${rec.spec}\` (${ROUTINE_TZ}) for *${project.slug}*. ` +
+        `I'll post the digest here. Read-only — I won't change code or open PRs.\n_Manage:_ \`${CMD} routines\``,
+    };
+  }
+
+  // ── /aven routines [on|off|rm <id>] → list/manage this channel's report jobs ──
+  function handleRoutines(channelId: string, cmdText: string): { text: string; blocks?: unknown[] } {
+    const args = cmdText.split(/\s+/).slice(1); // drop the "routines" verb
+    const sub = args[0]?.toLowerCase();
+    if (!sub) {
+      return { text: 'Scheduled jobs', blocks: routineListBlocks(store.listRoutines({ channel: channelId })) };
+    }
+    const id = args[1];
+    if (!id) return { text: `:information_source: Usage: \`${CMD} routines run|on|off|rm <id>\`` };
+    const r = store.getRoutine(id);
+    if (!r || r.channel !== channelId) return { text: `:x: No job \`${id}\` in this channel.` };
+    if (sub === 'off') {
+      store.patchRoutine(id, { enabled: false });
+      return { text: `:white_check_mark: Paused *${id}*.` };
+    }
+    if (sub === 'on') {
+      store.patchRoutine(id, { enabled: true });
+      return { text: `:white_check_mark: Resumed *${id}*.` };
+    }
+    if (sub === 'rm' || sub === 'remove' || sub === 'delete') {
+      store.deleteRoutine(id);
+      return { text: `:white_check_mark: Deleted *${id}*.` };
+    }
+    return { text: `:information_source: Usage: \`${CMD} routines run|on|off|rm <id>\`` };
+  }
+
+  // Fire one routine now: post a read-only digest turn on key `cron:<id>:<slug>` via the
+  // normal turn machinery (cancelable + restart-recoverable). Shared by the scheduler and
+  // the manual `/aven routines run` trigger. Returns false if it can't run right now.
+  function fireRoutine(client: bolt.webApi.WebClient, r: RoutineRecord): boolean {
+    const project = resolveBySlug(registry, r.slug);
+    if (!project) return false; // project removed from the registry
+    const key = `cron:${r.id}:${r.slug}`;
+    if (queues.has(key)) return false; // previous run still in flight — don't stack
+    store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
+    void liveTurn(client, r.channel, undefined, undefined, key, project, REPORT_FRAMING + r.prompt).catch((e) =>
+      log.error(`routine ${r.id}: ${e instanceof Error ? e.message : String(e)}`),
+    );
+    return true;
+  }
+
+  // Scheduler: every 60s, fire any routine due this wall-clock minute (see dueRoutines).
+  // Routines live in state.json, so they need no separate restart recovery.
+  function startScheduler(): void {
+    const client = app.client;
+    const tick = (): void => {
+      for (const { routine, key } of dueRoutines(store.listRoutines(), new Date(), firedThisMinute)) {
+        firedThisMinute.set(routine.id, key);
+        fireRoutine(client, routine);
+      }
+    };
+    tick();
+    setInterval(tick, 60_000);
+  }
+
   await app.start();
   log.info(`Slack bot running (Socket Mode) — ${summary(registry)}`);
   void resumeInflightTurns();
+  startScheduler();
 }
 
 // Slack's `markdown` block renders standard Markdown (bold, headers, lists, links,
@@ -1012,11 +1158,12 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
       text: {
         type: 'mrkdwn',
         text:
-          '• *Build / collaborate* — `@CoachAven <task>` in a project channel. I reply in a thread; keep replying (no need to re-mention) and I remember the conversation.\n' +
-          '• *Quick private answer* — `/aven <question>` in a project channel. I answer privately in our DM.\n' +
+          '• *Build / collaborate* — @-mention me with a task in a project channel. I reply in a thread; keep replying (no need to re-mention) and I remember the conversation.\n' +
+          `• *Quick private answer* — \`${CMD} <question>\` in a project channel. I answer privately in our DM.\n` +
+          `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\`.\n` +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
-          '• *Status* — `/aven status` for a live view of sandboxes, sessions, and open PRs.',
+          `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.`,
       },
     },
     {
@@ -1027,6 +1174,48 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
     },
   );
   return blocks;
+}
+
+// ── Scheduled report jobs ─────────────────────────────────────────────────
+// Timezone the cron schedules are evaluated in. Set AVEN_TZ (IANA, e.g. Europe/Zurich)
+// in the runtime .env for local times; defaults to UTC.
+const ROUTINE_TZ = process.env.AVEN_TZ || 'UTC';
+
+// Prepended to every scheduled turn: these jobs report, they don't change anything.
+// (Tools aren't hard-gated, so this is a strong instruction, not an enforced sandbox.)
+const REPORT_FRAMING =
+  '[Scheduled read-only digest] Do NOT modify code, create branches, commit, or open PRs. ' +
+  'Read-only: gather the requested information and post one concise summary. If nothing is ' +
+  'noteworthy, say so briefly.\n\n';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+function routineListBlocks(rs: RoutineRecord[]): any[] {
+  if (!rs.length) {
+    return [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `_No scheduled jobs in this channel._\nCreate one: \`${CMD} schedule weekdays 9:00 | one-line status on open PRs and active threads\``,
+        },
+      },
+    ];
+  }
+  const lines = rs.map((r) => {
+    const dot = r.enabled ? '🟢' : '⚪️';
+    const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
+    const p = r.prompt.length > 90 ? `${r.prompt.slice(0, 87)}…` : r.prompt;
+    return `${dot} *${r.id}* — \`${r.spec}\` (${r.tz})${last}\n   ${p}`;
+  });
+  return [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `*Scheduled jobs*\n${lines.join('\n')}\n\n_Manage:_ \`${CMD} routines run|off|on|rm <id>\` (\`run\` = fire now)`,
+      },
+    },
+  ];
 }
 
 // Plain-text fallback (notifications / accessibility) required alongside blocks.

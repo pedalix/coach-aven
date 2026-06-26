@@ -29,9 +29,27 @@ export interface ChatRecord {
   updatedAt: string;
 }
 
+// A scheduled "report" job bound to a project channel. A 60s scheduler tick (in slack.ts)
+// matches `cron` against the wall-clock in `tz` and fires `prompt` as a read-only turn on
+// session key `cron:<slug>:<id>`. Stored here so jobs survive bot restarts.
+export interface RoutineRecord {
+  id: string; // short, e.g. "r1"
+  slug: string;
+  channel: string; // where the digest is posted
+  cron: string; // 5-field: "min hour dom mon dow"
+  tz: string; // IANA tz the cron is evaluated in
+  spec: string; // human-readable original, e.g. "weekdays 9:00"
+  prompt: string; // the standing instruction
+  enabled: boolean;
+  createdBy: string; // Slack user id
+  createdAt: string;
+  lastRunAt?: string; // last fire (dedupes within a minute + across restarts)
+}
+
 interface StateShape {
   projects: Record<string, ProjectRecord>;
   chats?: Record<string, ChatRecord>;
+  routines?: Record<string, RoutineRecord>;
 }
 
 const STATE_PATH = new URL('../state.json', import.meta.url).pathname;
@@ -104,5 +122,46 @@ export class Store {
     }
     chats[threadTs] = next;
     this.save();
+  }
+
+  // ── scheduled report jobs ───────────────────────────────────────────────
+  listRoutines(filter?: { slug?: string; channel?: string }): RoutineRecord[] {
+    let rs = Object.values(this.data.routines ?? {});
+    if (filter?.slug) rs = rs.filter((r) => r.slug === filter.slug);
+    if (filter?.channel) rs = rs.filter((r) => r.channel === filter.channel);
+    return rs;
+  }
+
+  getRoutine(id: string): RoutineRecord | undefined {
+    return this.data.routines?.[id];
+  }
+
+  // Add a routine, assigning a fresh "r<n>" id (n = highest existing + 1; single-process).
+  addRoutine(rec: Omit<RoutineRecord, 'id' | 'createdAt'>): RoutineRecord {
+    const routines = (this.data.routines ??= {});
+    const maxN = Object.keys(routines).reduce((m, id) => {
+      const n = Number(id.replace(/^r/, ''));
+      return Number.isFinite(n) && n > m ? n : m;
+    }, 0);
+    const full: RoutineRecord = { ...rec, id: `r${maxN + 1}`, createdAt: new Date().toISOString() };
+    routines[full.id] = full;
+    this.save();
+    return full;
+  }
+
+  patchRoutine(id: string, patch: Partial<RoutineRecord>): RoutineRecord | undefined {
+    const cur = this.data.routines?.[id];
+    if (!cur) return undefined;
+    const next = { ...cur, ...patch, id };
+    (this.data.routines ??= {})[id] = next;
+    this.save();
+    return next;
+  }
+
+  deleteRoutine(id: string): boolean {
+    if (!this.data.routines?.[id]) return false;
+    delete this.data.routines[id];
+    this.save();
+    return true;
   }
 }
