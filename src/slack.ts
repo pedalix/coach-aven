@@ -267,21 +267,40 @@ export async function runSlack(cfg: Config): Promise<void> {
     return answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
   }
 
-  // Read a file from a project's Claude Code auto-memory dir (read-only `/aven memory`).
-  // Memory lives on the sandbox disk and survives stop/start, so a stopped sandbox is woken
-  // to read it (the only way to reach files in a Daytona sandbox). `filePath` is already
-  // sanitized by memoryFilePath. Throws a friendly message when there's nothing to show.
-  async function readMemory(project: ProjectConfig, filePath: string): Promise<string> {
+  // Read a file from a project's Claude Code auto-memory dir (the sandbox copy). By default
+  // we do NOT wake a stopped sandbox — this box can't run the whole fleet warm, so forcing a
+  // start just to read can fail under resource pressure (and it's slow). `wake` (only set by
+  // `/aven memory live`) opts into starting it. `filePath` is already sanitized. Raw Daytona
+  // errors are wrapped so the user never sees an axios 500. Throws a friendly message otherwise.
+  async function readMemory(project: ProjectConfig, filePath: string, wake: boolean): Promise<string> {
     const daytona = makeDaytona(cfg);
     const name = `${cfg.sandbox.namePrefix}${project.slug}`;
     let sandbox = await daytona.get(name).catch(() => {
       throw new Error('No sandbox for this project yet — nothing remembered.');
     });
     if (sandbox.state !== 'started') {
-      await daytona.start(sandbox, 180);
-      sandbox = await daytona.get(name);
+      if (!wake) {
+        throw new Error(
+          `💤 The *${project.slug}* sandbox is asleep, so I can't read its live memory right now. ` +
+            `Use \`${CMD} memory live\` to wake it, or just @-mention me — and once a dream runs, ` +
+            `\`${CMD} memory\` serves the snapshot without waking it.`,
+        );
+      }
+      try {
+        await daytona.start(sandbox, 180);
+        sandbox = await daytona.get(name);
+      } catch (e) {
+        log.error(`readMemory start ${name}: ${e instanceof Error ? e.message : String(e)}`);
+        throw new Error(`Couldn't wake the *${project.slug}* sandbox just now — try again in a moment.`);
+      }
     }
-    const r = await exec(sandbox, `cat ${filePath} 2>/dev/null || true`);
+    let r;
+    try {
+      r = await exec(sandbox, `cat ${filePath} 2>/dev/null || true`);
+    } catch (e) {
+      log.error(`readMemory exec ${name}: ${e instanceof Error ? e.message : String(e)}`);
+      throw new Error(`Couldn't read memory from the *${project.slug}* sandbox just now — try again in a moment.`);
+    }
     const out = (r.result ?? '').trim().slice(0, MAX_SLACK_TEXT);
     if (!out) throw new Error('Nothing remembered yet for this project.');
     return out;
@@ -747,7 +766,7 @@ export async function runSlack(cfg: Config): Promise<void> {
 
       await respond({ response_type: 'ephemeral', text: ':brain: Reading memory…' });
       try {
-        const text = await readMemory(project, file);
+        const text = await readMemory(project, file, live);
         await respond({
           response_type: 'ephemeral',
           replace_original: true,
