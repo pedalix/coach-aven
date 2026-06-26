@@ -11,7 +11,9 @@ import {
 import { openChat, type ChatSession } from './tasks.js';
 import { parseSchedule, dueRoutines } from './schedule.js';
 import { prUrls, fallbackText, fmtElapsed, stripMention } from './format.js';
-import { makeDaytona, listSandboxStates } from './daytona.js';
+import { makeDaytona, listSandboxStates, exec } from './daytona.js';
+import { projectCwd } from './project.js';
+import { memoryFilePath } from './memory.js';
 import { countOpenPRs } from './github.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
 import { log } from './log.js';
@@ -261,6 +263,26 @@ export async function runSlack(cfg: Config): Promise<void> {
     const answer = await chat.ask(question);
     persist(key, project.slug, chat);
     return answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
+  }
+
+  // Read a file from a project's Claude Code auto-memory dir (read-only `/aven memory`).
+  // Memory lives on the sandbox disk and survives stop/start, so a stopped sandbox is woken
+  // to read it (the only way to reach files in a Daytona sandbox). `filePath` is already
+  // sanitized by memoryFilePath. Throws a friendly message when there's nothing to show.
+  async function readMemory(project: ProjectConfig, filePath: string): Promise<string> {
+    const daytona = makeDaytona(cfg);
+    const name = `${cfg.sandbox.namePrefix}${project.slug}`;
+    let sandbox = await daytona.get(name).catch(() => {
+      throw new Error('No sandbox for this project yet — nothing remembered.');
+    });
+    if (sandbox.state !== 'started') {
+      await daytona.start(sandbox, 180);
+      sandbox = await daytona.get(name);
+    }
+    const r = await exec(sandbox, `cat ${filePath} 2>/dev/null || true`);
+    const out = (r.result ?? '').trim().slice(0, MAX_SLACK_TEXT);
+    if (!out) throw new Error('Nothing remembered yet for this project.');
+    return out;
   }
 
   // Map a conversation key back to its project slug. dm/cmd keys carry the slug as their
@@ -644,6 +666,54 @@ export async function runSlack(cfg: Config): Promise<void> {
       return;
     }
 
+    // `/aven memory [topic]` → read what the agent has remembered about this project's
+    // channel (read-only, private). The learned layer; `/aven prompt` shows the deliberate one.
+    if (verb === 'memory') {
+      const { project, error } = await pickProject(client, command.channel_id, '');
+      if (error || !project) {
+        await respond({ response_type: 'ephemeral', text: info(error ?? 'No project bound to this channel.') });
+        return;
+      }
+      const topic = cmdText.split(/\s+/)[1];
+      const file = memoryFilePath(projectCwd(cfg, project.slug, project.repos), topic);
+      if (!file) {
+        await respond({ response_type: 'ephemeral', text: ':x: Invalid topic name (use letters, digits, `_` or `-`).' });
+        return;
+      }
+      await respond({ response_type: 'ephemeral', text: ':brain: Reading memory…' });
+      try {
+        const text = await readMemory(project, file);
+        await respond({
+          response_type: 'ephemeral',
+          replace_original: true,
+          text: `Memory — ${project.slug}`,
+          blocks: markdownBlocks(text),
+        });
+      } catch (err) {
+        await respond({ response_type: 'ephemeral', replace_original: true, text: errText(err) });
+      }
+      return;
+    }
+
+    // `/aven prompt` → show this project's system prompt (the deliberate layer). Read-only;
+    // editing it from Slack is a separate runtime-config feature (see docs/runtime-config.md).
+    if (verb === 'prompt') {
+      const { project, error } = await pickProject(client, command.channel_id, '');
+      if (error || !project) {
+        await respond({ response_type: 'ephemeral', text: info(error ?? 'No project bound to this channel.') });
+        return;
+      }
+      const body = project.systemPrompt?.trim()
+        ? project.systemPrompt.trim()
+        : "_No project-specific prompt set — the orchestrator base prompt and each repo's CLAUDE.md still apply._";
+      await respond({
+        response_type: 'ephemeral',
+        text: `System prompt — ${project.slug}`,
+        blocks: markdownBlocks(`*System prompt — ${project.slug}*\n\n${body}`),
+      });
+      return;
+    }
+
     const { project, question, error } = await pickProject(client, command.channel_id, command.text ?? '');
     if (error) {
       await respond({ response_type: 'ephemeral', text: info(error) });
@@ -1021,14 +1091,22 @@ interface FollowUp {
 // Render the answer as markdown block(s), then an action row: link buttons to any PR(s)
 // the agent opened, or — if it didn't open one — an "Open a PR" button that enqueues a
 // follow-up turn (only when `followUp` context is supplied, i.e. a live thread/DM turn).
+// Chunk text into Slack `markdown` blocks (each caps ~12k chars). The plain renderer used
+// for read-only views like `/aven memory` and `/aven prompt`.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
-function answerBlocks(answer: string, followUp?: FollowUp): any[] {
+function markdownBlocks(text: string): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blocks: any[] = [];
-  for (let i = 0; i < answer.length; i += SLACK_MD_BLOCK_LIMIT) {
-    blocks.push({ type: 'markdown', text: answer.slice(i, i + SLACK_MD_BLOCK_LIMIT) });
+  for (let i = 0; i < text.length; i += SLACK_MD_BLOCK_LIMIT) {
+    blocks.push({ type: 'markdown', text: text.slice(i, i + SLACK_MD_BLOCK_LIMIT) });
   }
   if (!blocks.length) blocks.push({ type: 'markdown', text: '(no output)' });
+  return blocks;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
+function answerBlocks(answer: string, followUp?: FollowUp): any[] {
+  const blocks = markdownBlocks(answer);
 
   const prs = prUrls(answer);
   if (prs.length) {
@@ -1270,6 +1348,7 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
+          `• *Inspect my context* — \`${CMD} memory\` shows what I've learned about the project (\`${CMD} memory <topic>\` for a detail file); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.`,
       },
     },

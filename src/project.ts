@@ -48,6 +48,13 @@ export function repoCheckout(cfg: Config, slug: string, repo: string) {
   return `${projectDir(cfg, slug)}/${repoName(repo)}`;
 }
 
+// The cwd Claude Code runs in for a project: the single repo's checkout, or the project
+// root when there are several (repos side by side). The session transcript AND auto memory
+// are both keyed off this path, so readers (e.g. memory.ts) must derive it identically.
+export function projectCwd(cfg: Config, slug: string, repos: string[]): string {
+  return repos.length === 1 ? repoCheckout(cfg, slug, repos[0]) : projectDir(cfg, slug);
+}
+
 // Write the GitHub installation token into the sandbox WITHOUT it showing up in
 // command logs (fs.uploadFile, not echo). A git credential helper + gh read it.
 // Call this at the start of every task so the (≈1h) token is always fresh.
