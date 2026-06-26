@@ -3,12 +3,31 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { commitSnapshot, readSnapshotFile, snapshotLog, safeSlug } from './memjournal.js';
+import { commitSnapshot, readSnapshotFile, snapshotLog, safeSlug, safeName } from './memjournal.js';
 
 test('safeSlug accepts conventional slugs, rejects path-y ones', () => {
   assert.equal(safeSlug('caldora'), 'caldora');
   assert.equal(safeSlug('dorfberg-nuxt'), 'dorfberg-nuxt');
   for (const bad of ['../x', 'a/b', 'a b', '.', '']) assert.throws(() => safeSlug(bad), `should reject: ${bad}`);
+});
+
+test('safeName accepts memory filenames, rejects path-y / shell-y ones', () => {
+  for (const ok of ['MEMORY.md', 'project_caldora_overview.md', 'notes-1.md']) {
+    assert.equal(safeName(ok), true, `should accept: ${ok}`);
+  }
+  for (const bad of ['../etc/passwd', 'a/b', 'a b.md', 'foo;rm', '$(x)', '']) {
+    assert.equal(safeName(bad), false, `should reject: ${bad}`);
+  }
+});
+
+test('commitSnapshot preserves an empty file (emptied topic is real state, not a drop)', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
+  try {
+    assert.equal(await commitSnapshot(repo, { 'MEMORY.md': '# idx\n', 'empty.md': '' }, 'init'), true);
+    assert.equal(await readSnapshotFile(repo, 'empty.md'), ''); // present, empty — not missing
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
 });
 
 test('commitSnapshot commits, dedups no-ops, mirrors deletions; readback + log work', async () => {

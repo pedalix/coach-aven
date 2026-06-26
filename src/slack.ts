@@ -60,6 +60,10 @@ export async function runSlack(cfg: Config): Promise<void> {
   // on its "✖ Cancel" button — cancel the running one and the next queued turn starts.
   const queues = new Map<string, Promise<void>>();
   const running = new Map<string, AbortController>();
+  // Keys with a `runAsk` turn in flight (the /aven Q&A path and dreams). These bypass the
+  // `queues` chain, so projectBusy() must consult this too — otherwise a dream wouldn't see a
+  // live Q&A turn (or another dream) writing the same project's memory.
+  const asking = new Set<string>();
   let turnSeq = 0;
 
   // Scheduled report jobs: dedupe a routine to one fire per matched wall-clock minute
@@ -261,10 +265,15 @@ export async function runSlack(cfg: Config): Promise<void> {
   // Run one turn (no live UI); persists the session id under `key`. Used by /aven's
   // ephemeral fallback where we can't stream progress.
   async function runAsk(key: string, project: ProjectConfig, question: string): Promise<string> {
-    const chat = await sessionFor(key, project);
-    const answer = await chat.ask(question);
-    persist(key, project.slug, chat);
-    return answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
+    asking.add(key); // mark in flight so projectBusy() sees it (dreams + /aven Q&A)
+    try {
+      const chat = await sessionFor(key, project);
+      const answer = await chat.ask(question);
+      persist(key, project.slug, chat);
+      return answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
+    } finally {
+      asking.delete(key);
+    }
   }
 
   // Read a file from a project's Claude Code auto-memory dir (the sandbox copy). By default
@@ -1171,6 +1180,7 @@ export async function runSlack(cfg: Config): Promise<void> {
   // a dream rather than race a live user turn on the project's memory files.
   function projectBusy(slug: string): boolean {
     for (const key of queues.keys()) if (slugForKey(key) === slug) return true;
+    for (const key of asking) if (slugForKey(key) === slug) return true; // runAsk turns (Q&A, dreams)
     return false;
   }
 
@@ -1506,8 +1516,8 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
-          `• *Inspect my context* — \`${CMD} memory\` shows what I've learned about the project (\`${CMD} memory <topic>\` for a detail file); \`${CMD} prompt\` shows my system prompt.\n` +
-          `• *Memory upkeep* — \`${CMD} dream on\` lets me quietly consolidate project memory on a nightly schedule (\`${CMD} dream\` for status).\n` +
+          `• *Inspect my context* — \`${CMD} memory\` shows what I've learned (\`${CMD} memory <topic>\` for a detail file, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
+          `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
           `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.`,
       },
     },

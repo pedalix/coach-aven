@@ -29,6 +29,13 @@ export function safeSlug(slug: string): string {
   return slug;
 }
 
+// A memory file is a single safe path segment (no `/`, no `..`, no shell metachars). One
+// predicate, reused everywhere a filename is interpolated into a path or shell `cat`, so the
+// sanitization can't drift between call sites.
+export function safeName(name: string): boolean {
+  return /^[A-Za-z0-9._-]+$/.test(name);
+}
+
 // Host path of a project's journal repo.
 export function memoryRepoDir(slug: string): string {
   return join(MEMORY_BASE, safeSlug(slug));
@@ -48,7 +55,7 @@ export async function commitSnapshot(repoDir: string, files: Record<string, stri
     if (name !== '.git') await rm(join(repoDir, name), { recursive: true, force: true });
   }
   for (const [name, content] of Object.entries(files)) {
-    if (/^[A-Za-z0-9._-]+$/.test(name)) await writeFile(join(repoDir, name), content);
+    if (safeName(name)) await writeFile(join(repoDir, name), content);
   }
   await git(repoDir, ['add', '-A']);
   if (!(await git(repoDir, ['status', '--porcelain'])).trim()) return false; // unchanged
@@ -58,26 +65,33 @@ export async function commitSnapshot(repoDir: string, files: Record<string, stri
 
 // Read one file from the journal's current tree (offline — no sandbox). null if absent/unsafe.
 export async function readSnapshotFile(repoDir: string, fileName: string): Promise<string | null> {
-  if (!/^[A-Za-z0-9._-]+$/.test(fileName)) return null;
+  if (!safeName(fileName)) return null;
   const p = join(repoDir, fileName);
   return existsSync(p) ? readFile(p, 'utf8') : null;
 }
 
-// One-line-per-commit history of the journal (offline).
+// One-line-per-commit history of the journal (offline). Returns [] for a missing repo OR a
+// repo with no commits yet (git log errors on the latter — don't surface that to the user).
 export async function snapshotLog(repoDir: string, n = 10): Promise<string[]> {
   if (!existsSync(join(repoDir, '.git'))) return [];
-  const out = await git(repoDir, ['log', `-n${n}`, '--pretty=%h %ad %s', '--date=short']);
-  return out.split('\n').filter(Boolean);
+  try {
+    const out = await git(repoDir, ['log', `-n${n}`, '--pretty=%h %ad %s', '--date=short']);
+    return out.split('\n').filter(Boolean);
+  } catch {
+    return []; // no commits yet
+  }
 }
 
 // Read the memory files out of a (started) sandbox. Flat dir of small text files; cat each.
 async function collectMemoryFiles(sandbox: Sandbox, dir: string): Promise<Record<string, string>> {
   const ls = await exec(sandbox, `ls -1 ${dir} 2>/dev/null || true`);
-  const names = (ls.result ?? '').split('\n').map((s) => s.trim()).filter((n) => /^[A-Za-z0-9._-]+$/.test(n));
+  const names = (ls.result ?? '').split('\n').map((s) => s.trim()).filter(safeName);
   const files: Record<string, string> = {};
   for (const name of names) {
+    // The name came from `ls`, so the file exists — record it even if empty (an emptied topic
+    // is real state; dropping it would silently un-prune it on the mirror snapshot).
     const r = await exec(sandbox, `cat ${dir}/${name} 2>/dev/null || true`);
-    if (r.result) files[name] = r.result;
+    files[name] = r.result ?? '';
   }
   return files;
 }
@@ -106,11 +120,13 @@ export async function snapshotMemory(
 // (otherwise the sandbox is the newer source of truth and we leave it alone). Best-effort.
 export async function restoreMemoryIfEmpty(sandbox: Sandbox, cfg: Config, slug: string, repos: string[]): Promise<boolean> {
   try {
+    // Cheap local check first: no journal → nothing to restore, skip the sandbox round-trip.
+    // (Journaling is off by default, so this short-circuits on every prepare for most projects.)
+    const repoDir = memoryRepoDir(slug);
+    if (!existsSync(join(repoDir, '.git'))) return false;
     const dir = memoryDir(projectCwd(cfg, slug, repos));
     const ls = await exec(sandbox, `ls -1 ${dir} 2>/dev/null | head -1 || true`);
     if ((ls.result ?? '').trim()) return false; // sandbox already has memory
-    const repoDir = memoryRepoDir(slug);
-    if (!existsSync(join(repoDir, '.git'))) return false; // nothing journaled
     const names = (await readdir(repoDir)).filter((n) => n !== '.git');
     if (!names.length) return false;
     await exec(sandbox, `mkdir -p ${dir}`);
