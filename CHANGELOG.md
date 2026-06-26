@@ -11,6 +11,8 @@ below into the GitHub Release notes and deploys to prod. Before tagging, move th
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-26
+
 ### Added
 - **Scheduled report jobs (proactivity).** `/aven schedule weekdays 9:00 | <what to
   report>` creates a recurring **read-only** digest posted to the channel; `/aven
