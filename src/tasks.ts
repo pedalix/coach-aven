@@ -14,6 +14,7 @@ import {
   projectCwd,
 } from './project.js';
 import type { McpServerSpec } from './projects.js';
+import { restoreMemoryIfEmpty } from './memjournal.js';
 import { ClaudeSession, type OnQuestion } from './claudeSession.js';
 
 // "Chat with the project": ensure the sandbox + clone ALL the project's repos, then
@@ -74,6 +75,9 @@ async function prepareChat(cfg: Config, store: Store, slug: string, repos: strin
   // Agents work in per-task worktrees (see the base prompt); reap finished/orphaned ones.
   for (const repo of repos) await reapWorktrees(sandbox, repoCheckout(cfg, slug, repo));
   const cwd = projectCwd(cfg, slug, repos);
+  // Seed memory from the host journal only when this sandbox has none yet (a fresh rebuild) —
+  // a warm sandbox is the newer source of truth and is left untouched.
+  await restoreMemoryIfEmpty(sandbox, cfg, slug, repos);
 
   proj.clonedAt = proj.clonedAt ?? new Date().toISOString();
   store.setProject(proj);

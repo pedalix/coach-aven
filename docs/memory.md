@@ -205,14 +205,28 @@ fires it like any routine; `fireRoutine` dispatches dreams to `fireDream`, which
   busy; "only if there was activity since the last dream" needs a per-project last-activity
   signal and is left for later.
 
+## Memory journal (durability + history)
+
+Persistence rides on **Dreaming**, not per-turn snapshotting. After each dream (the sandbox
+is already awake), the orchestrator snapshots the project's memory dir into a **per-project
+git repo** at `./memory/<slug>/` (next to `state.json`: server-owned, gitignored,
+deploy-excluded). One repo per project → no cross-project collision.
+
+- **History / reconstruct:** each snapshot is a commit (message = the dream's one-line
+  digest), so `git log` reads as a changelog of dreams and any past state is recoverable by
+  checkout. `/aven memory log` shows the history.
+- **Restructurable:** the journal is plain git — compact, branch, or roll back a bad dream.
+- **Durability:** on the rare rebuild (image swap, Daytona loss), `restoreMemoryIfEmpty`
+  seeds a fresh sandbox from the journal HEAD — but only when the sandbox has no memory yet,
+  so a warm sandbox (the newer source of truth) is never overwritten.
+- **Offline reads:** `/aven memory` serves the journaled host copy without waking the
+  sandbox; `/aven memory live` forces the sandbox's current state.
+
+The sandbox stays the working source of truth; the journal is the durable, restructurable
+log. Implemented in `src/memjournal.ts` (host git + sandbox file IO; pure helpers tested).
+
 ## Deferred / future
 
-- **Durability across rebuilds.** Reframed: because sandboxes are warm and never
-  auto-deleted, in-sandbox memory is durable for normal operation, so we do **not** do
-  per-turn host snapshotting. Persistence rides on [Dreaming](#dreaming) instead — the
-  periodic dream writes a consolidated copy into `state.json`, which we re-seed into a fresh
-  sandbox only on the rare rebuild (image swap, Daytona loss). Avoids the bug-prone
-  hot-path backup (snapshot timing, races with the live writer, restore ordering).
 - **Editing the prompt from Slack** → [runtime config](runtime-config.md). The read-only
   `/aven prompt` ships here in the memory phase; the modal editor, `state.json` overrides,
   and `/aven prompt reset` live in that doc's phase.
@@ -222,6 +236,8 @@ fires it like any routine; `fireRoutine` dispatches dreams to `fireDream`, which
 | Command | Effect |
 | --- | --- |
 | *(normal turn)* "запомни для проекта: …" | write a standing memory note |
-| `/aven memory` | read the project's `MEMORY.md` (private) |
+| `/aven memory` | read the project's `MEMORY.md` — journaled host copy, no sandbox wake (private) |
 | `/aven memory <topic>` | read a specific memory topic file |
+| `/aven memory live [topic]` | force-read the sandbox's current memory (wakes it if asleep) |
+| `/aven memory log` | show the per-project memory snapshot history |
 | `/aven prompt` | read the project's current system prompt (read-only; private) |
