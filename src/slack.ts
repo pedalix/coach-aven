@@ -729,8 +729,7 @@ export async function runSlack(cfg: Config): Promise<void> {
             : '_No snapshots yet — memory is journaled after each dream (`' + CMD + ' dream`)._';
           await respond({
             response_type: 'ephemeral',
-            text: `Memory journal — ${project.slug}`,
-            blocks: markdownBlocks(`*Memory journal — ${project.slug}*\n${body}`),
+            text: `*Memory journal — ${project.slug}*\n${body}`.slice(0, MAX_SLACK_TEXT),
           });
         } catch (err) {
           await respond({ response_type: 'ephemeral', text: errText(err) });
@@ -754,8 +753,7 @@ export async function runSlack(cfg: Config): Promise<void> {
           if (snap) {
             await respond({
               response_type: 'ephemeral',
-              text: `Memory — ${project.slug}`,
-              blocks: markdownBlocks(`${snap}\n\n_(last dream snapshot — \`${CMD} memory live\` for the sandbox's current state)_`),
+              text: `${snap}\n\n_(last dream snapshot — \`${CMD} memory live\` for the sandbox's current state)_`.slice(0, MAX_SLACK_TEXT),
             });
             return;
           }
@@ -770,8 +768,7 @@ export async function runSlack(cfg: Config): Promise<void> {
         await respond({
           response_type: 'ephemeral',
           replace_original: true,
-          text: `Memory — ${project.slug}`,
-          blocks: markdownBlocks(text),
+          text: text.slice(0, MAX_SLACK_TEXT),
         });
       } catch (err) {
         await respond({ response_type: 'ephemeral', replace_original: true, text: errText(err) });
@@ -792,8 +789,7 @@ export async function runSlack(cfg: Config): Promise<void> {
         : "_No project-specific prompt set — the orchestrator base prompt and each repo's CLAUDE.md still apply._";
       await respond({
         response_type: 'ephemeral',
-        text: `System prompt — ${project.slug}`,
-        blocks: markdownBlocks(`*System prompt — ${project.slug}*\n\n${body}`),
+        text: `*System prompt — ${project.slug}*\n\n${body}`.slice(0, MAX_SLACK_TEXT),
       });
       return;
     }
