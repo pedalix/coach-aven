@@ -25,3 +25,16 @@ export function fmtElapsed(ms: number): string {
 export function stripMention(text: string): string {
   return text.replace(/<@[^>]+>/g, '').trim();
 }
+
+// Convert common Markdown to Slack mrkdwn for the message `text` field. We send memory/prompt
+// over the ephemeral respond path, which rejects Slack's `markdown` block — so headers, bold,
+// and links must be translated to mrkdwn or they show as raw syntax. Real URLs become
+// <url|text>; other links (e.g. relative memory topic files) keep their target visible as
+// `text (`target`)` so it's still usable with `/aven memory <topic>`.
+export function mdToMrkdwn(s: string): string {
+  return s
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<$2|$1>')
+    .replace(/\[([^\]]+)\]\(([^)\s]*)\)/g, '$1 (`$2`)')
+    .replace(/\*\*([^*\n]+)\*\*/g, '*$1*')
+    .replace(/^#{1,6}\s+(.*)$/gm, '*$1*');
+}

@@ -10,7 +10,7 @@ import {
 } from './projects.js';
 import { openChat, type ChatSession } from './tasks.js';
 import { parseSchedule, dueRoutines } from './schedule.js';
-import { prUrls, fallbackText, fmtElapsed, stripMention } from './format.js';
+import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn } from './format.js';
 import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
@@ -739,6 +739,8 @@ export async function runSlack(cfg: Config): Promise<void> {
 
       const live = sub === 'live';
       const topic = live ? args[2] : args[1];
+      // Viewing the index (no topic)? Point at how to drill into the section files it lists.
+      const topicTip = topic ? '' : `\n\n_\`${CMD} memory <name>\` opens a section file listed above._`;
       const file = memoryFilePath(projectCwd(cfg, project.slug, project.repos), topic);
       if (!file) {
         await respond({ response_type: 'ephemeral', text: ':x: Invalid topic name (use letters, digits, `_` or `-`).' });
@@ -753,7 +755,7 @@ export async function runSlack(cfg: Config): Promise<void> {
           if (snap) {
             await respond({
               response_type: 'ephemeral',
-              text: `${snap}\n\n_(last dream snapshot — \`${CMD} memory live\` for the sandbox's current state)_`.slice(0, MAX_SLACK_TEXT),
+              text: `${mdToMrkdwn(snap)}${topicTip}\n\n_(last dream snapshot — \`${CMD} memory live\` for the sandbox's current state)_`.slice(0, MAX_SLACK_TEXT),
             });
             return;
           }
@@ -768,7 +770,7 @@ export async function runSlack(cfg: Config): Promise<void> {
         await respond({
           response_type: 'ephemeral',
           replace_original: true,
-          text: text.slice(0, MAX_SLACK_TEXT),
+          text: `${mdToMrkdwn(text)}${topicTip}`.slice(0, MAX_SLACK_TEXT),
         });
       } catch (err) {
         await respond({ response_type: 'ephemeral', replace_original: true, text: errText(err) });
@@ -789,7 +791,7 @@ export async function runSlack(cfg: Config): Promise<void> {
         : "_No project-specific prompt set — the orchestrator base prompt and each repo's CLAUDE.md still apply._";
       await respond({
         response_type: 'ephemeral',
-        text: `*System prompt — ${project.slug}*\n\n${body}`.slice(0, MAX_SLACK_TEXT),
+        text: `*System prompt — ${project.slug}*\n\n${mdToMrkdwn(body)}`.slice(0, MAX_SLACK_TEXT),
       });
       return;
     }

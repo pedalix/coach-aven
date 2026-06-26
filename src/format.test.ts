@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { prUrls, fallbackText, fmtElapsed, stripMention } from './format.js';
+import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn } from './format.js';
 
 test('prUrls — extracts PR URLs, dedupes, ignores non-PRs', () => {
   assert.deepEqual(prUrls('Opened https://github.com/pedalix/caldora-admin/pull/15 for review.'), [
@@ -36,4 +36,15 @@ test('stripMention — removes <@…> mentions and trims', () => {
   assert.equal(stripMention('<@U123> fix the bug'), 'fix the bug');
   assert.equal(stripMention('no mention'), 'no mention');
   assert.equal(stripMention('<@U1> <@U2> hi'), 'hi');
+});
+
+test('mdToMrkdwn — headers/bold to mrkdwn; URL links linked, file links keep target', () => {
+  assert.equal(mdToMrkdwn('# Memory Index'), '*Memory Index*');
+  assert.equal(mdToMrkdwn('### Sub'), '*Sub*');
+  assert.equal(mdToMrkdwn('**bold** text'), '*bold* text');
+  assert.equal(mdToMrkdwn('[Anthropic](https://anthropic.com)'), '<https://anthropic.com|Anthropic>');
+  assert.equal(
+    mdToMrkdwn('[Caldora overview](project_caldora_overview.md)'),
+    'Caldora overview (`project_caldora_overview.md`)',
+  );
 });
