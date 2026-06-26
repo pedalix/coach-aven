@@ -61,3 +61,24 @@ export async function getGitHubToken(cfg: Config, repos: string[]): Promise<stri
   });
   return token;
 }
+
+// Best-effort count of OPEN pull requests across a project's repos, for `/aven status`.
+// Uses a token scoped to exactly those repos. Returns `undefined` if it can't be
+// determined (auth/network/rate-limit) so the caller can show "?" instead of failing.
+export async function countOpenPRs(cfg: Config, repos: string[]): Promise<number | undefined> {
+  try {
+    const token = await getGitHubToken(cfg, repos);
+    let total = 0;
+    for (const repo of repos) {
+      const res = await fetch(
+        `https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`,
+        { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } },
+      );
+      if (!res.ok) return undefined;
+      total += ((await res.json()) as unknown[]).length;
+    }
+    return total;
+  } catch {
+    return undefined;
+  }
+}

@@ -80,6 +80,17 @@ export async function ensureSandbox(
   return sandbox;
 }
 
+// Snapshot of every sandbox's current state, keyed by name (e.g. `proj-caldora` →
+// 'started'). One `list` call; best-effort — used by `/aven status` to show which warm
+// sandboxes are up without poking each one. Throws only if the list call itself fails.
+export async function listSandboxStates(daytona: Daytona): Promise<Map<string, string>> {
+  const states = new Map<string, string>();
+  for await (const sb of daytona.list()) {
+    if (sb.name) states.set(sb.name, sb.state ?? 'unknown');
+  }
+  return states;
+}
+
 export interface ExecOpts {
   cwd?: string;
   env?: Record<string, string>;

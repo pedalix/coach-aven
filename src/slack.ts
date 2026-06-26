@@ -9,6 +9,8 @@ import {
   type ProjectsRegistry,
 } from './projects.js';
 import { openChat, type ChatSession } from './tasks.js';
+import { makeDaytona, listSandboxStates } from './daytona.js';
+import { countOpenPRs } from './github.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
 import { log } from './log.js';
 
@@ -236,6 +238,52 @@ export async function runSlack(cfg: Config): Promise<void> {
     const answer = await chat.ask(question);
     persist(key, project.slug, chat);
     return answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
+  }
+
+  // Map a conversation key back to its project slug. dm/cmd keys carry the slug as their
+  // last segment (`dm:<channel>:<slug>`, `cmd:<user>:<slug>`); thread keys (`thread:<ts>`)
+  // don't, so look the slug up in the persisted chat record.
+  function slugForKey(key: string): string | undefined {
+    if (key.startsWith('thread:')) return store.getChat(key)?.slug;
+    const parts = key.split(':');
+    return parts.length >= 3 ? parts[parts.length - 1] : undefined;
+  }
+
+  // Gather a live snapshot for `/aven status`: per-project sandbox state (Daytona),
+  // session count (state.json), conversations with a turn in flight (the in-memory
+  // queues), and open-PR counts (GitHub). Every external call is best-effort so a single
+  // failing dependency degrades to a ⚠️ rather than erroring the whole command.
+  async function collectStatus(): Promise<StatusReport> {
+    const activeBySlug = new Map<string, number>();
+    for (const key of queues.keys()) {
+      const slug = slugForKey(key);
+      if (slug) activeBySlug.set(slug, (activeBySlug.get(slug) ?? 0) + 1);
+    }
+    const sessionsBySlug = new Map<string, number>();
+    for (const c of store.allChats()) sessionsBySlug.set(c.slug, (sessionsBySlug.get(c.slug) ?? 0) + 1);
+
+    let states = new Map<string, string>();
+    let daytonaOk = true;
+    try {
+      states = await listSandboxStates(makeDaytona(cfg));
+    } catch {
+      daytonaOk = false;
+    }
+
+    const prCounts = await Promise.all(
+      registry.projects.map((p) => countOpenPRs(cfg, p.repos).catch(() => undefined)),
+    );
+    const githubOk = prCounts.some((n) => n !== undefined);
+
+    const projects: ProjectStatus[] = registry.projects.map((p, i) => ({
+      slug: p.slug,
+      repos: p.repos.length,
+      state: states.get(`${cfg.sandbox.namePrefix}${p.slug}`),
+      sessions: sessionsBySlug.get(p.slug) ?? 0,
+      active: activeBySlug.get(p.slug) ?? 0,
+      openPRs: prCounts[i],
+    }));
+    return { projects, turnsInFlight: running.size, daytonaOk, githubOk };
   }
 
   // Add/remove a reaction; non-fatal (already_reacted / no_reaction / missing scope).
@@ -484,6 +532,26 @@ export async function runSlack(cfg: Config): Promise<void> {
   // ── /aven → private answer in the user's DM (per project) ───────────────────
   app.command('/aven', async ({ command, ack, respond, client }) => {
     await ack(); // Slack needs an ack within 3s; the real work runs after.
+
+    // `/aven status` → a live ops snapshot (sandboxes, sessions, in-flight turns, PRs).
+    // Reserved keyword, intercepted before project resolution so it works in ANY channel
+    // (it's a fleet-wide view, not bound to one project).
+    if ((command.text ?? '').trim().toLowerCase() === 'status') {
+      await respond({ response_type: 'ephemeral', text: ':bar_chart: Gathering status…' });
+      try {
+        const report = await collectStatus();
+        await respond({
+          response_type: 'ephemeral',
+          replace_original: true,
+          text: 'CoachAven status',
+          blocks: statusReportBlocks(report),
+        });
+      } catch (err) {
+        await respond({ response_type: 'ephemeral', replace_original: true, text: errText(err) });
+      }
+      return;
+    }
+
     const { project, question, error } = await pickProject(client, command.channel_id, command.text ?? '');
     if (error) {
       await respond({ response_type: 'ephemeral', text: info(error) });
@@ -761,6 +829,42 @@ function questionBlocks(
     });
   }
   return blocks;
+}
+
+// ── `/aven status` rendering ────────────────────────────────────────────────
+interface ProjectStatus {
+  slug: string;
+  repos: number;
+  state?: string; // Daytona sandbox state; undefined = sandbox never created
+  sessions: number; // conversations bound to this project in state.json
+  active: number; // conversations with a turn in flight right now
+  openPRs?: number; // undefined = couldn't be determined
+}
+interface StatusReport {
+  projects: ProjectStatus[];
+  turnsInFlight: number;
+  daytonaOk: boolean;
+  githubOk: boolean;
+}
+
+function stateLabel(state?: string): string {
+  if (!state) return '🌑 not created';
+  if (state === 'started') return '✅ started';
+  if (state === 'stopped') return '💤 stopped';
+  return `⚠️ ${state}`;
+}
+const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}`;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+function statusReportBlocks(r: StatusReport): any[] {
+  const head = `*CoachAven — live*  ·  ${plural(r.projects.length, 'project')} · ${plural(r.turnsInFlight, 'turn')} in flight`;
+  const lines = r.projects.map((p) => {
+    const bits = [stateLabel(p.state), plural(p.repos, 'repo'), plural(p.sessions, 'session'), `${p.active} active`];
+    if (p.openPRs !== undefined) bits.push(plural(p.openPRs, 'open PR'));
+    return `• *${p.slug}* — ${bits.join(' · ')}`;
+  });
+  const health = `_Daytona ${r.daytonaOk ? '✅' : '⚠️'} · GitHub ${r.githubOk ? '✅' : '⚠️'} · Slack ✅_`;
+  return [{ type: 'section', text: { type: 'mrkdwn', text: `${head}\n\n${lines.join('\n')}\n\n${health}` } }];
 }
 
 // Plain-text fallback (notifications / accessibility) required alongside blocks.
