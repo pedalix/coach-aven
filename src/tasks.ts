@@ -11,7 +11,7 @@ import {
   reapWorktrees,
   repoCheckout,
   repoName,
-  projectDir,
+  projectCwd,
 } from './project.js';
 import type { McpServerSpec } from './projects.js';
 import { ClaudeSession, type OnQuestion } from './claudeSession.js';
@@ -73,7 +73,7 @@ async function prepareChat(cfg: Config, store: Store, slug: string, repos: strin
   for (const repo of repos) await cloneRepo(sandbox, cfg, slug, repo);
   // Agents work in per-task worktrees (see the base prompt); reap finished/orphaned ones.
   for (const repo of repos) await reapWorktrees(sandbox, repoCheckout(cfg, slug, repo));
-  const cwd = repos.length === 1 ? repoCheckout(cfg, slug, repos[0]) : projectDir(cfg, slug);
+  const cwd = projectCwd(cfg, slug, repos);
 
   proj.clonedAt = proj.clonedAt ?? new Date().toISOString();
   store.setProject(proj);
