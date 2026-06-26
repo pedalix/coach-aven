@@ -10,7 +10,7 @@ import {
 } from './projects.js';
 import { openChat, type ChatSession } from './tasks.js';
 import { parseSchedule, dueRoutines } from './schedule.js';
-import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn } from './format.js';
+import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn, parseTopics } from './format.js';
 import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
@@ -748,8 +748,6 @@ export async function runSlack(cfg: Config): Promise<void> {
 
       const live = sub === 'live';
       const topic = live ? args[2] : args[1];
-      // Viewing the index (no topic)? Point at how to drill into the section files it lists.
-      const topicTip = topic ? '' : `\n\n_\`${CMD} memory <name>\` opens a section file listed above._`;
       const file = memoryFilePath(projectCwd(cfg, project.slug, project.repos), topic);
       if (!file) {
         await respond({ response_type: 'ephemeral', text: ':x: Invalid topic name (use letters, digits, `_` or `-`).' });
@@ -757,15 +755,35 @@ export async function runSlack(cfg: Config): Promise<void> {
       }
       const fileName = file.split('/').pop() as string;
 
+      // Render: the index (no topic) gets a drill-down button per topic file it links; a
+      // specific topic is just text. `note` is an optional footer (e.g. the snapshot caveat).
+      const deliver = async (content: string, note: string) => {
+        const topics = topic ? [] : parseTopics(content);
+        if (topics.length) {
+          await respond({
+            response_type: 'ephemeral',
+            replace_original: true,
+            text: `Memory — ${project.slug}`,
+            blocks: [
+              { type: 'section', text: { type: 'mrkdwn', text: `${mdToMrkdwn(content)}${note}`.slice(0, 2900) } },
+              ...topicButtons(project.slug, topics),
+            ],
+          });
+        } else {
+          await respond({
+            response_type: 'ephemeral',
+            replace_original: true,
+            text: `${mdToMrkdwn(content)}${note}`.slice(0, MAX_SLACK_TEXT),
+          });
+        }
+      };
+
       // Prefer the journaled host copy (no sandbox wake) unless `live` was requested.
       if (!live) {
         try {
           const snap = await readSnapshotFile(memoryRepoDir(project.slug), fileName);
           if (snap) {
-            await respond({
-              response_type: 'ephemeral',
-              text: `${mdToMrkdwn(snap)}${topicTip}\n\n_(last dream snapshot — \`${CMD} memory live\` for the sandbox's current state)_`.slice(0, MAX_SLACK_TEXT),
-            });
+            await deliver(snap, `\n\n_(last dream snapshot — \`${CMD} memory live\` for the sandbox's current state)_`);
             return;
           }
         } catch {
@@ -775,12 +793,7 @@ export async function runSlack(cfg: Config): Promise<void> {
 
       await respond({ response_type: 'ephemeral', text: ':brain: Reading memory…' });
       try {
-        const text = await readMemory(project, file, live);
-        await respond({
-          response_type: 'ephemeral',
-          replace_original: true,
-          text: `${mdToMrkdwn(text)}${topicTip}`.slice(0, MAX_SLACK_TEXT),
-        });
+        await deliver(await readMemory(project, file, live), '');
       } catch (err) {
         await respond({ response_type: 'ephemeral', replace_original: true, text: errText(err) });
       }
@@ -900,6 +913,31 @@ export async function runSlack(cfg: Config): Promise<void> {
     const project = slug ? resolveBySlug(registry, slug) : undefined;
     if (!project) return;
     await liveTurn(client, v.channel, undefined, v.threadTs, v.key, project, FOLLOW_UP_PR_PROMPT);
+  });
+
+  // ── memory topic button → open that section file (journal copy first, no sandbox wake) ──
+  app.action(/^mem_open:/, async ({ ack, action, respond }) => {
+    await ack();
+    let v: { s: string; f: string };
+    try {
+      v = JSON.parse((action as { value?: string }).value ?? '');
+    } catch {
+      return;
+    }
+    const project = resolveBySlug(registry, v.s);
+    const fp = project && memoryFilePath(projectCwd(cfg, project.slug, project.repos), v.f);
+    if (!project || !fp) return;
+    try {
+      let text = await readSnapshotFile(memoryRepoDir(project.slug), v.f).catch(() => null);
+      if (text == null) text = await readMemory(project, fp, false); // not journaled → live (no wake)
+      await respond({
+        response_type: 'ephemeral',
+        replace_original: false,
+        text: `*${v.f}*\n\n${mdToMrkdwn(text)}`.slice(0, MAX_SLACK_TEXT),
+      });
+    } catch (err) {
+      await respond({ response_type: 'ephemeral', replace_original: false, text: errText(err) });
+    }
   });
 
   // ── App Home tab → a self-documenting dashboard: projects, channels, how to use me ──
@@ -1259,8 +1297,9 @@ interface FollowUp {
 // Render the answer as markdown block(s), then an action row: link buttons to any PR(s)
 // the agent opened, or — if it didn't open one — an "Open a PR" button that enqueues a
 // follow-up turn (only when `followUp` context is supplied, i.e. a live thread/DM turn).
-// Chunk text into Slack `markdown` blocks (each caps ~12k chars). The plain renderer used
-// for read-only views like `/aven memory` and `/aven prompt`.
+// Chunk text into Slack `markdown` blocks (each caps ~12k chars). Used by answerBlocks for the
+// bot's answers (delivered via chat.update, which accepts `markdown` blocks). NOT for the
+// ephemeral `respond` path — that rejects `markdown` blocks, so /aven memory|prompt use text.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
 function markdownBlocks(text: string): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -1270,6 +1309,24 @@ function markdownBlocks(text: string): any[] {
   }
   if (!blocks.length) blocks.push({ type: 'markdown', text: '(no output)' });
   return blocks;
+}
+
+// Drill-down buttons for a memory index: one button per topic file, carrying {s:slug, f:file}
+// for the `mem_open:` handler. Capped at 24 (Slack's 25-element actions-block limit). `actions`
+// buttons — unlike the `markdown` block — render fine over the ephemeral respond path.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+function topicButtons(slug: string, topics: { title: string; file: string }[]): any[] {
+  return [
+    {
+      type: 'actions',
+      elements: topics.slice(0, 24).map((t, i) => ({
+        type: 'button',
+        text: { type: 'plain_text', text: (t.title || t.file).slice(0, 75) },
+        action_id: `mem_open:${i}`,
+        value: JSON.stringify({ s: slug, f: t.file }),
+      })),
+    },
+  ];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
@@ -1516,7 +1573,7 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
-          `• *Inspect my context* — \`${CMD} memory\` shows what I've learned (\`${CMD} memory <topic>\` for a detail file, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
+          `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
           `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.`,
       },

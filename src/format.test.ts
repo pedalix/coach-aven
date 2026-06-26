@@ -1,6 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn } from './format.js';
+import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn, parseTopics } from './format.js';
+
+test('parseTopics — extracts local .md topic links, dedupes, ignores http/non-md', () => {
+  const idx = [
+    '# Memory Index',
+    '- [Caldora overview](project_caldora_overview.md) — layout',
+    '- [E-guma sync](project_eguma_voucher_sync.md) — incident',
+    '- [Anthropic](https://anthropic.com) — not a topic',
+    '- [dupe](project_caldora_overview.md) — same file again',
+  ].join('\n');
+  assert.deepEqual(parseTopics(idx), [
+    { title: 'Caldora overview', file: 'project_caldora_overview.md' },
+    { title: 'E-guma sync', file: 'project_eguma_voucher_sync.md' },
+  ]);
+  assert.deepEqual(parseTopics('no links here'), []);
+});
 
 test('prUrls — extracts PR URLs, dedupes, ignores non-PRs', () => {
   assert.deepEqual(prUrls('Opened https://github.com/pedalix/caldora-admin/pull/15 for review.'), [
