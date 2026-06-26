@@ -44,6 +44,8 @@ export interface RoutineRecord {
   createdBy: string; // Slack user id
   createdAt: string;
   lastRunAt?: string; // last fire (dedupes within a minute + across restarts)
+  kind?: 'report' | 'dream'; // undefined/'report' = scheduled digest; 'dream' = memory consolidation
+  lastSummary?: string; // dream: one-line digest of the last run (visibility without channel noise)
 }
 
 interface StateShape {

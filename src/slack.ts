@@ -14,6 +14,7 @@ import { prUrls, fallbackText, fmtElapsed, stripMention } from './format.js';
 import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
+import { DREAM_FRAMING, dreamDigest } from './dream.js';
 import { countOpenPRs } from './github.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
 import { log } from './log.js';
@@ -665,6 +666,28 @@ export async function runSlack(cfg: Config): Promise<void> {
       await respond({ response_type: 'ephemeral', ...handleRoutines(command.channel_id, cmdText) });
       return;
     }
+    // `/aven dream [on|off|now]` → nightly memory consolidation (Dreaming) for this project.
+    if (verb === 'dream') {
+      const { project } = await pickProject(client, command.channel_id, '');
+      const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
+      if (sub === 'now') {
+        const r = store.listRoutines({ channel: command.channel_id }).find((x) => x.kind === 'dream');
+        if (!r) {
+          await respond({ response_type: 'ephemeral', text: `:information_source: No dream here yet — \`${CMD} dream on\` first.` });
+          return;
+        }
+        const ok = fireRoutine(client, r);
+        await respond({
+          response_type: 'ephemeral',
+          text: ok
+            ? ':crescent_moon: Dreaming now… (silent — check `' + CMD + ' dream` for the digest)'
+            : ':hourglass_flowing_sand: A turn is in flight for this project — try again shortly.',
+        });
+        return;
+      }
+      await respond({ response_type: 'ephemeral', ...handleDream(command.channel_id, command.user_id, project?.slug, cmdText) });
+      return;
+    }
 
     // `/aven memory [topic]` → read what the agent has remembered about this project's
     // channel (read-only, private). The learned layer; `/aven prompt` shows the deliberate one.
@@ -1040,18 +1063,91 @@ export async function runSlack(cfg: Config): Promise<void> {
     return { text: `:information_source: Usage: \`${CMD} routines run|on|off|rm <id>\`` };
   }
 
-  // Fire one routine now: post a read-only digest turn on key `cron:<id>:<slug>` via the
-  // normal turn machinery (cancelable + restart-recoverable). Shared by the scheduler and
-  // the manual `/aven routines run` trigger. Returns false if it can't run right now.
+  // ── /aven dream [on|off] → enable/disable nightly memory consolidation for this project ──
+  // 'now' is handled in the command handler (it needs the client to fire). Bare = status.
+  // One dream routine per project channel (kind: 'dream'); reuses the routine scheduler.
+  const DREAM_DEFAULT_CRON = '0 3 * * *'; // 03:00 daily, in ROUTINE_TZ
+  function handleDream(channelId: string, userId: string, slug: string | undefined, cmdText: string): { text: string } {
+    if (!slug) return { text: `:x: Use \`${CMD} dream\` from a project channel.` };
+    const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
+    const existing = store.listRoutines({ channel: channelId }).find((r) => r.kind === 'dream');
+    if (sub === 'off') {
+      if (!existing) return { text: ':information_source: No dreaming scheduled here.' };
+      store.patchRoutine(existing.id, { enabled: false });
+      return { text: `:white_check_mark: Dreaming paused for *${slug}*.` };
+    }
+    if (sub === 'on') {
+      if (existing) {
+        store.patchRoutine(existing.id, { enabled: true });
+        return { text: `:crescent_moon: Dreaming on for *${slug}* — \`${existing.spec}\` (${existing.tz}).` };
+      }
+      const rec = store.addRoutine({
+        slug,
+        channel: channelId,
+        cron: DREAM_DEFAULT_CRON,
+        tz: ROUTINE_TZ,
+        spec: 'daily 3:00',
+        prompt: '',
+        enabled: true,
+        createdBy: userId,
+        kind: 'dream',
+      });
+      return {
+        text: `:crescent_moon: Dreaming on for *${slug}* — \`${rec.spec}\` (${ROUTINE_TZ}). I'll quietly consolidate memory; \`${CMD} dream\` shows the last digest.`,
+      };
+    }
+    // bare / status
+    if (!existing) {
+      return { text: `:crescent_moon: No dreaming for *${slug}*. Enable nightly memory consolidation: \`${CMD} dream on\`.` };
+    }
+    const state = existing.enabled ? '🟢 on' : '⚪️ off';
+    const last = existing.lastRunAt ? `\nLast run: ${existing.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
+    const digest = existing.lastSummary ? `\nLast: _${existing.lastSummary}_` : '';
+    return {
+      text: `:crescent_moon: *Dreaming — ${slug}* ${state} · \`${existing.spec}\` (${existing.tz})${last}${digest}\n_Manage:_ \`${CMD} dream on|off|now\``,
+    };
+  }
+
+  // True if any conversation for this project has a turn in flight right now — used to skip
+  // a dream rather than race a live user turn on the project's memory files.
+  function projectBusy(slug: string): boolean {
+    for (const key of queues.keys()) if (slugForKey(key) === slug) return true;
+    return false;
+  }
+
+  // Fire one routine now. A report posts a read-only digest turn via the normal turn
+  // machinery; a dream runs a silent memory-only pass (see fireDream). Shared by the
+  // scheduler and the manual run triggers. Returns false if it can't run right now.
   function fireRoutine(client: bolt.webApi.WebClient, r: RoutineRecord): boolean {
     const project = resolveBySlug(registry, r.slug);
     if (!project) return false; // project removed from the registry
+    if (r.kind === 'dream') return fireDream(project, r);
     const key = `cron:${r.id}:${r.slug}`;
     if (queues.has(key)) return false; // previous run still in flight — don't stack
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
     void liveTurn(client, r.channel, undefined, undefined, key, project, REPORT_FRAMING + r.prompt).catch((e) =>
       log.error(`routine ${r.id}: ${e instanceof Error ? e.message : String(e)}`),
     );
+    return true;
+  }
+
+  // A dream runs silently (no channel post): consolidate the project's auto memory, then log
+  // a one-line digest and stash it on the routine for visibility. Skipped while the project
+  // has a live turn so the two don't race on memory files. Source of truth = the sandbox
+  // (warm, survives stop/start); durability of the consolidated copy is future work.
+  function fireDream(project: ProjectConfig, r: RoutineRecord): boolean {
+    if (projectBusy(project.slug)) return false; // don't dream over a live user turn
+    const key = `cron:${r.id}:${r.slug}`;
+    store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
+    void (async () => {
+      try {
+        const digest = dreamDigest(await runAsk(key, project, DREAM_FRAMING));
+        store.patchRoutine(r.id, { lastSummary: digest });
+        log.info(`dream ${r.id} (${project.slug}): ${digest}`);
+      } catch (e) {
+        log.error(`dream ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    })();
     return true;
   }
 
@@ -1349,6 +1445,7 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned about the project (\`${CMD} memory <topic>\` for a detail file); \`${CMD} prompt\` shows my system prompt.\n` +
+          `• *Memory upkeep* — \`${CMD} dream on\` lets me quietly consolidate project memory on a nightly schedule (\`${CMD} dream\` for status).\n` +
           `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.`,
       },
     },
@@ -1390,6 +1487,10 @@ function routineListBlocks(rs: RoutineRecord[]): any[] {
   const lines = rs.map((r) => {
     const dot = r.enabled ? '🟢' : '⚪️';
     const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
+    if (r.kind === 'dream') {
+      const s = r.lastSummary ? `\n   _${r.lastSummary}_` : '';
+      return `${dot} *${r.id}* 🌙 dream — \`${r.spec}\` (${r.tz})${last}${s}`;
+    }
     const p = r.prompt.length > 90 ? `${r.prompt.slice(0, 87)}…` : r.prompt;
     return `${dot} *${r.id}* — \`${r.spec}\` (${r.tz})${last}\n   ${p}`;
   });
