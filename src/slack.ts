@@ -15,6 +15,7 @@ import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
 import { DREAM_FRAMING, dreamDigest } from './dream.js';
+import { snapshotMemory, memoryRepoDir, readSnapshotFile, snapshotLog } from './memjournal.js';
 import { countOpenPRs } from './github.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
 import { log } from './log.js';
@@ -689,20 +690,61 @@ export async function runSlack(cfg: Config): Promise<void> {
       return;
     }
 
-    // `/aven memory [topic]` → read what the agent has remembered about this project's
-    // channel (read-only, private). The learned layer; `/aven prompt` shows the deliberate one.
+    // `/aven memory [topic|log|live]` → read the agent's learned memory (read-only, private).
+    // Default reads the journaled host snapshot (no sandbox wake); `live` forces the sandbox's
+    // current state, `log` shows the snapshot history. (`/aven prompt` shows the deliberate layer.)
     if (verb === 'memory') {
       const { project, error } = await pickProject(client, command.channel_id, '');
       if (error || !project) {
         await respond({ response_type: 'ephemeral', text: info(error ?? 'No project bound to this channel.') });
         return;
       }
-      const topic = cmdText.split(/\s+/)[1];
+      const args = cmdText.split(/\s+/);
+      const sub = args[1]?.toLowerCase();
+
+      if (sub === 'log') {
+        try {
+          const lines = await snapshotLog(memoryRepoDir(project.slug));
+          const body = lines.length
+            ? lines.map((l) => `• ${l}`).join('\n')
+            : '_No snapshots yet — memory is journaled after each dream (`' + CMD + ' dream`)._';
+          await respond({
+            response_type: 'ephemeral',
+            text: `Memory journal — ${project.slug}`,
+            blocks: markdownBlocks(`*Memory journal — ${project.slug}*\n${body}`),
+          });
+        } catch (err) {
+          await respond({ response_type: 'ephemeral', text: errText(err) });
+        }
+        return;
+      }
+
+      const live = sub === 'live';
+      const topic = live ? args[2] : args[1];
       const file = memoryFilePath(projectCwd(cfg, project.slug, project.repos), topic);
       if (!file) {
         await respond({ response_type: 'ephemeral', text: ':x: Invalid topic name (use letters, digits, `_` or `-`).' });
         return;
       }
+      const fileName = file.split('/').pop() as string;
+
+      // Prefer the journaled host copy (no sandbox wake) unless `live` was requested.
+      if (!live) {
+        try {
+          const snap = await readSnapshotFile(memoryRepoDir(project.slug), fileName);
+          if (snap) {
+            await respond({
+              response_type: 'ephemeral',
+              text: `Memory — ${project.slug}`,
+              blocks: markdownBlocks(`${snap}\n\n_(last dream snapshot — \`${CMD} memory live\` for the sandbox's current state)_`),
+            });
+            return;
+          }
+        } catch {
+          /* no journal yet → fall through to the live read */
+        }
+      }
+
       await respond({ response_type: 'ephemeral', text: ':brain: Reading memory…' });
       try {
         const text = await readMemory(project, file);
@@ -1144,6 +1186,9 @@ export async function runSlack(cfg: Config): Promise<void> {
         const digest = dreamDigest(await runAsk(key, project, DREAM_FRAMING));
         store.patchRoutine(r.id, { lastSummary: digest });
         log.info(`dream ${r.id} (${project.slug}): ${digest}`);
+        // Journal the consolidated memory (the sandbox is awake from the dream just now).
+        const sandbox = await makeDaytona(cfg).get(`${cfg.sandbox.namePrefix}${project.slug}`);
+        await snapshotMemory(sandbox, cfg, project.slug, project.repos, digest);
       } catch (e) {
         log.error(`dream ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
       }

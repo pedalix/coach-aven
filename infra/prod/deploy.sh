@@ -159,6 +159,7 @@ cmd_deploy() {
     --exclude='./github-app-private-key.pem' \
     --exclude='./projects.config.json' \
     --exclude='./state.json' \
+    --exclude='./memory' \
     --exclude='./infra/prod/.env' \
     --exclude='./infra/prod/runtime' \
     . \

@@ -2,6 +2,8 @@
 node_modules/
 state.json
 projects.config.json
+# per-project memory journals (server-owned git repos; like state.json, never committed):
+memory/
 *.log
 # secrets — standalone repo, so ignore them here (no parent repo to do it):
 .env
