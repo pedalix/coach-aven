@@ -11,6 +11,10 @@ below into the GitHub Release notes and deploys to prod. Before tagging, move th
 
 ## [Unreleased]
 
+### Changed
+- CI: bump `actions/checkout` to v7 and `actions/setup-node` to v6 (off the
+  deprecated Node 20 runtime).
+
 ## [0.2.0] - 2026-06-26
 
 ### Added
