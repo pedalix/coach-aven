@@ -10,6 +10,7 @@ import {
 } from './projects.js';
 import { openChat, type ChatSession } from './tasks.js';
 import { parseSchedule, dueRoutines } from './schedule.js';
+import { prUrls, fallbackText, fmtElapsed, stripMention } from './format.js';
 import { makeDaytona, listSandboxStates } from './daytona.js';
 import { countOpenPRs } from './github.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
@@ -61,6 +62,11 @@ export async function runSlack(cfg: Config): Promise<void> {
   // (overlapping ticks / a quick restart shouldn't double-post). Maps routine id → the
   // "month-day hh:mm" it last fired on.
   const firedThisMinute = new Map<string, string>();
+
+  // DM project picks awaiting a dropdown choice: a DM with no project hint posts a picker;
+  // the original question is parked here under a short id until the user selects a project.
+  const pendingDmPicks = new Map<string, { channel: string; user: string; question: string }>();
+  let dmPickSeq = 0;
 
   // Pending AskUserQuestion prompts: the agent asked, we posted option buttons, and
   // we're waiting for clicks. Keyed by a questionId carried on each button. `picks` maps
@@ -548,7 +554,19 @@ export async function runSlack(cfg: Config): Promise<void> {
     if (m.channel_type === 'im') {
       const { project, question, error } = await pickProject(client, m.channel, m.text ?? '');
       if (error) {
-        await client.chat.postMessage({ channel: m.channel, text: info(error) });
+        // No project hint → offer a dropdown instead of demanding a slug prefix. Park the
+        // question; the dm_pick_project handler runs it once a project is chosen.
+        if (m.user && question && registry.projects.length > 1) {
+          const pid = `dp${++dmPickSeq}`;
+          pendingDmPicks.set(pid, { channel: m.channel, user: m.user, question });
+          await client.chat.postMessage({
+            channel: m.channel,
+            text: 'Which project?',
+            blocks: dmPickerBlocks(pid, registry.projects),
+          });
+        } else {
+          await client.chat.postMessage({ channel: m.channel, text: info(error) });
+        }
         return;
       }
       if (!question || !m.user) return;
@@ -588,6 +606,12 @@ export async function runSlack(cfg: Config): Promise<void> {
       } catch (err) {
         await respond({ response_type: 'ephemeral', replace_original: true, text: errText(err) });
       }
+      return;
+    }
+
+    // `/aven access` → what this channel's project gives me (repos + MCP tools).
+    if (verb === 'access') {
+      await respond({ response_type: 'ephemeral', ...(await handleAccess(client, command.channel_id)) });
       return;
     }
 
@@ -668,6 +692,33 @@ export async function runSlack(cfg: Config): Promise<void> {
   // ── "🔗 View PR" link button → opens the URL itself; just ack the interaction ──
   app.action(/^pr_link:/, async ({ ack }) => {
     await ack();
+  });
+
+  // ── DM project dropdown → run the parked question against the chosen project ──
+  app.action('dm_pick_project', async ({ ack, action, client, body }) => {
+    await ack();
+    const sel = (action as { selected_option?: { value?: string } }).selected_option?.value ?? '';
+    const i = sel.indexOf(':'); // value = "<pid>:<slug>"
+    const pid = sel.slice(0, i);
+    const slug = sel.slice(i + 1);
+    const pending = pendingDmPicks.get(pid);
+    const project = slug ? resolveBySlug(registry, slug) : undefined;
+    const b = body as { message?: { ts?: string } };
+    if (!pending || !project) {
+      if (b.message?.ts) {
+        await client.chat
+          .update({ channel: (body as { channel?: { id?: string } }).channel?.id ?? '', ts: b.message.ts, text: '⌛ This picker expired — send your message again.', blocks: [] })
+          .catch(() => {});
+      }
+      return;
+    }
+    pendingDmPicks.delete(pid);
+    if (b.message?.ts) {
+      await client.chat
+        .update({ channel: pending.channel, ts: b.message.ts, text: `▶️ Running on *${slug}*…`, blocks: [] })
+        .catch(() => {});
+    }
+    await liveTurn(client, pending.channel, undefined, undefined, `dm:${pending.channel}:${slug}`, project, pending.question);
   });
 
   // ── "🔀 Open a PR" button → enqueue a follow-up turn asking the agent to PR its work ──
@@ -833,6 +884,20 @@ export async function runSlack(cfg: Config): Promise<void> {
     }
   }
 
+  // ── /aven access → show what this channel's project exposes (repos + MCP) ────
+  async function handleAccess(
+    client: bolt.webApi.WebClient,
+    channelId: string,
+  ): Promise<{ text: string; blocks?: unknown[] }> {
+    const { project } = await pickProject(client, channelId, '');
+    if (!project) {
+      return {
+        text: `:information_source: This channel isn't bound to a project. Use a \`${CHANNEL_PREFIX}<slug>\` channel, or ask in one of: ${registry.projects.map((p) => p.slug).join(', ')}.`,
+      };
+    }
+    return { text: `Access for ${project.slug}`, blocks: accessBlocks(project) };
+  }
+
   // ── /aven schedule → create a read-only report job bound to this channel ─────
   // Returns an ephemeral payload (text + optional blocks). The project is resolved from
   // the channel binding only (not the text), so a job can't be created in an unbound chat.
@@ -944,13 +1009,6 @@ export async function runSlack(cfg: Config): Promise<void> {
 // tables) natively — so we send Claude's output verbatim instead of converting to
 // the lossy legacy mrkdwn. Each markdown block caps ~12k chars; chunk longer answers.
 const SLACK_MD_BLOCK_LIMIT = 11900;
-
-// Pull GitHub PR URLs out of an answer so we can surface them as clickable buttons
-// instead of leaving them buried in prose. Deduped, original order.
-function prUrls(text: string): string[] {
-  const m = text.match(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g);
-  return m ? [...new Set(m)] : [];
-}
 
 // Context a completed answer needs to offer a one-click "Open a PR" follow-up: which
 // conversation to enqueue the turn under, and where to post it.
@@ -1121,9 +1179,56 @@ function statusReportBlocks(r: StatusReport): any[] {
   return [{ type: 'section', text: { type: 'mrkdwn', text: `${head}\n\n${lines.join('\n')}\n\n${health}` } }];
 }
 
-// ── App Home tab ────────────────────────────────────────────────────────────
 // "Org/name" → "name", for compact display.
 const shortRepo = (full: string): string => full.split('/').pop() ?? full;
+
+// ── /aven access ────────────────────────────────────────────────────────────
+// What a channel's project exposes: its repos and MCP tools (Claude Tag's "what can you
+// access here?"). Transparency for onboarding — read-only.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+function accessBlocks(project: ProjectConfig): any[] {
+  const repos = project.repos.map((r) => `\`${shortRepo(r)}\``).join(', ');
+  const mcp = project.mcp?.length ? project.mcp.map((m) => `\`${m.name}\``).join(', ') : '_none_';
+  return [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text:
+          `*${project.slug}* — this channel's project\n` +
+          `*Repos:* ${repos}\n` +
+          `*Tools (MCP):* ${mcp}\n\n` +
+          '_I work in a dedicated branch and open a PR for review — never pushing straight to the default branch._',
+      },
+    },
+  ];
+}
+
+// ── DM project picker ───────────────────────────────────────────────────────
+// Dropdown of projects for a DM with no slug hint. Each option carries the parked
+// question's id so the handler can run it: value = "<pid>:<slug>".
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+function dmPickerBlocks(pid: string, projects: ProjectConfig[]): any[] {
+  return [
+    { type: 'section', text: { type: 'mrkdwn', text: "Which project should I work on? _(DMs aren't tied to a channel.)_" } },
+    {
+      type: 'actions',
+      elements: [
+        {
+          type: 'static_select',
+          action_id: 'dm_pick_project',
+          placeholder: { type: 'plain_text', text: 'Pick a project' },
+          options: projects.slice(0, 100).map((p) => ({
+            text: { type: 'plain_text', text: p.slug },
+            value: `${pid}:${p.slug}`,
+          })),
+        },
+      ],
+    },
+  ];
+}
+
+// ── App Home tab ────────────────────────────────────────────────────────────
 
 // The Home tab: what I am, every project + the channel that drives it, and a usage
 // cheat-sheet. Self-serve onboarding so colleagues don't have to read the README.
@@ -1160,9 +1265,11 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
         text:
           '• *Build / collaborate* — @-mention me with a task in a project channel. I reply in a thread; keep replying (no need to re-mention) and I remember the conversation.\n' +
           `• *Quick private answer* — \`${CMD} <question>\` in a project channel. I answer privately in our DM.\n` +
+          "• *DM me directly* — just message me in a DM; if it's not clear which project you mean, I'll show a picker.\n" +
           `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\`.\n` +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
+          `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.`,
       },
     },
@@ -1218,20 +1325,6 @@ function routineListBlocks(rs: RoutineRecord[]): any[] {
   ];
 }
 
-// Plain-text fallback (notifications / accessibility) required alongside blocks.
-function fallbackText(answer: string): string {
-  const line = answer.split('\n').find((l) => l.trim()) ?? 'Answer';
-  return line.replace(/[*_`#>~[\]()]/g, '').slice(0, 200) || 'Answer';
-}
-
-function fmtElapsed(ms: number): string {
-  const s = Math.floor(ms / 1000);
-  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
-}
-
-function stripMention(text: string): string {
-  return text.replace(/<@[^>]+>/g, '').trim();
-}
 function info(msg: string): string {
   return `:information_source: ${msg}`;
 }

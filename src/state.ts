@@ -57,14 +57,13 @@ const STATE_PATH = new URL('../state.json', import.meta.url).pathname;
 export class Store {
   private data: StateShape;
 
-  constructor() {
-    this.data = existsSync(STATE_PATH)
-      ? (JSON.parse(readFileSync(STATE_PATH, 'utf8')) as StateShape)
-      : { projects: {} };
+  // `path` is injectable so tests can use a throwaway file instead of the real state.json.
+  constructor(private readonly path: string = STATE_PATH) {
+    this.data = existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as StateShape) : { projects: {} };
   }
 
   private save() {
-    writeFileSync(STATE_PATH, JSON.stringify(this.data, null, 2) + '\n');
+    writeFileSync(this.path, JSON.stringify(this.data, null, 2) + '\n');
   }
 
   getProject(slug: string): ProjectRecord | undefined {
