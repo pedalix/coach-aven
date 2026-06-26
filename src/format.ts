@@ -38,3 +38,19 @@ export function mdToMrkdwn(s: string): string {
     .replace(/\*\*([^*\n]+)\*\*/g, '*$1*')
     .replace(/^#{1,6}\s+(.*)$/gm, '*$1*');
 }
+
+// Extract `[title](file.md)` links to local topic files from a MEMORY.md index, so the index
+// can be rendered with a drill-down button per topic. Only relative `.md` targets with safe
+// names (the topic-file convention) — never http links or anything path-y. Deduped by file.
+export function parseTopics(index: string): { title: string; file: string }[] {
+  const seen = new Set<string>();
+  const out: { title: string; file: string }[] = [];
+  const re = /\[([^\]\n]+)\]\(([A-Za-z0-9._-]+\.md)\)/g;
+  for (let m = re.exec(index); m; m = re.exec(index)) {
+    if (!seen.has(m[2])) {
+      seen.add(m[2]);
+      out.push({ title: m[1].trim(), file: m[2] });
+    }
+  }
+  return out;
+}
