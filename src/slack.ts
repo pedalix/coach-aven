@@ -9,7 +9,7 @@ import {
   type ProjectsRegistry,
 } from './projects.js';
 import { openChat, type ChatSession } from './tasks.js';
-import { parseSchedule, dueRoutines } from './schedule.js';
+import { parseSchedule, dueRoutines, groupRoutinesBySlug } from './schedule.js';
 import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn, parseTopics } from './format.js';
 import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
@@ -350,6 +350,15 @@ export async function runSlack(cfg: Config): Promise<void> {
     );
     const githubOk = prCounts.some((n) => n !== undefined);
 
+    // Routine counts per project (report jobs vs dream jobs) for the at-a-glance status line.
+    const jobsBySlug = new Map<string, { jobs: number; dreams: number }>();
+    for (const r of store.listRoutines()) {
+      const c = jobsBySlug.get(r.slug) ?? { jobs: 0, dreams: 0 };
+      if (r.kind === 'dream') c.dreams++;
+      else c.jobs++;
+      jobsBySlug.set(r.slug, c);
+    }
+
     const projects: ProjectStatus[] = registry.projects.map((p, i) => ({
       slug: p.slug,
       repos: p.repos.length,
@@ -357,6 +366,8 @@ export async function runSlack(cfg: Config): Promise<void> {
       sessions: sessionsBySlug.get(p.slug) ?? 0,
       active: activeBySlug.get(p.slug) ?? 0,
       openPRs: prCounts[i],
+      jobs: jobsBySlug.get(p.slug)?.jobs ?? 0,
+      dreams: jobsBySlug.get(p.slug)?.dreams ?? 0,
     }));
     return { projects, turnsInFlight: running.size, daytonaOk, githubOk };
   }
@@ -1150,8 +1161,12 @@ export async function runSlack(cfg: Config): Promise<void> {
     if (!sub) {
       return { text: 'Scheduled jobs', blocks: routineListBlocks(store.listRoutines({ channel: channelId })) };
     }
+    if (sub === 'all') {
+      // Fleet-wide view: every project's jobs, grouped by project (works from any channel).
+      return { text: 'All scheduled jobs', blocks: allRoutinesBlocks(groupRoutinesBySlug(store.listRoutines())) };
+    }
     const id = args[1];
-    if (!id) return { text: `:information_source: Usage: \`${CMD} routines run|on|off|rm <id>\`` };
+    if (!id) return { text: `:information_source: Usage: \`${CMD} routines all | run|on|off|rm <id>\`` };
     const r = store.getRoutine(id);
     if (!r || r.channel !== channelId) return { text: `:x: No job \`${id}\` in this channel.` };
     if (sub === 'off') {
@@ -1166,7 +1181,7 @@ export async function runSlack(cfg: Config): Promise<void> {
       store.deleteRoutine(id);
       return { text: `:white_check_mark: Deleted *${id}*.` };
     }
-    return { text: `:information_source: Usage: \`${CMD} routines run|on|off|rm <id>\`` };
+    return { text: `:information_source: Usage: \`${CMD} routines all | run|on|off|rm <id>\`` };
   }
 
   // ── /aven dream [on|off] → enable/disable nightly memory consolidation for this project ──
@@ -1454,6 +1469,8 @@ interface ProjectStatus {
   sessions: number; // conversations bound to this project in state.json
   active: number; // conversations with a turn in flight right now
   openPRs?: number; // undefined = couldn't be determined
+  jobs: number; // scheduled report routines
+  dreams: number; // scheduled dream routines
 }
 interface StatusReport {
   projects: ProjectStatus[];
@@ -1476,6 +1493,8 @@ function statusReportBlocks(r: StatusReport): any[] {
   const lines = r.projects.map((p) => {
     const bits = [stateLabel(p.state), plural(p.repos, 'repo'), plural(p.sessions, 'session'), `${p.active} active`];
     if (p.openPRs !== undefined) bits.push(plural(p.openPRs, 'open PR'));
+    if (p.jobs) bits.push(plural(p.jobs, 'job'));
+    if (p.dreams) bits.push(`${p.dreams} 🌙`);
     return `• *${p.slug}* — ${bits.join(' · ')}`;
   });
   const health = `_Daytona ${r.daytonaOk ? '✅' : '⚠️'} · GitHub ${r.githubOk ? '✅' : '⚠️'} · Slack ✅_`;
@@ -1569,7 +1588,7 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           '• *Build / collaborate* — @-mention me with a task in a project channel. I reply in a thread; keep replying (no need to re-mention) and I remember the conversation.\n' +
           `• *Quick private answer* — \`${CMD} <question>\` in a project channel. I answer privately in our DM.\n` +
           "• *DM me directly* — just message me in a DM; if it's not clear which project you mean, I'll show a picker.\n" +
-          `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\`.\n` +
+          `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every project's jobs).\n` +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
@@ -1628,10 +1647,37 @@ function routineListBlocks(rs: RoutineRecord[]): any[] {
       type: 'section',
       text: {
         type: 'mrkdwn',
-        text: `*Scheduled jobs*\n${lines.join('\n')}\n\n_Manage:_ \`${CMD} routines run|off|on|rm <id>\` (\`run\` = fire now)`,
+        text: `*Scheduled jobs*\n${lines.join('\n')}\n\n_Manage:_ \`${CMD} routines run|off|on|rm <id>\` (\`run\` = fire now) · \`${CMD} routines all\` for every project`,
       },
     },
   ];
+}
+
+// Fleet-wide view: every project's scheduled jobs, grouped by project, one section per project
+// (avoids the 3000-char section cap when there are many). Channel shown as <#id> so it links.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+function allRoutinesBlocks(groups: { slug: string; routines: RoutineRecord[] }[]): any[] {
+  const total = groups.reduce((n, g) => n + g.routines.length, 0);
+  if (!total) {
+    return [{ type: 'section', text: { type: 'mrkdwn', text: `_No scheduled jobs in any project yet._` } }];
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blocks: any[] = [
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*All scheduled jobs* · ${plural(total, 'job')} across ${plural(groups.length, 'project')}` },
+    },
+  ];
+  for (const { slug, routines } of groups) {
+    const lines = routines.map((r) => {
+      const dot = r.enabled ? '🟢' : '⚪️';
+      const kind = r.kind === 'dream' ? '🌙 dream' : 'digest';
+      const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
+      return `   ${dot} *${r.id}* ${kind} — \`${r.spec}\` in <#${r.channel}>${last}`;
+    });
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*${slug}*\n${lines.join('\n')}`.slice(0, 2900) } });
+  }
+  return blocks;
 }
 
 function info(msg: string): string {

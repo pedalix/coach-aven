@@ -127,3 +127,15 @@ export function dueRoutines<T extends SchedulableRoutine>(
   }
   return out;
 }
+
+// Group routines by project slug, sorted by slug — for the fleet-wide `/aven routines all`
+// view and the per-project job counts in `/aven status`.
+export function groupRoutinesBySlug<T extends { slug: string }>(routines: T[]): { slug: string; routines: T[] }[] {
+  const by = new Map<string, T[]>();
+  for (const r of routines) {
+    const list = by.get(r.slug);
+    if (list) list.push(r);
+    else by.set(r.slug, [r]);
+  }
+  return [...by.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([slug, rs]) => ({ slug, routines: rs }));
+}

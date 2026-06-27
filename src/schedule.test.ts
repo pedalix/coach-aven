@@ -7,6 +7,7 @@ import {
   nowParts,
   dueRoutines,
   minuteKey,
+  groupRoutinesBySlug,
   type TimeParts,
   type SchedulableRoutine,
 } from './schedule.js';
@@ -125,4 +126,17 @@ test('minuteKey — distinct per wall-clock minute', () => {
   const b: TimeParts = { mi: 1, ho: 9, dom: 26, mon: 6, dow: 5 };
   assert.notEqual(minuteKey(a), minuteKey(b));
   assert.equal(minuteKey(a), minuteKey({ ...a }));
+});
+
+test('groupRoutinesBySlug — groups by slug, sorted, preserves per-slug order', () => {
+  const rs = [
+    { id: 'r1', slug: 'dorfberg' },
+    { id: 'r2', slug: 'caldora' },
+    { id: 'r3', slug: 'dorfberg' },
+  ];
+  assert.deepEqual(groupRoutinesBySlug(rs), [
+    { slug: 'caldora', routines: [{ id: 'r2', slug: 'caldora' }] },
+    { slug: 'dorfberg', routines: [{ id: 'r1', slug: 'dorfberg' }, { id: 'r3', slug: 'dorfberg' }] },
+  ]);
+  assert.deepEqual(groupRoutinesBySlug([]), []);
 });
