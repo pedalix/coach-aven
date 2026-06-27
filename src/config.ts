@@ -77,6 +77,9 @@ export interface Config {
   slack?: { botToken: string; appToken: string };
   // Channel→project registry: one bot, many channels, one isolated sandbox per project.
   projectsConfigPath: string;
+  // Sentry error/perf/log reporting; undefined (off) unless SENTRY_DSN is set. `logs` opt-in
+  // (SENTRY_LOGS=1) since it sends log content to Sentry's cloud.
+  sentry?: { dsn: string; environment: string; release?: string; tracesSampleRate: number; logs: boolean };
 }
 
 export function loadConfig(): Config {
@@ -107,5 +110,14 @@ export function loadConfig(): Config {
     projectsConfigPath:
       process.env.PROJECTS_CONFIG_PATH ||
       new URL('../projects.config.json', import.meta.url).pathname,
+    sentry: process.env.SENTRY_DSN
+      ? {
+          dsn: process.env.SENTRY_DSN,
+          environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'production',
+          release: process.env.SENTRY_RELEASE,
+          tracesSampleRate: num('SENTRY_TRACES_SAMPLE_RATE', 1),
+          logs: process.env.SENTRY_LOGS === '1',
+        }
+      : undefined,
   };
 }

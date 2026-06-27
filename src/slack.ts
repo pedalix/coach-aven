@@ -19,6 +19,7 @@ import { snapshotMemory, memoryRepoDir, readSnapshotFile, snapshotLog } from './
 import { countOpenPRs } from './github.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
 import { log } from './log.js';
+import { captureError, Sentry } from './sentry.js';
 
 const { App } = bolt;
 
@@ -515,14 +516,20 @@ export async function runSlack(cfg: Config): Promise<void> {
       const chat = await sessionFor(key, project, slackUrl); // prepare (warm sandbox + clone) here
       phase = '🔎 Working…';
       await flush(true);
-      const answer = await chat.ask(
-        question,
-        (step) => {
-          steps.push(step);
-          void flush();
-        },
-        ac.signal,
-        makeOnQuestion(client, channel, threadTs, ac.signal, (qid) => turnQs.add(qid)),
+      // Wrap the agent turn in a Sentry span so turn latency shows up in performance (no-op
+      // tracing when Sentry is off — startSpan still runs the callback).
+      const answer = await Sentry.startSpan(
+        { name: 'aven.turn', op: 'gen_ai.invoke_agent', attributes: { 'aven.project': project.slug } },
+        () =>
+          chat.ask(
+            question,
+            (step) => {
+              steps.push(step);
+              void flush();
+            },
+            ac.signal,
+            makeOnQuestion(client, channel, threadTs, ac.signal, (qid) => turnQs.add(qid)),
+          ),
       );
       persist(key, project.slug, chat);
       if (chat.contextLost()) {
@@ -1686,6 +1693,7 @@ function info(msg: string): string {
 function errText(err: unknown): string {
   const m = err instanceof Error ? err.message : String(err);
   log.error(m);
+  captureError(err); // central error formatter → Sentry issue (with stack), no-op if Sentry off
   return `:x: ${m}`.slice(0, MAX_SLACK_TEXT);
 }
 function summary(reg: ProjectsRegistry): string {

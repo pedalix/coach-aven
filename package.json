@@ -26,6 +26,7 @@
   "dependencies": {
     "@daytonaio/sdk": "0.187.0",
     "@octokit/auth-app": "^7.1.5",
+    "@sentry/node": "^10.62.0",
     "@slack/bolt": "^4.7.3",
     "commander": "^12.1.0",
     "dotenv": "^16.4.7"
