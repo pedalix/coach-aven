@@ -17,6 +17,18 @@ function num(name: string, fallback: number): number {
   return n;
 }
 
+// The Sentry release (version) to tag issues with. Explicit env wins; otherwise read the
+// `.release` file the deploy writes (package root, next to state.json) so CI can stamp the
+// git tag per deploy without touching the runtime .env. Undefined → no release tag.
+function resolveRelease(): string | undefined {
+  if (process.env.SENTRY_RELEASE) return process.env.SENTRY_RELEASE;
+  try {
+    return readFileSync(new URL('../.release', import.meta.url).pathname, 'utf8').trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 // Resolve the Claude Code subscription token. Prefer an explicit env var (a stable
 // `claude setup-token` value, recommended for production). On a dev box with Claude
 // installed, fall back to the live, auto-refreshing access token in ~/.claude — this
@@ -114,7 +126,7 @@ export function loadConfig(): Config {
       ? {
           dsn: process.env.SENTRY_DSN,
           environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'production',
-          release: process.env.SENTRY_RELEASE,
+          release: resolveRelease(),
           tracesSampleRate: num('SENTRY_TRACES_SAMPLE_RATE', 1),
           logs: process.env.SENTRY_LOGS === '1',
         }

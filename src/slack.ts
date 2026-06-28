@@ -67,6 +67,25 @@ export async function runSlack(cfg: Config): Promise<void> {
   const asking = new Set<string>();
   let turnSeq = 0;
 
+  // Operator error alerts → a Slack channel (set AVEN_ALERT_CHANNEL to a channel id the bot is
+  // in). Free-tier Sentry can't alert to Slack; the bot is already a Slack app, so it self-reports.
+  // Best-effort + deduped (skip a repeat of the same message within the window) to avoid storms.
+  const ALERT_CHANNEL = process.env.AVEN_ALERT_CHANNEL;
+  const ALERT_DEDUPE_MS = 60_000;
+  const recentAlerts = new Map<string, number>();
+  if (ALERT_CHANNEL) {
+    alertSink = (text: string) => {
+      const now = Date.now();
+      const last = recentAlerts.get(text);
+      if (last && now - last < ALERT_DEDUPE_MS) return; // same error just posted — skip
+      recentAlerts.set(text, now);
+      if (recentAlerts.size > 200) recentAlerts.clear(); // bound the map
+      void app.client.chat
+        .postMessage({ channel: ALERT_CHANNEL, text: `:rotating_light: CoachAven error: ${text}`.slice(0, 2000) })
+        .catch(() => {}); // never let an alert failure cascade (no log.error here → no loop)
+    };
+  }
+
   // Scheduled report jobs: dedupe a routine to one fire per matched wall-clock minute
   // (overlapping ticks / a quick restart shouldn't double-post). Maps routine id → the
   // "month-day hh:mm" it last fired on.
@@ -1690,10 +1709,15 @@ function allRoutinesBlocks(groups: { slug: string; routines: RoutineRecord[] }[]
 function info(msg: string): string {
   return `:information_source: ${msg}`;
 }
+// Set by runSlack when AVEN_ALERT_CHANNEL is configured: mirror operator-visible errors to a
+// Slack channel (free-tier alerting that Sentry's free plan can't do). errText is the central
+// error formatter, so every turn/command failure flows through here.
+let alertSink: ((text: string) => void) | undefined;
 function errText(err: unknown): string {
   const m = err instanceof Error ? err.message : String(err);
   log.error(m);
   captureError(err); // central error formatter → Sentry issue (with stack), no-op if Sentry off
+  alertSink?.(m); // mirror to the alert channel if configured (no-op otherwise)
   return `:x: ${m}`.slice(0, MAX_SLACK_TEXT);
 }
 function summary(reg: ProjectsRegistry): string {

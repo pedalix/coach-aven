@@ -160,10 +160,18 @@ cmd_deploy() {
     --exclude='./projects.config.json' \
     --exclude='./state.json' \
     --exclude='./memory' \
+    --exclude='./.release' \
     --exclude='./infra/prod/.env' \
     --exclude='./infra/prod/runtime' \
     . \
   | dssh "tar xzf - -C $REMOTE_DIR"
+
+  # Stamp the release (e.g. the git tag from CI) so Sentry can tag issues with the version.
+  # Read by config.ts's resolveRelease(); only written when RELEASE is provided.
+  if [[ -n "${RELEASE:-}" ]]; then
+    log "Stamping release: $RELEASE"
+    dssh "printf '%s' '$RELEASE' > $REMOTE_DIR/.release"
+  fi
 
   log "Installing dependencies (npm ci) on the server"
   dssh bash -s <<REMOTE

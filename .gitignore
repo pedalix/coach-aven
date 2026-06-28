@@ -1,6 +1,7 @@
 .idea
 node_modules/
 state.json
+.release
 projects.config.json
 # per-project memory journals (server-owned git repos; like state.json, never committed):
 memory/
