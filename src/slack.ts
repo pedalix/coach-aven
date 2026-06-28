@@ -1016,15 +1016,16 @@ export async function runSlack(cfg: Config): Promise<void> {
       await liveTurn(client, dm, undefined, undefined, key, project!, question);
       return;
     }
-    // Fallback: private (ephemeral) answer right here in the channel.
+    // Fallback: private (ephemeral) answer right here in the channel. Sent as text (mrkdwn),
+    // NOT answerBlocks — the ephemeral respond/response_url path rejects Slack `markdown` blocks
+    // with a 500 (the same bug fixed for /aven memory & prompt).
     await respond({ response_type: 'ephemeral', text: THINKING });
     try {
       const answer = await runAsk(key, project!, question);
       await respond({
         response_type: 'ephemeral',
         replace_original: true,
-        text: fallbackText(answer),
-        blocks: answerBlocks(answer),
+        text: mdToMrkdwn(answer).slice(0, MAX_SLACK_TEXT),
       });
     } catch (err) {
       await respond({ response_type: 'ephemeral', replace_original: true, text: errText(err) });
