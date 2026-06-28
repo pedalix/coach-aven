@@ -11,6 +11,7 @@ import {
 import { openChat, type ChatSession } from './tasks.js';
 import { parseSchedule, dueRoutines, groupRoutinesBySlug } from './schedule.js';
 import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn, parseTopics } from './format.js';
+import { resolvePr } from './pr.js';
 import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
@@ -855,6 +856,35 @@ export async function runSlack(cfg: Config): Promise<void> {
       return;
     }
 
+    // `/aven review <PR url|#num>` → on-demand, read-only PR review. The PR's repo picks
+    // the project, so this works in DMs and any channel (not just a project-bound one).
+    if (verb === 'review') {
+      const arg = cmdText.slice('review'.length).trim();
+      if (!arg) {
+        await respond({ response_type: 'ephemeral', text: `:information_source: Usage: \`${CMD} review <PR url or #number>\`` });
+        return;
+      }
+      const channelSlug = (await pickProject(client, command.channel_id, '')).project?.slug;
+      const t = resolvePr(arg, registry.projects, channelSlug);
+      if ('error' in t) {
+        await respond({ response_type: 'ephemeral', text: `:x: ${t.error}` });
+        return;
+      }
+      const project = resolveBySlug(registry, t.slug);
+      if (!project) {
+        await respond({ response_type: 'ephemeral', text: `:x: Unknown project ${t.slug}.` });
+        return;
+      }
+      const key = `review:${t.repo}:${t.number}:${t.slug}`;
+      if (queues.has(key)) {
+        await respond({ response_type: 'ephemeral', text: `:hourglass_flowing_sand: Already reviewing ${shortRepo(t.repo)}#${t.number}.` });
+        return;
+      }
+      await respond({ response_type: 'ephemeral', text: `:eyes: Reviewing ${shortRepo(t.repo)}#${t.number}…` });
+      await liveTurn(client, command.channel_id, undefined, undefined, key, project, reviewPrompt(t.repo, t.number));
+      return;
+    }
+
     const { project, question, error } = await pickProject(client, command.channel_id, command.text ?? '');
     if (error) {
       await respond({ response_type: 'ephemeral', text: info(error) });
@@ -1617,6 +1647,7 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every project's jobs).\n` +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
+          `• *Review a PR* — \`${CMD} review <PR url or #number>\` posts a read-only review here (works in DMs too).\n` +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
@@ -1644,6 +1675,18 @@ const REPORT_FRAMING =
   '[Scheduled read-only digest] Do NOT modify code, create branches, commit, or open PRs. ' +
   'Read-only: gather the requested information and post one concise summary. If nothing is ' +
   'noteworthy, say so briefly.\n\n';
+
+// Prompt for an on-demand PR review: read-only, summarise in Slack, never touch GitHub.
+function reviewPrompt(repo: string, number: number): string {
+  return (
+    `[Read-only PR review] Review pull request #${number} in ${repo}. ` +
+    `Read the change with \`gh pr view ${number} -R ${repo}\` and \`gh pr diff ${number} -R ${repo}\` ` +
+    `(check out the branch only if you need deeper context). Review for correctness bugs, security ` +
+    `issues, and clear quality problems. Do NOT push code, post GitHub comments, or approve/request ` +
+    `changes — just post ONE concise review here in Slack: a one-line verdict, then the most important ` +
+    `findings (with file:line where you can), most severe first. If it looks clean, say so briefly.`
+  );
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
 function routineListBlocks(rs: RoutineRecord[]): any[] {
