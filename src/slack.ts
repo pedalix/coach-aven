@@ -1,6 +1,6 @@
 import bolt from '@slack/bolt';
 import type { Config } from './config.js';
-import { Store, type RoutineRecord } from './state.js';
+import { Store, type RoutineRecord, type PrWatch } from './state.js';
 import {
   loadProjects,
   resolveByChannel,
@@ -11,13 +11,13 @@ import {
 import { openChat, type ChatSession } from './tasks.js';
 import { parseSchedule, dueRoutines, groupRoutinesBySlug } from './schedule.js';
 import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn, parseTopics } from './format.js';
-import { resolvePr } from './pr.js';
+import { resolvePr, prsToReview, autofixEvents } from './pr.js';
 import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
 import { dreamPrompt, dreamDigest } from './dream.js';
 import { snapshotMemory, memoryRepoDir, readSnapshotFile, snapshotLog } from './memjournal.js';
-import { countOpenPRs } from './github.js';
+import { countOpenPRs, listOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
 import { log } from './log.js';
 import { captureError, Sentry } from './sentry.js';
@@ -860,8 +860,34 @@ export async function runSlack(cfg: Config): Promise<void> {
     // the project, so this works in DMs and any channel (not just a project-bound one).
     if (verb === 'review') {
       const arg = cmdText.slice('review'.length).trim();
+
+      // `/aven review auto [on|off]` → per-project auto-review toggle (channel-bound).
+      if (arg.split(/\s+/)[0]?.toLowerCase() === 'auto') {
+        const { project, error } = await pickProject(client, command.channel_id, '');
+        if (error || !project) {
+          await respond({ response_type: 'ephemeral', text: info(error ?? 'Run `review auto` in a project channel.') });
+          return;
+        }
+        const onoff = arg.split(/\s+/)[1]?.toLowerCase();
+        if (onoff === 'on') {
+          store.patchProjectSettings(project.slug, {
+            autoReview: true,
+            autoReviewSince: new Date().toISOString(),
+            autoReviewChannel: command.channel_id,
+          });
+          await respond({ response_type: 'ephemeral', text: `:white_check_mark: Auto-review *ON* for *${project.slug}* — I'll review new (non-bot) PRs here as they open.` });
+        } else if (onoff === 'off') {
+          store.patchProjectSettings(project.slug, { autoReview: false });
+          await respond({ response_type: 'ephemeral', text: `:white_check_mark: Auto-review *OFF* for *${project.slug}*.` });
+        } else {
+          const on = store.getProjectSettings(project.slug).autoReview;
+          await respond({ response_type: 'ephemeral', text: `Auto-review for *${project.slug}*: ${on ? ':large_green_circle: ON' : ':white_circle: OFF'}. Toggle: \`${CMD} review auto on|off\`.` });
+        }
+        return;
+      }
+
       if (!arg) {
-        await respond({ response_type: 'ephemeral', text: `:information_source: Usage: \`${CMD} review <PR url or #number>\`` });
+        await respond({ response_type: 'ephemeral', text: `:information_source: Usage: \`${CMD} review <PR url or #number>\` (or \`${CMD} review auto on|off\`)` });
         return;
       }
       const channelSlug = (await pickProject(client, command.channel_id, '')).project?.slug;
@@ -875,13 +901,80 @@ export async function runSlack(cfg: Config): Promise<void> {
         await respond({ response_type: 'ephemeral', text: `:x: Unknown project ${t.slug}.` });
         return;
       }
-      const key = `review:${t.repo}:${t.number}:${t.slug}`;
-      if (queues.has(key)) {
-        await respond({ response_type: 'ephemeral', text: `:hourglass_flowing_sand: Already reviewing ${shortRepo(t.repo)}#${t.number}.` });
+      const fired = fireReview(client, project, t.repo, t.number, command.channel_id);
+      await respond({
+        response_type: 'ephemeral',
+        text: fired
+          ? `:eyes: Reviewing ${shortRepo(t.repo)}#${t.number}…`
+          : `:hourglass_flowing_sand: Already reviewing ${shortRepo(t.repo)}#${t.number}.`,
+      });
+      return;
+    }
+
+    // `/aven autofix <PR>` → watch a PR's CI + reviews and ping here with a Fix button.
+    //   `/aven autofix off <PR>` unsubscribes; `/aven autofix list` lists this channel's.
+    if (verb === 'autofix') {
+      const arg = cmdText.slice('autofix'.length).trim();
+      const first = arg.split(/\s+/)[0]?.toLowerCase();
+
+      if (first === 'list') {
+        const ws = store.listPrWatches({ channel: command.channel_id });
+        const body = ws.length
+          ? ws.map((w) => `• *${shortRepo(w.repo)}#${w.number}*`).join('\n')
+          : `_No PRs watched here._ Subscribe: \`${CMD} autofix <PR url or #number>\``;
+        await respond({ response_type: 'ephemeral', text: `*Watched PRs*\n${body}` });
         return;
       }
-      await respond({ response_type: 'ephemeral', text: `:eyes: Reviewing ${shortRepo(t.repo)}#${t.number}…` });
-      await liveTurn(client, command.channel_id, undefined, undefined, key, project, reviewPrompt(t.repo, t.number));
+
+      const channelSlug = (await pickProject(client, command.channel_id, '')).project?.slug;
+      const refText = first === 'off' ? arg.slice('off'.length).trim() : arg;
+      if (!refText) {
+        await respond({ response_type: 'ephemeral', text: `:information_source: Usage: \`${CMD} autofix <PR url or #number>\` (\`off <PR>\`, \`list\`)` });
+        return;
+      }
+      const t = resolvePr(refText, registry.projects, channelSlug);
+      if ('error' in t) {
+        await respond({ response_type: 'ephemeral', text: `:x: ${t.error}` });
+        return;
+      }
+      const watchKey = `${t.repo}#${t.number}`;
+
+      if (first === 'off') {
+        const removed = store.deletePrWatch(watchKey);
+        await respond({
+          response_type: 'ephemeral',
+          text: removed ? `:white_check_mark: Stopped watching ${shortRepo(t.repo)}#${t.number}.` : `:information_source: Not watching ${shortRepo(t.repo)}#${t.number}.`,
+        });
+        return;
+      }
+
+      // Subscribe: baseline the cursors off the PR's current CI + reviews so only changes ping.
+      const meta = await getPrMeta(cfg, t.repo, t.number);
+      if (!meta) {
+        await respond({ response_type: 'ephemeral', text: `:x: Couldn't read ${shortRepo(t.repo)}#${t.number} — check the number.` });
+        return;
+      }
+      if (meta.state === 'closed') {
+        await respond({ response_type: 'ephemeral', text: `:information_source: ${shortRepo(t.repo)}#${t.number} is already ${meta.merged ? 'merged' : 'closed'}.` });
+        return;
+      }
+      const ci = await ciStatusForSha(cfg, t.repo, meta.headSha);
+      const reviews = await listReviews(cfg, t.repo, t.number);
+      store.setPrWatch(watchKey, {
+        repo: t.repo,
+        number: t.number,
+        slug: t.slug,
+        channel: command.channel_id,
+        createdBy: command.user_id,
+        createdAt: new Date().toISOString(),
+        lastCiSha: meta.headSha,
+        lastCiConclusion: ci,
+        lastReviewId: reviews.reduce((m, r) => Math.max(m, r.id), 0),
+      });
+      await respond({
+        response_type: 'ephemeral',
+        text: `:eye: Watching *${shortRepo(t.repo)}#${t.number}* — I'll ping here on CI failures or new reviews, with a *Fix* button. (CI now: ${ci})`,
+      });
       return;
     }
 
@@ -980,6 +1073,22 @@ export async function runSlack(cfg: Config): Promise<void> {
     const project = slug ? resolveBySlug(registry, slug) : undefined;
     if (!project) return;
     await liveTurn(client, v.channel, undefined, v.threadTs, v.key, project, FOLLOW_UP_PR_PROMPT);
+  });
+
+  // ── autofix "🔧 Fix it" button → enqueue a WRITE turn to address the PR feedback ──
+  app.action('autofix_apply', async ({ ack, action, client }) => {
+    await ack();
+    let v: { slug: string; repo: string; number: number; channel: string };
+    try {
+      v = JSON.parse((action as { value?: string }).value ?? '');
+    } catch {
+      return;
+    }
+    const project = resolveBySlug(registry, v.slug);
+    if (!project) return;
+    const key = `autofix:${v.repo}:${v.number}:${v.slug}`;
+    if (queues.has(key)) return; // a fix is already running for this PR
+    await liveTurn(client, v.channel, undefined, undefined, key, project, autofixPrompt(v.repo, v.number));
   });
 
   // ── memory topic button → open that section file (journal copy first, no sandbox wake) ──
@@ -1332,6 +1441,23 @@ export async function runSlack(cfg: Config): Promise<void> {
     return true;
   }
 
+  // Fire a PR review (on-demand or auto): a read-only review turn keyed per PR (standing →
+  // re-review keeps context). Returns false if a review for this PR is already in flight.
+  function fireReview(
+    client: bolt.webApi.WebClient,
+    project: ProjectConfig,
+    repo: string,
+    number: number,
+    channel: string,
+  ): boolean {
+    const key = `review:${repo}:${number}:${project.slug}`;
+    if (queues.has(key)) return false;
+    void liveTurn(client, channel, undefined, undefined, key, project, reviewPrompt(repo, number)).catch((e) =>
+      log.error(`review ${repo}#${number}: ${e instanceof Error ? e.message : String(e)}`),
+    );
+    return true;
+  }
+
   // Scheduler: every 60s, fire any routine due this wall-clock minute (see dueRoutines).
   // Routines live in state.json, so they need no separate restart recovery.
   function startScheduler(): void {
@@ -1346,10 +1472,74 @@ export async function runSlack(cfg: Config): Promise<void> {
     setInterval(tick, 60_000);
   }
 
+  // Auto-review poller: every few minutes, review new non-bot PRs in projects with
+  // auto-review enabled (see prsToReview). Posts to the channel auto-review was enabled in.
+  // The `since` cursor + reviewedPrs dedup live in state.json, so a restart neither
+  // re-reviews the backlog nor floods.
+  function startAutoReviewPoller(): void {
+    const client = app.client;
+    const tick = async (): Promise<void> => {
+      for (const project of registry.projects) {
+        const s = store.getProjectSettings(project.slug);
+        if (!s.autoReview || !s.autoReviewChannel) continue;
+        const reviewed = store.reviewedPrKeys();
+        for (const repo of project.repos) {
+          const prs = await listOpenPRs(cfg, repo);
+          const due = prsToReview(
+            prs.map((p) => ({ repo, number: p.number, author: p.author, createdAt: p.createdAt, draft: p.draft })),
+            { since: s.autoReviewSince, botLogin: BOT_LOGIN, reviewed },
+          );
+          for (const p of due) {
+            const k = `${repo}#${p.number}`;
+            store.markPrReviewed(k);
+            reviewed.add(k);
+            if (fireReview(client, project, repo, p.number, s.autoReviewChannel)) log.info(`auto-review ${k} (${project.slug})`);
+          }
+        }
+      }
+    };
+    void tick().catch((e) => log.error(`auto-review poll: ${e instanceof Error ? e.message : String(e)}`));
+    setInterval(() => void tick().catch(() => {}), AUTO_REVIEW_POLL_MS);
+  }
+
+  // Autofix watcher: every couple of minutes, check each subscribed PR's CI + reviews and
+  // post a notification (with a "Fix" button) when something changed (see autofixEvents).
+  // A merged/closed PR auto-unsubscribes. Tier 1: notify + one-click fix, never auto-push.
+  function startAutofixPoller(): void {
+    const client = app.client;
+    const tick = async (): Promise<void> => {
+      for (const w of store.listPrWatches()) {
+        const key = `${w.repo}#${w.number}`;
+        const meta = await getPrMeta(cfg, w.repo, w.number);
+        if (!meta) continue; // transient read failure — try again next tick
+        if (meta.state === 'closed') {
+          store.deletePrWatch(key);
+          await client.chat
+            .postMessage({ channel: w.channel, text: `:checkered_flag: ${shortRepo(w.repo)}#${w.number} ${meta.merged ? 'merged' : 'closed'} — stopped watching.` })
+            .catch(() => {});
+          continue;
+        }
+        const ci = await ciStatusForSha(cfg, w.repo, meta.headSha);
+        const reviews = await listReviews(cfg, w.repo, w.number);
+        const { notes, next } = autofixEvents(w, { sha: meta.headSha, conclusion: ci }, reviews, BOT_LOGIN);
+        store.patchPrWatch(key, next);
+        if (notes.length) {
+          await client.chat
+            .postMessage({ channel: w.channel, text: `${shortRepo(w.repo)}#${w.number}: ${notes.join('; ')}`, blocks: autofixNotifyBlocks(w, notes) })
+            .catch(() => {});
+        }
+      }
+    };
+    void tick().catch((e) => log.error(`autofix poll: ${e instanceof Error ? e.message : String(e)}`));
+    setInterval(() => void tick().catch(() => {}), AUTOFIX_POLL_MS);
+  }
+
   await app.start();
   log.info(`Slack bot running (Socket Mode) — ${summary(registry)}`);
   void resumeInflightTurns();
   startScheduler();
+  startAutoReviewPoller();
+  startAutofixPoller();
 }
 
 // Slack's `markdown` block renders standard Markdown (bold, headers, lists, links,
@@ -1647,7 +1837,8 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every project's jobs).\n` +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
-          `• *Review a PR* — \`${CMD} review <PR url or #number>\` posts a read-only review here (works in DMs too).\n` +
+          `• *Review a PR* — \`${CMD} review <PR url or #number>\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off\` reviews new PRs automatically.\n` +
+          `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
@@ -1676,7 +1867,14 @@ const REPORT_FRAMING =
   'Read-only: gather the requested information and post one concise summary. If nothing is ' +
   'noteworthy, say so briefly.\n\n';
 
-// Prompt for an on-demand PR review: read-only, summarise in Slack, never touch GitHub.
+// The bot's GitHub login (PRs it opens), so auto-review skips its own PRs. Matches the
+// committer identity seeded in project.ts. NOTE: keep in sync if the App's bot changes.
+const BOT_LOGIN = 'coach-aven[bot]';
+// How often the PR pollers check (Socket Mode → poll, no webhooks).
+const AUTO_REVIEW_POLL_MS = 180_000; // 3 min
+const AUTOFIX_POLL_MS = 120_000; // 2 min
+
+// Prompt for a PR review (on-demand or auto): read-only, summarise in Slack, never touch GitHub.
 function reviewPrompt(repo: string, number: number): string {
   return (
     `[Read-only PR review] Review pull request #${number} in ${repo}. ` +
@@ -1686,6 +1884,45 @@ function reviewPrompt(repo: string, number: number): string {
     `changes — just post ONE concise review here in Slack: a one-line verdict, then the most important ` +
     `findings (with file:line where you can), most severe first. If it looks clean, say so briefly.`
   );
+}
+
+// Prompt for an autofix turn (fired by the "Fix" button): a WRITE turn that addresses the
+// PR's latest CI failure / review feedback on its own branch.
+function autofixPrompt(repo: string, number: number): string {
+  return (
+    `Address the latest feedback on pull request #${number} in ${repo}. Check out the PR branch ` +
+    `(\`gh pr checkout ${number} -R ${repo}\`), investigate with \`gh pr view\`, \`gh pr diff\`, ` +
+    `\`gh pr checks ${number} -R ${repo}\` (read the failing CI logs) and the review comments, make the ` +
+    `fix on that branch, commit and push it, then reply here with a short summary of what you changed. ` +
+    `If the right fix is ambiguous, architectural, or risky, ask before changing anything instead of guessing.`
+  );
+}
+
+// Slack notification for an autofix watch event: what changed + a "Fix it" button that
+// enqueues the write-turn (the button value carries everything the action handler needs).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+function autofixNotifyBlocks(w: PrWatch, notes: string[]): any[] {
+  return [
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text: `:wrench: *${w.repo.split('/')[1] ?? w.repo}#${w.number}* — ${notes.join('; ')}\n<https://github.com/${w.repo}/pull/${w.number}|View PR>`,
+      },
+    },
+    {
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '🔧 Fix it' },
+          style: 'primary',
+          action_id: 'autofix_apply',
+          value: JSON.stringify({ slug: w.slug, repo: w.repo, number: w.number, channel: w.channel }),
+        },
+      ],
+    },
+  ];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union

@@ -48,10 +48,37 @@ export interface RoutineRecord {
   lastSummary?: string; // dream: one-line digest of the last run (visibility without channel noise)
 }
 
+// Per-project runtime settings (mutable, unlike the read-once projects.config.json).
+// Currently just the auto-review toggle for the PR-watcher.
+export interface ProjectSettings {
+  autoReview?: boolean;
+  autoReviewSince?: string; // ISO; only auto-review PRs opened after this (skip the backlog on enable)
+  autoReviewChannel?: string; // where the poller posts reviews (set when enabled)
+}
+
+// An autofix subscription on one PR: the poller watches its CI + reviews and posts a Slack
+// notification with a "Fix" button when something changes. Keyed by "<Org/repo>#<number>".
+// The last* cursors are baselined at subscribe so only post-subscription changes notify.
+export interface PrWatch {
+  repo: string; // "Org/name"
+  number: number;
+  slug: string; // owning project
+  channel: string; // where notifications go
+  createdBy: string;
+  createdAt: string;
+  lastCiSha?: string;
+  lastCiConclusion?: string;
+  lastReviewId?: number;
+}
+
 interface StateShape {
   projects: Record<string, ProjectRecord>;
   chats?: Record<string, ChatRecord>;
   routines?: Record<string, RoutineRecord>;
+  projectSettings?: Record<string, ProjectSettings>;
+  // "<Org/repo>#<number>" → ISO timestamp it was auto-reviewed (dedup across restarts).
+  reviewedPrs?: Record<string, string>;
+  prWatches?: Record<string, PrWatch>; // key = "<Org/repo>#<number>"
 }
 
 const STATE_PATH = new URL('../state.json', import.meta.url).pathname;
@@ -162,6 +189,57 @@ export class Store {
   deleteRoutine(id: string): boolean {
     if (!this.data.routines?.[id]) return false;
     delete this.data.routines[id];
+    this.save();
+    return true;
+  }
+
+  // ── per-project settings + auto-review dedup ─────────────────────────────
+  getProjectSettings(slug: string): ProjectSettings {
+    return this.data.projectSettings?.[slug] ?? {};
+  }
+
+  patchProjectSettings(slug: string, patch: Partial<ProjectSettings>): ProjectSettings {
+    const settings = (this.data.projectSettings ??= {});
+    settings[slug] = { ...settings[slug], ...patch };
+    this.save();
+    return settings[slug];
+  }
+
+  // PRs already auto-reviewed (keys "<Org/repo>#<number>"), so the poller reviews each once.
+  reviewedPrKeys(): Set<string> {
+    return new Set(Object.keys(this.data.reviewedPrs ?? {}));
+  }
+
+  markPrReviewed(key: string): void {
+    (this.data.reviewedPrs ??= {})[key] = new Date().toISOString();
+    this.save();
+  }
+
+  // ── autofix PR watches (keyed "<Org/repo>#<number>") ─────────────────────
+  listPrWatches(filter?: { channel?: string }): PrWatch[] {
+    const ws = Object.values(this.data.prWatches ?? {});
+    return filter?.channel ? ws.filter((w) => w.channel === filter.channel) : ws;
+  }
+
+  getPrWatch(key: string): PrWatch | undefined {
+    return this.data.prWatches?.[key];
+  }
+
+  setPrWatch(key: string, watch: PrWatch): void {
+    (this.data.prWatches ??= {})[key] = watch;
+    this.save();
+  }
+
+  patchPrWatch(key: string, patch: Partial<PrWatch>): void {
+    const cur = this.data.prWatches?.[key];
+    if (!cur) return;
+    (this.data.prWatches ??= {})[key] = { ...cur, ...patch };
+    this.save();
+  }
+
+  deletePrWatch(key: string): boolean {
+    if (!this.data.prWatches?.[key]) return false;
+    delete this.data.prWatches[key];
     this.save();
     return true;
   }

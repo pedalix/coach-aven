@@ -22,10 +22,12 @@ async function discoverInstallationId(
 }
 
 // Least-privilege permissions a coding agent needs in-box: read/write code +
-// open PRs. (metadata:read is implied but spelled out for clarity.)
+// open PRs. (metadata:read is implied but spelled out for clarity.) checks:read lets the
+// autofix watcher read CI check-runs.
 const AGENT_PERMISSIONS = {
   contents: 'write',
   pull_requests: 'write',
+  checks: 'read',
   metadata: 'read',
 } as const;
 
@@ -62,6 +64,45 @@ export async function getGitHubToken(cfg: Config, repos: string[]): Promise<stri
   return token;
 }
 
+export interface OpenPullRequest {
+  number: number;
+  author: string; // user.login ("" if unknown)
+  createdAt: string; // ISO 8601
+  headSha: string;
+  title: string;
+  draft: boolean;
+}
+
+// List OPEN PRs for one repo ("Org/name"), orchestrator-side (like countOpenPRs). Used by
+// the auto-review poller. Returns [] on any failure so the poller degrades quietly.
+export async function listOpenPRs(cfg: Config, repo: string): Promise<OpenPullRequest[]> {
+  try {
+    const token = await getGitHubToken(cfg, [repo]);
+    const res = await fetch(`https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+    });
+    if (!res.ok) return [];
+    const arr = (await res.json()) as Array<{
+      number: number;
+      user?: { login?: string };
+      created_at: string;
+      head?: { sha?: string };
+      title?: string;
+      draft?: boolean;
+    }>;
+    return arr.map((p) => ({
+      number: p.number,
+      author: p.user?.login ?? '',
+      createdAt: p.created_at,
+      headSha: p.head?.sha ?? '',
+      title: p.title ?? '',
+      draft: Boolean(p.draft),
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // Best-effort count of OPEN pull requests across a project's repos, for `/aven status`.
 // Uses a token scoped to exactly those repos. Returns `undefined` if it can't be
 // determined (auth/network/rate-limit) so the caller can show "?" instead of failing.
@@ -80,5 +121,77 @@ export async function countOpenPRs(cfg: Config, repos: string[]): Promise<number
     return total;
   } catch {
     return undefined;
+  }
+}
+
+// ── autofix watcher: read a PR's state, CI, and reviews (orchestrator-side) ──────
+
+const gh = async (cfg: Config, repo: string, path: string): Promise<unknown> => {
+  const token = await getGitHubToken(cfg, [repo]);
+  const res = await fetch(`https://api.github.com/repos/${repo}${path}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+  });
+  if (!res.ok) throw new Error(`GitHub ${path} → ${res.status}`);
+  return res.json();
+};
+
+export interface PrMeta {
+  headSha: string;
+  state: 'open' | 'closed';
+  merged: boolean;
+}
+
+// Head sha + open/closed/merged for one PR. null on failure.
+export async function getPrMeta(cfg: Config, repo: string, number: number): Promise<PrMeta | null> {
+  try {
+    const p = (await gh(cfg, repo, `/pulls/${number}`)) as {
+      head?: { sha?: string };
+      state?: string;
+      merged?: boolean;
+    };
+    return { headSha: p.head?.sha ?? '', state: p.state === 'closed' ? 'closed' : 'open', merged: Boolean(p.merged) };
+  } catch {
+    return null;
+  }
+}
+
+export type CiConclusion = 'success' | 'failure' | 'pending' | 'none';
+
+// Aggregate CI for a commit from its check-runs: any failed/cancelled → failure; any not
+// completed → pending; none → none; else success. 'none' on failure (degrade quietly).
+export async function ciStatusForSha(cfg: Config, repo: string, sha: string): Promise<CiConclusion> {
+  try {
+    const r = (await gh(cfg, repo, `/commits/${sha}/check-runs`)) as {
+      check_runs?: Array<{ status?: string; conclusion?: string | null }>;
+    };
+    const runs = r.check_runs ?? [];
+    if (runs.length === 0) return 'none';
+    if (runs.some((c) => ['failure', 'timed_out', 'cancelled', 'action_required'].includes(c.conclusion ?? ''))) {
+      return 'failure';
+    }
+    if (runs.some((c) => c.status !== 'completed')) return 'pending';
+    return 'success';
+  } catch {
+    return 'none';
+  }
+}
+
+export interface ReviewSummary {
+  id: number;
+  state: string; // APPROVED | CHANGES_REQUESTED | COMMENTED | DISMISSED
+  author: string;
+}
+
+// Reviews submitted on a PR (id ascending). [] on failure.
+export async function listReviews(cfg: Config, repo: string, number: number): Promise<ReviewSummary[]> {
+  try {
+    const arr = (await gh(cfg, repo, `/pulls/${number}/reviews?per_page=100`)) as Array<{
+      id: number;
+      state?: string;
+      user?: { login?: string };
+    }>;
+    return arr.map((r) => ({ id: r.id, state: r.state ?? '', author: r.user?.login ?? '' }));
+  } catch {
+    return [];
   }
 }
