@@ -54,6 +54,7 @@ export interface ProjectSettings {
   autoReview?: boolean;
   autoReviewSince?: string; // ISO; only auto-review PRs opened after this (skip the backlog on enable)
   autoReviewChannel?: string; // where the poller posts reviews (set when enabled)
+  autoReviewEffort?: 'low' | 'med' | 'high'; // effort for auto-reviews (default med)
 }
 
 // An autofix subscription on one PR: the poller watches its CI + reviews and posts a Slack

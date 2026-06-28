@@ -12,6 +12,14 @@ import { openChat, type ChatSession } from './tasks.js';
 import { parseSchedule, dueRoutines, groupRoutinesBySlug } from './schedule.js';
 import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn, parseTopics } from './format.js';
 import { resolvePr, prsToReview, autofixEvents } from './pr.js';
+import {
+  reviewPrompt,
+  autofixPrompt,
+  REPORT_FRAMING,
+  FOLLOW_UP_PR_PROMPT,
+  parseEffort,
+  type ReviewEffort,
+} from './prompts.js';
 import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
@@ -868,30 +876,37 @@ export async function runSlack(cfg: Config): Promise<void> {
           await respond({ response_type: 'ephemeral', text: info(error ?? 'Run `review auto` in a project channel.') });
           return;
         }
-        const onoff = arg.split(/\s+/)[1]?.toLowerCase();
+        const words = arg.split(/\s+/);
+        const onoff = words[1]?.toLowerCase();
         if (onoff === 'on') {
           store.patchProjectSettings(project.slug, {
             autoReview: true,
             autoReviewSince: new Date().toISOString(),
             autoReviewChannel: command.channel_id,
+            autoReviewEffort: parseEffort(words[2]) ?? 'med',
           });
-          await respond({ response_type: 'ephemeral', text: `:white_check_mark: Auto-review *ON* for *${project.slug}* — I'll review new (non-bot) PRs here as they open.` });
+          const eff = store.getProjectSettings(project.slug).autoReviewEffort;
+          await respond({ response_type: 'ephemeral', text: `:white_check_mark: Auto-review *ON* (${eff}) for *${project.slug}* — I'll review new (non-bot) PRs here as they open.` });
         } else if (onoff === 'off') {
           store.patchProjectSettings(project.slug, { autoReview: false });
           await respond({ response_type: 'ephemeral', text: `:white_check_mark: Auto-review *OFF* for *${project.slug}*.` });
         } else {
-          const on = store.getProjectSettings(project.slug).autoReview;
-          await respond({ response_type: 'ephemeral', text: `Auto-review for *${project.slug}*: ${on ? ':large_green_circle: ON' : ':white_circle: OFF'}. Toggle: \`${CMD} review auto on|off\`.` });
+          const s = store.getProjectSettings(project.slug);
+          await respond({ response_type: 'ephemeral', text: `Auto-review for *${project.slug}*: ${s.autoReview ? `:large_green_circle: ON (${s.autoReviewEffort ?? 'med'})` : ':white_circle: OFF'}. Toggle: \`${CMD} review auto on|off [low|med|high]\`.` });
         }
         return;
       }
 
       if (!arg) {
-        await respond({ response_type: 'ephemeral', text: `:information_source: Usage: \`${CMD} review <PR url or #number>\` (or \`${CMD} review auto on|off\`)` });
+        await respond({ response_type: 'ephemeral', text: `:information_source: Usage: \`${CMD} review <PR url or #number> [low|med|high]\` (or \`${CMD} review auto on|off\`)` });
         return;
       }
+      // An optional trailing low|med|high token sets the effort; the rest is the PR ref.
+      const tokens = arg.split(/\s+/);
+      const effort: ReviewEffort = parseEffort(tokens[tokens.length - 1]) ?? 'med';
+      const refText = parseEffort(tokens[tokens.length - 1]) ? tokens.slice(0, -1).join(' ') : arg;
       const channelSlug = (await pickProject(client, command.channel_id, '')).project?.slug;
-      const t = resolvePr(arg, registry.projects, channelSlug);
+      const t = resolvePr(refText, registry.projects, channelSlug);
       if ('error' in t) {
         await respond({ response_type: 'ephemeral', text: `:x: ${t.error}` });
         return;
@@ -901,11 +916,11 @@ export async function runSlack(cfg: Config): Promise<void> {
         await respond({ response_type: 'ephemeral', text: `:x: Unknown project ${t.slug}.` });
         return;
       }
-      const fired = fireReview(client, project, t.repo, t.number, command.channel_id);
+      const fired = fireReview(client, project, t.repo, t.number, command.channel_id, effort);
       await respond({
         response_type: 'ephemeral',
         text: fired
-          ? `:eyes: Reviewing ${shortRepo(t.repo)}#${t.number}…`
+          ? `:eyes: Reviewing ${shortRepo(t.repo)}#${t.number} (${effort})…`
           : `:hourglass_flowing_sand: Already reviewing ${shortRepo(t.repo)}#${t.number}.`,
       });
       return;
@@ -1056,11 +1071,6 @@ export async function runSlack(cfg: Config): Promise<void> {
   });
 
   // ── "🔀 Open a PR" button → enqueue a follow-up turn asking the agent to PR its work ──
-  const FOLLOW_UP_PR_PROMPT =
-    'Open a pull request for the work in this conversation: in the relevant repo, make sure your ' +
-    'changes are committed on a dedicated worktree/branch forked from origin/main, push it, and open ' +
-    'a PR against the default branch with the gh CLI. If there is nothing to submit yet, say so ' +
-    'instead of opening an empty PR.';
   app.action('make_pr', async ({ ack, action, client }) => {
     await ack();
     let v: { key: string; channel: string; threadTs?: string };
@@ -1449,10 +1459,11 @@ export async function runSlack(cfg: Config): Promise<void> {
     repo: string,
     number: number,
     channel: string,
+    effort: ReviewEffort = 'med',
   ): boolean {
     const key = `review:${repo}:${number}:${project.slug}`;
     if (queues.has(key)) return false;
-    void liveTurn(client, channel, undefined, undefined, key, project, reviewPrompt(repo, number)).catch((e) =>
+    void liveTurn(client, channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort)).catch((e) =>
       log.error(`review ${repo}#${number}: ${e instanceof Error ? e.message : String(e)}`),
     );
     return true;
@@ -1493,7 +1504,8 @@ export async function runSlack(cfg: Config): Promise<void> {
             const k = `${repo}#${p.number}`;
             store.markPrReviewed(k);
             reviewed.add(k);
-            if (fireReview(client, project, repo, p.number, s.autoReviewChannel)) log.info(`auto-review ${k} (${project.slug})`);
+            if (fireReview(client, project, repo, p.number, s.autoReviewChannel, s.autoReviewEffort ?? 'med'))
+              log.info(`auto-review ${k} (${project.slug})`);
           }
         }
       }
@@ -1837,7 +1849,7 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every project's jobs).\n` +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
-          `• *Review a PR* — \`${CMD} review <PR url or #number>\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off\` reviews new PRs automatically.\n` +
+          `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
@@ -1862,41 +1874,12 @@ const ROUTINE_TZ = process.env.AVEN_TZ || 'UTC';
 
 // Prepended to every scheduled turn: these jobs report, they don't change anything.
 // (Tools aren't hard-gated, so this is a strong instruction, not an enforced sandbox.)
-const REPORT_FRAMING =
-  '[Scheduled read-only digest] Do NOT modify code, create branches, commit, or open PRs. ' +
-  'Read-only: gather the requested information and post one concise summary. If nothing is ' +
-  'noteworthy, say so briefly.\n\n';
-
 // The bot's GitHub login (PRs it opens), so auto-review skips its own PRs. Matches the
 // committer identity seeded in project.ts. NOTE: keep in sync if the App's bot changes.
 const BOT_LOGIN = 'coach-aven[bot]';
 // How often the PR pollers check (Socket Mode → poll, no webhooks).
 const AUTO_REVIEW_POLL_MS = 180_000; // 3 min
 const AUTOFIX_POLL_MS = 120_000; // 2 min
-
-// Prompt for a PR review (on-demand or auto): read-only, summarise in Slack, never touch GitHub.
-function reviewPrompt(repo: string, number: number): string {
-  return (
-    `[Read-only PR review] Review pull request #${number} in ${repo}. ` +
-    `Read the change with \`gh pr view ${number} -R ${repo}\` and \`gh pr diff ${number} -R ${repo}\` ` +
-    `(check out the branch only if you need deeper context). Review for correctness bugs, security ` +
-    `issues, and clear quality problems. Do NOT push code, post GitHub comments, or approve/request ` +
-    `changes — just post ONE concise review here in Slack: a one-line verdict, then the most important ` +
-    `findings (with file:line where you can), most severe first. If it looks clean, say so briefly.`
-  );
-}
-
-// Prompt for an autofix turn (fired by the "Fix" button): a WRITE turn that addresses the
-// PR's latest CI failure / review feedback on its own branch.
-function autofixPrompt(repo: string, number: number): string {
-  return (
-    `Address the latest feedback on pull request #${number} in ${repo}. Check out the PR branch ` +
-    `(\`gh pr checkout ${number} -R ${repo}\`), investigate with \`gh pr view\`, \`gh pr diff\`, ` +
-    `\`gh pr checks ${number} -R ${repo}\` (read the failing CI logs) and the review comments, make the ` +
-    `fix on that branch, commit and push it, then reply here with a short summary of what you changed. ` +
-    `If the right fix is ambiguous, architectural, or risky, ask before changing anything instead of guessing.`
-  );
-}
 
 // Slack notification for an autofix watch event: what changed + a "Fix it" button that
 // enqueues the write-turn (the button value carries everything the action handler needs).
