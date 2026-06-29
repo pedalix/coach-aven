@@ -629,7 +629,14 @@ export async function runSlack(cfg: Config): Promise<void> {
       await client.chat.postMessage({ channel: e.channel, thread_ts: threadTs, text: info(error) });
       return;
     }
-    if (!question) return;
+    if (!question) {
+      await client.chat.postMessage({
+        channel: e.channel,
+        thread_ts: threadTs,
+        text: info('Ask me something — `@CoachAven <task>`. I work in a thread and open a PR for review.'),
+      });
+      return;
+    }
     await liveTurn(client, e.channel, e.ts, threadTs, `thread:${threadTs}`, project!, question);
   });
 
@@ -644,8 +651,32 @@ export async function runSlack(cfg: Config): Promise<void> {
       text?: string;
       ts: string;
       thread_ts?: string;
+      files?: unknown[];
     };
-    if (m.subtype || m.bot_id) return; // ignore edits/joins/bot messages
+    if (m.bot_id) return; // ignore other bots / our own posts
+
+    const ownsThread = (tts?: string): boolean =>
+      !!tts && (live.has(`thread:${tts}`) || !!store.getChat(`thread:${tts}`));
+
+    // Attachments — files, images, voice/audio/video clips — arrive as `file_share` or carry a
+    // `files` array. We can't read them, so acknowledge where we'd normally engage (a DM or a
+    // thread we own) instead of silently dropping; never barge into other channels/threads.
+    if (m.subtype === 'file_share' || (Array.isArray(m.files) && m.files.length > 0)) {
+      if (m.channel_type === 'im' || ownsThread(m.thread_ts)) {
+        await client.chat
+          .postMessage({
+            channel: m.channel,
+            thread_ts: m.thread_ts,
+            text: ":paperclip: I can't read uploaded files, images, or voice/video clips yet — paste the text, code, or a link and I'll take it from there.",
+          })
+          .catch(() => {});
+      }
+      return;
+    }
+
+    // Ignore edits/joins/topic-changes/etc. — but `thread_broadcast` is a genuine reply, so let
+    // it fall through to the thread handling below.
+    if (m.subtype && m.subtype !== 'thread_broadcast') return;
     if (botUserId && m.text?.includes(`<@${botUserId}>`)) return; // app_mention handles these
 
     // Direct message → private; needs a project hint (slug) since DMs aren't bound.
@@ -667,7 +698,14 @@ export async function runSlack(cfg: Config): Promise<void> {
         }
         return;
       }
-      if (!question || !m.user) return;
+      if (!m.user) return;
+      if (!question) {
+        await client.chat.postMessage({
+          channel: m.channel,
+          text: info("I didn't catch a question — just type what you'd like me to do."),
+        });
+        return;
+      }
       await liveTurn(client, m.channel, m.ts, undefined, `dm:${m.channel}:${project!.slug}`, project!, question);
       return;
     }
@@ -677,7 +715,15 @@ export async function runSlack(cfg: Config): Promise<void> {
     const key = `thread:${m.thread_ts}`;
     if (!live.has(key) && !store.getChat(key)) return;
     const { project, question, error } = await pickProject(client, m.channel, m.text ?? '');
-    if (error || !question || !project) return;
+    if (error || !project) return;
+    if (!question) {
+      await client.chat.postMessage({
+        channel: m.channel,
+        thread_ts: m.thread_ts,
+        text: info("I didn't catch a question — what would you like me to do?"),
+      });
+      return;
+    }
     await liveTurn(client, m.channel, m.ts, m.thread_ts, key, project, question);
   });
 
@@ -1861,7 +1907,10 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
     {
       type: 'context',
       elements: [
-        { type: 'mrkdwn', text: 'I work on a dedicated branch and open a PR for review — I never push straight to the default branch.' },
+        {
+          type: 'mrkdwn',
+          text: "I work on a dedicated branch and open a PR for review — I never push straight to the default branch. _(I can't read uploaded files, images, or voice clips yet — paste text or a link.)_",
+        },
       ],
     },
   );
