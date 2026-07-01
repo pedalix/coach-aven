@@ -1721,9 +1721,13 @@ export async function runSlack(cfg: Config): Promise<void> {
       // "Open a PR" follow-up button (answerBlocks attaches it only for `thread:` keys). Falls
       // back to a ticket-scoped key + top-level post if the header couldn't be sent (no rootTs).
       const key = rootTs ? `thread:${rootTs}` : `youtrack:${ticket.id}:${project.slug}`;
-      void liveTurn(client, channel, undefined, rootTs, key, project, prompt, attachments).catch((e) =>
-        log.error(`youtrack ${ticket.id}: ${e instanceof Error ? e.message : String(e)}`),
-      );
+      // Persist the investigation BEFORE dispatch so the ticket→thread link and the dedup
+      // survive an immediate crash; stamp finishedAt when the turn settles. `rootTs` ties the
+      // ticket to `thread:<rootTs>` → chats → the Claude session.
+      store.recordInvestigation(ticket.id, { slug: project.slug, channel, rootTs, startedAt: new Date().toISOString() });
+      void liveTurn(client, channel, undefined, rootTs, key, project, prompt, attachments)
+        .catch((e) => log.error(`youtrack ${ticket.id}: ${e instanceof Error ? e.message : String(e)}`))
+        .finally(() => store.finishInvestigation(ticket.id));
       return true;
     } finally {
       investigating.delete(ticket.id);
@@ -1744,13 +1748,12 @@ export async function runSlack(cfg: Config): Promise<void> {
       if (!mapped.length) return;
       const issues = await listTaggedIssues(cfg, label);
       if (!issues.length) return;
-      const seen = store.seenTicketIds();
+      const seen = store.investigatedTicketIds();
       for (const project of mapped) {
         const prefixes = project.youtrackProjects ?? [];
         for (const t of dueTickets(issues, { seen, prefixes })) {
           if (await fireInvestigation(client, project, t)) {
-            store.markTicketSeen(t.id);
-            seen.add(t.id);
+            seen.add(t.id); // fireInvestigation persisted the record; keep this tick's set current
             log.info(`youtrack investigate ${t.id} (${project.slug})`);
           }
         }

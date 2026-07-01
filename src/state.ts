@@ -72,6 +72,19 @@ export interface PrWatch {
   lastReviewId?: number;
 }
 
+// One YouTrack ticket's investigation (the pilot poller). The ticket id is the idempotency
+// key; `rootTs` is the Slack thread the investigation runs in, so the ticket is durably linked
+// to the thread and — via chats[`thread:<rootTs>`] — to the Claude session. This replaces the
+// old boolean seen-set: the poller investigates each tagged ticket once, and the record is the
+// hook future two-way sync (pull new comments into the thread / post findings back) will use.
+export interface TicketInvestigation {
+  slug: string; // owning project
+  channel: string; // Slack channel id the thread lives in
+  rootTs?: string; // thread root ts → session key `thread:<rootTs>` (absent if the header failed)
+  startedAt: string; // ISO, when the investigation was dispatched
+  finishedAt?: string; // ISO, when the turn settled (step 1 has no failed/retry status yet)
+}
+
 interface StateShape {
   projects: Record<string, ProjectRecord>;
   chats?: Record<string, ChatRecord>;
@@ -80,8 +93,9 @@ interface StateShape {
   // "<Org/repo>#<number>" → ISO timestamp it was auto-reviewed (dedup across restarts).
   reviewedPrs?: Record<string, string>;
   prWatches?: Record<string, PrWatch>; // key = "<Org/repo>#<number>"
-  // YouTrack ticket id (e.g. "GLACIER-42") → ISO timestamp it was investigated (the pilot
-  // poller investigates each tagged ticket once, surviving restarts — like reviewedPrs).
+  // YouTrack ticket id (e.g. "ESET-42") → its investigation. Supersedes seenYouTrackTickets.
+  youtrackInvestigations?: Record<string, TicketInvestigation>;
+  // Legacy pre-record dedup (ticket id → ISO). Still READ for dedup back-compat; not written.
   seenYouTrackTickets?: Record<string, string>;
 }
 
@@ -219,13 +233,33 @@ export class Store {
     this.save();
   }
 
-  // ── YouTrack tickets already investigated (the pilot poller) ─────────────
-  seenTicketIds(): Set<string> {
-    return new Set(Object.keys(this.data.seenYouTrackTickets ?? {}));
+  // ── YouTrack investigations (the pilot poller) ───────────────────────────
+  // Every ticket id we've already investigated — the union of the new records and the legacy
+  // seen-set — so the poller dedups across both and a state written by an older build still
+  // dedups after upgrade.
+  investigatedTicketIds(): Set<string> {
+    return new Set([
+      ...Object.keys(this.data.youtrackInvestigations ?? {}),
+      ...Object.keys(this.data.seenYouTrackTickets ?? {}),
+    ]);
   }
 
-  markTicketSeen(id: string): void {
-    (this.data.seenYouTrackTickets ??= {})[id] = new Date().toISOString();
+  getInvestigation(id: string): TicketInvestigation | undefined {
+    return this.data.youtrackInvestigations?.[id];
+  }
+
+  // Record an investigation at dispatch (before the turn runs), so the ticket→thread link and
+  // the dedup survive an immediate crash.
+  recordInvestigation(id: string, rec: TicketInvestigation): void {
+    (this.data.youtrackInvestigations ??= {})[id] = rec;
+    this.save();
+  }
+
+  // Stamp finishedAt when the turn settles. No-op if the record is gone.
+  finishInvestigation(id: string): void {
+    const rec = this.data.youtrackInvestigations?.[id];
+    if (!rec) return;
+    rec.finishedAt = new Date().toISOString();
     this.save();
   }
 

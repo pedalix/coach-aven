@@ -68,3 +68,22 @@ test('patchChat — merges fields without clobbering, deletes on undefined', () 
   store.patchChat('thread:1', 'caldora', { sessionId: undefined });
   assert.equal(store.getChat('thread:1')?.sessionId, undefined); // undefined deletes
 });
+
+test('youtrack investigations — record, link, finish, and legacy dedup union', () => {
+  const { store, path } = freshStore();
+  store.recordInvestigation('ESET-9', { slug: 'holidayshop-hsx', channel: 'C9', rootTs: '111.222', startedAt: '2026-07-01T10:00:00Z' });
+  const rec = store.getInvestigation('ESET-9');
+  assert.equal(rec?.rootTs, '111.222'); // ticket → thread link persisted
+  assert.equal(rec?.finishedAt, undefined);
+  store.finishInvestigation('ESET-9');
+  assert.ok(store.getInvestigation('ESET-9')?.finishedAt); // stamped on settle
+  store.finishInvestigation('nope'); // no-op, doesn't throw
+
+  // Dedup set is the union of new records + the legacy seen-set (back-compat after upgrade).
+  const legacy = new Store(path);
+  // simulate a state.json written by an older build that only had seenYouTrackTickets
+  (legacy as unknown as { data: { seenYouTrackTickets: Record<string, string> } }).data.seenYouTrackTickets = { 'ART-1': '2026-06-30T00:00:00Z' };
+  const ids = legacy.investigatedTicketIds();
+  assert.ok(ids.has('ESET-9')); // from records
+  assert.ok(ids.has('ART-1')); // from legacy seen-set
+});
