@@ -1,4 +1,5 @@
 import type { Config } from './config.js';
+import type { AttachmentRef } from './attachments.js';
 
 // YouTrack integration for the support-ticket investigation pilot: a label on a ticket is
 // the trigger. This module mirrors github.ts — a thin REST client (typed `fetch` against the
@@ -88,6 +89,39 @@ export async function listComments(cfg: Config, id: string): Promise<YouTrackCom
         author: c.author?.login ?? c.author?.fullName ?? '',
         createdAt: c.created ? new Date(c.created).toISOString() : '',
         text: c.text ?? '',
+      }));
+  } catch {
+    return [];
+  }
+}
+
+// Resolve a YouTrack attachment `url` (typically a root-relative `/api/files/...?sign=...`) to
+// an absolute, fetchable URL against the instance root. Pass-through if it's already absolute.
+// Pure so the join is unit-tested (the download itself needs the bearer token, in ingest()).
+export function attachmentUrl(baseUrl: string, url: string): string {
+  if (/^https?:\/\//i.test(url)) return url;
+  const base = baseUrl.replace(/\/$/, '');
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+// Fetch a ticket's file attachments so the investigation can actually see the screenshots/PDFs
+// users lean on. Downloaded + written into the sandbox by ChatSession.ingest (same YT bearer).
+// [] on failure — the investigation still proceeds from the text, like listComments.
+export async function listAttachments(cfg: Config, id: string): Promise<AttachmentRef[]> {
+  const yt = cfg.youtrack;
+  if (!yt) return [];
+  try {
+    const arr = (await ytGet(
+      yt,
+      `/issues/${encodeURIComponent(id)}/attachments?fields=name,url,mimeType,size&$top=100`,
+    )) as Array<{ name?: string; url?: string; mimeType?: string; size?: number }>;
+    return arr
+      .filter((a) => a.url && a.name)
+      .map((a) => ({
+        name: a.name!,
+        url: attachmentUrl(yt.baseUrl, a.url!),
+        mime: a.mimeType ?? '',
+        size: a.size ?? 0,
       }));
   } catch {
     return [];

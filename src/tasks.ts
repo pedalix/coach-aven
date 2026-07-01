@@ -16,6 +16,14 @@ import {
 import type { McpServerSpec } from './projects.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
 import { ClaudeSession, type OnQuestion } from './claudeSession.js';
+import {
+  planIngest,
+  downloadAttachment,
+  inboxDir,
+  inboxPath,
+  attachmentPreamble,
+  type AttachmentRef,
+} from './attachments.js';
 
 // "Chat with the project": ensure the sandbox + clone ALL the project's repos, then
 // drive a persistent Claude process over it (the agent can read AND edit; it pushes /
@@ -43,6 +51,10 @@ export interface ChatSession {
   // One-shot flag: true once if a resume id was set but its transcript was gone (sandbox
   // rebuilt) so we started fresh — the caller should warn the user. Resets on read.
   contextLost(): boolean;
+  // Download inbound attachments (Slack files / YouTrack ticket files) with `bearer` and drop
+  // them into this turn's sandbox inbox so the agent can Read them. Returns a prompt preamble
+  // naming the saved paths (and any skipped files), or '' if there's nothing to add.
+  ingest(refs: AttachmentRef[], bearer: string, turnId: string): Promise<string>;
 }
 
 // Serialize per-sandbox preparation so two conversations sharing one project sandbox
@@ -252,6 +264,33 @@ export async function openChat(
       const v = droppedResume;
       droppedResume = false;
       return v;
+    },
+    ingest: async (refs: AttachmentRef[], bearer: string, turnId: string): Promise<string> => {
+      if (!refs.length) return '';
+      const { accept, skipped } = planIngest(refs);
+      const kept: { path: string; name: string }[] = [];
+      if (accept.length) {
+        // Ensure the sandbox is awake before writing (ask() does the same via ensureSession);
+        // then create the per-turn inbox once and upload each downloaded file into it.
+        await ensureSession();
+        await exec(sandbox, `mkdir -p ${inboxDir(turnId)}`);
+        for (let i = 0; i < accept.length; i++) {
+          const ref = accept[i];
+          try {
+            const buf = await downloadAttachment(ref, bearer);
+            if (!buf) {
+              skipped.push({ name: ref.name, reason: 'download failed' });
+              continue;
+            }
+            const path = inboxPath(turnId, i + 1, ref.name);
+            await sandbox.fs.uploadFile(buf, path);
+            kept.push({ path, name: ref.name });
+          } catch {
+            skipped.push({ name: ref.name, reason: 'download failed' });
+          }
+        }
+      }
+      return attachmentPreamble(kept, skipped);
     },
     ask: async (
       prompt: string,

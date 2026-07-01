@@ -21,7 +21,8 @@ import {
   parseEffort,
   type ReviewEffort,
 } from './prompts.js';
-import { listTaggedIssues, listComments, dueTickets } from './youtrack.js';
+import { listTaggedIssues, listComments, listAttachments, dueTickets } from './youtrack.js';
+import type { AttachmentRef } from './attachments.js';
 import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
@@ -54,6 +55,9 @@ export async function runSlack(cfg: Config): Promise<void> {
   if (!cfg.slack) {
     throw new Error('Set SLACK_BOT_TOKEN and SLACK_APP_TOKEN to run the Slack bot.');
   }
+  // Capture the bot token here: `cfg.slack` is narrowed non-undefined at this top level, but that
+  // narrowing is lost inside the event-handler closures below, where we need it to fetch files.
+  const slackBotToken = cfg.slack.botToken;
   const registry = loadProjects(cfg.projectsConfigPath);
   const store = new Store();
   const app = new App({
@@ -479,6 +483,9 @@ export async function runSlack(cfg: Config): Promise<void> {
     key: string,
     project: ProjectConfig,
     question: string,
+    // Inbound files to download into the sandbox before the turn runs (Slack uploads /
+    // YouTrack ticket files). Optional so the many other call sites are unaffected.
+    attachments?: { refs: AttachmentRef[]; bearer: string },
   ): Promise<void> {
     if (isNote(question)) {
       // Human-only note — leave the agent out entirely; just acknowledge we skipped it.
@@ -505,7 +512,7 @@ export async function runSlack(cfg: Config): Promise<void> {
     const prev = queues.get(key) ?? Promise.resolve();
     const mine = prev
       .catch(() => {})
-      .then(() => doTurn(client, channel, msgTs, threadTs, ts, key, project, question, turnId, ac));
+      .then(() => doTurn(client, channel, msgTs, threadTs, ts, key, project, question, turnId, ac, attachments));
     queues.set(key, mine);
     void mine.finally(() => {
       running.delete(turnId);
@@ -527,6 +534,7 @@ export async function runSlack(cfg: Config): Promise<void> {
     question: string,
     turnId: string,
     ac: AbortController,
+    attachments?: { refs: AttachmentRef[]; bearer: string },
   ): Promise<void> {
     const clearEyes = async () => {
       if (msgTs) await react(client, channel, msgTs, 'eyes', 'remove');
@@ -584,6 +592,19 @@ export async function runSlack(cfg: Config): Promise<void> {
     }
     try {
       const chat = await sessionFor(key, project, slackUrl); // prepare (warm sandbox + clone) here
+      // Download any inbound files into the sandbox first, then prepend a preamble naming their
+      // paths so the agent Reads them. Best-effort: a failure here must not sink the whole turn.
+      let prompt = question;
+      if (attachments?.refs.length) {
+        phase = '📎 Fetching attachments…';
+        await flush(true);
+        try {
+          const preamble = await chat.ingest(attachments.refs, attachments.bearer, turnId);
+          if (preamble) prompt = `${preamble}\n\n${question}`;
+        } catch (e) {
+          log.error(`ingest ${turnId}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
       phase = '🔎 Working…';
       await flush(true);
       // Wrap the agent turn in a Sentry span so turn latency shows up in performance (no-op
@@ -592,7 +613,7 @@ export async function runSlack(cfg: Config): Promise<void> {
         { name: 'aven.turn', op: 'gen_ai.invoke_agent', attributes: { 'aven.project': project.slug } },
         () =>
           chat.ask(
-            question,
+            prompt,
             (step) => {
               steps.push(step);
               void flush();
@@ -664,14 +685,19 @@ export async function runSlack(cfg: Config): Promise<void> {
 
   // ── @mention → public thread (one session per thread) ───────────────────────
   app.event('app_mention', async ({ event, client }) => {
-    const e = event as { channel: string; ts: string; thread_ts?: string; text?: string };
+    const e = event as { channel: string; ts: string; thread_ts?: string; text?: string; files?: unknown[] };
     const threadTs = e.thread_ts || e.ts;
+    // Files attached to the mentioning message (e.g. "@CoachAven look at this <screenshot>") —
+    // the common channel pattern. Downloaded into the sandbox for the agent to Read.
+    const files = Array.isArray(e.files) ? slackFilesToRefs(e.files) : [];
+    const attachments = files.length ? { refs: files, bearer: slackBotToken } : undefined;
     const { project, question, error } = await pickProject(client, e.channel, stripMention(e.text ?? ''));
     if (error) {
       await client.chat.postMessage({ channel: e.channel, thread_ts: threadTs, text: info(error) });
       return;
     }
-    if (!question) {
+    // A bare mention with a file (no text) is a valid ask — only nag when there's neither.
+    if (!question && !attachments) {
       await client.chat.postMessage({
         channel: e.channel,
         thread_ts: threadTs,
@@ -679,7 +705,8 @@ export async function runSlack(cfg: Config): Promise<void> {
       });
       return;
     }
-    await liveTurn(client, e.channel, e.ts, threadTs, `thread:${threadTs}`, project!, question);
+    const mentionQ = question || 'Please take a look at the attached file(s).';
+    await liveTurn(client, e.channel, e.ts, threadTs, `thread:${threadTs}`, project!, mentionQ, attachments);
   });
 
   // ── thread reply (owned) → continue;  DM → private conversation ─────────────
@@ -697,28 +724,18 @@ export async function runSlack(cfg: Config): Promise<void> {
     };
     if (m.bot_id) return; // ignore other bots / our own posts
 
-    const ownsThread = (tts?: string): boolean =>
-      !!tts && (live.has(`thread:${tts}`) || !!store.getChat(`thread:${tts}`));
+    // Attachments (screenshots, PDFs, docs) arrive with a `subtype: 'file_share'` and a `files`
+    // array. We download them into the sandbox for the agent to Read (see doTurn → chat.ingest);
+    // here we just extract the refs and let the message flow through the SAME routing as text —
+    // so the DM/owned-thread gates still decide whether we engage (we never barge in elsewhere).
+    const files = Array.isArray(m.files) ? slackFilesToRefs(m.files) : [];
+    const attachments = files.length ? { refs: files, bearer: slackBotToken } : undefined;
 
-    // Attachments — files, images, voice/audio/video clips — arrive as `file_share` or carry a
-    // `files` array. We can't read them, so acknowledge where we'd normally engage (a DM or a
-    // thread we own) instead of silently dropping; never barge into other channels/threads.
-    if (m.subtype === 'file_share' || (Array.isArray(m.files) && m.files.length > 0)) {
-      if (m.channel_type === 'im' || ownsThread(m.thread_ts)) {
-        await client.chat
-          .postMessage({
-            channel: m.channel,
-            thread_ts: m.thread_ts,
-            text: ":paperclip: I can't read uploaded files, images, or voice/video clips yet — paste the text, code, or a link and I'll take it from there.",
-          })
-          .catch(() => {});
-      }
-      return;
-    }
-
-    // Ignore edits/joins/topic-changes/etc. — but `thread_broadcast` is a genuine reply, so let
-    // it fall through to the thread handling below.
-    if (m.subtype && m.subtype !== 'thread_broadcast') return;
+    // Ignore edits/joins/topic-changes/etc. — but `thread_broadcast` is a genuine reply and
+    // `file_share` is a real message carrying files, so let both fall through to the handling
+    // below. (A file dropped WITH an @mention is handled by the app_mention branch above, which
+    // carries its own files; the check below then bounces the duplicate message event.)
+    if (m.subtype && m.subtype !== 'thread_broadcast' && m.subtype !== 'file_share') return;
     if (botUserId && m.text?.includes(`<@${botUserId}>`)) return; // app_mention handles these
 
     // Direct message → private; needs a project hint (slug) since DMs aren't bound.
@@ -726,7 +743,8 @@ export async function runSlack(cfg: Config): Promise<void> {
       const { project, question, error } = await pickProject(client, m.channel, m.text ?? '');
       if (error) {
         // No project hint → offer a dropdown instead of demanding a slug prefix. Park the
-        // question; the dm_pick_project handler runs it once a project is chosen.
+        // question; the dm_pick_project handler runs it once a project is chosen. (Attachments
+        // don't survive the picker in v1 — the re-run has no files; rare enough to accept.)
         if (m.user && question && registry.projects.length > 1) {
           const pid = `dp${++dmPickSeq}`;
           pendingDmPicks.set(pid, { channel: m.channel, user: m.user, question });
@@ -741,14 +759,17 @@ export async function runSlack(cfg: Config): Promise<void> {
         return;
       }
       if (!m.user) return;
-      if (!question) {
+      // A file with no text IS the message (drop a screenshot, expect a look) — only nag when
+      // there's neither text nor an attachment.
+      if (!question && !attachments) {
         await client.chat.postMessage({
           channel: m.channel,
           text: info("I didn't catch a question — just type what you'd like me to do."),
         });
         return;
       }
-      await liveTurn(client, m.channel, m.ts, undefined, `dm:${m.channel}:${project!.slug}`, project!, question);
+      const dmQ = question || 'Please take a look at the attached file(s).';
+      await liveTurn(client, m.channel, m.ts, undefined, `dm:${m.channel}:${project!.slug}`, project!, dmQ, attachments);
       return;
     }
 
@@ -758,7 +779,7 @@ export async function runSlack(cfg: Config): Promise<void> {
     if (!live.has(key) && !store.getChat(key)) return;
     const { project, question, error } = await pickProject(client, m.channel, m.text ?? '');
     if (error || !project) return;
-    if (!question) {
+    if (!question && !attachments) {
       await client.chat.postMessage({
         channel: m.channel,
         thread_ts: m.thread_ts,
@@ -766,7 +787,8 @@ export async function runSlack(cfg: Config): Promise<void> {
       });
       return;
     }
-    await liveTurn(client, m.channel, m.ts, m.thread_ts, key, project, question);
+    const threadQ = question || 'Please take a look at the attached file(s).';
+    await liveTurn(client, m.channel, m.ts, m.thread_ts, key, project, threadQ, attachments);
   });
 
   // ── /aven → private answer in the user's DM (per project) ───────────────────
@@ -1663,6 +1685,10 @@ export async function runSlack(cfg: Config): Promise<void> {
     }
     const comments = await listComments(cfg, ticket.id);
     const commentsText = comments.map((c) => `[${c.author || 'unknown'}] ${c.text}`).join('\n\n');
+    // Ticket file attachments (screenshots/PDFs) — downloaded into the sandbox for the agent to
+    // Read, using the same YouTrack token. [] on any failure; the investigation still proceeds.
+    const attachRefs = await listAttachments(cfg, ticket.id);
+    const attachments = attachRefs.length ? { refs: attachRefs, bearer: cfg.youtrack!.token } : undefined;
     const mentions = (cfg.youtrack?.ping ?? []).map((u) => `<@${u}>`).join(' ');
     const prompt = investigationPrompt(
       { id: ticket.id, summary: ticket.summary, description: ticket.description, comments: commentsText },
@@ -1683,7 +1709,7 @@ export async function runSlack(cfg: Config): Promise<void> {
     } catch (e) {
       log.error(`youtrack ${ticket.id}: header post failed: ${e instanceof Error ? e.message : String(e)}`);
     }
-    void liveTurn(client, channel, undefined, rootTs, key, project, prompt).catch((e) =>
+    void liveTurn(client, channel, undefined, rootTs, key, project, prompt, attachments).catch((e) =>
       log.error(`youtrack ${ticket.id}: ${e instanceof Error ? e.message : String(e)}`),
     );
     return true;
@@ -1936,6 +1962,28 @@ function statusReportBlocks(r: StatusReport): any[] {
 // "Org/name" → "name", for compact display.
 const shortRepo = (full: string): string => full.split('/').pop() ?? full;
 
+// Map raw Slack file objects (untyped on the message event) to source-agnostic AttachmentRefs.
+// We prefer `url_private_download` (raw bytes) and fall back to `url_private`; files with
+// neither (e.g. external/link "files") are dropped. The admission allowlist/caps run later in
+// planIngest — here we only normalize shape.
+function slackFilesToRefs(files: unknown[]): AttachmentRef[] {
+  const out: AttachmentRef[] = [];
+  for (const f of files) {
+    const o = (f ?? {}) as {
+      url_private_download?: string;
+      url_private?: string;
+      name?: string;
+      title?: string;
+      mimetype?: string;
+      size?: number;
+    };
+    const url = o.url_private_download || o.url_private;
+    if (!url) continue;
+    out.push({ name: o.name || o.title || 'file', url, mime: o.mimetype ?? '', size: o.size ?? 0 });
+  }
+  return out;
+}
+
 // ── /aven access ────────────────────────────────────────────────────────────
 // What a channel's project exposes: its repos and MCP tools (Claude Tag's "what can you
 // access here?"). Transparency for onboarding — read-only.
@@ -2022,6 +2070,7 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           `• *Quick private answer* — \`${CMD} <question>\` in a project channel. I answer privately in our DM.\n` +
           "• *DM me directly* — just message me in a DM; if it's not clear which project you mean, I'll show a picker.\n" +
           `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every project's jobs).\n` +
+          "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task. _(Voice/video not supported yet.)_\n" +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically.\n` +
@@ -2038,7 +2087,7 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
       elements: [
         {
           type: 'mrkdwn',
-          text: "I work on a dedicated branch and open a PR for review — I never push straight to the default branch. _(I can't read uploaded files, images, or voice clips yet — paste text or a link.)_",
+          text: "I work on a dedicated branch and open a PR for review — I never push straight to the default branch. _(Voice/video clips aren't supported yet — paste text or a link for those.)_",
         },
       ],
     },

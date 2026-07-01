@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { matchesPrefix, dueTickets, type YouTrackIssue } from './youtrack.js';
+import { matchesPrefix, dueTickets, attachmentUrl, type YouTrackIssue } from './youtrack.js';
 
 const issue = (id: string): YouTrackIssue => ({
   id,
@@ -46,4 +46,17 @@ test('dueTickets: one project can carry several prefixes (caldora help-desks)', 
 
 test('dueTickets: empty prefixes selects nothing', () => {
   assert.deepEqual(dueTickets([issue('GLACIER-1')], { seen: new Set(), prefixes: [] }), []);
+});
+
+test('attachmentUrl: prefixes root-relative urls, passes absolute through', () => {
+  assert.equal(
+    attachmentUrl('https://yt.example.com/', '/api/files/abc?sign=xyz'),
+    'https://yt.example.com/api/files/abc?sign=xyz',
+  );
+  // trailing slash on base + no leading slash on url still joins cleanly
+  assert.equal(attachmentUrl('https://yt.example.com', 'api/files/abc'), 'https://yt.example.com/api/files/abc');
+  assert.equal(
+    attachmentUrl('https://yt.example.com', 'https://cdn.other/x.png'),
+    'https://cdn.other/x.png',
+  );
 });
