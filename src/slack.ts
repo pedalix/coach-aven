@@ -1666,6 +1666,12 @@ export async function runSlack(cfg: Config): Promise<void> {
     setInterval(() => void tick().catch(pollFail('autofix')), AUTOFIX_POLL_MS);
   }
 
+  // Ticket ids with an investigation being fired right now. The durable dedup is the
+  // state.json seen-set (marked by the poller on success), but that's marked only AFTER this
+  // returns; this in-memory guard covers the gap so an overlapping poller tick (one running
+  // longer than the interval) can't start a second investigation for the same ticket. Added
+  // before the first await, cleared in finally.
+  const investigating = new Set<string>();
   // Fire a support-ticket investigation (the YouTrack-label pilot). A read-only turn keyed
   // per ticket, posted as a thread under a compact header in the project's `bluefin-aven-<slug>`
   // channel. Awaits channel resolution + the ticket's comments, then hands off to the normal
@@ -1676,46 +1682,52 @@ export async function runSlack(cfg: Config): Promise<void> {
     project: ProjectConfig,
     ticket: { id: string; summary: string; description: string },
   ): Promise<boolean> {
-    const channel = await channelIdForSlug(client, project);
-    if (!channel) {
-      log.error(`youtrack ${ticket.id}: channel ${CHANNEL_PREFIX}${project.slug} not found — create it and invite the bot`);
-      return false;
-    }
-    const comments = await listComments(cfg, ticket.id);
-    const commentsText = comments.map((c) => `[${c.author || 'unknown'}] ${c.text}`).join('\n\n');
-    // Ticket file attachments (screenshots/PDFs) — downloaded into the sandbox for the agent to
-    // Read, using the same YouTrack token. [] on any failure; the investigation still proceeds.
-    const attachRefs = await listAttachments(cfg, ticket.id);
-    const attachments = attachRefs.length ? { refs: attachRefs, bearer: cfg.youtrack!.token } : undefined;
-    const mentions = (cfg.youtrack?.ping ?? []).map((u) => `<@${u}>`).join(' ');
-    const prompt = investigationPrompt(
-      { id: ticket.id, summary: ticket.summary, description: ticket.description, comments: commentsText },
-      mentions,
-    );
-    // Post a compact header FIRST, then run the whole investigation as a reply under it, so
-    // each ticket is one tidy line in the channel with the live status + findings collapsed in
-    // its own thread (unlike the other pollers, which post top-level).
-    const ticketUrl = `${cfg.youtrack!.baseUrl.replace(/\/$/, '')}/issue/${ticket.id}`;
-    let rootTs: string | undefined;
+    if (investigating.has(ticket.id)) return false; // an overlapping tick is already firing this ticket
+    investigating.add(ticket.id);
     try {
-      const root = await client.chat.postMessage({
-        channel,
-        text: `:ticket: <${ticketUrl}|${ticket.id}> — ${ticket.summary}`,
-      });
-      rootTs = root.ts as string | undefined;
-    } catch (e) {
-      log.error(`youtrack ${ticket.id}: header post failed: ${e instanceof Error ? e.message : String(e)}`);
+      const channel = await channelIdForSlug(client, project);
+      if (!channel) {
+        log.error(`youtrack ${ticket.id}: channel ${CHANNEL_PREFIX}${project.slug} not found — create it and invite the bot`);
+        return false;
+      }
+      const comments = await listComments(cfg, ticket.id);
+      const commentsText = comments.map((c) => `[${c.author || 'unknown'}] ${c.text}`).join('\n\n');
+      // Ticket file attachments (screenshots/PDFs) — downloaded into the sandbox for the agent to
+      // Read, using the same YouTrack token. [] on any failure; the investigation still proceeds.
+      const attachRefs = await listAttachments(cfg, ticket.id);
+      const attachments = attachRefs.length ? { refs: attachRefs, bearer: cfg.youtrack!.token } : undefined;
+      const mentions = (cfg.youtrack?.ping ?? []).map((u) => `<@${u}>`).join(' ');
+      const prompt = investigationPrompt(
+        { id: ticket.id, summary: ticket.summary, description: ticket.description, comments: commentsText },
+        mentions,
+      );
+      // Post a compact header FIRST, then run the whole investigation as a reply under it, so
+      // each ticket is one tidy line in the channel with the live status + findings collapsed in
+      // its own thread (unlike the other pollers, which post top-level).
+      const ticketUrl = `${cfg.youtrack!.baseUrl.replace(/\/$/, '')}/issue/${ticket.id}`;
+      let rootTs: string | undefined;
+      try {
+        const root = await client.chat.postMessage({
+          channel,
+          text: `:ticket: <${ticketUrl}|${ticket.id}> — ${ticket.summary}`,
+        });
+        rootTs = root.ts as string | undefined;
+      } catch (e) {
+        log.error(`youtrack ${ticket.id}: header post failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      // Key the turn like a normal channel thread (`thread:<rootTs>`) instead of a one-shot: that
+      // single choice makes the thread CONTINUABLE — a later reply in it resumes THIS Claude
+      // session (the bot "owns" the thread via store.getChat) — and gives the finished answer the
+      // "Open a PR" follow-up button (answerBlocks attaches it only for `thread:` keys). Falls
+      // back to a ticket-scoped key + top-level post if the header couldn't be sent (no rootTs).
+      const key = rootTs ? `thread:${rootTs}` : `youtrack:${ticket.id}:${project.slug}`;
+      void liveTurn(client, channel, undefined, rootTs, key, project, prompt, attachments).catch((e) =>
+        log.error(`youtrack ${ticket.id}: ${e instanceof Error ? e.message : String(e)}`),
+      );
+      return true;
+    } finally {
+      investigating.delete(ticket.id);
     }
-    // Key the turn like a normal channel thread (`thread:<rootTs>`) instead of a one-shot: that
-    // single choice makes the thread CONTINUABLE — a later reply in it resumes THIS Claude
-    // session (the bot "owns" the thread via store.getChat) — and gives the finished answer the
-    // "Open a PR" follow-up button (answerBlocks attaches it only for `thread:` keys). Falls
-    // back to a ticket-scoped key + top-level post if the header couldn't be sent (no rootTs).
-    const key = rootTs ? `thread:${rootTs}` : `youtrack:${ticket.id}:${project.slug}`;
-    void liveTurn(client, channel, undefined, rootTs, key, project, prompt, attachments).catch((e) =>
-      log.error(`youtrack ${ticket.id}: ${e instanceof Error ? e.message : String(e)}`),
-    );
-    return true;
   }
 
   // YouTrack poller: every couple of minutes, find tickets tagged with the trigger label,
