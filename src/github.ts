@@ -1,5 +1,40 @@
 import { createAppAuth } from '@octokit/auth-app';
 import type { Config } from './config.js';
+import { captureError } from './sentry.js';
+import { log } from './log.js';
+
+// ── credential-failure reporting ─────────────────────────────────────────────────
+// A broken GitHub credential (expired/revoked token, misconfigured App key, a repo the App
+// isn't installed on, a missing scope) silently starves every background poller: the helpers
+// below all degrade quietly (return []/undefined/null/'none'), so without this the operator
+// gets NO signal — the bot just "finds nothing" forever. So we surface credential-class
+// failures to Sentry. Transient 5xx / network blips / rate-limit 403s are NOT reported: they
+// self-heal and aren't a token problem.
+
+// True for statuses that mean "this credential won't work" rather than "try again later":
+// 401 = bad/expired token; 403 without an exhausted rate-limit = missing scope / repo not on
+// the installation. (A rate-limit 403 carries x-ratelimit-remaining: 0 — that one self-heals.)
+export function isAuthFailure(res: { status: number; headers: { get(name: string): string | null } }): boolean {
+  if (res.status === 401) return true;
+  if (res.status === 403) return res.headers.get('x-ratelimit-remaining') !== '0';
+  return false;
+}
+
+// Throttle per op: the pollers call these every couple minutes, so a persistently bad token
+// would otherwise raise the same failure hundreds of times a day. Sentry still groups events
+// into one issue; this just keeps outbound volume (and log noise) sane. `op` is the throttle
+// key and a Sentry tag naming the call site.
+const REPORT_EVERY_MS = 15 * 60_000;
+const lastReportAt = new Map<string, number>();
+
+export function reportGitHubAuthFailure(op: string, err: unknown): void {
+  const now = Date.now();
+  if (now - (lastReportAt.get(op) ?? 0) < REPORT_EVERY_MS) return;
+  lastReportAt.set(op, now);
+  const e = err instanceof Error ? err : new Error(String(err));
+  log.error(`github auth failure (${op}): ${e.message}`);
+  captureError(e, { subsystem: 'github', op });
+}
 
 // Discover the installation id for a repo via the App JWT (the App is installed
 // org-wide, so any repo in the org resolves to the same installation).
@@ -40,6 +75,18 @@ const AGENT_PERMISSIONS = {
 //    installation id is taken from config or discovered from the first repo. Re-resolve
 //    per task so the token stays fresh; long runs that outlast an hour should re-seed.
 export async function getGitHubToken(cfg: Config, repos: string[]): Promise<string> {
+  try {
+    return await resolveGitHubToken(cfg, repos);
+  } catch (err) {
+    // Failing to even mint/find a token is unambiguously a credential problem — report it here,
+    // the one chokepoint every caller shares, then rethrow so behavior is unchanged (chat turns
+    // surface it to the user via errText; pollers swallow-and-retry, but now it's on record).
+    reportGitHubAuthFailure('getGitHubToken', err);
+    throw err;
+  }
+}
+
+async function resolveGitHubToken(cfg: Config, repos: string[]): Promise<string> {
   const auth = cfg.github;
   if (auth.kind === 'token') return auth.token;
 
@@ -81,7 +128,10 @@ export async function listOpenPRs(cfg: Config, repo: string): Promise<OpenPullRe
     const res = await fetch(`https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
     });
-    if (!res.ok) return [];
+    if (!res.ok) {
+      if (isAuthFailure(res)) reportGitHubAuthFailure('listOpenPRs', new Error(`GitHub pulls → ${res.status}`));
+      return [];
+    }
     const arr = (await res.json()) as Array<{
       number: number;
       user?: { login?: string };
@@ -115,7 +165,10 @@ export async function countOpenPRs(cfg: Config, repos: string[]): Promise<number
         `https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`,
         { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } },
       );
-      if (!res.ok) return undefined;
+      if (!res.ok) {
+        if (isAuthFailure(res)) reportGitHubAuthFailure('countOpenPRs', new Error(`GitHub pulls → ${res.status}`));
+        return undefined;
+      }
       total += ((await res.json()) as unknown[]).length;
     }
     return total;
@@ -126,12 +179,17 @@ export async function countOpenPRs(cfg: Config, repos: string[]): Promise<number
 
 // ── autofix watcher: read a PR's state, CI, and reviews (orchestrator-side) ──────
 
-const gh = async (cfg: Config, repo: string, path: string): Promise<unknown> => {
+// `op` is a coarse, stable label (the caller name, not the resource path) so the auth-failure
+// throttle groups by call site rather than per-PR/per-sha.
+const gh = async (cfg: Config, repo: string, path: string, op: string): Promise<unknown> => {
   const token = await getGitHubToken(cfg, [repo]);
   const res = await fetch(`https://api.github.com/repos/${repo}${path}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
   });
-  if (!res.ok) throw new Error(`GitHub ${path} → ${res.status}`);
+  if (!res.ok) {
+    if (isAuthFailure(res)) reportGitHubAuthFailure(op, new Error(`GitHub ${path} → ${res.status}`));
+    throw new Error(`GitHub ${path} → ${res.status}`);
+  }
   return res.json();
 };
 
@@ -144,7 +202,7 @@ export interface PrMeta {
 // Head sha + open/closed/merged for one PR. null on failure.
 export async function getPrMeta(cfg: Config, repo: string, number: number): Promise<PrMeta | null> {
   try {
-    const p = (await gh(cfg, repo, `/pulls/${number}`)) as {
+    const p = (await gh(cfg, repo, `/pulls/${number}`, 'getPrMeta')) as {
       head?: { sha?: string };
       state?: string;
       merged?: boolean;
@@ -161,7 +219,7 @@ export type CiConclusion = 'success' | 'failure' | 'pending' | 'none';
 // completed → pending; none → none; else success. 'none' on failure (degrade quietly).
 export async function ciStatusForSha(cfg: Config, repo: string, sha: string): Promise<CiConclusion> {
   try {
-    const r = (await gh(cfg, repo, `/commits/${sha}/check-runs`)) as {
+    const r = (await gh(cfg, repo, `/commits/${sha}/check-runs`, 'ciStatusForSha')) as {
       check_runs?: Array<{ status?: string; conclusion?: string | null }>;
     };
     const runs = r.check_runs ?? [];
@@ -185,7 +243,7 @@ export interface ReviewSummary {
 // Reviews submitted on a PR (id ascending). [] on failure.
 export async function listReviews(cfg: Config, repo: string, number: number): Promise<ReviewSummary[]> {
   try {
-    const arr = (await gh(cfg, repo, `/pulls/${number}/reviews?per_page=100`)) as Array<{
+    const arr = (await gh(cfg, repo, `/pulls/${number}/reviews?per_page=100`, 'listReviews')) as Array<{
       id: number;
       state?: string;
       user?: { login?: string };

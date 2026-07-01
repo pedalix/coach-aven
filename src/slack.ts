@@ -1530,6 +1530,15 @@ export async function runSlack(cfg: Config): Promise<void> {
     setInterval(tick, 60_000);
   }
 
+  // An error that escapes a poller tick is unexpected (the GitHub helpers degrade quietly on
+  // their own), so it means a real bug or a systemic outage — log it AND raise a Sentry issue
+  // rather than swallowing it. Used for both the first tick and every interval tick so a broken
+  // poller never fails silently.
+  const pollFail = (poller: string) => (e: unknown) => {
+    log.error(`${poller} poll: ${e instanceof Error ? e.message : String(e)}`);
+    captureError(e, { subsystem: 'poller', poller });
+  };
+
   // Auto-review poller: every few minutes, review new non-bot PRs in projects with
   // auto-review enabled (see prsToReview). Posts to the channel auto-review was enabled in.
   // The `since` cursor + reviewedPrs dedup live in state.json, so a restart neither
@@ -1557,8 +1566,8 @@ export async function runSlack(cfg: Config): Promise<void> {
         }
       }
     };
-    void tick().catch((e) => log.error(`auto-review poll: ${e instanceof Error ? e.message : String(e)}`));
-    setInterval(() => void tick().catch(() => {}), AUTO_REVIEW_POLL_MS);
+    void tick().catch(pollFail('auto-review'));
+    setInterval(() => void tick().catch(pollFail('auto-review')), AUTO_REVIEW_POLL_MS);
   }
 
   // Autofix watcher: every couple of minutes, check each subscribed PR's CI + reviews and
@@ -1589,8 +1598,8 @@ export async function runSlack(cfg: Config): Promise<void> {
         }
       }
     };
-    void tick().catch((e) => log.error(`autofix poll: ${e instanceof Error ? e.message : String(e)}`));
-    setInterval(() => void tick().catch(() => {}), AUTOFIX_POLL_MS);
+    void tick().catch(pollFail('autofix'));
+    setInterval(() => void tick().catch(pollFail('autofix')), AUTOFIX_POLL_MS);
   }
 
   await app.start();
