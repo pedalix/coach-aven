@@ -29,6 +29,10 @@ export interface ProjectConfig {
   systemPrompt?: string;
   env?: Record<string, string>; // per-project env/secrets seeded into the sandbox (reserved)
   mcp?: McpServerSpec[]; // per-project MCP servers → materialized into --mcp-config in the sandbox
+  // YouTrack project prefixes that route to this project (the investigation pilot). A tagged
+  // ticket whose id is "<PREFIX>-<n>" is investigated in this project's sandbox/channel. One
+  // project may carry several (e.g. caldora ← its several help-desk projects). See youtrack.ts.
+  youtrackProjects?: string[];
 }
 
 export interface ProjectsRegistry {

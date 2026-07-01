@@ -87,6 +87,10 @@ export interface Config {
   github: GitHubAuth;
   // Slack is only needed for the `slack` command; undefined otherwise.
   slack?: { botToken: string; appToken: string };
+  // YouTrack support-ticket investigation pilot; undefined (off) unless YOUTRACK_URL +
+  // YOUTRACK_TOKEN are set. `label` is the trigger tag; `ping` is the Slack user ids to
+  // @-mention with each finding. The token is a read-only YouTrack permanent token.
+  youtrack?: { baseUrl: string; token: string; label: string; ping: string[] };
   // Channel→project registry: one bot, many channels, one isolated sandbox per project.
   projectsConfigPath: string;
   // Sentry error/perf/log reporting; undefined (off) unless SENTRY_DSN is set. `logs` opt-in
@@ -118,6 +122,18 @@ export function loadConfig(): Config {
     slack:
       process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN
         ? { botToken: process.env.SLACK_BOT_TOKEN, appToken: process.env.SLACK_APP_TOKEN }
+        : undefined,
+    youtrack:
+      process.env.YOUTRACK_URL && process.env.YOUTRACK_TOKEN
+        ? {
+            baseUrl: process.env.YOUTRACK_URL,
+            token: process.env.YOUTRACK_TOKEN,
+            label: process.env.YOUTRACK_LABEL || 'AI auto review',
+            ping: (process.env.YOUTRACK_PING || '')
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean),
+          }
         : undefined,
     projectsConfigPath:
       process.env.PROJECTS_CONFIG_PATH ||

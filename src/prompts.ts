@@ -61,6 +61,31 @@ export const REPORT_FRAMING =
   'Read-only: gather the requested information and post one concise summary. If nothing is ' +
   'noteworthy, say so briefly.\n\n';
 
+// Support-ticket investigation turn (fired by the YouTrack-label poller). Read-only: the
+// agent works out what's happening and proposes a fix, grounded in the project's code and
+// (where wired) its Grafana logs/metrics/traces — it changes nothing. The ticket body is
+// assembled orchestrator-side and passed in. `mentions` are pre-formatted `<@U…>` strings.
+export function investigationPrompt(
+  ticket: { id: string; summary: string; description: string; comments: string },
+  mentions: string,
+): string {
+  const ping = mentions ? `\n\nWhen done, @-mention ${mentions} so they see the findings.` : '';
+  return [
+    `[Read-only support investigation] This YouTrack ticket was flagged for AI review. Investigate it and EXPLAIN what's going on, then PROPOSE a solution or next step. Do NOT modify code, create branches, commit, or open PRs — analysis only.`,
+    '',
+    `Ticket ${ticket.id}: ${ticket.summary}`,
+    '',
+    `Description:\n${ticket.description.trim() || '(none)'}`,
+    '',
+    `Comments:\n${ticket.comments.trim() || '(none)'}`,
+    '',
+    `Your job:`,
+    `- Work out what the user is actually experiencing and the most likely ROOT CAUSE, grounded in THIS project's code and (where available) its Grafana logs/metrics/traces.`,
+    `- If a claim needs data you don't have (a specific log line, a metric, a repro), say exactly what would confirm it rather than guessing.`,
+    `- Post ONE concise writeup: the problem in one line, the most likely cause with concrete evidence (cite code paths and any log/metric queries you ran), and a concrete proposed fix or next step. State your confidence.${ping}`,
+  ].join('\n');
+}
+
 // Fired by the "Open a PR" follow-up button.
 export const FOLLOW_UP_PR_PROMPT =
   'Open a pull request for the work in this conversation: in the relevant repo, make sure your ' +

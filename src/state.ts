@@ -80,6 +80,9 @@ interface StateShape {
   // "<Org/repo>#<number>" → ISO timestamp it was auto-reviewed (dedup across restarts).
   reviewedPrs?: Record<string, string>;
   prWatches?: Record<string, PrWatch>; // key = "<Org/repo>#<number>"
+  // YouTrack ticket id (e.g. "GLACIER-42") → ISO timestamp it was investigated (the pilot
+  // poller investigates each tagged ticket once, surviving restarts — like reviewedPrs).
+  seenYouTrackTickets?: Record<string, string>;
 }
 
 const STATE_PATH = new URL('../state.json', import.meta.url).pathname;
@@ -213,6 +216,16 @@ export class Store {
 
   markPrReviewed(key: string): void {
     (this.data.reviewedPrs ??= {})[key] = new Date().toISOString();
+    this.save();
+  }
+
+  // ── YouTrack tickets already investigated (the pilot poller) ─────────────
+  seenTicketIds(): Set<string> {
+    return new Set(Object.keys(this.data.seenYouTrackTickets ?? {}));
+  }
+
+  markTicketSeen(id: string): void {
+    (this.data.seenYouTrackTickets ??= {})[id] = new Date().toISOString();
     this.save();
   }
 

@@ -17,9 +17,11 @@ import {
   autofixPrompt,
   REPORT_FRAMING,
   FOLLOW_UP_PR_PROMPT,
+  investigationPrompt,
   parseEffort,
   type ReviewEffort,
 } from './prompts.js';
+import { listTaggedIssues, listComments, dueTickets } from './youtrack.js';
 import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
@@ -252,6 +254,46 @@ export async function runSlack(cfg: Config): Promise<void> {
     }
     nameCache.set(channelId, name);
     return name;
+  }
+
+  // Reverse of channelName: resolve a project → the id of its `bluefin-aven-<slug>` channel, so
+  // a poller with only a slug (no prior message) can post there. An explicit `slackChannel`
+  // override wins; otherwise we page conversations.list and match by name. Only HITS are
+  // cached — a miss re-lists next call so a channel created after boot self-heals (the bot
+  // must be a member to see a private channel / to post). Used by the investigation poller.
+  const slugChannelCache = new Map<string, string>();
+  async function channelIdForSlug(
+    client: bolt.webApi.WebClient,
+    project: ProjectConfig,
+  ): Promise<string | undefined> {
+    if (project.slackChannel) return project.slackChannel;
+    const cached = slugChannelCache.get(project.slug);
+    if (cached) return cached;
+    const want = `${CHANNEL_PREFIX}${project.slug}`;
+    let found: string | undefined;
+    try {
+      let cursor: string | undefined;
+      do {
+        const r = await client.conversations.list({
+          types: 'public_channel,private_channel',
+          exclude_archived: true,
+          limit: 200,
+          cursor,
+        });
+        const hit = (r.channels as Array<{ id?: string; name?: string }> | undefined)?.find(
+          (c) => c.name === want,
+        );
+        if (hit?.id) {
+          found = hit.id;
+          break;
+        }
+        cursor = (r.response_metadata as { next_cursor?: string } | undefined)?.next_cursor || undefined;
+      } while (cursor);
+    } catch (e) {
+      log.error(`channelIdForSlug ${project.slug}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (found) slugChannelCache.set(project.slug, found);
+    return found;
   }
 
   // Resolve the project for a turn: explicit channel-id binding wins → else the
@@ -1602,12 +1644,73 @@ export async function runSlack(cfg: Config): Promise<void> {
     setInterval(() => void tick().catch(pollFail('autofix')), AUTOFIX_POLL_MS);
   }
 
+  // Fire a support-ticket investigation (the YouTrack-label pilot). A read-only turn keyed
+  // per ticket, run in the project's `bluefin-aven-<slug>` channel. Awaits channel resolution +
+  // the ticket's comments, then hands off to the normal turn machinery. Returns false if it
+  // can't even start (channel unknown, or already investigating) so the poller leaves the
+  // ticket unseen and retries next tick.
+  async function fireInvestigation(
+    client: bolt.webApi.WebClient,
+    project: ProjectConfig,
+    ticket: { id: string; summary: string; description: string },
+  ): Promise<boolean> {
+    const key = `youtrack:${ticket.id}:${project.slug}`;
+    if (queues.has(key)) return false; // already in flight for this ticket
+    const channel = await channelIdForSlug(client, project);
+    if (!channel) {
+      log.error(`youtrack ${ticket.id}: channel ${CHANNEL_PREFIX}${project.slug} not found — create it and invite the bot`);
+      return false;
+    }
+    const comments = await listComments(cfg, ticket.id);
+    const commentsText = comments.map((c) => `[${c.author || 'unknown'}] ${c.text}`).join('\n\n');
+    const mentions = (cfg.youtrack?.ping ?? []).map((u) => `<@${u}>`).join(' ');
+    const prompt = investigationPrompt(
+      { id: ticket.id, summary: ticket.summary, description: ticket.description, comments: commentsText },
+      mentions,
+    );
+    void liveTurn(client, channel, undefined, undefined, key, project, prompt).catch((e) =>
+      log.error(`youtrack ${ticket.id}: ${e instanceof Error ? e.message : String(e)}`),
+    );
+    return true;
+  }
+
+  // YouTrack poller: every couple of minutes, find tickets tagged with the trigger label,
+  // route each to the project owning its id prefix (project.youtrackProjects), and start a
+  // read-only investigation — once per ticket (seen-set in state.json survives restarts).
+  // No-op unless the pilot is configured (cfg.youtrack). See youtrack.ts for the pure parts.
+  function startYouTrackPoller(): void {
+    if (!cfg.youtrack) return;
+    const client = app.client;
+    const label = cfg.youtrack.label;
+    const tick = async (): Promise<void> => {
+      // Nothing to route to → don't even hit the API (the common pre-mapping state).
+      const mapped = registry.projects.filter((p) => (p.youtrackProjects ?? []).length);
+      if (!mapped.length) return;
+      const issues = await listTaggedIssues(cfg, label);
+      if (!issues.length) return;
+      const seen = store.seenTicketIds();
+      for (const project of mapped) {
+        const prefixes = project.youtrackProjects ?? [];
+        for (const t of dueTickets(issues, { seen, prefixes })) {
+          if (await fireInvestigation(client, project, t)) {
+            store.markTicketSeen(t.id);
+            seen.add(t.id);
+            log.info(`youtrack investigate ${t.id} (${project.slug})`);
+          }
+        }
+      }
+    };
+    void tick().catch(pollFail('youtrack'));
+    setInterval(() => void tick().catch(pollFail('youtrack')), YOUTRACK_POLL_MS);
+  }
+
   await app.start();
   log.info(`Slack bot running (Socket Mode) — ${summary(registry)}`);
   void resumeInflightTurns();
   startScheduler();
   startAutoReviewPoller();
   startAutofixPoller();
+  startYouTrackPoller();
 }
 
 // Slack's `markdown` block renders standard Markdown (bold, headers, lists, links,
@@ -1886,9 +1989,10 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
   for (const p of reg.projects) {
     const channel = p.slackChannel ? '_(custom channel)_' : `#${prefix}${p.slug}`;
     const repos = p.repos.map((r) => `\`${shortRepo(r)}\``).join(', ');
+    const yt = p.youtrackProjects?.length ? `\n   YouTrack: ${p.youtrackProjects.map((x) => `\`${x}\``).join(', ')}` : '';
     blocks.push({
       type: 'section',
-      text: { type: 'mrkdwn', text: `• *${p.slug}* — ${channel}\n   ${plural(p.repos.length, 'repo')}: ${repos}` },
+      text: { type: 'mrkdwn', text: `• *${p.slug}* — ${channel}\n   ${plural(p.repos.length, 'repo')}: ${repos}${yt}` },
     });
   }
   blocks.push(
@@ -1907,6 +2011,7 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
+          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a read-only investigation in the matching project channel, then ping the owners (pilot; only for projects with a YouTrack mapping above).\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
@@ -1939,6 +2044,7 @@ const BOT_LOGIN = 'coach-aven[bot]';
 // How often the PR pollers check (Socket Mode → poll, no webhooks).
 const AUTO_REVIEW_POLL_MS = 180_000; // 3 min
 const AUTOFIX_POLL_MS = 120_000; // 2 min
+const YOUTRACK_POLL_MS = 120_000; // 2 min — support-ticket investigation pilot
 
 // Slack notification for an autofix watch event: what changed + a "Fix it" button that
 // enqueues the write-turn (the button value carries everything the action handler needs).
