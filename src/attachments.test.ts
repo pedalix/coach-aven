@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import {
   sanitizeName,
   isSupported,
+  isImage,
+  needsResize,
   inboxPath,
   planIngest,
   attachmentPreamble,
   MAX_BYTES,
   MAX_FILES,
+  MAX_IMAGE_DIM,
   type AttachmentRef,
 } from './attachments.js';
 
@@ -85,8 +88,38 @@ test('planIngest: size 0 (unreported) is allowed through', () => {
   assert.equal(accept.length, 1);
 });
 
+test('isImage: raster images yes; svg/pdf/text no; octet-stream by extension', () => {
+  assert.equal(isImage('image/png', 'a.png'), true);
+  assert.equal(isImage('image/jpeg', 'a.jpg'), true);
+  assert.equal(isImage('image/heic', 'a.heic'), true);
+  assert.equal(isImage('image/svg+xml', 'a.svg'), false); // svg is text, read as-is
+  assert.equal(isImage('application/pdf', 'a.pdf'), false);
+  assert.equal(isImage('text/plain', 'a.txt'), false);
+  assert.equal(isImage('application/octet-stream', 'shot.PNG'), true);
+  assert.equal(isImage('application/octet-stream', 'a.pdf'), false);
+});
+
+test('needsResize: only when a dimension exceeds the cap', () => {
+  assert.equal(needsResize(2905, 1549), true); // the art screenshot
+  assert.equal(needsResize(MAX_IMAGE_DIM, MAX_IMAGE_DIM), false); // exactly at cap
+  assert.equal(needsResize(MAX_IMAGE_DIM + 1, 10), true);
+  assert.equal(needsResize(10, MAX_IMAGE_DIM + 1), true);
+  assert.equal(needsResize(800, 600), false);
+  assert.equal(needsResize(4000, 3000, 2000), true); // custom cap
+});
+
 test('attachmentPreamble: empty when nothing kept or skipped', () => {
   assert.equal(attachmentPreamble([], []), '');
+});
+
+test('attachmentPreamble: surfaces pre-scale warnings', () => {
+  const out = attachmentPreamble(
+    [{ path: '/root/inbox/t1/1-a.heic', name: 'a.heic' }],
+    [],
+    ["a.heic couldn't be pre-scaled"],
+  );
+  assert.ok(out.includes('/root/inbox/t1/1-a.heic'));
+  assert.ok(out.includes("Note: a.heic couldn't be pre-scaled"));
 });
 
 test('attachmentPreamble: lists kept paths and skipped reasons', () => {

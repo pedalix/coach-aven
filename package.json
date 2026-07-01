@@ -29,7 +29,8 @@
     "@sentry/node": "^10.62.0",
     "@slack/bolt": "^4.7.3",
     "commander": "^12.1.0",
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "sharp": "^0.33.5"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

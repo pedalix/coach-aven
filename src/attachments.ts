@@ -1,3 +1,5 @@
+import sharp from 'sharp';
+
 // Attachment ingestion: turn a file that arrived on Slack or a YouTrack ticket into a file
 // the in-sandbox Claude Code can actually Read. The heavy lifting downstream is free — Claude
 // reads images and PDFs natively — so this module is pure plumbing: decide what's safe to take
@@ -100,6 +102,7 @@ export function planIngest(refs: AttachmentRef[]): {
 export function attachmentPreamble(
   kept: { path: string; name: string }[],
   skipped: { name: string; reason: string }[],
+  warnings: string[] = [],
 ): string {
   const lines: string[] = [];
   if (kept.length) {
@@ -111,7 +114,53 @@ export function attachmentPreamble(
   if (skipped.length) {
     lines.push(`(Skipped: ${skipped.map((s) => `${s.name} — ${s.reason}`).join('; ')}.)`);
   }
+  for (const w of warnings) lines.push(`(Note: ${w})`);
   return lines.join('\n');
+}
+
+// The in-sandbox Claude Code `Read` tool rejects images whose pixel dimensions exceed 2000×2000
+// (empirically: "dimensions exceed the 2000x2000px limit"). We normalize the long edge to 1568px
+// — the value the Anthropic API downsamples to anyway, so nothing the model would have seen is
+// lost, and it stays comfortably under the Read cap while shrinking the sandbox upload.
+export const MAX_IMAGE_DIM = 1568;
+
+// Is this attachment a raster image we should try to normalize? (SVG is text Claude reads as-is;
+// PDFs/docs are handled by Read directly.) MIME first, extension as the octet-stream fallback.
+export function isImage(mime: string, name: string): boolean {
+  const m = (mime || '').toLowerCase();
+  if (m.startsWith('image/') && m !== 'image/svg+xml') return true;
+  if (!m || m === 'application/octet-stream') return /\.(png|jpe?g|gif|webp|bmp|tiff?|heic|heif|avif)$/i.test(name);
+  return false;
+}
+
+// Pure: does an image at these dimensions need downscaling to fit the Read cap? Kept separate so
+// the threshold logic is unit-tested without decoding a real image.
+export function needsResize(width: number, height: number, max: number = MAX_IMAGE_DIM): boolean {
+  return width > max || height > max;
+}
+
+// Downscale an oversized image so the agent's first Read succeeds. Only shrinks (never enlarges),
+// preserves aspect ratio + format, and applies EXIF orientation. Returns the ORIGINAL bytes
+// untouched when the image is already within the cap (no needless re-encode / quality loss), and
+// on ANY failure returns the original with failed=true so the caller can (a) still deliver the
+// file and (b) warn that it may be too large — the sandbox `magick` tool is the recovery path.
+export async function normalizeImage(
+  buf: Buffer,
+  max: number = MAX_IMAGE_DIM,
+): Promise<{ buf: Buffer; failed: boolean }> {
+  try {
+    const img = sharp(buf, { failOn: 'none' });
+    const meta = await img.metadata();
+    if (!meta.width || !meta.height) return { buf, failed: false }; // can't tell → leave as-is
+    if (!needsResize(meta.width, meta.height, max)) return { buf, failed: false };
+    const out = await img
+      .rotate() // bake in EXIF orientation before we strip it via resize
+      .resize({ width: max, height: max, fit: 'inside', withoutEnlargement: true })
+      .toBuffer();
+    return { buf: out, failed: false };
+  } catch {
+    return { buf, failed: true };
+  }
 }
 
 // Fetch one attachment's bytes with the source's bearer token. Returns null on any failure or

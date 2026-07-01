@@ -19,6 +19,8 @@ import { ClaudeSession, type OnQuestion } from './claudeSession.js';
 import {
   planIngest,
   downloadAttachment,
+  normalizeImage,
+  isImage,
   inboxDir,
   inboxPath,
   attachmentPreamble,
@@ -139,7 +141,11 @@ function buildSystemPrompt(
       `Replies render in Slack — be concise and use code blocks for code. ` +
       `When a decision is yours to make but you're genuinely unsure between approaches, or an ` +
       `action is risky/irreversible, use the AskUserQuestion tool to present the options instead ` +
-      `of guessing — the user answers with a button click.`,
+      `of guessing — the user answers with a button click. ` +
+      `Files the user attaches are saved under /root/inbox/<turn>/ and named in the message; ` +
+      `Read them directly (you can view images and PDFs). Images are pre-scaled to fit — if a ` +
+      `Read ever reports an image exceeds the size limit, run \`magick <in> -resize '1568x1568>' ` +
+      `<out>\` and Read <out>; do NOT hand-write an image resizer.`,
   );
   if (slackUrl) {
     lines.push(
@@ -269,6 +275,7 @@ export async function openChat(
       if (!refs.length) return '';
       const { accept, skipped } = planIngest(refs);
       const kept: { path: string; name: string }[] = [];
+      const warnings: string[] = [];
       if (accept.length) {
         // Ensure the sandbox is awake before writing (ask() does the same via ensureSession);
         // then create the per-turn inbox once and upload each downloaded file into it.
@@ -282,15 +289,24 @@ export async function openChat(
               skipped.push({ name: ref.name, reason: 'download failed' });
               continue;
             }
+            // Images: downscale to fit Claude Code's Read cap (2000×2000) BEFORE upload, so the
+            // agent's first Read just works instead of hand-rolling a resizer. On decode failure
+            // we still ship the original and warn — the sandbox `magick` tool is the fallback.
+            let data = buf;
+            if (isImage(ref.mime, ref.name)) {
+              const norm = await normalizeImage(buf);
+              data = norm.buf;
+              if (norm.failed) warnings.push(`${ref.name} couldn't be pre-scaled; if Read says it's too big, resize it with \`magick\` first`);
+            }
             const path = inboxPath(turnId, i + 1, ref.name);
-            await sandbox.fs.uploadFile(buf, path);
+            await sandbox.fs.uploadFile(data, path);
             kept.push({ path, name: ref.name });
           } catch {
             skipped.push({ name: ref.name, reason: 'download failed' });
           }
         }
       }
-      return attachmentPreamble(kept, skipped);
+      return attachmentPreamble(kept, skipped, warnings);
     },
     ask: async (
       prompt: string,

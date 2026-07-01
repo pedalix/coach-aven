@@ -10,6 +10,13 @@ import { log } from './log.js';
 // sail shims). Idempotent — skips if `claude` is already present. Once we push the
 // custom GHCR image and point SNAPSHOT_IMAGE at it, this becomes a no-op.
 export async function provisionTooling(sandbox: Sandbox) {
+  // imagemagick is the recovery tool for oversized images: attachments are pre-scaled by the
+  // orchestrator, but if one slips through (e.g. a format sharp couldn't decode), the agent
+  // resizes in one `magick` step instead of hand-rolling a resizer. Ensured idempotently and
+  // OUTSIDE the `claude` fast-path below, so warm sandboxes provisioned before this existed pick
+  // it up on their next turn — no image rebuild, no lost state (repos/worktrees/history/memory).
+  await exec(sandbox, 'command -v magick >/dev/null 2>&1 || apk add --no-cache imagemagick', { timeout: 300 });
+
   const have = await exec(sandbox, 'command -v claude >/dev/null 2>&1 && echo yes || echo no');
   if (have.result.trim() === 'yes') {
     log.info('tooling already provisioned');
