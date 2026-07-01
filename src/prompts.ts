@@ -86,9 +86,14 @@ export function investigationPrompt(
   ].join('\n');
 }
 
-// Fired by the "Open a PR" follow-up button.
+// Fired by the "Open a PR" follow-up button. Handles BOTH cases: a build thread where the work
+// is already done (just commit + PR it) and an investigation thread where only a fix was
+// PROPOSED (implement it first). Keep the "ask if risky" guard — investigations are read-only
+// analyses, so acting on one may need judgment the button click didn't supply.
 export const FOLLOW_UP_PR_PROMPT =
-  'Open a pull request for the work in this conversation: in the relevant repo, make sure your ' +
-  'changes are committed on a dedicated worktree/branch forked from origin/main, push it, and open ' +
-  'a PR against the default branch with the gh CLI. If there is nothing to submit yet, say so ' +
-  'instead of opening an empty PR.';
+  'Turn this conversation into a pull request. If the change we discussed is not implemented yet, ' +
+  'implement it now on a dedicated worktree/branch forked from origin/main; otherwise just make ' +
+  'sure your existing changes are committed there. Then push and open a PR against the default ' +
+  'branch with the gh CLI, describing the change and linking the ticket/thread it came from. If ' +
+  'the right fix is ambiguous, architectural, or risky, ask here BEFORE writing code instead of ' +
+  'guessing. If there is genuinely nothing to submit, say so instead of opening an empty PR.';

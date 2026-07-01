@@ -1676,8 +1676,6 @@ export async function runSlack(cfg: Config): Promise<void> {
     project: ProjectConfig,
     ticket: { id: string; summary: string; description: string },
   ): Promise<boolean> {
-    const key = `youtrack:${ticket.id}:${project.slug}`;
-    if (queues.has(key)) return false; // already in flight for this ticket
     const channel = await channelIdForSlug(client, project);
     if (!channel) {
       log.error(`youtrack ${ticket.id}: channel ${CHANNEL_PREFIX}${project.slug} not found — create it and invite the bot`);
@@ -1696,8 +1694,7 @@ export async function runSlack(cfg: Config): Promise<void> {
     );
     // Post a compact header FIRST, then run the whole investigation as a reply under it, so
     // each ticket is one tidy line in the channel with the live status + findings collapsed in
-    // its own thread (unlike the other pollers, which post top-level). Falls back to top-level
-    // if the header post yields no ts.
+    // its own thread (unlike the other pollers, which post top-level).
     const ticketUrl = `${cfg.youtrack!.baseUrl.replace(/\/$/, '')}/issue/${ticket.id}`;
     let rootTs: string | undefined;
     try {
@@ -1709,6 +1706,12 @@ export async function runSlack(cfg: Config): Promise<void> {
     } catch (e) {
       log.error(`youtrack ${ticket.id}: header post failed: ${e instanceof Error ? e.message : String(e)}`);
     }
+    // Key the turn like a normal channel thread (`thread:<rootTs>`) instead of a one-shot: that
+    // single choice makes the thread CONTINUABLE — a later reply in it resumes THIS Claude
+    // session (the bot "owns" the thread via store.getChat) — and gives the finished answer the
+    // "Open a PR" follow-up button (answerBlocks attaches it only for `thread:` keys). Falls
+    // back to a ticket-scoped key + top-level post if the header couldn't be sent (no rootTs).
+    const key = rootTs ? `thread:${rootTs}` : `youtrack:${ticket.id}:${project.slug}`;
     void liveTurn(client, channel, undefined, rootTs, key, project, prompt, attachments).catch((e) =>
       log.error(`youtrack ${ticket.id}: ${e instanceof Error ? e.message : String(e)}`),
     );
@@ -1826,6 +1829,14 @@ function answerBlocks(answer: string, followUp?: FollowUp): any[] {
           text: { type: 'plain_text', text: '🔀 Open a PR' },
           action_id: 'make_pr',
           value: JSON.stringify({ key: followUp.key, channel: followUp.channel, threadTs: followUp.threadTs }),
+          // Native Slack confirm dialog — "Open a PR" turns discussion into code changes, so
+          // gate it behind an explicit OK. Cancel just dismisses (nothing runs).
+          confirm: {
+            title: { type: 'plain_text', text: 'Start coding on this thread?' },
+            text: { type: 'mrkdwn', text: "I'll start working in this project's sandbox and open a pull request with the changes for review. Proceed?" },
+            confirm: { type: 'plain_text', text: 'Start' },
+            deny: { type: 'plain_text', text: 'Cancel' },
+          },
         },
       ],
     });
@@ -2075,7 +2086,7 @@ function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
-          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a read-only investigation in the matching project channel, then ping the owners (pilot; only for projects with a YouTrack mapping above).\n' +
+          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a read-only investigation in a thread in the matching project channel, then ping the owners. Reply in that thread to dig deeper (I keep the context), and hit *🔀 Open a PR* to turn the fix into a pull request (pilot; only for projects with a YouTrack mapping above).\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
