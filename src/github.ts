@@ -36,35 +36,92 @@ export function reportGitHubAuthFailure(op: string, err: unknown): void {
   captureError(e, { subsystem: 'github', op });
 }
 
-// Discover the installation id for a repo via the App JWT (the App is installed
-// org-wide, so any repo in the org resolves to the same installation).
-async function discoverInstallationId(
+interface Installation {
+  id: number;
+  // The permissions the org owner has actually granted this installation, e.g.
+  // { contents: 'write', checks: 'write', metadata: 'read' }. Absent → treat as none granted.
+  permissions?: Record<string, string>;
+}
+
+// Resolve an installation (id + granted permissions) via the App JWT. The App is installed
+// org-wide, so any repo in the org resolves to the same installation; when the id is configured
+// we hit it directly. We read `permissions` here so the mint can scope to desired ∩ granted.
+async function fetchInstallation(
   appId: string,
   privateKey: string,
-  repo: string,
-): Promise<number> {
+  ref: { repo: string } | { installationId: number },
+): Promise<Installation> {
   const { token: jwt } = await createAppAuth({ appId, privateKey })({ type: 'app' });
-  const res = await fetch(`https://api.github.com/repos/${repo}/installation`, {
+  const url =
+    'installationId' in ref
+      ? `https://api.github.com/app/installations/${ref.installationId}`
+      : `https://api.github.com/repos/${ref.repo}/installation`;
+  const res = await fetch(url, {
     headers: { Authorization: `Bearer ${jwt}`, Accept: 'application/vnd.github+json' },
   });
   if (!res.ok) {
+    const what = 'installationId' in ref ? `installation ${ref.installationId}` : ref.repo;
     throw new Error(
-      `Could not find a GitHub App installation for ${repo} (${res.status}). ` +
+      `Could not resolve GitHub App installation for ${what} (${res.status}). ` +
         `Is the App installed on that org/repo? ${await res.text()}`,
     );
   }
-  return ((await res.json()) as { id: number }).id;
+  return (await res.json()) as Installation;
 }
 
 // Least-privilege permissions a coding agent needs in-box: read/write code +
 // open PRs. (metadata:read is implied but spelled out for clarity.) checks:read lets the
-// autofix watcher read CI check-runs.
+// autofix watcher read CI check-runs. This is the DESIRED set — the mint scopes it down further
+// to what the installation actually granted (see intersectPermissions), so requesting more here
+// than a given install has approved degrades that capability instead of breaking the whole mint.
 const AGENT_PERMISSIONS = {
   contents: 'write',
   pull_requests: 'write',
   checks: 'read',
   metadata: 'read',
 } as const;
+
+// GitHub permission levels are ordered: read < write < admin.
+const LEVEL_RANK: Record<string, number> = { read: 1, write: 2, admin: 3 };
+
+// Scope the desired permissions down to what the installation actually granted:
+//   - granted at a lower level than desired → request the lower (granted) level (can't exceed it)
+//   - granted → request desired (our least-privilege intent, even if the install granted more)
+//   - not granted at all → drop it (goes in `missing`)
+// GitHub rejects the ENTIRE token mint if you request a permission the installation lacks (the
+// checks:read incident), so requesting desired ∩ granted makes a mint impossible to fail on
+// permissions: an un-approved capability simply isn't in the token — the feature degrades — and a
+// new permission "lights up" per-installation as each owner approves, with no synchronized deploy.
+export function intersectPermissions(
+  desired: Record<string, string>,
+  granted: Record<string, string> | undefined,
+): { permissions: Record<string, string>; missing: string[] } {
+  const permissions: Record<string, string> = {};
+  const missing: string[] = [];
+  for (const [key, want] of Object.entries(desired)) {
+    const have = granted?.[key];
+    if (!have) {
+      missing.push(key);
+      continue;
+    }
+    permissions[key] = (LEVEL_RANK[have] ?? 0) < (LEVEL_RANK[want] ?? 0) ? have : want;
+  }
+  return { permissions, missing };
+}
+
+// A granted-but-not-all-desired install is degraded, not broken — surface it once (throttled,
+// keyed per install + set) so we can nudge the owner to approve, while still minting a working
+// token with what we do have. Reuses the auth-failure throttle map.
+function warnMissingPermissions(installationId: number, missing: string[]): void {
+  const key = `perms:${installationId}:${[...missing].sort().join(',')}`;
+  const now = Date.now();
+  if (now - (lastReportAt.get(key) ?? 0) < REPORT_EVERY_MS) return;
+  lastReportAt.set(key, now);
+  log.warn(
+    `github installation ${installationId} has not granted: ${missing.join(', ')} — ` +
+      `those capabilities are disabled until the org owner approves the permission request`,
+  );
+}
 
 // Resolve a GitHub token for in-box clone / push / `gh pr create`.
 //  - 'token' auth: returned as-is (a PAT or `gh auth token`).
@@ -91,22 +148,30 @@ async function resolveGitHubToken(cfg: Config, repos: string[]): Promise<string>
   if (auth.kind === 'token') return auth.token;
 
   if (repos.length === 0) throw new Error('getGitHubToken: at least one repo required');
-  const installationId = auth.installationId
-    ? Number(auth.installationId)
-    : await discoverInstallationId(auth.appId, auth.privateKey, repos[0]);
+
+  // One JWT-authed call gives us both the installation id and the permissions its owner granted.
+  const install = await fetchInstallation(
+    auth.appId,
+    auth.privateKey,
+    auth.installationId ? { installationId: Number(auth.installationId) } : { repo: repos[0] },
+  );
 
   // "Org/name" → "name"; GitHub scopes the token to these repos within the install.
   const repositoryNames = repos.map((r) => r.split('/')[1]).filter(Boolean);
 
+  // Request desired ∩ granted so the mint can never fail on an un-approved permission.
+  const { permissions, missing } = intersectPermissions(AGENT_PERMISSIONS, install.permissions);
+  if (missing.length) warnMissingPermissions(install.id, missing);
+
   const { token } = await createAppAuth({
     appId: auth.appId,
     privateKey: auth.privateKey,
-    installationId,
+    installationId: install.id,
   })({
     type: 'installation',
-    installationId,
+    installationId: install.id,
     repositoryNames,
-    permissions: AGENT_PERMISSIONS,
+    permissions,
   });
   return token;
 }

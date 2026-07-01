@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isAuthFailure } from './github.js';
+import { isAuthFailure, intersectPermissions } from './github.js';
 
 // Minimal stand-in for the bits of a fetch Response that isAuthFailure reads.
 const res = (status: number, rateRemaining?: string) => ({
@@ -23,4 +23,34 @@ test('403 with rate-limit exhausted is NOT reported (self-heals)', () => {
 
 test('transient / not-found statuses are NOT credential failures', () => {
   for (const s of [404, 422, 500, 502, 503]) assert.equal(isAuthFailure(res(s)), false);
+});
+
+const DESIRED = { contents: 'write', pull_requests: 'write', checks: 'read', metadata: 'read' };
+
+test('intersect: install granting everything (at >= desired) yields the desired least-privilege set', () => {
+  const granted = { contents: 'write', pull_requests: 'write', checks: 'write', issues: 'write', metadata: 'read' };
+  const { permissions, missing } = intersectPermissions(DESIRED, granted);
+  // checks downscoped to read (we only want read) even though write is granted; issues not requested.
+  assert.deepEqual(permissions, { contents: 'write', pull_requests: 'write', checks: 'read', metadata: 'read' });
+  assert.deepEqual(missing, []);
+});
+
+test('intersect: a permission granted BELOW desired is capped at the granted level', () => {
+  const granted = { contents: 'read', pull_requests: 'write', checks: 'read', metadata: 'read' };
+  const { permissions, missing } = intersectPermissions(DESIRED, granted);
+  assert.equal(permissions.contents, 'read'); // desired write, but only read granted → read
+  assert.deepEqual(missing, []);
+});
+
+test('intersect: an un-granted permission is dropped (never requested) and reported missing', () => {
+  const granted = { contents: 'write', pull_requests: 'write', metadata: 'read' }; // no checks
+  const { permissions, missing } = intersectPermissions(DESIRED, granted);
+  assert.equal('checks' in permissions, false);
+  assert.deepEqual(missing, ['checks']);
+});
+
+test('intersect: no granted permissions → everything missing, nothing requested', () => {
+  const { permissions, missing } = intersectPermissions(DESIRED, undefined);
+  assert.deepEqual(permissions, {});
+  assert.deepEqual(missing.sort(), ['checks', 'contents', 'metadata', 'pull_requests']);
 });
