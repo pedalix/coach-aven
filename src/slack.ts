@@ -1364,7 +1364,11 @@ export async function runSlack(cfg: Config): Promise<void> {
               blocks: [],
             });
           }
-        } catch {
+        } catch (e) {
+          // A recovery failure was previously swallowed (user saw a warning, Sentry saw
+          // nothing). Raise an issue so lost turns are visible in ops.
+          log.error(`resume ${chat.threadTs}: ${e instanceof Error ? e.message : String(e)}`);
+          captureError(e, { subsystem: 'resume', thread: chat.threadTs, slug: chat.slug });
           await client.chat
             .update({
               channel: inf.channel,
@@ -1533,8 +1537,8 @@ export async function runSlack(cfg: Config): Promise<void> {
     const key = `cron:${r.id}:${r.slug}`;
     if (queues.has(key)) return false; // previous run still in flight — don't stack
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
-    void liveTurn(client, r.channel, undefined, undefined, key, project, REPORT_FRAMING + r.prompt).catch((e) =>
-      log.error(`routine ${r.id}: ${e instanceof Error ? e.message : String(e)}`),
+    void liveTurn(client, r.channel, undefined, undefined, key, project, REPORT_FRAMING + r.prompt).catch(
+      turnFail(`routine ${r.id}`),
     );
     return true;
   }
@@ -1574,8 +1578,8 @@ export async function runSlack(cfg: Config): Promise<void> {
   ): boolean {
     const key = `review:${repo}:${number}:${project.slug}`;
     if (queues.has(key)) return false;
-    void liveTurn(client, channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort)).catch((e) =>
-      log.error(`review ${repo}#${number}: ${e instanceof Error ? e.message : String(e)}`),
+    void liveTurn(client, channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort)).catch(
+      turnFail(`review ${repo}#${number}`),
     );
     return true;
   }
@@ -1601,6 +1605,14 @@ export async function runSlack(cfg: Config): Promise<void> {
   const pollFail = (poller: string) => (e: unknown) => {
     log.error(`${poller} poll: ${e instanceof Error ? e.message : String(e)}`);
     captureError(e, { subsystem: 'poller', poller });
+  };
+
+  // A rejected fire-and-forget liveTurn (a turn that failed OUTSIDE doTurn's own try/catch —
+  // rare, since doTurn renders its errors via errText) should raise a Sentry issue, not just
+  // log. Mirrors pollFail; `context` identifies the turn (routine id, PR, ticket).
+  const turnFail = (context: string) => (e: unknown) => {
+    log.error(`${context}: ${e instanceof Error ? e.message : String(e)}`);
+    captureError(e, { subsystem: 'turn', context });
   };
 
   // Auto-review poller: every few minutes, review new non-bot PRs in projects with
@@ -1726,7 +1738,7 @@ export async function runSlack(cfg: Config): Promise<void> {
       // ticket to `thread:<rootTs>` → chats → the Claude session.
       store.recordInvestigation(ticket.id, { slug: project.slug, channel, rootTs, startedAt: new Date().toISOString() });
       void liveTurn(client, channel, undefined, rootTs, key, project, prompt, attachments)
-        .catch((e) => log.error(`youtrack ${ticket.id}: ${e instanceof Error ? e.message : String(e)}`))
+        .catch(turnFail(`youtrack ${ticket.id}`))
         .finally(() => store.finishInvestigation(ticket.id));
       return true;
     } finally {
