@@ -1645,10 +1645,10 @@ export async function runSlack(cfg: Config): Promise<void> {
   }
 
   // Fire a support-ticket investigation (the YouTrack-label pilot). A read-only turn keyed
-  // per ticket, run in the project's `bluefin-aven-<slug>` channel. Awaits channel resolution +
-  // the ticket's comments, then hands off to the normal turn machinery. Returns false if it
-  // can't even start (channel unknown, or already investigating) so the poller leaves the
-  // ticket unseen and retries next tick.
+  // per ticket, posted as a thread under a compact header in the project's `bluefin-aven-<slug>`
+  // channel. Awaits channel resolution + the ticket's comments, then hands off to the normal
+  // turn machinery. Returns false if it can't even start (channel unknown, or already
+  // investigating) so the poller leaves the ticket unseen and retries next tick.
   async function fireInvestigation(
     client: bolt.webApi.WebClient,
     project: ProjectConfig,
@@ -1668,7 +1668,22 @@ export async function runSlack(cfg: Config): Promise<void> {
       { id: ticket.id, summary: ticket.summary, description: ticket.description, comments: commentsText },
       mentions,
     );
-    void liveTurn(client, channel, undefined, undefined, key, project, prompt).catch((e) =>
+    // Post a compact header FIRST, then run the whole investigation as a reply under it, so
+    // each ticket is one tidy line in the channel with the live status + findings collapsed in
+    // its own thread (unlike the other pollers, which post top-level). Falls back to top-level
+    // if the header post yields no ts.
+    const ticketUrl = `${cfg.youtrack!.baseUrl.replace(/\/$/, '')}/issue/${ticket.id}`;
+    let rootTs: string | undefined;
+    try {
+      const root = await client.chat.postMessage({
+        channel,
+        text: `:ticket: <${ticketUrl}|${ticket.id}> — ${ticket.summary}`,
+      });
+      rootTs = root.ts as string | undefined;
+    } catch (e) {
+      log.error(`youtrack ${ticket.id}: header post failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    void liveTurn(client, channel, undefined, rootTs, key, project, prompt).catch((e) =>
       log.error(`youtrack ${ticket.id}: ${e instanceof Error ? e.message : String(e)}`),
     );
     return true;
