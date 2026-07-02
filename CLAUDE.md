@@ -15,7 +15,7 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 ## Conventions
 
 - **Changing Slack UI/UX → update the App Home tab.** The Home tab (`homeBlocks` in
-  `src/slack.ts`) is the user-facing cheat-sheet. Any new command, button, or changed
+  `src/blocks.ts`) is the user-facing cheat-sheet. Any new command, button, or changed
   interaction MUST be reflected there in the same change, or it silently goes stale.
 - **Release notes are auto-generated from merged PR titles** (GitHub Releases — `CHANGELOG.md`
   is just a pointer there). So write clear, human-readable PR titles, and label PRs
@@ -28,8 +28,12 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 
 ## Architecture pointers
 
-- `src/slack.ts` — Bolt bot: events, `/aven` command + subcommands, turn lifecycle
-  (`liveTurn`/`doTurn`), block rendering, the report-job scheduler.
+- `src/slack.ts` — the composition root: builds the turn engine + channel resolver,
+  registers the Slack surfaces, starts the pollers. The parts live beside it:
+  `src/turn.ts` (turn lifecycle: `liveTurn`/`doTurn`, queues, agent questions, restart
+  recovery), `src/events.ts` (mentions/DMs/buttons/App Home), `src/commands.ts` (the
+  `/aven` router), `src/pollers.ts` (scheduler + auto-review/autofix/YouTrack pollers),
+  `src/blocks.ts` (all Block Kit rendering), `src/channels.ts` (channel↔project).
 - `src/tasks.ts` — chat session over a sandbox; the **3-layer system prompt**
   (orchestrator base → project prompt → repo `CLAUDE.md`).
 - `src/projects.ts` / `infra/prod/runtime/projects.config.json` — per-project repos, MCP,

@@ -44,6 +44,13 @@ export interface ProjectsRegistry {
   projects: ProjectConfig[];
 }
 
+// Mutable handle to the loaded registry. Long-lived modules (turn engine, pollers,
+// command router) hold the REF and read `.current` per use, so a runtime config reload
+// can swap the registry in place without re-wiring anything.
+export interface RegistryRef {
+  current: ProjectsRegistry;
+}
+
 export function loadProjects(path: string): ProjectsRegistry {
   if (!existsSync(path)) {
     throw new Error(
