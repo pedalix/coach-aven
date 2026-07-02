@@ -1,9 +1,9 @@
-# Thin-orchestrator project snapshot image.
+# The project sandbox image.
 #
 # Base: docker:28-dind (Alpine + dockerd + compose plugin) — verified working as a
-# Daytona snapshot on our self-hosted box (see ../../thin-orchestrator-handoff.md §8).
-# Daytona injects its toolbox at runtime; we keep the stock dind ENTRYPOINT so dockerd
-# still starts (that's what makes Laravel Sail / docker compose work inside the sandbox).
+# Daytona snapshot on our self-hosted box. Daytona injects its toolbox at runtime; we
+# keep the stock dind ENTRYPOINT so dockerd still starts (that's what makes Laravel
+# Sail / docker compose work inside the sandbox).
 #
 # Deliberately NO php / composer on the host: Sail runs the Laravel runtime inside the
 # project's own containers at the project's own versions. node/npm ARE here, but only to
@@ -18,6 +18,7 @@ RUN apk add --no-cache \
       npm \
       curl \
       jq \
+      imagemagick \
       openssh-client \
       ca-certificates
 

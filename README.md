@@ -10,9 +10,9 @@ No AgentBox, no S3, no SSH gateway.
 
 **Model:** one warm **sandbox per project** (a `docker:28-dind`-based image with git/gh/Node +
 Claude Code), N parallel **tasks per project via `git worktree`** (each task = own branch +
-own `COMPOSE_PROJECT_NAME`, so Sail stacks don't collide). The repo is `git clone`d *inside*
-the box (no upload), Claude Code runs via the Daytona toolbox (exec for headless, PTY for
-mid-session), then the agent pushes and opens a PR.
+own `COMPOSE_PROJECT_NAME`, so Sail stacks don't collide). The repos are `git clone`d *inside*
+the box (no upload); each Slack thread/DM drives a persistent Claude Code process over the
+Daytona toolbox (stream-json), and the agent pushes and opens a PR.
 
 ## Decisions (locked 2026-06-17)
 
@@ -32,14 +32,23 @@ snapshot/
   shims/sail-shim.sh    # bare php/composer/artisan → ./vendor/bin/sail
   build-and-push.sh     # build + push to GHCR
 src/
-  config.ts   # env loading
-  state.ts    # JSON state store (projects ↔ sandboxes ↔ tasks)
-  github.ts   # mint GitHub App installation token
-  daytona.ts  # SDK client: ensureSnapshot / ensureSandbox / exec
-  project.ts  # clone, worktree, seed GitHub auth (token written via fs, never echoed)
-  agent.ts    # Claude Code: runHeadless (stream-json) + startInteractive (PTY)
-  tasks.ts    # runTask end-to-end; attachTask for mid-session messaging
-  cli.ts      # commander CLI
+  cli.ts            # commander CLI (the `slack` command)
+  slack.ts          # composition root: engine + resolvers + handlers + pollers
+  turn.ts           # turn engine: queues, live status, agent questions, restart recovery
+  events.ts         # @mentions, thread replies, DMs, buttons, App Home
+  commands.ts       # the /aven router + subcommands
+  pollers.ts        # scheduler + auto-review / autofix / YouTrack pollers
+  blocks.ts         # every Block Kit renderer + user-facing text helpers
+  channels.ts       # channel ↔ project resolution
+  tasks.ts          # chat session over a sandbox; the 3-layer system prompt
+  claudeSession.ts  # the persistent claude process (stream-json protocol)
+  project.ts        # clone, worktrees, auth/MCP seeding into the sandbox
+  daytona.ts        # SDK client: ensureSnapshot / ensureSandbox / exec
+  github.ts         # GitHub App tokens + PR/CI reads
+  state.ts          # single-file state.json store
+  config.ts         # env loading
+  …plus pure logic modules with tests beside them (schedule, pr, youtrack, dream,
+  format, attachments, memory, memjournal, mcp, prompts)
 ```
 
 ## Why no PHP/Composer in the image
@@ -52,20 +61,22 @@ the project's own versions. Host PHP/Composer would be the wrong version and nev
 
 ## Setup
 
-### Snapshot: two modes
+### Snapshot image
 
-- **Now (boot-provisioning):** `SNAPSHOT_NAME=dind-test` (the existing `docker:28-dind`
-  snapshot). On first task per sandbox, `provisionTooling()` installs git/gh/node/Claude Code +
-  the sail shims at runtime (mirrors the Dockerfile). Zero registry needed — works today.
-- **Later (baked image, faster cold-start):** build + push the custom image, point
-  `SNAPSHOT_NAME`/`SNAPSHOT_IMAGE` at it, and `provisionTooling()` becomes a no-op:
-  ```bash
-  echo "$GHCR_PAT" | docker login ghcr.io -u <you> --password-stdin   # needs write:packages
-  cd snapshot && IMAGE=ghcr.io/bluefinorg/bluefin-sandbox-laravel ./build-and-push.sh
-  npm run orch -- snapshot:ensure
-  ```
-  (If the GHCR package is private, the Daytona runner needs pull creds — make it public or add
-  a registry pull secret to the runner.)
+The sandbox tooling (git, gh, node, Claude Code, sail shims, imagemagick) is **baked into
+the image** (`snapshot/Dockerfile`); `provisionTooling()` at chat-prep only tops up
+additions newer than the running fleet's image. To rebuild and roll a new image:
+
+```bash
+echo "$GHCR_PAT" | docker login ghcr.io -u <you> --password-stdin   # needs write:packages
+cd snapshot && ./build-and-push.sh        # pushes :<gitsha> and :latest
+```
+
+Point `SNAPSHOT_IMAGE` at the **`:<gitsha>` tag** the script prints (pin it — `:latest`
+tells you nothing about what the fleet actually runs) and set a new `SNAPSHOT_NAME`; the
+snapshot is created on next boot (`ensureSnapshot`). Existing warm sandboxes keep their
+old image until recreated. (If the GHCR package is private, the Daytona runner needs pull
+creds — make it public or add a registry pull secret to the runner.)
 
 ### GitHub auth
 
@@ -113,34 +124,21 @@ isolated sandbox** (`proj-<slug>`). Channels **auto-bind by name** via the wildc
 ## Usage
 
 ```bash
-# one-time: create/activate the Daytona snapshot from the GHCR image
-npm run orch -- snapshot:ensure
-
-# warm a project sandbox + clone the repo (idempotent)
-npm run orch -- project:prepare holidayshop BluefinOrg/holidayshop-dorfberg
-
-# run a task end-to-end (worktree → agent → push → draft PR)
-npm run orch -- task:run holidayshop BluefinOrg/holidayshop-dorfberg \
-  --prompt "Bring up Sail, run php artisan test, fix any failing tests, open a PR." --draft
-
-# send follow-up messages to a live agent (mid-session)
-npm run orch -- task:attach holidayshop <taskId>
-
-# run the Slack bot (one bot, many channels; channel→project) — see ../chat-agent-v1.md
+# run the Slack bot (one bot, many channels; channel→project)
 cp projects.config.example.json projects.config.json   # list projects (slug + repos)
 # create a Slack channel `bluefin-aven-<slug>` per project — it auto-binds by name
 npm run orch -- slack
-
-# inspect state
-npm run orch -- project:list
 ```
+
+Everything else — building, PR reviews, scheduled digests, memory, ticket
+investigations — is driven from Slack; the bot's App Home tab is the user-facing
+cheat-sheet.
 
 ### GitHub token scoping
 
 `getGitHubToken()` mints an installation token **scoped to only the project's repo(s)**
 (`repositoryNames`) + least-privilege permissions (contents + pull_requests write, metadata read),
-so the org-wide App still yields a per-sandbox token limited to that project. See
-[`../chat-agent-v1.md`](../chat-agent-v1.md) for the full token model.
+so the org-wide App still yields a per-sandbox token limited to that project.
 
 ## Hosting (production)
 
@@ -192,14 +190,13 @@ Prod (the box) just keeps the defaults — no extra env needed.
 
 ## Notes / gotchas
 
-- **GitHub token lifetime** ≈ 1h. `runTask`/`attachTask` re-mint and re-seed it; a single agent
-  run that exceeds an hour could see a stale token. Re-seed (`task:attach` re-seeds on connect)
-  or shorten tasks if that bites.
+- **GitHub token lifetime** ≈ 1h. Every chat prep re-mints and re-seeds it (and `cloneRepo`
+  heals tokens baked into remote URLs); a single agent turn that exceeds an hour could still
+  see a stale token — send another message to re-seed if that bites.
 - **Resources**: DinD wants ≥2 vCPU / 4 GiB. ~10 warm project sandboxes each running Sail is
   heavy and the box also runs observability + Archestra — run a few concurrently, not all.
 - **Auth seeding** writes the token to `/root/.gh-token` via the toolbox file API (not `echo`),
   so it never lands in command logs. A git credential helper + `gh auth login --with-token`
   read it.
 - **State** is a single `state.json` (gitignored). Single-process only for now.
-- The orchestrator runs as a systemd service on `lumora-one` (see [Hosting](#hosting-production));
-  the eventual PM-trigger flow wraps `runTask`.
+- The orchestrator runs as a systemd service on `lumora-one` (see [Hosting](#hosting-production)).

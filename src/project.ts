@@ -1,4 +1,3 @@
-import { readFileSync } from 'node:fs';
 import type { Sandbox } from '@daytonaio/sdk';
 import type { Config } from './config.js';
 import type { McpServerSpec } from './projects.js';
@@ -6,40 +5,17 @@ import { buildMcpServers } from './mcp.js';
 import { exec } from './daytona.js';
 import { log } from './log.js';
 
-// Boot-time provisioning for a bare `docker:28-dind` (Alpine) sandbox: installs the
-// same tooling the custom snapshot image would bake in (git, gh, node, Claude Code,
-// sail shims). Idempotent — skips if `claude` is already present. Once we push the
-// custom GHCR image and point SNAPSHOT_IMAGE at it, this becomes a no-op.
+// The snapshot image (snapshot/Dockerfile → SNAPSHOT_IMAGE) bakes in the sandbox tooling
+// (git, gh, node, Claude Code, sail shims), so per-boot provisioning is gone. This ensures
+// only additions NEWER than the running fleet's image — idempotently, on every chat prep —
+// so warm sandboxes pick them up on their next turn with no image rebuild and no lost
+// state (repos/worktrees/history/memory). Anything added here should also go into the
+// Dockerfile so freshly-baked images stop needing the runtime install.
 export async function provisionTooling(sandbox: Sandbox) {
   // imagemagick is the recovery tool for oversized images: attachments are pre-scaled by the
   // orchestrator, but if one slips through (e.g. a format sharp couldn't decode), the agent
-  // resizes in one `magick` step instead of hand-rolling a resizer. Ensured idempotently and
-  // OUTSIDE the `claude` fast-path below, so warm sandboxes provisioned before this existed pick
-  // it up on their next turn — no image rebuild, no lost state (repos/worktrees/history/memory).
+  // resizes in one `magick` step instead of hand-rolling a resizer.
   await exec(sandbox, 'command -v magick >/dev/null 2>&1 || apk add --no-cache imagemagick', { timeout: 300 });
-
-  const have = await exec(sandbox, 'command -v claude >/dev/null 2>&1 && echo yes || echo no');
-  if (have.result.trim() === 'yes') {
-    log.info('tooling already provisioned');
-    return;
-  }
-  log.step('provisioning tooling (apk + claude-code) — first boot only');
-  await exec(
-    sandbox,
-    'apk add --no-cache bash git github-cli nodejs npm curl jq openssh-client ca-certificates',
-    { check: true, timeout: 600 },
-  );
-  await exec(sandbox, 'npm install -g @anthropic-ai/claude-code', { check: true, timeout: 600 });
-
-  // sail shims: bare php/composer/artisan → ./vendor/bin/sail
-  const shim = readFileSync(new URL('../snapshot/shims/sail-shim.sh', import.meta.url), 'utf8');
-  await sandbox.fs.uploadFile(Buffer.from(shim), '/usr/local/bin/sail-shim');
-  await exec(
-    sandbox,
-    'chmod +x /usr/local/bin/sail-shim && for c in php composer artisan; do ln -sf /usr/local/bin/sail-shim /usr/local/bin/$c; done',
-    { check: true },
-  );
-  log.info('tooling provisioned');
 }
 
 // Layout inside the sandbox: <workDir>/<slug>/<repoName> per repo (a project = one

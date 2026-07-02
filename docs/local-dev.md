@@ -78,17 +78,12 @@ Set these in your local `.env` (the rest can mirror prod):
 ## Run
 
 ```bash
-npm run orch -- snapshot:ensure        # one-time: activate the Daytona snapshot
 npm run orch -- slack                  # start the dev bot (Socket Mode)
 # you should see: "Slack bot running (Socket Mode) — N project(s)"
 ```
 
-Then post in a `dev-bluefin-aven-<slug>` channel. Other handy commands:
-
-```bash
-npm run orch -- project:prepare <slug> <Org/repo>   # warm a sandbox + clone
-npm run orch -- project:list                        # inspect state
-```
+Then post in a `dev-bluefin-aven-<slug>` channel. Sandboxes are created/warmed on demand
+(first message per project); the Daytona snapshot is ensured on first use too.
 
 ## State
 
