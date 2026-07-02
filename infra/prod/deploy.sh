@@ -131,8 +131,8 @@ cmd_export() {
   done
   for d in "${RUNTIME_DIRS[@]}"; do
     if [[ -d "$RUNTIME_DIR/$d" ]]; then
-      dssh "mkdir -p $REMOTE_DIR/$d"
-      scp "${SSH_OPTS[@]}" -q -r "$RUNTIME_DIR/$d/." "$DEPLOYER:$REMOTE_DIR/$d/"
+      # tar over ssh, not `scp -r dir/.` — modern scp rejects the trailing `/.` form.
+      tar -C "$RUNTIME_DIR" -cf - "$d" | dssh "tar -C $REMOTE_DIR -xf -"
     fi
   done
   dssh "chmod 600 $REMOTE_DIR/.env $REMOTE_DIR/github-app-private-key.pem"
@@ -154,8 +154,7 @@ cmd_import() {
   done
   for d in "${RUNTIME_DIRS[@]}"; do
     if dssh "test -d $REMOTE_DIR/$d" </dev/null; then
-      mkdir -p "$RUNTIME_DIR/$d"
-      scp "${SSH_OPTS[@]}" -q -r "$DEPLOYER:$REMOTE_DIR/$d/." "$RUNTIME_DIR/$d/"
+      dssh "tar -C $REMOTE_DIR -cf - $d" </dev/null | tar -C "$RUNTIME_DIR" -xf -
     fi
   done
   chmod 600 "$RUNTIME_DIR/.env" "$RUNTIME_DIR/github-app-private-key.pem" 2>/dev/null || true
