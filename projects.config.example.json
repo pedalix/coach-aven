@@ -8,11 +8,17 @@
       "mcp": [
         {
           "name": "grafana",
+          "url": "https://observe.example.com/mcp",
+          "headers": {
+            "Authorization": "Basic ${GRAFANA_MCP_BASIC_AUTH}"
+          }
+        },
+        {
+          "name": "example-stdio-server",
           "command": "docker",
-          "args": ["run", "-i", "--rm", "-e", "GRAFANA_URL", "-e", "GRAFANA_SERVICE_ACCOUNT_TOKEN", "grafana/mcp-grafana", "-t", "stdio"],
+          "args": ["run", "-i", "--rm", "-e", "SOME_TOKEN", "example/mcp-server", "-t", "stdio"],
           "env": {
-            "GRAFANA_URL": "https://observe.example.com",
-            "GRAFANA_SERVICE_ACCOUNT_TOKEN": "${GRAFANA_SERVICE_ACCOUNT_TOKEN}"
+            "SOME_TOKEN": "${SOME_TOKEN}"
           }
         }
       ]

@@ -8,14 +8,19 @@ import { existsSync, readFileSync } from 'node:fs';
 // wire (an explicit `slackChannel` id still overrides). A project owns its repos, MCP
 // servers, and env/secrets. ALL repos are cloned side by side (e.g. cms-general's
 // several codebases); `mcp` and `env` are modeled now, wired later.
-// A per-project MCP server (Claude Code mcpServers entry shape). `env` values may use
-// ${ENV_NAME} refs, resolved from the ORCHESTRATOR's process.env at materialization —
-// so secrets (e.g. a Grafana token) live in the orchestrator's .env, not this config.
+// A per-project MCP server (Claude Code mcpServers entry shape). Two forms: a local
+// stdio command (`command`/`args`/`env`) or a remote HTTP endpoint (`url`/`headers` —
+// e.g. the shared mcp-grafana at <grafana-host>/mcp, so sandboxes need no
+// docker-in-docker). `env` and `headers` values may use ${ENV_NAME} refs, resolved from
+// the ORCHESTRATOR's process.env at materialization — so secrets (a Grafana token, an
+// endpoint's auth header) live in the orchestrator's .env, not this config.
 export interface McpServerSpec {
   name: string;
-  command: string;
+  command?: string;
   args?: string[];
   env?: Record<string, string>;
+  url?: string;
+  headers?: Record<string, string>;
 }
 
 export interface ProjectConfig {
@@ -53,6 +58,11 @@ export function loadProjects(path: string): ProjectsRegistry {
   for (const p of reg.projects) {
     if (!p.slug || !Array.isArray(p.repos) || p.repos.length === 0) {
       throw new Error(`${path}: each project needs a "slug" and at least one repo in "repos"`);
+    }
+    for (const s of p.mcp ?? []) {
+      if (!s.name || (!s.command && !s.url)) {
+        throw new Error(`${path}: mcp server entries need a "name" and a "command" or "url"`);
+      }
     }
   }
   return reg;

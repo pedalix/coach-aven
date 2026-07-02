@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { Sandbox } from '@daytonaio/sdk';
 import type { Config } from './config.js';
 import type { McpServerSpec } from './projects.js';
+import { buildMcpServers } from './mcp.js';
 import { exec } from './daytona.js';
 import { log } from './log.js';
 
@@ -101,29 +102,17 @@ export const CC_TOKEN_ENV = 'CLAUDE_CODE_OAUTH_TOKEN=$(cat /root/.cc-token)';
 
 const MCP_CONFIG_PATH = '/root/.mcp-config.json';
 
-// Resolve ${ENV_NAME} refs in an MCP server's env from the orchestrator's process.env
-// (so secrets live in the orchestrator's .env, not the project config / the sandbox config).
-function resolveEnvRefs(env: Record<string, string> | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(env ?? {})) {
-    out[k] = v.replace(/\$\{([A-Z0-9_]+)\}/g, (_, name: string) => process.env[name] ?? '');
-  }
-  return out;
-}
-
 // Materialize the project's MCP servers into a --mcp-config file inside the sandbox
 // (written via the file API, never echoed). Returns the in-sandbox path, or undefined
 // when the project has no MCP servers. Combined with --strict-mcp-config, claude then
-// loads ONLY these servers (the repo's own .mcp.json is ignored).
+// loads ONLY these servers (the repo's own .mcp.json is ignored). Spec-shape handling
+// (stdio vs remote http, ${ENV} secret resolution) lives in buildMcpServers (mcp.ts).
 export async function seedMcpConfig(
   sandbox: Sandbox,
   mcp: McpServerSpec[] | undefined,
 ): Promise<string | undefined> {
   if (!mcp || mcp.length === 0) return undefined;
-  const mcpServers: Record<string, unknown> = {};
-  for (const s of mcp) {
-    mcpServers[s.name] = { command: s.command, args: s.args ?? [], env: resolveEnvRefs(s.env) };
-  }
+  const mcpServers = buildMcpServers(mcp);
   await sandbox.fs.uploadFile(Buffer.from(JSON.stringify({ mcpServers })), MCP_CONFIG_PATH);
   await exec(sandbox, `chmod 600 ${MCP_CONFIG_PATH}`, { check: true });
   return MCP_CONFIG_PATH;
