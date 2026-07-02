@@ -4,8 +4,12 @@ Scheduled **mechanical** hygiene of a project's sandbox — reaping stale git st
 the DinD disk from filling, clearing wedged processes. The janitor, as opposed to
 [Dreaming](memory.md#dreaming) (the agent's memory consolidation).
 
-> **Status: design stub.** Captures the boundary and candidate tasks; not yet built.
-> Some of it already exists (`reapWorktrees`); this consolidates it and adds the rest.
+> **Status: v1 shipped.** A `housekeeping` routine kind (`/aven housekeeping on|off|now`)
+> runs the janitor nightly: dockerd guard, threshold-gated docker prune (never volumes),
+> proactive worktree reap. Pure script/report logic in `src/housekeeping.ts` (tested);
+> firing in `src/pollers.ts`; the dockerd guard also runs at every chat prep
+> (`ensureDockerd`). Still open below: branch pruning, wedged-process detection,
+> a fleet-wide pass.
 
 ## Decision (TL;DR)
 
@@ -37,16 +41,18 @@ distinct inhabitants of the same scheduler.
   idle, lazily on session prep. Housekeeping makes this proactive and consolidates it with
   the rest below.
 
-## Candidate tasks (inside `proj-<slug>`)
+## Tasks (inside `proj-<slug>`)
 
-- **Orphaned git worktrees** — proactively, not only lazily on next prep.
+- ✅ **dockerd guard** — `docker info` + restart if dead (v1; also at every chat prep).
+- ✅ **Orphaned git worktrees** — proactively (v1), not only lazily on next prep.
+- ✅ **Disk & Docker hygiene** — stopped containers, unused images >7 days, build cache;
+  only past a disk threshold (`HOUSEKEEPING_DISK_PCT`, default 80%), NEVER volumes (v1).
 - **Merged / abandoned feature branches** — prune branches whose PR merged or that are long
-  dead. Never prune a branch with an open PR.
-- **Disk & Docker hygiene** — the DinD sandbox is heavy: dangling containers/images from
-  Sail stacks, build caches, stray `node_modules`. Prune below a disk threshold.
+  dead. Never prune a branch with an open PR. (open)
 - **Wedged processes/sessions** — detect zombie or stuck `claude` processes / dead sessions
-  and clear them.
-- **Sandbox health** — basic liveness check; restart the box if it's wedged.
+  and clear them. (open — hard to distinguish deterministically from the intended
+  persistent processes; needs a session-registry cross-check)
+- **Sandbox health** — basic liveness check; restart the box if it's wedged. (open)
 
 ## Boundaries — what does NOT belong here
 

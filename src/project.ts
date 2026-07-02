@@ -2,6 +2,7 @@ import type { Sandbox } from '@daytonaio/sdk';
 import type { Config } from './config.js';
 import type { McpServerSpec } from './projects.js';
 import { buildMcpServers } from './mcp.js';
+import { dockerdGuardCmd } from './housekeeping.js';
 import { exec } from './daytona.js';
 import { log } from './log.js';
 
@@ -16,6 +17,18 @@ export async function provisionTooling(sandbox: Sandbox) {
   // orchestrator, but if one slips through (e.g. a format sharp couldn't decode), the agent
   // resizes in one `magick` step instead of hand-rolling a resizer.
   await exec(sandbox, 'command -v magick >/dev/null 2>&1 || apk add --no-cache imagemagick', { timeout: 300 });
+}
+
+// Make sure dockerd is alive before a turn runs. The dind entrypoint starts it once and
+// nothing supervises it — when it dies, Laravel Sail (the php/composer/artisan shims)
+// silently breaks until someone pokes the sandbox (this bit us: the Grafana MCP was
+// docker-run based and stayed "not connected" for days). Cheap when healthy (~one
+// `docker info`); also part of the nightly housekeeping routine.
+export async function ensureDockerd(sandbox: Sandbox): Promise<void> {
+  const r = await exec(sandbox, dockerdGuardCmd(), { timeout: 60 });
+  const state = r.result?.match(/hk:dockerd=(\w+)/)?.[1];
+  if (state === 'restarted') log.warn('dockerd was down — restarted it');
+  else if (state === 'failed') log.error('dockerd is down and would not restart — Sail commands will fail');
 }
 
 // Layout inside the sandbox: <workDir>/<slug>/<repoName> per repo (a project = one
@@ -102,8 +115,9 @@ const REAP_HOURS = Math.floor(Number(process.env.WORKTREE_REAP_HOURS)) || 12;
 // checkout, clean (no uncommitted changes), with nothing unpushed/unmerged
 // (`rev-list HEAD --not --remotes` empty → every commit is already on a remote, zero data
 // loss), and idle longer than WORKTREE_REAP_HOURS (so an active conversation's worktree is
-// left alone). Run at prepareChat — lazy, no background timer to lose across restarts.
-export async function reapWorktrees(sandbox: Sandbox, repoDir: string) {
+// left alone). Run at prepareChat (lazy) and by the nightly housekeeping routine
+// (proactive); returns how many were reaped for the housekeeping digest.
+export async function reapWorktrees(sandbox: Sandbox, repoDir: string): Promise<number> {
   const script =
     `cd ${repoDir} 2>/dev/null || exit 0\n` +
     `git worktree prune 2>/dev/null\n` +
@@ -121,6 +135,7 @@ export async function reapWorktrees(sandbox: Sandbox, repoDir: string) {
   const r = await exec(sandbox, script);
   const reaped = r.result.split('\n').filter((l) => l.startsWith('reaped ')).length;
   if (reaped > 0) log.info(`reaped ${reaped} finished worktree(s) under ${repoDir}`);
+  return reaped;
 }
 
 // Clone (or fetch) a single repo into its own <slug>/<repoName> dir. Used by the chat

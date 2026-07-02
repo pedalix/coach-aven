@@ -7,6 +7,7 @@ import {
   seedClaudeAuth,
   seedMcpConfig,
   provisionTooling,
+  ensureDockerd,
   cloneRepo,
   reapWorktrees,
   repoCheckout,
@@ -81,6 +82,9 @@ async function prepareChat(cfg: Config, store: Store, slug: string, repos: strin
   const proj = store.upsertProject(slug, repos[0], cfg.sandbox.namePrefix);
   const sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, slug);
   await provisionTooling(sandbox);
+  // dockerd liveness guard: a dead daemon breaks Sail (php/composer/artisan shims) for
+  // every turn until revived — catch it here rather than mid-conversation.
+  await ensureDockerd(sandbox);
 
   await seedGitHubAuth(sandbox, await getGitHubToken(cfg, repos));
   await seedClaudeAuth(sandbox, cfg.claudeOauthToken);

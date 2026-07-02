@@ -18,6 +18,7 @@ import { makeDaytona, listSandboxStates, exec } from './daytona.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
 import { snapshotLog, memoryRepoDir, readSnapshotFile } from './memjournal.js';
+import { HOUSEKEEPING_DEFAULT_CRON, HOUSEKEEPING_DEFAULT_SPEC, pruneThreshold } from './housekeeping.js';
 import { countOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js';
 import {
   CMD,
@@ -120,11 +121,12 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     );
     const githubOk = prCounts.some((n) => n !== undefined);
 
-    // Routine counts per project (report jobs vs dream jobs) for the at-a-glance status line.
-    const jobsBySlug = new Map<string, { jobs: number; dreams: number }>();
+    // Routine counts per project (reports vs dreams vs housekeeping) for the status line.
+    const jobsBySlug = new Map<string, { jobs: number; dreams: number; hk: number }>();
     for (const r of store.listRoutines()) {
-      const c = jobsBySlug.get(r.slug) ?? { jobs: 0, dreams: 0 };
+      const c = jobsBySlug.get(r.slug) ?? { jobs: 0, dreams: 0, hk: 0 };
       if (r.kind === 'dream') c.dreams++;
+      else if (r.kind === 'housekeeping') c.hk++;
       else c.jobs++;
       jobsBySlug.set(r.slug, c);
     }
@@ -138,6 +140,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       openPRs: prCounts[i],
       jobs: jobsBySlug.get(p.slug)?.jobs ?? 0,
       dreams: jobsBySlug.get(p.slug)?.dreams ?? 0,
+      hk: jobsBySlug.get(p.slug)?.hk ?? 0,
     }));
     return { projects, turnsInFlight: engine.runningCount(), daytonaOk, githubOk };
   }
@@ -277,6 +280,50 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     };
   }
 
+  // ── /aven housekeeping [on|off] → nightly sandbox janitor for this project ──
+  // Mirrors handleDream ('now' fires in the command handler — it needs the client). One
+  // housekeeping routine per project channel (kind: 'housekeeping'), on the same scheduler.
+  function handleHousekeeping(channelId: string, userId: string, slug: string | undefined, cmdText: string): { text: string } {
+    if (!slug) return { text: `:x: Use \`${CMD} housekeeping\` from a project channel.` };
+    const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
+    const existing = store.listRoutines({ channel: channelId }).find((r) => r.kind === 'housekeeping');
+    if (sub === 'off') {
+      if (!existing) return { text: ':information_source: No housekeeping scheduled here.' };
+      store.patchRoutine(existing.id, { enabled: false });
+      return { text: `:white_check_mark: Housekeeping paused for *${slug}*.` };
+    }
+    if (sub === 'on') {
+      if (existing) {
+        store.patchRoutine(existing.id, { enabled: true });
+        return { text: `:broom: Housekeeping on for *${slug}* — \`${existing.spec}\` (${existing.tz}).` };
+      }
+      const rec = store.addRoutine({
+        slug,
+        channel: channelId,
+        cron: HOUSEKEEPING_DEFAULT_CRON,
+        tz: ROUTINE_TZ,
+        spec: HOUSEKEEPING_DEFAULT_SPEC,
+        prompt: '',
+        enabled: true,
+        createdBy: userId,
+        kind: 'housekeeping',
+      });
+      return {
+        text: `:broom: Housekeeping on for *${slug}* — \`${rec.spec}\` (${ROUTINE_TZ}). Nightly janitor: dockerd guard, docker prune past ${pruneThreshold()}% disk, stale-worktree reap. \`${CMD} housekeeping\` shows the last run.`,
+      };
+    }
+    // bare / status
+    if (!existing) {
+      return { text: `:broom: No housekeeping for *${slug}*. Enable the nightly sandbox janitor: \`${CMD} housekeeping on\`.` };
+    }
+    const state = existing.enabled ? '🟢 on' : '⚪️ off';
+    const last = existing.lastRunAt ? `\nLast run: ${existing.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
+    const digest = existing.lastSummary ? `\nLast: _${existing.lastSummary}_` : '';
+    return {
+      text: `:broom: *Housekeeping — ${slug}* ${state} · \`${existing.spec}\` (${existing.tz})${last}${digest}\n_Manage:_ \`${CMD} housekeeping on|off|now\``,
+    };
+  }
+
   // ── /aven → private answer in the user's DM (per project) ───────────────────
   app.command(CMD, async ({ command, ack, respond, client }) => {
     await ack(); // Slack needs an ack within 3s; the real work runs after.
@@ -357,6 +404,28 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
         return;
       }
       await respond({ response_type: 'ephemeral', ...handleDream(command.channel_id, command.user_id, project?.slug, cmdText) });
+      return;
+    }
+    // `/aven housekeeping [on|off|now]` → the nightly sandbox janitor (docs/housekeeping.md).
+    if (verb === 'housekeeping' || verb === 'hk') {
+      const { project } = await channels.pickProject(client, command.channel_id, '');
+      const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
+      if (sub === 'now') {
+        const r = store.listRoutines({ channel: command.channel_id }).find((x) => x.kind === 'housekeeping');
+        if (!r) {
+          await respond({ response_type: 'ephemeral', text: `:information_source: No housekeeping here yet — \`${CMD} housekeeping on\` first.` });
+          return;
+        }
+        const ok = pollers.fireRoutine(client, r);
+        await respond({
+          response_type: 'ephemeral',
+          text: ok
+            ? ':broom: Housekeeping running… (silent — check `' + CMD + ' housekeeping` for the digest)'
+            : ':hourglass_flowing_sand: A turn is in flight for this project — try again shortly.',
+        });
+        return;
+      }
+      await respond({ response_type: 'ephemeral', ...handleHousekeeping(command.channel_id, command.user_id, project?.slug, cmdText) });
       return;
     }
 

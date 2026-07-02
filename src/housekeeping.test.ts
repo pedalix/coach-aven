@@ -1,0 +1,60 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  pruneThreshold,
+  dockerdGuardCmd,
+  housekeepingScript,
+  parseHousekeepingReport,
+} from './housekeeping.js';
+
+test('pruneThreshold: default 80, env override, garbage rejected', () => {
+  assert.equal(pruneThreshold(undefined), 80);
+  assert.equal(pruneThreshold('70'), 70);
+  assert.equal(pruneThreshold('0'), 80); // out of range
+  assert.equal(pruneThreshold('150'), 80);
+  assert.equal(pruneThreshold('nope'), 80);
+});
+
+test('dockerd guard emits exactly one marker in every branch', () => {
+  const cmd = dockerdGuardCmd();
+  assert.match(cmd, /hk:dockerd=ok/);
+  assert.match(cmd, /hk:dockerd=restarted/);
+  assert.match(cmd, /hk:dockerd=failed/);
+});
+
+test('housekeeping script: threshold gates the prune, and volumes are NEVER pruned', () => {
+  const s = housekeepingScript(85);
+  assert.match(s, /"\$usage" -ge 85/);
+  assert.match(s, /docker container prune -f/);
+  assert.match(s, /docker image prune -af --filter "until=168h"/);
+  assert.match(s, /docker builder prune -f/);
+  // The guardrail: Sail volumes hold project databases — no volume pruning, ever.
+  assert.doesNotMatch(s, /--volumes/);
+  assert.doesNotMatch(s, /volume prune/);
+});
+
+test('parse: healthy no-prune run', () => {
+  const r = parseHousekeepingReport('hk:dockerd=ok\nhk:disk=52\nhk:reclaimable=Images:1.2GB\nhk:prune=skipped\n', 0);
+  assert.equal(r.dockerd, 'ok');
+  assert.equal(r.diskPct, 52);
+  assert.equal(r.prune, 'skipped');
+  assert.equal(r.digest, 'dockerd ok · disk 52% · no prune · 0 worktrees reaped');
+});
+
+test('parse: restarted dockerd + prune with before/after disk', () => {
+  const r = parseHousekeepingReport(
+    'hk:dockerd=restarted\nhk:disk=87\nhk:prune=done\nhk:diskafter=71\n',
+    2,
+  );
+  assert.equal(r.dockerd, 'restarted');
+  assert.equal(r.prune, 'done');
+  assert.equal(r.digest, 'dockerd restarted · disk 87%→71% · pruned · 2 worktrees reaped');
+});
+
+test('parse: garbage output degrades to unknowns, digest still one line', () => {
+  const r = parseHousekeepingReport('docker: command not found\n', 1);
+  assert.equal(r.dockerd, 'unknown');
+  assert.equal(r.prune, 'unknown');
+  assert.equal(r.digest, 'dockerd unknown · disk ? · no prune · 1 worktree reaped');
+  assert.ok(!r.digest.includes('\n'));
+});

@@ -200,6 +200,7 @@ export interface ProjectStatus {
   openPRs?: number; // undefined = couldn't be determined
   jobs: number; // scheduled report routines
   dreams: number; // scheduled dream routines
+  hk: number; // scheduled housekeeping routines
 }
 export interface StatusReport {
   projects: ProjectStatus[];
@@ -224,6 +225,7 @@ export function statusReportBlocks(r: StatusReport): any[] {
     if (p.openPRs !== undefined) bits.push(plural(p.openPRs, 'open PR'));
     if (p.jobs) bits.push(plural(p.jobs, 'job'));
     if (p.dreams) bits.push(`${p.dreams} 🌙`);
+    if (p.hk) bits.push(`${p.hk} 🧹`);
     return `• *${p.slug}* — ${bits.join(' · ')}`;
   });
   const health = `_Daytona ${r.daytonaOk ? '✅' : '⚠️'} · GitHub ${r.githubOk ? '✅' : '⚠️'} · Slack ✅_`;
@@ -328,6 +330,7 @@ export function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
+          `• *Sandbox upkeep* — \`${CMD} housekeeping on\`/\`off\` schedules (or pauses) the nightly janitor (dockerd guard, docker prune when disk runs high, stale-worktree reap); \`${CMD} housekeeping\` for the last run, \`${CMD} housekeeping now\` to run it once.\n` +
           `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.`,
       },
     },
@@ -387,9 +390,10 @@ export function routineListBlocks(rs: RoutineRecord[]): any[] {
   const lines = rs.map((r) => {
     const dot = r.enabled ? '🟢' : '⚪️';
     const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
-    if (r.kind === 'dream') {
+    if (r.kind === 'dream' || r.kind === 'housekeeping') {
+      const label = r.kind === 'dream' ? '🌙 dream' : '🧹 housekeeping';
       const s = r.lastSummary ? `\n   _${r.lastSummary}_` : '';
-      return `${dot} *${r.id}* 🌙 dream — \`${r.spec}\` (${r.tz})${last}${s}`;
+      return `${dot} *${r.id}* ${label} — \`${r.spec}\` (${r.tz})${last}${s}`;
     }
     const p = r.prompt.length > 90 ? `${r.prompt.slice(0, 87)}…` : r.prompt;
     return `${dot} *${r.id}* — \`${r.spec}\` (${r.tz})${last}\n   ${p}`;
@@ -423,7 +427,7 @@ export function allRoutinesBlocks(groups: { slug: string; routines: RoutineRecor
   for (const { slug, routines } of groups) {
     const lines = routines.map((r) => {
       const dot = r.enabled ? '🟢' : '⚪️';
-      const kind = r.kind === 'dream' ? '🌙 dream' : 'digest';
+      const kind = r.kind === 'dream' ? '🌙 dream' : r.kind === 'housekeeping' ? '🧹 housekeeping' : 'digest';
       const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
       return `   ${dot} *${r.id}* ${kind} — \`${r.spec}\` in <#${r.channel}>${last}`;
     });

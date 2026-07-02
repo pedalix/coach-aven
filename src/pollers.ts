@@ -14,8 +14,9 @@ import { prsToReview, autofixEvents } from './pr.js';
 import { reviewPrompt, REPORT_FRAMING, investigationPrompt, type ReviewEffort } from './prompts.js';
 import { listTaggedIssues, listComments, listAttachments, dueTickets } from './youtrack.js';
 import { listOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js';
-import { makeDaytona } from './daytona.js';
-import { projectCwd } from './project.js';
+import { makeDaytona, exec } from './daytona.js';
+import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
+import { housekeepingScript, parseHousekeepingReport, pruneThreshold } from './housekeeping.js';
 import { dreamPrompt, dreamDigest } from './dream.js';
 import { snapshotMemory } from './memjournal.js';
 import { autofixNotifyBlocks, shortRepo } from './blocks.js';
@@ -84,6 +85,7 @@ export function createPollers(
     const project = resolveBySlug(reg.current, r.slug);
     if (!project) return false; // project removed from the registry
     if (r.kind === 'dream') return fireDream(project, r);
+    if (r.kind === 'housekeeping') return fireHousekeeping(project, r);
     const key = `cron:${r.id}:${r.slug}`;
     if (engine.hasKey(key)) return false; // previous run still in flight — don't stack
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
@@ -113,6 +115,37 @@ export function createPollers(
         await snapshotMemory(sandbox, cfg, project.slug, project.repos, digest);
       } catch (e) {
         log.error(`dream ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    })();
+    return true;
+  }
+
+  // Housekeeping: the deterministic sandbox janitor (docs/housekeeping.md) — dockerd
+  // guard, threshold-gated docker prune, proactive worktree reap. No LLM, silent (log +
+  // the routine's lastSummary, like dreams). Skipped while the project has a live turn
+  // (never reap state out from under one) and when the sandbox is asleep — a stopped
+  // sandbox accumulates no new garbage, and waking the fleet nightly defeats auto-stop.
+  function fireHousekeeping(project: ProjectConfig, r: RoutineRecord): boolean {
+    if (engine.projectBusy(project.slug)) return false;
+    store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
+    void (async () => {
+      try {
+        const daytona = makeDaytona(cfg);
+        const sandbox = await daytona.get(`${cfg.sandbox.namePrefix}${project.slug}`).catch(() => undefined);
+        if (!sandbox || sandbox.state !== 'started') {
+          store.patchRoutine(r.id, { lastSummary: 'sandbox asleep — skipped' });
+          return;
+        }
+        let reaped = 0;
+        for (const repo of project.repos) {
+          reaped += await reapWorktrees(sandbox, repoCheckout(cfg, project.slug, repo));
+        }
+        const res = await exec(sandbox, housekeepingScript(pruneThreshold()), { timeout: 600 });
+        const report = parseHousekeepingReport(res.result ?? '', reaped);
+        store.patchRoutine(r.id, { lastSummary: report.digest });
+        log.info(`housekeeping ${r.id} (${project.slug}): ${report.digest}`);
+      } catch (e) {
+        log.error(`housekeeping ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
       }
     })();
     return true;
