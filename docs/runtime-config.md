@@ -3,9 +3,14 @@
 Change a project's configuration **without a redeploy/restart** — hot-reload the registry,
 and let admins edit safe fields (the project system prompt) from Slack.
 
-> **Status: design stub.** Not yet built. The **read-only** half — `/aven prompt` showing
-> a project's current prompt — ships earlier as part of the [memory](memory.md) phase; this
-> doc owns the **editing** half and hot-reload.
+> **Status: hot-reload shipped.** `/aven reload` re-reads `projects.config.json` +
+> `projects.d/*.md` and swaps the live registry (everything holds a `RegistryRef` and
+> reads `.current` per use); a parse failure keeps the old config. System prompts now
+> live as markdown files beside the config — `projects.d/<slug>.md` (a non-empty file
+> wins over the JSON `systemPrompt` field, kept as fallback) — synced by
+> `prod:export`/`import`. Prompts/MCP bake into a session at `openChat`, so running
+> conversations keep their setup until their persistent claude process ends.
+> Still open below: the Slack **editing** half (modal + state-overrides).
 
 ## Why
 

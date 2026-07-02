@@ -40,6 +40,11 @@ ENV_FILE="$HERE/.env"
 RUNTIME_DIR="$HERE/runtime"
 # The runtime files the app needs at REMOTE_DIR (uploaded by export, pulled by import).
 RUNTIME_FILES=(.env github-app-private-key.pem projects.config.json)
+# Optional runtime SUBDIRS, synced recursively when present: projects.d/ holds the
+# per-project system prompts (projects.d/<slug>.md — see docs/runtime-config.md).
+# Note export copies over (scp, not rsync --delete): a file deleted locally lingers on
+# the box, which is harmless — the loader ignores files for unknown slugs.
+RUNTIME_DIRS=(projects.d)
 
 log()  { printf '\033[1;36m▶ %s\033[0m\n' "$*" >&2; }
 ok()   { printf '\033[1;32m✓ %s\033[0m\n' "$*" >&2; }
@@ -124,6 +129,12 @@ cmd_export() {
   for f in "${RUNTIME_FILES[@]}"; do
     scp "${SSH_OPTS[@]}" -q "$RUNTIME_DIR/$f" "$DEPLOYER:$REMOTE_DIR/$f"
   done
+  for d in "${RUNTIME_DIRS[@]}"; do
+    if [[ -d "$RUNTIME_DIR/$d" ]]; then
+      dssh "mkdir -p $REMOTE_DIR/$d"
+      scp "${SSH_OPTS[@]}" -q -r "$RUNTIME_DIR/$d/." "$DEPLOYER:$REMOTE_DIR/$d/"
+    fi
+  done
   dssh "chmod 600 $REMOTE_DIR/.env $REMOTE_DIR/github-app-private-key.pem"
   ok "runtime in place (state.json left untouched) — run: restart"
 }
@@ -139,6 +150,12 @@ cmd_import() {
       scp "${SSH_OPTS[@]}" -q "$DEPLOYER:$REMOTE_DIR/$f" "$RUNTIME_DIR/$f"
     else
       warn "no $REMOTE_DIR/$f on the box — skipped"
+    fi
+  done
+  for d in "${RUNTIME_DIRS[@]}"; do
+    if dssh "test -d $REMOTE_DIR/$d" </dev/null; then
+      mkdir -p "$RUNTIME_DIR/$d"
+      scp "${SSH_OPTS[@]}" -q -r "$DEPLOYER:$REMOTE_DIR/$d/." "$RUNTIME_DIR/$d/"
     fi
   done
   chmod 600 "$RUNTIME_DIR/.env" "$RUNTIME_DIR/github-app-private-key.pem" 2>/dev/null || true

@@ -3,6 +3,8 @@ node_modules/
 state.json
 .release
 projects.config.json
+# local-dev per-project prompt files (prod's live in infra/prod/runtime/projects.d/):
+/projects.d/
 # per-project memory journals (server-owned git repos; like state.json, never committed):
 memory/
 *.log

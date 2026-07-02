@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 // Registry of the projects the bot serves. ONE bot, MANY channels: each Slack channel
 // is bound to a project, and each project gets its OWN isolated sandbox (proj-<slug>).
@@ -70,6 +71,18 @@ export function loadProjects(path: string): ProjectsRegistry {
       if (!s.name || (!s.command && !s.url)) {
         throw new Error(`${path}: mcp server entries need a "name" and a "command" or "url"`);
       }
+    }
+  }
+  // System prompts live as markdown files BESIDE the config — projects.d/<slug>.md —
+  // instead of multi-KB one-line JSON strings (diffable, editable, no JSON escaping).
+  // A file, when present and non-empty, WINS over the JSON `systemPrompt` field (kept as
+  // a fallback so older configs keep working). Stray files for unknown slugs are ignored.
+  const promptDir = join(dirname(path), 'projects.d');
+  for (const p of reg.projects) {
+    const f = join(promptDir, `${p.slug}.md`);
+    if (existsSync(f)) {
+      const body = readFileSync(f, 'utf8').trim();
+      if (body) p.systemPrompt = body;
     }
   }
   return reg;

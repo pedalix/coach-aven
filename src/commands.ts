@@ -6,7 +6,7 @@
 import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
 import type { Store } from './state.js';
-import { resolveBySlug, type ProjectConfig, type RegistryRef } from './projects.js';
+import { loadProjects, resolveBySlug, type ProjectConfig, type RegistryRef } from './projects.js';
 import type { TurnEngine } from './turn.js';
 import type { Channels } from './channels.js';
 import { ROUTINE_TZ, type Pollers } from './pollers.js';
@@ -346,6 +346,39 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
         });
       } catch (err) {
         await respond({ response_type: 'ephemeral', replace_original: true, text: errText(err) });
+      }
+      return;
+    }
+
+    // `/aven reload` → re-read projects.config.json + projects.d/*.md and swap the live
+    // registry (see docs/runtime-config.md "Hot-reload"). No restart: everything holds the
+    // RegistryRef and reads `.current` per use. Scope honesty: prompts/MCP are baked into a
+    // session at openChat, so running conversations keep their current setup until their
+    // persistent claude process ends — new sessions pick up the new config immediately.
+    // A parse/validation failure leaves the old registry in place.
+    if (verb === 'reload') {
+      try {
+        const before = reg.current.projects.map((p) => p.slug);
+        const next = loadProjects(cfg.projectsConfigPath);
+        reg.current = next;
+        const after = next.projects.map((p) => p.slug);
+        const added = after.filter((s) => !before.includes(s));
+        const removed = before.filter((s) => !after.includes(s));
+        const delta = [
+          added.length ? `added: ${added.join(', ')}` : '',
+          removed.length ? `removed: ${removed.join(', ')}` : '',
+        ]
+          .filter(Boolean)
+          .join(' · ');
+        await respond({
+          response_type: 'ephemeral',
+          text: `:arrows_counterclockwise: Config reloaded — ${after.length} project(s)${delta ? ` (${delta})` : ''}. New prompts/MCP apply to new sessions; running conversations keep their current setup.`,
+        });
+      } catch (err) {
+        await respond({
+          response_type: 'ephemeral',
+          text: `${errText(err)}\n_The previous config stays active._`,
+        });
       }
       return;
     }

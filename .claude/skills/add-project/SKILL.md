@@ -88,11 +88,14 @@ Append the new project to the `projects` array in
 {
   "slug": "my-project",
   "repos": ["BluefinOrg/my-repo"],
-  "systemPrompt": "…optional…",
   "env": {},
   "mcp": []
 }
 ```
+
+The system prompt goes into its own markdown file —
+`infra/prod/runtime/projects.d/<slug>.md` — NOT a JSON `systemPrompt` string (a
+non-empty file wins over the JSON field; the JSON form is legacy fallback only).
 
 Then validate the file is well-formed JSON:
 `node -e "JSON.parse(require('fs').readFileSync('infra/prod/runtime/projects.config.json','utf8')).projects.length"`
@@ -119,22 +122,26 @@ Show the diff of `infra/prod/runtime/projects.config.json` (`git diff --no-index
 work since it's gitignored — use `git diff -- infra/prod/runtime/projects.config.json`
 only if tracked; otherwise just display the added block). Then explicitly ask:
 
-> Выкатываем на прод сейчас? (export + restart)
+> Выкатываем на прод сейчас? (export + reload)
 
 Do not proceed to Step 5 without an explicit yes.
 
 ## Step 5 — deploy
 
-On confirmation, run in order:
+On confirmation:
 
 ```bash
-npm run prod:export     # upload infra/prod/runtime/ → the box
-npm run prod:restart    # the bot re-reads projects.config.json only on restart
+npm run prod:export     # upload infra/prod/runtime/ (incl. projects.d/) → the box
 ```
+
+Then ask the user to run `/aven reload` in Slack (any channel) — it re-reads the
+registry without a restart. `npm run prod:restart` also works (e.g. if Slack is
+unavailable) but interrupts in-flight turns.
 
 ## Step 6 — verify
 
-Confirm the service is up and the new project loaded:
+`/aven reload`'s reply already confirms the new project count (`added: <slug>`). If a
+restart was used instead, confirm the service is up and the new project loaded:
 
 ```bash
 npm run prod:status     # expect: active (running)

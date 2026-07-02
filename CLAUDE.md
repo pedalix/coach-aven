@@ -37,6 +37,8 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 - `src/tasks.ts` — chat session over a sandbox; the **3-layer system prompt**
   (orchestrator base → project prompt → repo `CLAUDE.md`).
 - `src/projects.ts` / `infra/prod/runtime/projects.config.json` — per-project repos, MCP,
-  prompt. Read **once at boot** — prod changes need a restart.
+  prompt. System prompts live as markdown beside the config (`projects.d/<slug>.md`, wins
+  over the JSON field). Read at boot; `/aven reload` re-reads at runtime (new sessions
+  only — running conversations keep their session's prompt/MCP).
 - `src/state.ts` — single-file `state.json`: projects, chat→session bindings, routines.
 - `src/schedule.ts` — pure cron/schedule logic for scheduled report jobs.
