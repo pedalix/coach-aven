@@ -40,9 +40,13 @@ Use AskUserQuestion / plain questions to collect:
    domain, what each repo is + how they relate, merge/deploy-order rules, doc links.
    (Repo coding conventions belong in each repo's own CLAUDE.md, not here.)
    Don't make the user write this from scratch — in Step 1.5 OFFER to generate it.
-4. **MCP servers?** (optional) — e.g. a Grafana MCP like caldora's. If yes, collect
-   per server: name, command, args, and any env values. Env secrets are referenced as
-   `${VAR_NAME}` in the config and the real value goes into `runtime/.env`.
+4. **MCP servers?** (optional) — e.g. a Grafana MCP like caldora's. For the shared
+   observability stack, use the remote endpoint (NOT a docker-in-docker server):
+   `{"name": "grafana", "url": "https://<grafana-host>/mcp", "headers": {"Authorization": "Basic ${GRAFANA_MCP_BASIC_AUTH}"}}`
+   (one supervised mcp-grafana on the observe box; creds in `runtime/.env` +
+   bluefin-infra `proxy/nginx/htpasswd-mcp`). Other servers: collect name, command,
+   args, and any env values — or a url+headers pair for remote ones. Env secrets are
+   referenced as `${VAR_NAME}` in the config and the real value goes into `runtime/.env`.
 
 Echo back the assembled project object and confirm before writing.
 
