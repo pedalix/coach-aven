@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { prUrls, fallbackText, fmtElapsed, stripMention, mdToMrkdwn, parseTopics } from './format.js';
+import { prUrls, fallbackText, fmtElapsed, fmtAge, stripMention, mdToMrkdwn, parseTopics } from './format.js';
 
 test('parseTopics — extracts local .md topic links, dedupes, ignores http/non-md', () => {
   const idx = [
@@ -45,6 +45,14 @@ test('fmtElapsed — seconds under a minute, m+ss beyond', () => {
   assert.equal(fmtElapsed(59_000), '59s');
   assert.equal(fmtElapsed(60_000), '1m00s');
   assert.equal(fmtElapsed(125_000), '2m05s');
+});
+
+test('fmtAge — minutes, hours, then days', () => {
+  assert.equal(fmtAge(5 * 60_000), '5m');
+  assert.equal(fmtAge(59 * 60_000), '59m');
+  assert.equal(fmtAge(60 * 60_000), '1h');
+  assert.equal(fmtAge(23 * 3_600_000), '23h');
+  assert.equal(fmtAge(48 * 3_600_000), '2d');
 });
 
 test('stripMention — removes <@…> mentions and trims', () => {

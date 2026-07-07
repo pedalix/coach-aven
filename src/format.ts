@@ -21,6 +21,14 @@ export function fmtElapsed(ms: number): string {
   return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`;
 }
 
+// Coarse age for ticket headers: "5m", "3h", "2d" — triage needs the magnitude, not seconds.
+export function fmtAge(ms: number): string {
+  const m = Math.floor(ms / 60_000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
+}
+
 // Drop Slack user mentions (<@U…>) from message text.
 export function stripMention(text: string): string {
   return text.replace(/<@[^>]+>/g, '').trim();

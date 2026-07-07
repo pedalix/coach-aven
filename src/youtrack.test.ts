@@ -7,6 +7,7 @@ import {
   fieldValueText,
   linkTypeLabel,
   mapIssue,
+  headerExtras,
   type YouTrackIssue,
 } from './youtrack.js';
 
@@ -109,6 +110,23 @@ test('mapIssue: maps fields (dropping unset), date custom fields, and flattens l
   ]);
   assert.equal(mapped.reporter, 'support');
   assert.equal(mapped.createdAt, '2026-07-01T00:00:00.000Z');
+});
+
+test('headerExtras: priority (red-dotted only when urgent) + coarse age', () => {
+  const now = Date.parse('2026-07-07T12:00:00Z');
+  const base = issue('GLACIER-1');
+  assert.equal(headerExtras(base, now), ''); // nothing to show → header stays as-is
+  assert.equal(
+    headerExtras(
+      { ...base, createdAt: '2026-07-05T12:00:00Z', fields: [{ name: 'Priority', value: 'Critical' }] },
+      now,
+    ),
+    '🔴 Critical · 2d old',
+  );
+  assert.equal(
+    headerExtras({ ...base, fields: [{ name: 'priority', value: 'Normal' }] }, now),
+    'Normal', // any casing; calm priorities get no dot
+  );
 });
 
 test('attachmentUrl: prefixes root-relative urls, passes absolute through', () => {

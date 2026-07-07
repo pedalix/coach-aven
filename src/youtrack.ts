@@ -1,5 +1,6 @@
 import type { Config } from './config.js';
 import type { AttachmentRef } from './attachments.js';
+import { fmtAge } from './format.js';
 
 // YouTrack integration for the support-ticket investigation pilot: a label on a ticket is
 // the trigger. This module mirrors github.ts — a thin REST client (typed `fetch` against the
@@ -202,6 +203,20 @@ export async function listAttachments(cfg: Config, id: string): Promise<Attachme
   } catch {
     return [];
   }
+}
+
+// Compact extras for the ticket's Slack channel header: "🔴 Critical · 2d old". Priority
+// comes from the custom fields (any casing); the red dot only for clearly-urgent names so
+// ordinary tickets stay visually calm. '' when there's nothing worth showing.
+export function headerExtras(issue: YouTrackIssue, nowMs: number): string {
+  const bits: string[] = [];
+  const prio = issue.fields.find((f) => f.name.toLowerCase() === 'priority')?.value;
+  if (prio) bits.push(`${/critical|show-?stopper|blocker|urgent/i.test(prio) ? '🔴 ' : ''}${prio}`);
+  if (issue.createdAt) {
+    const age = nowMs - Date.parse(issue.createdAt);
+    if (Number.isFinite(age) && age >= 0) bits.push(`${fmtAge(age)} old`);
+  }
+  return bits.join(' · ');
 }
 
 // ── pure selection logic (unit-tested in youtrack.test.ts) ───────────────────────

@@ -6,7 +6,8 @@
 import type { RoutineRecord, PrWatch } from './state.js';
 import type { ProjectConfig, ProjectsRegistry } from './projects.js';
 import type { AskQuestion } from './claudeSession.js';
-import { prUrls } from './format.js';
+import type { YouTrackIssue } from './youtrack.js';
+import { prUrls, mdToMrkdwn } from './format.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
 
@@ -193,6 +194,36 @@ export function questionBlocks(
   return blocks;
 }
 
+// ── YouTrack ticket card ────────────────────────────────────────────────────
+// First reply in an investigation thread: the ticket itself — description excerpt, fields,
+// linked issues, attached files — so nobody has to open YouTrack to see what the thread is
+// about. Longer descriptions are cut with a link to the full ticket.
+const TICKET_EXCERPT = 600;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function ticketCardBlocks(t: YouTrackIssue, ticketUrl: string, attachmentNames: string[]): any[] {
+  const desc = t.description.trim();
+  const excerpt =
+    desc.length > TICKET_EXCERPT
+      ? `${mdToMrkdwn(desc.slice(0, TICKET_EXCERPT))}… <${ticketUrl}|full ticket>`
+      : mdToMrkdwn(desc) || '_(no description)_';
+  const meta = [
+    t.reporter ? `👤 ${t.reporter}` : '',
+    t.createdAt ? `created ${t.createdAt.slice(0, 10)}` : '',
+    ...t.fields.map((f) => `${f.name}: ${f.value}`),
+  ]
+    .filter(Boolean)
+    .join('  ·  ');
+  const links = t.links
+    .map((l) => `🔗 ${l.type} *${l.id}* — ${l.summary}${l.resolved ? ' _(resolved)_' : ''}`)
+    .join('\n');
+  const files = attachmentNames.length ? `📎 ${attachmentNames.join(', ')}` : '';
+  const context = [meta, links, files].filter(Boolean).join('\n');
+  return [
+    { type: 'section', text: { type: 'mrkdwn', text: excerpt.slice(0, 2900) } },
+    ...(context ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: context.slice(0, 2900) }] }] : []),
+  ];
+}
+
 // ── `/aven status` rendering ────────────────────────────────────────────────
 export interface ProjectStatus {
   slug: string;
@@ -329,7 +360,7 @@ export function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
-          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a read-only investigation in a thread in the matching project channel, then ping the owners. Reply in that thread to dig deeper (I keep the context), and hit *🔀 Open a PR* to turn the fix into a pull request (pilot; only for projects with a YouTrack mapping above).\n' +
+          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), and hit *🔀 Open a PR* to turn the fix into a pull request (pilot; only for projects with a YouTrack mapping above).\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +

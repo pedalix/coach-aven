@@ -12,7 +12,8 @@ import type { Channels } from './channels.js';
 import { dueRoutines } from './schedule.js';
 import { prsToReview, autofixEvents } from './pr.js';
 import { reviewPrompt, REPORT_FRAMING, investigationPrompt, type ReviewEffort } from './prompts.js';
-import { listTaggedIssues, listComments, listAttachments, dueTickets, type YouTrackIssue } from './youtrack.js';
+import { listTaggedIssues, listComments, listAttachments, dueTickets, headerExtras, type YouTrackIssue } from './youtrack.js';
+import { ticketCardBlocks } from './blocks.js';
 import { listOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js';
 import { makeDaytona, exec } from './daytona.js';
 import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
@@ -279,15 +280,30 @@ export function createPollers(
       // each ticket is one tidy line in the channel with the live status + findings collapsed in
       // its own thread (unlike the other pollers, which post top-level).
       const ticketUrl = `${cfg.youtrack!.baseUrl.replace(/\/$/, '')}/issue/${ticket.id}`;
+      const extras = headerExtras(ticket, Date.now());
       let rootTs: string | undefined;
       try {
         const root = await client.chat.postMessage({
           channel,
-          text: `:ticket: <${ticketUrl}|${ticket.id}> — ${ticket.summary}`,
+          text: `:ticket: <${ticketUrl}|${ticket.id}> — ${ticket.summary}${extras ? `  ·  ${extras}` : ''}`,
         });
         rootTs = root.ts as string | undefined;
       } catch (e) {
         log.error(`youtrack ${ticket.id}: header post failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      // Ticket card as the thread's first reply — description, fields, links, files — so the
+      // thread is self-contained. Best-effort: a card failure must not sink the investigation.
+      if (rootTs) {
+        try {
+          await client.chat.postMessage({
+            channel,
+            thread_ts: rootTs,
+            text: `${ticket.id}: ${ticket.summary}`,
+            blocks: ticketCardBlocks(ticket, ticketUrl, attachRefs.map((a) => a.name)),
+          });
+        } catch (e) {
+          log.error(`youtrack ${ticket.id}: card post failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
       // Key the turn like a normal channel thread (`thread:<rootTs>`) instead of a one-shot: that
       // single choice makes the thread CONTINUABLE — a later reply in it resumes THIS Claude
