@@ -62,7 +62,23 @@ export interface TurnEngine {
   slugForKey(key: string): string | undefined;
   resumeInflightTurns(client: bolt.webApi.WebClient): void;
   questions: QuestionRegistry;
+  // A finished turn's tool-call trail (for the "🧭 Show steps" button); undefined once
+  // evicted or after a restart.
+  trail(turnId: string): TurnTrail | undefined;
 }
+
+// What the "🧭 Show steps" click renders: every step line the turn streamed, plus how long
+// the whole turn took.
+export interface TurnTrail {
+  steps: string[];
+  elapsedMs: number;
+}
+
+// Static expectation-setter on the live status ("usually 1–3 min"), shown only while the
+// turn is younger than the promise — a 10-minute turn still captioned "usually 1–3 min"
+// reads as broken rather than reassuring.
+const ETA_HINT = 'usually 1–3 min';
+const ETA_HINT_MS = 3 * 60_000;
 
 export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): TurnEngine {
   // Live in-memory sessions keyed by conversation, to avoid re-preparing the sandbox
@@ -87,6 +103,21 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // distinct from an UNKNOWN qid (bot restart / genuinely old), which gets "expired".
   const completedQuestions = new Set<string>();
   let questionSeq = 0;
+
+  // Finished turns' tool-call trails, kept in memory for the "🧭 Show steps" button
+  // (events.ts renders them ephemerally on click). Bounded — oldest evicted past the cap;
+  // a restart loses them, and the button then degrades to an "expired" note, which is
+  // acceptable for a peek-behind affordance.
+  const trails = new Map<string, TurnTrail>();
+  const MAX_TRAILS = 200;
+  function recordTrail(turnId: string, steps: string[], elapsedMs: number): void {
+    if (!steps.length) return; // a tool-less answer has nothing to show
+    trails.set(turnId, { steps, elapsedMs });
+    for (const k of trails.keys()) {
+      if (trails.size <= MAX_TRAILS) break;
+      trails.delete(k);
+    }
+  }
 
   function answeredAll(entry: PendingQuestion): boolean {
     return entry.questions.every((_, qi) => (entry.picks.get(qi)?.size ?? 0) > 0);
@@ -284,7 +315,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       thread_ts: threadTs,
       text: busy ? 'In queue…' : 'Working…',
       blocks: statusBlocks(
-        busy ? '⏳ In queue — waiting for the previous message…' : '🛠 Preparing…',
+        busy ? '⏳ In queue — waiting for the previous message…' : `🛠 Preparing…  ·  ${ETA_HINT}`,
         turnId,
       ),
     });
@@ -334,7 +365,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     let finished = false;
 
     const render = (): string => {
-      const head = `${phase}  ⏱ ${fmtElapsed(Date.now() - start)}`;
+      const elapsed = Date.now() - start;
+      const head = `${phase}  ⏱ ${fmtElapsed(elapsed)}${elapsed < ETA_HINT_MS ? `  ·  ${ETA_HINT}` : ''}`;
       const tail = steps.slice(-6).join('\n');
       return tail ? `${head}\n${tail}` : head;
     };
@@ -421,11 +453,15 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       const followUp = key.startsWith('thread:') ? { key, channel, threadTs } : undefined;
       // Suppress "Open a PR" once this thread has produced a PR in an earlier turn (latch below).
       const prCreated = store.getChat(key)?.prCreated === true;
+      // Keep the trail the live status was streaming — the answer rewrite would otherwise
+      // erase the only record of HOW the answer was reached (the #1 trust complaint).
+      const elapsedMs = Date.now() - start;
+      recordTrail(turnId, steps, elapsedMs);
       await client.chat.update({
         channel,
         ts,
         text: fallbackText(capped),
-        blocks: answerBlocks(capped, followUp, prCreated),
+        blocks: answerBlocks(capped, followUp, prCreated, { turnId, steps: steps.length, elapsedMs }),
       });
       // Latch the flag the first turn whose answer carries a PR URL, so subsequent turns in
       // this thread stop offering the button. "View PR" still shows per-message on any answer
@@ -542,6 +578,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     projectBusy,
     slugForKey,
     resumeInflightTurns,
+    trail: (turnId) => trails.get(turnId),
     questions: {
       get: (qid) => pendingQuestions.get(qid),
       isCompleted: (qid) => completedQuestions.has(qid),

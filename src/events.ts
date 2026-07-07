@@ -14,7 +14,7 @@ import type { AttachmentRef } from './attachments.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
 import { memoryRepoDir, readSnapshotFile } from './memjournal.js';
-import { stripMention, mdToMrkdwn } from './format.js';
+import { stripMention, mdToMrkdwn, trailText } from './format.js';
 import {
   MAX_SLACK_TEXT,
   info,
@@ -183,6 +183,27 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   // ── "🔗 View PR" link button → opens the URL itself; just ack the interaction ──
   app.action(/^pr_link:/, async ({ ack }) => {
     await ack();
+  });
+
+  // ── "🧭 Show steps" → the finished turn's tool-call trail, shown only to the clicker ──
+  // The trail lives in the engine's bounded in-memory registry (the button carries just the
+  // turnId), so a click after eviction or a restart degrades to an "expired" note.
+  app.action('show_trail', async ({ ack, action, respond }) => {
+    await ack();
+    const t = engine.trail((action as { value?: string }).value ?? '');
+    if (!t) {
+      await respond({
+        response_type: 'ephemeral',
+        replace_original: false,
+        text: info("This answer's step-by-step trail is no longer available (I've been restarted since)."),
+      });
+      return;
+    }
+    await respond({
+      response_type: 'ephemeral',
+      replace_original: false,
+      text: trailText(t.steps, t.elapsedMs).slice(0, MAX_SLACK_TEXT),
+    });
   });
 
   // ── DM project dropdown → run the parked question against the chosen project ──

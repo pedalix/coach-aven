@@ -108,8 +108,11 @@ export function investigationPrompt(ticket: InvestigationTicket, mentions: strin
         ]
       : []),
     `- If YouTrack MCP tools are available (search_issues / get_issue / get_comments), search for similar tickets — especially already-resolved ones — before concluding, and cite any you find.`,
-    `- If a claim needs data you don't have (a specific log line, a metric, a repro), say exactly what would confirm it rather than guessing.`,
-    `- Post ONE concise writeup: the problem in one line, the most likely cause with concrete evidence (cite code paths and any log/metric queries you ran), and a concrete proposed fix or next step. State your confidence.${ping}`,
+    `- Post ONE concise writeup, in the language the ticket is written in (a German ticket gets a German answer), shaped EXACTLY like this:`,
+    `  1. *The problem, in plain language* — 2–3 sentences a support agent could relay to the affected user: what breaks, for whom, and how badly.`,
+    `  2. *What I checked* — short bullets: each system/source you consulted (code, Grafana logs/metrics, ticket history, similar tickets, attachments) and the key thing it showed.`,
+    `  3. *Technical root cause* — the code paths / queries / log lines that pin it down, with concrete evidence.`,
+    `  4. *Proposed fix or next step* — concrete, with your confidence; if a claim needs data you don't have (a specific log line, a metric, a repro), name exactly what would confirm it rather than guessing.${ping}`,
   ].join('\n');
 }
 

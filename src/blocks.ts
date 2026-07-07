@@ -7,7 +7,7 @@ import type { RoutineRecord, PrWatch } from './state.js';
 import type { ProjectConfig, ProjectsRegistry } from './projects.js';
 import type { AskQuestion } from './claudeSession.js';
 import type { YouTrackIssue } from './youtrack.js';
-import { prUrls, mdToMrkdwn } from './format.js';
+import { prUrls, mdToMrkdwn, fmtElapsed } from './format.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
 
@@ -33,10 +33,21 @@ export interface FollowUp {
   threadTs?: string;
 }
 
+// The "how did I get here" affordance on a finished answer: a compact step-count/duration
+// context line plus a "🧭 Show steps" button. The button carries ONLY the turnId — the trail
+// itself lives in the engine's in-memory registry (events.ts fetches it on click and shows it
+// ephemerally), so nothing heavy rides the message payload.
+export interface TrailMeta {
+  turnId: string;
+  steps: number;
+  elapsedMs: number;
+}
+
 // Render the answer as markdown block(s), then an action row: link buttons to any PR(s)
 // the agent opened, or — if it didn't open one — an "Open a PR" button that enqueues a
 // follow-up turn (only when `followUp` context is supplied, i.e. a live thread/DM turn,
 // AND `prCreated` is not set — once a PR exists for this thread the button is just noise).
+// With `trail`, a step-count context line + "🧭 Show steps" button join the row.
 // Chunk text into Slack `markdown` blocks (each caps ~12k chars). Used by answerBlocks for the
 // bot's answers (delivered via chat.update, which accepts `markdown` blocks). NOT for the
 // ephemeral `respond` path — that rejects `markdown` blocks, so /aven memory|prompt use text.
@@ -70,43 +81,55 @@ export function topicButtons(slug: string, topics: { title: string; file: string
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
-export function answerBlocks(answer: string, followUp?: FollowUp, prCreated?: boolean): any[] {
+export function answerBlocks(answer: string, followUp?: FollowUp, prCreated?: boolean, trail?: TrailMeta): any[] {
   const blocks = markdownBlocks(answer);
+  if (trail && trail.steps > 0) {
+    // Quiet transparency line: how much work produced this answer. The full trail is a click away.
+    blocks.push({
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: `🧭 ${plural(trail.steps, 'step')} · ${fmtElapsed(trail.elapsedMs)}` }],
+    });
+  }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const actions: any[] = [];
   const prs = prUrls(answer);
   if (prs.length) {
     // A PR URL in this message → link straight to it. Independent of `prCreated`: we always
     // surface a link the agent just gave us, even before/without the latch being set.
-    blocks.push({
-      type: 'actions',
-      elements: prs.slice(0, 5).map((url, i) => ({
+    actions.push(
+      ...prs.slice(0, 5).map((url, i) => ({
         type: 'button',
         text: { type: 'plain_text', text: prs.length === 1 ? '🔗 View PR' : `🔗 PR #${url.split('/').pop()}` },
         url,
         action_id: `pr_link:${i}`,
       })),
-    });
+    );
   } else if (followUp && !prCreated) {
-    blocks.push({
-      type: 'actions',
-      elements: [
-        {
-          type: 'button',
-          text: { type: 'plain_text', text: '🔀 Open a PR' },
-          action_id: 'make_pr',
-          value: JSON.stringify({ key: followUp.key, channel: followUp.channel, threadTs: followUp.threadTs }),
-          // Native Slack confirm dialog — "Open a PR" turns discussion into code changes, so
-          // gate it behind an explicit OK. Cancel just dismisses (nothing runs).
-          confirm: {
-            title: { type: 'plain_text', text: 'Start coding on this thread?' },
-            text: { type: 'mrkdwn', text: "I'll start working in this project's sandbox and open a pull request with the changes for review. Proceed?" },
-            confirm: { type: 'plain_text', text: 'Start' },
-            deny: { type: 'plain_text', text: 'Cancel' },
-          },
-        },
-      ],
+    actions.push({
+      type: 'button',
+      text: { type: 'plain_text', text: '🔀 Open a PR' },
+      action_id: 'make_pr',
+      value: JSON.stringify({ key: followUp.key, channel: followUp.channel, threadTs: followUp.threadTs }),
+      // Native Slack confirm dialog — "Open a PR" turns discussion into code changes, so
+      // gate it behind an explicit OK. Cancel just dismisses (nothing runs).
+      confirm: {
+        title: { type: 'plain_text', text: 'Start coding on this thread?' },
+        text: { type: 'mrkdwn', text: "I'll start working in this project's sandbox and open a pull request with the changes for review. Proceed?" },
+        confirm: { type: 'plain_text', text: 'Start' },
+        deny: { type: 'plain_text', text: 'Cancel' },
+      },
     });
   }
+  if (trail && trail.steps > 0) {
+    actions.push({
+      type: 'button',
+      text: { type: 'plain_text', text: '🧭 Show steps' },
+      action_id: 'show_trail',
+      value: trail.turnId,
+    });
+  }
+  if (actions.length) blocks.push({ type: 'actions', elements: actions });
   return blocks;
 }
 
@@ -358,6 +381,7 @@ export function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task. _(Voice/video not supported yet.)_\n" +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
+          '• *See how I got there* — finished answers show a 🧭 step count; hit *🧭 Show steps* for the tool-by-tool trail (visible only to you).\n' +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
           '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), and hit *🔀 Open a PR* to turn the fix into a pull request (pilot; only for projects with a YouTrack mapping above).\n' +

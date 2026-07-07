@@ -151,6 +151,12 @@ function buildSystemPrompt(
       `Read ever reports an image exceeds the size limit, run \`magick <in> -resize '1568x1568>' ` +
       `<out>\` and Read <out>; do NOT hand-write an image resizer.`,
   );
+  lines.push(
+    `When a reply diagnoses a problem (a bug, an incident, "why is X happening?"), write for a ` +
+      `mixed audience: open with a 1–2 sentence plain-language conclusion a non-developer can act ` +
+      `on, then a short "What I checked" list (each system or source you consulted and the key ` +
+      `thing it showed), then the technical detail.`,
+  );
   if (slackUrl) {
     lines.push(
       '',

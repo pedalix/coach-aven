@@ -29,6 +29,23 @@ export function fmtAge(ms: number): string {
   return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
 }
 
+// Render a finished turn's tool-call trail for the ephemeral "🧭 Show steps" view: a
+// step-count/duration header, then one numbered line per step. An oversized trail keeps the
+// TAIL (the recent, decisive steps) and notes how many early steps were dropped.
+export function trailText(steps: string[], elapsedMs: number, cap = 38000): string {
+  const head = `🧭 *${steps.length} step${steps.length === 1 ? '' : 's'} · ${fmtElapsed(elapsedMs)}*`;
+  const lines: string[] = [];
+  let used = head.length + 40; // headroom for the omission note
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const line = `${i + 1}. ${steps[i]}`;
+    if (used + line.length + 1 > cap) break;
+    lines.unshift(line);
+    used += line.length + 1;
+  }
+  const dropped = steps.length - lines.length;
+  return [head, ...(dropped ? [`_(first ${dropped} steps omitted)_`] : []), ...lines].join('\n');
+}
+
 // Drop Slack user mentions (<@U…>) from message text.
 export function stripMention(text: string): string {
   return text.replace(/<@[^>]+>/g, '').trim();
