@@ -1,5 +1,6 @@
 import type { Sandbox } from '@daytonaio/sdk';
 import { CC_TOKEN_ENV } from './project.js';
+import { narrationLabel } from './format.js';
 
 // Single-quote a string for safe embedding in a bash command.
 function sq(s: string): string {
@@ -373,6 +374,12 @@ export class ClaudeSession {
       this.turnStarted = true;
       for (const b of ev.message.content) {
         if (b?.type === 'tool_use') this.pending?.onStep?.(stepLabel(b.name, b.input ?? {}));
+        else if (b?.type === 'text' && typeof b.text === 'string') {
+          // Narration between tool calls ("Now let me check the checkout code…") — the
+          // reasoning path users asked for; transcripts carry it, so surface it as steps.
+          const label = narrationLabel(b.text);
+          if (label) this.pending?.onStep?.(label);
+        }
       }
     } else if (t === 'control_request' && ev.request?.subtype === 'can_use_tool') {
       this.turnStarted = true;

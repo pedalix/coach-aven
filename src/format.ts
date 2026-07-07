@@ -46,6 +46,20 @@ export function trailText(steps: string[], elapsedMs: number, cap = 38000): stri
   return [head, ...(dropped ? [`_(first ${dropped} steps omitted)_`] : []), ...lines].join('\n');
 }
 
+// One step line from an assistant narration block ("Now let me check the checkout code…") —
+// the reasoning path between tool calls that transcripts carry but the trail was dropping.
+// First substantive line, markdown punctuation stripped, truncated; undefined when there's
+// nothing worth showing (whitespace / separator-only blocks like "---").
+export function narrationLabel(text: string, max = 120): string | undefined {
+  const line = text
+    .split('\n')
+    .find((l) => /\w/.test(l))
+    ?.replace(/[*_`#>~]/g, '')
+    .trim();
+  if (!line) return undefined;
+  return `💬 _${line.length > max ? `${line.slice(0, max - 1)}…` : line}_`;
+}
+
 // Drop Slack user mentions (<@U…>) from message text.
 export function stripMention(text: string): string {
   return text.replace(/<@[^>]+>/g, '').trim();

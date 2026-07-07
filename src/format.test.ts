@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { prUrls, fallbackText, fmtElapsed, fmtAge, stripMention, mdToMrkdwn, parseTopics, trailText } from './format.js';
+import { prUrls, fallbackText, fmtElapsed, fmtAge, stripMention, mdToMrkdwn, parseTopics, trailText, narrationLabel } from './format.js';
 
 test('parseTopics — extracts local .md topic links, dedupes, ignores http/non-md', () => {
   const idx = [
@@ -85,4 +85,16 @@ test('trailText — an oversized trail keeps the tail and notes the drop', () =>
   assert.match(t, /_\(first \d+ steps omitted\)_/);
   assert.equal(t.includes('100. step 100'), true); // the last (most recent) step survives
   assert.equal(t.includes('1. step 1 '), false); // the head was dropped
+});
+
+test('narrationLabel — first substantive line, markdown stripped, italic 💬', () => {
+  assert.equal(
+    narrationLabel('Now let me check the **checkout** code.\nMore detail…'),
+    '💬 _Now let me check the checkout code._',
+  );
+  assert.equal(narrationLabel('---\n\n## Analyse CB-155\ntext'), '💬 _Analyse CB-155_'); // skips separators, strips md
+  assert.equal(narrationLabel('   \n---\n'), undefined); // nothing substantive
+  const long = narrationLabel('x'.repeat(300));
+  assert.equal(long !== undefined && long.length <= 120 + 6, true); // truncated (+ 💬/italic wrap)
+  assert.equal(long?.endsWith('…_'), true);
 });
