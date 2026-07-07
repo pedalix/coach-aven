@@ -3,6 +3,7 @@
     {
       "slug": "caldora",
       "repos": ["BluefinOrg/REPLACE-caldora-repo"],
+      "youtrackProjects": ["CG", "CB"],
       "systemPrompt": "Project context goes here (appended after the base prompt): domain, what each repo is and how they relate, merge/deploy-order rules, doc links. Repo coding conventions belong in each repo's own CLAUDE.md, not here.",
       "env": {},
       "mcp": [
@@ -11,6 +12,13 @@
           "url": "https://observe.example.com/mcp",
           "headers": {
             "Authorization": "Basic ${GRAFANA_MCP_BASIC_AUTH}"
+          }
+        },
+        {
+          "name": "youtrack",
+          "url": "https://observe.example.com/yt-mcp",
+          "headers": {
+            "Authorization": "Basic ${YT_MCP_BASIC_AUTH_CALDORA}"
           }
         },
         {

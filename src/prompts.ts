@@ -107,6 +107,7 @@ export function investigationPrompt(ticket: InvestigationTicket, mentions: strin
           `- Check the linked issues first — a RESOLVED duplicate/related ticket may already name the cause or the fix; say so if it does.`,
         ]
       : []),
+    `- If YouTrack MCP tools are available (search_issues / get_issue / get_comments), search for similar tickets — especially already-resolved ones — before concluding, and cite any you find.`,
     `- If a claim needs data you don't have (a specific log line, a metric, a repro), say exactly what would confirm it rather than guessing.`,
     `- Post ONE concise writeup: the problem in one line, the most likely cause with concrete evidence (cite code paths and any log/metric queries you ran), and a concrete proposed fix or next step. State your confidence.${ping}`,
   ].join('\n');
