@@ -64,16 +64,37 @@ export const REPORT_FRAMING =
 // Support-ticket investigation turn (fired by the YouTrack-label poller). Read-only: the
 // agent works out what's happening and proposes a fix, grounded in the project's code and
 // (where wired) its Grafana logs/metrics/traces — it changes nothing. The ticket body is
-// assembled orchestrator-side and passed in. `mentions` are pre-formatted `<@U…>` strings.
-export function investigationPrompt(
-  ticket: { id: string; summary: string; description: string; comments: string },
-  mentions: string,
-): string {
+// assembled orchestrator-side and passed in (fields/links pre-flattened by youtrack.ts, so
+// the whole ticket — not just title+description — reaches the agent). `mentions` are
+// pre-formatted `<@U…>` strings.
+export interface InvestigationTicket {
+  id: string;
+  summary: string;
+  description: string;
+  comments: string; // pre-joined "[author, date] text" paragraphs
+  reporter?: string;
+  createdAt?: string; // ISO 8601
+  fields?: { name: string; value: string }[];
+  links?: { type: string; id: string; summary: string; resolved: boolean }[];
+}
+export function investigationPrompt(ticket: InvestigationTicket, mentions: string): string {
   const ping = mentions ? `\n\nWhen done, @-mention ${mentions} so they see the findings.` : '';
+  const meta = [
+    ticket.reporter ? `reported by ${ticket.reporter}` : '',
+    ticket.createdAt ? `created ${ticket.createdAt.slice(0, 10)}` : '',
+  ]
+    .filter(Boolean)
+    .join(', ');
+  const fields = (ticket.fields ?? []).map((f) => `${f.name}: ${f.value}`).join(' · ');
+  const links = (ticket.links ?? [])
+    .map((l) => `- ${l.type} ${l.id} — ${l.summary}${l.resolved ? ' (RESOLVED)' : ' (open)'}`)
+    .join('\n');
   return [
     `[Read-only support investigation] This YouTrack ticket was flagged for AI review. Investigate it and EXPLAIN what's going on, then PROPOSE a solution or next step. Do NOT modify code, create branches, commit, or open PRs — analysis only.`,
     '',
-    `Ticket ${ticket.id}: ${ticket.summary}`,
+    `Ticket ${ticket.id}: ${ticket.summary}${meta ? `\n(${meta})` : ''}`,
+    ...(fields ? ['', `Fields: ${fields}`] : []),
+    ...(links ? ['', `Linked issues:\n${links}`] : []),
     '',
     `Description:\n${ticket.description.trim() || '(none)'}`,
     '',
@@ -81,6 +102,11 @@ export function investigationPrompt(
     '',
     `Your job:`,
     `- Work out what the user is actually experiencing and the most likely ROOT CAUSE, grounded in THIS project's code and (where available) its Grafana logs/metrics/traces.`,
+    ...(links
+      ? [
+          `- Check the linked issues first — a RESOLVED duplicate/related ticket may already name the cause or the fix; say so if it does.`,
+        ]
+      : []),
     `- If a claim needs data you don't have (a specific log line, a metric, a repro), say exactly what would confirm it rather than guessing.`,
     `- Post ONE concise writeup: the problem in one line, the most likely cause with concrete evidence (cite code paths and any log/metric queries you ran), and a concrete proposed fix or next step. State your confidence.${ping}`,
   ].join('\n');

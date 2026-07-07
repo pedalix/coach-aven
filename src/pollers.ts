@@ -12,7 +12,7 @@ import type { Channels } from './channels.js';
 import { dueRoutines } from './schedule.js';
 import { prsToReview, autofixEvents } from './pr.js';
 import { reviewPrompt, REPORT_FRAMING, investigationPrompt, type ReviewEffort } from './prompts.js';
-import { listTaggedIssues, listComments, listAttachments, dueTickets } from './youtrack.js';
+import { listTaggedIssues, listComments, listAttachments, dueTickets, type YouTrackIssue } from './youtrack.js';
 import { listOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js';
 import { makeDaytona, exec } from './daytona.js';
 import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
@@ -254,10 +254,7 @@ export function createPollers(
   // channel. Awaits channel resolution + the ticket's comments, then hands off to the normal
   // turn machinery. Returns false if it can't even start (channel unknown, or already
   // investigating) so the poller leaves the ticket unseen and retries next tick.
-  async function fireInvestigation(
-    project: ProjectConfig,
-    ticket: { id: string; summary: string; description: string },
-  ): Promise<boolean> {
+  async function fireInvestigation(project: ProjectConfig, ticket: YouTrackIssue): Promise<boolean> {
     if (investigating.has(ticket.id)) return false; // an overlapping tick is already firing this ticket
     investigating.add(ticket.id);
     try {
@@ -267,16 +264,17 @@ export function createPollers(
         return false;
       }
       const comments = await listComments(cfg, ticket.id);
-      const commentsText = comments.map((c) => `[${c.author || 'unknown'}] ${c.text}`).join('\n\n');
+      // Keep the comment dates (day precision) — the agent needs the chronology to tell a
+      // stale workaround from the latest report.
+      const commentsText = comments
+        .map((c) => `[${c.author || 'unknown'}${c.createdAt ? `, ${c.createdAt.slice(0, 10)}` : ''}] ${c.text}`)
+        .join('\n\n');
       // Ticket file attachments (screenshots/PDFs) — downloaded into the sandbox for the agent to
       // Read, using the same YouTrack token. [] on any failure; the investigation still proceeds.
       const attachRefs = await listAttachments(cfg, ticket.id);
       const attachments = attachRefs.length ? { refs: attachRefs, bearer: cfg.youtrack!.token } : undefined;
       const mentions = (cfg.youtrack?.ping ?? []).map((u) => `<@${u}>`).join(' ');
-      const prompt = investigationPrompt(
-        { id: ticket.id, summary: ticket.summary, description: ticket.description, comments: commentsText },
-        mentions,
-      );
+      const prompt = investigationPrompt({ ...ticket, comments: commentsText }, mentions);
       // Post a compact header FIRST, then run the whole investigation as a reply under it, so
       // each ticket is one tidy line in the channel with the live status + findings collapsed in
       // its own thread (unlike the other pollers, which post top-level).

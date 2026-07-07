@@ -14,6 +14,23 @@ export interface YouTrackIssue {
   tags: string[];
   createdAt: string; // ISO 8601 ("" if unknown)
   reporter: string; // login or full name ("" if unknown)
+  fields: TicketField[]; // custom fields that carry a value (Priority, State, Subsystem, …)
+  links: TicketLink[]; // linked issues, one entry per target ("duplicates GLACIER-30 …")
+}
+
+// A custom field flattened to display text ("Priority" → "Critical"). Unset fields dropped.
+export interface TicketField {
+  name: string;
+  value: string;
+}
+
+// One linked issue, labelled direction-aware ("duplicates" vs "is duplicated by"). A resolved
+// link is gold for an investigation — it often already names the cause or the fix.
+export interface TicketLink {
+  type: string;
+  id: string; // idReadable of the linked issue
+  summary: string;
+  resolved: boolean;
 }
 
 export interface YouTrackComment {
@@ -31,9 +48,45 @@ interface RawIssue {
   project?: { shortName?: string };
   tags?: Array<{ name?: string }>;
   reporter?: { login?: string; fullName?: string };
+  customFields?: RawCustomField[];
+  links?: RawLink[];
+}
+interface RawCustomField {
+  $type?: string; // e.g. "DateIssueCustomField" — how we catch epoch values needing a date render
+  name?: string;
+  value?: unknown; // polymorphic: see fieldValueText
+}
+interface RawLink {
+  direction?: string; // OUTWARD | INWARD | BOTH
+  linkType?: { name?: string; sourceToTarget?: string; targetToSource?: string };
+  issues?: Array<{ idReadable?: string; summary?: string; resolved?: number | null }>;
 }
 
-const mapIssue = (r: RawIssue): YouTrackIssue => ({
+// Custom-field values are polymorphic: enum/state/version {name}, user {login,fullName},
+// period {presentation}, text {text}, plain string/number, and arrays of any of those for
+// multi-value fields. Flatten to display text; '' when unset (the field is then dropped).
+export function fieldValueText(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string' || typeof v === 'number') return String(v);
+  if (Array.isArray(v)) return v.map(fieldValueText).filter(Boolean).join(', ');
+  if (typeof v === 'object') {
+    for (const k of ['name', 'presentation', 'fullName', 'login', 'text'] as const) {
+      const x = (v as Record<string, unknown>)[k];
+      if (typeof x === 'string' && x.trim()) return x;
+    }
+  }
+  return '';
+}
+
+// The human label for a link, from the reading direction: an INWARD link reads
+// target→source ("is duplicated by"), anything else source→target ("duplicates").
+export function linkTypeLabel(direction: string | undefined, lt?: RawLink['linkType']): string {
+  const label = direction === 'INWARD' ? lt?.targetToSource : lt?.sourceToTarget;
+  return label ?? lt?.name ?? 'relates to';
+}
+
+// Exported for tests only — pure REST→domain mapping.
+export const mapIssue = (r: RawIssue): YouTrackIssue => ({
   id: r.idReadable ?? '',
   summary: r.summary ?? '',
   description: r.description ?? '',
@@ -41,9 +94,32 @@ const mapIssue = (r: RawIssue): YouTrackIssue => ({
   tags: (r.tags ?? []).map((t) => t.name ?? '').filter(Boolean),
   createdAt: r.created ? new Date(r.created).toISOString() : '',
   reporter: r.reporter?.login ?? r.reporter?.fullName ?? '',
+  fields: (r.customFields ?? [])
+    .map((f) => ({
+      name: f.name ?? '',
+      // Date fields carry an epoch-ms number — render as a date, not a raw millis count.
+      value:
+        typeof f.value === 'number' && /date/i.test(f.$type ?? '')
+          ? new Date(f.value).toISOString().slice(0, 10)
+          : fieldValueText(f.value),
+    }))
+    .filter((f) => f.name && f.value),
+  links: (r.links ?? []).flatMap((l) =>
+    (l.issues ?? [])
+      .filter((i) => i.idReadable)
+      .map((i) => ({
+        type: linkTypeLabel(l.direction, l.linkType),
+        id: i.idReadable!,
+        summary: i.summary ?? '',
+        resolved: i.resolved != null,
+      })),
+  ),
 });
 
-const ISSUE_FIELDS = 'idReadable,summary,description,created,project(shortName),tags(name),reporter(login,fullName)';
+const ISSUE_FIELDS =
+  'idReadable,summary,description,created,project(shortName),tags(name),reporter(login,fullName),' +
+  'customFields(name,value(name,presentation,login,fullName,text)),' +
+  'links(direction,linkType(name,sourceToTarget,targetToSource),issues(idReadable,summary,resolved))';
 
 // GET against the YouTrack REST API. Returns parsed JSON, or throws on a non-2xx so callers
 // can degrade quietly. `baseUrl` is the instance root (no trailing /api).
