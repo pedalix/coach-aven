@@ -26,6 +26,11 @@ export interface ChatRecord {
   // On startup the bot reattaches and finalizes this message with the recovered result —
   // see resumeInflightTurns. Cleared when the turn completes.
   inflight?: { channel: string; statusTs: string; msgThreadTs?: string; startedAt: string };
+  // A one-way latch: set true the first turn whose answer contained a PR URL, so we stop
+  // offering the "Open a PR" button in this thread (a PR already exists — the button would
+  // just be noise). "View PR" is still shown per-message whenever a URL is in the answer,
+  // so hiding "Open a PR" doesn't hide the link. Never cleared (see answerBlocks).
+  prCreated?: boolean;
   updatedAt: string;
 }
 

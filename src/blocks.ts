@@ -34,7 +34,8 @@ export interface FollowUp {
 
 // Render the answer as markdown block(s), then an action row: link buttons to any PR(s)
 // the agent opened, or — if it didn't open one — an "Open a PR" button that enqueues a
-// follow-up turn (only when `followUp` context is supplied, i.e. a live thread/DM turn).
+// follow-up turn (only when `followUp` context is supplied, i.e. a live thread/DM turn,
+// AND `prCreated` is not set — once a PR exists for this thread the button is just noise).
 // Chunk text into Slack `markdown` blocks (each caps ~12k chars). Used by answerBlocks for the
 // bot's answers (delivered via chat.update, which accepts `markdown` blocks). NOT for the
 // ephemeral `respond` path — that rejects `markdown` blocks, so /aven memory|prompt use text.
@@ -68,11 +69,13 @@ export function topicButtons(slug: string, topics: { title: string; file: string
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
-export function answerBlocks(answer: string, followUp?: FollowUp): any[] {
+export function answerBlocks(answer: string, followUp?: FollowUp, prCreated?: boolean): any[] {
   const blocks = markdownBlocks(answer);
 
   const prs = prUrls(answer);
   if (prs.length) {
+    // A PR URL in this message → link straight to it. Independent of `prCreated`: we always
+    // surface a link the agent just gave us, even before/without the latch being set.
     blocks.push({
       type: 'actions',
       elements: prs.slice(0, 5).map((url, i) => ({
@@ -82,7 +85,7 @@ export function answerBlocks(answer: string, followUp?: FollowUp): any[] {
         action_id: `pr_link:${i}`,
       })),
     });
-  } else if (followUp) {
+  } else if (followUp && !prCreated) {
     blocks.push({
       type: 'actions',
       elements: [

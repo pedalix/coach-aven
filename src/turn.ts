@@ -8,7 +8,7 @@ import type { Config } from './config.js';
 import type { Store } from './state.js';
 import { resolveBySlug, type ProjectConfig, type RegistryRef } from './projects.js';
 import { openChat, type ChatSession } from './tasks.js';
-import { fallbackText, fmtElapsed } from './format.js';
+import { fallbackText, fmtElapsed, prUrls } from './format.js';
 import type { AttachmentRef } from './attachments.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
 import { MAX_SLACK_TEXT, answerBlocks, statusBlocks, questionBlocks, errText } from './blocks.js';
@@ -419,12 +419,18 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       // Offer the "Open a PR" follow-up only in build channels (thread sessions), not in
       // the private /aven + DM Q&A paths where it would just be noise.
       const followUp = key.startsWith('thread:') ? { key, channel, threadTs } : undefined;
+      // Suppress "Open a PR" once this thread has produced a PR in an earlier turn (latch below).
+      const prCreated = store.getChat(key)?.prCreated === true;
       await client.chat.update({
         channel,
         ts,
         text: fallbackText(capped),
-        blocks: answerBlocks(capped, followUp),
+        blocks: answerBlocks(capped, followUp, prCreated),
       });
+      // Latch the flag the first turn whose answer carries a PR URL, so subsequent turns in
+      // this thread stop offering the button. "View PR" still shows per-message on any answer
+      // that contains a URL, so we're only dropping the redundant "Open a PR" prompt.
+      if (!prCreated && prUrls(capped).length) store.patchChat(key, project.slug, { prCreated: true });
       if (msgTs) {
         await react(client, channel, msgTs, 'eyes', 'remove');
         await react(client, channel, msgTs, 'white_check_mark', 'add');
@@ -492,6 +498,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
               text: fallbackText(capped),
               blocks: answerBlocks(capped),
             });
+            // A recovered turn may have opened the PR — latch so the next live turn hides "Open a PR".
+            if (!chat.prCreated && prUrls(capped).length)
+              store.patchChat(chat.threadTs, project.slug, { prCreated: true });
           } else {
             await client.chat.update({
               channel: inf.channel,
