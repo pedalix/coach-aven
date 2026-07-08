@@ -1,47 +1,11 @@
 import type { Sandbox } from '@daytonaio/sdk';
 import { CC_TOKEN_ENV } from './project.js';
 import { narrationLabel } from './format.js';
+import { stepLabel } from './steps.js';
 
 // Single-quote a string for safe embedding in a bash command.
 function sq(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
-// --- tool-call → human progress line (for live UI) ---------------------------
-function truncate(s: unknown, n = 50): string {
-  const str = typeof s === 'string' ? s : '';
-  return str.length > n ? str.slice(0, n - 1) + '…' : str;
-}
-function shortPath(p: unknown): string {
-  const s = typeof p === 'string' ? p : '';
-  return s.length > 56 ? '…' + s.slice(-55) : s;
-}
-export function stepLabel(name: string, input: Record<string, unknown> = {}): string {
-  switch (name) {
-    case 'Read':
-      return `📖 Read ${shortPath(input.file_path ?? input.path)}`;
-    case 'Edit':
-    case 'MultiEdit':
-    case 'Write':
-    case 'NotebookEdit':
-      return `✏️ Edit ${shortPath(input.file_path ?? input.notebook_path ?? input.path)}`;
-    case 'Grep':
-      return `🔍 Grep ${truncate(input.pattern)}`;
-    case 'Glob':
-      return `🔍 Glob ${truncate(input.pattern)}`;
-    case 'Bash':
-      return `⚙️ ${truncate(input.command, 70)}`;
-    case 'Task':
-      return `🤖 Subtask: ${truncate(input.description ?? input.prompt)}`;
-    case 'WebFetch':
-      return `🌐 Fetch ${truncate(input.url)}`;
-    case 'WebSearch':
-      return `🌐 Search ${truncate(input.query)}`;
-    case 'TodoWrite':
-      return '📝 Updating plan…';
-    default:
-      return `🔧 ${name}`;
-  }
 }
 
 // AskUserQuestion tool shape (verified against the live CLI). The agent asks one or
@@ -97,6 +61,10 @@ export class ClaudeSession {
   // can_use_tool requests still awaiting our reply → AbortControllers so a
   // control_cancel_request can abort the matching pending question (Slack buttons).
   private inflightTools = new Map<string, AbortController>();
+  // Subagents spawned by the CURRENT turn: Task/Agent tool_use id → spawn order (1-based).
+  // Their stream events carry that id as parent_tool_use_id, so their steps get an ↳N
+  // prefix and stay attributable when several subagents run in parallel. Reset per turn.
+  private subagents = new Map<string, number>();
   // On reattach: the last turn's result if the conversation was already idle in the
   // snapshot (the turn completed during the bot's downtime). Consumed once by adoptInflight.
   private snapshotResult?: TurnResult;
@@ -211,6 +179,7 @@ export class ClaudeSession {
     if (this.pending)
       return { status: 'busy', resultText: 'session busy', isError: true, started: false };
     this.turnStarted = false;
+    this.subagents.clear(); // ↳N numbering restarts each turn
 
     return await new Promise<TurnResult>((resolve) => {
       const p: PendingTurn = {
@@ -372,13 +341,27 @@ export class ClaudeSession {
       if (ev.session_id) this.claudeSessionId = ev.session_id; // initial + fork/compact
     } else if (t === 'assistant' && Array.isArray(ev.message?.content)) {
       this.turnStarted = true;
+      // Subagent events stream through with parent_tool_use_id set — prefix their steps
+      // with ↳N (the spawn order of their Task/Agent call) so parallel subagents stay
+      // tellable apart. An unknown parent (reattach mid-turn) degrades to a bare ↳.
+      const parent = typeof ev.parent_tool_use_id === 'string' ? ev.parent_tool_use_id : undefined;
+      const pfx = parent ? `↳${this.subagents.get(parent) ?? ''} ` : '';
       for (const b of ev.message.content) {
-        if (b?.type === 'tool_use') this.pending?.onStep?.(stepLabel(b.name, b.input ?? {}));
-        else if (b?.type === 'text' && typeof b.text === 'string') {
+        if (b?.type === 'tool_use') {
+          let label: string;
+          if (!parent && (b.name === 'Task' || b.name === 'Agent') && typeof b.id === 'string') {
+            const seq = this.subagents.size + 1;
+            this.subagents.set(b.id, seq);
+            label = stepLabel(b.name, b.input ?? {}, seq);
+          } else {
+            label = stepLabel(b.name, b.input ?? {});
+          }
+          this.pending?.onStep?.(pfx + label);
+        } else if (b?.type === 'text' && typeof b.text === 'string') {
           // Narration between tool calls ("Now let me check the checkout code…") — the
           // reasoning path users asked for; transcripts carry it, so surface it as steps.
           const label = narrationLabel(b.text);
-          if (label) this.pending?.onStep?.(label);
+          if (label) this.pending?.onStep?.(pfx + label);
         }
       }
     } else if (t === 'control_request' && ev.request?.subtype === 'can_use_tool') {
