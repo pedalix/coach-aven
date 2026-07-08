@@ -150,6 +150,20 @@ export async function listTaggedIssues(cfg: Config, label: string): Promise<YouT
   }
 }
 
+// Fetch one ticket by id, fresh — the "🔍 Full ticket" modal re-reads YouTrack at click
+// time so it shows the current state (new comments included), not the investigation-time
+// snapshot. null on any failure; the modal degrades to a "couldn't load" note + link.
+export async function getIssue(cfg: Config, id: string): Promise<YouTrackIssue | null> {
+  const yt = cfg.youtrack;
+  if (!yt) return null;
+  try {
+    const r = (await ytGet(yt, `/issues/${encodeURIComponent(id)}?fields=${ISSUE_FIELDS}`)) as RawIssue;
+    return r?.idReadable ? mapIssue(r) : null;
+  } catch {
+    return null;
+  }
+}
+
 // Fetch a ticket's comments (oldest first) to give the agent the full conversation. [] on
 // failure — the investigation can still proceed from the summary + description.
 export async function listComments(cfg: Config, id: string): Promise<YouTrackComment[]> {

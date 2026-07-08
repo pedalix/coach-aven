@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { prUrls, fallbackText, fmtElapsed, fmtAge, stripMention, mdToMrkdwn, parseTopics, trailText, narrationLabel } from './format.js';
+import { prUrls, fallbackText, fmtElapsed, fmtAge, stripMention, mdToMrkdwn, parseTopics, narrationLabel } from './format.js';
 
 test('parseTopics — extracts local .md topic links, dedupes, ignores http/non-md', () => {
   const idx = [
@@ -70,21 +70,6 @@ test('mdToMrkdwn — headers/bold to mrkdwn; URL links linked, file links keep t
     mdToMrkdwn('[Caldora overview](project_caldora_overview.md)'),
     'Caldora overview (`project_caldora_overview.md`)',
   );
-});
-
-test('trailText — header with count/duration, numbered steps', () => {
-  const t = trailText(['📖 Read a.ts', '⚙️ npm test'], 65_000);
-  assert.equal(t, '🧭 *2 steps · 1m05s*\n1. 📖 Read a.ts\n2. ⚙️ npm test');
-  assert.equal(trailText(['one'], 5000).startsWith('🧭 *1 step · 5s*'), true); // singular
-});
-
-test('trailText — an oversized trail keeps the tail and notes the drop', () => {
-  const steps = Array.from({ length: 100 }, (_, i) => `step ${i + 1} ${'x'.repeat(50)}`);
-  const t = trailText(steps, 1000, 500);
-  assert.equal(t.length <= 500, true);
-  assert.match(t, /_\(first \d+ steps omitted\)_/);
-  assert.equal(t.includes('100. step 100'), true); // the last (most recent) step survives
-  assert.equal(t.includes('1. step 1 '), false); // the head was dropped
 });
 
 test('narrationLabel — first substantive line, markdown stripped, italic 💬', () => {

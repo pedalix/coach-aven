@@ -14,7 +14,8 @@ import type { AttachmentRef } from './attachments.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
 import { memoryRepoDir, readSnapshotFile } from './memjournal.js';
-import { stripMention, mdToMrkdwn, trailText } from './format.js';
+import { stripMention, mdToMrkdwn } from './format.js';
+import { getIssue, listComments, listAttachments } from './youtrack.js';
 import {
   MAX_SLACK_TEXT,
   info,
@@ -22,6 +23,10 @@ import {
   homeBlocks,
   dmPickerBlocks,
   questionBlocks,
+  trailModalView,
+  ticketLoadingView,
+  ticketModalView,
+  ticketUnavailableView,
 } from './blocks.js';
 import { log } from './log.js';
 
@@ -185,25 +190,46 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     await ack();
   });
 
-  // ── "🧭 Show steps" → the finished turn's tool-call trail, shown only to the clicker ──
+  // ── "🧭 Show steps" → the turn's tool-call trail in a modal, live or settled ──
   // The trail lives in the engine's bounded in-memory registry (the button carries just the
   // turnId), so a click after eviction or a restart degrades to an "expired" note.
-  app.action('show_trail', async ({ ack, action, respond }) => {
+  app.action('show_trail', async ({ ack, action, body, client }) => {
     await ack();
+    const trigger = (body as { trigger_id?: string }).trigger_id;
+    if (!trigger) return;
     const t = engine.trail((action as { value?: string }).value ?? '');
-    if (!t) {
-      await respond({
-        response_type: 'ephemeral',
-        replace_original: false,
-        text: info("This answer's step-by-step trail is no longer available (I've been restarted since)."),
+    await client.views
+      .open({ trigger_id: trigger, view: trailModalView(t) })
+      .catch((e) => log.error(`show_trail: ${e instanceof Error ? e.message : String(e)}`));
+  });
+
+  // ── "🔍 Full ticket" button → the whole YouTrack ticket in a modal ──────────
+  // trigger_id expires in 3s, so open a loading shell immediately and swap the real content
+  // in once YouTrack answers. Fetched fresh by id (never a cached snapshot) so the comment
+  // thread is current; on any fetch failure the modal degrades to a link.
+  app.action('ticket_modal', async ({ ack, action, body, client }) => {
+    await ack();
+    const id = (action as { value?: string }).value ?? '';
+    const trigger = (body as { trigger_id?: string }).trigger_id;
+    if (!id || !trigger) return;
+    const opened = await client.views
+      .open({ trigger_id: trigger, view: ticketLoadingView(id) })
+      .catch((e) => {
+        log.error(`ticket_modal ${id}: open failed: ${e instanceof Error ? e.message : String(e)}`);
+        return null;
       });
-      return;
-    }
-    await respond({
-      response_type: 'ephemeral',
-      replace_original: false,
-      text: trailText(t.steps, t.elapsedMs).slice(0, MAX_SLACK_TEXT),
-    });
+    const viewId = opened?.view?.id;
+    if (!viewId) return;
+    const ticketUrl = `${(cfg.youtrack?.baseUrl ?? '').replace(/\/$/, '')}/issue/${id}`;
+    const [issue, comments, attachments] = await Promise.all([getIssue(cfg, id), listComments(cfg, id), listAttachments(cfg, id)]);
+    await client.views
+      .update({
+        view_id: viewId,
+        view: issue
+          ? ticketModalView(issue, ticketUrl, comments, attachments.map((a) => a.name))
+          : ticketUnavailableView(id, ticketUrl),
+      })
+      .catch((e) => log.error(`ticket_modal ${id}: update failed: ${e instanceof Error ? e.message : String(e)}`));
   });
 
   // ── DM project dropdown → run the parked question against the chosen project ──

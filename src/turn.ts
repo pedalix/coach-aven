@@ -62,16 +62,18 @@ export interface TurnEngine {
   slugForKey(key: string): string | undefined;
   resumeInflightTurns(client: bolt.webApi.WebClient): void;
   questions: QuestionRegistry;
-  // A finished turn's tool-call trail (for the "🧭 Show steps" button); undefined once
-  // evicted or after a restart.
+  // A turn's tool-call trail (for the "🧭 Show steps" button) — live from the moment the
+  // turn is queued, kept after it settles; undefined once evicted or after a restart.
   trail(turnId: string): TurnTrail | undefined;
 }
 
-// What the "🧭 Show steps" click renders: every step line the turn streamed, plus how long
-// the whole turn took.
+// What the "🧭 Show steps" click renders: every step line the turn streamed (growing while
+// it runs — the array is shared with doTurn), how long it took (so far), and whether it
+// settled (the modal shows "still running" until then).
 export interface TurnTrail {
   steps: string[];
   elapsedMs: number;
+  done: boolean;
 }
 
 // Static expectation-setter on the live status ("usually 1–3 min"), shown only while the
@@ -104,19 +106,22 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   const completedQuestions = new Set<string>();
   let questionSeq = 0;
 
-  // Finished turns' tool-call trails, kept in memory for the "🧭 Show steps" button
-  // (events.ts renders them ephemerally on click). Bounded — oldest evicted past the cap;
-  // a restart loses them, and the button then degrades to an "expired" note, which is
-  // acceptable for a peek-behind affordance.
+  // Tool-call trails, kept in memory for the "🧭 Show steps" button (events.ts opens them
+  // in a modal on click). Registered the moment a turn is QUEUED — the status message
+  // already carries the button, and a mid-run click must find the live trail ("no steps
+  // yet"), not the "expired" fallback. Bounded — oldest evicted past the cap; a restart
+  // loses them, and the button then degrades to an "expired" note, which is acceptable
+  // for a peek-behind affordance.
   const trails = new Map<string, TurnTrail>();
   const MAX_TRAILS = 200;
-  function recordTrail(turnId: string, steps: string[], elapsedMs: number): void {
-    if (!steps.length) return; // a tool-less answer has nothing to show
-    trails.set(turnId, { steps, elapsedMs });
+  function startTrail(turnId: string): TurnTrail {
+    const trail: TurnTrail = { steps: [], elapsedMs: 0, done: false };
+    trails.set(turnId, trail);
     for (const k of trails.keys()) {
       if (trails.size <= MAX_TRAILS) break;
       trails.delete(k);
     }
+    return trail;
   }
 
   function answeredAll(entry: PendingQuestion): boolean {
@@ -308,6 +313,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     const turnId = `t${++turnSeq}`;
     const ac = new AbortController();
     running.set(turnId, ac);
+    // Register the (empty) trail NOW: the status message below already carries a live
+    // "🧭 Show steps" button, and a click while the turn is still queued must find an
+    // entry ("no steps yet"), not the "expired after a restart" fallback.
+    startTrail(turnId);
 
     const busy = queues.has(key);
     const posted = await client.chat.postMessage({
@@ -359,7 +368,11 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
 
     const start = Date.now();
     let phase = '🛠 Preparing sandbox…';
-    const steps: string[] = [];
+    // Registered when the turn was queued; the array is shared, so every push below shows
+    // up in an already-open "🧭 Show steps" modal on its next open. (?? covers a doTurn
+    // reached without liveTurn, e.g. future call sites.)
+    const trail = trails.get(turnId) ?? startTrail(turnId);
+    const steps = trail.steps;
     let lastRendered = '';
     let lastUpdateAt = 0;
     let finished = false;
@@ -453,10 +466,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       const followUp = key.startsWith('thread:') ? { key, channel, threadTs } : undefined;
       // Suppress "Open a PR" once this thread has produced a PR in an earlier turn (latch below).
       const prCreated = store.getChat(key)?.prCreated === true;
-      // Keep the trail the live status was streaming — the answer rewrite would otherwise
-      // erase the only record of HOW the answer was reached (the #1 trust complaint).
       const elapsedMs = Date.now() - start;
-      recordTrail(turnId, steps, elapsedMs);
       await client.chat.update({
         channel,
         ts,
@@ -485,6 +495,11 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         }
       }
     } finally {
+      // Settled either way (answer/cancel/error) — freeze the trail's clock and stop the
+      // modal saying "still running". The steps stay: the answer rewrite would otherwise
+      // erase the only record of HOW the answer was reached (the #1 trust complaint).
+      trail.done = true;
+      trail.elapsedMs = Date.now() - start;
       store.patchChat(key, project.slug, { inflight: undefined }); // turn settled — clear marker
       // Purge any question this turn left open (errored/timed out without an answer or
       // cancel) so its buttons don't linger as dead clicks.

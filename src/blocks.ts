@@ -6,7 +6,7 @@
 import type { RoutineRecord, PrWatch } from './state.js';
 import type { ProjectConfig, ProjectsRegistry } from './projects.js';
 import type { AskQuestion } from './claudeSession.js';
-import type { YouTrackIssue } from './youtrack.js';
+import type { YouTrackIssue, YouTrackComment } from './youtrack.js';
 import { prUrls, mdToMrkdwn, fmtElapsed } from './format.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
@@ -143,6 +143,13 @@ export function statusBlocks(text: string, turnId: string): any[] {
       type: 'actions',
       elements: [
         {
+          // The live trail so far, in a pop-up — the status text streams only a 6-line tail.
+          type: 'button',
+          text: { type: 'plain_text', text: '🧭 Show steps' },
+          action_id: 'show_trail',
+          value: turnId,
+        },
+        {
           type: 'button',
           text: { type: 'plain_text', text: '✖ Cancel' },
           action_id: 'cancel_turn',
@@ -244,7 +251,137 @@ export function ticketCardBlocks(t: YouTrackIssue, ticketUrl: string, attachment
   return [
     { type: 'section', text: { type: 'mrkdwn', text: excerpt.slice(0, 2900) } },
     ...(context ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: context.slice(0, 2900) }] }] : []),
+    {
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '🔍 Full ticket' },
+          action_id: 'ticket_modal',
+          value: t.id, // the handler re-fetches everything fresh by id
+        },
+      ],
+    },
   ];
+}
+
+// ── Modals ──────────────────────────────────────────────────────────────────
+// Slack caps a modal at 100 blocks and a mrkdwn section at 3000 chars, so long text is
+// chunked and the least-valuable end is dropped first (a note says so).
+const MODAL_TEXT = 2900; // per-section mrkdwn budget (3000 hard cap, headroom for the "…" tail)
+const MODAL_BLOCKS = 95; // total block budget (100 hard cap)
+const COMMENT_TEXT = 1800; // per-comment budget — keeps a long thread scannable
+
+function chunkText(s: string, size: number): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < s.length; i += size) out.push(s.slice(i, i + size));
+  return out;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view union
+const modalShell = (title: string, blocks: any[]): any => ({
+  type: 'modal',
+  title: { type: 'plain_text', text: title.slice(0, 24) },
+  close: { type: 'plain_text', text: 'Close' },
+  blocks,
+});
+
+// ── Full-ticket modal ───────────────────────────────────────────────────────
+// Everything the card excerpts: full description, every field, links, file names, and the
+// whole comment thread — fetched fresh when the button is clicked, so the OLDEST comments
+// are dropped first (the newest carry the state of the conversation).
+
+// Placeholder shown immediately on click: `trigger_id` expires in 3 seconds, so we open
+// first and swap the content in via views.update once YouTrack answers.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view union
+export function ticketLoadingView(id: string): any {
+  return modalShell(id, [{ type: 'section', text: { type: 'mrkdwn', text: '⏳ Loading the ticket…' } }]);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view union
+export function ticketUnavailableView(id: string, ticketUrl: string): any {
+  return modalShell(id, [
+    { type: 'section', text: { type: 'mrkdwn', text: `⚠️ Couldn't load *${id}* from YouTrack right now — <${ticketUrl}|open it there>.` } },
+  ]);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view union
+export function ticketModalView(t: YouTrackIssue, ticketUrl: string, comments: YouTrackComment[], attachmentNames: string[]): any {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blocks: any[] = [{ type: 'section', text: { type: 'mrkdwn', text: `*<${ticketUrl}|${t.id}> — ${t.summary}*`.slice(0, MODAL_TEXT) } }];
+  const meta = [
+    t.reporter ? `👤 ${t.reporter}` : '',
+    t.createdAt ? `created ${t.createdAt.slice(0, 10)}` : '',
+    ...t.fields.map((f) => `${f.name}: ${f.value}`),
+  ]
+    .filter(Boolean)
+    .join('  ·  ');
+  if (meta) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: meta.slice(0, MODAL_TEXT) }] });
+  blocks.push({ type: 'divider' });
+
+  // Full description — chunked, but still bounded (a pathological ticket shouldn't eat the
+  // whole comment budget). Past 3 chunks we hand over to YouTrack itself.
+  const desc = mdToMrkdwn(t.description.trim()) || '_(no description)_';
+  const descChunks = chunkText(desc, MODAL_TEXT);
+  for (const c of descChunks.slice(0, 3)) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: c } });
+  if (descChunks.length > 3) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `… <${ticketUrl}|description continues in YouTrack>` }] });
+
+  const links = t.links
+    .map((l) => `🔗 ${l.type} *${l.id}* — ${l.summary}${l.resolved ? ' _(resolved)_' : ''}`)
+    .join('\n');
+  if (links) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: links.slice(0, MODAL_TEXT) } });
+  // File names only — we deliberately don't mirror the bytes into Slack (the agent gets
+  // them in its sandbox; humans have the YouTrack link).
+  if (attachmentNames.length) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `📎 ${attachmentNames.join(', ')}`.slice(0, MODAL_TEXT) }] });
+
+  if (comments.length) {
+    blocks.push({ type: 'divider' }, { type: 'section', text: { type: 'mrkdwn', text: `*💬 Comments (${comments.length})*` } });
+    // 2 blocks per comment (byline + text); keep the NEWEST ones that fit the block budget.
+    const room = Math.floor((MODAL_BLOCKS - blocks.length - 1) / 2);
+    const shown = comments.slice(-room);
+    if (shown.length < comments.length) {
+      blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `_… ${comments.length - shown.length} earlier ${comments.length - shown.length === 1 ? 'comment' : 'comments'} — <${ticketUrl}|full ticket>_` }] });
+    }
+    for (const c of shown) {
+      const byline = `*${c.author || 'unknown'}*${c.createdAt ? `  ·  ${c.createdAt.slice(0, 10)}` : ''}`;
+      const text = mdToMrkdwn(c.text.trim());
+      blocks.push(
+        { type: 'context', elements: [{ type: 'mrkdwn', text: byline.slice(0, MODAL_TEXT) }] },
+        { type: 'section', text: { type: 'mrkdwn', text: text.length > COMMENT_TEXT ? `${text.slice(0, COMMENT_TEXT)}… <${ticketUrl}|more>` : text || '_(empty)_' } },
+      );
+    }
+  }
+  return modalShell(t.id, blocks);
+}
+
+// ── Trail modal ─────────────────────────────────────────────────────────────
+// The full step-by-step trail of a turn in a pop-up — richer than the 6-line tail the live
+// status streams, and readable mid-run (the status message carries the button too, and the
+// registry entry is live from the moment the turn is queued). `undefined` = evicted or the
+// bot restarted; the view says so instead of showing nothing.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view union
+export function trailModalView(t: { steps: string[]; elapsedMs: number; done: boolean } | undefined): any {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blocks: any[] = [];
+  if (!t) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: "_This turn's step-by-step trail is no longer available (I've been restarted since it ran)._" } });
+  } else if (!t.steps.length) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: '_No steps yet — still preparing._' } });
+  } else {
+    blocks.push({
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: `🧭 ${plural(t.steps.length, 'step')} · ${fmtElapsed(t.elapsedMs)}${t.done ? '' : ' so far'}` }],
+    });
+    let chunks = chunkText(t.steps.map((s, i) => `${i + 1}. ${s}`).join('\n'), MODAL_TEXT);
+    const cap = MODAL_BLOCKS - 3; // headroom for the header + "trimmed" + "still running" notes
+    if (chunks.length > cap) {
+      blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: '_… earliest steps trimmed to fit._' }] });
+      chunks = chunks.slice(-cap);
+    }
+    for (const c of chunks) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: c } });
+  }
+  if (t && !t.done) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: '⏳ Still running — close and reopen to catch up.' }] });
+  return modalShell('🧭 Steps', blocks);
 }
 
 // ── `/aven status` rendering ────────────────────────────────────────────────
@@ -381,10 +518,10 @@ export function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task. _(Voice/video not supported yet.)_\n" +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
-          '• *See how I got there* — finished answers show a 🧭 step count; hit *🧭 Show steps* for the tool-by-tool trail (visible only to you).\n' +
+          '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the full tool-by-tool trail in a pop-up.\n' +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
-          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), and hit *🔀 Open a PR* to turn the fix into a pull request (pilot; only for projects with a YouTrack mapping above).\n' +
+          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), and hit *🔀 Open a PR* to turn the fix into a pull request (pilot; only for projects with a YouTrack mapping above).\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
