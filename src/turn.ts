@@ -11,7 +11,7 @@ import { openChat, type ChatSession } from './tasks.js';
 import { fallbackText, fmtElapsed, prUrls } from './format.js';
 import type { AttachmentRef } from './attachments.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
-import { MAX_SLACK_TEXT, answerBlocks, statusBlocks, questionBlocks, errText } from './blocks.js';
+import { MAX_SLACK_TEXT, answerBlocks, reportPostedBlocks, statusBlocks, questionBlocks, errText } from './blocks.js';
 import { log } from './log.js';
 import { captureError, Sentry } from './sentry.js';
 
@@ -48,6 +48,7 @@ export interface TurnEngine {
     project: ProjectConfig,
     question: string,
     attachments?: { refs: AttachmentRef[]; bearer: string },
+    opts?: TurnOpts,
   ): Promise<void>;
   // Run one turn with no live UI (the /aven ephemeral fallback and dreams).
   runAsk(key: string, project: ProjectConfig, question: string): Promise<string>;
@@ -65,6 +66,17 @@ export interface TurnEngine {
   // A turn's tool-call trail (for the "🧭 Show steps" button) — live from the moment the
   // turn is queued, kept after it settles; undefined once evicted or after a restart.
   trail(turnId: string): TurnTrail | undefined;
+}
+
+// Per-turn behavior switches. `ytDraftFor` marks a "📝 Report to YouTrack" draft turn: the
+// answer renders as an editable ticket-comment draft (Edit & send button) instead of the
+// normal follow-up buttons — see answerBlocks' ytDraft mode. `autoPost` (the modal's
+// "post immediately" checkbox) delivers the answer straight to its destination — supplied as
+// a callback by events.ts so the turn engine stays ignorant of YouTrack; when it throws, the
+// answer degrades to the reviewable draft with the error attached (never silently lost).
+export interface TurnOpts {
+  ytDraftFor?: string;
+  autoPost?: (text: string) => Promise<{ url: string; group: string }>;
 }
 
 // What the "🧭 Show steps" click renders: every step line the turn streamed (growing while
@@ -303,6 +315,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     // Inbound files to download into the sandbox before the turn runs (Slack uploads /
     // YouTrack ticket files). Optional so the many other call sites are unaffected.
     attachments?: { refs: AttachmentRef[]; bearer: string },
+    opts?: TurnOpts,
   ): Promise<void> {
     if (isNote(question)) {
       // Human-only note — leave the agent out entirely; just acknowledge we skipped it.
@@ -333,7 +346,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     const prev = queues.get(key) ?? Promise.resolve();
     const mine = prev
       .catch(() => {})
-      .then(() => doTurn(client, channel, msgTs, threadTs, ts, key, project, question, turnId, ac, attachments));
+      .then(() => doTurn(client, channel, msgTs, threadTs, ts, key, project, question, turnId, ac, attachments, opts));
     queues.set(key, mine);
     void mine.finally(() => {
       running.delete(turnId);
@@ -356,6 +369,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     turnId: string,
     ac: AbortController,
     attachments?: { refs: AttachmentRef[]; bearer: string },
+    opts?: TurnOpts,
   ): Promise<void> {
     const clearEyes = async () => {
       if (msgTs) await react(client, channel, msgTs, 'eyes', 'remove');
@@ -466,13 +480,35 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       const followUp = key.startsWith('thread:') ? { key, channel, threadTs } : undefined;
       // Suppress "Open a PR" once this thread has produced a PR in an earlier turn (latch below).
       const prCreated = store.getChat(key)?.prCreated === true;
+      // Investigation thread → offer "📝 Report to YouTrack" (thread root ↔ ticket id via state).
+      const inv = followUp ? store.investigationByRoot(key.slice('thread:'.length)) : undefined;
       const elapsedMs = Date.now() - start;
-      await client.chat.update({
-        channel,
-        ts,
-        text: fallbackText(capped),
-        blocks: answerBlocks(capped, followUp, prCreated, { turnId, steps: steps.length, elapsedMs }),
+      // Skip-preview draft: deliver the answer directly (the autoPost hook), and only fall
+      // back to the reviewable draft — error attached — when delivery fails.
+      let blocks: ReturnType<typeof answerBlocks> | undefined;
+      let text = fallbackText(capped);
+      if (opts?.ytDraftFor && opts.autoPost) {
+        try {
+          const posted = await opts.autoPost(capped);
+          blocks = reportPostedBlocks(capped, opts.ytDraftFor, posted.url, posted.group);
+          text = `✅ Reported to ${opts.ytDraftFor}`;
+        } catch (e) {
+          const why = e instanceof Error ? e.message : String(e);
+          blocks = answerBlocks(capped, { ytDraft: opts.ytDraftFor });
+          blocks.push({
+            type: 'context',
+            elements: [{ type: 'mrkdwn', text: `⚠️ Auto-post failed: ${why.slice(0, 300)} — review and send manually.` }],
+          });
+        }
+      }
+      blocks ??= answerBlocks(capped, {
+        followUp,
+        prCreated,
+        trail: { turnId, steps: steps.length, elapsedMs },
+        ytReport: inv?.id,
+        ytDraft: opts?.ytDraftFor,
       });
+      await client.chat.update({ channel, ts, text, blocks });
       // Latch the flag the first turn whose answer carries a PR URL, so subsequent turns in
       // this thread stop offering the button. "View PR" still shows per-message on any answer
       // that contains a URL, so we're only dropping the redundant "Open a PR" prompt.

@@ -1,6 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { answerBlocks, statusBlocks, ticketCardBlocks, ticketModalView, trailModalView, type FollowUp, type TrailMeta } from './blocks.js';
+import {
+  answerBlocks,
+  statusBlocks,
+  ticketCardBlocks,
+  ticketModalView,
+  trailModalView,
+  textFromMarkdownBlocks,
+  reportModalView,
+  reportPromptModalView,
+  reportPostedBlocks,
+  YT_SEND_CALLBACK,
+  YT_SEND_INPUT,
+  YT_PROMPT_CALLBACK,
+  YT_PROMPT_INPUT,
+  YT_PROMPT_NOW,
+  type FollowUp,
+  type TrailMeta,
+} from './blocks.js';
 import type { YouTrackIssue, YouTrackComment } from './youtrack.js';
 
 // The action row is the last block; its button action_ids tell us which affordance rendered.
@@ -14,27 +31,27 @@ const followUp: FollowUp = { key: 'thread:123', channel: 'C1', threadTs: '123' }
 const PR = 'See https://github.com/Org/repo/pull/7 for the change.';
 
 test('answerBlocks: no PR URL + followUp + not created → offers "Open a PR"', () => {
-  assert.deepEqual(actionIds(answerBlocks('done, nothing to link', followUp, false)), ['make_pr']);
+  assert.deepEqual(actionIds(answerBlocks('done, nothing to link', { followUp, prCreated: false })), ['make_pr']);
 });
 
 test('answerBlocks: prCreated latch hides "Open a PR" even without a URL in this message', () => {
-  assert.deepEqual(actionIds(answerBlocks('follow-up answer, no link here', followUp, true)), []);
+  assert.deepEqual(actionIds(answerBlocks('follow-up answer, no link here', { followUp, prCreated: true })), []);
 });
 
 test('answerBlocks: a PR URL in the message always shows "View PR" (independent of latch)', () => {
-  assert.deepEqual(actionIds(answerBlocks(PR, followUp, false)), ['pr_link:0']);
+  assert.deepEqual(actionIds(answerBlocks(PR, { followUp, prCreated: false })), ['pr_link:0']);
   // Even with the latch set, a fresh URL still links.
-  assert.deepEqual(actionIds(answerBlocks(PR, followUp, true)), ['pr_link:0']);
+  assert.deepEqual(actionIds(answerBlocks(PR, { followUp, prCreated: true })), ['pr_link:0']);
 });
 
 test('answerBlocks: no followUp (DM/aven path) never offers "Open a PR"', () => {
-  assert.deepEqual(actionIds(answerBlocks('plain answer', undefined, false)), []);
+  assert.deepEqual(actionIds(answerBlocks('plain answer', {})), []);
 });
 
 const trail: TrailMeta = { turnId: 't7', steps: 14, elapsedMs: 130_000 };
 
 test('answerBlocks: trail adds the step-count context line and a "Show steps" button', () => {
-  const blocks = answerBlocks('answer', followUp, false, trail);
+  const blocks = answerBlocks('answer', { followUp, trail });
   const ctx = blocks.find((b) => b.type === 'context');
   assert.equal(ctx.elements[0].text, '🧭 14 steps · 2m10s');
   // Joins the same action row as "Open a PR" (one row, not two).
@@ -44,7 +61,7 @@ test('answerBlocks: trail adds the step-count context line and a "Show steps" bu
 });
 
 test('answerBlocks: a zero-step trail (tool-less answer) renders nothing extra', () => {
-  const blocks = answerBlocks('plain answer', undefined, false, { ...trail, steps: 0 });
+  const blocks = answerBlocks('plain answer', { trail: { ...trail, steps: 0 } });
   assert.equal(blocks.find((b) => b.type === 'context'), undefined);
   assert.deepEqual(actionIds(blocks), []);
 });
@@ -129,4 +146,65 @@ test('trailModalView: a huge trail keeps the tail within Slack limits and notes 
   assert.ok(view.blocks.length <= 100, `blocks: ${view.blocks.length}`);
   const all = JSON.stringify(view.blocks);
   assert.ok(all.includes('step 19999') && all.includes('trimmed')); // tail kept, cut announced
+});
+
+// ── the "📝 Report to YouTrack" flow ─────────────────────────────────────────
+
+test('answerBlocks: investigation thread (ytReport) appends "Report to YouTrack"', () => {
+  assert.deepEqual(actionIds(answerBlocks('findings…', { followUp, ytReport: 'CG-50' })), ['make_pr', 'yt_report']);
+  // …also alongside a PR link, and never without followUp coordinates (nowhere to run the turn).
+  assert.deepEqual(actionIds(answerBlocks(PR, { followUp, ytReport: 'CG-50' })), ['pr_link:0', 'yt_report']);
+  assert.deepEqual(actionIds(answerBlocks('findings…', { ytReport: 'CG-50' })), []);
+});
+
+test('answerBlocks: draft mode (ytDraft) renders ONLY Edit & send + the privacy note', () => {
+  const blocks = answerBlocks('the draft text', { followUp, trail, ytReport: 'CG-50', ytDraft: 'CG-50' });
+  assert.deepEqual(actionIds(blocks), ['yt_edit_send']);
+  const ctx = blocks.find((b) => b.type === 'context');
+  assert.match(ctx.elements[0].text, /internal comment/i);
+});
+
+test('textFromMarkdownBlocks: reassembles chunked markdown, ignores other blocks', () => {
+  const blocks = [
+    { type: 'markdown', text: 'part one ' },
+    { type: 'context', elements: [] },
+    { type: 'markdown', text: 'part two' },
+    { type: 'actions', elements: [] },
+  ];
+  assert.equal(textFromMarkdownBlocks(blocks), 'part one part two');
+  assert.equal(textFromMarkdownBlocks([]), '');
+});
+
+test('answerBlocks draft → textFromMarkdownBlocks round-trips the draft text', () => {
+  const draft = 'Conclusion.\n\nWhat was checked:\n- logs\n- metrics';
+  assert.equal(textFromMarkdownBlocks(answerBlocks(draft, { ytDraft: 'CG-50' })), draft);
+});
+
+test('reportModalView: meta in private_metadata, pre-filled input, hard length cap', () => {
+  const view = reportModalView('CG-50', 'draft body', { channel: 'C1', ts: '111.222', threadTs: '111.000' });
+  assert.equal(view.callback_id, YT_SEND_CALLBACK);
+  assert.deepEqual(JSON.parse(view.private_metadata), { t: 'CG-50', channel: 'C1', ts: '111.222', threadTs: '111.000' });
+  const input = view.blocks.find((b: { block_id?: string }) => b.block_id === YT_SEND_INPUT.block);
+  assert.equal(input.element.action_id, YT_SEND_INPUT.action);
+  assert.equal(input.element.initial_value, 'draft body');
+  // Slack caps inputs ~3000 chars — the view must survive an oversized draft.
+  const long = reportModalView('CG-50', 'x'.repeat(5000), { channel: 'C1', ts: '1' });
+  assert.equal(long.blocks[0].element.initial_value.length, 2900);
+});
+
+test('reportPromptModalView: shows the real prompt editable + the skip-preview checkbox', () => {
+  const view = reportPromptModalView('CG-50', 'the actual generation prompt', { key: 'thread:1', channel: 'C1', threadTs: '1' });
+  assert.equal(view.callback_id, YT_PROMPT_CALLBACK);
+  assert.deepEqual(JSON.parse(view.private_metadata), { t: 'CG-50', key: 'thread:1', channel: 'C1', threadTs: '1' });
+  const input = view.blocks.find((b: { block_id?: string }) => b.block_id === YT_PROMPT_INPUT.block);
+  assert.equal(input.element.initial_value, 'the actual generation prompt'); // WYSIWYG: this exact text runs
+  const now = view.blocks.find((b: { block_id?: string }) => b.block_id === YT_PROMPT_NOW.block);
+  assert.equal(now.optional, true); // unchecked by default → preview flow is the default
+  assert.equal(now.element.options[0].value, YT_PROMPT_NOW.value);
+});
+
+test('reportPostedBlocks: the shared ✅ confirmation keeps the text and deep-links the comment', () => {
+  const blocks = reportPostedBlocks('what was posted', 'CG-50', 'https://yt/issue/CG-50#focus=Comments-4-1.0-0', 'Caldora Team');
+  assert.equal(blocks[0].text, 'what was posted');
+  assert.match(blocks[1].elements[0].text, /Posted to \*CG-50\*.*open in YouTrack/);
 });

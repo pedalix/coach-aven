@@ -87,3 +87,18 @@ test('youtrack investigations — record, link, finish, and legacy dedup union',
   assert.ok(ids.has('ESET-9')); // from records
   assert.ok(ids.has('ART-1')); // from legacy seen-set
 });
+
+test('youtrack investigations — reverse thread lookup + reported stamp (the 📝 flow)', () => {
+  const { store } = freshStore();
+  store.recordInvestigation('CG-50', { slug: 'caldora', channel: 'C1', rootTs: '222.333', startedAt: '2026-07-08T10:00:00Z' });
+  store.recordInvestigation('CB-7', { slug: 'caldora', channel: 'C1', startedAt: '2026-07-08T10:01:00Z' }); // headerless: no rootTs
+
+  const hit = store.investigationByRoot('222.333');
+  assert.equal(hit?.id, 'CG-50');
+  assert.equal(store.investigationByRoot('999.999'), undefined); // unknown thread → no button
+
+  assert.equal(store.getInvestigation('CG-50')?.reportedAt, undefined);
+  store.markReported('CG-50');
+  assert.ok(store.getInvestigation('CG-50')?.reportedAt);
+  store.markReported('nope'); // no-op, doesn't throw
+});

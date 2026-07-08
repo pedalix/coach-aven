@@ -127,3 +127,22 @@ export const FOLLOW_UP_PR_PROMPT =
   'branch with the gh CLI, describing the change and linking the ticket/thread it came from. If ' +
   'the right fix is ambiguous, architectural, or risky, ask here BEFORE writing code instead of ' +
   'guessing. If there is genuinely nothing to submit, say so instead of opening an empty PR.';
+
+// Fired by the "📝 Report to YouTrack" button on an investigation thread. The turn's answer IS
+// the draft: it's shown in the thread with an "✏️ Edit & send" button, a human edits it in a
+// modal, and the orchestrator posts the result as an INTERNAL ticket comment (postInternalComment).
+// Hence the hard rules: output ONLY the comment text, keep it short (the modal input and the
+// support team's patience are both finite), and write for support agents — not developers, not
+// the customer directly.
+export function reportDraftPrompt(ticketId: string): string {
+  return (
+    `Draft an internal report comment for YouTrack ticket ${ticketId}, summarizing this ` +
+    `investigation for the SUPPORT TEAM (internal — the customer will not see it, but write ` +
+    `professionally). Structure: a 1–2 sentence plain-language conclusion first, then ` +
+    `"What was checked" (bullet list of systems/sources and what each showed), then ` +
+    `"Suggested fix / next steps". Plain Markdown (YouTrack renders it), no Slack-specific ` +
+    `formatting, no @-mentions. HARD LIMIT 2500 characters. If the investigation is still ` +
+    `inconclusive, say so honestly and list what info is missing. Output ONLY the comment ` +
+    `text — no preamble, no sign-off, it will be posted verbatim.`
+  );
+}

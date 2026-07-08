@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  pickInternalGroup,
+  commentUrl,
   matchesPrefix,
   dueTickets,
   attachmentUrl,
@@ -139,5 +141,27 @@ test('attachmentUrl: prefixes root-relative urls, passes absolute through', () =
   assert.equal(
     attachmentUrl('https://yt.example.com', 'https://cdn.other/x.png'),
     'https://cdn.other/x.png',
+  );
+});
+
+test('pickInternalGroup: prefers recommended Team, falls back to a single option, refuses ambiguity', () => {
+  const team = { id: 'g1', name: 'caldora - Hillrail [24.335] Team' };
+  const other = { id: 'g2', name: 'All Users' };
+  // recommended team wins
+  assert.deepEqual(pickInternalGroup([team], [other]), team);
+  // no recommendation but exactly one candidate → take it (the common helpdesk shape)
+  assert.deepEqual(pickInternalGroup([], [team]), team);
+  // several candidates, exactly one "... Team" → take the team
+  assert.deepEqual(pickInternalGroup([], [other, team]), team);
+  // ambiguous (two teams / no team among several) → undefined: caller must FAIL, not post publicly
+  assert.equal(pickInternalGroup([], [team, { id: 'g3', name: 'Another Team' }]), undefined);
+  assert.equal(pickInternalGroup([], [other, { id: 'g4', name: 'Registered Users' }]), undefined);
+  assert.equal(pickInternalGroup([], []), undefined);
+});
+
+test('commentUrl: deep-links the comment on the issue', () => {
+  assert.equal(
+    commentUrl('https://acmeyt.youtrack.cloud/', 'CG-50', '4-321'),
+    'https://acmeyt.youtrack.cloud/issue/CG-50#focus=Comments-4-321.0-0',
   );
 });

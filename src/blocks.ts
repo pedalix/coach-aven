@@ -80,9 +80,46 @@ export function topicButtons(slug: string, topics: { title: string; file: string
   ];
 }
 
+// Everything a finished answer may decorate itself with. `ytReport` (the investigated ticket
+// id) offers the "📝 Report to YouTrack" button; `ytDraft` marks this answer as a report
+// DRAFT — it renders the "✏️ Edit & send" button instead of the usual follow-ups (a draft
+// asking to be PR'd or re-reported would be noise).
+export interface AnswerOpts {
+  followUp?: FollowUp;
+  prCreated?: boolean;
+  trail?: TrailMeta;
+  ytReport?: string;
+  ytDraft?: string;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
-export function answerBlocks(answer: string, followUp?: FollowUp, prCreated?: boolean, trail?: TrailMeta): any[] {
+export function answerBlocks(answer: string, opts: AnswerOpts = {}): any[] {
+  const { followUp, prCreated, trail, ytReport, ytDraft } = opts;
   const blocks = markdownBlocks(answer);
+  if (ytDraft) {
+    // Draft mode: the whole message IS the proposed ticket comment. One button, one job.
+    blocks.push(
+      {
+        type: 'context',
+        elements: [
+          { type: 'mrkdwn', text: `📝 Draft internal comment for *${ytDraft}* — the customer will NOT see it. Nothing is posted until you send.` },
+        ],
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: '✏️ Edit & send' },
+            style: 'primary',
+            action_id: 'yt_edit_send',
+            value: ytDraft,
+          },
+        ],
+      },
+    );
+    return blocks;
+  }
   if (trail && trail.steps > 0) {
     // Quiet transparency line: how much work produced this answer. The full trail is a click away.
     blocks.push({
@@ -121,6 +158,16 @@ export function answerBlocks(answer: string, followUp?: FollowUp, prCreated?: bo
       },
     });
   }
+  if (ytReport && followUp) {
+    // Investigation thread → offer posting the findings back to the ticket. The click starts
+    // a DRAFT turn (nothing reaches YouTrack until a human approves it in the edit modal).
+    actions.push({
+      type: 'button',
+      text: { type: 'plain_text', text: '📝 Report to YouTrack' },
+      action_id: 'yt_report',
+      value: JSON.stringify({ t: ytReport, key: followUp.key, channel: followUp.channel, threadTs: followUp.threadTs }),
+    });
+  }
   if (trail && trail.steps > 0) {
     actions.push({
       type: 'button',
@@ -131,6 +178,121 @@ export function answerBlocks(answer: string, followUp?: FollowUp, prCreated?: bo
   }
   if (actions.length) blocks.push({ type: 'actions', elements: actions });
   return blocks;
+}
+
+// Reassemble an answer's full text from its Slack message blocks (the markdown chunks laid
+// down by markdownBlocks). Lets the "✏️ Edit & send" click recover the draft from the message
+// itself — no server-side draft store, so the flow survives bot restarts.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function textFromMarkdownBlocks(blocks: any[]): string {
+  return (blocks ?? [])
+    .filter((b) => b?.type === 'markdown' && typeof b.text === 'string')
+    .map((b) => b.text)
+    .join('');
+}
+
+// The "✏️ Edit & send" modal: the draft in a multiline input, submit posts it to the ticket.
+// `meta` (draft message coordinates + ticket) rides in private_metadata so the view_submission
+// handler can post the comment and rewrite the draft message. Slack caps inputs around 3000
+// chars — the draft prompt demands ≤2500, and we hard-trim here so views.open never 500s.
+export const YT_SEND_CALLBACK = 'yt_send_modal';
+export const YT_SEND_INPUT = { block: 'yt_report_text', action: 'text' } as const;
+export function reportModalView(
+  ticketId: string,
+  draft: string,
+  meta: { channel: string; ts: string; threadTs?: string },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view object
+): any {
+  return {
+    type: 'modal',
+    callback_id: YT_SEND_CALLBACK,
+    private_metadata: JSON.stringify({ t: ticketId, ...meta }),
+    title: { type: 'plain_text', text: `Report to ${ticketId}`.slice(0, 24) },
+    submit: { type: 'plain_text', text: 'Post internal comment' },
+    close: { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'input',
+        block_id: YT_SEND_INPUT.block,
+        label: { type: 'plain_text', text: 'Internal comment (Markdown) — visible to the support team only' },
+        element: {
+          type: 'plain_text_input',
+          action_id: YT_SEND_INPUT.action,
+          multiline: true,
+          initial_value: draft.slice(0, 2900),
+        },
+      },
+    ],
+  };
+}
+
+// The "📝 Report to YouTrack" first pop-up: the ACTUAL generation prompt, editable — full
+// transparency, no hidden instructions. An optional checkbox skips the preview and posts the
+// result straight to the ticket (safe to offer only because the comment is internal and the
+// post is fail-closed). Thread coordinates ride in private_metadata; the edited prompt and
+// the checkbox come back through view_submission state.
+export const YT_PROMPT_CALLBACK = 'yt_prompt_modal';
+export const YT_PROMPT_INPUT = { block: 'yt_prompt_text', action: 'text' } as const;
+export const YT_PROMPT_NOW = { block: 'yt_prompt_now', action: 'now', value: 'now' } as const;
+export function reportPromptModalView(
+  ticketId: string,
+  defaultPrompt: string,
+  meta: { key: string; channel: string; threadTs?: string },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view object
+): any {
+  return {
+    type: 'modal',
+    callback_id: YT_PROMPT_CALLBACK,
+    private_metadata: JSON.stringify({ t: ticketId, ...meta }),
+    title: { type: 'plain_text', text: `Report to ${ticketId}`.slice(0, 24) },
+    submit: { type: 'plain_text', text: 'Generate report' },
+    close: { type: 'plain_text', text: 'Cancel' },
+    blocks: [
+      {
+        type: 'input',
+        block_id: YT_PROMPT_INPUT.block,
+        label: { type: 'plain_text', text: 'Instructions for the report (this exact prompt is what runs)' },
+        element: {
+          type: 'plain_text_input',
+          action_id: YT_PROMPT_INPUT.action,
+          multiline: true,
+          initial_value: defaultPrompt.slice(0, 2900),
+        },
+      },
+      {
+        type: 'input',
+        block_id: YT_PROMPT_NOW.block,
+        optional: true,
+        label: { type: 'plain_text', text: 'Delivery' },
+        element: {
+          type: 'checkboxes',
+          action_id: YT_PROMPT_NOW.action,
+          options: [
+            {
+              text: { type: 'plain_text', text: 'Post to the ticket immediately (skip the preview)' },
+              description: { type: 'plain_text', text: 'Internal comment, team-only. Otherwise the draft comes back here for review first.' },
+              value: YT_PROMPT_NOW.value,
+            },
+          ],
+        },
+      },
+    ],
+  };
+}
+
+// The "✅ Posted" rewrite of a draft/answer message once the comment landed on the ticket —
+// shared by the manual send (modal submit) and the skip-preview auto-post.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function reportPostedBlocks(text: string, ticketId: string, url: string, group: string): any[] {
+  return [
+    { type: 'markdown', text: text.slice(0, MAX_SLACK_TEXT) },
+    {
+      type: 'context',
+      elements: [
+        { type: 'mrkdwn', text: `✅ Posted to *${ticketId}* as an internal comment (${group}) — <${url}|open in YouTrack>` },
+      ],
+    },
+  ];
 }
 
 // Live status as a section + a "✖ Cancel" button carrying the turnId. Used while a turn
@@ -521,7 +683,7 @@ export function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the full tool-by-tool trail in a pop-up.\n' +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
-          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), and hit *🔀 Open a PR* to turn the fix into a pull request (pilot; only for projects with a YouTrack mapping above).\n' +
+          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), hit *🔀 Open a PR* to turn the fix into a pull request, or *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up shows the exact generation prompt to tweak, then the draft comes back for review/edit before posting (or tick _post immediately_ to skip the preview) (pilot; only for projects with a YouTrack mapping above).\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +

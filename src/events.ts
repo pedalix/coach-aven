@@ -9,13 +9,13 @@ import { resolveBySlug, type RegistryRef } from './projects.js';
 import type { TurnEngine } from './turn.js';
 import type { Channels } from './channels.js';
 import { readMemory } from './commands.js';
-import { FOLLOW_UP_PR_PROMPT, autofixPrompt } from './prompts.js';
+import { FOLLOW_UP_PR_PROMPT, autofixPrompt, reportDraftPrompt } from './prompts.js';
 import type { AttachmentRef } from './attachments.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
 import { memoryRepoDir, readSnapshotFile } from './memjournal.js';
 import { stripMention, mdToMrkdwn } from './format.js';
-import { getIssue, listComments, listAttachments } from './youtrack.js';
+import { getIssue, listComments, listAttachments, postInternalComment } from './youtrack.js';
 import {
   MAX_SLACK_TEXT,
   info,
@@ -27,6 +27,15 @@ import {
   ticketLoadingView,
   ticketModalView,
   ticketUnavailableView,
+  textFromMarkdownBlocks,
+  reportModalView,
+  reportPromptModalView,
+  reportPostedBlocks,
+  YT_SEND_CALLBACK,
+  YT_SEND_INPUT,
+  YT_PROMPT_CALLBACK,
+  YT_PROMPT_INPUT,
+  YT_PROMPT_NOW,
 } from './blocks.js';
 import { log } from './log.js';
 
@@ -272,6 +281,121 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     const project = slug ? resolveBySlug(reg.current, slug) : undefined;
     if (!project) return;
     await engine.liveTurn(client, v.channel, undefined, v.threadTs, v.key, project, FOLLOW_UP_PR_PROMPT);
+  });
+
+
+  // ── "📝 Report to YouTrack" → pop-up with the ACTUAL generation prompt to confirm/edit ──
+  // Full transparency: the user sees and may edit the exact prompt that will run; a checkbox
+  // skips the preview and posts the result straight to the ticket (internal, fail-closed).
+  app.action('yt_report', async ({ ack, action, body, client }) => {
+    await ack();
+    let v: { t: string; key: string; channel: string; threadTs?: string };
+    try {
+      v = JSON.parse((action as { value?: string }).value ?? '');
+    } catch {
+      return;
+    }
+    const trigger = (body as { trigger_id?: string }).trigger_id;
+    if (!trigger) return;
+    await client.views
+      .open({
+        trigger_id: trigger,
+        view: reportPromptModalView(v.t, reportDraftPrompt(v.t), { key: v.key, channel: v.channel, threadTs: v.threadTs }),
+      })
+      .catch((e) => log.error(`yt_report ${v.t}: ${e instanceof Error ? e.message : String(e)}`));
+  });
+
+  // ── prompt modal submit → run the draft turn with the (possibly edited) prompt ──────
+  // "Post immediately" checked → hand the turn an autoPost hook: the answer goes straight to
+  // the ticket, and on failure turn.ts degrades it to the reviewable draft with the error.
+  app.view(YT_PROMPT_CALLBACK, async ({ ack, view, client }) => {
+    await ack();
+    let meta: { t: string; key: string; channel: string; threadTs?: string };
+    try {
+      meta = JSON.parse(view.private_metadata || '');
+    } catch {
+      return;
+    }
+    const prompt = (view.state.values[YT_PROMPT_INPUT.block]?.[YT_PROMPT_INPUT.action]?.value ?? '').trim();
+    if (!prompt) return;
+    const now = (view.state.values[YT_PROMPT_NOW.block]?.[YT_PROMPT_NOW.action]?.selected_options ?? []).some(
+      (o: { value?: string }) => o.value === YT_PROMPT_NOW.value,
+    );
+    const slug = engine.slugForKey(meta.key);
+    const project = slug ? resolveBySlug(reg.current, slug) : undefined;
+    if (!project) return;
+    await engine.liveTurn(client, meta.channel, undefined, meta.threadTs, meta.key, project, prompt, undefined, {
+      ytDraftFor: meta.t,
+      autoPost: now
+        ? async (text) => {
+            const posted = await postInternalComment(cfg, meta.t, text);
+            store.markReported(meta.t);
+            return posted;
+          }
+        : undefined,
+    });
+  });
+
+  // ── "✏️ Edit & send" on a draft → modal pre-filled with the draft text ──────────────
+  // The draft is recovered from the message's own markdown blocks (no server-side store), so
+  // this works even after a bot restart. trigger_id is fresh (it's a direct click) → the
+  // modal opens instantly, no loading shell needed.
+  app.action('yt_edit_send', async ({ ack, action, body, client }) => {
+    await ack();
+    const ticketId = (action as { value?: string }).value ?? '';
+    const b = body as {
+      trigger_id?: string;
+      channel?: { id?: string };
+      message?: { ts?: string; thread_ts?: string; blocks?: unknown[] };
+    };
+    if (!ticketId || !b.trigger_id || !b.channel?.id || !b.message?.ts) return;
+    const draft = textFromMarkdownBlocks((b.message.blocks ?? []) as never[]);
+    await client.views
+      .open({
+        trigger_id: b.trigger_id,
+        view: reportModalView(ticketId, draft, {
+          channel: b.channel.id,
+          ts: b.message.ts,
+          threadTs: b.message.thread_ts,
+        }),
+      })
+      .catch((e) => log.error(`yt_edit_send ${ticketId}: ${e instanceof Error ? e.message : String(e)}`));
+  });
+
+  // ── report modal submit → post the (possibly edited) text as an INTERNAL ticket comment ──
+  // ack() first (Slack wants it <3s; the modal closes), then post. Success rewrites the draft
+  // message into a confirmation; failure lands in the thread — including the fail-closed
+  // "no unambiguous team group" refusal and a 403 when the token lacks Create Comment.
+  app.view(YT_SEND_CALLBACK, async ({ ack, view, client }) => {
+    await ack();
+    let meta: { t: string; channel: string; ts: string; threadTs?: string };
+    try {
+      meta = JSON.parse(view.private_metadata || '');
+    } catch {
+      return;
+    }
+    const text = (view.state.values[YT_SEND_INPUT.block]?.[YT_SEND_INPUT.action]?.value ?? '').trim();
+    if (!text) return;
+    try {
+      const posted = await postInternalComment(cfg, meta.t, text);
+      store.markReported(meta.t);
+      await client.chat.update({
+        channel: meta.channel,
+        ts: meta.ts,
+        text: `✅ Reported to ${meta.t}`,
+        blocks: reportPostedBlocks(text, meta.t, posted.url, posted.group),
+      });
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      log.error(`yt_send ${meta.t}: ${why}`);
+      await client.chat
+        .postMessage({
+          channel: meta.channel,
+          thread_ts: meta.threadTs ?? meta.ts,
+          text: `⚠️ Couldn't post the report to ${meta.t}: ${why.slice(0, 500)}\nThe draft above is untouched — fix the cause and hit ✏️ Edit & send again.`,
+        })
+        .catch(() => {});
+    }
   });
 
   // ── autofix "🔧 Fix it" button → enqueue a WRITE turn to address the PR feedback ──

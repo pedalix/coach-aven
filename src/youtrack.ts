@@ -5,7 +5,8 @@ import { fmtAge } from './format.js';
 // YouTrack integration for the support-ticket investigation pilot: a label on a ticket is
 // the trigger. This module mirrors github.ts — a thin REST client (typed `fetch` against the
 // instance with a permanent token) plus the PURE selection logic (`dueTickets`), which lives
-// here with a test so the poller in slack.ts stays a thin shell. Read-only: we only GET.
+// here with a test so the poller in slack.ts stays a thin shell. Read-only except ONE write:
+// postInternalComment — the human-approved "📝 Report to YouTrack" flow (see events.ts).
 
 export interface YouTrackIssue {
   id: string; // human-readable id, e.g. "GLACIER-42" (YouTrack `idReadable`)
@@ -217,6 +218,66 @@ export async function listAttachments(cfg: Config, id: string): Promise<Attachme
   } catch {
     return [];
   }
+}
+
+// POST against the YouTrack REST API — the write twin of ytGet. Throws on non-2xx with the
+// response text so callers can surface the real reason (403 = token lacks Create Comment).
+async function ytPost(yt: NonNullable<Config['youtrack']>, path: string, body: unknown): Promise<unknown> {
+  const res = await fetch(`${yt.baseUrl.replace(/\/$/, '')}/api${path}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${yt.token}`, Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`YouTrack ${path} → ${res.status} ${await res.text().catch(() => '')}`);
+  return res.json();
+}
+
+// The group an INTERNAL comment is restricted to. Helpdesk reporters are external users, so
+// "internal" = visible only to the project's team group. Pure so the pick is unit-tested:
+// prefer a recommended group; fall back to the single available one; among several, require
+// a "... Team" name (YouTrack's per-project team groups end that way). undefined = ambiguous —
+// callers must FAIL rather than post publicly (fail-closed: never leak a report to customers).
+export function pickInternalGroup(
+  recommended: { id: string; name: string }[],
+  others: { id: string; name: string }[],
+): { id: string; name: string } | undefined {
+  const isTeam = (g: { name: string }) => /\bteam$/i.test(g.name.trim());
+  const all = [...recommended, ...others];
+  return recommended.find(isTeam) ?? (all.length === 1 ? all[0] : all.filter(isTeam).length === 1 ? all.find(isTeam) : undefined);
+}
+
+// Deep link to one comment on the ticket (the "✅ Posted" confirmation in Slack).
+export function commentUrl(baseUrl: string, issueId: string, commentId: string): string {
+  return `${baseUrl.replace(/\/$/, '')}/issue/${issueId}#focus=Comments-${commentId}.0-0`;
+}
+
+// Post an INTERNAL comment (team-only visibility) on a ticket. Two calls: resolve the
+// visibility group the instance offers for this issue, then create the comment restricted to
+// it. Throws (never degrades to a public comment) when the group is ambiguous/absent or the
+// token lacks Create Comment — the caller shows the error to the human who clicked Send.
+export async function postInternalComment(
+  cfg: Config,
+  issueId: string,
+  text: string,
+): Promise<{ commentId: string; url: string; group: string }> {
+  const yt = cfg.youtrack;
+  if (!yt) throw new Error('YouTrack is not configured');
+  const vis = (await ytPost(yt, `/visibilityGroups?fields=recommendedGroups(id,name),groupsWithoutRecommended(id,name)`, {
+    issues: [{ idReadable: issueId }],
+  })) as {
+    recommendedGroups?: { id?: string; name?: string }[];
+    groupsWithoutRecommended?: { id?: string; name?: string }[];
+  };
+  const clean = (gs?: { id?: string; name?: string }[]) =>
+    (gs ?? []).filter((g): g is { id: string; name: string } => !!g.id && !!g.name);
+  const group = pickInternalGroup(clean(vis.recommendedGroups), clean(vis.groupsWithoutRecommended));
+  if (!group) throw new Error(`no unambiguous team group for ${issueId} — refusing to post (would risk a public comment)`);
+  const created = (await ytPost(yt, `/issues/${encodeURIComponent(issueId)}/comments?fields=id`, {
+    text,
+    visibility: { $type: 'LimitedVisibility', permittedGroups: [{ id: group.id }] },
+  })) as { id?: string };
+  if (!created.id) throw new Error(`comment on ${issueId}: YouTrack returned no id`);
+  return { commentId: created.id, url: commentUrl(yt.baseUrl, issueId, created.id), group: group.name };
 }
 
 // Compact extras for the ticket's Slack channel header: "🔴 Critical · 2d old". Priority

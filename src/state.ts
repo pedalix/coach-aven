@@ -90,6 +90,7 @@ export interface TicketInvestigation {
   rootTs?: string; // thread root ts → session key `thread:<rootTs>` (absent if the header failed)
   startedAt: string; // ISO, when the investigation was dispatched
   finishedAt?: string; // ISO, when the turn settled (step 1 has no failed/retry status yet)
+  reportedAt?: string; // ISO, when a report was last posted back to the ticket (📝 flow)
 }
 
 interface StateShape {
@@ -267,6 +268,24 @@ export class Store {
     const rec = this.data.youtrackInvestigations?.[id];
     if (!rec) return;
     rec.finishedAt = new Date().toISOString();
+    this.save();
+  }
+
+  // Reverse lookup: which ticket does this Slack thread investigate? Powers the
+  // "📝 Report to YouTrack" button (thread key → ticket id). Linear scan is fine —
+  // investigations number in the dozens, and this runs once per finished turn.
+  investigationByRoot(rootTs: string): { id: string; rec: TicketInvestigation } | undefined {
+    for (const [id, rec] of Object.entries(this.data.youtrackInvestigations ?? {})) {
+      if (rec.rootTs === rootTs) return { id, rec };
+    }
+    return undefined;
+  }
+
+  // Stamp reportedAt when a report comment lands on the ticket. No-op if the record is gone.
+  markReported(id: string): void {
+    const rec = this.data.youtrackInvestigations?.[id];
+    if (!rec) return;
+    rec.reportedAt = new Date().toISOString();
     this.save();
   }
 
