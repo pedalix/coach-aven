@@ -157,6 +157,24 @@ function buildSystemPrompt(
       `on, then a short "What I checked" list (each system or source you consulted and the key ` +
       `thing it showed), then the technical detail.`,
   );
+  lines.push(
+    '',
+    `Toolchain — this sandbox is a Docker-in-Docker image with NO host PHP or Composer: bare ` +
+      `\`php\`/\`composer\`/\`artisan\` are shims that forward into a repo's Laravel Sail containers ` +
+      `(\`./vendor/bin/sail\`). For any Laravel(+Sail) repo, on a fresh checkout: ` +
+      `(1) \`composer install\` — this works even before \`vendor/\` exists (the shim auto-bootstraps ` +
+      `it in a throwaway container, which is how \`vendor/bin/sail\` first appears); ` +
+      `(2) copy \`.env\` from \`.env.example\`; ` +
+      `(3) \`./vendor/bin/sail up -d\`. After that \`php\`/\`composer\`/\`artisan\` forward into the ` +
+      `container, and project JS/tests run via \`sail npm ...\` / \`sail artisan test\`. If a ` +
+      `\`[sail-shim]\` command exits 127, the stack isn't up yet — do steps 1–3 first. When a project ` +
+      `has SEVERAL Laravel repos side by side, give each its own \`COMPOSE_PROJECT_NAME\` (or bring ` +
+      `them up one at a time) so their Sail containers/ports don't collide. ` +
+      `Host \`node\`/\`npm\` are real and fine to use for a plain Node repo; \`bun\`/\`pnpm\`/\`yarn\` ` +
+      `are NOT installed. JS deps are usually npm (\`package-lock.json\`) — ignore any stray extra ` +
+      `lockfiles unless a repo's CI says otherwise. Anything that deviates from this (a non-Sail ` +
+      `repo, a bun/pnpm repo, an infra repo) is called out in the project-specific instructions below.`,
+  );
   if (slackUrl) {
     lines.push(
       '',
