@@ -16,3 +16,5 @@ github-app-private-key.pem
 # prod runtime truth (pulled/pushed by infra/prod/deploy.sh import|export) — never commit:
 infra/prod/runtime/*
 !infra/prod/runtime/.env.example
+/.claude/worktrees/transparency-trail/
+/.claude/worktrees/youtrack-rich-context/
