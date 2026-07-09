@@ -66,6 +66,9 @@ export interface TurnEngine {
   // A turn's tool-call trail (for the "🧭 Show steps" button) — live from the moment the
   // turn is queued, kept after it settles; undefined once evicted or after a restart.
   trail(turnId: string): TurnTrail | undefined;
+  // A report-draft turn's answer text (for "✏️ Edit & send"); undefined once evicted or
+  // after a restart — the click then gets the "draft expired" modal.
+  ytDraft(draftId: string): string | undefined;
 }
 
 // Per-turn behavior switches. `ytDraftFor` marks a "📝 Report to YouTrack" draft turn: the
@@ -126,6 +129,18 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // for a peek-behind affordance.
   const trails = new Map<string, TurnTrail>();
   const MAX_TRAILS = 200;
+  // Report drafts by turnId, for "✏️ Edit & send". Server-side because Slack converts
+  // `markdown` blocks to `rich_text` on delivery — the posted message can't round-trip its
+  // own text. Bounded like trails; a restart loses them (the button degrades to "expired").
+  const ytDrafts = new Map<string, string>();
+  const MAX_DRAFTS = 100;
+  function recordDraft(turnId: string, text: string): void {
+    ytDrafts.set(turnId, text);
+    for (const k of ytDrafts.keys()) {
+      if (ytDrafts.size <= MAX_DRAFTS) break;
+      ytDrafts.delete(k);
+    }
+  }
   function startTrail(turnId: string): TurnTrail {
     const trail: TurnTrail = { steps: [], elapsedMs: 0, done: false };
     trails.set(turnId, trail);
@@ -494,19 +509,21 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           text = `✅ Reported to ${opts.ytDraftFor}`;
         } catch (e) {
           const why = e instanceof Error ? e.message : String(e);
-          blocks = answerBlocks(capped, { ytDraft: opts.ytDraftFor });
+          recordDraft(turnId, capped); // manual retry needs the text
+          blocks = answerBlocks(capped, { ytDraft: { ticket: opts.ytDraftFor, draftId: turnId } });
           blocks.push({
             type: 'context',
             elements: [{ type: 'mrkdwn', text: `⚠️ Auto-post failed: ${why.slice(0, 300)} — review and send manually.` }],
           });
         }
       }
+      if (opts?.ytDraftFor && !blocks) recordDraft(turnId, capped);
       blocks ??= answerBlocks(capped, {
         followUp,
         prCreated,
         trail: { turnId, steps: steps.length, elapsedMs },
         ytReport: inv?.id,
-        ytDraft: opts?.ytDraftFor,
+        ytDraft: opts?.ytDraftFor ? { ticket: opts.ytDraftFor, draftId: turnId } : undefined,
       });
       await client.chat.update({ channel, ts, text, blocks });
       // Latch the flag the first turn whose answer carries a PR URL, so subsequent turns in
@@ -630,6 +647,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     slugForKey,
     resumeInflightTurns,
     trail: (turnId) => trails.get(turnId),
+    ytDraft: (draftId) => ytDrafts.get(draftId),
     questions: {
       get: (qid) => pendingQuestions.get(qid),
       isCompleted: (qid) => completedQuestions.has(qid),

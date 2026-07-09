@@ -83,13 +83,15 @@ export function topicButtons(slug: string, topics: { title: string; file: string
 // Everything a finished answer may decorate itself with. `ytReport` (the investigated ticket
 // id) offers the "📝 Report to YouTrack" button; `ytDraft` marks this answer as a report
 // DRAFT — it renders the "✏️ Edit & send" button instead of the usual follow-ups (a draft
-// asking to be PR'd or re-reported would be noise).
+// asking to be PR'd or re-reported would be noise). The draft TEXT lives server-side under
+// `draftId` (turn.ts keeps it): Slack converts `markdown` blocks to `rich_text` on delivery,
+// so the message's own blocks canNOT round-trip the draft — the button only carries the id.
 export interface AnswerOpts {
   followUp?: FollowUp;
   prCreated?: boolean;
   trail?: TrailMeta;
   ytReport?: string;
-  ytDraft?: string;
+  ytDraft?: { ticket: string; draftId: string };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
@@ -102,7 +104,7 @@ export function answerBlocks(answer: string, opts: AnswerOpts = {}): any[] {
       {
         type: 'context',
         elements: [
-          { type: 'mrkdwn', text: `📝 Draft internal comment for *${ytDraft}* — the customer will NOT see it. Nothing is posted until you send.` },
+          { type: 'mrkdwn', text: `📝 Draft internal comment for *${ytDraft.ticket}* — the customer will NOT see it. Nothing is posted until you send.` },
         ],
       },
       {
@@ -113,7 +115,7 @@ export function answerBlocks(answer: string, opts: AnswerOpts = {}): any[] {
             text: { type: 'plain_text', text: '✏️ Edit & send' },
             style: 'primary',
             action_id: 'yt_edit_send',
-            value: ytDraft,
+            value: JSON.stringify({ t: ytDraft.ticket, d: ytDraft.draftId }),
           },
         ],
       },
@@ -220,6 +222,26 @@ export function reportModalView(
           action_id: YT_SEND_INPUT.action,
           multiline: true,
           initial_value: draft.slice(0, 2900),
+        },
+      },
+    ],
+  };
+}
+
+// Shown when an "✏️ Edit & send" click can't find its draft (the bot restarted since the
+// draft was generated — the store is in-memory). Honest dead end with the way out.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view object
+export function reportExpiredView(ticketId: string): any {
+  return {
+    type: 'modal',
+    title: { type: 'plain_text', text: 'Draft expired' },
+    close: { type: 'plain_text', text: 'Close' },
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `This draft for *${ticketId}* is gone (the bot restarted since it was generated). Hit *📝 Report to YouTrack* on the thread again to regenerate it.`,
         },
       },
     ],

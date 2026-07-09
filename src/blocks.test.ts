@@ -158,10 +158,14 @@ test('answerBlocks: investigation thread (ytReport) appends "Report to YouTrack"
 });
 
 test('answerBlocks: draft mode (ytDraft) renders ONLY Edit & send + the privacy note', () => {
-  const blocks = answerBlocks('the draft text', { followUp, trail, ytReport: 'CG-50', ytDraft: 'CG-50' });
+  const blocks = answerBlocks('the draft text', { followUp, trail, ytReport: 'CG-50', ytDraft: { ticket: 'CG-50', draftId: 't42' } });
   assert.deepEqual(actionIds(blocks), ['yt_edit_send']);
   const ctx = blocks.find((b) => b.type === 'context');
   assert.match(ctx.elements[0].text, /internal comment/i);
+  // The button carries ONLY ids (ticket + server-side draft key) — never the text: Slack
+  // rewrites markdown blocks to rich_text, so the message can't round-trip the draft.
+  const btn = blocks.find((b) => b.type === 'actions').elements[0];
+  assert.deepEqual(JSON.parse(btn.value), { t: 'CG-50', d: 't42' });
 });
 
 test('textFromMarkdownBlocks: reassembles chunked markdown, ignores other blocks', () => {
@@ -175,9 +179,9 @@ test('textFromMarkdownBlocks: reassembles chunked markdown, ignores other blocks
   assert.equal(textFromMarkdownBlocks([]), '');
 });
 
-test('answerBlocks draft → textFromMarkdownBlocks round-trips the draft text', () => {
+test('answerBlocks draft → textFromMarkdownBlocks recovers the text (pre-delivery fallback)', () => {
   const draft = 'Conclusion.\n\nWhat was checked:\n- logs\n- metrics';
-  assert.equal(textFromMarkdownBlocks(answerBlocks(draft, { ytDraft: 'CG-50' })), draft);
+  assert.equal(textFromMarkdownBlocks(answerBlocks(draft, { ytDraft: { ticket: 'CG-50', draftId: 't1' } })), draft);
 });
 
 test('reportModalView: meta in private_metadata, pre-filled input, hard length cap', () => {

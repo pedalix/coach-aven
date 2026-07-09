@@ -29,6 +29,7 @@ import {
   ticketUnavailableView,
   textFromMarkdownBlocks,
   reportModalView,
+  reportExpiredView,
   reportPromptModalView,
   reportPostedBlocks,
   YT_SEND_CALLBACK,
@@ -337,29 +338,33 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   });
 
   // ── "✏️ Edit & send" on a draft → modal pre-filled with the draft text ──────────────
-  // The draft is recovered from the message's own markdown blocks (no server-side store), so
-  // this works even after a bot restart. trigger_id is fresh (it's a direct click) → the
-  // modal opens instantly, no loading shell needed.
+  // The text comes from the engine's draft store (the button carries only the draftId):
+  // Slack converts `markdown` blocks to `rich_text` on delivery, so the message's own blocks
+  // can't round-trip the draft — they serve only as a best-effort fallback. After a restart
+  // both are gone → an honest "expired" modal. trigger_id is fresh → opens instantly.
   app.action('yt_edit_send', async ({ ack, action, body, client }) => {
     await ack();
-    const ticketId = (action as { value?: string }).value ?? '';
+    let v: { t: string; d: string };
+    try {
+      v = JSON.parse((action as { value?: string }).value ?? '');
+    } catch {
+      return;
+    }
     const b = body as {
       trigger_id?: string;
       channel?: { id?: string };
       message?: { ts?: string; thread_ts?: string; blocks?: unknown[] };
     };
-    if (!ticketId || !b.trigger_id || !b.channel?.id || !b.message?.ts) return;
-    const draft = textFromMarkdownBlocks((b.message.blocks ?? []) as never[]);
+    if (!v.t || !b.trigger_id || !b.channel?.id || !b.message?.ts) return;
+    const draft = engine.ytDraft(v.d) ?? textFromMarkdownBlocks((b.message.blocks ?? []) as never[]);
     await client.views
       .open({
         trigger_id: b.trigger_id,
-        view: reportModalView(ticketId, draft, {
-          channel: b.channel.id,
-          ts: b.message.ts,
-          threadTs: b.message.thread_ts,
-        }),
+        view: draft.trim()
+          ? reportModalView(v.t, draft, { channel: b.channel.id, ts: b.message.ts, threadTs: b.message.thread_ts })
+          : reportExpiredView(v.t),
       })
-      .catch((e) => log.error(`yt_edit_send ${ticketId}: ${e instanceof Error ? e.message : String(e)}`));
+      .catch((e) => log.error(`yt_edit_send ${v.t}: ${e instanceof Error ? e.message : String(e)}`));
   });
 
   // ── report modal submit → post the (possibly edited) text as an INTERNAL ticket comment ──
