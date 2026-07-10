@@ -1,4 +1,4 @@
-import type { Config } from './config.js';
+import type { Config, SandboxDriverKind } from './config.js';
 import type { Store } from './state.js';
 import { createDriver, type SandboxHandle } from './driver.js';
 import { getGitHubToken } from './github.js';
@@ -74,9 +74,15 @@ function withSandboxLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
 // tooling + auth seeded, and ALL the project's repos cloned side by side. The GitHub
 // token is scoped to exactly these repos. cwd is the single repo's dir when there's one
 // repo, else the project root (so Claude sees every repo as a subdir).
-async function prepareChat(cfg: Config, store: Store, slug: string, repos: string[]) {
+async function prepareChat(
+  cfg: Config,
+  store: Store,
+  slug: string,
+  repos: string[],
+  driverKind?: SandboxDriverKind,
+) {
   if (repos.length === 0) throw new Error(`project ${slug} has no repos`);
-  const driver = createDriver(cfg);
+  const driver = createDriver(cfg, driverKind);
   await driver.ensureImage();
 
   const proj = store.upsertProject(slug, repos[0], cfg.sandbox.namePrefix);
@@ -214,6 +220,8 @@ export async function openChat(
     // PR back to the discussion. Set only for channel threads (DMs have no shareable link).
     slackUrl?: string;
     mcp?: McpServerSpec[];
+    // The project's sandbox provider (ProjectConfig.driver); omitted → deployment default.
+    driver?: SandboxDriverKind;
     // A still-running Daytona command from before a bot restart — reattach to it instead
     // of spawning a fresh process (tried once; falls back to --resume if it's gone).
     attach?: { sessionKey: string; cmdId: string };
@@ -222,7 +230,9 @@ export async function openChat(
     onOpen?: (info: { sessionKey: string; cmdId: string }) => void;
   },
 ): Promise<ChatSession> {
-  const prep = await withSandboxLock(opts.slug, () => prepareChat(cfg, store, opts.slug, opts.repos));
+  const prep = await withSandboxLock(opts.slug, () =>
+    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver),
+  );
   const { driver, proj, cwd } = prep;
   let sandbox = prep.sandbox;
   let sessionId: string | undefined = opts.resumeSessionId;

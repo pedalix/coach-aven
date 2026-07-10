@@ -67,6 +67,11 @@ export class DaytonaDriver implements SandboxDriver {
   private readonly daytona: Daytona;
 
   constructor(private readonly cfg: Config) {
+    if (!cfg.daytona) {
+      throw new Error(
+        'DAYTONA_API_URL/_API_KEY/_ORGANIZATION_ID are not set — required for the daytona sandbox driver',
+      );
+    }
     this.daytona = new Daytona({
       apiKey: cfg.daytona.apiKey,
       apiUrl: cfg.daytona.apiUrl,

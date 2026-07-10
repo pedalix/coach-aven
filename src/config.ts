@@ -77,8 +77,18 @@ function githubAuth(): GitHubAuth {
   };
 }
 
+// Which sandbox provider backs a project (see driver.ts). Global default via
+// SANDBOX_DRIVER; overridable per project in projects.config.json (`driver` field).
+export type SandboxDriverKind = 'daytona' | 'ssh-docker';
+
 export interface Config {
-  daytona: { apiUrl: string; apiKey: string; organizationId: string };
+  // Provider configs are optional — only the drivers actually selected need theirs set
+  // (a pure ssh-docker deployment shouldn't have to fake DAYTONA_* vars, and vice versa).
+  daytona?: { apiUrl: string; apiKey: string; organizationId: string };
+  // ssh-docker: `host` is an ssh target (user@host or an ~/.ssh/config alias; key auth,
+  // BatchMode). `runtime` picks how containers get DinD for Laravel Sail.
+  sshDocker?: { host: string; runtime: 'sysbox-runc' | 'privileged' };
+  sandboxDriver: SandboxDriverKind;
   snapshot: { name: string; image: string; cpu: number; memory: number; disk: number };
   // namePrefix isolates dev from prod on a SHARED Daytona: dev → `dev-proj-<slug>`,
   // prod → `proj-<slug>`, so the two never share a warm sandbox (set SANDBOX_NAME_PREFIX).
@@ -99,12 +109,26 @@ export interface Config {
 }
 
 export function loadConfig(): Config {
+  const driver = process.env.SANDBOX_DRIVER || 'daytona';
+  if (driver !== 'daytona' && driver !== 'ssh-docker') {
+    throw new Error(`SANDBOX_DRIVER must be 'daytona' or 'ssh-docker', got: ${driver}`);
+  }
+  const sshRuntime = process.env.SSHDOCKER_RUNTIME || 'privileged';
+  if (sshRuntime !== 'privileged' && sshRuntime !== 'sysbox-runc') {
+    throw new Error(`SSHDOCKER_RUNTIME must be 'sysbox-runc' or 'privileged', got: ${sshRuntime}`);
+  }
   return {
-    daytona: {
-      apiUrl: req('DAYTONA_API_URL'),
-      apiKey: req('DAYTONA_API_KEY'),
-      organizationId: req('DAYTONA_ORGANIZATION_ID'),
-    },
+    daytona: process.env.DAYTONA_API_URL
+      ? {
+          apiUrl: req('DAYTONA_API_URL'),
+          apiKey: req('DAYTONA_API_KEY'),
+          organizationId: req('DAYTONA_ORGANIZATION_ID'),
+        }
+      : undefined,
+    sshDocker: process.env.SSHDOCKER_HOST
+      ? { host: process.env.SSHDOCKER_HOST, runtime: sshRuntime }
+      : undefined,
+    sandboxDriver: driver,
     snapshot: {
       name: req('SNAPSHOT_NAME'),
       image: req('SNAPSHOT_IMAGE'),

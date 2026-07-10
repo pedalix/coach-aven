@@ -4,6 +4,7 @@
       "slug": "caldora",
       "repos": ["BluefinOrg/REPLACE-caldora-repo"],
       "youtrackProjects": ["CG", "CB"],
+      "driver": "daytona",
       "systemPrompt": "Project context goes here (appended after the base prompt): domain, what each repo is and how they relate, merge/deploy-order rules, doc links. Repo coding conventions belong in each repo's own CLAUDE.md, not here.",
       "env": {},
       "mcp": [

@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { SandboxDriverKind } from './config.js';
 
 // Registry of the projects the bot serves. ONE bot, MANY channels: each Slack channel
 // is bound to a project, and each project gets its OWN isolated sandbox (proj-<slug>).
@@ -35,6 +36,10 @@ export interface ProjectConfig {
   systemPrompt?: string;
   env?: Record<string, string>; // per-project env/secrets seeded into the sandbox (reserved)
   mcp?: McpServerSpec[]; // per-project MCP servers → materialized into --mcp-config in the sandbox
+  // Which sandbox provider hosts this project's sandbox (see driver.ts). Omitted → the
+  // deployment default (SANDBOX_DRIVER, currently daytona). Lets the fleet migrate
+  // provider by provider — e.g. move a docker-less project to ssh-docker first.
+  driver?: SandboxDriverKind;
   // YouTrack project prefixes that route to this project (the investigation pilot). A tagged
   // ticket whose id is "<PREFIX>-<n>" is investigated in this project's sandbox/channel. One
   // project may carry several (e.g. caldora ← its several help-desk projects). See youtrack.ts.

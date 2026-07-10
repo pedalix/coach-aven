@@ -112,7 +112,7 @@ export function createPollers(
         store.patchRoutine(r.id, { lastSummary: digest });
         log.info(`dream ${r.id} (${project.slug}): ${digest}`);
         // Journal the consolidated memory (the sandbox is awake from the dream just now).
-        const sandbox = await createDriver(cfg).getSandbox(`${cfg.sandbox.namePrefix}${project.slug}`);
+        const sandbox = await createDriver(cfg, project.driver).getSandbox(`${cfg.sandbox.namePrefix}${project.slug}`);
         if (!sandbox) throw new Error('sandbox not found after dream');
         await snapshotMemory(sandbox, cfg, project.slug, project.repos, digest);
       } catch (e) {
@@ -132,7 +132,7 @@ export function createPollers(
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
     void (async () => {
       try {
-        const sandbox = await createDriver(cfg).getSandbox(`${cfg.sandbox.namePrefix}${project.slug}`);
+        const sandbox = await createDriver(cfg, project.driver).getSandbox(`${cfg.sandbox.namePrefix}${project.slug}`);
         if (!sandbox || !sandbox.started) {
           store.patchRoutine(r.id, { lastSummary: 'sandbox asleep — skipped' });
           return;

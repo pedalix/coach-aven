@@ -1,5 +1,6 @@
-import type { Config } from './config.js';
+import type { Config, SandboxDriverKind } from './config.js';
 import { DaytonaDriver } from './daytona.js';
+import { SshDockerDriver } from './sshdocker.js';
 
 // Provider-agnostic sandbox driver: the ONLY surface the orchestrator needs from a
 // sandbox provider. Extracted 2026-07 when Daytona's open-source codebase was frozen —
@@ -71,8 +72,11 @@ export interface SandboxDriver {
   listStates(): Promise<Map<string, string>>;
 }
 
-// The provider switch. Daytona is the only implementation today; a second provider adds
-// a case here (config-selected), and nothing else in the bot changes.
-export function createDriver(cfg: Config): SandboxDriver {
-  return new DaytonaDriver(cfg);
+// The provider switch. `kind` is the per-project override (projects.config.json's
+// `driver` field); omitted → the deployment-wide default (SANDBOX_DRIVER env, default
+// daytona). A driver whose env config is missing throws at first use — not at boot —
+// so one misconfigured project can't keep the whole bot down.
+export function createDriver(cfg: Config, kind?: SandboxDriverKind): SandboxDriver {
+  const k = kind ?? cfg.sandboxDriver;
+  return k === 'ssh-docker' ? new SshDockerDriver(cfg) : new DaytonaDriver(cfg);
 }

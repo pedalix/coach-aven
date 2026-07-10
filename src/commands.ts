@@ -58,7 +58,7 @@ export async function readMemory(
   filePath: string,
   wake: boolean,
 ): Promise<string> {
-  const driver = createDriver(cfg);
+  const driver = createDriver(cfg, project.driver);
   const name = `${cfg.sandbox.namePrefix}${project.slug}`;
   let sandbox = await driver.getSandbox(name);
   if (!sandbox) throw new Error('No sandbox for this project yet — nothing remembered.');
@@ -110,7 +110,12 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     let states = new Map<string, string>();
     let daytonaOk = true;
     try {
-      states = await createDriver(cfg).listStates();
+      // The fleet may span providers (per-project `driver`) — merge the state maps of
+      // every provider actually in use. Any provider failing degrades to the ⚠️ flag.
+      const kinds = new Set(registry.projects.map((p) => p.driver ?? cfg.sandboxDriver));
+      for (const kind of kinds) {
+        for (const [n, s] of await createDriver(cfg, kind).listStates()) states.set(n, s);
+      }
     } catch {
       daytonaOk = false;
     }
