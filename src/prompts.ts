@@ -131,18 +131,33 @@ export const FOLLOW_UP_PR_PROMPT =
 // Fired by the "📝 Report to YouTrack" button on an investigation thread. The turn's answer IS
 // the draft: it's shown in the thread with an "✏️ Edit & send" button, a human edits it in a
 // modal, and the orchestrator posts the result as an INTERNAL ticket comment (postInternalComment).
-// Hence the hard rules: output ONLY the comment text, keep it short (the modal input and the
-// support team's patience are both finite), and write for support agents — not developers, not
-// the customer directly.
+// The prompt is split in two on purpose: reportDraftPrompt is the EDITABLE part (content
+// guidance — users replace it wholesale with one-liners like "report that it is live"), while
+// reportDeliveryContract carries the non-negotiable delivery rules and is appended server-side
+// to whatever the user submits. Before the split, overwriting the prompt dropped "output ONLY
+// the comment text", the agent tried to post via its read-only YouTrack MCP, and auto-post
+// shipped its "I can't post this, here's a ready-to-paste comment:" preamble to the ticket.
 export function reportDraftPrompt(ticketId: string): string {
   return (
     `Draft an internal report comment for YouTrack ticket ${ticketId}, summarizing this ` +
     `investigation for the SUPPORT TEAM (internal — the customer will not see it, but write ` +
     `professionally). Structure: a 1–2 sentence plain-language conclusion first, then ` +
     `"What was checked" (bullet list of systems/sources and what each showed), then ` +
-    `"Suggested fix / next steps". Plain Markdown (YouTrack renders it), no Slack-specific ` +
-    `formatting, no @-mentions. HARD LIMIT 2500 characters. If the investigation is still ` +
-    `inconclusive, say so honestly and list what info is missing. Output ONLY the comment ` +
-    `text — no preamble, no sign-off, it will be posted verbatim.`
+    `"Suggested fix / next steps". If the investigation is still inconclusive, say so ` +
+    `honestly and list what info is missing.`
+  );
+}
+
+// Always appended after the (possibly user-rewritten) report instructions — never editable.
+// Shown read-only in the prompt modal so the "you see the exact prompt that runs" promise
+// still holds. Keep it self-contained: it must survive ANY instructions above it.
+export function reportDeliveryContract(ticketId: string): string {
+  return (
+    `DELIVERY CONTRACT (fixed — applies regardless of the instructions above): your answer ` +
+    `will be posted VERBATIM as an internal comment on YouTrack ticket ${ticketId} by the ` +
+    `orchestrator. Do NOT try to post it yourself — your YouTrack access is read-only. ` +
+    `Output ONLY the comment text: no preamble, no meta-commentary about tools or posting, ` +
+    `no sign-off. Plain Markdown (YouTrack renders it), no Slack-specific formatting, ` +
+    `no @-mentions. HARD LIMIT 2500 characters.`
   );
 }

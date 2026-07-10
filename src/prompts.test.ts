@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseEffort, reviewPrompt } from './prompts.js';
+import { parseEffort, reviewPrompt, reportDraftPrompt, reportDeliveryContract } from './prompts.js';
 
 test('parseEffort — accepts low/med/medium/high (case-insensitive), rejects the rest', () => {
   assert.equal(parseEffort('low'), 'low');
@@ -29,4 +29,23 @@ test('reviewPrompt — effort tunes cap and precision/recall bias; always read-o
   assert.match(med, /PRECISION/);
   assert.match(high, /RECALL/);
   assert.equal(reviewPrompt('o/r', 1), med); // default effort is med
+});
+
+test('report prompt split — delivery rules live ONLY in the contract, not the editable part', () => {
+  const draft = reportDraftPrompt('CB-250');
+  const contract = reportDeliveryContract('CB-250');
+
+  // The contract must survive the editable instructions being replaced wholesale: it carries
+  // the verbatim-posting warning, the don't-post-it-yourself rule, and the size cap.
+  assert.match(contract, /CB-250/);
+  assert.match(contract, /VERBATIM/);
+  assert.match(contract, /Do NOT try to post it yourself/);
+  assert.match(contract, /ONLY the comment text/);
+  assert.match(contract, /2500 characters/);
+
+  // The editable part is content guidance only — if a delivery rule sneaks back in here,
+  // it's dead weight (users delete this text) and drifts from the contract copy.
+  assert.match(draft, /SUPPORT TEAM/);
+  assert.doesNotMatch(draft, /verbatim/i);
+  assert.doesNotMatch(draft, /2500/);
 });

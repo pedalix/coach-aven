@@ -9,7 +9,7 @@ import { resolveBySlug, type RegistryRef } from './projects.js';
 import type { TurnEngine } from './turn.js';
 import type { Channels } from './channels.js';
 import { readMemory } from './commands.js';
-import { FOLLOW_UP_PR_PROMPT, autofixPrompt, reportDraftPrompt } from './prompts.js';
+import { FOLLOW_UP_PR_PROMPT, autofixPrompt, reportDraftPrompt, reportDeliveryContract } from './prompts.js';
 import type { AttachmentRef } from './attachments.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
@@ -301,12 +301,16 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     await client.views
       .open({
         trigger_id: trigger,
-        view: reportPromptModalView(v.t, reportDraftPrompt(v.t), { key: v.key, channel: v.channel, threadTs: v.threadTs }),
+        view: reportPromptModalView(v.t, reportDraftPrompt(v.t), reportDeliveryContract(v.t), { key: v.key, channel: v.channel, threadTs: v.threadTs }),
       })
       .catch((e) => log.error(`yt_report ${v.t}: ${e instanceof Error ? e.message : String(e)}`));
   });
 
-  // ── prompt modal submit → run the draft turn with the (possibly edited) prompt ──────
+  // ── prompt modal submit → run the draft turn with the (possibly edited) instructions ──
+  // The delivery contract is re-appended HERE, not trusted from the modal: the instructions
+  // input is fully editable and users do replace it with one-liners ("report that it is
+  // live") that would otherwise drop "output ONLY the comment text" — the agent then chats
+  // about its read-only YouTrack MCP and auto-post ships that preamble to the ticket.
   // "Post immediately" checked → hand the turn an autoPost hook: the answer goes straight to
   // the ticket, and on failure turn.ts degrades it to the reviewable draft with the error.
   app.view(YT_PROMPT_CALLBACK, async ({ ack, view, client }) => {
@@ -317,8 +321,9 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     } catch {
       return;
     }
-    const prompt = (view.state.values[YT_PROMPT_INPUT.block]?.[YT_PROMPT_INPUT.action]?.value ?? '').trim();
-    if (!prompt) return;
+    const instructions = (view.state.values[YT_PROMPT_INPUT.block]?.[YT_PROMPT_INPUT.action]?.value ?? '').trim();
+    if (!instructions) return;
+    const prompt = `${instructions}\n\n${reportDeliveryContract(meta.t)}`;
     const now = (view.state.values[YT_PROMPT_NOW.block]?.[YT_PROMPT_NOW.action]?.selected_options ?? []).some(
       (o: { value?: string }) => o.value === YT_PROMPT_NOW.value,
     );

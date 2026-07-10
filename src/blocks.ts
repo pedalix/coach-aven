@@ -248,17 +248,21 @@ export function reportExpiredView(ticketId: string): any {
   };
 }
 
-// The "📝 Report to YouTrack" first pop-up: the ACTUAL generation prompt, editable — full
-// transparency, no hidden instructions. An optional checkbox skips the preview and posts the
-// result straight to the ticket (safe to offer only because the comment is internal and the
-// post is fail-closed). Thread coordinates ride in private_metadata; the edited prompt and
-// the checkbox come back through view_submission state.
+// The "📝 Report to YouTrack" first pop-up: the editable report instructions plus the fixed
+// delivery contract shown read-only underneath — full transparency (the prompt that runs is
+// exactly instructions + contract, nothing hidden), but users rewriting the instructions with
+// a one-liner can no longer delete the rules that keep auto-post safe. An optional checkbox
+// skips the preview and posts the result straight to the ticket (safe to offer only because
+// the comment is internal and the post is fail-closed). Thread coordinates ride in
+// private_metadata; the edited instructions and the checkbox come back through
+// view_submission state — the contract is re-appended server-side, never round-tripped.
 export const YT_PROMPT_CALLBACK = 'yt_prompt_modal';
 export const YT_PROMPT_INPUT = { block: 'yt_prompt_text', action: 'text' } as const;
 export const YT_PROMPT_NOW = { block: 'yt_prompt_now', action: 'now', value: 'now' } as const;
 export function reportPromptModalView(
   ticketId: string,
   defaultPrompt: string,
+  deliveryContract: string,
   meta: { key: string; channel: string; threadTs?: string },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view object
 ): any {
@@ -273,13 +277,17 @@ export function reportPromptModalView(
       {
         type: 'input',
         block_id: YT_PROMPT_INPUT.block,
-        label: { type: 'plain_text', text: 'Instructions for the report (this exact prompt is what runs)' },
+        label: { type: 'plain_text', text: 'Instructions for the report (edit freely — even a one-liner works)' },
         element: {
           type: 'plain_text_input',
           action_id: YT_PROMPT_INPUT.action,
           multiline: true,
           initial_value: defaultPrompt.slice(0, 2900),
         },
+      },
+      {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: `🔒 Always appended to your instructions:\n${deliveryContract}`.slice(0, 3000) }],
       },
       {
         type: 'input',
@@ -292,7 +300,7 @@ export function reportPromptModalView(
           options: [
             {
               text: { type: 'plain_text', text: 'Post to the ticket immediately (skip the preview)' },
-              description: { type: 'plain_text', text: 'Internal comment, team-only. Otherwise the draft comes back here for review first.' },
+              description: { type: 'plain_text', text: 'Internal comment, team-only — the answer is posted word-for-word.' },
               value: YT_PROMPT_NOW.value,
             },
           ],
@@ -705,7 +713,7 @@ export function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the full tool-by-tool trail in a pop-up.\n' +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
-          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), hit *🔀 Open a PR* to turn the fix into a pull request, or *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up shows the exact generation prompt to tweak, then the draft comes back for review/edit before posting (or tick _post immediately_ to skip the preview) (pilot; only for projects with a YouTrack mapping above).\n' +
+          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), hit *🔀 Open a PR* to turn the fix into a pull request, or *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above).\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +

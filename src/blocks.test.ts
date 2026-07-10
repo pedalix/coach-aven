@@ -196,12 +196,16 @@ test('reportModalView: meta in private_metadata, pre-filled input, hard length c
   assert.equal(long.blocks[0].element.initial_value.length, 2900);
 });
 
-test('reportPromptModalView: shows the real prompt editable + the skip-preview checkbox', () => {
-  const view = reportPromptModalView('CG-50', 'the actual generation prompt', { key: 'thread:1', channel: 'C1', threadTs: '1' });
+test('reportPromptModalView: editable instructions + read-only contract + the skip-preview checkbox', () => {
+  const view = reportPromptModalView('CG-50', 'the editable instructions', 'the fixed delivery contract', { key: 'thread:1', channel: 'C1', threadTs: '1' });
   assert.equal(view.callback_id, YT_PROMPT_CALLBACK);
   assert.deepEqual(JSON.parse(view.private_metadata), { t: 'CG-50', key: 'thread:1', channel: 'C1', threadTs: '1' });
   const input = view.blocks.find((b: { block_id?: string }) => b.block_id === YT_PROMPT_INPUT.block);
-  assert.equal(input.element.initial_value, 'the actual generation prompt'); // WYSIWYG: this exact text runs
+  assert.equal(input.element.initial_value, 'the editable instructions'); // WYSIWYG: instructions + contract run
+  // The contract is DISPLAYED (transparency) but not editable — it lives in a context block,
+  // not an input, so a user rewriting the instructions can't delete it.
+  const ctx = view.blocks.find((b: { type?: string }) => b.type === 'context');
+  assert.match(ctx.elements[0].text, /the fixed delivery contract/);
   const now = view.blocks.find((b: { block_id?: string }) => b.block_id === YT_PROMPT_NOW.block);
   assert.equal(now.optional, true); // unchecked by default → preview flow is the default
   assert.equal(now.element.options[0].value, YT_PROMPT_NOW.value);
