@@ -1,6 +1,10 @@
 .idea
 node_modules/
 state.json
+state.json.tmp
+# runtime persistence beside state.json — queued-turn journal + per-project report drafts:
+queue.jsonl
+drafts/
 .release
 projects.config.json
 # local-dev per-project prompt files (prod's live in infra/prod/runtime/projects.d/):

@@ -41,4 +41,6 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   over the JSON field). Read at boot; `/aven reload` re-reads at runtime (new sessions
   only — running conversations keep their session's prompt/MCP).
 - `src/state.ts` — single-file `state.json`: projects, chat→session bindings, routines.
+  Beside it: `src/queuejournal.ts` (`queue.jsonl` — queued-turn journal, replayed at boot)
+  and `src/drafts.ts` (`drafts/<slug>/` — report drafts on disk, per project).
 - `src/schedule.ts` — pure cron/schedule logic for scheduled report jobs.

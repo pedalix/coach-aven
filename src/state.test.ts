@@ -88,6 +88,41 @@ test('youtrack investigations — record, link, finish, and legacy dedup union',
   assert.ok(ids.has('ART-1')); // from legacy seen-set
 });
 
+test('pruneChats — drops idle records, keeps fresh ones and anything in flight', () => {
+  const { store, path } = freshStore();
+  const DAY = 24 * 60 * 60_000;
+  const now = Date.parse('2026-07-10T00:00:00Z');
+  store.patchChat('thread:old', 'caldora', { sessionId: 'a' });
+  store.patchChat('thread:busy', 'caldora', {
+    inflight: { channel: 'C1', statusTs: '1.2', startedAt: '2026-05-01T00:00:00Z' },
+  });
+  store.patchChat('thread:fresh', 'caldora', { sessionId: 'b' });
+  // Backdate the first two past the horizon (patchChat stamps updatedAt = now).
+  for (const key of ['thread:old', 'thread:busy']) {
+    (store as unknown as { data: { chats: Record<string, { updatedAt: string }> } }).data.chats[key].updatedAt =
+      '2026-05-01T00:00:00Z';
+  }
+
+  assert.equal(store.pruneChats(45 * DAY, now), 1);
+  assert.equal(store.getChat('thread:old'), undefined); // idle past horizon → gone
+  assert.ok(store.getChat('thread:busy')); // in flight → kept for recovery
+  assert.ok(store.getChat('thread:fresh')); // fresh → kept
+  assert.equal(new Store(path).getChat('thread:old'), undefined); // pruning persisted
+  assert.equal(store.pruneChats(45 * DAY, now), 0); // idempotent
+});
+
+test('pruneReviewedPrs — drops old dedup entries, keeps recent', () => {
+  const { store } = freshStore();
+  const DAY = 24 * 60 * 60_000;
+  const now = Date.parse('2026-07-10T00:00:00Z');
+  store.markPrReviewed('Org/repo#1');
+  (store as unknown as { data: { reviewedPrs: Record<string, string> } }).data.reviewedPrs['Org/repo#1'] =
+    '2026-01-01T00:00:00Z';
+  store.markPrReviewed('Org/repo#2'); // stamped now-ish → kept
+  assert.equal(store.pruneReviewedPrs(90 * DAY, now), 1);
+  assert.deepEqual([...store.reviewedPrKeys()], ['Org/repo#2']);
+});
+
 test('youtrack investigations — reverse thread lookup + reported stamp (the 📝 flow)', () => {
   const { store } = freshStore();
   store.recordInvestigation('CG-50', { slug: 'caldora', channel: 'C1', rootTs: '222.333', startedAt: '2026-07-08T10:00:00Z' });

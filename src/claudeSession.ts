@@ -68,6 +68,11 @@ export class ClaudeSession {
   // On reattach: the last turn's result if the conversation was already idle in the
   // snapshot (the turn completed during the bot's downtime). Consumed once by adoptInflight.
   private snapshotResult?: TurnResult;
+  // On reattach: a can_use_tool request (AskUserQuestion) the OLD bot never answered — its
+  // Slack buttons died with that process, so claude is waiting for a control_response that
+  // will never come. adoptInflight dismisses it so the turn can finish instead of hanging
+  // to the 15-minute timeout (which also retired the whole session).
+  private snapshotPendingTool?: { requestId: string; input: unknown };
   private attached = false; // opened by reattaching to a running command (vs fresh spawn)
 
   constructor(
@@ -253,6 +258,13 @@ export class ClaudeSession {
         isError: !!lastResult.is_error,
         started: true,
       };
+    } else if (lastEvent?.type === 'control_request' && lastEvent.request?.subtype === 'can_use_tool') {
+      // The snapshot ends on an unanswered question. Heuristic: we can't see our own
+      // stdin responses in the log, but an ANSWERED question is followed by more output —
+      // only a still-pending one can be the final event. (A response sent in the same
+      // instant the old bot died could make this a duplicate reply; worst case the turn
+      // errors and the user resends — still far better than the guaranteed 15-min hang.)
+      this.snapshotPendingTool = { requestId: lastEvent.request_id, input: lastEvent.request.input ?? {} };
     }
   }
 
@@ -289,6 +301,21 @@ export class ClaudeSession {
         const onAbort = () => this.settle({ status: 'canceled', resultText: '', isError: true });
         if (signal.aborted) onAbort();
         else signal.addEventListener('abort', onAbort, { once: true });
+      }
+      // The turn is stuck on an AskUserQuestion whose buttons died with the old process —
+      // dismiss it (allow with the original, answers-less input: the same degradation
+      // handleCanUseTool applies when a question fails) so the turn proceeds to a result.
+      const tool = this.snapshotPendingTool;
+      if (tool) {
+        this.snapshotPendingTool = undefined;
+        void this.write({
+          type: 'control_response',
+          response: {
+            subtype: 'success',
+            request_id: tool.requestId,
+            response: { behavior: 'allow', updatedInput: tool.input },
+          },
+        });
       }
     });
   }

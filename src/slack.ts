@@ -75,8 +75,47 @@ export async function runSlack(cfg: Config): Promise<void> {
   registerEvents(app, { cfg, store, reg, engine, channels, slackBotToken, botUserId });
   registerCommands(app, { cfg, store, reg, engine, channels, pollers });
 
+  // Recovery order matters: reattach the turns that were RUNNING first, then replay the
+  // journaled ones that were still queued (a replay waits for its key's recovery). Both
+  // BEFORE app.start(): the journal drain must happen while no new event can append to it,
+  // or a turn accepted in the gap would be replayed as a duplicate. The Web API client
+  // works without the socket; events only flow once start() connects.
+  const recovering = engine.resumeInflightTurns(app.client);
+  engine.resumeQueuedTurns(app.client, recovering);
+
   await app.start();
   log.info(`Slack bot running (Socket Mode) — ${summary(reg.current)}`);
-  engine.resumeInflightTurns(app.client);
   pollers.startAll();
+
+  // Retention: without it, chats/reviewedPrs grow by one record per thread/PR forever and
+  // every save() rewrites the whole (ever larger) state.json several times per turn. Run
+  // at boot AND daily — with graceful restarts the process may stay up for months.
+  const DAY_MS = 24 * 60 * 60_000;
+  const pruneState = () => {
+    const chats = store.pruneChats(45 * DAY_MS);
+    const prs = store.pruneReviewedPrs(90 * DAY_MS);
+    if (chats || prs) log.info(`retention: pruned ${chats} idle chats, ${prs} reviewed-PR entries`);
+  };
+  pruneState();
+  setInterval(pruneState, DAY_MS).unref();
+
+  // Graceful shutdown: systemd's SIGTERM used to hard-kill the process mid-anything.
+  // Close the socket first (Slack stops routing events here and redelivers unacked ones
+  // on the next connect), then exit promptly — all state writes are synchronous, and
+  // in-flight turns keep running in their sandboxes to be recovered on the next boot.
+  // Deliberately NOT waiting for turns to finish: they can run 15 minutes, recovery is
+  // exactly the mechanism built for them.
+  let stopping = false;
+  const shutdown = (sig: string) => {
+    if (stopping) return;
+    stopping = true;
+    log.info(`${sig} — closing the Slack socket and exiting (in-flight turns recover on the next boot)`);
+    void app
+      .stop()
+      .catch(() => {})
+      .finally(() => process.exit(0));
+    setTimeout(() => process.exit(0), 5000).unref(); // if app.stop() wedges, exit anyway
+  };
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
 }

@@ -12,6 +12,8 @@ import { fallbackText, fmtElapsed, prUrls } from './format.js';
 import type { AttachmentRef } from './attachments.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
 import { MAX_SLACK_TEXT, answerBlocks, reportPostedBlocks, statusBlocks, questionBlocks, errText } from './blocks.js';
+import { QueueJournal } from './queuejournal.js';
+import { DraftStore } from './drafts.js';
 import { log } from './log.js';
 import { captureError, Sentry } from './sentry.js';
 
@@ -61,13 +63,18 @@ export interface TurnEngine {
   runningCount(): number; // turns in flight right now (for /aven status)
   projectBusy(slug: string): boolean;
   slugForKey(key: string): string | undefined;
-  resumeInflightTurns(client: bolt.webApi.WebClient): void;
+  // Startup recovery, in order: reattach + finalize turns that were RUNNING at the last
+  // stop (returns per-key promises so queued replays can wait their turn), then replay the
+  // journaled turns that were still QUEUED (their user messages would otherwise be lost).
+  resumeInflightTurns(client: bolt.webApi.WebClient): Map<string, Promise<void>>;
+  resumeQueuedTurns(client: bolt.webApi.WebClient, recovering: Map<string, Promise<void>>): void;
   questions: QuestionRegistry;
   // A turn's tool-call trail (for the "🧭 Show steps" button) — live from the moment the
   // turn is queued, kept after it settles; undefined once evicted or after a restart.
   trail(turnId: string): TurnTrail | undefined;
-  // A report-draft turn's answer text (for "✏️ Edit & send"); undefined once evicted or
-  // after a restart — the click then gets the "draft expired" modal.
+  // A report-draft turn's answer text (for "✏️ Edit & send"), stored on disk
+  // (drafts/<slug>/<turnId>.md) so it survives restarts; undefined once pruned past the
+  // per-project cap — the click then gets the "draft expired" modal.
   ytDraft(draftId: string): string | undefined;
 }
 
@@ -100,8 +107,20 @@ const ETA_HINT_MS = 3 * 60_000;
 export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): TurnEngine {
   // Live in-memory sessions keyed by conversation, to avoid re-preparing the sandbox
   // every turn. On a cache miss (e.g. after a restart) we rebuild, resuming the
-  // persisted Claude conversation id.
+  // persisted Claude conversation id. LRU-capped: entries otherwise accumulate one per
+  // thread ever touched, forever. Evicting is safe — the persisted sessionKey/cmdId lets
+  // sessionFor reattach to a still-running claude, and a dead one rebuilds via --resume.
   const live = new Map<string, ChatSession>();
+  const MAX_LIVE = 100;
+  function touchLive(key: string, chat: ChatSession): void {
+    live.delete(key); // re-insert → newest in the Map's insertion order (poor-man's LRU)
+    live.set(key, chat);
+    for (const k of live.keys()) {
+      if (live.size <= MAX_LIVE) break;
+      if (queues.has(k) || asking.has(k)) continue; // never evict under an active turn
+      live.delete(k);
+    }
+  }
 
   // Per-thread serialization: turns for the same key run one at a time (a chain of
   // promises). Cancellation: each turn has an AbortController keyed by a turnId carried
@@ -112,13 +131,31 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // `queues` chain, so projectBusy() must consult this too — otherwise a dream wouldn't see a
   // live Q&A turn (or another dream) writing the same project's memory.
   const asking = new Set<string>();
+  // turnIds carry a per-boot prefix: they used to be `t<seq>` and reset every restart,
+  // which was fine while everything keyed by them was in-memory — but drafts now live on
+  // disk, and boot #2's t5 must not collide with (and clobber) boot #1's t5.
+  const bootId = Date.now().toString(36);
   let turnSeq = 0;
+
+  // Journal of queued-but-not-yet-started turns (its own file, not state.json — see
+  // queuejournal.ts). Entries: added in liveTurn, retired in doTurn once the chat
+  // record's `inflight` marker takes over recovery duty. Drained by resumeQueuedTurns.
+  const journal = new QueueJournal();
 
   const pendingQuestions = new Map<string, PendingQuestion>();
   // qids that reached a terminal state normally (answered/submitted/canceled). A late
   // click on one of these is a no-op (the message already shows the right final state) —
   // distinct from an UNKNOWN qid (bot restart / genuinely old), which gets "expired".
+  // Bounded like trails: without a cap this set grows by one entry per question forever.
   const completedQuestions = new Set<string>();
+  const MAX_COMPLETED_QS = 500;
+  function markCompleted(qid: string): void {
+    completedQuestions.add(qid);
+    for (const k of completedQuestions.keys()) {
+      if (completedQuestions.size <= MAX_COMPLETED_QS) break;
+      completedQuestions.delete(k);
+    }
+  }
   let questionSeq = 0;
 
   // Tool-call trails, kept in memory for the "🧭 Show steps" button (events.ts opens them
@@ -129,18 +166,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // for a peek-behind affordance.
   const trails = new Map<string, TurnTrail>();
   const MAX_TRAILS = 200;
-  // Report drafts by turnId, for "✏️ Edit & send". Server-side because Slack converts
-  // `markdown` blocks to `rich_text` on delivery — the posted message can't round-trip its
-  // own text. Bounded like trails; a restart loses them (the button degrades to "expired").
-  const ytDrafts = new Map<string, string>();
-  const MAX_DRAFTS = 100;
-  function recordDraft(turnId: string, text: string): void {
-    ytDrafts.set(turnId, text);
-    for (const k of ytDrafts.keys()) {
-      if (ytDrafts.size <= MAX_DRAFTS) break;
-      ytDrafts.delete(k);
-    }
-  }
+  // Report drafts by turnId, for "✏️ Edit & send" — on disk (drafts/<slug>/<turnId>.md,
+  // see drafts.ts) so a deploy no longer kills every pending draft's button.
+  const drafts = new DraftStore();
   function startTrail(turnId: string): TurnTrail {
     const trail: TurnTrail = { steps: [], elapsedMs: 0, done: false };
     trails.set(turnId, trail);
@@ -159,7 +187,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   function finalizeQuestion(entry: PendingQuestion, qid: string): void {
     entry.done = true;
     pendingQuestions.delete(qid);
-    completedQuestions.add(qid);
+    markCompleted(qid);
     const answers: QuestionAnswers = {};
     entry.questions.forEach((q, qi) => {
       const set = entry.picks.get(qi);
@@ -211,7 +239,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           const onAbort = () => {
             if (entry.done || !pendingQuestions.delete(qid)) return;
             entry.done = true;
-            completedQuestions.add(qid);
+            markCompleted(qid);
             void client.chat
               .update({ channel, ts: entry.ts, text: '🚫 Canceled', blocks: [] })
               .catch(() => {});
@@ -232,7 +260,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     slackUrl?: string,
   ): Promise<ChatSession> {
     const existing = live.get(key);
-    if (existing) return existing;
+    if (existing) {
+      touchLive(key, existing);
+      return existing;
+    }
     const prior = store.getChat(key);
     const chat = await openChat(cfg, store, {
       slug: project.slug,
@@ -247,7 +278,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       attach: prior?.sessionKey && prior?.cmdId ? { sessionKey: prior.sessionKey, cmdId: prior.cmdId } : undefined,
       onOpen: (info) => store.patchChat(key, project.slug, { sessionKey: info.sessionKey, cmdId: info.cmdId }),
     });
-    live.set(key, chat);
+    touchLive(key, chat);
     return chat;
   }
 
@@ -338,7 +369,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       return;
     }
     if (msgTs) await react(client, channel, msgTs, 'eyes', 'add');
-    const turnId = `t${++turnSeq}`;
+    const turnId = `t${bootId}-${++turnSeq}`;
     const ac = new AbortController();
     running.set(turnId, ac);
     // Register the (empty) trail NOW: the status message below already carries a live
@@ -357,6 +388,21 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       ),
     });
     const ts = posted.ts as string;
+
+    // Journal the accepted turn so a restart can't silently swallow it while it waits in
+    // the queue. Retired in doTurn once the `inflight` marker takes over. plain=false when
+    // the turn carries things a replay can't reconstruct (attachment bearer, opts callbacks).
+    journal.add({
+      turnId,
+      key,
+      slug: project.slug,
+      channel,
+      statusTs: ts,
+      threadTs,
+      msgTs,
+      question,
+      plain: !attachments?.refs.length && !opts,
+    });
 
     const prev = queues.get(key) ?? Promise.resolve();
     const mine = prev
@@ -390,6 +436,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       if (msgTs) await react(client, channel, msgTs, 'eyes', 'remove');
     };
     if (ac.signal.aborted) {
+      journal.done(turnId); // canceled while queued — settled, nothing to replay
       await client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] });
       await clearEyes();
       return;
@@ -431,9 +478,13 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
 
     // Mark this turn in flight so a restart can reattach and finalize THIS status message
     // (channel, ts) instead of leaving it frozen on "Working…". Cleared in finally.
+    // Ordering: inflight FIRST, then retire the journal entry — a crash in between leaves
+    // both active, which resumeQueuedTurns dedupes by statusTs; the reverse order would
+    // leave a gap where the turn is in neither and vanishes.
     store.patchChat(key, project.slug, {
       inflight: { channel, statusTs: ts, msgThreadTs: threadTs, startedAt: new Date().toISOString() },
     });
+    journal.done(turnId);
     // Best-effort permalink to this thread so the agent can link a PR back to the Slack
     // discussion. Only meaningful for channel threads (threadTs set); DMs have none.
     let slackUrl: string | undefined;
@@ -509,7 +560,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           text = `✅ Reported to ${opts.ytDraftFor}`;
         } catch (e) {
           const why = e instanceof Error ? e.message : String(e);
-          recordDraft(turnId, capped); // manual retry needs the text
+          drafts.put(project.slug, turnId, capped); // manual retry needs the text
           blocks = answerBlocks(capped, { ytDraft: { ticket: opts.ytDraftFor, draftId: turnId } });
           blocks.push({
             type: 'context',
@@ -517,7 +568,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           });
         }
       }
-      if (opts?.ytDraftFor && !blocks) recordDraft(turnId, capped);
+      if (opts?.ytDraftFor && !blocks) drafts.put(project.slug, turnId, capped);
       blocks ??= answerBlocks(capped, {
         followUp,
         prCreated,
@@ -572,7 +623,11 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // On startup, finalize any turn that was still "Working…" when the bot last stopped:
   // reattach to its command (still running, or finished during the downtime) and rewrite
   // its status message with the recovered result. Best-effort, per chat, never blocks.
-  function resumeInflightTurns(client: bolt.webApi.WebClient): void {
+  // Returns each chat's recovery promise keyed by conversation key, so resumeQueuedTurns
+  // can hold a key's replays until its running turn has been recovered (else the replay
+  // hits the still-busy session and errors).
+  function resumeInflightTurns(client: bolt.webApi.WebClient): Map<string, Promise<void>> {
+    const recovering = new Map<string, Promise<void>>();
     for (const chat of store.allChats()) {
       const inf = chat.inflight;
       if (!inf || !chat.sessionKey || !chat.cmdId) continue;
@@ -581,7 +636,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
         continue;
       }
-      void (async () => {
+      const recovery = (async () => {
         try {
           await client.chat
             .update({
@@ -630,6 +685,66 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
         }
       })();
+      recovering.set(chat.threadTs, recovery);
+    }
+    return recovering;
+  }
+
+  // Replay the journaled turns that were still QUEUED (accepted, never started) at the
+  // last stop — the one class of turn that used to vanish silently, leaving its "In
+  // queue…" message frozen. Plain turns re-run automatically; turns that carried
+  // attachments or engine-side callbacks (a YT draft's autoPost) can't be reconstructed,
+  // so their status message quotes the question and asks for a resend — visibly lost
+  // beats silently lost. Keys are processed sequentially (preserving enqueue order),
+  // after any inflight recovery on the same key has settled.
+  function resumeQueuedTurns(client: bolt.webApi.WebClient, recovering: Map<string, Promise<void>>): void {
+    const pending = journal.drain();
+    const byKey = new Map<string, typeof pending>();
+    for (const e of pending) {
+      // The turn that STARTED before the restart may appear in BOTH stores if the crash
+      // hit the tiny inflight-then-retire-journal overlap — inflight recovery owns it.
+      if (store.getChat(e.key)?.inflight?.statusTs === e.statusTs) continue;
+      const list = byKey.get(e.key) ?? [];
+      list.push(e);
+      byKey.set(e.key, list);
+    }
+    for (const [key, entries] of byKey) {
+      void (async () => {
+        await recovering.get(key)?.catch(() => {});
+        for (const e of entries) {
+          const project = resolveBySlug(reg.current, e.slug);
+          try {
+            if (project && e.plain) {
+              await client.chat
+                .update({
+                  channel: e.channel,
+                  ts: e.statusTs,
+                  text: '🔄 The bot restarted before this turn could start — rerunning it below.',
+                  blocks: [],
+                })
+                .catch(() => {});
+              // Awaiting completion serializes this key's replays — the same order the
+              // queue would have run them in.
+              await liveTurn(client, e.channel, e.msgTs, e.threadTs, e.key, project, e.question);
+            } else {
+              const why = project
+                ? "its attachments/context can't be replayed"
+                : 'its project is no longer configured';
+              await client.chat
+                .update({
+                  channel: e.channel,
+                  ts: e.statusTs,
+                  text: `⚠️ The bot restarted before this message was processed and ${why} — please resend it:\n> ${e.question.slice(0, 500)}`,
+                  blocks: [],
+                })
+                .catch(() => {});
+            }
+          } catch (err) {
+            log.error(`replay ${e.turnId}: ${err instanceof Error ? err.message : String(err)}`);
+            captureError(err, { subsystem: 'replay', key: e.key, slug: e.slug });
+          }
+        }
+      })();
     }
   }
 
@@ -646,8 +761,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     projectBusy,
     slugForKey,
     resumeInflightTurns,
+    resumeQueuedTurns,
     trail: (turnId) => trails.get(turnId),
-    ytDraft: (draftId) => ytDrafts.get(draftId),
+    ytDraft: (draftId) => drafts.get(draftId),
     questions: {
       get: (qid) => pendingQuestions.get(qid),
       isCompleted: (qid) => completedQuestions.has(qid),

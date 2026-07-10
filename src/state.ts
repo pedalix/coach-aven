@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 
 // MVP state store: a single JSON file mapping projects → their warm sandbox, plus
 // chat-thread → Claude-session bindings. Swap for SQLite later if concurrency demands
@@ -118,7 +118,12 @@ export class Store {
   }
 
   private save() {
-    writeFileSync(this.path, JSON.stringify(this.data, null, 2) + '\n');
+    // Write-then-rename so a crash mid-write can't leave a truncated state.json — an
+    // in-place write that dies half-way makes the NEXT boot fail at JSON.parse, losing
+    // everything. rename() on the same filesystem is atomic.
+    const tmp = `${this.path}.tmp`;
+    writeFileSync(tmp, JSON.stringify(this.data, null, 2) + '\n');
+    renameSync(tmp, this.path);
   }
 
   getProject(slug: string): ProjectRecord | undefined {
@@ -316,5 +321,44 @@ export class Store {
     delete this.data.prWatches[key];
     this.save();
     return true;
+  }
+
+  // ── retention (run at boot + daily; see slack.ts) ────────────────────────
+  // Both maps otherwise grow by one record per thread / per PR forever — after months of
+  // uptime that's a state.json rewritten wholesale on every patchChat, several times a turn.
+
+  // Drop chat records idle for longer than maxAgeMs. Skips records with a turn in flight
+  // (recovery needs them). Losing an old record only loses `--resume` of a long-dead
+  // thread — whose transcript has usually been rebuilt away with its sandbox anyway.
+  pruneChats(maxAgeMs: number, now = Date.now()): number {
+    const chats = this.data.chats ?? {};
+    let dropped = 0;
+    for (const [key, rec] of Object.entries(chats)) {
+      if (rec.inflight) continue;
+      const t = Date.parse(rec.updatedAt);
+      if (Number.isFinite(t) && now - t > maxAgeMs) {
+        delete chats[key];
+        dropped++;
+      }
+    }
+    if (dropped) this.save();
+    return dropped;
+  }
+
+  // Drop auto-review dedup entries older than maxAgeMs. A pruned entry could in principle
+  // re-review a PR that's STILL open months later — rare, and a fresh review of such a
+  // long-liver is arguably useful; keep the horizon long (90d) rather than track PR state.
+  pruneReviewedPrs(maxAgeMs: number, now = Date.now()): number {
+    const reviewed = this.data.reviewedPrs ?? {};
+    let dropped = 0;
+    for (const [key, iso] of Object.entries(reviewed)) {
+      const t = Date.parse(iso);
+      if (Number.isFinite(t) && now - t > maxAgeMs) {
+        delete reviewed[key];
+        dropped++;
+      }
+    }
+    if (dropped) this.save();
+    return dropped;
   }
 }
