@@ -69,6 +69,15 @@ export function startSessionScript(key: string, command: string): string {
   ].join('\n');
 }
 
+// Zombie-aware liveness test for a session pid, as a shell condition. `kill -0` alone
+// is NOT enough: it succeeds on a zombie, and a session process that dies while its
+// docker-exec parent is already gone stays a zombie until PID 1 reaps it — the E2E smoke
+// caught streams that never settled and running-checks that never went false because of
+// exactly this. --init (below) makes zombies transient, but the reap is asynchronous, so
+// the check must still treat state Z as dead.
+const aliveCond = (pidExpr: string) =>
+  `kill -0 ${pidExpr} 2>/dev/null && ! grep -q '^State:.*Z' "/proc/"${pidExpr}"/status" 2>/dev/null`;
+
 // Tail the session log from the start (replay + follow — the contract claudeSession's
 // skip-prefix logic expects), and exit when the command's pid dies. busybox tail has no
 // --pid, hence the polling watcher.
@@ -79,11 +88,16 @@ export function streamSessionScript(key: string): string {
     `tail -c +1 -f "$d/out.log" 2>/dev/null &`,
     `t=$!`,
     `pid=$(cat "$d/pid" 2>/dev/null)`,
-    `while [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; do sleep 2; done`,
+    `while [ -n "$pid" ] && ${aliveCond('"$pid"')}; do sleep 2; done`,
     `sleep 1`, // let tail flush the final chunk (the result line) before we kill it
     `kill "$t" 2>/dev/null`,
     `wait "$t" 2>/dev/null || true`,
   ].join('\n');
+}
+
+// The sessionCommandRunning probe (same liveness rule as the stream watcher).
+export function runningProbeScript(pid: string): string {
+  return `${aliveCond(sq(safeToken(pid)))} && echo up || echo down`;
 }
 
 // `docker ps` lines ("name\tstate") → the state map /aven status renders. Docker's
@@ -197,7 +211,7 @@ class SshDockerHandle implements SandboxHandle {
     // cmdId is the in-container pid. kill -0 has a pid-recycling caveat after a container
     // restart, but a restart also kills the process the pid pointed at — the reattach then
     // fails at the next step (no new output ever arrives) rather than corrupting anything.
-    const r = await this.inContainer(`kill -0 ${sq(safeToken(cmdId))} 2>/dev/null && echo up || echo down`);
+    const r = await this.inContainer(runningProbeScript(cmdId));
     return r.stdout.trim() === 'up';
   }
 
@@ -273,7 +287,11 @@ export class SshDockerDriver implements SandboxDriver {
       `if [ "$state" = "true" ]; then echo ready`,
       `elif [ "$state" = "false" ]; then docker start ${n} >/dev/null && echo started`,
       `else`,
-      `  docker run -d --name ${n} ${this.runtimeFlag} --restart unless-stopped \\`,
+      // --init: docker's tini as PID 1. Without it PID 1 is our `sleep`, which never
+      // reaps orphans — every finished session process would linger as a zombie forever
+      // (and zombies pass kill -0, wedging streams and running-checks; found by the E2E
+      // smoke). Existing containers created without --init must be recreated.
+      `  docker run -d --init --name ${n} ${this.runtimeFlag} --restart unless-stopped \\`,
       `    -e IS_SANDBOX=1 --label managedBy=bluefin-thin-orchestrator --label project=${sq(safeToken(projectSlug))} \\`,
       `    --entrypoint sh ${sq(this.cfg.snapshot.image)} -c 'sleep 2147483647' >/dev/null && echo created`,
       `fi`,

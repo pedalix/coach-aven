@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sq, safeToken, execScript, startSessionScript, streamSessionScript, parseContainerStates } from './sshdocker.js';
+import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates } from './sshdocker.js';
 
 test('sq — single-quotes and survives embedded quotes', () => {
   assert.equal(sq('plain'), `'plain'`);
@@ -47,6 +47,16 @@ test('streamSessionScript — replays from byte 1, follows, dies with the pid', 
   const s = streamSessionScript('claude-sess-1-2');
   assert.ok(s.includes('tail -c +1 -f')); // full replay — claudeSession skips the snapshot prefix itself
   assert.ok(s.includes('kill -0 "$pid"')); // watcher ends the tail when the process exits
+  // Zombie-aware: a dead-but-unreaped process must NOT keep the stream open (E2E-caught).
+  assert.ok(s.includes(`grep -q '^State:.*Z'`));
+});
+
+test('runningProbeScript — zombie counts as down, id is validated', () => {
+  const s = runningProbeScript('12345');
+  assert.ok(s.includes(`kill -0 '12345'`));
+  assert.ok(s.includes(`grep -q '^State:.*Z'`)); // zombies pass kill -0 — must be excluded
+  assert.ok(s.includes('echo up') && s.includes('echo down'));
+  assert.throws(() => runningProbeScript('1; reboot')); // cmdId round-trips via state.json
 });
 
 test('parseContainerStates — docker states map onto started/stopped', () => {

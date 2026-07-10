@@ -63,9 +63,19 @@ Then `deploy.sh export` the runtime config and restart the bot (config is read a
 The first turn pulls the snapshot image on the host (can take minutes) and creates the
 container; subsequent turns reuse it warm.
 
+**Verification status**
+
+E2E-verified 2026-07-10 against a real host (20-check smoke: container lifecycle, exec
+semantics incl. cwd/env/timeout/exit codes, byte-exact upload, and the full FIFO session
+contract — replay-then-tail reattach, no EOF between turns, clean teardown). The smoke
+caught the zombie pitfall now baked into the driver: containers run with `--init`
+(without it, PID 1 is our `sleep` and never reaps orphans — dead session processes
+linger as zombies, which pass `kill -0` and wedge streams), and liveness checks treat
+state `Z` as dead. Containers created by a pre-`--init` build must be recreated
+(`docker rm -f proj-<slug>`; the next turn recreates it — repo state is re-cloned).
+
 **Not yet done**
 
-- E2E verification against a real host (unit tests pin the script builders and parsers).
 - A docker-less container variant (skip DinD runtime for projects that never run Sail) —
   today every container gets the same runtime flag.
 - Sandbox-side housekeeping additions (session dir cleanup) — tracked with the general
