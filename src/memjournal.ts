@@ -4,8 +4,7 @@ import { mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Config } from './config.js';
-import type { Sandbox } from '@daytonaio/sdk';
-import { exec } from './daytona.js';
+import type { SandboxHandle } from './driver.js';
 import { projectCwd } from './project.js';
 import { memoryDir } from './memory.js';
 import { log } from './log.js';
@@ -83,14 +82,14 @@ export async function snapshotLog(repoDir: string, n = 10): Promise<string[]> {
 }
 
 // Read the memory files out of a (started) sandbox. Flat dir of small text files; cat each.
-async function collectMemoryFiles(sandbox: Sandbox, dir: string): Promise<Record<string, string>> {
-  const ls = await exec(sandbox, `ls -1 ${dir} 2>/dev/null || true`);
+async function collectMemoryFiles(sandbox: SandboxHandle, dir: string): Promise<Record<string, string>> {
+  const ls = await sandbox.exec(`ls -1 ${dir} 2>/dev/null || true`);
   const names = (ls.result ?? '').split('\n').map((s) => s.trim()).filter(safeName);
   const files: Record<string, string> = {};
   for (const name of names) {
     // The name came from `ls`, so the file exists — record it even if empty (an emptied topic
     // is real state; dropping it would silently un-prune it on the mirror snapshot).
-    const r = await exec(sandbox, `cat ${dir}/${name} 2>/dev/null || true`);
+    const r = await sandbox.exec(`cat ${dir}/${name} 2>/dev/null || true`);
     files[name] = r.result ?? '';
   }
   return files;
@@ -99,7 +98,7 @@ async function collectMemoryFiles(sandbox: Sandbox, dir: string): Promise<Record
 // Snapshot a project's sandbox memory into its journal and commit. Best-effort: a journal
 // failure must never break the dream that triggered it.
 export async function snapshotMemory(
-  sandbox: Sandbox,
+  sandbox: SandboxHandle,
   cfg: Config,
   slug: string,
   repos: string[],
@@ -118,20 +117,20 @@ export async function snapshotMemory(
 
 // Seed a freshly-rebuilt sandbox from the journal: only when the sandbox has NO memory yet
 // (otherwise the sandbox is the newer source of truth and we leave it alone). Best-effort.
-export async function restoreMemoryIfEmpty(sandbox: Sandbox, cfg: Config, slug: string, repos: string[]): Promise<boolean> {
+export async function restoreMemoryIfEmpty(sandbox: SandboxHandle, cfg: Config, slug: string, repos: string[]): Promise<boolean> {
   try {
     // Cheap local check first: no journal → nothing to restore, skip the sandbox round-trip.
     // (Journaling is off by default, so this short-circuits on every prepare for most projects.)
     const repoDir = memoryRepoDir(slug);
     if (!existsSync(join(repoDir, '.git'))) return false;
     const dir = memoryDir(projectCwd(cfg, slug, repos));
-    const ls = await exec(sandbox, `ls -1 ${dir} 2>/dev/null | head -1 || true`);
+    const ls = await sandbox.exec(`ls -1 ${dir} 2>/dev/null | head -1 || true`);
     if ((ls.result ?? '').trim()) return false; // sandbox already has memory
     const names = (await readdir(repoDir)).filter((n) => n !== '.git');
     if (!names.length) return false;
-    await exec(sandbox, `mkdir -p ${dir}`);
+    await sandbox.exec(`mkdir -p ${dir}`);
     for (const name of names) {
-      await sandbox.fs.uploadFile(Buffer.from(await readFile(join(repoDir, name))), `${dir}/${name}`);
+      await sandbox.uploadFile(Buffer.from(await readFile(join(repoDir, name))), `${dir}/${name}`);
     }
     log.info(`memory restored into ${slug} sandbox from journal (${names.length} files)`);
     return true;

@@ -14,7 +14,7 @@ import { parseSchedule, groupRoutinesBySlug } from './schedule.js';
 import { mdToMrkdwn, parseTopics } from './format.js';
 import { resolvePr } from './pr.js';
 import { parseEffort, type ReviewEffort } from './prompts.js';
-import { makeDaytona, listSandboxStates, exec } from './daytona.js';
+import { createDriver } from './driver.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
 import { snapshotLog, memoryRepoDir, readSnapshotFile } from './memjournal.js';
@@ -58,12 +58,11 @@ export async function readMemory(
   filePath: string,
   wake: boolean,
 ): Promise<string> {
-  const daytona = makeDaytona(cfg);
+  const driver = createDriver(cfg);
   const name = `${cfg.sandbox.namePrefix}${project.slug}`;
-  let sandbox = await daytona.get(name).catch(() => {
-    throw new Error('No sandbox for this project yet — nothing remembered.');
-  });
-  if (sandbox.state !== 'started') {
+  let sandbox = await driver.getSandbox(name);
+  if (!sandbox) throw new Error('No sandbox for this project yet — nothing remembered.');
+  if (!sandbox.started) {
     if (!wake) {
       throw new Error(
         `💤 The *${project.slug}* sandbox is asleep, so I can't read its live memory right now. ` +
@@ -72,8 +71,8 @@ export async function readMemory(
       );
     }
     try {
-      await daytona.start(sandbox, 180);
-      sandbox = await daytona.get(name);
+      // The sandbox exists (checked above), so ensure = wake it, not create.
+      sandbox = await driver.ensureSandbox(name, project.slug);
     } catch (e) {
       log.error(`readMemory start ${name}: ${e instanceof Error ? e.message : String(e)}`);
       throw new Error(`Couldn't wake the *${project.slug}* sandbox just now — try again in a moment.`);
@@ -81,7 +80,7 @@ export async function readMemory(
   }
   let r;
   try {
-    r = await exec(sandbox, `cat ${filePath} 2>/dev/null || true`);
+    r = await sandbox.exec(`cat ${filePath} 2>/dev/null || true`);
   } catch (e) {
     log.error(`readMemory exec ${name}: ${e instanceof Error ? e.message : String(e)}`);
     throw new Error(`Couldn't read memory from the *${project.slug}* sandbox just now — try again in a moment.`);
@@ -111,7 +110,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     let states = new Map<string, string>();
     let daytonaOk = true;
     try {
-      states = await listSandboxStates(makeDaytona(cfg));
+      states = await createDriver(cfg).listStates();
     } catch {
       daytonaOk = false;
     }

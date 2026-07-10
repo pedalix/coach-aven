@@ -1,4 +1,4 @@
-import type { Sandbox } from '@daytonaio/sdk';
+import type { SandboxHandle } from './driver.js';
 import { CC_TOKEN_ENV } from './project.js';
 import { narrationLabel } from './format.js';
 import { stepLabel } from './steps.js';
@@ -76,7 +76,7 @@ export class ClaudeSession {
   private attached = false; // opened by reattaching to a running command (vs fresh spawn)
 
   constructor(
-    private readonly sandbox: Sandbox,
+    private readonly sandbox: SandboxHandle,
     private readonly opts: {
       cwd: string;
       resumeSessionId?: string;
@@ -114,16 +114,14 @@ export class ClaudeSession {
   async open(): Promise<void> {
     if (this.opts.attach) {
       const { sessionKey, cmdId } = this.opts.attach;
-      const cmd = await this.sandbox.process
-        .getSessionCommand(sessionKey, cmdId)
-        .catch(() => undefined);
-      if (!cmd || cmd.exitCode != null) throw new Error('attach: command no longer running');
+      if (!(await this.sandbox.sessionCommandRunning(sessionKey, cmdId)))
+        throw new Error('attach: command no longer running');
       // Re-subscribing replays the whole log from the start. Snapshot the current stdout
       // length and skip exactly that many chars so we process only NEW output — otherwise a
       // replayed past `result` would settle the next turn's pending with stale text.
-      const snap = await this.sandbox.process.getSessionCommandLogs(sessionKey, cmdId);
-      let skip = (snap.stdout ?? '').length;
-      this.parseSnapshot(snap.stdout ?? ''); // detect a turn that finished during downtime
+      const stdout = await this.sandbox.sessionCommandLogs(sessionKey, cmdId);
+      let skip = stdout.length;
+      this.parseSnapshot(stdout); // detect a turn that finished during downtime
       this.cmdId = cmdId;
       this.attached = true;
       const onStdout = (c: string) => {
@@ -137,13 +135,13 @@ export class ClaudeSession {
         }
         this.onChunk(c);
       };
-      void this.sandbox.process
-        .getSessionCommandLogs(sessionKey, cmdId, onStdout, () => {})
+      void this.sandbox
+        .streamSessionCommandLogs(sessionKey, cmdId, onStdout)
         .then(() => this.onExit())
         .catch(() => this.onExit());
       return;
     }
-    await this.sandbox.process.createSession(this.sessionKey);
+    await this.sandbox.createSession(this.sessionKey);
     const resume = this.opts.resumeSessionId ? `--resume ${this.opts.resumeSessionId} ` : '';
     const sys = this.opts.systemPrompt ? `--append-system-prompt ${sq(this.opts.systemPrompt)} ` : '';
     // --strict-mcp-config ignores the repo's own .mcp.json; --mcp-config adds ONLY our
@@ -158,15 +156,11 @@ export class ClaudeSession {
       `cd ${sq(this.opts.cwd)} && ${CC_TOKEN_ENV} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
       `claude --output-format stream-json --input-format stream-json --verbose ` +
       `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ${mcp}${resume}${sys}`;
-    const started = await this.sandbox.process.executeSessionCommand(
-      this.sessionKey,
-      { command, runAsync: true },
-      0,
-    );
-    this.cmdId = started.cmdId!;
+    const started = await this.sandbox.startSessionCommand(this.sessionKey, command);
+    this.cmdId = started.cmdId;
     // Stream stdout until the process exits; resolution/rejection both mean "process gone".
-    void this.sandbox.process
-      .getSessionCommandLogs(this.sessionKey, this.cmdId, (c) => this.onChunk(c), () => {})
+    void this.sandbox
+      .streamSessionCommandLogs(this.sessionKey, this.cmdId, (c) => this.onChunk(c))
       .then(() => this.onExit())
       .catch(() => this.onExit());
   }
@@ -219,9 +213,9 @@ export class ClaudeSession {
       }
 
       const line = JSON.stringify({ type: 'user', message: { role: 'user', content: text } }) + '\n';
-      void this.sandbox.process
-        .sendSessionCommandInput(this.sessionKey, this.cmdId!, line)
-        .catch((e) =>
+      void this.sandbox
+        .sendSessionInput(this.sessionKey, this.cmdId!, line)
+        .catch((e: unknown) =>
           this.settle({
             status: 'error',
             resultText: e instanceof Error ? e.message : String(e),
@@ -332,14 +326,14 @@ export class ClaudeSession {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async write(obj: any): Promise<void> {
     if (this.dead || !this.cmdId) return;
-    await this.sandbox.process
-      .sendSessionCommandInput(this.sessionKey, this.cmdId, JSON.stringify(obj) + '\n')
+    await this.sandbox
+      .sendSessionInput(this.sessionKey, this.cmdId, JSON.stringify(obj) + '\n')
       .catch(() => {});
   }
 
   async close(): Promise<void> {
     this.dead = true;
-    await this.sandbox.process.deleteSession(this.sessionKey).catch(() => {});
+    await this.sandbox.deleteSession(this.sessionKey).catch(() => {});
   }
 
   // ── stdout demux ───────────────────────────────────────────────────────────

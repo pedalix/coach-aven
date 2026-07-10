@@ -1,6 +1,6 @@
 import type { Config } from './config.js';
 import type { Store } from './state.js';
-import { makeDaytona, ensureSnapshot, ensureSandbox, exec } from './daytona.js';
+import { createDriver, type SandboxHandle } from './driver.js';
 import { getGitHubToken } from './github.js';
 import {
   seedGitHubAuth,
@@ -76,11 +76,11 @@ function withSandboxLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
 // repo, else the project root (so Claude sees every repo as a subdir).
 async function prepareChat(cfg: Config, store: Store, slug: string, repos: string[]) {
   if (repos.length === 0) throw new Error(`project ${slug} has no repos`);
-  const daytona = makeDaytona(cfg);
-  await ensureSnapshot(daytona, cfg);
+  const driver = createDriver(cfg);
+  await driver.ensureImage();
 
   const proj = store.upsertProject(slug, repos[0], cfg.sandbox.namePrefix);
-  const sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, slug);
+  const sandbox = await driver.ensureSandbox(proj.sandboxName, slug);
   await provisionTooling(sandbox);
   // dockerd liveness guard: a dead daemon breaks Sail (php/composer/artisan shims) for
   // every turn until revived — catch it here rather than mid-conversation.
@@ -99,7 +99,7 @@ async function prepareChat(cfg: Config, store: Store, slug: string, repos: strin
 
   proj.clonedAt = proj.clonedAt ?? new Date().toISOString();
   store.setProject(proj);
-  return { daytona, sandbox, proj, cwd };
+  return { driver, sandbox, proj, cwd };
 }
 
 // Layer 1 (orchestrator-owned) system prompt: the mechanics true for ALL projects —
@@ -193,12 +193,12 @@ function buildSystemPrompt(
 // Resuming an id whose transcript isn't flushed/real fails silently — verify it first
 // (file non-empty AND contains at least one real entry), else start fresh.
 async function sessionTranscriptValid(
-  sandbox: Awaited<ReturnType<typeof ensureSandbox>>,
+  sandbox: SandboxHandle,
   cwd: string,
   id: string,
 ): Promise<boolean> {
   const path = `/root/.claude/projects/${cwd.replace(/\//g, '-')}/${id}.jsonl`;
-  const r = await exec(sandbox, `test -s ${path} && grep -ql '"uuid"' ${path} && echo ok || echo no`);
+  const r = await sandbox.exec(`test -s ${path} && grep -ql '"uuid"' ${path} && echo ok || echo no`);
   return r.result.trim() === 'ok';
 }
 
@@ -223,7 +223,7 @@ export async function openChat(
   },
 ): Promise<ChatSession> {
   const prep = await withSandboxLock(opts.slug, () => prepareChat(cfg, store, opts.slug, opts.repos));
-  const { daytona, proj, cwd } = prep;
+  const { driver, proj, cwd } = prep;
   let sandbox = prep.sandbox;
   let sessionId: string | undefined = opts.resumeSessionId;
   let session: ClaudeSession | undefined;
@@ -244,7 +244,7 @@ export async function openChat(
   async function ensureSession(): Promise<ClaudeSession> {
     if (session && !session.isDead()) {
       await withSandboxLock(opts.slug, async () => {
-        sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, opts.slug);
+        sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug);
         await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
         await seedGitHubAuth(sandbox, await getGitHubToken(cfg, opts.repos));
         await seedMcpConfig(sandbox, opts.mcp);
@@ -253,7 +253,7 @@ export async function openChat(
     }
     return withSandboxLock(opts.slug, async () => {
       if (session && !session.isDead()) return session;
-      sandbox = await ensureSandbox(daytona, cfg, proj.sandboxName, opts.slug);
+      sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug);
       await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
       await seedGitHubAuth(sandbox, await getGitHubToken(cfg, opts.repos));
       const mcpConfigPath = await seedMcpConfig(sandbox, opts.mcp);
@@ -308,7 +308,7 @@ export async function openChat(
         // Ensure the sandbox is awake before writing (ask() does the same via ensureSession);
         // then create the per-turn inbox once and upload each downloaded file into it.
         await ensureSession();
-        await exec(sandbox, `mkdir -p ${inboxDir(turnId)}`);
+        await sandbox.exec(`mkdir -p ${inboxDir(turnId)}`);
         for (let i = 0; i < accept.length; i++) {
           const ref = accept[i];
           try {
@@ -327,7 +327,7 @@ export async function openChat(
               if (norm.failed) warnings.push(`${ref.name} couldn't be pre-scaled; if Read says it's too big, resize it with \`magick\` first`);
             }
             const path = inboxPath(turnId, i + 1, ref.name);
-            await sandbox.fs.uploadFile(data, path);
+            await sandbox.uploadFile(data, path);
             kept.push({ path, name: ref.name });
           } catch {
             skipped.push({ name: ref.name, reason: 'download failed' });

@@ -15,7 +15,7 @@ import { reviewPrompt, REPORT_FRAMING, investigationPrompt, type ReviewEffort } 
 import { listTaggedIssues, listComments, listAttachments, dueTickets, headerExtras, type YouTrackIssue } from './youtrack.js';
 import { ticketCardBlocks } from './blocks.js';
 import { listOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js';
-import { makeDaytona, exec } from './daytona.js';
+import { createDriver } from './driver.js';
 import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
 import { housekeepingScript, parseHousekeepingReport, pruneThreshold } from './housekeeping.js';
 import { dreamPrompt, dreamDigest } from './dream.js';
@@ -112,7 +112,8 @@ export function createPollers(
         store.patchRoutine(r.id, { lastSummary: digest });
         log.info(`dream ${r.id} (${project.slug}): ${digest}`);
         // Journal the consolidated memory (the sandbox is awake from the dream just now).
-        const sandbox = await makeDaytona(cfg).get(`${cfg.sandbox.namePrefix}${project.slug}`);
+        const sandbox = await createDriver(cfg).getSandbox(`${cfg.sandbox.namePrefix}${project.slug}`);
+        if (!sandbox) throw new Error('sandbox not found after dream');
         await snapshotMemory(sandbox, cfg, project.slug, project.repos, digest);
       } catch (e) {
         log.error(`dream ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
@@ -131,9 +132,8 @@ export function createPollers(
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
     void (async () => {
       try {
-        const daytona = makeDaytona(cfg);
-        const sandbox = await daytona.get(`${cfg.sandbox.namePrefix}${project.slug}`).catch(() => undefined);
-        if (!sandbox || sandbox.state !== 'started') {
+        const sandbox = await createDriver(cfg).getSandbox(`${cfg.sandbox.namePrefix}${project.slug}`);
+        if (!sandbox || !sandbox.started) {
           store.patchRoutine(r.id, { lastSummary: 'sandbox asleep — skipped' });
           return;
         }
@@ -141,7 +141,7 @@ export function createPollers(
         for (const repo of project.repos) {
           reaped += await reapWorktrees(sandbox, repoCheckout(cfg, project.slug, repo));
         }
-        const res = await exec(sandbox, housekeepingScript(pruneThreshold()), { timeout: 600 });
+        const res = await sandbox.exec(housekeepingScript(pruneThreshold()), { timeout: 600 });
         const report = parseHousekeepingReport(res.result ?? '', reaped);
         store.patchRoutine(r.id, { lastSummary: report.digest });
         log.info(`housekeeping ${r.id} (${project.slug}): ${report.digest}`);

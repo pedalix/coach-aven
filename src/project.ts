@@ -1,9 +1,8 @@
-import type { Sandbox } from '@daytonaio/sdk';
+import type { SandboxHandle } from './driver.js';
 import type { Config } from './config.js';
 import type { McpServerSpec } from './projects.js';
 import { buildMcpServers } from './mcp.js';
 import { dockerdGuardCmd } from './housekeeping.js';
-import { exec } from './daytona.js';
 import { log } from './log.js';
 
 // The snapshot image (snapshot/Dockerfile → SNAPSHOT_IMAGE) bakes in the sandbox tooling
@@ -12,11 +11,11 @@ import { log } from './log.js';
 // so warm sandboxes pick them up on their next turn with no image rebuild and no lost
 // state (repos/worktrees/history/memory). Anything added here should also go into the
 // Dockerfile so freshly-baked images stop needing the runtime install.
-export async function provisionTooling(sandbox: Sandbox) {
+export async function provisionTooling(sandbox: SandboxHandle) {
   // imagemagick is the recovery tool for oversized images: attachments are pre-scaled by the
   // orchestrator, but if one slips through (e.g. a format sharp couldn't decode), the agent
   // resizes in one `magick` step instead of hand-rolling a resizer.
-  await exec(sandbox, 'command -v magick >/dev/null 2>&1 || apk add --no-cache imagemagick', { timeout: 300 });
+  await sandbox.exec('command -v magick >/dev/null 2>&1 || apk add --no-cache imagemagick', { timeout: 300 });
 }
 
 // Make sure dockerd is alive before a turn runs. The dind entrypoint starts it once and
@@ -24,8 +23,8 @@ export async function provisionTooling(sandbox: Sandbox) {
 // silently breaks until someone pokes the sandbox (this bit us: the Grafana MCP was
 // docker-run based and stayed "not connected" for days). Cheap when healthy (~one
 // `docker info`); also part of the nightly housekeeping routine.
-export async function ensureDockerd(sandbox: Sandbox): Promise<void> {
-  const r = await exec(sandbox, dockerdGuardCmd(), { timeout: 60 });
+export async function ensureDockerd(sandbox: SandboxHandle): Promise<void> {
+  const r = await sandbox.exec(dockerdGuardCmd(), { timeout: 60 });
   const state = r.result?.match(/hk:dockerd=(\w+)/)?.[1];
   if (state === 'restarted') log.warn('dockerd was down — restarted it');
   else if (state === 'failed') log.error('dockerd is down and would not restart — Sail commands will fail');
@@ -55,12 +54,11 @@ export function projectCwd(cfg: Config, slug: string, repos: string[]): string {
 // Write the GitHub installation token into the sandbox WITHOUT it showing up in
 // command logs (fs.uploadFile, not echo). A git credential helper + gh read it.
 // Call this at the start of every task so the (≈1h) token is always fresh.
-export async function seedGitHubAuth(sandbox: Sandbox, token: string) {
-  await sandbox.fs.uploadFile(Buffer.from(token), '/root/.gh-token');
-  await exec(sandbox, 'chmod 600 /root/.gh-token', { check: true });
+export async function seedGitHubAuth(sandbox: SandboxHandle, token: string) {
+  await sandbox.uploadFile(Buffer.from(token), '/root/.gh-token');
+  await sandbox.exec('chmod 600 /root/.gh-token', { check: true });
   // git: credential helper that emits the token for github.com over https.
-  await exec(
-    sandbox,
+  await sandbox.exec(
     `git config --global credential.helper '!f() { echo username=x-access-token; echo "password=$(cat /root/.gh-token)"; }; f'`,
     { check: true },
   );
@@ -68,22 +66,21 @@ export async function seedGitHubAuth(sandbox: Sandbox, token: string) {
   // GitHub account. The previous fake email (agent@example.com) belonged to no
   // account, which made Vercel refuse PR deploys ("no GitHub account matching the
   // commit author email"). The numeric id is coach-aven[bot]'s user id.
-  await exec(sandbox, `git config --global user.name "coach-aven[bot]"`, { check: true });
-  await exec(
-    sandbox,
+  await sandbox.exec(`git config --global user.name "coach-aven[bot]"`, { check: true });
+  await sandbox.exec(
     `git config --global user.email "271933357+coach-aven[bot]@users.noreply.github.com"`,
     { check: true },
   );
   // gh: authenticate so the agent's `gh pr create` works.
-  await exec(sandbox, `gh auth login --with-token < /root/.gh-token`, { check: true });
+  await sandbox.exec(`gh auth login --with-token < /root/.gh-token`, { check: true });
 }
 
 // Write the Claude Code token into the sandbox (via fs, not echoed). claude reads
 // CLAUDE_CODE_OAUTH_TOKEN; we set it per-command as `$(cat /root/.cc-token)` so the
 // token never lands in command logs and a warm sandbox always uses the fresh token.
-export async function seedClaudeAuth(sandbox: Sandbox, token: string) {
-  await sandbox.fs.uploadFile(Buffer.from(token), '/root/.cc-token');
-  await exec(sandbox, 'chmod 600 /root/.cc-token', { check: true });
+export async function seedClaudeAuth(sandbox: SandboxHandle, token: string) {
+  await sandbox.uploadFile(Buffer.from(token), '/root/.cc-token');
+  await sandbox.exec('chmod 600 /root/.cc-token', { check: true });
 }
 
 // Prefix that injects the token without leaking it into the command string/logs.
@@ -97,13 +94,13 @@ const MCP_CONFIG_PATH = '/root/.mcp-config.json';
 // loads ONLY these servers (the repo's own .mcp.json is ignored). Spec-shape handling
 // (stdio vs remote http, ${ENV} secret resolution) lives in buildMcpServers (mcp.ts).
 export async function seedMcpConfig(
-  sandbox: Sandbox,
+  sandbox: SandboxHandle,
   mcp: McpServerSpec[] | undefined,
 ): Promise<string | undefined> {
   if (!mcp || mcp.length === 0) return undefined;
   const mcpServers = buildMcpServers(mcp);
-  await sandbox.fs.uploadFile(Buffer.from(JSON.stringify({ mcpServers })), MCP_CONFIG_PATH);
-  await exec(sandbox, `chmod 600 ${MCP_CONFIG_PATH}`, { check: true });
+  await sandbox.uploadFile(Buffer.from(JSON.stringify({ mcpServers })), MCP_CONFIG_PATH);
+  await sandbox.exec(`chmod 600 ${MCP_CONFIG_PATH}`, { check: true });
   return MCP_CONFIG_PATH;
 }
 
@@ -117,7 +114,7 @@ const REAP_HOURS = Math.floor(Number(process.env.WORKTREE_REAP_HOURS)) || 12;
 // loss), and idle longer than WORKTREE_REAP_HOURS (so an active conversation's worktree is
 // left alone). Run at prepareChat (lazy) and by the nightly housekeeping routine
 // (proactive); returns how many were reaped for the housekeeping digest.
-export async function reapWorktrees(sandbox: Sandbox, repoDir: string): Promise<number> {
+export async function reapWorktrees(sandbox: SandboxHandle, repoDir: string): Promise<number> {
   const script =
     `cd ${repoDir} 2>/dev/null || exit 0\n` +
     `git worktree prune 2>/dev/null\n` +
@@ -132,7 +129,7 @@ export async function reapWorktrees(sandbox: Sandbox, repoDir: string): Promise<
     `  [ $(( now - ct )) -lt $(( ${REAP_HOURS} * 3600 )) ] && continue\n` +
     `  git worktree remove "$wt" --force 2>/dev/null && echo "reaped $wt"\n` +
     `done`;
-  const r = await exec(sandbox, script);
+  const r = await sandbox.exec(script);
   const reaped = r.result.split('\n').filter((l) => l.startsWith('reaped ')).length;
   if (reaped > 0) log.info(`reaped ${reaped} finished worktree(s) under ${repoDir}`);
   return reaped;
@@ -140,9 +137,9 @@ export async function reapWorktrees(sandbox: Sandbox, repoDir: string): Promise<
 
 // Clone (or fetch) a single repo into its own <slug>/<repoName> dir. Used by the chat
 // path so a project can hold N repos. Idempotent.
-export async function cloneRepo(sandbox: Sandbox, cfg: Config, slug: string, repo: string) {
+export async function cloneRepo(sandbox: SandboxHandle, cfg: Config, slug: string, repo: string) {
   const dir = repoCheckout(cfg, slug, repo);
-  const exists = await exec(sandbox, `test -d ${dir}/.git && echo yes || echo no`);
+  const exists = await sandbox.exec(`test -d ${dir}/.git && echo yes || echo no`);
   if (exists.result.trim() === 'yes') {
     log.step(`repo present — fetching ${repo}`);
     // Heal a token baked into the remote URL by a previous session. If something embedded
@@ -151,14 +148,14 @@ export async function cloneRepo(sandbox: Sandbox, cfg: Config, slug: string, rep
     // fetch/push fails once it expires (the helper's fresh token never gets a look-in). Force
     // the canonical tokenless URL so auth always flows through the fresh-token helper. Shared
     // .git config means this also heals every worktree of the repo.
-    await exec(sandbox, `git -C ${dir} remote set-url origin https://github.com/${repo}.git`, {
+    await sandbox.exec(`git -C ${dir} remote set-url origin https://github.com/${repo}.git`, {
       check: true,
     });
-    await exec(sandbox, `git -C ${dir} fetch --all --prune`, { check: true, timeout: 600 });
+    await sandbox.exec(`git -C ${dir} fetch --all --prune`, { check: true, timeout: 600 });
   } else {
     log.step(`cloning ${repo} → ${dir}`);
-    await exec(sandbox, `mkdir -p ${projectDir(cfg, slug)}`, { check: true });
-    await exec(sandbox, `git clone https://github.com/${repo}.git ${dir}`, {
+    await sandbox.exec(`mkdir -p ${projectDir(cfg, slug)}`, { check: true });
+    await sandbox.exec(`git clone https://github.com/${repo}.git ${dir}`, {
       check: true,
       timeout: 900,
     });

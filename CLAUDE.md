@@ -36,6 +36,10 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   `src/blocks.ts` (all Block Kit rendering), `src/channels.ts` (channel↔project).
 - `src/tasks.ts` — chat session over a sandbox; the **3-layer system prompt**
   (orchestrator base → project prompt → repo `CLAUDE.md`).
+- `src/driver.ts` — the provider-agnostic **sandbox driver** interface (warm sandboxes,
+  exec, persistent process sessions). `src/daytona.ts` is the Daytona implementation and
+  the ONLY file allowed to import `@daytonaio/sdk`; a new provider = a new driver, the
+  rest of the bot stays provider-ignorant.
 - `src/projects.ts` / `infra/prod/runtime/projects.config.json` — per-project repos, MCP,
   prompt. System prompts live as markdown beside the config (`projects.d/<slug>.md`, wins
   over the JSON field). Read at boot; `/aven reload` re-reads at runtime (new sessions
