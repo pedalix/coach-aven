@@ -514,6 +514,26 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     }
   });
 
+  // ── install lifecycle: uninstall / token revocation → drop the dead installation ──
+  // Only the INSTALLATION record is removed (its token is dead anyway) — the tenant's
+  // data (chats/routines/usage) is deliberately kept for Store.exportTenant/purgeTenant,
+  // which stay an explicit operator decision (offboarding may need the export first).
+  app.event('app_uninstalled', async ({ context }) => {
+    const tenant = tenantOf(context);
+    if (!tenant) return;
+    const removed = store.deleteInstallation(tenant);
+    log.warn(`app_uninstalled by ${tenant} — installation ${removed ? 'removed' : 'not found'}; data kept (purge is manual)`);
+  });
+  app.event('tokens_revoked', async ({ context, event }) => {
+    const tenant = tenantOf(context);
+    // Only a BOT token revocation kills the installation; user-token revocations don't
+    // affect us (we never store user tokens).
+    const revokedBots = (event as { tokens?: { bot?: string[] } }).tokens?.bot ?? [];
+    if (!tenant || !revokedBots.length) return;
+    const removed = store.deleteInstallation(tenant);
+    log.warn(`tokens_revoked (bot) by ${tenant} — installation ${removed ? 'removed' : 'not found'}; data kept (purge is manual)`);
+  });
+
   // ── App Home tab → a self-documenting dashboard: projects, channels, how to use me ──
   app.event('app_home_opened', async ({ event, client, context }) => {
     const e = event as { user: string; tab?: string };

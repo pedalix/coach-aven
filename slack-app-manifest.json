@@ -25,7 +25,7 @@
     },
     "oauth_config": {
         "redirect_urls": [
-            "https://coachaven.example.com/slack/oauth_redirect"
+            "https://bot.aven.guru/slack/oauth_redirect"
         ],
         "scopes": {
             "user": [
@@ -39,12 +39,19 @@
             ],
             "bot": [
                 "app_mentions:read",
+                "bookmarks:read",
+                "bookmarks:write",
                 "channels:history",
                 "channels:join",
                 "channels:manage",
                 "channels:read",
                 "chat:write",
+                "chat:write.customize",
                 "commands",
+                "conversations.connect:manage",
+                "conversations.connect:read",
+                "conversations.connect:write",
+                "emoji:read",
                 "files:read",
                 "files:write",
                 "groups:history",
@@ -53,10 +60,16 @@
                 "im:history",
                 "im:read",
                 "im:write",
+                "links:read",
+                "links:write",
+                "metadata.message:read",
                 "mpim:history",
                 "mpim:write",
+                "pins:read",
+                "pins:write",
                 "reactions:write",
                 "reactions:read",
+                "team:read",
                 "usergroups:read",
                 "users:read.email",
                 "users:read"
@@ -69,10 +82,28 @@
             "bot_events": [
                 "app_home_opened",
                 "app_mention",
+                "app_rate_limited",
+                "app_uninstalled",
+                "channel_archive",
+                "channel_deleted",
+                "channel_rename",
+                "channel_shared",
+                "channel_unarchive",
+                "channel_unshared",
+                "group_archive",
+                "group_deleted",
+                "group_rename",
+                "group_unarchive",
+                "member_joined_channel",
+                "member_left_channel",
                 "message.channels",
                 "message.groups",
                 "message.im",
-                "message.mpim"
+                "message.mpim",
+                "reaction_added",
+                "reaction_removed",
+                "team_join",
+                "tokens_revoked"
             ]
         },
         "interactivity": {

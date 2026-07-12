@@ -71,3 +71,15 @@ test('EventLog — appends JSONL into a per-day file', () => {
   assert.equal(lines.length, 2);
   assert.equal(JSON.parse(lines[1]).decision, 'gated');
 });
+
+test('full mode is opt-in: metadata records never carry raw (the writer decides)', () => {
+  // The '1' vs 'full' split lives at the append site (slack.ts) — this pins the contract
+  // that a metadata-only record round-trips without any raw field.
+  const dir = mkdtempSync(join(tmpdir(), 'aven-events-'));
+  const logf = new EventLog(dir);
+  logf.append(envelopeMeta({ event: { type: 'message', text: 'SECRET' } }, {}, new Date('2026-07-13T00:00:00Z')));
+  logf.append({ ...envelopeMeta({ event: { type: 'message' } }, {}, new Date('2026-07-13T00:00:01Z')), raw: { event: { text: 'captured' } } });
+  const lines = readFileSync(join(dir, '2026-07-13.jsonl'), 'utf8').trim().split('\n');
+  assert.ok(!lines[0].includes('SECRET'));
+  assert.ok(JSON.parse(lines[1]).raw.event.text === 'captured');
+});

@@ -165,3 +165,21 @@ test('twin: a write button from an unserved workspace fires NO turn', async () =
     await t.stop();
   }
 });
+
+test('twin: app_uninstalled removes the tenant installation (data kept)', async () => {
+  const t = await twin();
+  try {
+    t.store.setInstallation(CLIENT, { bot: { token: 'xoxb-dead' } });
+    t.store.patchChat(`${CLIENT}:thread:7.0`, 'beta', {}); // tenant data that must SURVIVE
+    await t.receiver.send({
+      team_id: CLIENT,
+      api_app_id: 'A0TWIN',
+      type: 'event_callback',
+      event: { type: 'app_uninstalled' },
+    });
+    assert.equal(t.store.getInstallation(CLIENT), undefined);
+    assert.equal(t.store.getChat(`${CLIENT}:thread:7.0`)?.slug, 'beta'); // purge stays manual
+  } finally {
+    await t.stop();
+  }
+});

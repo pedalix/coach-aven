@@ -14,7 +14,7 @@ import { Store } from './state.js';
 import { createInstallationStore } from './installations.js';
 import { tenantOf } from './teamkeys.js';
 import { RecentSet } from './recent.js';
-import { eventLog, envelopeMeta } from './eventlog.js';
+import { eventLog, eventLogRaw, envelopeMeta } from './eventlog.js';
 import { loadProjects, type RegistryRef } from './projects.js';
 import { createTurnEngine } from './turn.js';
 import { createChannels } from './channels.js';
@@ -151,7 +151,10 @@ export async function runSlack(cfg: Config): Promise<void> {
   if (eventLog) {
     const journal = eventLog; // narrow once — the closure runs long after the check
     app.use(async ({ body, context, next }) => {
-      journal.append(envelopeMeta(body, context as { teamId?: string; enterpriseId?: string; isEnterpriseInstall?: boolean }));
+      const meta = envelopeMeta(body, context as { teamId?: string; enterpriseId?: string; isEnterpriseInstall?: boolean });
+      // 'full' additionally captures the verbatim envelope (message text included) —
+      // the complete twin-fixture dataset for the trusted-workspaces phase.
+      journal.append(eventLogRaw ? { ...meta, raw: body } : meta);
       return next();
     });
   }
@@ -187,6 +190,9 @@ export async function runSlack(cfg: Config): Promise<void> {
       // Fail closed when home itself is unresolved (first boot): serve nobody.
       const b = body as { command?: string; type?: string; event?: { type?: string; channel?: string } };
       const evType = b.event?.type;
+      // Lifecycle events must reach their handlers from ANY tenant — an uninstall from
+      // an unserved-but-installed workspace is exactly the cleanup signal we want.
+      if (evType === 'app_uninstalled' || evType === 'tokens_revoked') return next();
       // Surfaces whose handlers give the polite "not configured" answer themselves:
       if (evType === 'app_home_opened') return next(); // onboarding Home view (events.ts)
       if (b.command || b.type === 'block_actions' || b.type === 'view_submission') return next(); // ack() lives there

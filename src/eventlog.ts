@@ -28,6 +28,10 @@ export interface EnvelopeMeta {
   botId?: string; // present on bot-authored messages (the ignore path)
   extShared?: boolean; // is_ext_shared_channel — the Slack Connect marker
   decision?: string; // appended by the pipeline: 'gated', 'claim-lost', … (absent = delivered to handlers)
+  // FULL-capture mode only (AVEN_EVENT_LOG=full): the raw envelope body, verbatim —
+  // including message text and button values. For trusted-workspace phases where the
+  // goal is a complete twin-fixture dataset; the default '1' mode never sets this.
+  raw?: unknown;
 }
 
 // Extract the whitelist from a raw Bolt body+context. Tolerant of any shape — unknown
@@ -104,4 +108,10 @@ export class EventLog {
 
 // The process-wide journal, or undefined when AVEN_EVENT_LOG isn't set — call sites do
 // `eventLog?.append(...)`, so the disabled path costs one undefined check.
-export const eventLog: EventLog | undefined = process.env.AVEN_EVENT_LOG === '1' ? new EventLog() : undefined;
+//   AVEN_EVENT_LOG=1    → metadata-only (the privacy whitelist above)
+//   AVEN_EVENT_LOG=full → metadata + the raw envelope body (trusted workspaces only —
+//                         raw carries message text; don't run this once real clients land)
+export const eventLog: EventLog | undefined = ['1', 'full'].includes(process.env.AVEN_EVENT_LOG ?? '')
+  ? new EventLog()
+  : undefined;
+export const eventLogRaw: boolean = process.env.AVEN_EVENT_LOG === 'full';
