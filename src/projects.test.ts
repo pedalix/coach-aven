@@ -70,3 +70,47 @@ test('validation: slug and repos are required', () => {
     assert.throws(() => loadProjects(cfg), /at least one repo/);
   });
 });
+
+// ── slice 2: per-tenant registry (workspaces block) ──────────────────────────
+import { teamProjects, projectOwnerTeam } from './projects.js';
+
+const HOME = 'T0HOME111';
+const CLIENT = 'T0CLIENT22';
+
+const MULTI = {
+  projects: BASE.projects,
+  workspaces: { [HOME]: ['alpha', 'beta'], [CLIENT]: ['beta'] }, // beta is shared
+};
+
+test('teamProjects — no workspaces block: home gets all, others nothing', () => {
+  const reg = { projects: BASE.projects };
+  assert.deepEqual(teamProjects(reg, HOME, HOME).map((p) => p.slug), ['alpha', 'beta']);
+  assert.deepEqual(teamProjects(reg, undefined, HOME).map((p) => p.slug), ['alpha', 'beta']);
+  assert.deepEqual(teamProjects(reg, CLIENT, HOME), []);
+  // static mode (no home known): the sole workspace sees everything
+  assert.deepEqual(teamProjects(reg, 'T0WHATEVER', undefined).map((p) => p.slug), ['alpha', 'beta']);
+});
+
+test('teamProjects — with the block: explicit-only, config order preserved', () => {
+  assert.deepEqual(teamProjects(MULTI, HOME, HOME).map((p) => p.slug), ['alpha', 'beta']);
+  assert.deepEqual(teamProjects(MULTI, CLIENT, HOME).map((p) => p.slug), ['beta']);
+  assert.deepEqual(teamProjects(MULTI, 'T0STRANGER', HOME), []); // installed-but-unmapped
+  // undefined tenant (home context, e.g. pollers) resolves the home entry
+  assert.deepEqual(teamProjects(MULTI, undefined, HOME).map((p) => p.slug), ['alpha', 'beta']);
+});
+
+test('projectOwnerTeam — first listing tenant wins; home without a block', () => {
+  assert.equal(projectOwnerTeam(MULTI, 'beta', HOME), HOME); // shared → first in config order
+  assert.equal(projectOwnerTeam(MULTI, 'alpha', HOME), HOME);
+  assert.equal(projectOwnerTeam({ projects: BASE.projects }, 'alpha', HOME), HOME);
+  const clientFirst = { projects: BASE.projects, workspaces: { [CLIENT]: ['beta'], [HOME]: ['alpha', 'beta'] } };
+  assert.equal(projectOwnerTeam(clientFirst, 'beta', HOME), CLIENT);
+  assert.equal(projectOwnerTeam(MULTI, 'ghost', HOME), HOME); // unknown slug → home fallback
+});
+
+test('validation: workspaces slugs must exist', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ ...BASE, workspaces: { T0X11111: ['nope'] } }));
+    assert.throws(() => loadProjects(cfg), /unknown project "nope"/);
+  });
+});

@@ -11,9 +11,23 @@
 > `InstallationStore` persisting per-workspace bot tokens in `state.json`
 > (`src/installations.ts`), per-event team tokens in the handlers, and a **tenant gate**
 > (home team + `SLACK_ALLOWED_TEAMS`) so an unexpected install can't reach our global
-> registry. Still ahead (see §3): per-team project registries + state re-keying by
-> `team_id`, per-team pollers/recovery, uninstall handling, SQLite. Option A's
-> shared-channel model remains possible in parallel — the two aren't exclusive.
+> registry. Option A's shared-channel model remains possible in parallel — the two
+> aren't exclusive.
+>
+> **Slice 2 is in (per-team project registries):** the `workspaces` block in
+> projects.config.json scopes projects per tenant (`teamProjects`/`projectOwnerTeam`,
+> src/projects.ts); session keys carry an optional tenant prefix (src/teamkeys.ts — home
+> stays bare, ZERO migration for pre-slice-2 home records); EVERY persisted record carries
+> an explicit `teamId` (stamped from the key by the store for chats/queued turns), giving
+> `Store.exportTenant`/`purgeTenant` for offboarding; pollers/routines/recovery resolve
+> each record's own workspace client (`clientForTeam`); App Home is per-tenant with an
+> onboarding view for installed-but-unmapped workspaces; `/aven` is tenant-scoped
+> (`reload`/`usage` home-only, `review auto` owner-team-only); a claim-on-act LRU in
+> events.ts guards against Slack Connect double envelopes. ⚠️ **Deploy slice 2 BEFORE
+> admitting any client team** — a team allowlisted earlier would have bare-keyed records
+> that orphan. ⚠️ Before onboarding a client into a SHARED (Connect) channel, run the
+> manual spike: app on both sides, verify envelope duplication + the claim-on-act rule.
+> Still ahead (see §3): uninstall/tokens_revoked handling, SQLite, self-serve onboarding.
 
 ---
 

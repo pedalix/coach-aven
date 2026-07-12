@@ -6,8 +6,9 @@
 import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
 import type { Store, RoutineRecord } from './state.js';
-import { resolveBySlug, type ProjectConfig, type RegistryRef } from './projects.js';
-import type { TurnEngine } from './turn.js';
+import { resolveBySlug, projectOwnerTeam, teamProjects, type ProjectConfig, type RegistryRef } from './projects.js';
+import { withTeam, normalizeTenant } from './teamkeys.js';
+import type { TurnEngine, ClientForTeam } from './turn.js';
 import type { Channels } from './channels.js';
 import { dueRoutines } from './schedule.js';
 import { prsToReview, autofixEvents } from './pr.js';
@@ -46,17 +47,39 @@ export interface Pollers {
     number: number,
     channel: string,
     effort?: ReviewEffort,
+    tenant?: string,
   ): boolean;
 }
 
+// Pollers are per-tenant since slice 2: every stored record (routine, watch, settings,
+// investigation) carries its owning tenant, and each fire resolves THAT workspace's
+// client via `clientFor` — a tenant with no live installation is logged and skipped,
+// never silently posted to with the home token. `home()` late-binds the home tenant id
+// (needed for the owner-team rule on shared projects).
 export function createPollers(
   cfg: Config,
   store: Store,
   reg: RegistryRef,
-  client: bolt.webApi.WebClient,
+  clientFor: ClientForTeam,
   engine: TurnEngine,
   channels: Channels,
+  home: () => string | undefined,
 ): Pollers {
+  // Resolve a tenant's client, or undefined with a log line (the per-record skip rule).
+  const clientOrSkip = (tenantId: string | undefined, what: string): bolt.webApi.WebClient | undefined => {
+    try {
+      return clientFor(tenantId);
+    } catch (e) {
+      log.warn(`${what}: ${e instanceof Error ? e.message : String(e)} — skipped`);
+      return undefined;
+    }
+  };
+
+  // Does the record's tenant STILL have this project? Removing a tenant from the
+  // workspaces block must stop its scheduled work too (an installation outlives a
+  // revocation) — a live token alone is not authorization.
+  const tenantHasProject = (tenantId: string | undefined, slug: string): boolean =>
+    teamProjects(reg.current, tenantId ?? home(), home()).some((p) => p.slug === slug);
   // An error that escapes a poller tick is unexpected (the GitHub helpers degrade quietly on
   // their own), so it means a real bug or a systemic outage — log it AND raise a Sentry issue
   // rather than swallowing it. Used for both the first tick and every interval tick so a broken
@@ -85,9 +108,13 @@ export function createPollers(
   function fireRoutine(c: bolt.webApi.WebClient, r: RoutineRecord): boolean {
     const project = resolveBySlug(reg.current, r.slug);
     if (!project) return false; // project removed from the registry
+    if (!tenantHasProject(r.teamId, r.slug)) {
+      log.warn(`routine ${r.id}: tenant ${r.teamId ?? 'home'} no longer has ${r.slug} — skipped`);
+      return false;
+    }
     if (r.kind === 'dream') return fireDream(project, r);
     if (r.kind === 'housekeeping') return fireHousekeeping(project, r);
-    const key = `cron:${r.id}:${r.slug}`;
+    const key = withTeam(r.teamId, home(), `cron:${r.id}:${r.slug}`);
     if (engine.hasKey(key)) return false; // previous run still in flight — don't stack
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
     void engine.liveTurn(c, r.channel, undefined, undefined, key, project, REPORT_FRAMING + r.prompt).catch(
@@ -102,7 +129,7 @@ export function createPollers(
   // (warm, survives stop/start); durability of the consolidated copy is future work.
   function fireDream(project: ProjectConfig, r: RoutineRecord): boolean {
     if (engine.projectBusy(project.slug)) return false; // don't dream over a live user turn
-    const key = `cron:${r.id}:${r.slug}`;
+    const key = withTeam(r.teamId, home(), `cron:${r.id}:${r.slug}`); // tenant-keyed → correct usage attribution
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
     void (async () => {
       try {
@@ -161,8 +188,9 @@ export function createPollers(
     number: number,
     channel: string,
     effort: ReviewEffort = 'med',
+    tenant?: string,
   ): boolean {
-    const key = `review:${repo}:${number}:${project.slug}`;
+    const key = withTeam(tenant, home(), `review:${repo}:${number}:${project.slug}`);
     if (engine.hasKey(key)) return false;
     void engine.liveTurn(c, channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort)).catch(
       turnFail(`review ${repo}#${number}`),
@@ -176,7 +204,8 @@ export function createPollers(
     const tick = (): void => {
       for (const { routine, key } of dueRoutines(store.listRoutines(), new Date(), firedThisMinute)) {
         firedThisMinute.set(routine.id, key);
-        fireRoutine(client, routine);
+        const c = clientOrSkip(routine.teamId, `routine ${routine.id}`);
+        if (c) fireRoutine(c, routine);
       }
     };
     tick();
@@ -192,6 +221,11 @@ export function createPollers(
       for (const project of reg.current.projects) {
         const s = store.getProjectSettings(project.slug);
         if (!s.autoReview || !s.autoReviewChannel) continue;
+        // Settings are slug-keyed (one auto-review per project fleet-wide) — the enabling
+        // tenant's token posts. Old records carry no team → home. A dead installation
+        // skips the project rather than leaking home-token posts into a foreign channel.
+        const c = clientOrSkip(s.autoReviewTeam, `auto-review ${project.slug}`);
+        if (!c) continue;
         const reviewed = store.reviewedPrKeys();
         for (const repo of project.repos) {
           const prs = await listOpenPRs(cfg, repo);
@@ -203,7 +237,7 @@ export function createPollers(
             const k = `${repo}#${p.number}`;
             store.markPrReviewed(k);
             reviewed.add(k);
-            if (fireReview(client, project, repo, p.number, s.autoReviewChannel, s.autoReviewEffort ?? 'med'))
+            if (fireReview(c, project, repo, p.number, s.autoReviewChannel, s.autoReviewEffort ?? 'med', s.autoReviewTeam))
               log.info(`auto-review ${k} (${project.slug})`);
           }
         }
@@ -219,12 +253,17 @@ export function createPollers(
   function startAutofixPoller(): void {
     const tick = async (): Promise<void> => {
       for (const w of store.listPrWatches()) {
-        const key = `${w.repo}#${w.number}`;
+        // The store key carries the tenant prefix (withTeam) — recompute it the same way
+        // the subscribe path did, so patch/delete hit the right record.
+        const key = withTeam(w.teamId, home(), `${w.repo}#${w.number}`);
+        if (!tenantHasProject(w.teamId, w.slug)) continue; // revoked tenant — stay silent
+        const c = clientOrSkip(w.teamId, `autofix ${w.repo}#${w.number}`);
+        if (!c) continue;
         const meta = await getPrMeta(cfg, w.repo, w.number);
         if (!meta) continue; // transient read failure — try again next tick
         if (meta.state === 'closed') {
           store.deletePrWatch(key);
-          await client.chat
+          await c.chat
             .postMessage({ channel: w.channel, text: `:checkered_flag: ${shortRepo(w.repo)}#${w.number} ${meta.merged ? 'merged' : 'closed'} — stopped watching.` })
             .catch(() => {});
           continue;
@@ -234,7 +273,7 @@ export function createPollers(
         const { notes, next } = autofixEvents(w, { sha: meta.headSha, conclusion: ci }, reviews, BOT_LOGIN);
         store.patchPrWatch(key, next);
         if (notes.length) {
-          await client.chat
+          await c.chat
             .postMessage({ channel: w.channel, text: `${shortRepo(w.repo)}#${w.number}: ${notes.join('; ')}`, blocks: autofixNotifyBlocks(w, notes) })
             .catch(() => {});
         }
@@ -259,7 +298,14 @@ export function createPollers(
     if (investigating.has(ticket.id)) return false; // an overlapping tick is already firing this ticket
     investigating.add(ticket.id);
     try {
-      const channel = await channels.channelIdForSlug(client, project);
+      // Owner-team dispatch: a shared project's investigations land in ONE workspace —
+      // the first tenant listing the slug (projectOwnerTeam). teamId normalizes to
+      // undefined for home (the store convention).
+      const owner = projectOwnerTeam(reg.current, project.slug, home());
+      const teamId = normalizeTenant(owner, home());
+      const client = clientOrSkip(teamId, `youtrack ${ticket.id}`);
+      if (!client) return false;
+      const channel = await channels.channelIdForSlug(client, project, teamId);
       if (!channel) {
         log.error(`youtrack ${ticket.id}: channel ${channels.prefix}${project.slug} not found — create it and invite the bot`);
         return false;
@@ -310,11 +356,11 @@ export function createPollers(
       // session (the bot "owns" the thread via store.getChat) — and gives the finished answer the
       // "Open a PR" follow-up button (answerBlocks attaches it only for `thread:` keys). Falls
       // back to a ticket-scoped key + top-level post if the header couldn't be sent (no rootTs).
-      const key = rootTs ? `thread:${rootTs}` : `youtrack:${ticket.id}:${project.slug}`;
+      const key = withTeam(teamId, home(), rootTs ? `thread:${rootTs}` : `youtrack:${ticket.id}:${project.slug}`);
       // Persist the investigation BEFORE dispatch so the ticket→thread link and the dedup
       // survive an immediate crash; stamp finishedAt when the turn settles. `rootTs` ties the
       // ticket to `thread:<rootTs>` → chats → the Claude session.
-      store.recordInvestigation(ticket.id, { slug: project.slug, channel, rootTs, startedAt: new Date().toISOString() });
+      store.recordInvestigation(ticket.id, { slug: project.slug, teamId, channel, rootTs, startedAt: new Date().toISOString() });
       void engine.liveTurn(client, channel, undefined, rootTs, key, project, prompt, attachments)
         .catch(turnFail(`youtrack ${ticket.id}`))
         .finally(() => store.finishInvestigation(ticket.id));

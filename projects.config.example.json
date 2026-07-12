@@ -1,9 +1,24 @@
 {
+  "workspaces": {
+    "T0YOURHOME1": [
+      "caldora",
+      "cms-general",
+      "dorfberg-monitoring"
+    ],
+    "T0CLIENT001": [
+      "dorfberg-monitoring"
+    ]
+  },
   "projects": [
     {
       "slug": "caldora",
-      "repos": ["BluefinOrg/REPLACE-caldora-repo"],
-      "youtrackProjects": ["CG", "CB"],
+      "repos": [
+        "BluefinOrg/REPLACE-caldora-repo"
+      ],
+      "youtrackProjects": [
+        "CG",
+        "CB"
+      ],
       "driver": "daytona",
       "systemPrompt": "Project context goes here (appended after the base prompt): domain, what each repo is and how they relate, merge/deploy-order rules, doc links. Repo coding conventions belong in each repo's own CLAUDE.md, not here.",
       "env": {},
@@ -25,7 +40,16 @@
         {
           "name": "example-stdio-server",
           "command": "docker",
-          "args": ["run", "-i", "--rm", "-e", "SOME_TOKEN", "example/mcp-server", "-t", "stdio"],
+          "args": [
+            "run",
+            "-i",
+            "--rm",
+            "-e",
+            "SOME_TOKEN",
+            "example/mcp-server",
+            "-t",
+            "stdio"
+          ],
           "env": {
             "SOME_TOKEN": "${SOME_TOKEN}"
           }
@@ -34,13 +58,18 @@
     },
     {
       "slug": "cms-general",
-      "repos": ["BluefinOrg/REPLACE-cms-repo-a", "BluefinOrg/REPLACE-cms-repo-b"],
+      "repos": [
+        "BluefinOrg/REPLACE-cms-repo-a",
+        "BluefinOrg/REPLACE-cms-repo-b"
+      ],
       "env": {},
       "mcp": []
     },
     {
       "slug": "dorfberg-monitoring",
-      "repos": ["BluefinOrg/REPLACE-dorfberg-repo"],
+      "repos": [
+        "BluefinOrg/REPLACE-dorfberg-repo"
+      ],
       "env": {},
       "mcp": []
     }

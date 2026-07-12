@@ -1,8 +1,15 @@
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
+import { splitTeam } from './teamkeys.js';
 
 // MVP state store: a single JSON file mapping projects → their warm sandbox, plus
 // chat-thread → Claude-session bindings. Swap for SQLite later if concurrency demands
 // it. Writes are atomic-ish (write whole file each mutation; single-process for now).
+//
+// Multi-tenancy invariant (slice 2): EVERY tenant-owned record carries an explicit
+// `teamId` (absent = home workspace), so per-tenant export/purge/sharding stays a
+// mechanical filter — see exportTenant/purgeTenant. For records keyed by a session key
+// (chats) the store STAMPS the field from the key's tenant prefix itself; keyless
+// records get it from the caller's event context.
 
 export interface ProjectRecord {
   slug: string;
@@ -16,6 +23,9 @@ export interface ProjectRecord {
 export interface ChatRecord {
   threadTs: string;
   slug: string;
+  // Owning tenant; absent = home. Stamped by the store from the key's tenant prefix
+  // (teamkeys.ts) — callers never pass it, so key and field cannot disagree.
+  teamId?: string;
   sessionId?: string; // Claude conversation id (for --resume)
   // The Daytona session-command driving this thread's persistent claude process. Lets a
   // restarted bot REATTACH to it (it keeps running in the sandbox) instead of spawning a
@@ -36,10 +46,11 @@ export interface ChatRecord {
 
 // A scheduled "report" job bound to a project channel. A 60s scheduler tick (in slack.ts)
 // matches `cron` against the wall-clock in `tz` and fires `prompt` as a read-only turn on
-// session key `cron:<slug>:<id>`. Stored here so jobs survive bot restarts.
+// session key `cron:<id>:<slug>`. Stored here so jobs survive bot restarts.
 export interface RoutineRecord {
   id: string; // short, e.g. "r1"
   slug: string;
+  teamId?: string; // owning tenant (absent = home); the poller posts with this team's token
   channel: string; // where the digest is posted
   cron: string; // 5-field: "min hour dom mon dow"
   tz: string; // IANA tz the cron is evaluated in
@@ -61,16 +72,24 @@ export interface ProjectSettings {
   autoReview?: boolean;
   autoReviewSince?: string; // ISO; only auto-review PRs opened after this (skip the backlog on enable)
   autoReviewChannel?: string; // where the poller posts reviews (set when enabled)
+  // Tenant whose token posts the reviews (absent = home). Settings stay keyed by slug
+  // alone, so `review auto on|off` is restricted to the project's OWNER team — see
+  // commands.ts; a per-(team,slug) split is deliberate non-scope while sharing is
+  // a capability, not a feature.
+  autoReviewTeam?: string;
   autoReviewEffort?: 'low' | 'med' | 'high'; // effort for auto-reviews (default med)
 }
 
 // An autofix subscription on one PR: the poller watches its CI + reviews and posts a Slack
-// notification with a "Fix" button when something changes. Keyed by "<Org/repo>#<number>".
+// notification with a "Fix" button when something changes. Keyed by
+// withTeam(tenant, "<Org/repo>#<number>") — the tenant prefix (absent = home) keeps two
+// teams' watches on a shared repo from overwriting each other.
 // The last* cursors are baselined at subscribe so only post-subscription changes notify.
 export interface PrWatch {
   repo: string; // "Org/name"
   number: number;
   slug: string; // owning project
+  teamId?: string; // owning tenant (absent = home); the poller posts with this team's token
   channel: string; // where notifications go
   createdBy: string;
   createdAt: string;
@@ -86,6 +105,7 @@ export interface PrWatch {
 // hook future two-way sync (pull new comments into the thread / post findings back) will use.
 export interface TicketInvestigation {
   slug: string; // owning project
+  teamId?: string; // owning tenant (absent = home) — where the investigation thread lives
   channel: string; // Slack channel id the thread lives in
   rootTs?: string; // thread root ts → session key `thread:<rootTs>` (absent if the header failed)
   startedAt: string; // ISO, when the investigation was dispatched
@@ -170,7 +190,12 @@ export class Store {
   }
 
   setChat(rec: ChatRecord) {
-    (this.data.chats ??= {})[rec.threadTs] = rec;
+    // teamId is derived from the key here (never trusted from the caller) — the one
+    // writer keeps key and field permanently in agreement. Home records stay FIELD-LESS
+    // (delete, not undefined), so both writers produce the same shape.
+    const next = { ...rec, teamId: splitTeam(rec.threadTs).tenantId };
+    if (!next.teamId) delete next.teamId;
+    (this.data.chats ??= {})[rec.threadTs] = next;
     this.save();
   }
 
@@ -181,10 +206,13 @@ export class Store {
   patchChat(threadTs: string, slug: string, patch: Partial<ChatRecord>) {
     const chats = (this.data.chats ??= {});
     const cur = chats[threadTs] ?? { threadTs, slug, updatedAt: '' };
-    const next = { ...cur, ...patch, threadTs, slug, updatedAt: new Date().toISOString() };
+    // teamId comes from the key, never from the patch — see setChat.
+    const teamId = splitTeam(threadTs).tenantId;
+    const next = { ...cur, ...patch, threadTs, slug, teamId, updatedAt: new Date().toISOString() };
     for (const k of Object.keys(patch) as (keyof ChatRecord)[]) {
       if (patch[k] === undefined) delete next[k];
     }
+    if (!teamId) delete next.teamId; // home stays field-less (uniform with bare keys)
     chats[threadTs] = next;
     this.save();
   }
@@ -348,6 +376,53 @@ export class Store {
     delete this.data.prWatches[key];
     this.save();
     return true;
+  }
+
+  // ── per-tenant export / purge (offboarding hooks; slice 2) ───────────────
+  // Both operate on the explicit teamId field (undefined = home). For a project SHARED
+  // across tenants this is deliberately records-only: purging tenant X removes X's
+  // conversations/routines/watches, never the other tenant's records on the same slug.
+
+  // A JSON-serializable snapshot of everything a tenant owns — "give the client their data".
+  exportTenant(tenantId: string | undefined): {
+    chats: ChatRecord[];
+    routines: RoutineRecord[];
+    prWatches: PrWatch[];
+    investigations: Record<string, TicketInvestigation>;
+    installation?: unknown;
+  } {
+    const mine = <T extends { teamId?: string }>(rs: T[]) => rs.filter((r) => r.teamId === tenantId);
+    return {
+      chats: mine(Object.values(this.data.chats ?? {})),
+      routines: mine(Object.values(this.data.routines ?? {})),
+      prWatches: mine(Object.values(this.data.prWatches ?? {})),
+      investigations: Object.fromEntries(
+        Object.entries(this.data.youtrackInvestigations ?? {}).filter(([, r]) => r.teamId === tenantId),
+      ),
+      installation: tenantId ? this.data.installations?.[tenantId] : undefined,
+    };
+  }
+
+  // Remove every record a tenant owns, INCLUDING its installation (tokens). State.json
+  // only — sandboxes, drafts/<slug>, queue.jsonl entries and usage logs are the caller's
+  // TODO (documented in docs/multitenancy.md offboarding notes). Returns counts by class.
+  purgeTenant(tenantId: string): Record<string, number> {
+    const counts: Record<string, number> = { chats: 0, routines: 0, prWatches: 0, investigations: 0, installations: 0 };
+    for (const [k, r] of Object.entries(this.data.chats ?? {})) {
+      if (r.teamId === tenantId) { delete this.data.chats![k]; counts.chats++; }
+    }
+    for (const [k, r] of Object.entries(this.data.routines ?? {})) {
+      if (r.teamId === tenantId) { delete this.data.routines![k]; counts.routines++; }
+    }
+    for (const [k, r] of Object.entries(this.data.prWatches ?? {})) {
+      if (r.teamId === tenantId) { delete this.data.prWatches![k]; counts.prWatches++; }
+    }
+    for (const [k, r] of Object.entries(this.data.youtrackInvestigations ?? {})) {
+      if (r.teamId === tenantId) { delete this.data.youtrackInvestigations![k]; counts.investigations++; }
+    }
+    if (this.data.installations?.[tenantId]) { delete this.data.installations[tenantId]; counts.installations++; }
+    this.save();
+    return counts;
   }
 
   // ── retention (run at boot + daily; see slack.ts) ────────────────────────

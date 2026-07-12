@@ -13,6 +13,7 @@ import type { AttachmentRef } from './attachments.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
 import { MAX_SLACK_TEXT, answerBlocks, reportPostedBlocks, statusBlocks, questionBlocks, errText } from './blocks.js';
 import { QueueJournal } from './queuejournal.js';
+import { isThreadKey, threadRoot, slugOfBase } from './teamkeys.js';
 import { DraftStore } from './drafts.js';
 import { UsageLog, aggregateUsage, usageSummaryText } from './metering.js';
 import { log } from './log.js';
@@ -39,6 +40,11 @@ export interface QuestionRegistry {
   answeredAll(entry: PendingQuestion): boolean;
   finalize(entry: PendingQuestion, qid: string): void;
 }
+
+// Resolves the Slack client for a tenant (undefined = home). Throws for a tenant with
+// no live installation — recovery treats that per record, never letting one uninstalled
+// workspace abort the whole resume loop.
+export type ClientForTeam = (tenantId?: string) => bolt.webApi.WebClient;
 
 export interface TurnEngine {
   // Enqueue a live-status turn (the normal path for mentions, DMs, buttons, pollers).
@@ -67,8 +73,8 @@ export interface TurnEngine {
   // Startup recovery, in order: reattach + finalize turns that were RUNNING at the last
   // stop (returns per-key promises so queued replays can wait their turn), then replay the
   // journaled turns that were still QUEUED (their user messages would otherwise be lost).
-  resumeInflightTurns(client: bolt.webApi.WebClient): Map<string, Promise<void>>;
-  resumeQueuedTurns(client: bolt.webApi.WebClient, recovering: Map<string, Promise<void>>): void;
+  resumeInflightTurns(clientFor: ClientForTeam): Map<string, Promise<void>>;
+  resumeQueuedTurns(clientFor: ClientForTeam, recovering: Map<string, Promise<void>>): void;
   questions: QuestionRegistry;
   // A turn's tool-call trail (for the "🧭 Show steps" button) — live from the moment the
   // turn is queued, kept after it settles; undefined once evicted or after a restart.
@@ -353,9 +359,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // last segment (`dm:<channel>:<slug>`, `cmd:<user>:<slug>`); thread keys (`thread:<ts>`)
   // don't, so look the slug up in the persisted chat record.
   function slugForKey(key: string): string | undefined {
-    if (key.startsWith('thread:')) return store.getChat(key)?.slug;
-    const parts = key.split(':');
-    return parts.length >= 3 ? parts[parts.length - 1] : undefined;
+    // Thread keys carry no slug — resolve via the ChatRecord, stored under the FULL
+    // (possibly tenant-prefixed) key. Every other shape embeds the slug (teamkeys.ts).
+    if (isThreadKey(key)) return store.getChat(key)?.slug;
+    return slugOfBase(key);
   }
 
   // True if any conversation for this project has a turn in flight right now — used to skip
@@ -607,11 +614,11 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       const capped = answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
       // Offer the "Open a PR" follow-up only in build channels (thread sessions), not in
       // the private /aven + DM Q&A paths where it would just be noise.
-      const followUp = key.startsWith('thread:') ? { key, channel, threadTs } : undefined;
+      const followUp = isThreadKey(key) ? { key, channel, threadTs } : undefined;
       // Suppress "Open a PR" once this thread has produced a PR in an earlier turn (latch below).
       const prCreated = store.getChat(key)?.prCreated === true;
       // Investigation thread → offer "📝 Report to YouTrack" (thread root ↔ ticket id via state).
-      const inv = followUp ? store.investigationByRoot(key.slice('thread:'.length)) : undefined;
+      const inv = followUp ? store.investigationByRoot(threadRoot(key) ?? '') : undefined;
       const elapsedMs = Date.now() - start;
       // Skip-preview draft: deliver the answer directly (the autoPost hook), and only fall
       // back to the reviewable draft — error attached — when delivery fails.
@@ -703,13 +710,24 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // Returns each chat's recovery promise keyed by conversation key, so resumeQueuedTurns
   // can hold a key's replays until its running turn has been recovered (else the replay
   // hits the still-busy session and errors).
-  function resumeInflightTurns(client: bolt.webApi.WebClient): Map<string, Promise<void>> {
+  function resumeInflightTurns(clientFor: ClientForTeam): Map<string, Promise<void>> {
     const recovering = new Map<string, Promise<void>>();
     for (const chat of store.allChats()) {
       const inf = chat.inflight;
       if (!inf || !chat.sessionKey || !chat.cmdId) continue;
       const project = resolveBySlug(reg.current, chat.slug);
       if (!project) {
+        store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
+        continue;
+      }
+      // The record's own workspace token finalizes its status message. A tenant with no
+      // installation (uninstalled since) clears the marker — leaving it would make every
+      // future boot retry forever (pruneChats skips inflight records).
+      let client: bolt.webApi.WebClient;
+      try {
+        client = clientFor(chat.teamId);
+      } catch (e) {
+        log.error(`resume ${chat.threadTs}: ${e instanceof Error ? e.message : String(e)}`);
         store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
         continue;
       }
@@ -774,7 +792,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // so their status message quotes the question and asks for a resend — visibly lost
   // beats silently lost. Keys are processed sequentially (preserving enqueue order),
   // after any inflight recovery on the same key has settled.
-  function resumeQueuedTurns(client: bolt.webApi.WebClient, recovering: Map<string, Promise<void>>): void {
+  function resumeQueuedTurns(clientFor: ClientForTeam, recovering: Map<string, Promise<void>>): void {
     const pending = journal.drain();
     const byKey = new Map<string, typeof pending>();
     for (const e of pending) {
@@ -790,6 +808,15 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         await recovering.get(key)?.catch(() => {});
         for (const e of entries) {
           const project = resolveBySlug(reg.current, e.slug);
+          // Pre-liveTurn tenant check (skip, not throw): a replay for an uninstalled
+          // workspace has no token to even rewrite its status message with.
+          let client: bolt.webApi.WebClient;
+          try {
+            client = clientFor(e.teamId);
+          } catch (err) {
+            log.error(`replay ${e.turnId}: ${err instanceof Error ? err.message : String(err)}`);
+            continue;
+          }
           try {
             if (project && e.plain) {
               await client.chat

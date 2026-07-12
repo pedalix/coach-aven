@@ -6,7 +6,8 @@
 import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
 import type { Store } from './state.js';
-import { loadProjects, resolveBySlug, type ProjectConfig, type RegistryRef } from './projects.js';
+import { loadProjects, resolveBySlug, teamProjects, projectOwnerTeam, type ProjectConfig, type RegistryRef } from './projects.js';
+import { tenantOf, withTeam, splitTeam, normalizeTenant } from './teamkeys.js';
 import type { TurnEngine } from './turn.js';
 import type { Channels } from './channels.js';
 import { ROUTINE_TZ, type Pollers } from './pollers.js';
@@ -31,6 +32,7 @@ import {
   routineListBlocks,
   allRoutinesBlocks,
   topicButtons,
+  notConfiguredText,
   type ProjectStatus,
   type StatusReport,
 } from './blocks.js';
@@ -45,6 +47,9 @@ export interface CommandDeps {
   engine: TurnEngine;
   channels: Channels;
   pollers: Pollers;
+  // The home tenant id (resolved at boot). Every subcommand scopes to the CALLING
+  // workspace's project subset; operator commands (reload, usage) are home-only.
+  homeTeamId?: string;
 }
 
 // Read a file from a project's Claude Code auto-memory dir (the sandbox copy). By default
@@ -91,28 +96,31 @@ export async function readMemory(
 }
 
 export function registerCommands(app: bolt.App, deps: CommandDeps): void {
-  const { cfg, store, reg, engine, channels, pollers } = deps;
+  const { cfg, store, reg, engine, channels, pollers, homeTeamId } = deps;
 
-  // Gather a live snapshot for `/aven status`: per-project sandbox state (Daytona),
-  // session count (state.json), conversations with a turn in flight (the in-memory
-  // queues), and open-PR counts (GitHub). Every external call is best-effort so a single
-  // failing dependency degrades to a ⚠️ rather than erroring the whole command.
-  async function collectStatus(): Promise<StatusReport> {
-    const registry = reg.current;
+  // Gather a live snapshot for `/aven status`, scoped to ONE tenant (tid: undefined =
+  // home): its projects, its sessions/turns (a shared slug must not reveal the other
+  // tenant's activity), its routine counts. Every external call is best-effort so a
+  // single failing dependency degrades to a ⚠️ rather than erroring the whole command.
+  async function collectStatus(tid: string | undefined, myProjects: ProjectConfig[]): Promise<StatusReport> {
     const activeBySlug = new Map<string, number>();
     for (const key of engine.activeKeys()) {
+      if (splitTeam(key).tenantId !== tid) continue; // other tenants' turns are invisible here
       const slug = engine.slugForKey(key);
       if (slug) activeBySlug.set(slug, (activeBySlug.get(slug) ?? 0) + 1);
     }
     const sessionsBySlug = new Map<string, number>();
-    for (const c of store.allChats()) sessionsBySlug.set(c.slug, (sessionsBySlug.get(c.slug) ?? 0) + 1);
+    for (const c of store.allChats()) {
+      if (c.teamId !== tid) continue;
+      sessionsBySlug.set(c.slug, (sessionsBySlug.get(c.slug) ?? 0) + 1);
+    }
 
     let states = new Map<string, string>();
     let daytonaOk = true;
     try {
       // The fleet may span providers (per-project `driver`) — merge the state maps of
       // every provider actually in use. Any provider failing degrades to the ⚠️ flag.
-      const kinds = new Set(registry.projects.map((p) => p.driver ?? cfg.sandboxDriver));
+      const kinds = new Set(myProjects.map((p) => p.driver ?? cfg.sandboxDriver));
       for (const kind of kinds) {
         for (const [n, s] of await createDriver(cfg, kind).listStates()) states.set(n, s);
       }
@@ -121,13 +129,14 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     }
 
     const prCounts = await Promise.all(
-      registry.projects.map((p) => countOpenPRs(cfg, p.repos).catch(() => undefined)),
+      myProjects.map((p) => countOpenPRs(cfg, p.repos).catch(() => undefined)),
     );
     const githubOk = prCounts.some((n) => n !== undefined);
 
     // Routine counts per project (reports vs dreams vs housekeeping) for the status line.
     const jobsBySlug = new Map<string, { jobs: number; dreams: number; hk: number }>();
     for (const r of store.listRoutines()) {
+      if (r.teamId !== tid) continue;
       const c = jobsBySlug.get(r.slug) ?? { jobs: 0, dreams: 0, hk: 0 };
       if (r.kind === 'dream') c.dreams++;
       else if (r.kind === 'housekeeping') c.hk++;
@@ -135,7 +144,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       jobsBySlug.set(r.slug, c);
     }
 
-    const projects: ProjectStatus[] = registry.projects.map((p, i) => ({
+    const projects: ProjectStatus[] = myProjects.map((p, i) => ({
       slug: p.slug,
       repos: p.repos.length,
       state: states.get(`${cfg.sandbox.namePrefix}${p.slug}`),
@@ -153,11 +162,13 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
   async function handleAccess(
     client: bolt.webApi.WebClient,
     channelId: string,
+    tenant: string | undefined,
+    myProjects: ProjectConfig[],
   ): Promise<{ text: string; blocks?: unknown[] }> {
-    const { project } = await channels.pickProject(client, channelId, '');
+    const { project } = await channels.pickProject(client, channelId, '', tenant);
     if (!project) {
       return {
-        text: `:information_source: This channel isn't bound to a project. Use a \`${channels.prefix}<slug>\` channel, or ask in one of: ${reg.current.projects.map((p) => p.slug).join(', ')}.`,
+        text: `:information_source: This channel isn't bound to a project. Use a \`${channels.prefix}<slug>\` channel, or ask in one of: ${myProjects.map((p) => p.slug).join(', ')}.`,
       };
     }
     return { text: `Access for ${project.slug}`, blocks: accessBlocks(project) };
@@ -171,6 +182,9 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     channelId: string,
     userId: string,
     cmdText: string,
+    tenant: string | undefined,
+    tid: string | undefined,
+    myProjects: ProjectConfig[],
   ): Promise<{ text: string; blocks?: unknown[] }> {
     const usage =
       `Usage: \`${CMD} schedule <when> | <what to report>\`\n` +
@@ -186,14 +200,15 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     const sched = parseSchedule(when);
     if ('error' in sched) return { text: `:x: ${sched.error}` };
 
-    const { project } = await channels.pickProject(client, channelId, '');
+    const { project } = await channels.pickProject(client, channelId, '', tenant);
     if (!project) {
       return {
-        text: ':x: Schedule a job from a project channel (e.g. `' + `${channels.prefix}${reg.current.projects[0]?.slug ?? 'caldora'}` + '`).',
+        text: ':x: Schedule a job from a project channel (e.g. `' + `${channels.prefix}${myProjects[0]?.slug ?? 'caldora'}` + '`).',
       };
     }
     const rec = store.addRoutine({
       slug: project.slug,
+      teamId: tid,
       channel: channelId,
       cron: sched.cron,
       tz: ROUTINE_TZ,
@@ -210,20 +225,27 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
   }
 
   // ── /aven routines [on|off|rm <id>] → list/manage this channel's report jobs ──
-  function handleRoutines(channelId: string, cmdText: string): { text: string; blocks?: unknown[] } {
+  function handleRoutines(channelId: string, cmdText: string, tid: string | undefined): { text: string; blocks?: unknown[] } {
     const args = cmdText.split(/\s+/).slice(1); // drop the "routines" verb
     const sub = args[0]?.toLowerCase();
     if (!sub) {
-      return { text: 'Scheduled jobs', blocks: routineListBlocks(store.listRoutines({ channel: channelId })) };
+      // Channel AND tenant filtered: in a Slack Connect shared channel the other side's
+      // routines must not be listed (channel ids are shared across the Connect boundary).
+      const here = store.listRoutines({ channel: channelId }).filter((r) => r.teamId === tid);
+      return { text: 'Scheduled jobs', blocks: routineListBlocks(here) };
     }
     if (sub === 'all') {
-      // Fleet-wide view: every project's jobs, grouped by project (works from any channel).
-      return { text: 'All scheduled jobs', blocks: allRoutinesBlocks(groupRoutinesBySlug(store.listRoutines())) };
+      // Workspace-wide view: every job across the CALLING tenant's projects, grouped by
+      // project (works from any of its channels) — never the fleet's.
+      const mine = store.listRoutines().filter((r) => r.teamId === tid);
+      return { text: 'All scheduled jobs', blocks: allRoutinesBlocks(groupRoutinesBySlug(mine)) };
     }
     const id = args[1];
     if (!id) return { text: `:information_source: Usage: \`${CMD} routines all | run|on|off|rm <id>\`` };
     const r = store.getRoutine(id);
-    if (!r || r.channel !== channelId) return { text: `:x: No job \`${id}\` in this channel.` };
+    // Ownership = channel AND tenant: a Connect-channel neighbor must not toggle/rm
+    // the other tenant's job even though the channel id matches.
+    if (!r || r.channel !== channelId || r.teamId !== tid) return { text: `:x: No job \`${id}\` in this channel.` };
     if (sub === 'off') {
       store.patchRoutine(id, { enabled: false });
       return { text: `:white_check_mark: Paused *${id}*.` };
@@ -243,10 +265,10 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
   // 'now' is handled in the command handler (it needs the client to fire). Bare = status.
   // One dream routine per project channel (kind: 'dream'); reuses the routine scheduler.
   const DREAM_DEFAULT_CRON = '0 3 * * *'; // 03:00 daily, in ROUTINE_TZ
-  function handleDream(channelId: string, userId: string, slug: string | undefined, cmdText: string): { text: string } {
+  function handleDream(channelId: string, userId: string, slug: string | undefined, cmdText: string, tid?: string): { text: string } {
     if (!slug) return { text: `:x: Use \`${CMD} dream\` from a project channel.` };
     const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
-    const existing = store.listRoutines({ channel: channelId }).find((r) => r.kind === 'dream');
+    const existing = store.listRoutines({ channel: channelId }).find((r) => r.kind === 'dream' && r.teamId === tid);
     if (sub === 'off') {
       if (!existing) return { text: ':information_source: No dreaming scheduled here.' };
       store.patchRoutine(existing.id, { enabled: false });
@@ -259,6 +281,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       }
       const rec = store.addRoutine({
         slug,
+        teamId: tid,
         channel: channelId,
         cron: DREAM_DEFAULT_CRON,
         tz: ROUTINE_TZ,
@@ -287,10 +310,10 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
   // ── /aven housekeeping [on|off] → nightly sandbox janitor for this project ──
   // Mirrors handleDream ('now' fires in the command handler — it needs the client). One
   // housekeeping routine per project channel (kind: 'housekeeping'), on the same scheduler.
-  function handleHousekeeping(channelId: string, userId: string, slug: string | undefined, cmdText: string): { text: string } {
+  function handleHousekeeping(channelId: string, userId: string, slug: string | undefined, cmdText: string, tid?: string): { text: string } {
     if (!slug) return { text: `:x: Use \`${CMD} housekeeping\` from a project channel.` };
     const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
-    const existing = store.listRoutines({ channel: channelId }).find((r) => r.kind === 'housekeeping');
+    const existing = store.listRoutines({ channel: channelId }).find((r) => r.kind === 'housekeeping' && r.teamId === tid);
     if (sub === 'off') {
       if (!existing) return { text: ':information_source: No housekeeping scheduled here.' };
       store.patchRoutine(existing.id, { enabled: false });
@@ -303,6 +326,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       }
       const rec = store.addRoutine({
         slug,
+        teamId: tid,
         channel: channelId,
         cron: HOUSEKEEPING_DEFAULT_CRON,
         tz: ROUTINE_TZ,
@@ -332,16 +356,37 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
   app.command(CMD, async ({ command, ack, respond, client }) => {
     await ack(); // Slack needs an ack within 3s; the real work runs after.
 
+    // The calling workspace's scope: `tenant` is the raw id, `tid` the storage-normalized
+    // one (undefined = home), `myProjects` the subset every branch below resolves within.
+    const cmd = command as { enterprise_id?: string; is_enterprise_install?: string | boolean };
+    const tenant = tenantOf({
+      teamId: command.team_id,
+      enterpriseId: cmd.enterprise_id,
+      // The slash payload serializes this as the string "true"/"false".
+      isEnterpriseInstall: cmd.is_enterprise_install === true || cmd.is_enterprise_install === 'true',
+    });
+    const tid = normalizeTenant(tenant, homeTeamId);
+    const myProjects = teamProjects(reg.current, tenant, homeTeamId);
+    const isHome = tid === undefined;
+    // guardTeam (the ack-capable half of the tenant gate): an installed-but-unmapped
+    // workspace gets one clear ephemeral instead of Slack's dispatch timeout.
+    // FAIL CLOSED when home is unresolved (first OAuth boot, empty store): teamProjects
+    // would otherwise treat EVERY caller as home and hand a stranger the whole fleet.
+    if (!homeTeamId || (!isHome && myProjects.length === 0)) {
+      await respond({ response_type: 'ephemeral', text: notConfiguredText() });
+      return;
+    }
+
     const cmdText = (command.text ?? '').trim();
     const verb = cmdText.split(/\s+/)[0]?.toLowerCase();
 
     // `/aven status` → a live ops snapshot (sandboxes, sessions, in-flight turns, PRs).
-    // Reserved keyword, intercepted before project resolution so it works in ANY channel
-    // (it's a fleet-wide view, not bound to one project).
+    // Reserved keyword, intercepted before project resolution so it works in ANY channel;
+    // scoped to the calling workspace's projects and activity.
     if (verb === 'status') {
       await respond({ response_type: 'ephemeral', text: ':bar_chart: Gathering status…' });
       try {
-        const report = await collectStatus();
+        const report = await collectStatus(tid, myProjects);
         await respond({
           response_type: 'ephemeral',
           replace_original: true,
@@ -354,10 +399,13 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       return;
     }
 
-    // `/aven usage [days]` → token/cost/turn attribution per project (and per workspace
-    // once multiple teams exist) over the last N days (default 30, max 90). Fleet-wide
-    // like `status`: works in any channel; reads the usage/<month>.jsonl meter (turn.ts).
+    // `/aven usage [days]` → token/cost/turn attribution per project/workspace over the
+    // last N days (default 30, max 90). OPERATOR data (fleet-wide costs) → home-only.
     if (verb === 'usage') {
+      if (!isHome) {
+        await respond({ response_type: 'ephemeral', text: ':lock: Usage reporting is operator-only.' });
+        return;
+      }
       const days = Math.min(90, Math.max(1, Math.floor(Number(cmdText.split(/\s+/)[1])) || 30));
       try {
         await respond({ response_type: 'ephemeral', text: engine.usageReport(days) });
@@ -374,6 +422,11 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     // persistent claude process ends — new sessions pick up the new config immediately.
     // A parse/validation failure leaves the old registry in place.
     if (verb === 'reload') {
+      // Swaps the GLOBAL registry — strictly an operator action, never a client team's.
+      if (!isHome) {
+        await respond({ response_type: 'ephemeral', text: ':lock: Config reload is operator-only.' });
+        return;
+      }
       try {
         const before = reg.current.projects.map((p) => p.slug);
         const next = loadProjects(cfg.projectsConfigPath);
@@ -402,13 +455,13 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
 
     // `/aven access` → what this channel's project gives me (repos + MCP tools).
     if (verb === 'access') {
-      await respond({ response_type: 'ephemeral', ...(await handleAccess(client, command.channel_id)) });
+      await respond({ response_type: 'ephemeral', ...(await handleAccess(client, command.channel_id, tenant, myProjects)) });
       return;
     }
 
     // `/aven schedule <when> | <prompt>` → create a read-only report job in this channel.
     if (verb === 'schedule') {
-      const r = await handleSchedule(client, command.channel_id, command.user_id, cmdText);
+      const r = await handleSchedule(client, command.channel_id, command.user_id, cmdText, tenant, tid, myProjects);
       await respond({ response_type: 'ephemeral', ...r });
       return;
     }
@@ -420,7 +473,9 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
         // it's handled here rather than in the pure handleRoutines.
         const id = rargs[1];
         const r = id ? store.getRoutine(id) : undefined;
-        if (!r || r.channel !== command.channel_id) {
+        // Channel AND tenant ownership — see handleRoutines; also keeps the firing
+        // client (this command's) aligned with the routine's own tenant key.
+        if (!r || r.channel !== command.channel_id || r.teamId !== tid) {
           await respond({ response_type: 'ephemeral', text: `:x: No job \`${id ?? ''}\` in this channel.` });
           return;
         }
@@ -431,15 +486,15 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
         });
         return;
       }
-      await respond({ response_type: 'ephemeral', ...handleRoutines(command.channel_id, cmdText) });
+      await respond({ response_type: 'ephemeral', ...handleRoutines(command.channel_id, cmdText, tid) });
       return;
     }
     // `/aven dream [on|off|now]` → nightly memory consolidation (Dreaming) for this project.
     if (verb === 'dream') {
-      const { project } = await channels.pickProject(client, command.channel_id, '');
+      const { project } = await channels.pickProject(client, command.channel_id, '', tenant);
       const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
       if (sub === 'now') {
-        const r = store.listRoutines({ channel: command.channel_id }).find((x) => x.kind === 'dream');
+        const r = store.listRoutines({ channel: command.channel_id }).find((x) => x.kind === 'dream' && x.teamId === tid);
         if (!r) {
           await respond({ response_type: 'ephemeral', text: `:information_source: No dream here yet — \`${CMD} dream on\` first.` });
           return;
@@ -453,15 +508,15 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
         });
         return;
       }
-      await respond({ response_type: 'ephemeral', ...handleDream(command.channel_id, command.user_id, project?.slug, cmdText) });
+      await respond({ response_type: 'ephemeral', ...handleDream(command.channel_id, command.user_id, project?.slug, cmdText, tid) });
       return;
     }
     // `/aven housekeeping [on|off|now]` → the nightly sandbox janitor (docs/housekeeping.md).
     if (verb === 'housekeeping' || verb === 'hk') {
-      const { project } = await channels.pickProject(client, command.channel_id, '');
+      const { project } = await channels.pickProject(client, command.channel_id, '', tenant);
       const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
       if (sub === 'now') {
-        const r = store.listRoutines({ channel: command.channel_id }).find((x) => x.kind === 'housekeeping');
+        const r = store.listRoutines({ channel: command.channel_id }).find((x) => x.kind === 'housekeeping' && x.teamId === tid);
         if (!r) {
           await respond({ response_type: 'ephemeral', text: `:information_source: No housekeeping here yet — \`${CMD} housekeeping on\` first.` });
           return;
@@ -475,7 +530,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
         });
         return;
       }
-      await respond({ response_type: 'ephemeral', ...handleHousekeeping(command.channel_id, command.user_id, project?.slug, cmdText) });
+      await respond({ response_type: 'ephemeral', ...handleHousekeeping(command.channel_id, command.user_id, project?.slug, cmdText, tid) });
       return;
     }
 
@@ -483,7 +538,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     // Default reads the journaled host snapshot (no sandbox wake); `live` forces the sandbox's
     // current state, `log` shows the snapshot history. (`/aven prompt` shows the deliberate layer.)
     if (verb === 'memory') {
-      const { project, error } = await channels.pickProject(client, command.channel_id, '');
+      const { project, error } = await channels.pickProject(client, command.channel_id, '', tenant);
       if (error || !project) {
         await respond({ response_type: 'ephemeral', text: info(error ?? 'No project bound to this channel.') });
         return;
@@ -564,7 +619,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     // `/aven prompt` → show this project's system prompt (the deliberate layer). Read-only;
     // editing it from Slack is a separate runtime-config feature (see docs/runtime-config.md).
     if (verb === 'prompt') {
-      const { project, error } = await channels.pickProject(client, command.channel_id, '');
+      const { project, error } = await channels.pickProject(client, command.channel_id, '', tenant);
       if (error || !project) {
         await respond({ response_type: 'ephemeral', text: info(error ?? 'No project bound to this channel.') });
         return;
@@ -585,10 +640,17 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       const arg = cmdText.slice('review'.length).trim();
 
       // `/aven review auto [on|off]` → per-project auto-review toggle (channel-bound).
+      // OWNER-team only: settings are slug-keyed (one auto-review per project fleet-wide),
+      // so a non-owner tenant flipping them would hijack where the owner's reviews post.
       if (arg.split(/\s+/)[0]?.toLowerCase() === 'auto') {
-        const { project, error } = await channels.pickProject(client, command.channel_id, '');
+        const { project, error } = await channels.pickProject(client, command.channel_id, '', tenant);
         if (error || !project) {
           await respond({ response_type: 'ephemeral', text: info(error ?? 'Run `review auto` in a project channel.') });
+          return;
+        }
+        const owner = projectOwnerTeam(reg.current, project.slug, homeTeamId);
+        if (normalizeTenant(owner, homeTeamId) !== tid) {
+          await respond({ response_type: 'ephemeral', text: `:lock: Auto-review for *${project.slug}* is managed by the project's owner workspace.` });
           return;
         }
         const words = arg.split(/\s+/);
@@ -598,6 +660,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
             autoReview: true,
             autoReviewSince: new Date().toISOString(),
             autoReviewChannel: command.channel_id,
+            autoReviewTeam: tid,
             autoReviewEffort: parseEffort(words[2]) ?? 'med',
           });
           const eff = store.getProjectSettings(project.slug).autoReviewEffort;
@@ -620,18 +683,20 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       const tokens = arg.split(/\s+/);
       const effort: ReviewEffort = parseEffort(tokens[tokens.length - 1]) ?? 'med';
       const refText = parseEffort(tokens[tokens.length - 1]) ? tokens.slice(0, -1).join(' ') : arg;
-      const channelSlug = (await channels.pickProject(client, command.channel_id, '')).project?.slug;
-      const t = resolvePr(refText, reg.current.projects, channelSlug);
+      // Resolve the PR ref within the CALLING tenant's projects only — a client team
+      // can't review (or even probe) another tenant's repos.
+      const channelSlug = (await channels.pickProject(client, command.channel_id, '', tenant)).project?.slug;
+      const t = resolvePr(refText, myProjects, channelSlug);
       if ('error' in t) {
         await respond({ response_type: 'ephemeral', text: `:x: ${t.error}` });
         return;
       }
-      const project = resolveBySlug(reg.current, t.slug);
+      const project = resolveBySlug({ projects: myProjects }, t.slug);
       if (!project) {
         await respond({ response_type: 'ephemeral', text: `:x: Unknown project ${t.slug}.` });
         return;
       }
-      const fired = pollers.fireReview(client, project, t.repo, t.number, command.channel_id, effort);
+      const fired = pollers.fireReview(client, project, t.repo, t.number, command.channel_id, effort, tid);
       await respond({
         response_type: 'ephemeral',
         text: fired
@@ -648,7 +713,8 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       const first = arg.split(/\s+/)[0]?.toLowerCase();
 
       if (first === 'list') {
-        const ws = store.listPrWatches({ channel: command.channel_id });
+        // Channel AND tenant filtered — a Connect-channel neighbor's watches stay invisible.
+        const ws = store.listPrWatches({ channel: command.channel_id }).filter((w) => w.teamId === tid);
         const body = ws.length
           ? ws.map((w) => `• *${shortRepo(w.repo)}#${w.number}*`).join('\n')
           : `_No PRs watched here._ Subscribe: \`${CMD} autofix <PR url or #number>\``;
@@ -656,18 +722,20 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
         return;
       }
 
-      const channelSlug = (await channels.pickProject(client, command.channel_id, '')).project?.slug;
+      const channelSlug = (await channels.pickProject(client, command.channel_id, '', tenant)).project?.slug;
       const refText = first === 'off' ? arg.slice('off'.length).trim() : arg;
       if (!refText) {
         await respond({ response_type: 'ephemeral', text: `:information_source: Usage: \`${CMD} autofix <PR url or #number>\` (\`off <PR>\`, \`list\`)` });
         return;
       }
-      const t = resolvePr(refText, reg.current.projects, channelSlug);
+      const t = resolvePr(refText, myProjects, channelSlug);
       if ('error' in t) {
         await respond({ response_type: 'ephemeral', text: `:x: ${t.error}` });
         return;
       }
-      const watchKey = `${t.repo}#${t.number}`;
+      // Tenant-prefixed store key: two teams watching the same PR of a shared repo keep
+      // independent subscriptions (a bare field would last-write-win).
+      const watchKey = withTeam(tenant, homeTeamId, `${t.repo}#${t.number}`);
 
       if (first === 'off') {
         const removed = store.deletePrWatch(watchKey);
@@ -694,6 +762,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
         repo: t.repo,
         number: t.number,
         slug: t.slug,
+        teamId: tid,
         channel: command.channel_id,
         createdBy: command.user_id,
         createdAt: new Date().toISOString(),
@@ -708,7 +777,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       return;
     }
 
-    const { project, question, error } = await channels.pickProject(client, command.channel_id, command.text ?? '');
+    const { project, question, error } = await channels.pickProject(client, command.channel_id, command.text ?? '', tenant);
     if (error) {
       await respond({ response_type: 'ephemeral', text: info(error) });
       return;
@@ -717,7 +786,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       await respond({ response_type: 'ephemeral', text: `Ask me something: \`${CMD} <your question>\`` });
       return;
     }
-    const key = `cmd:${command.user_id}:${project!.slug}`;
+    const key = withTeam(tenant, homeTeamId, `cmd:${command.user_id}:${project!.slug}`);
     let dm: string | undefined;
     try {
       const im = await client.conversations.open({ users: command.user_id });

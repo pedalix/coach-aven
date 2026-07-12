@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { splitTeam } from './teamkeys.js';
 import { log } from './log.js';
 
 // Usage metering — the "whose Claude tokens are we burning?" counter (multi-tenancy
@@ -30,11 +31,11 @@ export interface UsageRecord {
   usage?: TurnUsage;
 }
 
-// Slack workspace id from a (future) tenant-scoped conversation key, e.g.
-// "T0ABCDEF:thread:123.45" → "T0ABCDEF". Unscoped keys → 'home' (today's reality).
+// Tenant id from a tenant-scoped conversation key, e.g. "T0ABCDEF:thread:123.45" →
+// "T0ABCDEF" (enterprise E… ids too). Bare keys → 'home' — the same convention as
+// teamkeys.ts, which owns the encoding.
 export function teamOf(key: string): string {
-  const m = /^(T[A-Z0-9]{5,}):/.exec(key);
-  return m ? m[1] : 'home';
+  return splitTeam(key).tenantId ?? 'home';
 }
 
 export interface UsageRow {

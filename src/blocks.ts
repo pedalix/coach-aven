@@ -669,10 +669,12 @@ export function dmPickerBlocks(pid: string, projects: ProjectConfig[]): any[] {
 
 // ── App Home tab ────────────────────────────────────────────────────────────
 
-// The Home tab: what I am, every project + the channel that drives it, and a usage
-// cheat-sheet. Self-serve onboarding so colleagues don't have to read the README.
+// The Home tab: what I am, the VIEWER TENANT's projects + the channels that drive them,
+// and a usage cheat-sheet. Takes the tenant's subset (teamProjects), never the whole
+// registry — a client workspace must not see the fleet. The empty subset renders
+// onboardingHomeBlocks instead (see events.ts).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-export function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
+export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blocks: any[] = [
     { type: 'header', text: { type: 'plain_text', text: '🧭 CoachAven' } },
@@ -684,9 +686,9 @@ export function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
       },
     },
     { type: 'divider' },
-    { type: 'section', text: { type: 'mrkdwn', text: `*Projects* (${reg.projects.length})` } },
+    { type: 'section', text: { type: 'mrkdwn', text: `*Projects* (${projects.length})` } },
   ];
-  for (const p of reg.projects) {
+  for (const p of projects) {
     const channel = p.slackChannel ? '_(custom channel)_' : `#${prefix}${p.slug}`;
     const repos = p.repos.map((r) => `\`${shortRepo(r)}\``).join(', ');
     const yt = p.youtrackProjects?.length ? `\n   YouTrack: ${p.youtrackProjects.map((x) => `\`${x}\``).join(', ')}` : '';
@@ -706,12 +708,12 @@ export function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           '• *Build / collaborate* — @-mention me with a task in a project channel. I reply in a thread; keep replying (no need to re-mention) and I remember the conversation.\n' +
           `• *Quick private answer* — \`${CMD} <question>\` in a project channel. I answer privately in our DM.\n` +
           "• *DM me directly* — just message me in a DM; if it's not clear which project you mean, I'll show a picker.\n" +
-          `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every project's jobs).\n` +
+          `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every job across this workspace's projects).\n` +
           "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task. _(Voice/video not supported yet.)_\n" +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the full tool-by-tool trail in a pop-up.\n' +
-          `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically.\n` +
+          `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically _(managed from the project's owner workspace)_.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
           '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), hit *🔀 Open a PR* to turn the fix into a pull request, or *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above).\n' +
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
@@ -719,8 +721,8 @@ export function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
           `• *Sandbox upkeep* — \`${CMD} housekeeping on\`/\`off\` schedules (or pauses) the nightly janitor (dockerd guard, docker prune when disk runs high, stale-worktree reap); \`${CMD} housekeeping\` for the last run, \`${CMD} housekeeping now\` to run it once.\n` +
           `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.\n` +
-          `• *Usage* — \`${CMD} usage [days]\` for token/cost/turn totals per project (last 30d by default).\n` +
-          `• *Reload config* — \`${CMD} reload\` re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions.`,
+          `• *Usage* — \`${CMD} usage [days]\` for token/cost/turn totals per project (last 30d by default). _(Operators' home workspace only.)_\n` +
+          `• *Reload config* — \`${CMD} reload\` re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions. _(Operators' home workspace only.)_`,
       },
     },
     {
@@ -734,6 +736,37 @@ export function homeBlocks(reg: ProjectsRegistry, prefix: string): any[] {
     },
   );
   return blocks;
+}
+
+// The one "installed but not configured" sentence, shared by the gate middleware's
+// polite reply, the /aven guard, and the onboarding Home view — one string to edit.
+export function notConfiguredText(): string {
+  const contact = process.env.AVEN_CONTACT || 'the CoachAven team';
+  return `ℹ️ CoachAven is installed but no projects are configured for this workspace yet. Contact ${contact} to get set up.`;
+}
+
+// The Home tab for a workspace that installed the app but has no projects mapped yet —
+// the onboarding view of the tenant gate (never the fleet's project list).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function onboardingHomeBlocks(): any[] {
+  const contact = process.env.AVEN_CONTACT || 'the CoachAven team';
+  return [
+    { type: 'header', text: { type: 'plain_text', text: '🧭 CoachAven' } },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text:
+          "I'm a coding agent that lives in project channels — I investigate, build, and open PRs without leaving Slack.\n\n" +
+          `*You're almost there.* CoachAven is installed in this workspace, but no projects are configured for it yet. ` +
+          `Contact ${contact} to connect your repositories — once a project is set up, a channel here starts driving it.`,
+      },
+    },
+    {
+      type: 'context',
+      elements: [{ type: 'mrkdwn', text: 'Nothing runs and no data is read until a project is explicitly configured for this workspace.' }],
+    },
+  ];
 }
 
 // Slack notification for an autofix watch event: what changed + a "Fix it" button that

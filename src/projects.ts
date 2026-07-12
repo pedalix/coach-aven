@@ -48,6 +48,14 @@ export interface ProjectConfig {
 
 export interface ProjectsRegistry {
   projects: ProjectConfig[];
+  // Tenant → the project slugs that workspace may see and drive (multi-tenancy slice 2).
+  // Keys are Slack tenant ids per the installation-store rule (enterpriseId ?? teamId →
+  // "T…"/"E…"). ABSENT block = single-tenant back-compat: the home workspace owns every
+  // project. PRESENT block = explicit-only — a tenant not listed (including home!) has
+  // no projects and is politely refused by the gate. A slug MAY appear under several
+  // tenants (sharing is a data-model capability, deliberately not a built feature);
+  // pollers act for the slug's OWNER tenant only — see projectOwnerTeam.
+  workspaces?: Record<string, string[]>;
 }
 
 // Mutable handle to the loaded registry. Long-lived modules (turn engine, pollers,
@@ -78,6 +86,17 @@ export function loadProjects(path: string): ProjectsRegistry {
       }
     }
   }
+  // The workspaces block (when present) must reference real slugs — a typo would
+  // silently hide a project from its tenant, so fail the boot instead.
+  if (reg.workspaces) {
+    const known = new Set(reg.projects.map((p) => p.slug));
+    for (const [tenant, slugs] of Object.entries(reg.workspaces)) {
+      if (!Array.isArray(slugs)) throw new Error(`${path}: workspaces["${tenant}"] must be an array of slugs`);
+      for (const s of slugs) {
+        if (!known.has(s)) throw new Error(`${path}: workspaces["${tenant}"] references unknown project "${s}"`);
+      }
+    }
+  }
   // System prompts live as markdown files BESIDE the config — projects.d/<slug>.md —
   // instead of multi-KB one-line JSON strings (diffable, editable, no JSON escaping).
   // A file, when present and non-empty, WINS over the JSON `systemPrompt` field (kept as
@@ -102,4 +121,37 @@ export function resolveByChannel(
 
 export function resolveBySlug(reg: ProjectsRegistry, slug: string): ProjectConfig | undefined {
   return reg.projects.find((p) => p.slug === slug);
+}
+
+// The projects a tenant may see and drive. No workspaces block → single-tenant
+// back-compat: the home tenant (and the unknown tenant of static-token mode, where
+// homeTenant is undefined) gets everything, everyone else nothing. With the block,
+// membership is explicit-only — order follows reg.projects (stable for UI lists).
+export function teamProjects(
+  reg: ProjectsRegistry,
+  tenantId: string | undefined,
+  homeTenant: string | undefined,
+): ProjectConfig[] {
+  if (!reg.workspaces) {
+    const isHome = !tenantId || !homeTenant || tenantId === homeTenant;
+    return isHome ? reg.projects : [];
+  }
+  const slugs = new Set(reg.workspaces[tenantId ?? homeTenant ?? ''] ?? []);
+  return reg.projects.filter((p) => slugs.has(p.slug));
+}
+
+// The single tenant a poller acts for on this project — the FIRST tenant whose
+// workspaces entry lists the slug (config order = precedence, so put home first for
+// shared projects). No block / not listed → home. Keeps auto-review/YouTrack from
+// double-firing when a slug is shared across tenants.
+export function projectOwnerTeam(
+  reg: ProjectsRegistry,
+  slug: string,
+  homeTenant: string | undefined,
+): string | undefined {
+  if (!reg.workspaces) return homeTenant;
+  for (const [tenant, slugs] of Object.entries(reg.workspaces)) {
+    if (slugs.includes(slug)) return tenant;
+  }
+  return homeTenant;
 }

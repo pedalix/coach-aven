@@ -12,13 +12,15 @@ import type { Installation } from '@slack/bolt';
 import type { Config } from './config.js';
 import { Store } from './state.js';
 import { createInstallationStore } from './installations.js';
+import { tenantOf } from './teamkeys.js';
+import { RecentSet } from './recent.js';
 import { loadProjects, type RegistryRef } from './projects.js';
 import { createTurnEngine } from './turn.js';
 import { createChannels } from './channels.js';
 import { createPollers } from './pollers.js';
 import { registerCommands } from './commands.js';
 import { registerEvents } from './events.js';
-import { setAlertSink, summary } from './blocks.js';
+import { setAlertSink, summary, notConfiguredText } from './blocks.js';
 import { log } from './log.js';
 
 const { App } = bolt;
@@ -90,12 +92,12 @@ export async function runSlack(cfg: Config): Promise<void> {
       });
 
   // ── the home-team client ────────────────────────────────────────────────
-  // The singleton concerns — alert sink, pollers, restart recovery — are HOME-workspace-only
-  // in this slice (per-team pollers arrive with per-team registries). Under OAuth, app.client
-  // has no token, so the home client is minted from the installation store: the seeded env
-  // token, an explicit SLACK_HOME_TEAM_ID's record, or — on a first-ever OAuth boot with an
-  // empty store — nothing, in which case those concerns stay off (with a loud warning) but
-  // the bot still starts and serves /slack/install, so the first install can happen at all.
+  // The singleton concerns — alert sink, dream/housekeeping, restart recovery of home
+  // records — run on the home workspace's client. Under OAuth, app.client has no token,
+  // so it's minted from the installation store: the seeded env token, an explicit
+  // SLACK_HOME_TEAM_ID's record, or — on a first-ever OAuth boot with an empty store —
+  // nothing, in which case those concerns stay off (with a loud warning) but the bot
+  // still starts and serves /slack/install, so the first install can happen at all.
   let homeClient: bolt.webApi.WebClient | undefined;
   let homeTeamId: string | undefined;
   if (!oauth) {
@@ -117,23 +119,72 @@ export async function runSlack(cfg: Config): Promise<void> {
     }
   }
 
-  // ── tenant gate (thin-slice security) ───────────────────────────────────
-  // Until projects/state are per-team, EVERY installed workspace reaches OUR global
-  // registry — and the /slack/install URL is public by design. So in OAuth mode, drop
-  // events from any team that isn't the home workspace or explicitly allowlisted
-  // (SLACK_ALLOWED_TEAMS, comma-separated team ids). Static-token mode has exactly one
-  // workspace by construction — no gate. Remove when the per-team-registry slice lands.
-  if (oauth) {
-    const allowedTeams = new Set(
-      (process.env.SLACK_ALLOWED_TEAMS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+  // ── per-tenant client resolver ──────────────────────────────────────────
+  // THE way any non-event code path (pollers, recovery) gets a workspace's client.
+  // Cache keyed by the TOKEN, not the tenant — a reinstall rotates the token and the
+  // stale client falls out of use automatically. Throws for unknown tenants: callers
+  // (recovery, pollers) handle that per record and never fall back to the home token
+  // against a foreign workspace.
+  const clientCache = new Map<string, bolt.webApi.WebClient>();
+  function clientForTeam(tenantId?: string): bolt.webApi.WebClient {
+    if (!tenantId || tenantId === homeTeamId) {
+      if (!homeClient) throw new Error('home workspace has no installation yet');
+      return homeClient;
+    }
+    const install = store.getInstallation(tenantId) as Installation | undefined;
+    const token = install?.bot?.token;
+    if (!token) throw new Error(`no installation for tenant ${tenantId} — uninstalled or never installed`);
+    let c = clientCache.get(token);
+    if (!c) {
+      if (clientCache.size > 100) clientCache.clear(); // bound (rotations leave dead entries)
+      c = new bolt.webApi.WebClient(token);
+      clientCache.set(token, c);
+    }
+    return c;
+  }
+
+  // ── tenant gate (registry-driven since slice 2) ─────────────────────────
+  // A tenant is SERVED iff the workspaces block grants it projects (home always is).
+  // SLACK_ALLOWED_TEAMS stays honored as a transitional union. Unserved-but-installed
+  // tenants aren't silently dropped anymore: App Home and slash/actions pass through
+  // (their handlers render "not configured" — middleware can't ack()), and a mention/DM
+  // gets ONE polite reply per channel per hour. Static-token mode has exactly one
+  // workspace by construction — always served.
+  // The predicate is hot-path cheap (no project list materialized) and FAIL-CLOSED:
+  // an unresolved home tenant (first OAuth boot, empty store) serves nobody. Shared
+  // with the write-button handlers in events.ts (see EventDeps.servedTenant).
+  const allowedTeams = new Set(
+    (process.env.SLACK_ALLOWED_TEAMS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+  );
+  const servedTenant = (tenant: string | undefined): boolean => {
+    if (!oauth) return true; // static mode: one workspace by construction
+    return (
+      !!homeTeamId &&
+      !!tenant &&
+      (tenant === homeTeamId ||
+        allowedTeams.has(tenant) ||
+        (reg.current.workspaces ? (reg.current.workspaces[tenant]?.length ?? 0) > 0 : false))
     );
-    if (homeTeamId) allowedTeams.add(homeTeamId);
-    app.use(async ({ context, next }) => {
-      const team = (context.teamId ?? context.enterpriseId) as string | undefined;
-      if (team && allowedTeams.has(team)) return next();
-      // Deliberately silent toward the workspace (no bot post — we may not want to engage
-      // at all); loud in our logs so an unexpected install is noticed.
-      log.warn(`tenant gate: dropped an event from non-allowlisted team ${team ?? '(unknown)'}`);
+  };
+  if (oauth) {
+    const politeReplied = new RecentSet(60 * 60_000); // channel → polite-reply cooldown
+    app.use(async ({ context, body, client, next }) => {
+      const tenant = tenantOf(context as { teamId?: string; enterpriseId?: string; isEnterpriseInstall?: boolean });
+      if (servedTenant(tenant)) return next();
+      // Fail closed when home itself is unresolved (first boot): serve nobody.
+      const b = body as { command?: string; type?: string; event?: { type?: string; channel?: string } };
+      const evType = b.event?.type;
+      // Surfaces whose handlers give the polite "not configured" answer themselves:
+      if (evType === 'app_home_opened') return next(); // onboarding Home view (events.ts)
+      if (b.command || b.type === 'block_actions' || b.type === 'view_submission') return next(); // ack() lives there
+      if ((evType === 'app_mention' || evType === 'message') && b.event?.channel) {
+        const ch = b.event.channel;
+        if (politeReplied.claim(ch)) {
+          await client.chat.postMessage({ channel: ch, text: notConfiguredText() }).catch(() => {});
+        }
+        return; // handled here — do not fall through to the handlers
+      }
+      log.warn(`tenant gate: dropped a ${evType ?? b.type ?? 'unknown'} event from unserved tenant ${tenant ?? '(unknown)'}`);
     });
   }
 
@@ -157,32 +208,33 @@ export async function runSlack(cfg: Config): Promise<void> {
     });
   }
 
-  const engine = createTurnEngine(cfg, store, reg);
-  const channels = createChannels(reg);
-  // Pollers run against the home workspace. With no home client (first OAuth boot, empty
-  // store) they're built but never started; a user-triggered fire (/aven routine run) would
-  // fail with not_authed — acceptable until the home workspace is installed.
-  const pollers = createPollers(cfg, store, reg, homeClient ?? app.client, engine, channels);
-
   // Resolve our own bot user id so the message handler can ignore the very messages
-  // that already trigger app_mention (avoids double-processing). Home-team only — in
-  // other workspaces the per-event context.botUserId covers it (see events.ts).
-  const botUserId = homeClient ? ((await homeClient.auth.test()).user_id as string | undefined) : undefined;
+  // that already trigger app_mention (avoids double-processing) — and, in static-token
+  // mode, the home TEAM id: team-key logic needs it in both modes (auth.test knows both).
+  const authInfo = homeClient ? await homeClient.auth.test() : undefined;
+  const botUserId = authInfo?.user_id as string | undefined;
+  if (!oauth) homeTeamId = authInfo?.team_id as string | undefined;
 
-  registerEvents(app, { cfg, store, reg, engine, channels, botUserId });
-  registerCommands(app, { cfg, store, reg, engine, channels, pollers });
+  const engine = createTurnEngine(cfg, store, reg);
+  // Late-bound home getter: channels is built here, but homeTeamId was resolved above and
+  // a future re-auth could in principle refresh it.
+  const channels = createChannels(reg, () => homeTeamId);
+  const pollers = createPollers(cfg, store, reg, clientForTeam, engine, channels, () => homeTeamId);
+
+  registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant });
+  registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId });
 
   // Recovery order matters: reattach the turns that were RUNNING first, then replay the
   // journaled ones that were still queued (a replay waits for its key's recovery). Both
   // BEFORE app.start(): the journal drain must happen while no new event can append to it,
   // or a turn accepted in the gap would be replayed as a duplicate. The Web API client
   // works without the socket; events only flow once start() connects.
-  // Home-team client: recovering a turn that ran in a CLIENT workspace will finalize its
-  // Slack message with the wrong token (a silent no-op) — a known limit of this slice;
-  // the per-team-registry slice adds teamId to ChatRecord and resolves per record.
+  // Each record resolves ITS OWN workspace's client (clientForTeam) — a client-team turn
+  // finalizes with that team's token; an uninstalled team's record is cleared, not retried
+  // forever. Guarded on homeClient: with no home install there are no records to recover.
   if (homeClient) {
-    const recovering = engine.resumeInflightTurns(homeClient);
-    engine.resumeQueuedTurns(homeClient, recovering);
+    const recovering = engine.resumeInflightTurns(clientForTeam);
+    engine.resumeQueuedTurns(clientForTeam, recovering);
   }
 
   await app.start();

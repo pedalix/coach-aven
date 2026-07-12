@@ -5,7 +5,9 @@
 import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
 import type { Store } from './state.js';
-import { resolveBySlug, type RegistryRef } from './projects.js';
+import { resolveBySlug, teamProjects, type RegistryRef } from './projects.js';
+import { tenantOf, withTeam } from './teamkeys.js';
+import { RecentSet } from './recent.js';
 import type { TurnEngine } from './turn.js';
 import type { Channels } from './channels.js';
 import { readMemory } from './commands.js';
@@ -21,6 +23,7 @@ import {
   info,
   errText,
   homeBlocks,
+  onboardingHomeBlocks,
   dmPickerBlocks,
   questionBlocks,
   trailModalView,
@@ -49,6 +52,13 @@ export interface EventDeps {
   // The HOME workspace's bot user id (fallback only) — under OAuth each event's own
   // context.botUserId is the authoritative self-id for that workspace.
   botUserId?: string;
+  // The home tenant id (resolved at boot in both modes). Session keys stay BARE for the
+  // home workspace and carry a tenant prefix for every other one — see teamkeys.ts.
+  homeTeamId?: string;
+  // The tenant-gate predicate (slack.ts). The gate middleware passes block_actions
+  // through for ack() reasons, so WRITE-capable button handlers re-check it here — an
+  // offboarded workspace clicking a stale button must not fire a turn.
+  servedTenant: (tenantId: string | undefined) => boolean;
 }
 
 // Map raw Slack file objects (untyped on the message event) to source-agnostic AttachmentRefs.
@@ -74,12 +84,24 @@ function slackFilesToRefs(files: unknown[]): AttachmentRef[] {
 }
 
 export function registerEvents(app: bolt.App, deps: EventDeps): void {
-  const { cfg, store, reg, engine, channels, botUserId } = deps;
+  const { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant } = deps;
 
   // DM project picks awaiting a dropdown choice: a DM with no project hint posts a picker;
   // the original question is parked here under a short id until the user selects a project.
   const pendingDmPicks = new Map<string, { channel: string; user: string; question: string }>();
   let dmPickSeq = 0;
+
+  // ── Slack Connect double-envelope guard ─────────────────────────────────
+  // In a shared channel with the app installed on BOTH sides, one message is delivered
+  // once per installation (two envelopes, different team contexts). CLAIM-ON-ACT: an
+  // envelope claims `${listener}:${channel}:${ts}` only at the moment its handler decides
+  // to act — an envelope that exits early (no ChatRecord for its team, no project) never
+  // claims, so the envelope of the team that actually owns the conversation still runs.
+  // Per-listener keying keeps app_mention and message (already deduped by the selfId
+  // check within one team) from racing each other.
+  const claimedEvents = new RecentSet(10 * 60_000);
+  const claimEvent = (listener: string, channel: string, ts: string): boolean =>
+    claimedEvents.claim(`${listener}:${channel}:${ts}`);
 
   // ── @mention → public thread (one session per thread) ───────────────────────
   app.event('app_mention', async ({ event, client, context }) => {
@@ -91,13 +113,18 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     // files are only readable with that workspace's own token.
     const files = Array.isArray(e.files) ? slackFilesToRefs(e.files) : [];
     const attachments = files.length && context.botToken ? { refs: files, bearer: context.botToken } : undefined;
-    const { project, question, error } = await channels.pickProject(client, e.channel, stripMention(e.text ?? ''));
+    const tenant = tenantOf(context);
+    const { project, question, error } = await channels.pickProject(client, e.channel, stripMention(e.text ?? ''), tenant);
     if (error) {
+      // Error replies claim their OWN namespace: in a shared channel the tenant that
+      // can't resolve the project must not steal the claim from the one that can.
+      if (!claimEvent('mention-err', e.channel, e.ts)) return;
       await client.chat.postMessage({ channel: e.channel, thread_ts: threadTs, text: info(error) });
       return;
     }
     // A bare mention with a file (no text) is a valid ask — only nag when there's neither.
     if (!question && !attachments) {
+      if (!claimEvent('mention', e.channel, e.ts)) return;
       await client.chat.postMessage({
         channel: e.channel,
         thread_ts: threadTs,
@@ -105,8 +132,10 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       });
       return;
     }
+    if (!claimEvent('mention', e.channel, e.ts)) return;
     const mentionQ = question || 'Please take a look at the attached file(s).';
-    await engine.liveTurn(client, e.channel, e.ts, threadTs, `thread:${threadTs}`, project!, mentionQ, attachments);
+    const key = withTeam(tenant, homeTeamId, `thread:${threadTs}`);
+    await engine.liveTurn(client, e.channel, e.ts, threadTs, key, project!, mentionQ, attachments);
   });
 
   // ── thread reply (owned) → continue;  DM → private conversation ─────────────
@@ -141,20 +170,24 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     const selfId = context.botUserId ?? botUserId;
     if (selfId && m.text?.includes(`<@${selfId}>`)) return; // app_mention handles these
 
+    const tenant = tenantOf(context);
+
     // Direct message → private; needs a project hint (slug) since DMs aren't bound.
     if (m.channel_type === 'im') {
-      const { project, question, error } = await channels.pickProject(client, m.channel, m.text ?? '');
+      const { project, question, error } = await channels.pickProject(client, m.channel, m.text ?? '', tenant);
       if (error) {
-        // No project hint → offer a dropdown instead of demanding a slug prefix. Park the
-        // question; the dm_pick_project handler runs it once a project is chosen. (Attachments
-        // don't survive the picker in v1 — the re-run has no files; rare enough to accept.)
-        if (m.user && question && reg.current.projects.length > 1) {
+        // No project hint → offer a dropdown (of the TENANT's projects only) instead of
+        // demanding a slug prefix. Park the question; the dm_pick_project handler runs it
+        // once a project is chosen. (Attachments don't survive the picker in v1 — the
+        // re-run has no files; rare enough to accept.)
+        const mine = teamProjects(reg.current, tenant, homeTeamId);
+        if (m.user && question && mine.length > 1) {
           const pid = `dp${++dmPickSeq}`;
           pendingDmPicks.set(pid, { channel: m.channel, user: m.user, question });
           await client.chat.postMessage({
             channel: m.channel,
             text: 'Which project?',
-            blocks: dmPickerBlocks(pid, reg.current.projects),
+            blocks: dmPickerBlocks(pid, mine),
           });
         } else {
           await client.chat.postMessage({ channel: m.channel, text: info(error) });
@@ -172,16 +205,21 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
         return;
       }
       const dmQ = question || 'Please take a look at the attached file(s).';
-      await engine.liveTurn(client, m.channel, m.ts, undefined, `dm:${m.channel}:${project!.slug}`, project!, dmQ, attachments);
+      const dmKey = withTeam(tenant, homeTeamId, `dm:${m.channel}:${project!.slug}`);
+      await engine.liveTurn(client, m.channel, m.ts, undefined, dmKey, project!, dmQ, attachments);
       return;
     }
 
     // Public channel/group: only continue a thread we already own (no re-@mention).
+    // The key is built from THIS envelope's tenant — in a Slack Connect channel the other
+    // side's envelope finds no ChatRecord under its key and exits here without claiming,
+    // leaving the owning team's envelope to act (see claimEvent).
     if (!m.thread_ts) return;
-    const key = `thread:${m.thread_ts}`;
+    const key = withTeam(tenant, homeTeamId, `thread:${m.thread_ts}`);
     if (!engine.hasLive(key) && !store.getChat(key)) return;
-    const { project, question, error } = await channels.pickProject(client, m.channel, m.text ?? '');
+    const { project, question, error } = await channels.pickProject(client, m.channel, m.text ?? '', tenant);
     if (error || !project) return;
+    if (!claimEvent('message', m.channel, m.ts)) return;
     if (!question && !attachments) {
       await client.chat.postMessage({
         channel: m.channel,
@@ -249,14 +287,18 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   });
 
   // ── DM project dropdown → run the parked question against the chosen project ──
-  app.action('dm_pick_project', async ({ ack, action, client, body }) => {
+  app.action('dm_pick_project', async ({ ack, action, client, body, context }) => {
     await ack();
     const sel = (action as { selected_option?: { value?: string } }).selected_option?.value ?? '';
     const i = sel.indexOf(':'); // value = "<pid>:<slug>"
     const pid = sel.slice(0, i);
     const slug = sel.slice(i + 1);
     const pending = pendingDmPicks.get(pid);
-    const project = slug ? resolveBySlug(reg.current, slug) : undefined;
+    // Validate the pick INSIDE the clicking tenant's subset — the dropdown only listed
+    // those, but the action value is still client-supplied input.
+    const tenant = tenantOf(context);
+    const mine = { projects: teamProjects(reg.current, tenant, homeTeamId) };
+    const project = slug ? resolveBySlug(mine, slug) : undefined;
     const b = body as { message?: { ts?: string } };
     if (!pending || !project) {
       if (b.message?.ts) {
@@ -272,12 +314,14 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
         .update({ channel: pending.channel, ts: b.message.ts, text: `▶️ Running on *${slug}*…`, blocks: [] })
         .catch(() => {});
     }
-    await engine.liveTurn(client, pending.channel, undefined, undefined, `dm:${pending.channel}:${slug}`, project, pending.question);
+    const pickKey = withTeam(tenant, homeTeamId, `dm:${pending.channel}:${slug}`);
+    await engine.liveTurn(client, pending.channel, undefined, undefined, pickKey, project, pending.question);
   });
 
   // ── "🔀 Open a PR" button → enqueue a follow-up turn asking the agent to PR its work ──
-  app.action('make_pr', async ({ ack, action, client }) => {
+  app.action('make_pr', async ({ ack, action, client, context }) => {
     await ack();
+    if (!servedTenant(tenantOf(context))) return; // stale button in an offboarded workspace
     let v: { key: string; channel: string; threadTs?: string };
     try {
       v = JSON.parse((action as { value?: string }).value ?? '');
@@ -294,8 +338,9 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   // ── "📝 Report to YouTrack" → pop-up with the ACTUAL generation prompt to confirm/edit ──
   // Full transparency: the user sees and may edit the exact prompt that will run; a checkbox
   // skips the preview and posts the result straight to the ticket (internal, fail-closed).
-  app.action('yt_report', async ({ ack, action, body, client }) => {
+  app.action('yt_report', async ({ ack, action, body, client, context }) => {
     await ack();
+    if (!servedTenant(tenantOf(context))) return; // stale button in an offboarded workspace
     let v: { t: string; key: string; channel: string; threadTs?: string };
     try {
       v = JSON.parse((action as { value?: string }).value ?? '');
@@ -319,8 +364,9 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   // about its read-only YouTrack MCP and auto-post ships that preamble to the ticket.
   // "Post immediately" checked → hand the turn an autoPost hook: the answer goes straight to
   // the ticket, and on failure turn.ts degrades it to the reviewable draft with the error.
-  app.view(YT_PROMPT_CALLBACK, async ({ ack, view, client }) => {
+  app.view(YT_PROMPT_CALLBACK, async ({ ack, view, client, context }) => {
     await ack();
+    if (!servedTenant(tenantOf(context))) return; // offboarded workspace — no draft turn
     let meta: { t: string; key: string; channel: string; threadTs?: string };
     try {
       meta = JSON.parse(view.private_metadata || '');
@@ -415,8 +461,10 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   });
 
   // ── autofix "🔧 Fix it" button → enqueue a WRITE turn to address the PR feedback ──
-  app.action('autofix_apply', async ({ ack, action, client }) => {
+  app.action('autofix_apply', async ({ ack, action, client, context }) => {
     await ack();
+    const tenant = tenantOf(context);
+    if (!servedTenant(tenant)) return; // stale button in an offboarded workspace — no write turn
     let v: { slug: string; repo: string; number: number; channel: string };
     try {
       v = JSON.parse((action as { value?: string }).value ?? '');
@@ -425,14 +473,19 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     }
     const project = resolveBySlug(reg.current, v.slug);
     if (!project) return;
-    const key = `autofix:${v.repo}:${v.number}:${v.slug}`;
+    // Tenant-prefixed like the subscribe path (commands.ts) — attribution, dedup and
+    // restart recovery all resolve the clicking workspace's own token.
+    const key = withTeam(tenant, homeTeamId, `autofix:${v.repo}:${v.number}:${v.slug}`);
     if (engine.hasKey(key)) return; // a fix is already running for this PR
     await engine.liveTurn(client, v.channel, undefined, undefined, key, project, autofixPrompt(v.repo, v.number));
   });
 
   // ── memory topic button → open that section file (journal copy first, no sandbox wake) ──
-  app.action(/^mem_open:/, async ({ ack, action, respond }) => {
+  app.action(/^mem_open:/, async ({ ack, action, respond, context }) => {
     await ack();
+    // Memory contents are project data — a stale button in an offboarded workspace must
+    // not stay an open read channel (same rule as the write buttons above).
+    if (!servedTenant(tenantOf(context))) return;
     let v: { s: string; f: string };
     try {
       v = JSON.parse((action as { value?: string }).value ?? '');
@@ -456,13 +509,18 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   });
 
   // ── App Home tab → a self-documenting dashboard: projects, channels, how to use me ──
-  app.event('app_home_opened', async ({ event, client }) => {
+  app.event('app_home_opened', async ({ event, client, context }) => {
     const e = event as { user: string; tab?: string };
     if (e.tab && e.tab !== 'home') return; // ignore the messages-tab open
+    // Per-tenant dashboard: only the viewer workspace's projects. An installed-but-
+    // unmapped workspace (the gate lets app_home_opened through) gets the onboarding
+    // view — as does EVERYONE while home is unresolved (first OAuth boot, fail closed:
+    // teamProjects would otherwise treat any viewer as home and leak the fleet).
+    const mine = servedTenant(tenantOf(context)) ? teamProjects(reg.current, tenantOf(context), homeTeamId) : [];
     try {
       await client.views.publish({
         user_id: e.user,
-        view: { type: 'home', blocks: homeBlocks(reg.current, channels.prefix) },
+        view: { type: 'home', blocks: mine.length ? homeBlocks(mine, channels.prefix) : onboardingHomeBlocks() },
       });
     } catch (err) {
       log.error(`home publish failed: ${err instanceof Error ? err.message : String(err)}`);

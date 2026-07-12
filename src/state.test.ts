@@ -137,3 +137,44 @@ test('youtrack investigations — reverse thread lookup + reported stamp (the �
   assert.ok(store.getInvestigation('CG-50')?.reportedAt);
   store.markReported('nope'); // no-op, doesn't throw
 });
+
+// ── slice 2: tenant stamping + export/purge ───────────────────────────────────
+const T = 'T0CLIENT77';
+
+test('patchChat/setChat stamp teamId from the key; home keys stay field-less', () => {
+  const { store } = freshStore();
+  store.patchChat('thread:1.1', 'caldora', {});
+  store.patchChat(`${T}:thread:2.2`, 'caldora', {});
+  assert.equal(store.getChat('thread:1.1')?.teamId, undefined);
+  assert.equal(store.getChat(`${T}:thread:2.2`)?.teamId, T);
+  // a caller-supplied teamId in the patch is overridden by the key's truth
+  store.patchChat(`${T}:thread:2.2`, 'caldora', { teamId: 'T0EVIL999' } as never);
+  assert.equal(store.getChat(`${T}:thread:2.2`)?.teamId, T);
+  store.setChat({ threadTs: `${T}:dm:C1:caldora`, slug: 'caldora', updatedAt: 'x', teamId: 'T0EVIL999' });
+  assert.equal(store.getChat(`${T}:dm:C1:caldora`)?.teamId, T);
+});
+
+test('exportTenant/purgeTenant slice records by the explicit field', () => {
+  const { store } = freshStore();
+  store.patchChat('thread:1.1', 'alpha', {});
+  store.patchChat(`${T}:thread:2.2`, 'beta', {});
+  store.addRoutine(routine()); // home (no teamId)
+  store.addRoutine({ ...routine(), teamId: T } as never);
+  store.setPrWatch(`${T}:O/r#1`, { repo: 'O/r', number: 1, slug: 'beta', teamId: T, channel: 'C9', createdBy: 'U1', createdAt: 'x' });
+  store.setInstallation(T, { bot: { token: 'xoxb-t' } });
+  store.recordInvestigation('CG-1', { slug: 'beta', teamId: T, channel: 'C9', startedAt: 'x' });
+
+  const exp = store.exportTenant(T);
+  assert.equal(exp.chats.length, 1);
+  assert.equal(exp.routines.length, 1);
+  assert.equal(exp.prWatches.length, 1);
+  assert.deepEqual(Object.keys(exp.investigations), ['CG-1']);
+  assert.ok(exp.installation);
+  assert.equal(store.exportTenant(undefined).chats.length, 1); // home slice
+
+  const counts = store.purgeTenant(T);
+  assert.deepEqual(counts, { chats: 1, routines: 1, prWatches: 1, investigations: 1, installations: 1 });
+  assert.equal(store.getChat(`${T}:thread:2.2`), undefined);
+  assert.equal(store.getChat('thread:1.1')?.slug, 'alpha'); // home untouched
+  assert.equal(store.listRoutines().length, 1);
+});

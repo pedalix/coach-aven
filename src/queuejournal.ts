@@ -1,4 +1,5 @@
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { splitTeam } from './teamkeys.js';
 import { log } from './log.js';
 
 // Crash-safe journal of QUEUED turns: accepted (status message posted) but not yet
@@ -14,6 +15,9 @@ import { log } from './log.js';
 export interface QueuedTurn {
   turnId: string;
   key: string; // conversation key (per-key queue identity)
+  // Owning tenant (absent = home). Stamped by the journal from the key's tenant prefix
+  // at add() — never caller-supplied — so replay picks the right workspace token.
+  teamId?: string;
   slug: string; // project, resolved again at replay (the registry may have changed)
   channel: string;
   statusTs: string; // the posted status message — reused/finalized on recovery
@@ -59,7 +63,8 @@ export class QueueJournal {
 
   // Appends are best-effort: a full disk must degrade recovery, never sink a live turn.
   add(entry: QueuedTurn): void {
-    this.append({ op: 'add', ...entry });
+    // teamId derives from the key (see the field comment); undefined (home) serializes away.
+    this.append({ op: 'add', ...entry, teamId: splitTeam(entry.key).tenantId });
   }
 
   done(turnId: string): void {

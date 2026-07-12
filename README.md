@@ -140,10 +140,26 @@ Distribution** in the Slack app admin and register your public
 app — dev, prod — registers its own). Per-workspace bot tokens land in `state.json` →
 `installations` (that's why it's written `0600`); events for all workspaces keep riding the
 one Socket Mode connection, so the HTTP port is only for the install handshake. Our own
-workspace is seeded from `SLACK_BOT_TOKEN` on first boot and stays the home of pollers,
-alerts and restart recovery. **Tenant gate:** until projects are per-team, only the home
-workspace and teams listed in `SLACK_ALLOWED_TEAMS` are answered — an unlisted install is
-logged and ignored. Local dev: a tunnel (e.g. `ngrok http 3000`) is the easiest redirect URL.
+workspace is seeded from `SLACK_BOT_TOKEN` on first boot and stays the home of alerts and
+operator commands. Local dev: a tunnel (e.g. `ngrok http 3000`) is the easiest redirect URL.
+
+**Per-workspace projects (slice 2).** The optional top-level `workspaces` block in
+`projects.config.json` maps each Slack team id to the project slugs it may see and drive:
+
+```jsonc
+"workspaces": { "T0YOURHOME1": ["caldora", "dorfberg-monitoring"], "T0CLIENT001": ["dorfberg-monitoring"] }
+```
+
+No block = single-tenant back-compat (the home workspace owns everything). With the block,
+membership is explicit-only: every resolution (channels, DM picker, App Home, `/aven`,
+PR refs) happens inside the calling workspace's subset; an installed-but-unmapped
+workspace gets an onboarding App Home + one polite reply (`AVEN_CONTACT` names who to
+contact). Session keys and every persisted record carry the owning team (bare/absent =
+home), so pollers, routines and restart recovery post with the right workspace's token —
+and per-tenant export/offboarding (`Store.exportTenant`/`purgeTenant`) is a field filter.
+A slug may appear under several teams (the data model allows sharing; pollers then act
+for the first team listing it — the "owner"). ⚠️ Admit a client team only AFTER this
+version is deployed: earlier records are keyed without a team and would orphan.
 
 Everything else — building, PR reviews, scheduled digests, memory, ticket
 investigations — is driven from Slack; the bot's App Home tab is the user-facing
