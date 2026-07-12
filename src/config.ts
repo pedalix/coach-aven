@@ -77,6 +77,47 @@ function githubAuth(): GitHubAuth {
   };
 }
 
+// Multi-workspace OAuth install flow (Public Distribution). Active only when the client
+// credentials are set — a plain SLACK_BOT_TOKEN dev run stays single-workspace with zero
+// OAuth moving parts. `homeTeamId` names OUR workspace (pollers/alerts/recovery run there;
+// see slack.ts); when unset it's resolved via auth.test on SLACK_BOT_TOKEN at boot.
+export interface SlackOauthConfig {
+  clientId: string;
+  clientSecret: string;
+  stateSecret: string;
+  scopes: string[]; // bot scopes requested at install (user scopes deliberately not requested)
+  port: number; // the OAuth HTTP listener (install + redirect routes) — see SocketModeReceiver
+  homeTeamId?: string;
+}
+
+// The bot scopes from slack-app-manifest.json — the default install request. Keep in sync
+// when the manifest grows a scope (a mismatch = clients install without the new scope and
+// hit missing_scope until they reinstall).
+const DEFAULT_BOT_SCOPES = [
+  'app_mentions:read',
+  'channels:history',
+  'channels:join',
+  'channels:manage',
+  'channels:read',
+  'chat:write',
+  'commands',
+  'files:read',
+  'files:write',
+  'groups:history',
+  'groups:read',
+  'groups:write',
+  'im:history',
+  'im:read',
+  'im:write',
+  'mpim:history',
+  'mpim:write',
+  'reactions:write',
+  'reactions:read',
+  'usergroups:read',
+  'users:read.email',
+  'users:read',
+];
+
 // Which sandbox provider backs a project (see driver.ts). Global default via
 // SANDBOX_DRIVER; overridable per project in projects.config.json (`driver` field).
 export type SandboxDriverKind = 'daytona' | 'ssh-docker';
@@ -95,8 +136,10 @@ export interface Config {
   sandbox: { autoStopMinutes: number; workDir: string; namePrefix: string };
   claudeOauthToken: string;
   github: GitHubAuth;
-  // Slack is only needed for the `slack` command; undefined otherwise.
-  slack?: { botToken: string; appToken: string };
+  // Slack is only needed for the `slack` command; undefined otherwise. appToken is always
+  // required (Socket Mode); botToken is optional once `oauth` is set — the home workspace's
+  // token then comes from the installation store (botToken, when present, seeds it).
+  slack?: { botToken?: string; appToken: string; oauth?: SlackOauthConfig };
   // YouTrack support-ticket investigation pilot; undefined (off) unless YOUTRACK_URL +
   // YOUTRACK_TOKEN are set. `label` is the trigger tag; `ping` is the Slack user ids to
   // @-mention with each finding. The token is a read-only YouTrack permanent token.
@@ -106,6 +149,39 @@ export interface Config {
   // Sentry error/perf/log reporting; undefined (off) unless SENTRY_DSN is set. `logs` opt-in
   // (SENTRY_LOGS=1) since it sends log content to Sentry's cloud.
   sentry?: { dsn: string; environment: string; release?: string; tracesSampleRate: number; logs: boolean };
+}
+
+// Slack config resolves in two shapes: classic single-workspace (bot + app token) and
+// OAuth multi-workspace (client credentials + app token; bot token optional as a seed).
+// Absent app token → no Slack (the non-slack CLI commands don't need it). Partial OAuth
+// credentials throw rather than silently running single-workspace.
+function slackConfig(): Config['slack'] {
+  const appToken = process.env.SLACK_APP_TOKEN;
+  const botToken = process.env.SLACK_BOT_TOKEN;
+  const clientId = process.env.SLACK_CLIENT_ID;
+  const clientSecret = process.env.SLACK_CLIENT_SECRET;
+  const stateSecret = process.env.SLACK_STATE_SECRET;
+  if (!appToken) return undefined;
+  let oauth: SlackOauthConfig | undefined;
+  if (clientId || clientSecret || stateSecret) {
+    if (!clientId || !clientSecret || !stateSecret) {
+      throw new Error(
+        'Partial Slack OAuth config: set ALL of SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, SLACK_STATE_SECRET (or none).',
+      );
+    }
+    oauth = {
+      clientId,
+      clientSecret,
+      stateSecret,
+      scopes: process.env.SLACK_SCOPES
+        ? process.env.SLACK_SCOPES.split(',').map((s) => s.trim()).filter(Boolean)
+        : DEFAULT_BOT_SCOPES,
+      port: num('SLACK_OAUTH_PORT', 3000),
+      homeTeamId: process.env.SLACK_HOME_TEAM_ID,
+    };
+  }
+  if (!botToken && !oauth) return undefined; // app token alone can't run the bot
+  return { botToken, appToken, oauth };
 }
 
 export function loadConfig(): Config {
@@ -143,10 +219,7 @@ export function loadConfig(): Config {
     },
     claudeOauthToken: resolveClaudeToken(),
     github: githubAuth(),
-    slack:
-      process.env.SLACK_BOT_TOKEN && process.env.SLACK_APP_TOKEN
-        ? { botToken: process.env.SLACK_BOT_TOKEN, appToken: process.env.SLACK_APP_TOKEN }
-        : undefined,
+    slack: slackConfig(),
     youtrack:
       process.env.YOUTRACK_URL && process.env.YOUTRACK_TOKEN
         ? {

@@ -24,6 +24,9 @@
         ]
     },
     "oauth_config": {
+        "redirect_urls": [
+            "https://coachaven.example.com/slack/oauth_redirect"
+        ],
         "scopes": {
             "user": [
                 "channels:history",

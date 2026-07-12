@@ -46,7 +46,8 @@ export interface EventDeps {
   reg: RegistryRef;
   engine: TurnEngine;
   channels: Channels;
-  slackBotToken: string;
+  // The HOME workspace's bot user id (fallback only) — under OAuth each event's own
+  // context.botUserId is the authoritative self-id for that workspace.
   botUserId?: string;
 }
 
@@ -73,7 +74,7 @@ function slackFilesToRefs(files: unknown[]): AttachmentRef[] {
 }
 
 export function registerEvents(app: bolt.App, deps: EventDeps): void {
-  const { cfg, store, reg, engine, channels, slackBotToken, botUserId } = deps;
+  const { cfg, store, reg, engine, channels, botUserId } = deps;
 
   // DM project picks awaiting a dropdown choice: a DM with no project hint posts a picker;
   // the original question is parked here under a short id until the user selects a project.
@@ -81,13 +82,15 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   let dmPickSeq = 0;
 
   // ── @mention → public thread (one session per thread) ───────────────────────
-  app.event('app_mention', async ({ event, client }) => {
+  app.event('app_mention', async ({ event, client, context }) => {
     const e = event as { channel: string; ts: string; thread_ts?: string; text?: string; files?: unknown[] };
     const threadTs = e.thread_ts || e.ts;
     // Files attached to the mentioning message (e.g. "@CoachAven look at this <screenshot>") —
-    // the common channel pattern. Downloaded into the sandbox for the agent to Read.
+    // the common channel pattern. Downloaded into the sandbox for the agent to Read. The
+    // bearer is the EVENT's workspace bot token (context.botToken) — a client workspace's
+    // files are only readable with that workspace's own token.
     const files = Array.isArray(e.files) ? slackFilesToRefs(e.files) : [];
-    const attachments = files.length ? { refs: files, bearer: slackBotToken } : undefined;
+    const attachments = files.length && context.botToken ? { refs: files, bearer: context.botToken } : undefined;
     const { project, question, error } = await channels.pickProject(client, e.channel, stripMention(e.text ?? ''));
     if (error) {
       await client.chat.postMessage({ channel: e.channel, thread_ts: threadTs, text: info(error) });
@@ -107,7 +110,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   });
 
   // ── thread reply (owned) → continue;  DM → private conversation ─────────────
-  app.message(async ({ message, client }) => {
+  app.message(async ({ message, client, context }) => {
     const m = message as {
       subtype?: string;
       bot_id?: string;
@@ -126,14 +129,17 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     // here we just extract the refs and let the message flow through the SAME routing as text —
     // so the DM/owned-thread gates still decide whether we engage (we never barge in elsewhere).
     const files = Array.isArray(m.files) ? slackFilesToRefs(m.files) : [];
-    const attachments = files.length ? { refs: files, bearer: slackBotToken } : undefined;
+    const attachments = files.length && context.botToken ? { refs: files, bearer: context.botToken } : undefined;
 
     // Ignore edits/joins/topic-changes/etc. — but `thread_broadcast` is a genuine reply and
     // `file_share` is a real message carrying files, so let both fall through to the handling
     // below. (A file dropped WITH an @mention is handled by the app_mention branch above, which
     // carries its own files; the check below then bounces the duplicate message event.)
     if (m.subtype && m.subtype !== 'thread_broadcast' && m.subtype !== 'file_share') return;
-    if (botUserId && m.text?.includes(`<@${botUserId}>`)) return; // app_mention handles these
+    // Self-mention guard: the event's own workspace bot user id (per-team under OAuth);
+    // the boot-time home-team id is only a fallback.
+    const selfId = context.botUserId ?? botUserId;
+    if (selfId && m.text?.includes(`<@${selfId}>`)) return; // app_mention handles these
 
     // Direct message → private; needs a project hint (slug) since DMs aren't bound.
     if (m.channel_type === 'im') {

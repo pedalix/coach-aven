@@ -3,7 +3,17 @@
 > Decision doc. CoachAven today serves **one Slack workspace** (ours). We want to serve
 > **multiple clients**. There are two fundamentally different ways to do that, and they
 > differ by an order of magnitude in cost and in what they unlock. This lays out both so we
-> can pick deliberately. **No code has been written for either** — this is the pre-decision.
+> can pick deliberately.
+
+> **DECIDED 2026-07-10: Option B (workspace multi-tenancy, Public Distribution + OAuth),**
+> **full multi-tenant SaaS as the target, built in slices.** Slice 1 is in: the OAuth
+> install flow over Socket Mode (`SLACK_CLIENT_ID/SECRET/STATE_SECRET`), an
+> `InstallationStore` persisting per-workspace bot tokens in `state.json`
+> (`src/installations.ts`), per-event team tokens in the handlers, and a **tenant gate**
+> (home team + `SLACK_ALLOWED_TEAMS`) so an unexpected install can't reach our global
+> registry. Still ahead (see §3): per-team project registries + state re-keying by
+> `team_id`, per-team pollers/recovery, uninstall handling, SQLite. Option A's
+> shared-channel model remains possible in parallel — the two aren't exclusive.
 
 ---
 

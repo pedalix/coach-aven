@@ -109,7 +109,7 @@ Two are **input you edit**; one is **state the orchestrator writes itself**. All
 
 | File | Who writes | What it is | Holds |
 |---|---|---|---|
-| `.env` | you | secrets + infra (access) | `DAYTONA_*`, `SNAPSHOT_*`, `SANDBOX_*`, `CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_APP_*` / `GITHUB_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `PROJECTS_CONFIG_PATH` |
+| `.env` | you | secrets + infra (access) | `DAYTONA_*`, `SNAPSHOT_*`, `SANDBOX_*`, `CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_APP_*` / `GITHUB_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_CLIENT_ID`/`SECRET`/`STATE_SECRET` (multi-workspace OAuth, optional), `PROJECTS_CONFIG_PATH` |
 | `projects.config.json` | you | the channel→project registry | per project: `slug`, `repos[]`, `slackChannel`, `mcp[]`, `env{}` |
 | `state.json` | the orchestrator | runtime journal/memory | created sandbox name, default branch, tasks (branch/worktree/status/PR), and Slack `thread/dm → {slug, Claude sessionId}` mappings (for `--resume`) |
 
@@ -129,6 +129,21 @@ cp projects.config.example.json projects.config.json   # list projects (slug + r
 # create a Slack channel `bluefin-aven-<slug>` per project — it auto-binds by name
 npm run orch -- slack
 ```
+
+### Multi-workspace installs (OAuth, optional)
+
+Set `SLACK_CLIENT_ID` + `SLACK_CLIENT_SECRET` + `SLACK_STATE_SECRET` (see `.env.example`) and
+the bot switches to OAuth mode: it serves `http://<host>:3000/slack/install` (override with
+`SLACK_OAUTH_PORT`) and other workspaces can install it from that link — enable **Public
+Distribution** in the Slack app admin and register your public
+`https://<host>/slack/oauth_redirect` URL there (the manifest carries a placeholder; each
+app — dev, prod — registers its own). Per-workspace bot tokens land in `state.json` →
+`installations` (that's why it's written `0600`); events for all workspaces keep riding the
+one Socket Mode connection, so the HTTP port is only for the install handshake. Our own
+workspace is seeded from `SLACK_BOT_TOKEN` on first boot and stays the home of pollers,
+alerts and restart recovery. **Tenant gate:** until projects are per-team, only the home
+workspace and teams listed in `SLACK_ALLOWED_TEAMS` are answered — an unlisted install is
+logged and ignored. Local dev: a tunnel (e.g. `ngrok http 3000`) is the easiest redirect URL.
 
 Everything else — building, PR reviews, scheduled digests, memory, ticket
 investigations — is driven from Slack; the bot's App Home tab is the user-facing

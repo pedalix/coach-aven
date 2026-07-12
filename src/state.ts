@@ -96,6 +96,10 @@ export interface TicketInvestigation {
 interface StateShape {
   projects: Record<string, ProjectRecord>;
   chats?: Record<string, ChatRecord>;
+  // Slack OAuth installations, keyed by enterpriseId ?? teamId (see installations.ts).
+  // Stored opaquely (@slack/oauth Installation objects) — state.ts doesn't interpret them.
+  // ⚠️ These carry live bot tokens, which is why save() writes state.json with mode 0600.
+  installations?: Record<string, unknown>;
   routines?: Record<string, RoutineRecord>;
   projectSettings?: Record<string, ProjectSettings>;
   // "<Org/repo>#<number>" → ISO timestamp it was auto-reviewed (dedup across restarts).
@@ -122,7 +126,9 @@ export class Store {
     // in-place write that dies half-way makes the NEXT boot fail at JSON.parse, losing
     // everything. rename() on the same filesystem is atomic.
     const tmp = `${this.path}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.data, null, 2) + '\n');
+    // mode 0600: installations carry live per-workspace bot tokens, so the file is
+    // owner-only. rename() gives state.json the tmp file's inode (and thus its mode).
+    writeFileSync(tmp, JSON.stringify(this.data, null, 2) + '\n', { mode: 0o600 });
     renameSync(tmp, this.path);
   }
 
@@ -181,6 +187,27 @@ export class Store {
     }
     chats[threadTs] = next;
     this.save();
+  }
+
+  // ── Slack OAuth installations (keyed enterpriseId ?? teamId; see installations.ts) ──
+  getInstallation(key: string): unknown | undefined {
+    return this.data.installations?.[key];
+  }
+
+  setInstallation(key: string, install: unknown): void {
+    (this.data.installations ??= {})[key] = install;
+    this.save();
+  }
+
+  deleteInstallation(key: string): boolean {
+    if (!this.data.installations?.[key]) return false;
+    delete this.data.installations[key];
+    this.save();
+    return true;
+  }
+
+  allInstallations(): Record<string, unknown> {
+    return { ...(this.data.installations ?? {}) };
   }
 
   // ── scheduled report jobs ───────────────────────────────────────────────
