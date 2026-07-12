@@ -14,6 +14,7 @@ import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.j
 import { MAX_SLACK_TEXT, answerBlocks, reportPostedBlocks, statusBlocks, questionBlocks, errText } from './blocks.js';
 import { QueueJournal } from './queuejournal.js';
 import { DraftStore } from './drafts.js';
+import { UsageLog, aggregateUsage, usageSummaryText } from './metering.js';
 import { log } from './log.js';
 import { captureError, Sentry } from './sentry.js';
 
@@ -76,6 +77,8 @@ export interface TurnEngine {
   // (drafts/<slug>/<turnId>.md) so it survives restarts; undefined once pruned past the
   // per-project cap — the click then gets the "draft expired" modal.
   ytDraft(draftId: string): string | undefined;
+  // Token/cost/turn summary over the last N days (mrkdwn, for `/aven usage`).
+  usageReport(days: number): string;
 }
 
 // Per-turn behavior switches. `ytDraftFor` marks a "📝 Report to YouTrack" draft turn: the
@@ -131,6 +134,31 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // `queues` chain, so projectBusy() must consult this too — otherwise a dream wouldn't see a
   // live Q&A turn (or another dream) writing the same project's memory.
   const asking = new Set<string>();
+
+  // Global concurrency cap on agent turns (multi-tenancy slice 4, "capacity"): pollers ×
+  // channels × clients can otherwise stampede the sandbox fleet and the provider API.
+  // Per-key queues serialize WITHIN a conversation; this caps ACROSS them. Waiting turns
+  // show "⏳ waiting for a free agent slot" on their status message.
+  const MAX_TURNS = Math.max(1, Math.floor(Number(process.env.TURN_MAX_CONCURRENT)) || 4);
+  let turnSlots = MAX_TURNS;
+  const slotWaiters: (() => void)[] = [];
+  function acquireSlot(): Promise<void> {
+    if (turnSlots > 0) {
+      turnSlots--;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => slotWaiters.push(resolve));
+  }
+  function releaseSlot(): void {
+    const next = slotWaiters.shift();
+    if (next) next(); // hand the slot over directly — turnSlots stays 0
+    else turnSlots++;
+  }
+
+  // Per-turn token/cost accounting → usage/<month>.jsonl (multi-tenancy slice 4,
+  // "whose tokens are we burning"). Best-effort by construction — see metering.ts.
+  const usageLog = new UsageLog();
+
   // turnIds carry a per-boot prefix: they used to be `t<seq>` and reset every restart,
   // which was fine while everything keyed by them was in-memory — but drafts now live on
   // disk, and boot #2's t5 must not collide with (and clobber) boot #1's t5.
@@ -296,13 +324,28 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // ephemeral fallback where we can't stream progress.
   async function runAsk(key: string, project: ProjectConfig, question: string): Promise<string> {
     asking.add(key); // mark in flight so projectBusy() sees it (dreams + /aven Q&A)
+    await acquireSlot(); // asks and dreams count against the same global cap
+    const start = Date.now();
+    let chat: ChatSession | undefined;
+    let status: 'ok' | 'error' = 'error';
     try {
-      const chat = await sessionFor(key, project);
+      chat = await sessionFor(key, project);
       const answer = await chat.ask(question);
       persist(key, project.slug, chat);
+      status = 'ok';
       return answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
     } finally {
+      releaseSlot();
       asking.delete(key);
+      usageLog.record({
+        at: new Date().toISOString(),
+        key,
+        slug: project.slug,
+        kind: 'ask',
+        status,
+        elapsedMs: Date.now() - start,
+        usage: chat?.lastUsage(),
+      });
     }
   }
 
@@ -443,6 +486,23 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       return;
     }
 
+    // Global turn cap. If no slot is free, say so on the status message (otherwise the
+    // wait reads as a mysteriously long "Preparing…"), then block until one frees up.
+    if (turnSlots <= 0) {
+      await client.chat
+        .update({ channel, ts, text: 'In queue…', blocks: statusBlocks('⏳ Waiting for a free agent slot…', turnId) })
+        .catch(() => {});
+    }
+    await acquireSlot();
+    if (ac.signal.aborted) {
+      // Canceled while waiting for a slot — same settle as canceled-while-queued.
+      releaseSlot();
+      journal.done(turnId);
+      await client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] });
+      await clearEyes();
+      return;
+    }
+
     const start = Date.now();
     let phase = '🛠 Preparing sandbox…';
     // Registered when the turn was queued; the array is shared, so every push below shows
@@ -497,8 +557,11 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         /* no permalink (DM / missing scope) — traceability line is simply omitted */
       }
     }
+    let chat: ChatSession | undefined; // hoisted so the finally can read lastUsage()
+    let outcome: 'ok' | 'error' | 'canceled' = 'ok';
     try {
-      const chat = await sessionFor(key, project, slackUrl); // prepare (warm sandbox + clone) here
+      const live = await sessionFor(key, project, slackUrl); // prepare (warm sandbox + clone) here
+      chat = live; // `live` keeps the non-undefined narrowing inside the closures below
       // Download any inbound files into the sandbox first, then prepend a preamble naming their
       // paths so the agent Reads them. Best-effort: a failure here must not sink the whole turn.
       let prompt = question;
@@ -506,7 +569,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         phase = '📎 Fetching attachments…';
         await flush(true);
         try {
-          const preamble = await chat.ingest(attachments.refs, attachments.bearer, turnId);
+          const preamble = await live.ingest(attachments.refs, attachments.bearer, turnId);
           if (preamble) prompt = `${preamble}\n\n${question}`;
         } catch (e) {
           log.error(`ingest ${turnId}: ${e instanceof Error ? e.message : String(e)}`);
@@ -519,7 +582,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       const answer = await Sentry.startSpan(
         { name: 'aven.turn', op: 'gen_ai.invoke_agent', attributes: { 'aven.project': project.slug } },
         () =>
-          chat.ask(
+          live.ask(
             prompt,
             (step) => {
               steps.push(step);
@@ -530,7 +593,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           ),
       );
       persist(key, project.slug, chat);
-      if (chat.contextLost()) {
+      if (live.contextLost()) {
         await client.chat
           .postMessage({
             channel,
@@ -589,6 +652,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     } catch (err) {
       finished = true;
       clearInterval(heartbeat);
+      outcome = ac.signal.aborted ? 'canceled' : 'error';
       if (ac.signal.aborted) {
         await client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] });
         await clearEyes();
@@ -600,6 +664,18 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         }
       }
     } finally {
+      releaseSlot();
+      // Meter the turn (even canceled/errored ones — tokens may have burned before the
+      // interrupt; a turn that died before sessionFor simply records no usage).
+      usageLog.record({
+        at: new Date().toISOString(),
+        key,
+        slug: project.slug,
+        kind: 'turn',
+        status: outcome,
+        elapsedMs: Date.now() - start,
+        usage: chat?.lastUsage(),
+      });
       // Settled either way (answer/cancel/error) — freeze the trail's clock and stop the
       // modal saying "still running". The steps stay: the answer rewrite would otherwise
       // erase the only record of HOW the answer was reached (the #1 trust complaint).
@@ -765,6 +841,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     resumeQueuedTurns,
     trail: (turnId) => trails.get(turnId),
     ytDraft: (draftId) => drafts.get(draftId),
+    usageReport: (days) => {
+      const records = usageLog.read(days * 24 * 3600_000);
+      return usageSummaryText(aggregateUsage(records, 'slug'), aggregateUsage(records, 'team'), days);
+    },
     questions: {
       get: (qid) => pendingQuestions.get(qid),
       isCompleted: (qid) => completedQuestions.has(qid),

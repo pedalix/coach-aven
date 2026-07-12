@@ -213,3 +213,78 @@ These are needed regardless of which Slack model we pick.
   nice-to-have?
 - **Self-serve onboarding**: needed soon, or is hand-onboarding clients fine for now?
 - **External access**: which client users may *drive* the agent vs only read along?
+
+---
+
+## 7. Slice 4 — money & boundaries (partially shipped 2026-07-12)
+
+Slice 4 is the "whose money, whose data, who may act" layer. Two parts landed early
+(they're additive and don't collide with the slice-2/3 re-keying work); two are designed
+here and deliberately wait for slice 2 to merge.
+
+### 7.1 Usage metering — SHIPPED
+
+Every settled agent turn appends a JSONL record to `./usage/<YYYY-MM>.jsonl`
+(`src/metering.ts`; hooked in `turn.ts` for both live turns and no-UI asks/dreams):
+timestamp, conversation key, project, kind, status, wall-clock, and the token/cost
+figures from the claude CLI's `result` event (`usage` + `total_cost_usd`). `/aven usage
+[days]` renders per-project (and, once several teams exist, per-workspace) totals.
+
+- **Attribution, not billing.** All turns run on our Claude Max subscription today —
+  the `~$` figure is the CLI's computed token cost, i.e. what the traffic *would* cost
+  at API prices. That's exactly the number needed to (a) hand-write an invoice, and
+  (b) decide when a client's volume justifies a per-tenant API key.
+- **Team attribution is forward-compatible**: records store the conversation key; keys
+  gain a `team_id` prefix in the slice-2/3 re-keying and `teamOf()` picks it up with no
+  migration. Until then everything aggregates as the home team — which is factually true.
+- **Sandbox-hours**: wall-clock agent-active time is the proxy for now. Real per-sandbox
+  hours would need provider-side accounting (Daytona usage API / docker stats) — do this
+  when a client is actually billed by sandbox time, not before.
+
+### 7.2 Capacity: global turn cap — SHIPPED
+
+`TURN_MAX_CONCURRENT` (default 4) caps concurrently *running* agent turns across all
+conversations, pollers, and (soon) tenants — per-key queues serialize within a
+conversation; this caps across them. Waiting turns show "⏳ waiting for a free agent
+slot" on their status message. Dreams and `/aven` asks count against the same cap.
+Per-TEAM quotas (fairness between tenants, not just a global ceiling) belong after the
+re-keying, when a turn knows its team.
+
+### 7.3 Roles / actor gate — DESIGNED, build after slice 2
+
+Who inside a client workspace may *drive* the agent (run turns, open PRs) vs only read
+along. Stakeholder feedback lists this ("role guardrails"); §4 calls it the highest-
+priority cross-cutting item. Design:
+
+- Per-team settings in the store: `{ mode: 'open' | 'allowlist', allowedUsers: [..],
+  admins: [..] }`. Default: **open** for the home team (today's behavior), **allowlist
+  seeded with the installing user** for client teams (the OAuth install already tells us
+  who installed).
+- Enforcement point: the *entry* handlers in `events.ts`/`commands.ts` (mention, DM,
+  button, slash) — they know the acting `user_id` + `team_id`. A denied actor gets an
+  ephemeral "you're not on this workspace's allowlist; ask <admin>". `liveTurn` stays
+  actor-ignorant.
+- Admin surface: `/aven access allow @user | deny @user | list` (admins only).
+- Why wait: this touches exactly the surfaces slice 2 is rewriting (per-team resolution
+  in events/commands). Building it now guarantees painful conflicts; building it right
+  after is a small, mechanical PR.
+
+### 7.4 Privacy / DPA — POSITION, revisit before first external client
+
+Data flows to be transparent about with clients (and to put in a DPA when one asks):
+
+- **Client code** is cloned into sandboxes on infrastructure we operate (today: our
+  Daytona host / the ssh-docker box). Transcripts of agent sessions (including code
+  excerpts) live inside the project's sandbox; consolidated memory is journaled to our
+  disk (`memory/<slug>/`). Usage metering stores *counts only* — no message content.
+- **Prompts and diffs** transit Anthropic (Claude) under our account. Today that account
+  is a consumer **Claude Max subscription** — before onboarding a paying external client,
+  review whether client workloads on a consumer subscription fit Anthropic's commercial
+  terms; the clean answer is a **per-tenant (or at least company) Claude API key**, which
+  also makes billing exact instead of attributed. The seams already exist
+  (`seedClaudeAuth` takes the token as a parameter; metering shows per-team volume).
+- **Slack content** (questions, answers, buttons) stays in the client's workspace under
+  their retention policy; our `state.json` keeps thread↔session bindings, not transcripts.
+- Action item for the first real client: a one-page data-flow annex (the three bullets
+  above), a deletion story ("offboard = delete sandbox + memory journal + state keys +
+  usage rows for the team"), and the per-tenant-key decision.

@@ -16,7 +16,7 @@ import {
 } from './project.js';
 import type { McpServerSpec } from './projects.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
-import { ClaudeSession, type OnQuestion } from './claudeSession.js';
+import { ClaudeSession, type OnQuestion, type TurnUsage } from './claudeSession.js';
 import {
   planIngest,
   downloadAttachment,
@@ -54,6 +54,9 @@ export interface ChatSession {
   // One-shot flag: true once if a resume id was set but its transcript was gone (sandbox
   // rebuilt) so we started fresh — the caller should warn the user. Resets on read.
   contextLost(): boolean;
+  // Token/cost accounting of the LAST settled ask/adoptInflight (from the CLI's result
+  // event; undefined when the turn ended without one). Read by the usage metering.
+  lastUsage(): TurnUsage | undefined;
   // Download inbound attachments (Slack files / YouTrack ticket files) with `bearer` and drop
   // them into this turn's sandbox inbox so the agent can Read them. Returns a prompt preamble
   // naming the saved paths (and any skipped files), or '' if there's nothing to add.
@@ -238,6 +241,7 @@ export async function openChat(
   let sessionId: string | undefined = opts.resumeSessionId;
   let session: ClaudeSession | undefined;
   let droppedResume = false;
+  let lastUsage: TurnUsage | undefined;
   let attach = opts.attach; // consumed once: cleared after the first (re)open attempt
   const systemPrompt = buildSystemPrompt(opts.slug, cwd, opts.repos, opts.systemPrompt, opts.slackUrl);
   const emitOpen = () => {
@@ -363,6 +367,7 @@ export async function openChat(
         r = await s.send(prompt, onStep, signal, onQuestion);
       }
       if (s.sessionId()) sessionId = s.sessionId(); // track from init/result (covers forks)
+      lastUsage = r.usage; // recorded even for canceled/errored turns — tokens were burned
 
       if (r.status === 'canceled') throw new Error('canceled');
       if (r.status === 'timeout') throw new Error('timed out (no result within the time limit)');
@@ -381,8 +386,10 @@ export async function openChat(
       const s = await ensureSession(); // reattach (attach path) — parses the snapshot
       const r = await s.adoptInflight(onStep);
       if (s.sessionId()) sessionId = s.sessionId();
+      lastUsage = r.usage;
       const ok = r.status === 'ok' && !r.isError;
       return { ok, status: r.status, text: r.resultText.trim() || '(no output)' };
     },
+    lastUsage: () => lastUsage,
   };
 }

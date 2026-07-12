@@ -30,6 +30,35 @@ export interface TurnResult {
   // started=false never ran tools → safe to auto-retry; started=true may have already
   // mutated the repo → must NOT be blindly re-sent (avoids double-apply).
   started: boolean;
+  // Token/cost accounting from the `result` event (absent on timeout/cancel-without-
+  // result and on older CLIs). Consumed by the usage metering (metering.ts).
+  usage?: TurnUsage;
+}
+
+// Shape shared with metering.ts (declared here to keep this file's imports one-way).
+export interface TurnUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?: number;
+  costUsd?: number;
+}
+
+// Pull the token counters out of a `result` event, defensively — every field is
+// optional on the wire and shapes have drifted across CLI versions.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function usageOf(ev: any): TurnUsage | undefined {
+  const u = ev?.usage;
+  const cost = typeof ev?.total_cost_usd === 'number' ? ev.total_cost_usd : undefined;
+  if (!u && cost === undefined) return undefined;
+  const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
+  return {
+    inputTokens: num(u?.input_tokens),
+    outputTokens: num(u?.output_tokens),
+    cacheCreationTokens: num(u?.cache_creation_input_tokens),
+    cacheReadTokens: num(u?.cache_read_input_tokens),
+    costUsd: cost,
+  };
 }
 
 const STREAM_MAX_MS = (Number(process.env.STREAM_MAX_MINUTES) || 15) * 60_000;
@@ -251,6 +280,7 @@ export class ClaudeSession {
         resultText: typeof lastResult.result === 'string' ? lastResult.result : '',
         isError: !!lastResult.is_error,
         started: true,
+        usage: usageOf(lastResult),
       };
     } else if (lastEvent?.type === 'control_request' && lastEvent.request?.subtype === 'can_use_tool') {
       // The snapshot ends on an unanswered question. Heuristic: we can't see our own
@@ -398,7 +428,7 @@ export class ClaudeSession {
       if (ev.session_id) this.claudeSessionId = ev.session_id; // authoritative per-turn id
       const resultText = typeof ev.result === 'string' ? ev.result : '';
       const status: TurnResult['status'] = this.pending?.canceled ? 'canceled' : 'ok';
-      this.settle({ status, resultText, isError: !!ev.is_error });
+      this.settle({ status, resultText, isError: !!ev.is_error, usage: usageOf(ev) });
     }
   }
 

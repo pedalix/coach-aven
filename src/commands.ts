@@ -354,6 +354,19 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       return;
     }
 
+    // `/aven usage [days]` → token/cost/turn attribution per project (and per workspace
+    // once multiple teams exist) over the last N days (default 30, max 90). Fleet-wide
+    // like `status`: works in any channel; reads the usage/<month>.jsonl meter (turn.ts).
+    if (verb === 'usage') {
+      const days = Math.min(90, Math.max(1, Math.floor(Number(cmdText.split(/\s+/)[1])) || 30));
+      try {
+        await respond({ response_type: 'ephemeral', text: engine.usageReport(days) });
+      } catch (err) {
+        await respond({ response_type: 'ephemeral', text: errText(err) });
+      }
+      return;
+    }
+
     // `/aven reload` → re-read projects.config.json + projects.d/*.md and swap the live
     // registry (see docs/runtime-config.md "Hot-reload"). No restart: everything holds the
     // RegistryRef and reads `.current` per use. Scope honesty: prompts/MCP are baked into a
