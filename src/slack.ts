@@ -14,6 +14,7 @@ import { Store } from './state.js';
 import { createInstallationStore } from './installations.js';
 import { tenantOf } from './teamkeys.js';
 import { RecentSet } from './recent.js';
+import { eventLog, envelopeMeta } from './eventlog.js';
 import { loadProjects, type RegistryRef } from './projects.js';
 import { createTurnEngine } from './turn.js';
 import { createChannels } from './channels.js';
@@ -143,6 +144,18 @@ export async function runSlack(cfg: Config): Promise<void> {
     return c;
   }
 
+  // ── envelope journal (AVEN_EVENT_LOG=1) ─────────────────────────────────
+  // Metadata-only (whitelist — no message text/values ever) record of every envelope,
+  // BEFORE the gate so gated traffic is captured too. Feeds the record→replay loop:
+  // real envelope shapes (esp. Slack Connect ones) become fixtures for src/twin.ts.
+  if (eventLog) {
+    const journal = eventLog; // narrow once — the closure runs long after the check
+    app.use(async ({ body, context, next }) => {
+      journal.append(envelopeMeta(body, context as { teamId?: string; enterpriseId?: string; isEnterpriseInstall?: boolean }));
+      return next();
+    });
+  }
+
   // ── tenant gate (registry-driven since slice 2) ─────────────────────────
   // A tenant is SERVED iff the workspaces block grants it projects (home always is).
   // SLACK_ALLOWED_TEAMS stays honored as a transitional union. Unserved-but-installed
@@ -184,6 +197,7 @@ export async function runSlack(cfg: Config): Promise<void> {
         }
         return; // handled here — do not fall through to the handlers
       }
+      eventLog?.append({ ...envelopeMeta(body, context as { teamId?: string }), decision: 'gated' });
       log.warn(`tenant gate: dropped a ${evType ?? b.type ?? 'unknown'} event from unserved tenant ${tenant ?? '(unknown)'}`);
     });
   }

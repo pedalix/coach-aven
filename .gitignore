@@ -24,3 +24,4 @@ infra/prod/runtime/*
 !infra/prod/runtime/.env.example
 /.claude/worktrees/transparency-trail/
 /.claude/worktrees/youtrack-rich-context/
+events/

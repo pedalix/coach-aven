@@ -8,6 +8,7 @@ import type { Store } from './state.js';
 import { resolveBySlug, teamProjects, type RegistryRef } from './projects.js';
 import { tenantOf, withTeam } from './teamkeys.js';
 import { RecentSet } from './recent.js';
+import { eventLog } from './eventlog.js';
 import type { TurnEngine } from './turn.js';
 import type { Channels } from './channels.js';
 import { readMemory } from './commands.js';
@@ -100,8 +101,13 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   // Per-listener keying keeps app_mention and message (already deduped by the selfId
   // check within one team) from racing each other.
   const claimedEvents = new RecentSet(10 * 60_000);
-  const claimEvent = (listener: string, channel: string, ts: string): boolean =>
-    claimedEvents.claim(`${listener}:${channel}:${ts}`);
+  const claimEvent = (listener: string, channel: string, ts: string): boolean => {
+    const won = claimedEvents.claim(`${listener}:${channel}:${ts}`);
+    // A lost claim IS the Slack Connect double-envelope in action — journal it (the
+    // spike's key observable) when AVEN_EVENT_LOG is on.
+    if (!won) eventLog?.append({ at: new Date().toISOString(), kind: listener, channel, ts, decision: 'claim-lost' });
+    return won;
+  };
 
   // ── @mention → public thread (one session per thread) ───────────────────────
   app.event('app_mention', async ({ event, client, context }) => {

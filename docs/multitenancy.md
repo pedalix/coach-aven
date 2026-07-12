@@ -26,7 +26,12 @@
 > events.ts guards against Slack Connect double envelopes. ⚠️ **Deploy slice 2 BEFORE
 > admitting any client team** — a team allowlisted earlier would have bare-keyed records
 > that orphan. ⚠️ Before onboarding a client into a SHARED (Connect) channel, run the
-> manual spike: app on both sides, verify envelope duplication + the claim-on-act rule.
+> manual spike: app on both sides, verify envelope duplication + the claim-on-act rule —
+> with `AVEN_EVENT_LOG=1`, which journals every envelope's metadata (events/<day>.jsonl,
+> whitelist-only — no message content) including `claim-lost`/`gated` decisions; the
+> captured shapes become replay fixtures for the **digital-twin tests** (`src/twin.ts`:
+> real Bolt app + real handlers driven by synthetic envelopes against a recording Web API
+> stub — the tenant-isolation scenarios in `src/twin.test.ts` run with zero network).
 > Still ahead (see §3): uninstall/tokens_revoked handling, SQLite, self-serve onboarding.
 
 ---
