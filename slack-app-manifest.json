@@ -82,7 +82,6 @@
             "bot_events": [
                 "app_home_opened",
                 "app_mention",
-                "app_rate_limited",
                 "app_uninstalled",
                 "channel_archive",
                 "channel_deleted",
