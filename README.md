@@ -173,7 +173,7 @@ so the org-wide App still yields a per-sandbox token limited to that project.
 
 ## Hosting (production)
 
-Deployed as a **systemd service** on the shared Hetzner VM `lumora-one`, alongside Lumora and
+Deployed as a **systemd service** on the shared Hetzner VM `aven-prod`, alongside Lumora and
 `aven.guru`. It's just the control plane — one long-lived Node process holding a Slack
 **Socket-Mode** connection and driving Daytona over HTTPS — so it's tiny, needs **no nginx,
 no ports, no TLS** (Socket Mode dials *out*), and never touches the host's shared `80/443`. All
@@ -230,4 +230,4 @@ Prod (the box) just keeps the defaults — no extra env needed.
   so it never lands in command logs. A git credential helper + `gh auth login --with-token`
   read it.
 - **State** is a single `state.json` (gitignored). Single-process only for now.
-- The orchestrator runs as a systemd service on `lumora-one` (see [Hosting](#hosting-production)).
+- The orchestrator runs as a systemd service on `aven-prod` (see [Hosting](#hosting-production)).

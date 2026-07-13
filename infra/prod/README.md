@@ -1,7 +1,7 @@
-# CoachAven prod — deploy onto the shared `coach-aven-one` VM
+# CoachAven prod — deploy onto the shared `aven-prod` VM
 
 A **manual, scripted** deployment of the CoachAven orchestrator onto the existing
-Hetzner VM **`coach-aven-one` (<bot-host>)** — the same box that hosts Lumora and
+Hetzner VM **`aven-prod` (<bot-host>)** — the same box that hosts Lumora and
 `aven.guru`. CoachAven runs as a **systemd service**, not in Docker.
 
 ## Why systemd and not Docker / nginx

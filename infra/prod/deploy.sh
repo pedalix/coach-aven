@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CoachAven — scripted deploy onto the shared Hetzner VM `lumora-one`.
+# CoachAven — scripted deploy onto the shared Hetzner VM `aven-prod`.
 # Runs as a systemd service (NOT Docker): a single long-lived Node process holding
 # a Slack Socket-Mode connection and driving Daytona sandboxes. No nginx, no ports,
 # no TLS — Socket Mode dials OUT, so it never touches the shared 80/443.
