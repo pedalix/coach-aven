@@ -307,7 +307,7 @@ export function createPollers(
       if (!client) return false;
       const channel = await channels.channelIdForSlug(client, project, teamId);
       if (!channel) {
-        log.error(`youtrack ${ticket.id}: channel ${channels.prefix}${project.slug} not found — create it and invite the bot`);
+        log.error(`youtrack ${ticket.id}: channel ${channels.prefixFor(teamId)}${project.slug} not found — create it and invite the bot`);
         return false;
       }
       const comments = await listComments(cfg, ticket.id);

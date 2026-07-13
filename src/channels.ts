@@ -7,11 +7,15 @@
 // tenant's slugs. `tenantId` undefined = home context (pollers, static mode).
 
 import type bolt from '@slack/bolt';
-import { resolveByChannel, resolveBySlug, teamProjects, type ProjectConfig, type RegistryRef } from './projects.js';
+import { resolveByChannel, resolveBySlug, teamProjects, workspacePrefix, type ProjectConfig, type RegistryRef } from './projects.js';
 import { log } from './log.js';
 
 export interface Channels {
-  readonly prefix: string;
+  readonly prefix: string; // the deployment default (SLACK_CHANNEL_PREFIX)
+  // The wildcard for ONE workspace: its workspaces-entry override ("" = bare slugs,
+  // e.g. #coach-aven) or the deployment default. Use this, not `.prefix`, wherever a
+  // tenant is known — client workspaces shouldn't be forced to carry `bluefin-aven-`.
+  prefixFor(tenantId: string | undefined): string;
   channelName(client: bolt.webApi.WebClient, channelId: string): Promise<string | undefined>;
   channelIdForSlug(
     client: bolt.webApi.WebClient,
@@ -33,6 +37,8 @@ export interface Channels {
 // the home tenant id is only known after the boot auth.test resolves it (slack.ts).
 export function createChannels(reg: RegistryRef, home: () => string | undefined): Channels {
   const prefix = process.env.SLACK_CHANNEL_PREFIX || 'bluefin-aven-';
+  const prefixFor = (tenantId: string | undefined): string =>
+    workspacePrefix(reg.current, tenantId) ?? prefix;
   const nameCache = new Map<string, string | undefined>();
 
   async function channelName(
@@ -68,7 +74,7 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
     const cacheKey = `${tenantId ?? 'home'}:${project.slug}`;
     const cached = slugChannelCache.get(cacheKey);
     if (cached) return cached;
-    const want = `${prefix}${project.slug}`;
+    const want = `${prefixFor(tenantId)}${project.slug}`;
     let found: string | undefined;
     try {
       let cursor: string | undefined;
@@ -107,12 +113,13 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
   ): Promise<{ project?: ProjectConfig; question: string; error?: string }> {
     const mine = teamProjects(reg.current, tenantId, home());
     const scoped = { projects: mine };
+    const p = prefixFor(tenantId);
     let project = resolveByChannel(scoped, channel);
     let question = text.trim();
     if (!project) {
       const name = await channelName(client, channel);
-      if (name && name.startsWith(prefix)) {
-        project = resolveBySlug(scoped, name.slice(prefix.length));
+      if (name && name.startsWith(p)) {
+        project = resolveBySlug(scoped, name.slice(p.length));
       }
     }
     if (!project) {
@@ -131,12 +138,12 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
       return {
         question,
         error: mine.length
-          ? `This channel isn't bound to a project. Use a \`${prefix}{project}\` channel (e.g. \`${prefix}${mine[0].slug}\`), or prefix your question with a slug — one of: ${slugs}.`
+          ? `This channel isn't bound to a project. Use a \`${p}{project}\` channel (e.g. \`${p}${mine[0].slug}\`), or prefix your question with a slug — one of: ${slugs}.`
           : `This workspace has no projects configured yet.`,
       };
     }
     return { project, question };
   }
 
-  return { prefix, channelName, channelIdForSlug, pickProject };
+  return { prefix, prefixFor, channelName, channelIdForSlug, pickProject };
 }

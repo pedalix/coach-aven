@@ -169,7 +169,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     const { project } = await channels.pickProject(client, channelId, '', tenant);
     if (!project) {
       return {
-        text: `:information_source: This channel isn't bound to a project. Use a \`${channels.prefix}<slug>\` channel, or ask in one of: ${myProjects.map((p) => p.slug).join(', ')}.`,
+        text: `:information_source: This channel isn't bound to a project. Use a \`${channels.prefixFor(tenant)}<slug>\` channel, or ask in one of: ${myProjects.map((p) => p.slug).join(', ')}.`,
       };
     }
     return { text: `Access for ${project.slug}`, blocks: accessBlocks(project) };
@@ -204,7 +204,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     const { project } = await channels.pickProject(client, channelId, '', tenant);
     if (!project) {
       return {
-        text: ':x: Schedule a job from a project channel (e.g. `' + `${channels.prefix}${myProjects[0]?.slug ?? 'caldora'}` + '`).',
+        text: ':x: Schedule a job from a project channel (e.g. `' + `${channels.prefixFor(tenant)}${myProjects[0]?.slug ?? 'caldora'}` + '`).',
       };
     }
     const rec = store.addRoutine({

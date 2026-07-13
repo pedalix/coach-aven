@@ -614,7 +614,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     try {
       await client.views.publish({
         user_id: e.user,
-        view: { type: 'home', blocks: mine.length ? homeBlocks(mine, channels.prefix) : onboardingHomeBlocks() },
+        view: { type: 'home', blocks: mine.length ? homeBlocks(mine, channels.prefixFor(tenantOf(context))) : onboardingHomeBlocks() },
       });
     } catch (err) {
       log.error(`home publish failed: ${err instanceof Error ? err.message : String(err)}`);

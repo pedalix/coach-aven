@@ -72,7 +72,7 @@ test('validation: slug and repos are required', () => {
 });
 
 // ── slice 2: per-tenant registry (workspaces block) ──────────────────────────
-import { teamProjects, projectOwnerTeam } from './projects.js';
+import { teamProjects, projectOwnerTeam, workspacePrefix } from './projects.js';
 
 const HOME = 'T0HOME111';
 const CLIENT = 'T0CLIENT22';
@@ -112,5 +112,35 @@ test('validation: workspaces slugs must exist', () => {
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify({ ...BASE, workspaces: { T0X11111: ['nope'] } }));
     assert.throws(() => loadProjects(cfg), /unknown project "nope"/);
+  });
+});
+
+test('workspaces entry object form: projects + per-workspace channelPrefix', () => {
+  const reg = {
+    projects: BASE.projects,
+    workspaces: {
+      [HOME]: ['alpha', 'beta'],
+      [CLIENT]: { projects: ['beta'], channelPrefix: '' },
+    },
+  };
+  // slug resolution treats both shapes identically
+  assert.deepEqual(teamProjects(reg, CLIENT, HOME).map((p) => p.slug), ['beta']);
+  assert.equal(projectOwnerTeam(reg, 'beta', HOME), HOME);
+  // prefix: undefined for array/absent entries (→ deployment default), "" is a VALID override
+  assert.equal(workspacePrefix(reg, HOME), undefined);
+  assert.equal(workspacePrefix(reg, CLIENT), '');
+  assert.equal(workspacePrefix(reg, undefined), undefined);
+  const custom = { ...reg, workspaces: { [CLIENT]: { projects: ['beta'], channelPrefix: 'aven-' } } };
+  assert.equal(workspacePrefix(custom, CLIENT), 'aven-');
+});
+
+test('validation accepts the object form and still catches unknown slugs in it', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ ...BASE, workspaces: { T0X11111: { projects: ['nope'] } } }));
+    assert.throws(() => loadProjects(cfg), /unknown project "nope"/);
+  });
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ ...BASE, workspaces: { T0X11111: { projects: ['alpha'], channelPrefix: '' } } }));
+    assert.deepEqual(teamProjects(loadProjects(cfg), 'T0X11111', 'T0HOME').map((p) => p.slug), ['alpha']);
   });
 });

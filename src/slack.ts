@@ -15,7 +15,7 @@ import { createInstallationStore } from './installations.js';
 import { tenantOf } from './teamkeys.js';
 import { RecentSet } from './recent.js';
 import { eventLog, eventLogRaw, envelopeMeta } from './eventlog.js';
-import { loadProjects, type RegistryRef } from './projects.js';
+import { loadProjects, entrySlugs, type RegistryRef } from './projects.js';
 import { createTurnEngine } from './turn.js';
 import { createChannels } from './channels.js';
 import { createPollers } from './pollers.js';
@@ -179,7 +179,7 @@ export async function runSlack(cfg: Config): Promise<void> {
       !!tenant &&
       (tenant === homeTeamId ||
         allowedTeams.has(tenant) ||
-        (reg.current.workspaces ? (reg.current.workspaces[tenant]?.length ?? 0) > 0 : false))
+        (reg.current.workspaces ? (entrySlugs(reg.current.workspaces[tenant])?.length ?? 0) > 0 : false))
     );
   };
   if (oauth) {

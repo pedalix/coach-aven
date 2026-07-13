@@ -46,16 +46,35 @@ export interface ProjectConfig {
   youtrackProjects?: string[];
 }
 
+// A workspaces entry: the short form is just the slug list; the object form adds
+// per-workspace settings — today `channelPrefix`, the channel-name wildcard for THAT
+// workspace ("" = channel name IS the slug, e.g. #coach-aven). Our home keeps the
+// legacy `bluefin-aven-` default; a client workspace shouldn't be forced to carry it.
+export type WorkspaceEntry = string[] | { projects: string[]; channelPrefix?: string };
+
 export interface ProjectsRegistry {
   projects: ProjectConfig[];
-  // Tenant → the project slugs that workspace may see and drive (multi-tenancy slice 2).
+  // Tenant → the projects that workspace may see and drive (multi-tenancy slice 2).
   // Keys are Slack tenant ids per the installation-store rule (enterpriseId ?? teamId →
   // "T…"/"E…"). ABSENT block = single-tenant back-compat: the home workspace owns every
   // project. PRESENT block = explicit-only — a tenant not listed (including home!) has
   // no projects and is politely refused by the gate. A slug MAY appear under several
   // tenants (sharing is a data-model capability, deliberately not a built feature);
   // pollers act for the slug's OWNER tenant only — see projectOwnerTeam.
-  workspaces?: Record<string, string[]>;
+  workspaces?: Record<string, WorkspaceEntry>;
+}
+
+// The slug list of a workspaces entry, whatever its shape.
+export function entrySlugs(e: WorkspaceEntry | undefined): string[] | undefined {
+  if (!e) return undefined;
+  return Array.isArray(e) ? e : e.projects;
+}
+
+// The channel-name wildcard for a tenant, when its entry overrides the deployment
+// default (undefined = use SLACK_CHANNEL_PREFIX; "" is a VALID override: bare slugs).
+export function workspacePrefix(reg: ProjectsRegistry, tenantId: string | undefined): string | undefined {
+  const e = tenantId ? reg.workspaces?.[tenantId] : undefined;
+  return e && !Array.isArray(e) ? e.channelPrefix : undefined;
 }
 
 // Mutable handle to the loaded registry. Long-lived modules (turn engine, pollers,
@@ -90,8 +109,11 @@ export function loadProjects(path: string): ProjectsRegistry {
   // silently hide a project from its tenant, so fail the boot instead.
   if (reg.workspaces) {
     const known = new Set(reg.projects.map((p) => p.slug));
-    for (const [tenant, slugs] of Object.entries(reg.workspaces)) {
-      if (!Array.isArray(slugs)) throw new Error(`${path}: workspaces["${tenant}"] must be an array of slugs`);
+    for (const [tenant, entry] of Object.entries(reg.workspaces)) {
+      const slugs = entrySlugs(entry);
+      if (!Array.isArray(slugs)) {
+        throw new Error(`${path}: workspaces["${tenant}"] must be an array of slugs or { "projects": [...] }`);
+      }
       for (const s of slugs) {
         if (!known.has(s)) throw new Error(`${path}: workspaces["${tenant}"] references unknown project "${s}"`);
       }
@@ -136,7 +158,7 @@ export function teamProjects(
     const isHome = !tenantId || !homeTenant || tenantId === homeTenant;
     return isHome ? reg.projects : [];
   }
-  const slugs = new Set(reg.workspaces[tenantId ?? homeTenant ?? ''] ?? []);
+  const slugs = new Set(entrySlugs(reg.workspaces[tenantId ?? homeTenant ?? '']) ?? []);
   return reg.projects.filter((p) => slugs.has(p.slug));
 }
 
@@ -150,8 +172,8 @@ export function projectOwnerTeam(
   homeTenant: string | undefined,
 ): string | undefined {
   if (!reg.workspaces) return homeTenant;
-  for (const [tenant, slugs] of Object.entries(reg.workspaces)) {
-    if (slugs.includes(slug)) return tenant;
+  for (const [tenant, entry] of Object.entries(reg.workspaces)) {
+    if (entrySlugs(entry)?.includes(slug)) return tenant;
   }
   return homeTenant;
 }
