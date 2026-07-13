@@ -269,24 +269,28 @@ slot" on their status message. Dreams and `/aven` asks count against the same ca
 Per-TEAM quotas (fairness between tenants, not just a global ceiling) belong after the
 re-keying, when a turn knows its team.
 
-### 7.3 Roles / actor gate — DESIGNED, build after slice 2
+### 7.3 Roles / actor gate — SHIPPED (2026-07-13, after slice 2 as planned)
 
-Who inside a client workspace may *drive* the agent (run turns, open PRs) vs only read
-along. Stakeholder feedback lists this ("role guardrails"); §4 calls it the highest-
-priority cross-cutting item. Design:
+Who inside a workspace may *drive* the agent (run/steer/cancel turns, open PRs, post
+YouTrack reports) vs only read along. The tenant gate answers "is this WORKSPACE
+served?"; this answers "may this USER act?". Implementation (`src/access.ts` + storage
+in `state.json` `teamAccess`, keyed by raw tenant id):
 
-- Per-team settings in the store: `{ mode: 'open' | 'allowlist', allowedUsers: [..],
-  admins: [..] }`. Default: **open** for the home team (today's behavior), **allowlist
-  seeded with the installing user** for client teams (the OAuth install already tells us
-  who installed).
-- Enforcement point: the *entry* handlers in `events.ts`/`commands.ts` (mention, DM,
-  button, slash) — they know the acting `user_id` + `team_id`. A denied actor gets an
-  ephemeral "you're not on this workspace's allowlist; ask <admin>". `liveTurn` stays
-  actor-ignorant.
-- Admin surface: `/aven access allow @user | deny @user | list` (admins only).
-- Why wait: this touches exactly the surfaces slice 2 is rewriting (per-team resolution
-  in events/commands). Building it now guarantees painful conflicts; building it right
-  after is a small, mechanical PR.
+- Policy per workspace: `{ mode: 'open' | 'allowlist', users: [..], admins: [..] }`.
+  Defaults: **home → open** (today's behavior), **client team → allowlist seeded with
+  the installing user** (from the OAuth installation record), who is also the seed admin.
+- Enforcement at the entry handlers: mentions, DMs, and buttons/modals that start or
+  steer work (make_pr, autofix, yt_report + both YT modals, question answer/submit,
+  cancel) — each denial names the admins who can grant access. **Thread replies from
+  non-cleared users are ignored silently** — viewers chatting in an agent thread must
+  not drive it, but per-message denials would spam them. Read surfaces (trails, ticket
+  modals, memory, status) stay open to viewers.
+- Admin surface: **`/aven users`** (the name `access` was already taken by the
+  what's-in-this-channel command): bare = list; `allow @user` / `deny @user` /
+  `open` / `restrict` — admin-only (home: any home user; client team: its admins).
+  Deny also strips admin rights; removing the LAST admin of an allowlisted team is
+  refused (no lockouts). `/aven` viewer verbs: status, usage, users, access, memory,
+  prompt; everything else requires drive clearance.
 
 ### 7.4 Privacy / DPA — POSITION, revisit before first external client
 

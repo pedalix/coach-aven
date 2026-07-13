@@ -8,6 +8,7 @@ import type { Config } from './config.js';
 import type { Store } from './state.js';
 import { loadProjects, resolveBySlug, teamProjects, projectOwnerTeam, type ProjectConfig, type RegistryRef } from './projects.js';
 import { tenantOf, withTeam, splitTeam, normalizeTenant } from './teamkeys.js';
+import { effectiveAccess, mayDrive, isAdmin, deniedText, parseUsersCmd, applyUsersCmd, usersListText } from './access.js';
 import type { TurnEngine } from './turn.js';
 import type { Channels } from './channels.js';
 import { ROUTINE_TZ, type Pollers } from './pollers.js';
@@ -379,6 +380,54 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
 
     const cmdText = (command.text ?? '').trim();
     const verb = cmdText.split(/\s+/)[0]?.toLowerCase();
+
+    // ── actor gate (slice 4 §7.3) ────────────────────────────────────────────
+    // Who inside this (served) workspace may DRIVE the agent. Viewers keep the read
+    // surfaces below; everything that runs turns or mutates settings needs clearance.
+    const access = effectiveAccess(
+      tenant ? store.getTeamAccess(tenant) : undefined,
+      isHome,
+      tenant ? store.installerOf(tenant) : undefined,
+    );
+    const canDrive = mayDrive(access, command.user_id);
+
+    // `/aven users` → view/manage this workspace's access policy. Listing is open to
+    // everyone (transparency beats guessing why you're denied); mutations are admin-only
+    // (home: any home-workspace user; client team: its admins, seeded with the installer).
+    if (verb === 'users') {
+      const parsed = parseUsersCmd(cmdText.slice(verb.length).trim());
+      if (parsed.action === 'list') {
+        await respond({ response_type: 'ephemeral', text: usersListText(access, isHome) });
+        return;
+      }
+      if (parsed.action === 'error') {
+        await respond({ response_type: 'ephemeral', text: parsed.message });
+        return;
+      }
+      if (!isAdmin(access, command.user_id, isHome)) {
+        await respond({ response_type: 'ephemeral', text: '🔒 Only this workspace’s admins can change agent access.' });
+        return;
+      }
+      if (!tenant) {
+        await respond({ response_type: 'ephemeral', text: errText(new Error('no tenant id on this command')) });
+        return;
+      }
+      const applied = applyUsersCmd(access, parsed);
+      if ('error' in applied) {
+        await respond({ response_type: 'ephemeral', text: `⚠️ ${applied.error}` });
+        return;
+      }
+      store.setTeamAccess(tenant, applied.next);
+      await respond({ response_type: 'ephemeral', text: applied.note });
+      return;
+    }
+
+    // Read-only surfaces stay open to viewers; everything else needs drive clearance.
+    const VIEWER_VERBS = new Set(['status', 'usage', 'users', 'access', 'memory', 'prompt']);
+    if (!canDrive && !VIEWER_VERBS.has(verb ?? '')) {
+      await respond({ response_type: 'ephemeral', text: deniedText(access) });
+      return;
+    }
 
     // `/aven status` → a live ops snapshot (sandboxes, sessions, in-flight turns, PRs).
     // Reserved keyword, intercepted before project resolution so it works in ANY channel;

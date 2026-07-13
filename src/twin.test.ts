@@ -105,11 +105,34 @@ test('twin: home mention runs a turn with a BARE key and the home token', async 
 test('twin: client-workspace mention gets a TENANT-PREFIXED key and the client token', async () => {
   const t = await twin();
   try {
+    // Client teams default to an installer-seeded allowlist (actor gate, access.ts) —
+    // the acting user must be cleared for the turn to fire.
+    t.store.setInstallation(CLIENT, { user: { id: 'U_HUMAN' } });
     await t.receiver.send(mentionEnvelope({ team: CLIENT, channel: 'C_CLIENT', ts: '2.1', text: `<@UBOT_${CLIENT}> hi` }));
     assert.equal(t.turns.length, 1);
     assert.equal(t.turns[0].key, `${CLIENT}:thread:2.1`);
     assert.equal(t.turns[0].slug, 'beta');
     assert.equal(t.turns[0].token, `xoxb-${CLIENT}`);
+  } finally {
+    await t.stop();
+  }
+});
+
+test('twin: actor gate — an unlisted user in a client workspace gets a denial, not a turn', async () => {
+  const t = await twin();
+  try {
+    // The installer is someone ELSE — U_HUMAN (the envelope default) is a mere viewer.
+    t.store.setInstallation(CLIENT, { user: { id: 'U_INSTALLER' } });
+    await t.receiver.send(mentionEnvelope({ team: CLIENT, channel: 'C_CLIENT', ts: '3.1', text: `<@UBOT_${CLIENT}> do it` }));
+    assert.equal(t.turns.length, 0); // no turn
+    const posts = t.api.of('chat.postMessage');
+    assert.equal(posts.length, 1); // exactly one explicit denial…
+    assert.ok(String((posts[0].payload as { text?: string }).text).includes('allowlist'));
+    assert.ok(String((posts[0].payload as { text?: string }).text).includes('U_INSTALLER')); // …naming the admin
+
+    // The home workspace stays open by default — the same user drives home unimpeded.
+    await t.receiver.send(mentionEnvelope({ team: HOME, channel: 'C_HOME', ts: '3.2', text: `<@UBOT_${HOME}> go` }));
+    assert.equal(t.turns.length, 1);
   } finally {
     await t.stop();
   }

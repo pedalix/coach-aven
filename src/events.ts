@@ -6,7 +6,8 @@ import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
 import type { Store } from './state.js';
 import { resolveBySlug, teamProjects, type RegistryRef } from './projects.js';
-import { tenantOf, withTeam } from './teamkeys.js';
+import { tenantOf, withTeam, normalizeTenant } from './teamkeys.js';
+import { effectiveAccess, mayDrive, deniedText } from './access.js';
 import { RecentSet } from './recent.js';
 import { eventLog } from './eventlog.js';
 import type { TurnEngine } from './turn.js';
@@ -92,6 +93,21 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   const pendingDmPicks = new Map<string, { channel: string; user: string; question: string }>();
   let dmPickSeq = 0;
 
+  // ── actor gate (slice 4 §7.3): WHO inside a served workspace may DRIVE ──────
+  // The tenant gate decides whether a WORKSPACE is served; this decides which USERS in it
+  // may start/steer turns and post reports — vs only read along (trails, ticket modals,
+  // memory stay open to viewers). Policy: home defaults open; a client team defaults to
+  // an allowlist seeded with its installing user; `/aven users` manages it (access.ts).
+  const actor = (tenant: string | undefined, userId: string | undefined) => {
+    const isHome = normalizeTenant(tenant, homeTeamId) === undefined;
+    const a = effectiveAccess(
+      tenant ? store.getTeamAccess(tenant) : undefined,
+      isHome,
+      tenant ? store.installerOf(tenant) : undefined,
+    );
+    return { ok: mayDrive(a, userId), denial: deniedText(a) };
+  };
+
   // ── Slack Connect double-envelope guard ─────────────────────────────────
   // In a shared channel with the app installed on BOTH sides, one message is delivered
   // once per installation (two envelopes, different team contexts). CLAIM-ON-ACT: an
@@ -111,7 +127,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
 
   // ── @mention → public thread (one session per thread) ───────────────────────
   app.event('app_mention', async ({ event, client, context }) => {
-    const e = event as { channel: string; ts: string; thread_ts?: string; text?: string; files?: unknown[] };
+    const e = event as { channel: string; ts: string; thread_ts?: string; text?: string; user?: string; files?: unknown[] };
     const threadTs = e.thread_ts || e.ts;
     // Files attached to the mentioning message (e.g. "@CoachAven look at this <screenshot>") —
     // the common channel pattern. Downloaded into the sandbox for the agent to Read. The
@@ -136,6 +152,15 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
         thread_ts: threadTs,
         text: info('Ask me something — `@CoachAven <task>`. I work in a thread and open a PR for review.'),
       });
+      return;
+    }
+    // A mention is a deliberate act — a non-cleared user gets ONE explicit denial
+    // (its own claim namespace: the denial must not steal the acting claim in a
+    // Connect channel where the other side's envelope could still be entitled).
+    const gate = actor(tenant, e.user);
+    if (!gate.ok) {
+      if (!claimEvent('mention-denied', e.channel, e.ts)) return;
+      await client.chat.postMessage({ channel: e.channel, thread_ts: threadTs, text: gate.denial });
       return;
     }
     if (!claimEvent('mention', e.channel, e.ts)) return;
@@ -201,6 +226,12 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
         return;
       }
       if (!m.user) return;
+      // DMs are deliberate acts — explicit denial for non-cleared users.
+      const dmGate = actor(tenant, m.user);
+      if (!dmGate.ok) {
+        await client.chat.postMessage({ channel: m.channel, text: dmGate.denial });
+        return;
+      }
       // A file with no text IS the message (drop a screenshot, expect a look) — only nag when
       // there's neither text nor an attachment.
       if (!question && !attachments) {
@@ -225,6 +256,9 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     if (!engine.hasLive(key) && !store.getChat(key)) return;
     const { project, question, error } = await channels.pickProject(client, m.channel, m.text ?? '', tenant);
     if (error || !project) return;
+    // Thread replies from non-cleared users are IGNORED silently: viewers discussing in
+    // the thread must not drive the agent, but per-message denials would spam them.
+    if (!actor(tenant, m.user).ok) return;
     if (!claimEvent('message', m.channel, m.ts)) return;
     if (!question && !attachments) {
       await client.chat.postMessage({
@@ -239,8 +273,14 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   });
 
   // ── "✖ Cancel" button → abort that turn (the queued next one then starts) ───
-  app.action('cancel_turn', async ({ ack, action }) => {
+  app.action('cancel_turn', async ({ ack, action, body, context, respond }) => {
     await ack();
+    // Killing a running turn is steering — viewers don't get to do it either.
+    const cGate = actor(tenantOf(context), (body as { user?: { id?: string } }).user?.id);
+    if (!cGate.ok) {
+      await respond({ response_type: 'ephemeral', replace_original: false, text: cGate.denial }).catch(() => {});
+      return;
+    }
     const turnId = (action as { value?: string }).value;
     if (turnId) engine.cancel(turnId);
   });
@@ -314,6 +354,14 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       }
       return;
     }
+    // The DM gate ran when the question was parked, but the CLICKER is client input too.
+    const pickGate = actor(tenant, (body as { user?: { id?: string } }).user?.id);
+    if (!pickGate.ok) {
+      if (b.message?.ts) {
+        await client.chat.update({ channel: pending.channel, ts: b.message.ts, text: pickGate.denial, blocks: [] }).catch(() => {});
+      }
+      return;
+    }
     pendingDmPicks.delete(pid);
     if (b.message?.ts) {
       await client.chat
@@ -325,9 +373,14 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   });
 
   // ── "🔀 Open a PR" button → enqueue a follow-up turn asking the agent to PR its work ──
-  app.action('make_pr', async ({ ack, action, client, context }) => {
+  app.action('make_pr', async ({ ack, action, client, context, body, respond }) => {
     await ack();
     if (!servedTenant(tenantOf(context))) return; // stale button in an offboarded workspace
+    const prGate = actor(tenantOf(context), (body as { user?: { id?: string } }).user?.id);
+    if (!prGate.ok) {
+      await respond({ response_type: 'ephemeral', replace_original: false, text: prGate.denial }).catch(() => {});
+      return;
+    }
     let v: { key: string; channel: string; threadTs?: string };
     try {
       v = JSON.parse((action as { value?: string }).value ?? '');
@@ -344,9 +397,14 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   // ── "📝 Report to YouTrack" → pop-up with the ACTUAL generation prompt to confirm/edit ──
   // Full transparency: the user sees and may edit the exact prompt that will run; a checkbox
   // skips the preview and posts the result straight to the ticket (internal, fail-closed).
-  app.action('yt_report', async ({ ack, action, body, client, context }) => {
+  app.action('yt_report', async ({ ack, action, body, client, context, respond }) => {
     await ack();
     if (!servedTenant(tenantOf(context))) return; // stale button in an offboarded workspace
+    const ytGate = actor(tenantOf(context), (body as { user?: { id?: string } }).user?.id);
+    if (!ytGate.ok) {
+      await respond({ response_type: 'ephemeral', replace_original: false, text: ytGate.denial }).catch(() => {});
+      return;
+    }
     let v: { t: string; key: string; channel: string; threadTs?: string };
     try {
       v = JSON.parse((action as { value?: string }).value ?? '');
@@ -370,9 +428,12 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   // about its read-only YouTrack MCP and auto-post ships that preamble to the ticket.
   // "Post immediately" checked → hand the turn an autoPost hook: the answer goes straight to
   // the ticket, and on failure turn.ts degrades it to the reviewable draft with the error.
-  app.view(YT_PROMPT_CALLBACK, async ({ ack, view, client, context }) => {
+  app.view(YT_PROMPT_CALLBACK, async ({ ack, view, client, context, body }) => {
     await ack();
     if (!servedTenant(tenantOf(context))) return; // offboarded workspace — no draft turn
+    // Silent re-check (the yt_report button already denied loudly; a modal reaching
+    // submit without clearance means a stale/raced view — just don't run the turn).
+    if (!actor(tenantOf(context), (body as { user?: { id?: string } }).user?.id).ok) return;
     let meta: { t: string; key: string; channel: string; threadTs?: string };
     try {
       meta = JSON.parse(view.private_metadata || '');
@@ -434,8 +495,10 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   // ack() first (Slack wants it <3s; the modal closes), then post. Success rewrites the draft
   // message into a confirmation; failure lands in the thread — including the fail-closed
   // "no unambiguous team group" refusal and a 403 when the token lacks Create Comment.
-  app.view(YT_SEND_CALLBACK, async ({ ack, view, client }) => {
+  app.view(YT_SEND_CALLBACK, async ({ ack, view, client, context, body }) => {
     await ack();
+    // Posting to the client's ticket is a write — same silent re-check as the draft turn.
+    if (!actor(tenantOf(context), (body as { user?: { id?: string } }).user?.id).ok) return;
     let meta: { t: string; channel: string; ts: string; threadTs?: string };
     try {
       meta = JSON.parse(view.private_metadata || '');
@@ -467,10 +530,15 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   });
 
   // ── autofix "🔧 Fix it" button → enqueue a WRITE turn to address the PR feedback ──
-  app.action('autofix_apply', async ({ ack, action, client, context }) => {
+  app.action('autofix_apply', async ({ ack, action, client, context, body, respond }) => {
     await ack();
     const tenant = tenantOf(context);
     if (!servedTenant(tenant)) return; // stale button in an offboarded workspace — no write turn
+    const fixGate = actor(tenant, (body as { user?: { id?: string } }).user?.id);
+    if (!fixGate.ok) {
+      await respond({ response_type: 'ephemeral', replace_original: false, text: fixGate.denial }).catch(() => {});
+      return;
+    }
     let v: { slug: string; repo: string; number: number; channel: string };
     try {
       v = JSON.parse((action as { value?: string }).value ?? '');
@@ -566,8 +634,14 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
 
   // ── option button → toggle/select; resolve single-select on click, multi on Submit ──
   // action_id is `answer_q:<qid>:<qi>:<oi>` (unique per button); match the family.
-  app.action(/^answer_q:/, async ({ ack, action, client, body }) => {
+  app.action(/^answer_q:/, async ({ ack, action, client, body, context, respond }) => {
     await ack();
+    // Answering steers the running turn — same clearance as starting one.
+    const qGate = actor(tenantOf(context), (body as { user?: { id?: string } }).user?.id);
+    if (!qGate.ok) {
+      await respond({ response_type: 'ephemeral', replace_original: false, text: qGate.denial }).catch(() => {});
+      return;
+    }
     let v: { qid: string; qi: number; oi: number };
     try {
       v = JSON.parse((action as { value?: string }).value ?? '');
@@ -604,8 +678,13 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   });
 
   // ── Submit button (multi-select) → resolve once every question has ≥1 selection ──
-  app.action(/^submit_q:/, async ({ ack, action, client, body }) => {
+  app.action(/^submit_q:/, async ({ ack, action, client, body, context, respond }) => {
     await ack();
+    const sGate = actor(tenantOf(context), (body as { user?: { id?: string } }).user?.id);
+    if (!sGate.ok) {
+      await respond({ response_type: 'ephemeral', replace_original: false, text: sGate.denial }).catch(() => {});
+      return;
+    }
     let v: { qid: string };
     try {
       v = JSON.parse((action as { value?: string }).value ?? '');

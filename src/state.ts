@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { splitTeam } from './teamkeys.js';
+import type { TeamAccess } from './access.js';
 
 // MVP state store: a single JSON file mapping projects → their warm sandbox, plus
 // chat-thread → Claude-session bindings. Swap for SQLite later if concurrency demands
@@ -120,6 +121,9 @@ interface StateShape {
   // Stored opaquely (@slack/oauth Installation objects) — state.ts doesn't interpret them.
   // ⚠️ These carry live bot tokens, which is why save() writes state.json with mode 0600.
   installations?: Record<string, unknown>;
+  // Per-workspace actor access (who may drive the agent), keyed by raw tenant id.
+  // Absent = the access.ts defaults (home open; client teams installer-allowlisted).
+  teamAccess?: Record<string, TeamAccess>;
   routines?: Record<string, RoutineRecord>;
   projectSettings?: Record<string, ProjectSettings>;
   // "<Org/repo>#<number>" → ISO timestamp it was auto-reviewed (dedup across restarts).
@@ -236,6 +240,25 @@ export class Store {
 
   allInstallations(): Record<string, unknown> {
     return { ...(this.data.installations ?? {}) };
+  }
+
+  // The user who installed the app in this workspace (from the OAuth installation
+  // record) — seeds a client team's access allowlist/admins (access.ts).
+  installerOf(key: string): string | undefined {
+    const inst = this.data.installations?.[key] as { user?: { id?: string } } | undefined;
+    return inst?.user?.id;
+  }
+
+  // ── per-workspace actor access (who may drive the agent — access.ts) ──────
+  // Keyed by the RAW tenant id (T…/E…, including the home team's own id). Absent record
+  // = the defaults in access.ts (home open, client teams allowlisted to the installer).
+  getTeamAccess(tenantId: string): TeamAccess | undefined {
+    return this.data.teamAccess?.[tenantId];
+  }
+
+  setTeamAccess(tenantId: string, access: TeamAccess): void {
+    (this.data.teamAccess ??= {})[tenantId] = access;
+    this.save();
   }
 
   // ── scheduled report jobs ───────────────────────────────────────────────

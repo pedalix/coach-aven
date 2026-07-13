@@ -722,6 +722,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           `• *Sandbox upkeep* — \`${CMD} housekeeping on\`/\`off\` schedules (or pauses) the nightly janitor (dockerd guard, docker prune when disk runs high, stale-worktree reap); \`${CMD} housekeeping\` for the last run, \`${CMD} housekeeping now\` to run it once.\n` +
           `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.\n` +
           `• *Usage* — \`${CMD} usage [days]\` for token/cost/turn totals per project (last 30d by default). _(Operators' home workspace only.)_\n` +
+          `• *Who may drive me* — \`${CMD} users\` shows this workspace's access; admins manage it with \`allow @user\` / \`deny @user\` / \`open\` / \`restrict\` (client workspaces start allowlisted to whoever installed the app).\n` +
           `• *Reload config* — \`${CMD} reload\` re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions. _(Operators' home workspace only.)_`,
       },
     },
