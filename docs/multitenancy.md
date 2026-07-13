@@ -25,13 +25,15 @@
 > (`reload`/`usage` home-only, `review auto` owner-team-only); a claim-on-act LRU in
 > events.ts guards against Slack Connect double envelopes. ⚠️ **Deploy slice 2 BEFORE
 > admitting any client team** — a team allowlisted earlier would have bare-keyed records
-> that orphan. ⚠️ Before onboarding a client into a SHARED (Connect) channel, run the
-> manual spike: app on both sides, verify envelope duplication + the claim-on-act rule —
-> with `AVEN_EVENT_LOG=1`, which journals every envelope's metadata (events/<day>.jsonl,
-> whitelist-only — no message content) including `claim-lost`/`gated` decisions; the
-> captured shapes become replay fixtures for the **digital-twin tests** (`src/twin.ts`:
-> real Bolt app + real handlers driven by synthetic envelopes against a recording Web API
-> stub — the tenant-isolation scenarios in `src/twin.test.ts` run with zero network).
+> that orphan. **Connect spike RESULT (2026-07-13, live ext-shared channel, app installed
+> on BOTH sides):** Slack dedupes per app — one event → ONE envelope, `authorizations[0]`
+> = the channel's host-side installation, even when the OTHER side's bot user is the one
+> mentioned. So: no double delivery for one app (claim-on-act stays as a safety belt only;
+> real duplication needs two different apps), and in a shared channel the acting tenant is
+> the HOST side regardless of which bot user is @mentioned — keep ONE bot per shared
+> channel. Envelope journaling: `AVEN_EVENT_LOG=1|full` (events/<day>.jsonl; `full` adds
+> raw bodies — trusted phase only); captured shapes are replay fixtures for the
+> **digital-twin tests** (`src/twin.ts` + `src/twin.test.ts`, zero network).
 > Still ahead (see §3): uninstall/tokens_revoked handling, SQLite, self-serve onboarding.
 
 ---
