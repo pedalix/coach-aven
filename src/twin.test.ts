@@ -105,9 +105,7 @@ test('twin: home mention runs a turn with a BARE key and the home token', async 
 test('twin: client-workspace mention gets a TENANT-PREFIXED key and the client token', async () => {
   const t = await twin();
   try {
-    // Client teams default to an installer-seeded allowlist (actor gate, access.ts) —
-    // the acting user must be cleared for the turn to fire.
-    t.store.setInstallation(CLIENT, { user: { id: 'U_HUMAN' } });
+    // Access defaults to OPEN everywhere (access.ts) — no clearance setup needed.
     await t.receiver.send(mentionEnvelope({ team: CLIENT, channel: 'C_CLIENT', ts: '2.1', text: `<@UBOT_${CLIENT}> hi` }));
     assert.equal(t.turns.length, 1);
     assert.equal(t.turns[0].key, `${CLIENT}:thread:2.1`);
@@ -118,11 +116,12 @@ test('twin: client-workspace mention gets a TENANT-PREFIXED key and the client t
   }
 });
 
-test('twin: actor gate — an unlisted user in a client workspace gets a denial, not a turn', async () => {
+test('twin: actor gate — an unlisted user in a RESTRICTED workspace gets a denial, not a turn', async () => {
   const t = await twin();
   try {
-    // The installer is someone ELSE — U_HUMAN (the envelope default) is a mere viewer.
-    t.store.setInstallation(CLIENT, { user: { id: 'U_INSTALLER' } });
+    // Restriction is opt-in (`/aven users restrict`) — this workspace turned it on;
+    // U_HUMAN (the envelope default) is not on the list.
+    t.store.setTeamAccess(CLIENT, { mode: 'allowlist', users: [], admins: ['U_INSTALLER'] });
     await t.receiver.send(mentionEnvelope({ team: CLIENT, channel: 'C_CLIENT', ts: '3.1', text: `<@UBOT_${CLIENT}> do it` }));
     assert.equal(t.turns.length, 0); // no turn
     const posts = t.api.of('chat.postMessage');

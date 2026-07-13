@@ -2,18 +2,24 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { effectiveAccess, mayDrive, isAdmin, deniedText, parseUsersCmd, applyUsersCmd, usersListText } from './access.js';
 
-test('defaults — home open, client team allowlisted to the installer', () => {
+test('defaults — open everywhere; the installer seeds a client team’s admin', () => {
   const home = effectiveAccess(undefined, true, undefined);
   assert.equal(home.mode, 'open');
   assert.ok(mayDrive(home, 'U_ANYONE'));
 
+  // Client teams are open too (deliberate: adding a workspace adds no process) — but
+  // the installer is pre-seeded as admin so `restrict` stays reachable from their side.
   const client = effectiveAccess(undefined, false, 'U_INSTALLER');
-  assert.equal(client.mode, 'allowlist');
-  assert.ok(mayDrive(client, 'U_INSTALLER')); // installer seeded
-  assert.ok(!mayDrive(client, 'U_STRANGER'));
-  assert.ok(!mayDrive(client, undefined)); // authorless event never drives an allowlisted team
+  assert.equal(client.mode, 'open');
+  assert.ok(mayDrive(client, 'U_STRANGER'));
   assert.ok(isAdmin(client, 'U_INSTALLER', false));
   assert.ok(!isAdmin(client, 'U_STRANGER', false));
+
+  // The moment an admin flips to allowlist, non-listed users stop driving.
+  const restricted = { ...client, mode: 'allowlist' as const };
+  assert.ok(mayDrive(restricted, 'U_INSTALLER')); // seeded into users too
+  assert.ok(!mayDrive(restricted, 'U_STRANGER'));
+  assert.ok(!mayDrive(restricted, undefined)); // authorless event never drives an allowlisted team
 });
 
 test('explicit record overrides the default; admins always drive', () => {

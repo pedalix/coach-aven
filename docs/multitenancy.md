@@ -277,8 +277,10 @@ served?"; this answers "may this USER act?". Implementation (`src/access.ts` + s
 in `state.json` `teamAccess`, keyed by raw tenant id):
 
 - Policy per workspace: `{ mode: 'open' | 'allowlist', users: [..], admins: [..] }`.
-  Defaults: **home → open** (today's behavior), **client team → allowlist seeded with
-  the installing user** (from the OAuth installation record), who is also the seed admin.
+  Default: **open everywhere** — deliberately (2026-07-13): adding a workspace must not
+  add process; the allowlist is an opt-in lever (`/aven users restrict`), not a hoop for
+  every install. A client team's installing user (from the OAuth record) is still
+  pre-seeded as its ADMIN, so `restrict` stays reachable from the client's side later.
 - Enforcement at the entry handlers: mentions, DMs, and buttons/modals that start or
   steer work (make_pr, autofix, yt_report + both YT modals, question answer/submit,
   cancel) — each denial names the admins who can grant access. **Thread replies from

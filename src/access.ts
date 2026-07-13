@@ -4,10 +4,11 @@
 // open PRs, and steer questions — vs only read along. Pure logic: storage lives in
 // state.ts (`teamAccess`), enforcement at the entry handlers (events.ts / commands.ts).
 //
-// Defaults are the security posture:
-//   • HOME workspace → open (today's behavior; it's our own team).
-//   • Client workspace → allowlist seeded with the INSTALLING user (the OAuth
-//     installation record tells us who), who is also the seed admin.
+// Default is OPEN everywhere — deliberately (Owen, 2026-07-13): adding a workspace must
+// not add process; the allowlist is an opt-in lever for when a client actually asks for
+// it, not a hoop for every install. What the default still carries: a client team's
+// INSTALLING user (from the OAuth record) is its seed ADMIN, so someone over there can
+// flip to `/aven users restrict` later without us touching state by hand.
 // An explicit record (managed via `/aven users`) overrides the default either way.
 
 export interface TeamAccess {
@@ -25,7 +26,7 @@ export function effectiveAccess(
   if (rec) return rec;
   if (isHome) return { mode: 'open', users: [], admins: [] };
   const seed = installerId ? [installerId] : [];
-  return { mode: 'allowlist', users: seed, admins: seed };
+  return { mode: 'open', users: seed, admins: seed };
 }
 
 export function mayDrive(a: TeamAccess, userId: string | undefined): boolean {
