@@ -1,13 +1,13 @@
-# CoachAven prod — deploy onto the shared `lumora-one` VM
+# CoachAven prod — deploy onto the shared `coach-aven-one` VM
 
 A **manual, scripted** deployment of the CoachAven orchestrator onto the existing
-Hetzner VM **`lumora-one` (<sandbox-host>)** — the same box that hosts Lumora and
+Hetzner VM **`coach-aven-one` (<bot-host>)** — the same box that hosts Lumora and
 `aven.guru`. CoachAven runs as a **systemd service**, not in Docker.
 
 ## Why systemd and not Docker / nginx
 
 CoachAven is just the **control plane**: one long-lived Node process that holds a
-Slack **Socket-Mode** connection and drives **Daytona** sandboxes over HTTPS. All
+Slack **Socket-Mode** connection and drives sandboxes (Daytona over HTTPS; ssh-docker on lumora-one via SSH). All
 the heavy work (Claude Code, Sail stacks, builds) happens **inside Daytona**, not
 on this box — so the footprint here is tiny.
 
@@ -46,7 +46,7 @@ it. To populate it from a running prod, just `npm run prod:import`.
 
 ## Prerequisites
 
-- SSH access to **both** `deployer@<sandbox-host>` and `root@<sandbox-host>`
+- SSH access to **both** `deployer@<bot-host>` and `root@<bot-host>`
   (`root` to install the unit + sudoers; `deployer` runs the service + owns files).
   Uses your default SSH keys/agent.
 - `infra/prod/.env` filled in (`cp .env.example .env`).
