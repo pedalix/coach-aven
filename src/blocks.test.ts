@@ -10,6 +10,8 @@ import {
   reportModalView,
   reportPromptModalView,
   reportPostedBlocks,
+  homeBlocks,
+  onboardingHomeBlocks,
   YT_SEND_CALLBACK,
   YT_SEND_INPUT,
   YT_PROMPT_CALLBACK,
@@ -19,6 +21,7 @@ import {
   type TrailMeta,
 } from './blocks.js';
 import type { YouTrackIssue, YouTrackComment } from './youtrack.js';
+import type { ProjectConfig } from './projects.js';
 
 // The action row is the last block; its button action_ids tell us which affordance rendered.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,6 +127,32 @@ test('ticketModalView: huge ticket stays under Slack limits, keeps the NEWEST co
   assert.ok(!all.includes('comment 0 ')); // oldest dropped…
   assert.ok(all.includes('earlier comments')); // …and said so
   assert.ok(all.includes('description continues')); // over-long description hands over to YouTrack
+});
+
+// ── App Home tab ─────────────────────────────────────────────────────────────
+// A section over Slack's 3000-char mrkdwn cap makes views.publish reject the WHOLE
+// payload — the Home tab is then stuck on Slack's own "loading" spinner forever,
+// since no view ever gets published. Guard every block, not just the "how to use
+// me" copy that has blown past the cap before.
+
+test('homeBlocks: every mrkdwn text block stays under Slack\'s 3000-char section cap', () => {
+  const projects: ProjectConfig[] = Array.from({ length: 5 }, (_, i) => ({
+    slug: `proj-${i}`,
+    repos: [`Org/repo-${i}`, `Org/repo-${i}-infra`],
+    youtrackProjects: [`PRJ${i}`],
+  }));
+  const texts = homeBlocks(projects, 'aven-')
+    .flatMap((b) => [b.text?.text, ...(b.elements ?? []).map((e: { text: string }) => e.text)])
+    .filter(Boolean) as string[];
+  assert.ok(texts.length > 0);
+  for (const t of texts) assert.ok(t.length <= 3000, `block over Slack's cap: ${t.length} chars`);
+});
+
+test('onboardingHomeBlocks: stays under Slack\'s 3000-char section cap', () => {
+  const texts = onboardingHomeBlocks()
+    .flatMap((b) => [b.text?.text, ...(b.elements ?? []).map((e: { text: string }) => e.text)])
+    .filter(Boolean) as string[];
+  for (const t of texts) assert.ok(t.length <= 3000);
 });
 
 // ── trail modal ─────────────────────────────────────────────────────────────

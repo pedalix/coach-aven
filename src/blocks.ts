@@ -701,6 +701,10 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*How to use me*' } },
     {
+      // Split across two blocks: a section's mrkdwn text is capped at 3000 chars by the
+      // Slack API, and this list alone runs to ~3600 — one block over the limit makes
+      // views.publish reject the WHOLE payload (invalid_blocks), which leaves the Home
+      // tab spinning forever since no view ever gets published for anyone.
       type: 'section',
       text: {
         type: 'mrkdwn',
@@ -715,7 +719,14 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the full tool-by-tool trail in a pop-up.\n' +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically _(managed from the project's owner workspace)_.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
-          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), hit *🔀 Open a PR* to turn the fix into a pull request, or *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above).\n' +
+          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), hit *🔀 Open a PR* to turn the fix into a pull request, or *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above).',
+      },
+    },
+    {
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text:
           `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.\n` +
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
