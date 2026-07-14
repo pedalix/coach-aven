@@ -709,7 +709,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           `• *Quick private answer* — \`${CMD} <question>\` in a project channel. I answer privately in our DM.\n` +
           "• *DM me directly* — just message me in a DM; if it's not clear which project you mean, I'll show a picker.\n" +
           `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every job across this workspace's projects).\n` +
-          "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task. _(Voice/video not supported yet.)_\n" +
+          "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task; works in Slack Connect channels too. If I can't use a file, I'll reply saying which one and why. _(Voice/video not supported yet.)_\n" +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the full tool-by-tool trail in a pop-up.\n' +

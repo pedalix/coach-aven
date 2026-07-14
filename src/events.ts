@@ -14,7 +14,7 @@ import type { TurnEngine } from './turn.js';
 import type { Channels } from './channels.js';
 import { readMemory } from './commands.js';
 import { FOLLOW_UP_PR_PROMPT, autofixPrompt, reportDraftPrompt, reportDeliveryContract } from './prompts.js';
-import type { AttachmentRef } from './attachments.js';
+import { extractSlackFiles, hydrateSlackFiles, type FileInfoFn, type SlackFile } from './slackfiles.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
 import { memoryRepoDir, readSnapshotFile } from './memjournal.js';
@@ -63,27 +63,20 @@ export interface EventDeps {
   servedTenant: (tenantId: string | undefined) => boolean;
 }
 
-// Map raw Slack file objects (untyped on the message event) to source-agnostic AttachmentRefs.
-// We prefer `url_private_download` (raw bytes) and fall back to `url_private`; files with
-// neither (e.g. external/link "files") are dropped. The admission allowlist/caps run later in
-// planIngest — here we only normalize shape.
-function slackFilesToRefs(files: unknown[]): AttachmentRef[] {
-  const out: AttachmentRef[] = [];
-  for (const f of files) {
-    const o = (f ?? {}) as {
-      url_private_download?: string;
-      url_private?: string;
-      name?: string;
-      title?: string;
-      mimetype?: string;
-      size?: number;
-    };
-    const url = o.url_private_download || o.url_private;
-    if (!url) continue;
-    out.push({ name: o.name || o.title || 'file', url, mime: o.mimetype ?? '', size: o.size ?? 0 });
-  }
-  return out;
-}
+// files.info bound to THIS envelope's workspace client: in a Slack Connect channel the
+// tombstone hydration (see slackfiles.ts) must run — and the returned url_private_download
+// is only readable — with that workspace's own bot token. Failures resolve null; the
+// hydrator degrades them to a visible "skipped" note downstream.
+const fileInfo =
+  (client: bolt.webApi.WebClient): FileInfoFn =>
+  async (id) => {
+    try {
+      return (await client.files.info({ file: id })).file ?? null;
+    } catch (e) {
+      log.error(`files.info ${id}: ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  };
 
 export function registerEvents(app: bolt.App, deps: EventDeps): void {
   const { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant } = deps;
@@ -132,9 +125,10 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     // Files attached to the mentioning message (e.g. "@CoachAven look at this <screenshot>") —
     // the common channel pattern. Downloaded into the sandbox for the agent to Read. The
     // bearer is the EVENT's workspace bot token (context.botToken) — a client workspace's
-    // files are only readable with that workspace's own token.
-    const files = Array.isArray(e.files) ? slackFilesToRefs(e.files) : [];
-    const attachments = files.length && context.botToken ? { refs: files, bearer: context.botToken } : undefined;
+    // files are only readable with that workspace's own token. Extraction here is sync and
+    // presence-only; the files.info hydration waits until this envelope has WON the claim.
+    const files: SlackFile[] = Array.isArray(e.files) ? extractSlackFiles(e.files) : [];
+    const canAttach = files.length > 0 && !!context.botToken;
     const tenant = tenantOf(context);
     const { project, question, error } = await channels.pickProject(client, e.channel, stripMention(e.text ?? ''), tenant);
     if (error) {
@@ -145,7 +139,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       return;
     }
     // A bare mention with a file (no text) is a valid ask — only nag when there's neither.
-    if (!question && !attachments) {
+    if (!question && !canAttach) {
       if (!claimEvent('mention', e.channel, e.ts)) return;
       await client.chat.postMessage({
         channel: e.channel,
@@ -164,6 +158,9 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       return;
     }
     if (!claimEvent('mention', e.channel, e.ts)) return;
+    const attachments = canAttach
+      ? { refs: await hydrateSlackFiles(files, fileInfo(client)), bearer: context.botToken! }
+      : undefined;
     const mentionQ = question || 'Please take a look at the attached file(s).';
     const key = withTeam(tenant, homeTeamId, `thread:${threadTs}`);
     await engine.liveTurn(client, e.channel, e.ts, threadTs, key, project!, mentionQ, attachments);
@@ -188,8 +185,12 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     // array. We download them into the sandbox for the agent to Read (see doTurn → chat.ingest);
     // here we just extract the refs and let the message flow through the SAME routing as text —
     // so the DM/owned-thread gates still decide whether we engage (we never barge in elsewhere).
-    const files = Array.isArray(m.files) ? slackFilesToRefs(m.files) : [];
-    const attachments = files.length && context.botToken ? { refs: files, bearer: context.botToken } : undefined;
+    // Sync + presence-only on purpose: this listener fires for EVERY message in every joined
+    // channel, so the files.info hydration is deferred until a path below decides to act.
+    const files: SlackFile[] = Array.isArray(m.files) ? extractSlackFiles(m.files) : [];
+    const canAttach = files.length > 0 && !!context.botToken;
+    const hydrate = async () =>
+      canAttach ? { refs: await hydrateSlackFiles(files, fileInfo(client)), bearer: context.botToken! } : undefined;
 
     // Ignore edits/joins/topic-changes/etc. — but `thread_broadcast` is a genuine reply and
     // `file_share` is a real message carrying files, so let both fall through to the handling
@@ -234,7 +235,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       }
       // A file with no text IS the message (drop a screenshot, expect a look) — only nag when
       // there's neither text nor an attachment.
-      if (!question && !attachments) {
+      if (!question && !canAttach) {
         await client.chat.postMessage({
           channel: m.channel,
           text: info("I didn't catch a question — just type what you'd like me to do."),
@@ -243,7 +244,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       }
       const dmQ = question || 'Please take a look at the attached file(s).';
       const dmKey = withTeam(tenant, homeTeamId, `dm:${m.channel}:${project!.slug}`);
-      await engine.liveTurn(client, m.channel, m.ts, undefined, dmKey, project!, dmQ, attachments);
+      await engine.liveTurn(client, m.channel, m.ts, undefined, dmKey, project!, dmQ, await hydrate());
       return;
     }
 
@@ -260,7 +261,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     // the thread must not drive the agent, but per-message denials would spam them.
     if (!actor(tenant, m.user).ok) return;
     if (!claimEvent('message', m.channel, m.ts)) return;
-    if (!question && !attachments) {
+    if (!question && !canAttach) {
       await client.chat.postMessage({
         channel: m.channel,
         thread_ts: m.thread_ts,
@@ -269,7 +270,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       return;
     }
     const threadQ = question || 'Please take a look at the attached file(s).';
-    await engine.liveTurn(client, m.channel, m.ts, m.thread_ts, key, project, threadQ, attachments);
+    await engine.liveTurn(client, m.channel, m.ts, m.thread_ts, key, project, threadQ, await hydrate());
   });
 
   // ── "✖ Cancel" button → abort that turn (the queued next one then starts) ───

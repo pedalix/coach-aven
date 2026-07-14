@@ -9,7 +9,7 @@ import type { Store } from './state.js';
 import { resolveBySlug, type ProjectConfig, type RegistryRef } from './projects.js';
 import { openChat, type ChatSession } from './tasks.js';
 import { fallbackText, fmtElapsed, prUrls } from './format.js';
-import type { AttachmentRef } from './attachments.js';
+import { skippedNotice, type AttachmentRef } from './attachments.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
 import { MAX_SLACK_TEXT, answerBlocks, reportPostedBlocks, statusBlocks, questionBlocks, errText } from './blocks.js';
 import { QueueJournal } from './queuejournal.js';
@@ -576,8 +576,16 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         phase = '📎 Fetching attachments…';
         await flush(true);
         try {
-          const preamble = await live.ingest(attachments.refs, attachments.bearer, turnId);
+          const { preamble, skipped } = await live.ingest(attachments.refs, attachments.bearer, turnId);
           if (preamble) prompt = `${preamble}\n\n${question}`;
+          // Unusable files get a DETERMINISTIC reply in the thread — the preamble only tells
+          // the agent, and whether the model relays a skip is up to it. Best-effort: a failed
+          // notice must not sink the turn.
+          if (skipped.length) {
+            await client.chat
+              .postMessage({ channel, thread_ts: threadTs, text: skippedNotice(skipped) })
+              .catch((e) => log.error(`skip notice ${turnId}: ${e instanceof Error ? e.message : String(e)}`));
+          }
         } catch (e) {
           log.error(`ingest ${turnId}: ${e instanceof Error ? e.message : String(e)}`);
         }

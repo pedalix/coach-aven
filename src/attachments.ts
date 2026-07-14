@@ -83,6 +83,13 @@ export function planIngest(refs: AttachmentRef[]): {
       skipped.push({ name: r.name, reason: `over the ${MAX_FILES}-file limit` });
       continue;
     }
+    // No URL = the source refused to hand the bytes over (a Slack Connect file whose
+    // files.info hydration failed or was denied — see slackfiles.ts). Checked before the
+    // type test: a tombstone has no MIME, and 'unsupported type' would mislead.
+    if (!r.url) {
+      skipped.push({ name: r.name, reason: 'file access not granted' });
+      continue;
+    }
     if (!isSupported(r.mime, r.name)) {
       skipped.push({ name: r.name, reason: 'unsupported type' });
       continue;
@@ -116,6 +123,25 @@ export function attachmentPreamble(
   }
   for (const w of warnings) lines.push(`(Note: ${w})`);
   return lines.join('\n');
+}
+
+// The user-facing counterpart of the preamble's skip list: a polite Slack (mrkdwn) notice
+// posted DETERMINISTICALLY into the thread by the turn engine. The preamble only informs the
+// AGENT — whether the model relays a skip is up to it; users get a guaranteed answer, with
+// each machine reason expanded to something actionable. '' when nothing was skipped.
+export function skippedNotice(skipped: { name: string; reason: string }[]): string {
+  if (!skipped.length) return '';
+  const friendly: Record<string, string> = {
+    'unsupported type': 'an unsupported file type — I can read images, PDFs, and text/data/office documents',
+    'too large': `over my ${Math.round(MAX_BYTES / 1024 / 1024)} MB per-file limit`,
+    'file access not granted':
+      "Slack didn't grant me access to it (this can happen in Slack Connect channels) — re-uploading it or pasting the content works",
+    'download failed': 'not downloadable from Slack just now — please try uploading it again',
+  };
+  return [
+    `📎 Sorry — I couldn't read ${skipped.length === 1 ? 'this file' : 'these files'}:`,
+    ...skipped.map((s) => `• \`${s.name}\` — ${friendly[s.reason] ?? s.reason}`),
+  ].join('\n');
 }
 
 // The in-sandbox Claude Code `Read` tool rejects images whose pixel dimensions exceed 2000×2000

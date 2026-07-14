@@ -59,8 +59,14 @@ export interface ChatSession {
   lastUsage(): TurnUsage | undefined;
   // Download inbound attachments (Slack files / YouTrack ticket files) with `bearer` and drop
   // them into this turn's sandbox inbox so the agent can Read them. Returns a prompt preamble
-  // naming the saved paths (and any skipped files), or '' if there's nothing to add.
-  ingest(refs: AttachmentRef[], bearer: string, turnId: string): Promise<string>;
+  // naming the saved paths (and any skipped files) — '' if there's nothing to add — plus the
+  // structured skip list, which the turn engine turns into a deterministic user-facing notice
+  // (skippedNotice) rather than trusting the agent to relay it.
+  ingest(
+    refs: AttachmentRef[],
+    bearer: string,
+    turnId: string,
+  ): Promise<{ preamble: string; skipped: { name: string; reason: string }[] }>;
 }
 
 // Serialize per-sandbox preparation so two conversations sharing one project sandbox
@@ -313,8 +319,8 @@ export async function openChat(
       droppedResume = false;
       return v;
     },
-    ingest: async (refs: AttachmentRef[], bearer: string, turnId: string): Promise<string> => {
-      if (!refs.length) return '';
+    ingest: async (refs: AttachmentRef[], bearer: string, turnId: string) => {
+      if (!refs.length) return { preamble: '', skipped: [] };
       const { accept, skipped } = planIngest(refs);
       const kept: { path: string; name: string }[] = [];
       const warnings: string[] = [];
@@ -348,7 +354,7 @@ export async function openChat(
           }
         }
       }
-      return attachmentPreamble(kept, skipped, warnings);
+      return { preamble: attachmentPreamble(kept, skipped, warnings), skipped };
     },
     ask: async (
       prompt: string,

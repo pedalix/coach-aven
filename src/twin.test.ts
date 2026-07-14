@@ -28,11 +28,28 @@ const CLIENT = 'TCLIENT222';
 const STRANGER = 'TSTRANGER3';
 
 // A turn engine that records liveTurn calls instead of driving sandboxes.
+type RecordedAttachments = { refs: { name: string; url: string; mime: string }[]; bearer: string };
 function fakeEngine(store: Store) {
-  const turns: Array<{ key: string; channel: string; question: string; slug: string; token?: string }> = [];
+  const turns: Array<{
+    key: string;
+    channel: string;
+    question: string;
+    slug: string;
+    token?: string;
+    attachments?: RecordedAttachments;
+  }> = [];
   const engine = {
-    liveTurn: async (client: bolt.webApi.WebClient, channel: string, _m: unknown, _t: unknown, key: string, project: { slug: string }, question: string) => {
-      turns.push({ key, channel, question, slug: project.slug, token: (client as { token?: string }).token });
+    liveTurn: async (
+      client: bolt.webApi.WebClient,
+      channel: string,
+      _m: unknown,
+      _t: unknown,
+      key: string,
+      project: { slug: string },
+      question: string,
+      attachments?: RecordedAttachments,
+    ) => {
+      turns.push({ key, channel, question, slug: project.slug, token: (client as { token?: string }).token, attachments });
     },
     runAsk: async () => 'ok',
     persist: () => {},
@@ -56,7 +73,7 @@ function fakeEngine(store: Store) {
 // One fully-wired twin: registry with a home-only project (alpha) and a SHARED one
 // (beta, home first → home owns it), channel names for the wildcard binding, and the
 // same servedTenant rule slack.ts builds.
-async function twin() {
+async function twin(files: Record<string, Record<string, unknown>> = {}) {
   const reg = {
     current: {
       projects: [
@@ -71,11 +88,14 @@ async function twin() {
   const channels = createChannels(reg, () => HOME);
   const servedTenant = (t: string | undefined) =>
     !!t && (t === HOME || (reg.current.workspaces[t as keyof typeof reg.current.workspaces]?.length ?? 0) > 0);
-  const { app, receiver, api, stop } = await createTwinApp({
-    C_HOME: 'bluefin-aven-alpha',
-    C_CLIENT: 'bluefin-aven-beta',
-    C_SHARED: 'bluefin-aven-beta',
-  });
+  const { app, receiver, api, stop } = await createTwinApp(
+    {
+      C_HOME: 'bluefin-aven-alpha',
+      C_CLIENT: 'bluefin-aven-beta',
+      C_SHARED: 'bluefin-aven-beta',
+    },
+    files,
+  );
   registerEvents(app, {
     cfg: { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 } } as unknown as Config,
     store,
@@ -201,6 +221,57 @@ test('twin: app_uninstalled removes the tenant installation (data kept)', async 
     });
     assert.equal(t.store.getInstallation(CLIENT), undefined);
     assert.equal(t.store.getChat(`${CLIENT}:thread:7.0`)?.slug, 'beta'); // purge stays manual
+  } finally {
+    await t.stop();
+  }
+});
+
+// Regression for the 2026-07-14 caldora incident: in a Slack Connect channel the message
+// event carries file TOMBSTONES ({ id, file_access: 'check_file_info' } — no url/name/mime),
+// which the old slackFilesToRefs silently dropped. The pipeline must now hydrate them via
+// files.info with the envelope workspace's token — and keep a file the workspace CAN'T
+// access as a url-less ref, so the turn engine's skippedNotice tells the user about it.
+test('twin: Connect tombstone files — hydrated via files.info; inaccessible ones survive as skipped refs', async () => {
+  const t = await twin({
+    F_OK: {
+      id: 'F_OK',
+      name: 'trip-response.json',
+      mimetype: 'application/json',
+      size: 42,
+      url_private_download: 'https://files.slack.com/dl/F_OK',
+    },
+    // F_DENIED deliberately absent → files.info answers with no file (access denied).
+  });
+  try {
+    t.store.patchChat('thread:5.0', 'beta', {}); // home owns this shared-channel thread
+    await t.receiver.send(
+      messageEnvelope({
+        team: HOME,
+        channel: 'C_SHARED',
+        ts: '5.2',
+        threadTs: '5.0',
+        text: '', // file-only message — the tombstones alone must still fire the turn
+        extShared: true,
+        files: [
+          { id: 'F_OK', file_access: 'check_file_info', created: 0, timestamp: 0, user: '', filetype: 'json' },
+          { id: 'F_DENIED', file_access: 'check_file_info', created: 0, timestamp: 0, user: '', filetype: 'json' },
+        ],
+      }),
+    );
+    assert.equal(t.turns.length, 1);
+    assert.equal(t.turns[0].question, 'Please take a look at the attached file(s).');
+    const att = t.turns[0].attachments!;
+    assert.equal(att.bearer, `xoxb-${HOME}`);
+    assert.deepEqual(
+      att.refs.map((r) => ({ name: r.name, url: r.url })),
+      [
+        { name: 'trip-response.json', url: 'https://files.slack.com/dl/F_OK' },
+        { name: 'F_DENIED.json', url: '' }, // kept, not vanished — becomes a user-visible skip
+      ],
+    );
+    // Hydration used the envelope workspace's own token (the Connect requirement).
+    const infos = t.api.of('files.info');
+    assert.deepEqual(infos.map((c) => c.token), [`xoxb-${HOME}`, `xoxb-${HOME}`]);
   } finally {
     await t.stop();
   }

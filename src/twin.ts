@@ -42,12 +42,17 @@ export interface ApiCall {
   payload: Record<string, unknown>;
 }
 
-// Minimal Slack Web API: records every call, answers ok:true, and serves
-// conversations.info from a configurable channel-name map (the wildcard binding needs it).
+// Minimal Slack Web API: records every call, answers ok:true, serves
+// conversations.info from a configurable channel-name map (the wildcard binding needs it),
+// and files.info from a file-fixture map (the Connect tombstone hydration needs it —
+// an id missing from the map answers ok with NO file, Slack's access-denied shape).
 export class RecordingApi {
   readonly calls: ApiCall[] = [];
   private server?: Server;
-  constructor(private readonly channelNames: Record<string, string> = {}) {}
+  constructor(
+    private readonly channelNames: Record<string, string> = {},
+    private readonly files: Record<string, Record<string, unknown>> = {},
+  ) {}
 
   async start(): Promise<string> {
     this.server = createServer((req, res) => {
@@ -72,6 +77,7 @@ export class RecordingApi {
           body.channel = { id, name: this.channelNames[id] };
         }
         if (method === 'views.open') body.view = { id: 'V1' };
+        if (method === 'files.info') body.file = this.files[String(payload.file ?? '')];
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify(body));
       });
@@ -100,6 +106,7 @@ export interface EnvelopeOpts {
   threadTs?: string;
   channelType?: string;
   extShared?: boolean;
+  files?: unknown[]; // raw Slack file objects; on a message this also sets subtype file_share
 }
 
 export function mentionEnvelope(o: EnvelopeOpts): Record<string, unknown> {
@@ -115,6 +122,7 @@ export function mentionEnvelope(o: EnvelopeOpts): Record<string, unknown> {
       text: o.text ?? '<@UBOT> do something',
       user: o.user ?? 'U_HUMAN',
       ...(o.extShared ? { is_ext_shared_channel: true } : {}),
+      ...(o.files ? { files: o.files } : {}),
     },
   };
 }
@@ -133,6 +141,7 @@ export function messageEnvelope(o: EnvelopeOpts): Record<string, unknown> {
       text: o.text ?? 'a follow-up',
       user: o.user ?? 'U_HUMAN',
       ...(o.extShared ? { is_ext_shared_channel: true } : {}),
+      ...(o.files ? { files: o.files, subtype: 'file_share' } : {}),
     },
   };
 }
@@ -169,13 +178,16 @@ export function blockActionEnvelope(
 // A real Bolt App wired to the twin receiver + recording API. `authorize` mints a
 // per-team token `xoxb-<team>` (matching what the recording asserts on), exactly like
 // the installation store would.
-export async function createTwinApp(channelNames: Record<string, string> = {}): Promise<{
+export async function createTwinApp(
+  channelNames: Record<string, string> = {},
+  files: Record<string, Record<string, unknown>> = {},
+): Promise<{
   app: bolt.App;
   receiver: TwinReceiver;
   api: RecordingApi;
   stop: () => Promise<void>;
 }> {
-  const api = new RecordingApi(channelNames);
+  const api = new RecordingApi(channelNames, files);
   const url = await api.start();
   const receiver = new TwinReceiver();
   const app = new App({

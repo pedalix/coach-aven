@@ -8,6 +8,7 @@ import {
   inboxPath,
   planIngest,
   attachmentPreamble,
+  skippedNotice,
   MAX_BYTES,
   MAX_FILES,
   MAX_IMAGE_DIM,
@@ -83,6 +84,12 @@ test('planIngest: enforces the per-turn count cap', () => {
   assert.ok(skipped.every((s) => s.reason.includes('limit')));
 });
 
+test('planIngest: url-less ref (failed Connect hydration) skipped with an access reason', () => {
+  const { accept, skipped } = planIngest([ref({ name: 'F1.json', url: '', mime: '' })]);
+  assert.equal(accept.length, 0);
+  assert.deepEqual(skipped, [{ name: 'F1.json', reason: 'file access not granted' }]);
+});
+
 test('planIngest: size 0 (unreported) is allowed through', () => {
   const { accept } = planIngest([ref({ size: 0 })]);
   assert.equal(accept.length, 1);
@@ -120,6 +127,28 @@ test('attachmentPreamble: surfaces pre-scale warnings', () => {
   );
   assert.ok(out.includes('/root/inbox/t1/1-a.heic'));
   assert.ok(out.includes("Note: a.heic couldn't be pre-scaled"));
+});
+
+test('skippedNotice: empty when nothing skipped', () => {
+  assert.equal(skippedNotice([]), '');
+});
+
+test('skippedNotice: expands known reasons to actionable text, passes unknown ones through', () => {
+  const out = skippedNotice([
+    { name: 'clip.mov', reason: 'unsupported type' },
+    { name: 'big.pdf', reason: 'too large' },
+    { name: 'F1.json', reason: 'file access not granted' },
+    { name: 'x.png', reason: `over the ${MAX_FILES}-file limit` },
+  ]);
+  assert.ok(out.includes('`clip.mov`') && out.includes('unsupported file type'));
+  assert.ok(out.includes('`big.pdf`') && out.includes('25 MB'));
+  assert.ok(out.includes('`F1.json`') && out.includes('Slack Connect'));
+  assert.ok(out.includes('`x.png`') && out.includes(`${MAX_FILES}-file limit`));
+  assert.ok(out.startsWith('📎'));
+});
+
+test('skippedNotice: singular phrasing for one file', () => {
+  assert.ok(skippedNotice([{ name: 'a.mov', reason: 'unsupported type' }]).includes('this file'));
 });
 
 test('attachmentPreamble: lists kept paths and skipped reasons', () => {
