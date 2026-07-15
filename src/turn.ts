@@ -140,6 +140,13 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // on its "✖ Cancel" button — cancel the running one and the next queued turn starts.
   const queues = new Map<string, Promise<void>>();
   const running = new Map<string, AbortController>();
+  // turnIds accepted (status message posted) but not yet claimed by doTurn — still behind
+  // an earlier turn in this key's queue, or about to wait for a global slot. A cancel
+  // during this window is handled by liveTurn's own abort listener (settles immediately)
+  // instead of doTurn's normal checks, which wouldn't run until whatever's ahead of it
+  // finishes — on a stuck turn, up to the full 15-minute STREAM_MAX_MS. doTurn deletes its
+  // own turnId the moment it starts, handing ownership of any future cancel back to itself.
+  const queued = new Set<string>();
   // Keys with a `runAsk` turn in flight (the /aven Q&A path and dreams). These bypass the
   // `queues` chain, so projectBusy() must consult this too — otherwise a dream wouldn't see a
   // live Q&A turn (or another dream) writing the same project's memory.
@@ -152,12 +159,27 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   const MAX_TURNS = Math.max(1, Math.floor(Number(process.env.TURN_MAX_CONCURRENT)) || 4);
   let turnSlots = MAX_TURNS;
   const slotWaiters: (() => void)[] = [];
-  function acquireSlot(): Promise<void> {
+  // signal makes the wait abort-aware: canceling a turn that's stuck waiting for a slot
+  // (because unrelated turns elsewhere hold all of them) rejects immediately instead of
+  // sitting until one of those unrelated turns happens to finish.
+  function acquireSlot(signal?: AbortSignal): Promise<void> {
     if (turnSlots > 0) {
       turnSlots--;
       return Promise.resolve();
     }
-    return new Promise((resolve) => slotWaiters.push(resolve));
+    return new Promise((resolve, reject) => {
+      const waiter = () => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      };
+      const onAbort = () => {
+        const i = slotWaiters.indexOf(waiter);
+        if (i !== -1) slotWaiters.splice(i, 1);
+        reject(new Error('canceled'));
+      };
+      slotWaiters.push(waiter);
+      if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    });
   }
   function releaseSlot(): void {
     const next = slotWaiters.shift();
@@ -453,6 +475,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     const turnId = `t${bootId}-${++turnSeq}`;
     const ac = new AbortController();
     running.set(turnId, ac);
+    queued.add(turnId);
     // Register the (empty) trail NOW: the status message below already carries a live
     // "🧭 Show steps" button, and a click while the turn is still queued must find an
     // entry ("no steps yet"), not the "expired after a restart" fallback.
@@ -485,6 +508,19 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       plain: !attachments?.refs.length && !opts,
     });
 
+    // Cancel while still queued (doTurn hasn't claimed this turnId yet) — settle right
+    // here rather than leaving "⏳ In queue…" frozen until doTurn eventually runs.
+    ac.signal.addEventListener(
+      'abort',
+      () => {
+        if (!queued.delete(turnId)) return; // doTurn already claimed it — it owns the settle now
+        journal.done(turnId);
+        void client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] }).catch(() => {});
+        if (msgTs) void react(client, channel, msgTs, 'eyes', 'remove');
+      },
+      { once: true },
+    );
+
     const prev = queues.get(key) ?? Promise.resolve();
     const mine = prev
       .catch(() => {})
@@ -513,30 +549,44 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     attachments?: { refs: AttachmentRef[]; bearer: string },
     opts?: TurnOpts,
   ): Promise<void> {
+    // Claim this turnId from `queued` — from here on, a cancel is OUR job to settle (via
+    // the checks below or the live interrupt path), not liveTurn's abort listener.
+    queued.delete(turnId);
     const clearEyes = async () => {
       if (msgTs) await react(client, channel, msgTs, 'eyes', 'remove');
     };
-    if (ac.signal.aborted) {
-      journal.done(turnId); // canceled while queued — settled, nothing to replay
+    // Shared by every "this turn never got to run" exit below — same settle, same journal
+    // retirement, whether it was canceled before doTurn started or while waiting for a slot.
+    const settleCanceled = async (): Promise<void> => {
+      journal.done(turnId);
       await client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] });
       await clearEyes();
+    };
+    if (ac.signal.aborted) {
+      await settleCanceled(); // canceled between liveTurn posting and doTurn claiming it
       return;
     }
 
     // Global turn cap. If no slot is free, say so on the status message (otherwise the
     // wait reads as a mysteriously long "Preparing…"), then block until one frees up.
+    // acquireSlot is abort-aware, so a cancel here rejects immediately rather than waiting
+    // on some UNRELATED turn elsewhere to free a slot.
     if (turnSlots <= 0) {
       await client.chat
         .update({ channel, ts, text: 'In queue…', blocks: statusBlocks('⏳ Waiting for a free agent slot…', turnId) })
         .catch(() => {});
     }
-    await acquireSlot();
+    try {
+      await acquireSlot(ac.signal);
+    } catch {
+      await settleCanceled(); // canceled while waiting for a slot — never acquired one, nothing to release
+      return;
+    }
     if (ac.signal.aborted) {
-      // Canceled while waiting for a slot — same settle as canceled-while-queued.
+      // Rare race: canceled the instant the slot was granted — release it immediately
+      // rather than let a dead turn hold a slot another turn is waiting on.
       releaseSlot();
-      journal.done(turnId);
-      await client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] });
-      await clearEyes();
+      await settleCanceled();
       return;
     }
 
