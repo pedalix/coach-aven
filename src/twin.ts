@@ -22,6 +22,11 @@ const { App } = bolt;
 // ── the receiver twin ────────────────────────────────────────────────────────
 export class TwinReceiver implements Receiver {
   private app?: bolt.App;
+  // Base URL of the RecordingApi — when set, every envelope's response_url is rewritten
+  // to land there before delivery, so respond() calls (block-action gates, session panels,
+  // /aven's ephemeral flows) get captured just like Web API calls. A real response_url is
+  // per-interaction and single-use; the twin just needs somewhere that answers ok:true.
+  constructor(private readonly responseUrlBase?: string) {}
   init(app: bolt.App): void {
     this.app = app;
   }
@@ -30,6 +35,9 @@ export class TwinReceiver implements Receiver {
   // Deliver one envelope body to the app, exactly as SocketModeReceiver would.
   async send(body: Record<string, unknown>): Promise<void> {
     if (!this.app) throw new Error('twin receiver not initialized');
+    if (this.responseUrlBase && typeof body.response_url === 'string') {
+      body = { ...body, response_url: `${this.responseUrlBase}respond` };
+    }
     const event: ReceiverEvent = { body, ack: async () => {} };
     await this.app.processEvent(event);
   }
@@ -170,7 +178,7 @@ export function blockActionEnvelope(
     channel: { id: channel },
     message: { ts: '1.0' },
     actions: [{ action_id: actionId, value, type: 'button' }],
-    response_url: 'http://127.0.0.1:1/noop', // overwritten by createTwinApp
+    response_url: 'http://127.0.0.1:1/noop', // rewritten by TwinReceiver.send to the RecordingApi
   };
 }
 
@@ -189,7 +197,7 @@ export async function createTwinApp(
 }> {
   const api = new RecordingApi(channelNames, files);
   const url = await api.start();
-  const receiver = new TwinReceiver();
+  const receiver = new TwinReceiver(url);
   const app = new App({
     receiver,
     clientOptions: { slackApiUrl: url },

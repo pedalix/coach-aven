@@ -27,7 +27,8 @@ const HOME = 'THOME1111';
 const CLIENT = 'TCLIENT222';
 const STRANGER = 'TSTRANGER3';
 
-// A turn engine that records liveTurn calls instead of driving sandboxes.
+// A turn engine that records liveTurn/restartSession calls instead of driving sandboxes.
+// `busyKeys` lets a test simulate "a turn is running" for the session_restart refusal path.
 type RecordedAttachments = { refs: { name: string; url: string; mime: string }[]; bearer: string };
 function fakeEngine(store: Store) {
   const turns: Array<{
@@ -38,6 +39,8 @@ function fakeEngine(store: Store) {
     token?: string;
     attachments?: RecordedAttachments;
   }> = [];
+  const restarts: Array<{ key: string; slug: string }> = [];
+  const busyKeys = new Set<string>();
   const engine = {
     liveTurn: async (
       client: bolt.webApi.WebClient,
@@ -54,12 +57,15 @@ function fakeEngine(store: Store) {
     runAsk: async () => 'ok',
     persist: () => {},
     cancel: () => {},
-    hasKey: () => false,
+    hasKey: (key: string) => busyKeys.has(key),
     hasLive: () => false,
     activeKeys: () => [],
     runningCount: () => 0,
     projectBusy: () => false,
     slugForKey: (key: string) => (isThreadKey(key) ? store.getChat(key)?.slug : slugOfBase(key)),
+    restartSession: async (key: string, project: { slug: string }) => {
+      restarts.push({ key, slug: project.slug });
+    },
     resumeInflightTurns: () => new Map(),
     resumeQueuedTurns: () => {},
     questions: { get: () => undefined, isCompleted: () => false, answeredAll: () => false, finalize: () => {} },
@@ -67,7 +73,7 @@ function fakeEngine(store: Store) {
     ytDraft: () => undefined,
     usageReport: () => '',
   } as unknown as TurnEngine;
-  return { engine, turns };
+  return { engine, turns, restarts, busyKeys };
 }
 
 // One fully-wired twin: registry with a home-only project (alpha) and a SHARED one
@@ -84,7 +90,7 @@ async function twin(files: Record<string, Record<string, unknown>> = {}) {
     },
   };
   const store = new Store(join(mkdtempSync(join(tmpdir(), 'aven-twin-')), 'state.json'));
-  const { engine, turns } = fakeEngine(store);
+  const { engine, turns, restarts, busyKeys } = fakeEngine(store);
   const channels = createChannels(reg, () => HOME);
   const servedTenant = (t: string | undefined) =>
     !!t && (t === HOME || (reg.current.workspaces[t as keyof typeof reg.current.workspaces]?.length ?? 0) > 0);
@@ -106,7 +112,7 @@ async function twin(files: Record<string, Record<string, unknown>> = {}) {
     homeTeamId: HOME,
     servedTenant,
   });
-  return { receiver, api, store, turns, stop };
+  return { receiver, api, store, turns, restarts, busyKeys, stop };
 }
 
 test('twin: home mention runs a turn with a BARE key and the home token', async () => {
@@ -203,6 +209,43 @@ test('twin: a write button from an unserved workspace fires NO turn', async () =
     await t.receiver.send(blockActionEnvelope(HOME, 'make_pr', value, 'C_SHARED'));
     assert.equal(t.turns.length, 1);
     assert.equal(t.turns[0].key, 'thread:5.0');
+  } finally {
+    await t.stop();
+  }
+});
+
+// ── "🔄 Restart session" — regression coverage for its respond()-based edit-in-place flow.
+// (session_panel itself moved off respond() entirely in a follow-up fix — it now posts via
+// chat.postEphemeral so it can carry thread_ts; that fix carries its own regression test
+// against the plain Web API recording, no harness change needed.) Driving the REAL
+// registerEvents handler (not a reimplementation) is still the point here.
+test('twin: "🔄 Restart session" clears the thread\'s session and edits the panel in place', async () => {
+  const t = await twin();
+  try {
+    t.store.patchChat('thread:9.1', 'beta', { sessionId: 'sess-1', sessionKey: 'sk-1', cmdId: 'cmd-1' });
+    const value = JSON.stringify({ key: 'thread:9.1', channel: 'C_SHARED', threadTs: '9.1' });
+    await t.receiver.send(blockActionEnvelope(HOME, 'session_restart', value, 'C_SHARED'));
+    assert.deepEqual(t.restarts, [{ key: 'thread:9.1', slug: 'beta' }]);
+    const respond = t.api.of('respond');
+    assert.equal(respond.length, 1);
+    const p = respond[0].payload as { replace_original: boolean; text: string };
+    assert.equal(p.replace_original, true); // edits the already-ephemeral panel, not the answer
+    assert.match(p.text, /restarted/i);
+  } finally {
+    await t.stop();
+  }
+});
+
+test('twin: "🔄 Restart session" refuses while a turn is running for this thread', async () => {
+  const t = await twin();
+  try {
+    t.store.patchChat('thread:9.2', 'beta', { sessionId: 'sess-1' });
+    t.busyKeys.add('thread:9.2');
+    const value = JSON.stringify({ key: 'thread:9.2', channel: 'C_SHARED', threadTs: '9.2' });
+    await t.receiver.send(blockActionEnvelope(HOME, 'session_restart', value, 'C_SHARED'));
+    assert.equal(t.restarts.length, 0); // never reached engine.restartSession
+    const p = t.api.of('respond')[0].payload as { text: string };
+    assert.match(p.text, /cancel it first/);
   } finally {
     await t.stop();
   }
