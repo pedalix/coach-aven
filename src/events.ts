@@ -413,6 +413,9 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     const chat = store.getChat(v.key);
     await respond({
       response_type: 'ephemeral',
+      // Without this, respond() REPLACES the message the button lives on — i.e. it would
+      // blow away the finished answer itself instead of adding a private status card.
+      replace_original: false,
       text: `Session — ${project.slug}`,
       blocks: sessionPanelBlocks(
         {
