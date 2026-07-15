@@ -214,11 +214,31 @@ test('twin: a write button from an unserved workspace fires NO turn', async () =
   }
 });
 
-// ── "🔄 Restart session" — regression coverage for its respond()-based edit-in-place flow.
-// (session_panel itself moved off respond() entirely in a follow-up fix — it now posts via
-// chat.postEphemeral so it can carry thread_ts; that fix carries its own regression test
-// against the plain Web API recording, no harness change needed.) Driving the REAL
-// registerEvents handler (not a reimplementation) is still the point here.
+// "⚙️ Session" must render INSIDE the thread, not as a top-level channel post — regression
+// for the bug where it used respond()/response_url, which silently drops thread_ts for
+// ephemeral messages. chat.postEphemeral is a plain Web API call, so the twin's existing
+// RecordingApi captures it with no harness changes.
+test('twin: "⚙️ Session" posts an ephemeral card INTO the thread (thread_ts set), not the channel', async () => {
+  const t = await twin();
+  try {
+    t.store.patchChat('thread:9.0', 'beta', { sessionId: 'sess-1', sessionKey: 'sk-1', cmdId: 'cmd-1' });
+    const value = JSON.stringify({ key: 'thread:9.0', channel: 'C_SHARED', threadTs: '9.0' });
+    await t.receiver.send(blockActionEnvelope(HOME, 'session_panel', value, 'C_SHARED'));
+    const calls = t.api.of('chat.postEphemeral');
+    assert.equal(calls.length, 1);
+    const p = calls[0].payload as { channel: string; user: string; thread_ts: string; text: string };
+    assert.equal(p.channel, 'C_SHARED');
+    assert.equal(p.user, 'U_HUMAN');
+    assert.equal(p.thread_ts, '9.0'); // the actual bug: this was previously dropped entirely
+    assert.match(p.text, /Session — beta/);
+  } finally {
+    await t.stop();
+  }
+});
+
+// ── "🔄 Restart session" — regression coverage for its respond()-based edit-in-place flow
+// (unaffected by the chat.postEphemeral switch above — it edits the panel via the click's
+// own response_url, which works the same regardless of how the panel itself was posted).
 test('twin: "🔄 Restart session" clears the thread\'s session and edits the panel in place', async () => {
   const t = await twin();
   try {

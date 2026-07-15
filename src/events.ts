@@ -397,7 +397,10 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
 
   // ── "⚙️ Session" → this thread's status card (session/repos/MCP/turn/PR), ephemeral ──
   // Read-only, so no actor gate — same tier as show_trail/ticket_modal (viewers may look).
-  app.action('session_panel', async ({ ack, action, context, respond }) => {
+  // Posted via chat.postEphemeral (NOT respond()/response_url) so it can carry thread_ts —
+  // response_url silently ignores thread_ts for ephemeral messages and always posts at the
+  // channel's top level, which is what put the panel outside the thread.
+  app.action('session_panel', async ({ ack, action, context, client, body }) => {
     await ack();
     if (!servedTenant(tenantOf(context))) return; // stale button in an offboarded workspace
     const raw = (action as { value?: string }).value ?? '';
@@ -410,26 +413,29 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     const slug = engine.slugForKey(v.key);
     const project = slug ? resolveBySlug(reg.current, slug) : undefined;
     if (!project) return;
+    const userId = (body as { user?: { id?: string } }).user?.id;
+    if (!userId) return;
     const chat = store.getChat(v.key);
-    await respond({
-      response_type: 'ephemeral',
-      // Without this, respond() REPLACES the message the button lives on — i.e. it would
-      // blow away the finished answer itself instead of adding a private status card.
-      replace_original: false,
-      text: `Session — ${project.slug}`,
-      blocks: sessionPanelBlocks(
-        {
-          slug: project.slug,
-          repos: project.repos,
-          mcp: project.mcp?.map((m) => m.name),
-          hasSession: !!chat?.sessionId,
-          sessionSince: chat?.updatedAt,
-          turnInFlight: engine.hasKey(v.key),
-          prCreated: !!chat?.prCreated,
-        },
-        raw,
-      ),
-    }).catch(() => {});
+    await client.chat
+      .postEphemeral({
+        channel: v.channel,
+        user: userId,
+        thread_ts: v.threadTs,
+        text: `Session — ${project.slug}`,
+        blocks: sessionPanelBlocks(
+          {
+            slug: project.slug,
+            repos: project.repos,
+            mcp: project.mcp?.map((m) => m.name),
+            hasSession: !!chat?.sessionId,
+            sessionSince: chat?.updatedAt,
+            turnInFlight: engine.hasKey(v.key),
+            prCreated: !!chat?.prCreated,
+          },
+          raw,
+        ),
+      })
+      .catch((e) => log.error(`session_panel ${v.key}: ${e instanceof Error ? e.message : String(e)}`));
   });
 
   // ── "🔄 Restart session" → forget this thread's Claude conversation; the next message ──
