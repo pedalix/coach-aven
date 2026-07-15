@@ -104,6 +104,15 @@ export class ClaudeSession {
   private snapshotPendingTool?: { requestId: string; input: unknown };
   private attached = false; // opened by reattaching to a running command (vs fresh spawn)
 
+  // Fires when a `result` event arrives with NO turn pending — i.e. the CLI process,
+  // otherwise idle, spontaneously completed a fresh turn on its own. This happens when a
+  // background Task/Agent (or a backgrounded Bash) launched by an earlier turn finishes
+  // after that turn's own `result` already settled: the CLI emits a whole new
+  // system/init → assistant → result sequence, unprompted by any new stdin. Mutable (not
+  // constructor-only) so the caller can re-point it at the CURRENT turn's Slack
+  // channel/thread on every turn — see tasks.ts's ChatSession.setIdleNotify.
+  onIdleResult?: (text: string) => void;
+
   constructor(
     private readonly sandbox: SandboxHandle,
     private readonly opts: {
@@ -427,8 +436,13 @@ export class ClaudeSession {
       this.turnStarted = true;
       if (ev.session_id) this.claudeSessionId = ev.session_id; // authoritative per-turn id
       const resultText = typeof ev.result === 'string' ? ev.result : '';
-      const status: TurnResult['status'] = this.pending?.canceled ? 'canceled' : 'ok';
-      this.settle({ status, resultText, isError: !!ev.is_error, usage: usageOf(ev) });
+      if (this.pending) {
+        const status: TurnResult['status'] = this.pending.canceled ? 'canceled' : 'ok';
+        this.settle({ status, resultText, isError: !!ev.is_error, usage: usageOf(ev) });
+      } else if (resultText && !ev.is_error) {
+        // No turn was waiting on this — a background task finished on its own.
+        this.onIdleResult?.(resultText);
+      }
     }
   }
 

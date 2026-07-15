@@ -71,6 +71,11 @@ export interface ChatSession {
   // explicit "forget this conversation" (vs. the LRU/prune paths, which only drop the
   // reference and let the sandbox's own idle lifecycle reap the process eventually).
   close(): Promise<void>;
+  // Point (or clear) the callback for a background Task/Agent that finishes AFTER its
+  // owning turn already settled (see ClaudeSession.onIdleResult). Callers re-set this on
+  // every turn so it always targets the CURRENT channel/thread — it self-heals across
+  // session recreation (LRU eviction, the error-retry reopen, post-restart reattach).
+  setIdleNotify(fn: ((text: string) => void) | undefined): void;
 }
 
 // Serialize per-sandbox preparation so two conversations sharing one project sandbox
@@ -253,6 +258,9 @@ export async function openChat(
   let droppedResume = false;
   let lastUsage: TurnUsage | undefined;
   let attach = opts.attach; // consumed once: cleared after the first (re)open attempt
+  // See ChatSession.setIdleNotify — re-applied to `session` every time one is (re)created,
+  // so it survives LRU eviction, the error-retry reopen below, and restart reattach.
+  let idleNotify: ((text: string) => void) | undefined;
   const systemPrompt = buildSystemPrompt(opts.slug, cwd, opts.repos, opts.systemPrompt, opts.slackUrl);
   const emitOpen = () => {
     const a = session?.attachInfo();
@@ -297,6 +305,7 @@ export async function openChat(
           });
           await reattached.open();
           session = reattached;
+          session.onIdleResult = idleNotify;
           emitOpen();
           return session;
         } catch {
@@ -309,6 +318,7 @@ export async function openChat(
         else droppedResume = true; // had an id but its transcript is gone → start fresh
       }
       session = new ClaudeSession(sandbox, { cwd, resumeSessionId: resume, systemPrompt, mcpConfigPath });
+      session.onIdleResult = idleNotify;
       await session.open();
       emitOpen();
       return session;
@@ -320,6 +330,10 @@ export async function openChat(
     attachInfo: () => session?.attachInfo(),
     close: async () => {
       await session?.close();
+    },
+    setIdleNotify: (fn) => {
+      idleNotify = fn;
+      if (session) session.onIdleResult = fn;
     },
     contextLost: () => {
       const v = droppedResume;
