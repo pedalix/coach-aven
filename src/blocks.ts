@@ -178,6 +178,16 @@ export function answerBlocks(answer: string, opts: AnswerOpts = {}): any[] {
       value: trail.turnId,
     });
   }
+  if (followUp) {
+    // Thread-scoped session status + restart, ephemeral (only the clicker sees it) — see
+    // sessionPanelBlocks. Carries the same {key,channel,threadTs} shape as make_pr's value.
+    actions.push({
+      type: 'button',
+      text: { type: 'plain_text', text: '⚙️ Session' },
+      action_id: 'session_panel',
+      value: JSON.stringify({ key: followUp.key, channel: followUp.channel, threadTs: followUp.threadTs }),
+    });
+  }
   if (actions.length) blocks.push({ type: 'actions', elements: actions });
   return blocks;
 }
@@ -643,6 +653,66 @@ export function accessBlocks(project: ProjectConfig): any[] {
   ];
 }
 
+// ── "⚙️ Session" panel ───────────────────────────────────────────────────────
+// The thread-scoped sibling of accessBlocks + statusReportBlocks: what this ONE thread's
+// session looks like (bound or not, a turn running, a PR already opened) plus the project's
+// repos/MCP — ephemeral, so only the clicker sees it. `value` is the JSON the panel button
+// itself carried, reused unchanged on the restart button so its handler needs no new shape.
+export interface SessionPanelInfo {
+  slug: string;
+  repos: string[];
+  mcp?: string[]; // MCP tool names
+  hasSession: boolean;
+  sessionSince?: string; // ChatRecord.updatedAt, ISO
+  turnInFlight: boolean;
+  prCreated: boolean;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function sessionPanelBlocks(info: SessionPanelInfo, value: string): any[] {
+  const repos = info.repos.map((r) => `\`${shortRepo(r)}\``).join(', ');
+  const mcp = info.mcp?.length ? info.mcp.map((m) => `\`${m}\``).join(', ') : '_none_';
+  const session = info.hasSession
+    ? `active${info.sessionSince ? ` _(since ${info.sessionSince.slice(0, 16).replace('T', ' ')})_` : ''}`
+    : '_none yet — the next message starts one_';
+  const lines = [
+    `*${info.slug}* — this thread's session`,
+    `*Repos:* ${repos}`,
+    `*Tools (MCP):* ${mcp}`,
+    `*Session:* ${session}`,
+    `*Turn running:* ${info.turnInFlight ? 'yes' : 'no'}`,
+    info.prCreated ? `*PR:* opened from this thread` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blocks: any[] = [{ type: 'section', text: { type: 'mrkdwn', text: lines } }];
+  if (info.hasSession) {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        {
+          type: 'button',
+          text: { type: 'plain_text', text: '🔄 Restart session' },
+          style: 'danger',
+          action_id: 'session_restart',
+          value,
+          // Destructive to conversation memory — same explicit-confirm treatment as make_pr.
+          confirm: {
+            title: { type: 'plain_text', text: "Restart this thread's session?" },
+            text: {
+              type: 'mrkdwn',
+              text: 'This forgets the conversation so far — the next message starts a brand-new session. The thread history in Slack is untouched.',
+            },
+            confirm: { type: 'plain_text', text: 'Restart' },
+            deny: { type: 'plain_text', text: 'Cancel' },
+          },
+        },
+      ],
+    });
+  }
+  return blocks;
+}
+
 // ── DM project picker ───────────────────────────────────────────────────────
 // Dropdown of projects for a DM with no slug hint. Each option carries the parked
 // question's id so the handler can run it: value = "<pid>:<slug>".
@@ -732,6 +802,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
           `• *Sandbox upkeep* — \`${CMD} housekeeping on\`/\`off\` schedules (or pauses) the nightly janitor (dockerd guard, docker prune when disk runs high, stale-worktree reap); \`${CMD} housekeeping\` for the last run, \`${CMD} housekeeping now\` to run it once.\n` +
           `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.\n` +
+          '• *Check or restart a thread* — hit *⚙️ Session* on any finished answer for a private status card (session, repos/tools, running turn, PR) and a *🔄 Restart session* control if you want the next message to start a brand-new conversation.\n' +
           `• *Usage* — \`${CMD} usage [days]\` for token/cost/turn totals per project (last 30d by default). _(Operators' home workspace only.)_\n` +
           `• *Who may drive me* — \`${CMD} users\` shows this workspace's access (everyone, by default); admins can \`restrict\` to an allowlist and manage it with \`allow @user\` / \`deny @user\` / \`open\`.\n` +
           `• *Reload config* — \`${CMD} reload\` re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions. _(Operators' home workspace only.)_`,

@@ -67,6 +67,10 @@ export interface ChatSession {
     bearer: string,
     turnId: string,
   ): Promise<{ preamble: string; skipped: { name: string; reason: string }[] }>;
+  // Kill the sandbox-side persistent session-command and mark this object dead — an
+  // explicit "forget this conversation" (vs. the LRU/prune paths, which only drop the
+  // reference and let the sandbox's own idle lifecycle reap the process eventually).
+  close(): Promise<void>;
 }
 
 // Serialize per-sandbox preparation so two conversations sharing one project sandbox
@@ -314,6 +318,9 @@ export async function openChat(
   return {
     sessionId: () => sessionId,
     attachInfo: () => session?.attachInfo(),
+    close: async () => {
+      await session?.close();
+    },
     contextLost: () => {
       const v = droppedResume;
       droppedResume = false;

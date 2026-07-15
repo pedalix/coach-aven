@@ -12,6 +12,7 @@ import {
   reportPostedBlocks,
   homeBlocks,
   onboardingHomeBlocks,
+  sessionPanelBlocks,
   YT_SEND_CALLBACK,
   YT_SEND_INPUT,
   YT_PROMPT_CALLBACK,
@@ -19,6 +20,7 @@ import {
   YT_PROMPT_NOW,
   type FollowUp,
   type TrailMeta,
+  type SessionPanelInfo,
 } from './blocks.js';
 import type { YouTrackIssue, YouTrackComment } from './youtrack.js';
 import type { ProjectConfig } from './projects.js';
@@ -34,17 +36,19 @@ const followUp: FollowUp = { key: 'thread:123', channel: 'C1', threadTs: '123' }
 const PR = 'See https://github.com/Org/repo/pull/7 for the change.';
 
 test('answerBlocks: no PR URL + followUp + not created → offers "Open a PR"', () => {
-  assert.deepEqual(actionIds(answerBlocks('done, nothing to link', { followUp, prCreated: false })), ['make_pr']);
+  assert.deepEqual(actionIds(answerBlocks('done, nothing to link', { followUp, prCreated: false })), ['make_pr', 'session_panel']);
 });
 
 test('answerBlocks: prCreated latch hides "Open a PR" even without a URL in this message', () => {
-  assert.deepEqual(actionIds(answerBlocks('follow-up answer, no link here', { followUp, prCreated: true })), []);
+  // The "⚙️ Session" button stays — it's tied to followUp (a thread conversation exists),
+  // not to whether a PR has been opened from it.
+  assert.deepEqual(actionIds(answerBlocks('follow-up answer, no link here', { followUp, prCreated: true })), ['session_panel']);
 });
 
 test('answerBlocks: a PR URL in the message always shows "View PR" (independent of latch)', () => {
-  assert.deepEqual(actionIds(answerBlocks(PR, { followUp, prCreated: false })), ['pr_link:0']);
+  assert.deepEqual(actionIds(answerBlocks(PR, { followUp, prCreated: false })), ['pr_link:0', 'session_panel']);
   // Even with the latch set, a fresh URL still links.
-  assert.deepEqual(actionIds(answerBlocks(PR, { followUp, prCreated: true })), ['pr_link:0']);
+  assert.deepEqual(actionIds(answerBlocks(PR, { followUp, prCreated: true })), ['pr_link:0', 'session_panel']);
 });
 
 test('answerBlocks: no followUp (DM/aven path) never offers "Open a PR"', () => {
@@ -58,7 +62,7 @@ test('answerBlocks: trail adds the step-count context line and a "Show steps" bu
   const ctx = blocks.find((b) => b.type === 'context');
   assert.equal(ctx.elements[0].text, '🧭 14 steps · 2m10s');
   // Joins the same action row as "Open a PR" (one row, not two).
-  assert.deepEqual(actionIds(blocks), ['make_pr', 'show_trail']);
+  assert.deepEqual(actionIds(blocks), ['make_pr', 'show_trail', 'session_panel']);
   const btn = blocks.find((b) => b.type === 'actions').elements[1];
   assert.equal(btn.value, 't7'); // carries only the turnId — the trail stays server-side
 });
@@ -78,6 +82,39 @@ test('statusBlocks: carries Show steps + Cancel, both with the turnId', () => {
       ['cancel_turn', 't9'],
     ],
   );
+});
+
+// ── "⚙️ Session" panel ───────────────────────────────────────────────────────
+
+const panelInfo = (over: Partial<SessionPanelInfo> = {}): SessionPanelInfo => ({
+  slug: 'caldora',
+  repos: ['Org/caldora'],
+  mcp: ['github'],
+  hasSession: false,
+  turnInFlight: false,
+  prCreated: false,
+  ...over,
+});
+
+test('sessionPanelBlocks: no session yet → no restart button, says so', () => {
+  const blocks = sessionPanelBlocks(panelInfo(), 'v1');
+  assert.equal(actionIds(blocks).length, 0);
+  assert.match(blocks[0].text.text, /none yet/);
+});
+
+test('sessionPanelBlocks: session bound → "Restart session" behind a confirm dialog, carrying the same value', () => {
+  const blocks = sessionPanelBlocks(panelInfo({ hasSession: true, sessionSince: '2026-07-15T10:00:00.000Z' }), 'v1');
+  assert.deepEqual(actionIds(blocks), ['session_restart']);
+  const btn = blocks.find((b) => b.type === 'actions').elements[0];
+  assert.equal(btn.value, 'v1'); // reuses the panel button's own value — no new shape
+  assert.ok(btn.confirm); // destructive to conversation memory — explicit confirm, like make_pr
+  assert.match(blocks[0].text.text, /active.*2026-07-15 10:00/);
+});
+
+test('sessionPanelBlocks: reflects turn-in-flight and prCreated in the summary text', () => {
+  const blocks = sessionPanelBlocks(panelInfo({ hasSession: true, turnInFlight: true, prCreated: true }), 'v1');
+  assert.match(blocks[0].text.text, /Turn running:\* yes/);
+  assert.match(blocks[0].text.text, /PR:\* opened from this thread/);
 });
 
 // ── ticket card + full-ticket modal ─────────────────────────────────────────
@@ -180,9 +217,9 @@ test('trailModalView: a huge trail keeps the tail within Slack limits and notes 
 // ── the "📝 Report to YouTrack" flow ─────────────────────────────────────────
 
 test('answerBlocks: investigation thread (ytReport) appends "Report to YouTrack"', () => {
-  assert.deepEqual(actionIds(answerBlocks('findings…', { followUp, ytReport: 'CG-50' })), ['make_pr', 'yt_report']);
+  assert.deepEqual(actionIds(answerBlocks('findings…', { followUp, ytReport: 'CG-50' })), ['make_pr', 'yt_report', 'session_panel']);
   // …also alongside a PR link, and never without followUp coordinates (nowhere to run the turn).
-  assert.deepEqual(actionIds(answerBlocks(PR, { followUp, ytReport: 'CG-50' })), ['pr_link:0', 'yt_report']);
+  assert.deepEqual(actionIds(answerBlocks(PR, { followUp, ytReport: 'CG-50' })), ['pr_link:0', 'yt_report', 'session_panel']);
   assert.deepEqual(actionIds(answerBlocks('findings…', { ytReport: 'CG-50' })), []);
 });
 

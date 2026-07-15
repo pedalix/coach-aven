@@ -8,6 +8,7 @@ import type { Config } from './config.js';
 import type { Store } from './state.js';
 import { resolveBySlug, type ProjectConfig, type RegistryRef } from './projects.js';
 import { openChat, type ChatSession } from './tasks.js';
+import { createDriver } from './driver.js';
 import { fallbackText, fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
@@ -70,6 +71,9 @@ export interface TurnEngine {
   runningCount(): number; // turns in flight right now (for /aven status)
   projectBusy(slug: string): boolean;
   slugForKey(key: string): string | undefined;
+  // "🔄 Restart session" → kill this thread's Claude conversation (live or persisted) and
+  // clear its session fields, so the next liveTurn/runAsk on this key starts fresh.
+  restartSession(key: string, project: ProjectConfig): Promise<void>;
   // Startup recovery, in order: reattach + finalize turns that were RUNNING at the last
   // stop (returns per-key promises so queued replays can wait their turn), then replay the
   // journaled turns that were still QUEUED (their user messages would otherwise be lost).
@@ -371,6 +375,32 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     for (const key of queues.keys()) if (slugForKey(key) === slug) return true;
     for (const key of asking) if (slugForKey(key) === slug) return true; // runAsk turns (Q&A, dreams)
     return false;
+  }
+
+  // Forget this key's Claude conversation. Prefers the live ChatSession's own close() (it
+  // knows its sandbox handle already); falls back to killing the PERSISTED session-command
+  // directly when nothing's cached (evicted, or the bot restarted since). Either way, unlike
+  // touchLive's LRU eviction or state.ts's pruneChats — which deliberately leave the
+  // sandbox-side process for the sandbox's own idle lifecycle to reap — this is an explicit
+  // "throw the conversation away", so it kills the process now rather than orphaning it.
+  async function restartSession(key: string, project: ProjectConfig): Promise<void> {
+    const cached = live.get(key);
+    if (cached) {
+      await cached.close().catch(() => {});
+      live.delete(key);
+    } else {
+      const rec = store.getChat(key);
+      if (rec?.sessionKey) {
+        try {
+          const driver = createDriver(cfg, project.driver);
+          const handle = await driver.getSandbox(`${cfg.sandbox.namePrefix}${project.slug}`);
+          await handle?.deleteSession(rec.sessionKey);
+        } catch (e) {
+          log.error(`restartSession ${key}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    }
+    store.patchChat(key, project.slug, { sessionId: undefined, sessionKey: undefined, cmdId: undefined });
   }
 
   // Add/remove a reaction; non-fatal (already_reacted / no_reaction / missing scope).
@@ -872,6 +902,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     runningCount: () => running.size,
     projectBusy,
     slugForKey,
+    restartSession,
     resumeInflightTurns,
     resumeQueuedTurns,
     trail: (turnId) => trails.get(turnId),
