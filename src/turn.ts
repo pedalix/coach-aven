@@ -621,7 +621,18 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         /* rate limit / transient — next tick retries */
       }
     };
-    const heartbeat = setInterval(() => void flush(), 4000);
+    // flush() calls are otherwise fire-and-forget, so a status tick fired just before the turn
+    // finishes can still be in flight when the final "answered" chat.update goes out — two
+    // concurrent requests racing to the same message, with no guaranteed arrival order. Routing
+    // every call through this chain serializes the requests; awaiting it below before the final
+    // update guarantees any last tick is sent and resolved first, so the final update is always
+    // the one Slack applies last.
+    let pendingFlush: Promise<void> = Promise.resolve();
+    const scheduleFlush = (force = false): Promise<void> => {
+      pendingFlush = pendingFlush.then(() => flush(force));
+      return pendingFlush;
+    };
+    const heartbeat = setInterval(() => void scheduleFlush(), 4000);
     const turnQs = new Set<string>(); // questionIds this turn opened (for cleanup on settle)
 
     // Mark this turn in flight so a restart can reattach and finalize THIS status message
@@ -654,7 +665,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       let prompt = question;
       if (attachments?.refs.length) {
         phase = '📎 Fetching attachments…';
-        await flush(true);
+        await scheduleFlush(true);
         try {
           const { preamble, skipped } = await live.ingest(attachments.refs, attachments.bearer, turnId);
           if (preamble) prompt = `${preamble}\n\n${question}`;
@@ -671,7 +682,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         }
       }
       phase = '🔎 Working…';
-      await flush(true);
+      await scheduleFlush(true);
       // Wrap the agent turn in a Sentry span so turn latency shows up in performance (no-op
       // tracing when Sentry is off — startSpan still runs the callback).
       const answer = await Sentry.startSpan(
@@ -681,7 +692,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
             prompt,
             (step) => {
               steps.push(step);
-              void flush();
+              void scheduleFlush();
             },
             ac.signal,
             makeOnQuestion(client, channel, threadTs, ac.signal, (qid) => turnQs.add(qid)),
@@ -697,8 +708,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           })
           .catch(() => {});
       }
-      finished = true;
       clearInterval(heartbeat);
+      await pendingFlush; // let any in-flight status tick land before the final "answered" update
+      finished = true;
       const capped = answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
       // Offer the "Open a PR" follow-up only in build channels (thread sessions), not in
       // the private /aven + DM Q&A paths where it would just be noise.
@@ -745,8 +757,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         await react(client, channel, msgTs, 'white_check_mark', 'add');
       }
     } catch (err) {
-      finished = true;
       clearInterval(heartbeat);
+      await pendingFlush; // let any in-flight status tick land before the final canceled/error update
+      finished = true;
       outcome = ac.signal.aborted ? 'canceled' : 'error';
       if (ac.signal.aborted) {
         await client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] });
