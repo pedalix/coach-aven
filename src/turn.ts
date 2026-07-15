@@ -660,6 +660,16 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     try {
       const live = await sessionFor(key, project, slackUrl); // prepare (warm sandbox + clone) here
       chat = live; // `live` keeps the non-undefined narrowing inside the closures below
+      // A background Task/Agent this turn launches may finish AFTER this turn's own
+      // answer is already posted — see ClaudeSession.onIdleResult. Re-registered on every
+      // live turn so it always targets the CURRENT channel/thread.
+      live.setIdleNotify((text) => {
+        const capped = text.slice(0, MAX_SLACK_TEXT) || '(no output)';
+        const msg = `🔔 *Background update*\n${capped}`;
+        void client.chat
+          .postMessage({ channel, thread_ts: threadTs, text: fallbackText(msg), blocks: answerBlocks(msg) })
+          .catch((e) => log.error(`idle-notify ${key}: ${e instanceof Error ? e.message : String(e)}`));
+      });
       // Download any inbound files into the sandbox first, then prepend a preamble naming their
       // paths so the agent Reads them. Best-effort: a failure here must not sink the whole turn.
       let prompt = question;
