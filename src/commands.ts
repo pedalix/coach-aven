@@ -489,9 +489,13 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
         ]
           .filter(Boolean)
           .join(' · ');
+        // With a workspaces block the fleet count spans ALL tenants — say how many of
+        // them this workspace actually sees, so "8 project(s)" doesn't read as "8 here".
+        const mine = teamProjects(next, tenant, homeTeamId).length;
+        const scope = next.workspaces && mine !== after.length ? `, ${mine} in this workspace` : '';
         await respond({
           response_type: 'ephemeral',
-          text: `:arrows_counterclockwise: Config reloaded — ${after.length} project(s)${delta ? ` (${delta})` : ''}. New prompts/MCP apply to new sessions; running conversations keep their current setup.`,
+          text: `:arrows_counterclockwise: Config reloaded — ${after.length} project(s)${scope}${delta ? ` (${delta})` : ''}. New prompts/MCP apply to new sessions; running conversations keep their current setup.`,
         });
       } catch (err) {
         await respond({

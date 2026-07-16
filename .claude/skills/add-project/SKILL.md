@@ -97,6 +97,12 @@ The system prompt goes into its own markdown file —
 `infra/prod/runtime/projects.d/<slug>.md` — NOT a JSON `systemPrompt` string (a
 non-empty file wins over the JSON field; the JSON form is legacy fallback only).
 
+**Workspace visibility (multi-tenant):** if the config has a top-level `workspaces`
+block, membership is explicit-only — a project not listed under any tenant is invisible
+to everyone (channels won't bind, slugs won't resolve). Add the new slug to the right
+tenant's list (usually the home team's array) in the same edit. Ask the user which
+workspace if unclear.
+
 Then validate the file is well-formed JSON:
 `node -e "JSON.parse(require('fs').readFileSync('infra/prod/runtime/projects.config.json','utf8')).projects.length"`
 (must not throw; print the new project count).
