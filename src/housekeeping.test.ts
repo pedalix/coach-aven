@@ -22,6 +22,18 @@ test('dockerd guard emits exactly one marker in every branch', () => {
   assert.match(cmd, /hk:dockerd=failed/);
 });
 
+test('dockerd guard clears stale pid files, keeps live dockerd/containerd ones', () => {
+  const cmd = dockerdGuardCmd();
+  // Both pid files that survive an unclean sandbox stop must be checked…
+  assert.match(cmd, /\/var\/run\/docker\.pid/);
+  assert.match(cmd, /\/var\/run\/docker\/containerd\/containerd\.pid/);
+  // …verified against the pid's real process name, and only removed when stale.
+  assert.match(cmd, /\/proc\/\$p\/comm/);
+  assert.match(cmd, /dockerd\|containerd\) ;; \*\) rm -f "\$f"/);
+  // Cleanup happens in the dead-daemon branch, before the restart attempt.
+  assert.ok(cmd.indexOf('rm -f "$f"') < cmd.indexOf('(dockerd >>'));
+});
+
 test('housekeeping script: threshold gates the prune, and volumes are NEVER pruned', () => {
   const s = housekeepingScript(85);
   assert.match(s, /"\$usage" -ge 85/);

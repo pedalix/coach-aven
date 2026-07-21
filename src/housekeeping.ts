@@ -22,9 +22,19 @@ export function pruneThreshold(raw: string | undefined = process.env.HOUSEKEEPIN
 // php/composer/artisan shims) until someone pokes the sandbox. Prints ONE marker line:
 //   hk:dockerd=ok | restarted | failed
 // busybox-sh compatible (the sandbox is Alpine).
+//
+// Stale-pid cleanup before starting: pid files survive an unclean sandbox stop, and after
+// the restart the recorded pid can belong to an unrelated process. dockerd then believes
+// "containerd is still running", health-checks a dead socket for 15s and exits — so the
+// restart branch below would always fail (bit proj-art on 2026-07-21). Drop each pid file
+// unless its pid really is a dockerd/containerd process.
 export function dockerdGuardCmd(): string {
   return (
     `if docker info >/dev/null 2>&1; then echo "hk:dockerd=ok"; else ` +
+    `for f in /var/run/docker.pid /var/run/docker/containerd/containerd.pid; do ` +
+    `p=$(cat "$f" 2>/dev/null); if [ -n "$p" ]; then ` +
+    `case "$(cat /proc/$p/comm 2>/dev/null)" in dockerd|containerd) ;; *) rm -f "$f";; esac; ` +
+    `fi; done; ` +
     `(dockerd >>/var/log/dockerd.log 2>&1 &); ` +
     `i=0; while [ $i -lt 20 ]; do sleep 1; docker info >/dev/null 2>&1 && break; i=$((i+1)); done; ` +
     `if docker info >/dev/null 2>&1; then echo "hk:dockerd=restarted"; else echo "hk:dockerd=failed"; fi; ` +
