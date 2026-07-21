@@ -706,6 +706,17 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
             },
             ac.signal,
             makeOnQuestion(client, channel, threadTs, ac.signal, (qid) => turnQs.add(qid)),
+            // Soft deadline reached: the turn continues to the hard cap — tell the user
+            // instead of erroring out (the status message keeps streaming steps meanwhile).
+            () => {
+              const msg =
+                '⏳ *Still working* — this is taking longer than usual. ' +
+                "I'll keep going in the background and post the result in this thread when it's ready " +
+                '(✖ Cancel on the working message still stops me).';
+              void client.chat
+                .postMessage({ channel, thread_ts: threadTs, text: fallbackText(msg), blocks: answerBlocks(msg) })
+                .catch((e) => log.error(`long-running notice ${key}: ${e instanceof Error ? e.message : String(e)}`));
+            },
           ),
       );
       persist(key, project.slug, chat);
@@ -853,7 +864,17 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
             })
             .catch(() => {});
           const cs = await sessionFor(chat.threadTs, project);
-          const r = await cs.adoptInflight();
+          const r = await cs.adoptInflight(undefined, () => {
+            // Same soft-deadline notice as the live path — the recovered turn keeps
+            // running to the hard cap rather than dying at the soft limit.
+            void client.chat
+              .postMessage({
+                channel: inf.channel,
+                thread_ts: inf.msgThreadTs,
+                text: "⏳ Still working on the recovered turn — I'll post the result here when it's ready.",
+              })
+              .catch(() => {});
+          });
           persist(chat.threadTs, project.slug, cs);
           if (r.ok) {
             const capped = r.text.slice(0, MAX_SLACK_TEXT) || '(no output)';

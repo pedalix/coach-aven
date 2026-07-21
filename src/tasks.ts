@@ -35,11 +35,15 @@ export interface ChatSession {
   // onStep receives a human-readable line per agent tool call (for live UI progress).
   // signal aborts the in-flight turn cleanly (→ throws 'canceled'). onQuestion is
   // invoked when the agent calls AskUserQuestion (→ render options as Slack buttons).
+  // onLongRunning makes the turn's runtime limit SOFT: it fires once at the soft
+  // deadline ("still working…" to the thread) and the turn keeps going to the hard cap
+  // instead of erroring — without it the old kill-at-soft-deadline applies.
   ask(
     prompt: string,
     onStep?: (step: string) => void,
     signal?: AbortSignal,
     onQuestion?: OnQuestion,
+    onLongRunning?: () => void,
   ): Promise<string>;
   // The Claude conversation id, known after the first turn. Persist it so a restarted
   // bot can resume the same thread via openChat({ resumeSessionId }).
@@ -50,7 +54,10 @@ export interface ChatSession {
   // Recover the turn that was in flight when the bot last restarted: reattach + return its
   // result (from the snapshot if it finished during downtime, else wait for the live
   // result). ok=false when it couldn't be recovered (timeout/error/dead).
-  adoptInflight(onStep?: (step: string) => void): Promise<{ ok: boolean; status: string; text: string }>;
+  adoptInflight(
+    onStep?: (step: string) => void,
+    onLongRunning?: () => void,
+  ): Promise<{ ok: boolean; status: string; text: string }>;
   // One-shot flag: true once if a resume id was set but its transcript was gone (sandbox
   // rebuilt) so we started fresh — the caller should warn the user. Resets on read.
   contextLost(): boolean;
@@ -180,6 +187,14 @@ function buildSystemPrompt(
       `mixed audience: open with a 1–2 sentence plain-language conclusion a non-developer can act ` +
       `on, then a short "What I checked" list (each system or source you consulted and the key ` +
       `thing it showed), then the technical detail.`,
+  );
+  lines.push(
+    `Commands you expect to run VERY long (a full e2e suite, a big build/seed — tens of minutes) ` +
+      `should not block your reply: run them with Bash's run_in_background (or a background ` +
+      `Task/Agent) and finish the reply with what you know so far — the orchestrator automatically ` +
+      `posts each background completion to the Slack thread as a "🔔 Background update", so the ` +
+      `user still gets the outcome. For ordinary commands (unit tests, typecheck, installs), keep ` +
+      `waiting normally — do NOT background things just to answer faster.`,
   );
   lines.push(
     '',
@@ -382,16 +397,17 @@ export async function openChat(
       onStep?: (step: string) => void,
       signal?: AbortSignal,
       onQuestion?: OnQuestion,
+      onLongRunning?: () => void,
     ): Promise<string> => {
       let s = await ensureSession();
-      let r = await s.send(prompt, onStep, signal, onQuestion);
+      let r = await s.send(prompt, onStep, signal, onQuestion, onLongRunning);
       // Retry ONLY if the process died before the turn produced any output (started ===
       // false) — re-sending a turn that already ran tools could double-apply (duplicate
       // commits/PRs). A turn that began mutating is surfaced as an error instead.
       if (r.status === 'error' && !r.started && !signal?.aborted) {
         session = undefined;
         s = await ensureSession();
-        r = await s.send(prompt, onStep, signal, onQuestion);
+        r = await s.send(prompt, onStep, signal, onQuestion, onLongRunning);
       }
       if (s.sessionId()) sessionId = s.sessionId(); // track from init/result (covers forks)
       lastUsage = r.usage; // recorded even for canceled/errored turns — tokens were burned
@@ -409,9 +425,9 @@ export async function openChat(
       }
       return r.resultText.trim() || '(no output)';
     },
-    adoptInflight: async (onStep?: (step: string) => void) => {
+    adoptInflight: async (onStep?: (step: string) => void, onLongRunning?: () => void) => {
       const s = await ensureSession(); // reattach (attach path) — parses the snapshot
-      const r = await s.adoptInflight(onStep);
+      const r = await s.adoptInflight(onStep, undefined, onLongRunning);
       if (s.sessionId()) sessionId = s.sessionId();
       lastUsage = r.usage;
       const ok = r.status === 'ok' && !r.isError;
