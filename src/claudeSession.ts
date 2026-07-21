@@ -61,16 +61,26 @@ function usageOf(ev: any): TurnUsage | undefined {
   };
 }
 
+// Two-stage turn watchdog. STREAM_MAX_MS is the SOFT deadline: a turn that long is
+// almost always legitimately large work (multi-repo change, full test suite), not a hang
+// — so when the caller wired onLongRunning we notify once ("still working…") and keep
+// waiting. STREAM_HARD_MAX_MS is the real kill: past it the process state is unknown, so
+// the turn dies and the session is retired. Callers that did NOT wire onLongRunning keep
+// the old kill-at-soft behavior — a silent 60-minute wait would be worse than the error.
 const STREAM_MAX_MS = (Number(process.env.STREAM_MAX_MINUTES) || 15) * 60_000;
+const STREAM_HARD_MAX_MS = (Number(process.env.STREAM_HARD_MAX_MINUTES) || 60) * 60_000;
 const CANCEL_GRACE_MS = 10_000; // after interrupt, wait this long for the canceled result
 
 interface PendingTurn {
   resolve: (r: TurnResult) => void;
   onStep?: (s: string) => void;
   onQuestion?: OnQuestion;
+  // Fires ONCE when the turn outlives the soft deadline — the turn then continues to the
+  // hard cap instead of being killed (→ "still working, result will follow" in Slack).
+  onLongRunning?: () => void;
   settled: boolean;
   canceled: boolean;
-  timer: ReturnType<typeof setTimeout>;
+  timer?: ReturnType<typeof setTimeout>;
   cancelTimer?: ReturnType<typeof setTimeout>;
 }
 
@@ -100,7 +110,7 @@ export class ClaudeSession {
   // On reattach: a can_use_tool request (AskUserQuestion) the OLD bot never answered — its
   // Slack buttons died with that process, so claude is waiting for a control_response that
   // will never come. adoptInflight dismisses it so the turn can finish instead of hanging
-  // to the 15-minute timeout (which also retired the whole session).
+  // to the runtime watchdog (whose kill also retires the whole session).
   private snapshotPendingTool?: { requestId: string; input: unknown };
   private attached = false; // opened by reattaching to a running command (vs fresh spawn)
 
@@ -203,13 +213,27 @@ export class ClaudeSession {
       .catch(() => this.onExit());
   }
 
+  // Arm the two-stage watchdog on a pending turn (see the STREAM_*_MS comment): soft
+  // deadline → onLongRunning + re-arm for the hard cap; hard cap (or soft with no
+  // listener) → `kill`. The caller's kill marks the session dead — the process state is
+  // unknown after a hard timeout, so the next turn must go through a fresh --resume.
+  private armDeadlines(p: PendingTurn, kill: () => void): void {
+    p.timer = setTimeout(() => {
+      if (!p.onLongRunning || STREAM_HARD_MAX_MS <= STREAM_MAX_MS) return kill();
+      p.onLongRunning();
+      p.timer = setTimeout(kill, STREAM_HARD_MAX_MS - STREAM_MAX_MS);
+    }, STREAM_MAX_MS);
+  }
+
   // Push a user turn; resolves when its `result` arrives. signal → clean interrupt.
   // onQuestion is invoked when the agent calls AskUserQuestion (→ Slack buttons).
+  // onLongRunning turns the runtime limit into a soft deadline — see armDeadlines.
   async send(
     text: string,
     onStep?: (s: string) => void,
     signal?: AbortSignal,
     onQuestion?: OnQuestion,
+    onLongRunning?: () => void,
   ): Promise<TurnResult> {
     if (this.dead || !this.cmdId)
       return { status: 'error', resultText: 'session not open', isError: true, started: false };
@@ -223,16 +247,15 @@ export class ClaudeSession {
         resolve,
         onStep,
         onQuestion,
+        onLongRunning,
         settled: false,
         canceled: false,
-        // Hard max-runtime: the process state is unknown after this, so mark the session
-        // dead (force a fresh --resume next turn) rather than reusing it.
-        timer: setTimeout(() => {
-          this.dead = true;
-          void this.interrupt();
-          this.settle({ status: 'timeout', resultText: '', isError: true });
-        }, STREAM_MAX_MS),
       };
+      this.armDeadlines(p, () => {
+        this.dead = true;
+        void this.interrupt();
+        this.settle({ status: 'timeout', resultText: '', isError: true });
+      });
       this.pending = p;
 
       const onAbort = () => {
@@ -304,7 +327,11 @@ export class ClaudeSession {
   // Resume the turn that was in flight when the bot restarted (no stdin write — it's
   // already running, or done). If it completed during the downtime, return that result
   // from the snapshot; otherwise wait for the live `result`.
-  async adoptInflight(onStep?: (s: string) => void, signal?: AbortSignal): Promise<TurnResult> {
+  async adoptInflight(
+    onStep?: (s: string) => void,
+    signal?: AbortSignal,
+    onLongRunning?: () => void,
+  ): Promise<TurnResult> {
     if (this.dead || !this.cmdId)
       return { status: 'error', resultText: 'session not open', isError: true, started: false };
     // Reattach fell back to a fresh spawn (sandbox had stopped, claude gone) → there is no
@@ -322,13 +349,14 @@ export class ClaudeSession {
       const p: PendingTurn = {
         resolve,
         onStep,
+        onLongRunning,
         settled: false,
         canceled: false,
-        timer: setTimeout(() => {
-          this.dead = true;
-          this.settle({ status: 'timeout', resultText: '', isError: true });
-        }, STREAM_MAX_MS),
       };
+      this.armDeadlines(p, () => {
+        this.dead = true;
+        this.settle({ status: 'timeout', resultText: '', isError: true });
+      });
       this.pending = p;
       if (signal) {
         const onAbort = () => this.settle({ status: 'canceled', resultText: '', isError: true });
