@@ -3,6 +3,7 @@ import type { Config } from './config.js';
 import type { McpServerSpec } from './projects.js';
 import { buildMcpServers } from './mcp.js';
 import { dockerdGuardCmd } from './housekeeping.js';
+import { captureError } from './sentry.js';
 import { log } from './log.js';
 
 // The snapshot image (snapshot/Dockerfile → SNAPSHOT_IMAGE) bakes in the sandbox tooling
@@ -23,11 +24,19 @@ export async function provisionTooling(sandbox: SandboxHandle) {
 // silently breaks until someone pokes the sandbox (this bit us: the Grafana MCP was
 // docker-run based and stayed "not connected" for days). Cheap when healthy (~one
 // `docker info`); also part of the nightly housekeeping routine.
-export async function ensureDockerd(sandbox: SandboxHandle): Promise<void> {
+export async function ensureDockerd(sandbox: SandboxHandle, slug?: string): Promise<void> {
   const r = await sandbox.exec(dockerdGuardCmd(), { timeout: 60 });
   const state = r.result?.match(/hk:dockerd=(\w+)/)?.[1];
   if (state === 'restarted') log.warn('dockerd was down — restarted it');
-  else if (state === 'failed') log.error('dockerd is down and would not restart — Sail commands will fail');
+  else if (state === 'failed') {
+    log.error('dockerd is down and would not restart — Sail commands will fail');
+    // A Sentry issue, not just a log line: SENTRY_LOGS is off in prod, and a project whose
+    // Sail stack is silently broken until the next session open must not go unnoticed.
+    captureError(new Error('dockerd is down and would not restart — Sail commands will fail'), {
+      subsystem: 'dockerd-guard',
+      ...(slug ? { slug } : {}),
+    });
+  }
 }
 
 // Layout inside the sandbox: <workDir>/<slug>/<repoName> per repo (a project = one

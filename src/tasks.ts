@@ -108,7 +108,7 @@ async function prepareChat(
   await provisionTooling(sandbox);
   // dockerd liveness guard: a dead daemon breaks Sail (php/composer/artisan shims) for
   // every turn until revived — catch it here rather than mid-conversation.
-  await ensureDockerd(sandbox);
+  await ensureDockerd(sandbox, slug);
 
   await seedGitHubAuth(sandbox, await getGitHubToken(cfg, repos));
   await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
