@@ -1,4 +1,4 @@
-import { Daytona, type Sandbox } from '@daytonaio/sdk';
+import { Daytona, DaytonaConflictError, DaytonaNotFoundError, type Sandbox } from '@daytonaio/sdk';
 import type { Config } from './config.js';
 import type { ExecOpts, ExecResult, SandboxDriver, SandboxHandle } from './driver.js';
 import { log } from './log.js';
@@ -83,47 +83,63 @@ export class DaytonaDriver implements SandboxDriver {
   // reference (string) → Daytona pulls it; NO build context upload, NO S3.
   async ensureImage(): Promise<void> {
     const { cfg } = this;
+    // Only a 404 from get() means "create it". A broad catch here once swallowed a
+    // FAILED activate() below too, sending us into create() → a bogus "snapshot
+    // already exists" that hid the real error — so anything but not-found propagates.
+    let snap;
     try {
-      const snap = await this.daytona.snapshot.get(cfg.snapshot.name);
-      if (snap.state === 'active') {
-        log.info(`snapshot '${cfg.snapshot.name}' already active`);
+      snap = await this.daytona.snapshot.get(cfg.snapshot.name);
+    } catch (err) {
+      if (!(err instanceof DaytonaNotFoundError)) throw err;
+    }
+
+    if (!snap) {
+      log.step(`creating snapshot '${cfg.snapshot.name}' from ${cfg.snapshot.image}`);
+      try {
+        await this.daytona.snapshot.create(
+          {
+            name: cfg.snapshot.name,
+            image: cfg.snapshot.image,
+            resources: { cpu: cfg.snapshot.cpu, memory: cfg.snapshot.memory, disk: cfg.snapshot.disk },
+          },
+          { onLogs: (c) => log.raw(c), timeout: 0 },
+        );
+      } catch (err) {
+        // 409: a concurrent ensureImage (turns run in parallel) won the create race.
+        // The snapshot exists and is being pulled — same as the 'pending' case below.
+        if (!(err instanceof DaytonaConflictError)) throw err;
+        log.warn(`snapshot '${cfg.snapshot.name}' created concurrently — leaving as-is`);
         return;
       }
-      // A snapshot unused for a while decays to 'inactive' (self-hosted Daytona GCs the
-      // pulled image) and sandbox create() then rejects with "Snapshot … is inactive" —
-      // reactivate it here instead of leaving every new project dead in the water.
-      // Activation is async (state goes 'pending' while the runner re-pulls), so poll.
-      if (snap.state === 'inactive') {
-        log.step(`snapshot '${cfg.snapshot.name}' is inactive — reactivating`);
-        await this.daytona.snapshot.activate(snap);
-        const deadline = Date.now() + 5 * 60_000;
-        while (Date.now() < deadline) {
-          const s = await this.daytona.snapshot.get(cfg.snapshot.name);
-          if (s.state === 'active') {
-            log.info(`snapshot '${cfg.snapshot.name}' reactivated`);
-            return;
-          }
-          if (s.state === 'error') break;
-          await new Promise((r) => setTimeout(r, 3000));
-        }
-        throw new Error(`snapshot '${cfg.snapshot.name}' did not become active after reactivation`);
-      }
-      // 'pending'/'building' etc. — someone else is already working on it.
-      log.warn(`snapshot '${cfg.snapshot.name}' exists in state '${snap.state}' — leaving as-is`);
+      log.info(`snapshot '${cfg.snapshot.name}' created`);
       return;
-    } catch {
-      // not found → create below
     }
-    log.step(`creating snapshot '${cfg.snapshot.name}' from ${cfg.snapshot.image}`);
-    await this.daytona.snapshot.create(
-      {
-        name: cfg.snapshot.name,
-        image: cfg.snapshot.image,
-        resources: { cpu: cfg.snapshot.cpu, memory: cfg.snapshot.memory, disk: cfg.snapshot.disk },
-      },
-      { onLogs: (c) => log.raw(c), timeout: 0 },
-    );
-    log.info(`snapshot '${cfg.snapshot.name}' created`);
+
+    if (snap.state === 'active') {
+      log.info(`snapshot '${cfg.snapshot.name}' already active`);
+      return;
+    }
+    // A snapshot unused for a while decays to 'inactive' (self-hosted Daytona GCs the
+    // pulled image) and sandbox create() then rejects with "Snapshot … is inactive" —
+    // reactivate it here instead of leaving every new project dead in the water.
+    // Activation is async (state goes 'pending' while the runner re-pulls), so poll.
+    if (snap.state === 'inactive') {
+      log.step(`snapshot '${cfg.snapshot.name}' is inactive — reactivating`);
+      await this.daytona.snapshot.activate(snap);
+      const deadline = Date.now() + 5 * 60_000;
+      while (Date.now() < deadline) {
+        const s = await this.daytona.snapshot.get(cfg.snapshot.name);
+        if (s.state === 'active') {
+          log.info(`snapshot '${cfg.snapshot.name}' reactivated`);
+          return;
+        }
+        if (s.state === 'error') break;
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+      throw new Error(`snapshot '${cfg.snapshot.name}' did not become active after reactivation`);
+    }
+    // 'pending'/'building' etc. — someone else is already working on it.
+    log.warn(`snapshot '${cfg.snapshot.name}' exists in state '${snap.state}' — leaving as-is`);
   }
 
   // Get a warm per-project sandbox by name, creating or starting it as needed.
