@@ -333,6 +333,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       slackUrl,
       mcp: project.mcp,
       driver: project.driver,
+      composerAuth: project.composerAuth,
       // Survive bot restarts: reattach to the command this thread was driving (if it's
       // still running), and persist the command coords the moment a session (re)opens so
       // even a crash mid-first-turn leaves a reattachable record.
