@@ -5,6 +5,7 @@ import { getGitHubToken } from './github.js';
 import {
   seedGitHubAuth,
   seedClaudeAuth,
+  seedComposerAuth,
   seedMcpConfig,
   provisionTooling,
   ensureDockerd,
@@ -105,6 +106,7 @@ async function prepareChat(
   slug: string,
   repos: string[],
   driverKind?: SandboxDriverKind,
+  composerAuth?: Record<string, unknown>,
 ) {
   if (repos.length === 0) throw new Error(`project ${slug} has no repos`);
   const driver = createDriver(cfg, driverKind);
@@ -121,6 +123,9 @@ async function prepareChat(
   await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
 
   for (const repo of repos) await cloneRepo(sandbox, cfg, slug, repo);
+  if (composerAuth) {
+    for (const repo of repos) await seedComposerAuth(sandbox, repoCheckout(cfg, slug, repo), composerAuth);
+  }
   // Agents work in per-task worktrees (see the base prompt); reap finished/orphaned ones.
   for (const repo of repos) await reapWorktrees(sandbox, repoCheckout(cfg, slug, repo));
   const cwd = projectCwd(cfg, slug, repos);
@@ -143,6 +148,7 @@ function buildSystemPrompt(
   repos: string[],
   projectPrompt?: string,
   slackUrl?: string,
+  hasComposerAuth?: boolean,
 ): string {
   const lines = [`You are the coding assistant for the project "${slug}", reachable from a Slack channel.`];
   if (repos.length === 1) {
@@ -214,6 +220,16 @@ function buildSystemPrompt(
       `lockfiles unless a repo's CI says otherwise. Anything that deviates from this (a non-Sail ` +
       `repo, a bun/pnpm repo, an infra repo) is called out in the project-specific instructions below.`,
   );
+  if (hasComposerAuth) {
+    lines.push(
+      '',
+      `Private composer packages: every repo checkout has an \`auth.json\` in its root (git-excluded, ` +
+        `pre-seeded with credentials) — composer picks it up automatically there. A git WORKTREE does ` +
+        `NOT inherit it: before running composer in a worktree, copy it in first ` +
+        `(\`cp <checkout>/auth.json <worktree>/\` — it stays untracked via the shared git exclude). ` +
+        `Never commit auth.json or paste its contents anywhere.`,
+    );
+  }
   if (slackUrl) {
     lines.push(
       '',
@@ -255,6 +271,9 @@ export async function openChat(
     mcp?: McpServerSpec[];
     // The project's sandbox provider (ProjectConfig.driver); omitted → deployment default.
     driver?: SandboxDriverKind;
+    // Composer credentials for private packages (ProjectConfig.composerAuth) — seeded as
+    // auth.json into every repo checkout by prepareChat.
+    composerAuth?: Record<string, unknown>;
     // A still-running Daytona command from before a bot restart — reattach to it instead
     // of spawning a fresh process (tried once; falls back to --resume if it's gone).
     attach?: { sessionKey: string; cmdId: string };
@@ -264,7 +283,7 @@ export async function openChat(
   },
 ): Promise<ChatSession> {
   const prep = await withSandboxLock(opts.slug, () =>
-    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver),
+    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.composerAuth),
   );
   const { driver, proj, cwd } = prep;
   let sandbox = prep.sandbox;
@@ -276,7 +295,14 @@ export async function openChat(
   // See ChatSession.setIdleNotify — re-applied to `session` every time one is (re)created,
   // so it survives LRU eviction, the error-retry reopen below, and restart reattach.
   let idleNotify: ((text: string) => void) | undefined;
-  const systemPrompt = buildSystemPrompt(opts.slug, cwd, opts.repos, opts.systemPrompt, opts.slackUrl);
+  const systemPrompt = buildSystemPrompt(
+    opts.slug,
+    cwd,
+    opts.repos,
+    opts.systemPrompt,
+    opts.slackUrl,
+    !!opts.composerAuth,
+  );
   const emitOpen = () => {
     const a = session?.attachInfo();
     if (a) opts.onOpen?.(a);

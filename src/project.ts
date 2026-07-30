@@ -144,6 +144,27 @@ export async function reapWorktrees(sandbox: SandboxHandle, repoDir: string): Pr
   return reaped;
 }
 
+// Composer auth for private packages: write the project's composerAuth (auth.json shape,
+// see ProjectConfig) into the checkout root. Composer reads ./auth.json from its working
+// dir, and both the Sail container and the bootstrap throwaway container mount the
+// checkout — one file covers every composer path, no env plumbing into containers.
+// Excluded via .git/info/exclude (NOT .gitignore — that would be a tracked-file edit)
+// so the agent can't accidentally commit the secret. Note worktrees don't inherit the
+// file itself (only the exclude, via the shared git dir) — the system prompt tells the
+// agent to copy it when running composer in a worktree.
+export async function seedComposerAuth(
+  sandbox: SandboxHandle,
+  checkoutDir: string,
+  auth: Record<string, unknown>,
+) {
+  await sandbox.uploadFile(Buffer.from(JSON.stringify(auth, null, 2)), `${checkoutDir}/auth.json`);
+  await sandbox.exec(`chmod 600 ${checkoutDir}/auth.json`, { check: true });
+  await sandbox.exec(
+    `grep -qx auth.json ${checkoutDir}/.git/info/exclude 2>/dev/null || echo auth.json >> ${checkoutDir}/.git/info/exclude`,
+    { check: true },
+  );
+}
+
 // Clone (or fetch) a single repo into its own <slug>/<repoName> dir. Used by the chat
 // path so a project can hold N repos. Idempotent.
 export async function cloneRepo(sandbox: SandboxHandle, cfg: Config, slug: string, repo: string) {

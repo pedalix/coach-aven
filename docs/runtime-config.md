@@ -31,6 +31,7 @@ sandbox state.
 | `systemPrompt` | **yes** | read at `openChat` → `buildSystemPrompt`; applies on a fresh session |
 | `mcp` | maybe, with session recycle | `--mcp-config` is set at process spawn → needs a restart of the project session |
 | `repos` | no | changes clone layout, cwd, token scope, worktrees → re-prepare the sandbox |
+| `composerAuth` | no (reload is enough) | seeded as `auth.json` into checkouts at `prepareChat` — a new session picks it up; a secret, so no Slack editing |
 | `slug` / `slackChannel` | no | routing keys (`dm:…:<slug>`, `cmd:…:<slug>`) — changing orphans live sessions |
 
 The soft/instructional needs are largely already covered by [project memory](memory.md)
