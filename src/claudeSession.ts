@@ -130,6 +130,9 @@ export class ClaudeSession {
       resumeSessionId?: string;
       systemPrompt?: string;
       mcpConfigPath?: string;
+      // Passed as `--model` on spawn. Unset → the CLI's own default. Ignored on attach
+      // (the running process already has its model).
+      model?: string;
       // Reattach to an already-running command (the bot restarted; claude kept running in
       // the sandbox) instead of spawning a fresh process — see open().
       attach?: { sessionKey: string; cmdId: string };
@@ -195,6 +198,7 @@ export class ClaudeSession {
     // --strict-mcp-config ignores the repo's own .mcp.json; --mcp-config adds ONLY our
     // per-project servers (e.g. Grafana). Without it, --strict-mcp-config = no servers.
     const mcp = this.opts.mcpConfigPath ? `--mcp-config ${sq(this.opts.mcpConfigPath)} ` : '';
+    const model = this.opts.model ? `--model ${sq(this.opts.model)} ` : '';
     // No positional prompt → persistent mode (turns stream in via stdin). --verbose is
     // mandatory with stream-json. --strict-mcp-config ignores the repo's own .mcp.json.
     // BOTH --dangerously-skip-permissions AND --permission-prompt-tool stdio: verified
@@ -203,7 +207,7 @@ export class ClaudeSession {
     const command =
       `cd ${sq(this.opts.cwd)} && ${CC_TOKEN_ENV} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
       `claude --output-format stream-json --input-format stream-json --verbose ` +
-      `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ${mcp}${resume}${sys}`;
+      `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ${model}${mcp}${resume}${sys}`;
     const started = await this.sandbox.startSessionCommand(this.sessionKey, command);
     this.cmdId = started.cmdId;
     // Stream stdout until the process exits; resolution/rejection both mean "process gone".
