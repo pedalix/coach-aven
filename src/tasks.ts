@@ -358,7 +358,13 @@ export async function openChat(
         if (await sessionTranscriptValid(sandbox, cwd, sessionId)) resume = sessionId;
         else droppedResume = true; // had an id but its transcript is gone → start fresh
       }
-      session = new ClaudeSession(sandbox, { cwd, resumeSessionId: resume, systemPrompt, mcpConfigPath });
+      session = new ClaudeSession(sandbox, {
+        cwd,
+        resumeSessionId: resume,
+        systemPrompt,
+        mcpConfigPath,
+        model: cfg.claudeModel,
+      });
       session.onIdleResult = idleNotify;
       await session.open();
       emitOpen();

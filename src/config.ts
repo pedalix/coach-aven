@@ -148,6 +148,10 @@ export interface Config {
   // prod → `proj-<slug>`, so the two never share a warm sandbox (set SANDBOX_NAME_PREFIX).
   sandbox: { autoStopMinutes: number; workDir: string; namePrefix: string };
   claudeOauthToken: string;
+  // Model for the sandbox claude processes (`--model`). Unset → the Claude Code default,
+  // which historically resolved to Sonnet — set CLAUDE_MODEL explicitly (e.g.
+  // claude-opus-5) so the fleet's model is a deliberate choice, not a CLI default.
+  claudeModel?: string;
   github: GitHubAuth;
   // Slack is only needed for the `slack` command; undefined otherwise. appToken is always
   // required (Socket Mode); botToken is optional once `oauth` is set — the home workspace's
@@ -231,6 +235,7 @@ export function loadConfig(): Config {
       namePrefix: process.env.SANDBOX_NAME_PREFIX || 'proj-',
     },
     claudeOauthToken: resolveClaudeToken(),
+    claudeModel: process.env.CLAUDE_MODEL || undefined,
     github: githubAuth(),
     slack: slackConfig(),
     youtrack:
