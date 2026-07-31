@@ -25,8 +25,8 @@ export const CMD = ((c) => (c.startsWith('/') ? c : `/${c}`))((process.env.SLACK
 // the lossy legacy mrkdwn. Each markdown block caps ~12k chars; chunk longer answers.
 const SLACK_MD_BLOCK_LIMIT = 11900;
 
-// Context a completed answer needs to offer a one-click "Open a PR" follow-up: which
-// conversation to enqueue the turn under, and where to post it.
+// Context a completed answer needs for its follow-up buttons (Report to YouTrack, session
+// panel): which conversation to enqueue a turn under, and where to post it.
 export interface FollowUp {
   key: string;
   channel: string;
@@ -44,9 +44,9 @@ export interface TrailMeta {
 }
 
 // Render the answer as markdown block(s), then an action row: link buttons to any PR(s)
-// the agent opened, or — if it didn't open one — an "Open a PR" button that enqueues a
-// follow-up turn (only when `followUp` context is supplied, i.e. a live thread/DM turn,
-// AND `prCreated` is not set — once a PR exists for this thread the button is just noise).
+// the agent opened (there is deliberately NO "Open a PR" button — always-visible action
+// buttons scared non-dev users into thinking code changes were one mis-click away; asking
+// the agent in the thread is the way to turn a discussion into a PR).
 // With `trail`, a step-count context line + "🧭 Show steps" button join the row.
 // Chunk text into Slack `markdown` blocks (each caps ~12k chars). Used by answerBlocks for the
 // bot's answers (delivered via chat.update, which accepts `markdown` blocks). NOT for the
@@ -88,7 +88,6 @@ export function topicButtons(slug: string, topics: { title: string; file: string
 // so the message's own blocks canNOT round-trip the draft — the button only carries the id.
 export interface AnswerOpts {
   followUp?: FollowUp;
-  prCreated?: boolean;
   trail?: TrailMeta;
   ytReport?: string;
   ytDraft?: { ticket: string; draftId: string };
@@ -96,7 +95,7 @@ export interface AnswerOpts {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
 export function answerBlocks(answer: string, opts: AnswerOpts = {}): any[] {
-  const { followUp, prCreated, trail, ytReport, ytDraft } = opts;
+  const { followUp, trail, ytReport, ytDraft } = opts;
   const blocks = markdownBlocks(answer);
   if (ytDraft) {
     // Draft mode: the whole message IS the proposed ticket comment. One button, one job.
@@ -134,8 +133,7 @@ export function answerBlocks(answer: string, opts: AnswerOpts = {}): any[] {
   const actions: any[] = [];
   const prs = prUrls(answer);
   if (prs.length) {
-    // A PR URL in this message → link straight to it. Independent of `prCreated`: we always
-    // surface a link the agent just gave us, even before/without the latch being set.
+    // A PR URL in this message → link straight to it.
     actions.push(
       ...prs.slice(0, 5).map((url, i) => ({
         type: 'button',
@@ -144,21 +142,6 @@ export function answerBlocks(answer: string, opts: AnswerOpts = {}): any[] {
         action_id: `pr_link:${i}`,
       })),
     );
-  } else if (followUp && !prCreated) {
-    actions.push({
-      type: 'button',
-      text: { type: 'plain_text', text: '🔀 Open a PR' },
-      action_id: 'make_pr',
-      value: JSON.stringify({ key: followUp.key, channel: followUp.channel, threadTs: followUp.threadTs }),
-      // Native Slack confirm dialog — "Open a PR" turns discussion into code changes, so
-      // gate it behind an explicit OK. Cancel just dismisses (nothing runs).
-      confirm: {
-        title: { type: 'plain_text', text: 'Start coding on this thread?' },
-        text: { type: 'mrkdwn', text: "I'll start working in this project's sandbox and open a pull request with the changes for review. Proceed?" },
-        confirm: { type: 'plain_text', text: 'Start' },
-        deny: { type: 'plain_text', text: 'Cancel' },
-      },
-    });
   }
   if (ytReport && followUp) {
     // Investigation thread → offer posting the findings back to the ticket. The click starts
@@ -791,7 +774,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           "• *Long tasks* — if a task runs long I won't cut it off: I post a *⏳ Still working* note and keep going, and the answer lands in the thread when it's done (✖ Cancel still stops me anytime).\n" +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically _(managed from the project's owner workspace)_.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
-          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context), hit *🔀 Open a PR* to turn the fix into a pull request, or *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above).',
+          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context) or ask me there to implement the fix and open a pull request, or hit *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above).',
       },
     },
     {

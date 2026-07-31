@@ -35,23 +35,16 @@ function actionIds(blocks: any[]): string[] {
 const followUp: FollowUp = { key: 'thread:123', channel: 'C1', threadTs: '123' };
 const PR = 'See https://github.com/Org/repo/pull/7 for the change.';
 
-test('answerBlocks: no PR URL + followUp + not created → offers "Open a PR"', () => {
-  assert.deepEqual(actionIds(answerBlocks('done, nothing to link', { followUp, prCreated: false })), ['make_pr', 'session_panel']);
+test('answerBlocks: no PR URL → no PR button of any kind (Open a PR is gone by design)', () => {
+  // The "⚙️ Session" button stays — it's tied to followUp (a thread conversation exists).
+  assert.deepEqual(actionIds(answerBlocks('done, nothing to link', { followUp })), ['session_panel']);
 });
 
-test('answerBlocks: prCreated latch hides "Open a PR" even without a URL in this message', () => {
-  // The "⚙️ Session" button stays — it's tied to followUp (a thread conversation exists),
-  // not to whether a PR has been opened from it.
-  assert.deepEqual(actionIds(answerBlocks('follow-up answer, no link here', { followUp, prCreated: true })), ['session_panel']);
+test('answerBlocks: a PR URL in the message shows "View PR"', () => {
+  assert.deepEqual(actionIds(answerBlocks(PR, { followUp })), ['pr_link:0', 'session_panel']);
 });
 
-test('answerBlocks: a PR URL in the message always shows "View PR" (independent of latch)', () => {
-  assert.deepEqual(actionIds(answerBlocks(PR, { followUp, prCreated: false })), ['pr_link:0', 'session_panel']);
-  // Even with the latch set, a fresh URL still links.
-  assert.deepEqual(actionIds(answerBlocks(PR, { followUp, prCreated: true })), ['pr_link:0', 'session_panel']);
-});
-
-test('answerBlocks: no followUp (DM/aven path) never offers "Open a PR"', () => {
+test('answerBlocks: no followUp (DM/aven path) → no action row at all', () => {
   assert.deepEqual(actionIds(answerBlocks('plain answer', {})), []);
 });
 
@@ -61,9 +54,9 @@ test('answerBlocks: trail adds the step-count context line and a "Show steps" bu
   const blocks = answerBlocks('answer', { followUp, trail });
   const ctx = blocks.find((b) => b.type === 'context');
   assert.equal(ctx.elements[0].text, '🧭 14 steps · 2m10s');
-  // Joins the same action row as "Open a PR" (one row, not two).
-  assert.deepEqual(actionIds(blocks), ['make_pr', 'show_trail', 'session_panel']);
-  const btn = blocks.find((b) => b.type === 'actions').elements[1];
+  // Joins the same action row as the other follow-ups (one row, not two).
+  assert.deepEqual(actionIds(blocks), ['show_trail', 'session_panel']);
+  const btn = blocks.find((b) => b.type === 'actions').elements[0];
   assert.equal(btn.value, 't7'); // carries only the turnId — the trail stays server-side
 });
 
@@ -107,7 +100,7 @@ test('sessionPanelBlocks: session bound → "Restart session" behind a confirm d
   assert.deepEqual(actionIds(blocks), ['session_restart']);
   const btn = blocks.find((b) => b.type === 'actions').elements[0];
   assert.equal(btn.value, 'v1'); // reuses the panel button's own value — no new shape
-  assert.ok(btn.confirm); // destructive to conversation memory — explicit confirm, like make_pr
+  assert.ok(btn.confirm); // destructive to conversation memory — explicit confirm
   assert.match(blocks[0].text.text, /active.*2026-07-15 10:00/);
 });
 
@@ -217,7 +210,7 @@ test('trailModalView: a huge trail keeps the tail within Slack limits and notes 
 // ── the "📝 Report to YouTrack" flow ─────────────────────────────────────────
 
 test('answerBlocks: investigation thread (ytReport) appends "Report to YouTrack"', () => {
-  assert.deepEqual(actionIds(answerBlocks('findings…', { followUp, ytReport: 'CG-50' })), ['make_pr', 'yt_report', 'session_panel']);
+  assert.deepEqual(actionIds(answerBlocks('findings…', { followUp, ytReport: 'CG-50' })), ['yt_report', 'session_panel']);
   // …also alongside a PR link, and never without followUp coordinates (nowhere to run the turn).
   assert.deepEqual(actionIds(answerBlocks(PR, { followUp, ytReport: 'CG-50' })), ['pr_link:0', 'yt_report', 'session_panel']);
   assert.deepEqual(actionIds(answerBlocks('findings…', { ytReport: 'CG-50' })), []);

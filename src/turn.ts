@@ -734,11 +734,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       await pendingFlush; // let any in-flight status tick land before the final "answered" update
       finished = true;
       const capped = answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
-      // Offer the "Open a PR" follow-up only in build channels (thread sessions), not in
-      // the private /aven + DM Q&A paths where it would just be noise.
+      // Follow-up buttons (Report to YouTrack) only in build channels (thread sessions), not
+      // in the private /aven + DM Q&A paths where they would just be noise.
       const followUp = isThreadKey(key) ? { key, channel, threadTs } : undefined;
-      // Suppress "Open a PR" once this thread has produced a PR in an earlier turn (latch below).
-      const prCreated = store.getChat(key)?.prCreated === true;
       // Investigation thread → offer "📝 Report to YouTrack" (thread root ↔ ticket id via state).
       const inv = followUp ? store.investigationByRoot(threadRoot(key) ?? '') : undefined;
       const elapsedMs = Date.now() - start;
@@ -764,16 +762,15 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       if (opts?.ytDraftFor && !blocks) drafts.put(project.slug, turnId, capped);
       blocks ??= answerBlocks(capped, {
         followUp,
-        prCreated,
         trail: { turnId, steps: steps.length, elapsedMs },
         ytReport: inv?.id,
         ytDraft: opts?.ytDraftFor ? { ticket: opts.ytDraftFor, draftId: turnId } : undefined,
       });
       await client.chat.update({ channel, ts, text, blocks });
-      // Latch the flag the first turn whose answer carries a PR URL, so subsequent turns in
-      // this thread stop offering the button. "View PR" still shows per-message on any answer
-      // that contains a URL, so we're only dropping the redundant "Open a PR" prompt.
-      if (!prCreated && prUrls(capped).length) store.patchChat(key, project.slug, { prCreated: true });
+      // Latch the flag the first turn whose answer carries a PR URL — the session panel
+      // shows whether this thread has produced a PR.
+      if (!store.getChat(key)?.prCreated && prUrls(capped).length)
+        store.patchChat(key, project.slug, { prCreated: true });
       if (msgTs) {
         await react(client, channel, msgTs, 'eyes', 'remove');
         await react(client, channel, msgTs, 'white_check_mark', 'add');
@@ -885,7 +882,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
               text: fallbackText(capped),
               blocks: answerBlocks(capped),
             });
-            // A recovered turn may have opened the PR — latch so the next live turn hides "Open a PR".
+            // A recovered turn may have opened the PR — latch so the session panel reflects it.
             if (!chat.prCreated && prUrls(capped).length)
               store.patchChat(chat.threadTs, project.slug, { prCreated: true });
           } else {
