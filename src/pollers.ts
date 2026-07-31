@@ -353,8 +353,8 @@ export function createPollers(
       }
       // Key the turn like a normal channel thread (`thread:<rootTs>`) instead of a one-shot: that
       // single choice makes the thread CONTINUABLE — a later reply in it resumes THIS Claude
-      // session (the bot "owns" the thread via store.getChat) — and gives the finished answer the
-      // "Open a PR" follow-up button (answerBlocks attaches it only for `thread:` keys). Falls
+      // session (the bot "owns" the thread via store.getChat) — and gives the finished answer its
+      // follow-up buttons (answerBlocks attaches them only for `thread:` keys). Falls
       // back to a ticket-scoped key + top-level post if the header couldn't be sent (no rootTs).
       const key = withTeam(teamId, home(), rootTs ? `thread:${rootTs}` : `youtrack:${ticket.id}:${project.slug}`);
       // Persist the investigation BEFORE dispatch so the ticket→thread link and the dedup

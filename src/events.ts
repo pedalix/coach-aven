@@ -13,7 +13,7 @@ import { eventLog } from './eventlog.js';
 import type { TurnEngine } from './turn.js';
 import type { Channels } from './channels.js';
 import { readMemory } from './commands.js';
-import { FOLLOW_UP_PR_PROMPT, autofixPrompt, reportDraftPrompt, reportDeliveryContract } from './prompts.js';
+import { autofixPrompt, reportDraftPrompt, reportDeliveryContract } from './prompts.js';
 import { extractSlackFiles, hydrateSlackFiles, type FileInfoFn, type SlackFile } from './slackfiles.js';
 import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
@@ -374,26 +374,9 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     await engine.liveTurn(client, pending.channel, undefined, undefined, pickKey, project, pending.question);
   });
 
-  // ── "🔀 Open a PR" button → enqueue a follow-up turn asking the agent to PR its work ──
-  app.action('make_pr', async ({ ack, action, client, context, body, respond }) => {
-    await ack();
-    if (!servedTenant(tenantOf(context))) return; // stale button in an offboarded workspace
-    const prGate = actor(tenantOf(context), (body as { user?: { id?: string } }).user?.id);
-    if (!prGate.ok) {
-      await respond({ response_type: 'ephemeral', replace_original: false, text: prGate.denial }).catch(() => {});
-      return;
-    }
-    let v: { key: string; channel: string; threadTs?: string };
-    try {
-      v = JSON.parse((action as { value?: string }).value ?? '');
-    } catch {
-      return;
-    }
-    const slug = engine.slugForKey(v.key);
-    const project = slug ? resolveBySlug(reg.current, slug) : undefined;
-    if (!project) return;
-    await engine.liveTurn(client, v.channel, undefined, v.threadTs, v.key, project, FOLLOW_UP_PR_PROMPT);
-  });
+  // (The "🔀 Open a PR" button + make_pr handler were removed on purpose: always-visible
+  // action buttons scared non-dev users; a stale button click now just gets Slack's default
+  // "action failed" — asking the agent in the thread is the way to turn talk into a PR.)
 
   // ── "⚙️ Session" → this thread's status card (session/repos/MCP/turn/PR), ephemeral ──
   // Read-only, so no actor gate — same tier as show_trail/ticket_modal (viewers may look).
@@ -439,7 +422,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   });
 
   // ── "🔄 Restart session" → forget this thread's Claude conversation; the next message ──
-  // starts fresh. Gated like make_pr (mutating) — a viewer can look at the panel but not
+  // starts fresh. Actor-gated (mutating) — a viewer can look at the panel but not
   // reset it. Refuses while a turn is running (restarting mid-turn would race the live
   // ChatSession object the running turn still holds).
   app.action('session_restart', async ({ ack, action, context, body, respond }) => {

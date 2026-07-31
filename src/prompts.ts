@@ -108,25 +108,15 @@ export function investigationPrompt(ticket: InvestigationTicket, mentions: strin
         ]
       : []),
     `- If YouTrack MCP tools are available (search_issues / get_issue / get_comments), search for similar tickets — especially already-resolved ones — before concluding, and cite any you find.`,
-    `- Post ONE concise writeup, in the language the ticket is written in (a German ticket gets a German answer), shaped EXACTLY like this:`,
-    `  1. *The problem, in plain language* — 2–3 sentences a support agent could relay to the affected user: what breaks, for whom, and how badly.`,
-    `  2. *What I checked* — short bullets: each system/source you consulted (code, Grafana logs/metrics, ticket history, similar tickets, attachments) and the key thing it showed.`,
-    `  3. *Technical root cause* — the code paths / queries / log lines that pin it down, with concrete evidence.`,
-    `  4. *Proposed fix or next step* — concrete, with your confidence; if a claim needs data you don't have (a specific log line, a metric, a repro), name exactly what would confirm it rather than guessing.${ping}`,
+    `- FACTS ONLY: every claim in your writeup must be backed by something you actually saw — a log line, a code path you read, a metric, a resolved similar ticket. Never present a hypothesis as a finding; when the evidence is missing, say plainly that you don't know and name exactly what data would settle it.`,
+    `- Post ONE concise writeup, in the language the ticket is written in (a German ticket gets a German answer). Your reader is a SUPPORT AGENT, not a developer: plain everyday language throughout — no file paths, class names, queries, or stack traces in the writeup. Shape it EXACTLY like this:`,
+    `  1. *What's going on* — 2–3 sentences the support agent could relay to the affected user: what breaks, for whom, how badly, and the most likely cause in everyday words.`,
+    `  2. *What I checked* — short bullets naming each source in plain words (the application's error logs, the booking code, similar past tickets, the attached screenshots) and the key thing each showed.`,
+    `  3. *How sure I am* — a confidence score (High / Medium / Low) with a 1–2 sentence justification that cites your strongest concrete evidence; missing data lowers the score, and you say what's missing.`,
+    `  4. *Suggested next step* — the concrete action, in plain words: what support should tell the user, and/or what to hand to a developer.`,
+    `- Do NOT include a technical deep-dive section. Close with exactly one short line in the ticket's language meaning: "If you want any technical details, just shoot." — the reply thread keeps your full context, so you can provide them on request.${ping}`,
   ].join('\n');
 }
-
-// Fired by the "Open a PR" follow-up button. Handles BOTH cases: a build thread where the work
-// is already done (just commit + PR it) and an investigation thread where only a fix was
-// PROPOSED (implement it first). Keep the "ask if risky" guard — investigations are read-only
-// analyses, so acting on one may need judgment the button click didn't supply.
-export const FOLLOW_UP_PR_PROMPT =
-  'Turn this conversation into a pull request. If the change we discussed is not implemented yet, ' +
-  'implement it now on a dedicated worktree/branch forked from origin/main; otherwise just make ' +
-  'sure your existing changes are committed there. Then push and open a PR against the default ' +
-  'branch with the gh CLI, describing the change and linking the ticket/thread it came from. If ' +
-  'the right fix is ambiguous, architectural, or risky, ask here BEFORE writing code instead of ' +
-  'guessing. If there is genuinely nothing to submit, say so instead of opening an empty PR.';
 
 // Fired by the "📝 Report to YouTrack" button on an investigation thread. The turn's answer IS
 // the draft: it's shown in the thread with an "✏️ Edit & send" button, a human edits it in a

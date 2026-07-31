@@ -201,14 +201,14 @@ test('twin: App Home is per-tenant; an unmapped workspace gets the onboarding vi
 test('twin: a write button from an unserved workspace fires NO turn', async () => {
   const t = await twin();
   try {
-    t.store.patchChat('thread:5.0', 'beta', {}); // the button's target exists and is real
-    const value = JSON.stringify({ key: 'thread:5.0', channel: 'C_SHARED' });
-    await t.receiver.send(blockActionEnvelope(STRANGER, 'make_pr', value, 'C_SHARED'));
+    // autofix_apply is the write button that fires a turn directly ("Open a PR" no longer exists).
+    const value = JSON.stringify({ slug: 'beta', repo: 'Org/beta', number: 7, channel: 'C_SHARED' });
+    await t.receiver.send(blockActionEnvelope(STRANGER, 'autofix_apply', value, 'C_SHARED'));
     assert.equal(t.turns.length, 0);
     // …while the SAME click from a served tenant does fire.
-    await t.receiver.send(blockActionEnvelope(HOME, 'make_pr', value, 'C_SHARED'));
+    await t.receiver.send(blockActionEnvelope(HOME, 'autofix_apply', value, 'C_SHARED'));
     assert.equal(t.turns.length, 1);
-    assert.equal(t.turns[0].key, 'thread:5.0');
+    assert.equal(t.turns[0].key, 'autofix:Org/beta:7:beta');
   } finally {
     await t.stop();
   }
