@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates } from './sshdocker.js';
+import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript } from './sshdocker.js';
 
 test('sq — single-quotes and survives embedded quotes', () => {
   assert.equal(sq('plain'), `'plain'`);
@@ -57,6 +57,33 @@ test('runningProbeScript — zombie counts as down, id is validated', () => {
   assert.ok(s.includes(`grep -q '^State:.*Z'`)); // zombies pass kill -0 — must be excluded
   assert.ok(s.includes('echo up') && s.includes('echo down'));
   assert.throws(() => runningProbeScript('1; reboot')); // cmdId round-trips via state.json
+});
+
+test('ensureSandboxScript — reuses, wakes, or creates; --init and labels survive', () => {
+  const s = ensureSandboxScript('proj-caldora', 'caldora', 'ghcr.io/x/dind:pilot', '--runtime sysbox-runc');
+  assert.ok(s.includes(`docker inspect -f '{{.State.Running}}' 'proj-caldora'`));
+  assert.ok(s.includes('outcome=ready'));
+  assert.ok(s.includes(`docker start 'proj-caldora' >/dev/null || exit 1`));
+  assert.ok(s.includes('--init')); // no tini → session processes rot as zombies
+  assert.ok(s.includes('--restart unless-stopped'));
+  assert.ok(s.includes('--runtime sysbox-runc'));
+  assert.ok(s.includes(`--label project='caldora'`));
+  assert.ok(s.trim().endsWith('echo "$outcome"'));
+  assert.throws(() => ensureSandboxScript('a b', 'caldora', 'img', '--privileged'));
+});
+
+test('ensureSandboxScript — probes exec and recycles a running-but-wedged container', () => {
+  const s = ensureSandboxScript('proj-coach-aven', 'coach-aven', 'img', '--privileged');
+  // The sysbox-orphan case: `docker ps` says Up, every exec dies. Probe twice (a busy
+  // daemon must not cost a live session), then stop+start, then re-probe.
+  assert.ok(s.includes(`docker exec 'proj-coach-aven' true`));
+  assert.ok(s.includes('sleep 2'));
+  assert.ok(s.includes(`docker stop -t 10 'proj-coach-aven'`));
+  assert.ok(s.includes(`docker start 'proj-coach-aven' >/dev/null 2>&1`));
+  assert.ok(s.includes('outcome=revived'));
+  // A sandbox that still refuses exec is a hard failure, not a silent "ready".
+  assert.ok(s.includes('still no exec after recycle'));
+  assert.ok(s.includes('exit 1'));
 });
 
 test('parseContainerStates — docker states map onto started/stopped', () => {
