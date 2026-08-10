@@ -100,6 +100,59 @@ export function runningProbeScript(pid: string): string {
   return `${aliveCond(sq(safeToken(pid)))} && echo up || echo down`;
 }
 
+// Warm the named container and hand back what happened: ready | started | created |
+// revived. The container's own process is just sleep — claude/dockerd/etc. start on
+// demand (project.ts's ensureDockerd guard revives dockerd at every chat prep).
+// --restart unless-stopped: a host reboot brings the fleet back warm.
+//
+// The trailing health probe is not paranoia: a container can be `running` and still
+// refuse EVERY `docker exec`. sysbox keeps its own registry of the containers it
+// manages, and restarting its daemons (any host upgrade touching kernel/libc does)
+// drops the entries for containers already running — from then on every exec dies with
+// "OCI runtime exec failed: … unsafe procfs detected" while `docker ps` still says Up.
+// That wedged the coach-aven sandbox for 12 days in 2026-08 (sysbox restarted Jul 29,
+// container up since Jul 13) and every turn failed at the first upload. stop+start
+// re-registers the container with sysbox and costs nothing here — an exec-less sandbox
+// is useless anyway, so recycling can only improve on it. Probed twice before recycling
+// so a momentarily busy daemon doesn't kill a live session.
+export function ensureSandboxScript(
+  name: string,
+  projectSlug: string,
+  image: string,
+  runtimeFlag: string,
+): string {
+  const n = sq(safeToken(name));
+  return [
+    `state=$(docker inspect -f '{{.State.Running}}' ${n} 2>/dev/null)`,
+    `if [ "$state" = "true" ]; then outcome=ready`,
+    `elif [ "$state" = "false" ]; then docker start ${n} >/dev/null || exit 1; outcome=started`,
+    `else`,
+    // --init: docker's tini as PID 1. Without it PID 1 is our `sleep`, which never reaps
+    // orphans — every finished session process would linger as a zombie forever (and
+    // zombies pass kill -0, wedging streams and running-checks; found by the E2E smoke).
+    // Existing containers created without --init must be recreated.
+    `  docker run -d --init --name ${n} ${runtimeFlag} --restart unless-stopped \\`,
+    `    -e IS_SANDBOX=1 --label managedBy=bluefin-thin-orchestrator --label project=${sq(safeToken(projectSlug))} \\`,
+    `    --entrypoint sh ${sq(image)} -c 'sleep 2147483647' >/dev/null || exit 1`,
+    `  outcome=created`,
+    `fi`,
+    `if ! docker exec ${n} true >/dev/null 2>&1; then`,
+    `  sleep 2`,
+    `  if ! err=$(docker exec ${n} true 2>&1); then`,
+    `    echo "exec probe failed, recycling ${name}: $err" >&2`,
+    `    docker stop -t 10 ${n} >/dev/null 2>&1`,
+    `    docker start ${n} >/dev/null 2>&1`,
+    `    if ! err=$(docker exec ${n} true 2>&1); then`,
+    `      echo "still no exec after recycle: $err" >&2`,
+    `      exit 1`,
+    `    fi`,
+    `    outcome=revived`,
+    `  fi`,
+    `fi`,
+    `echo "$outcome"`,
+  ].join('\n');
+}
+
 // `docker ps` lines ("name\tstate") → the state map /aven status renders. Docker's
 // `running` maps to Daytona's `started`; everything else (exited/created/paused) reads
 // as stopped — the same asleep/awake dichotomy the rest of the bot works with.
@@ -117,11 +170,15 @@ export function parseContainerStates(out: string): Map<string, string> {
 interface SshResult {
   code: number;
   stdout: string;
+  stderr: string;
 }
 
 // Run one remote command over ssh, with optional stdin. BatchMode: never prompt (a
-// missing key must fail fast, not hang the turn). Only stdout is surfaced — remote
-// stderr is already folded into stdout by the scripts; local ssh warnings are dropped.
+// missing key must fail fast, not hang the turn). stdout carries the payload (the
+// scripts fold the in-container stderr into it); stderr is kept SEPARATE but not
+// discarded: docker's own failures — "container is not running", "OCI runtime exec
+// failed: …" — never reach the script's stdout, and dropping them turned a wedged
+// sandbox into a bare `exit 126` with no clue what broke (prod, 2026-08-10).
 function runSsh(
   host: string,
   remoteCmd: string,
@@ -129,9 +186,10 @@ function runSsh(
 ): Promise<SshResult> {
   return new Promise((resolve, reject) => {
     const child = spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', host, remoteCmd], {
-      stdio: ['pipe', 'pipe', 'ignore'],
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
+    let stderr = '';
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (opts.timeoutMs && opts.timeoutMs > 0) {
       timer = setTimeout(() => child.kill('SIGKILL'), opts.timeoutMs);
@@ -141,17 +199,29 @@ function runSsh(
       if (opts.onStdout) opts.onStdout(s);
       else stdout += s;
     });
+    // Bounded: a long tail (streamSessionCommandLogs) can sit here for a whole turn, and
+    // stderr is only ever read for error messages.
+    child.stderr.on('data', (c: Buffer) => {
+      if (stderr.length < 8192) stderr += c.toString('utf8');
+    });
     child.on('error', (e) => {
       if (timer) clearTimeout(timer);
       reject(e);
     });
     child.on('close', (code) => {
       if (timer) clearTimeout(timer);
-      resolve({ code: code ?? 1, stdout });
+      resolve({ code: code ?? 1, stdout, stderr });
     });
     if (opts.stdin !== undefined) child.stdin.end(opts.stdin);
     else child.stdin.end();
   });
+}
+
+// Append docker's/ssh's own complaint to a thrown error — the difference between
+// "upload failed (exit 126)" and knowing the container refuses to exec.
+function errTail(r: SshResult): string {
+  const s = r.stderr.trim();
+  return s ? `\n--- stderr ---\n${s.slice(-1000)}` : '';
 }
 
 // ── the driver ──────────────────────────────────────────────────────────────
@@ -180,7 +250,9 @@ class SshDockerHandle implements SandboxHandle {
       timeoutMs: t > 0 ? (t + 30) * 1000 : undefined,
     });
     if (opts.check && r.code !== 0) {
-      throw new Error(`command failed (exit ${r.code}): ${command}\n--- output ---\n${r.stdout}`);
+      throw new Error(
+        `command failed (exit ${r.code}): ${command}\n--- output ---\n${r.stdout}${errTail(r)}`,
+      );
     }
     return { exitCode: r.code, result: r.stdout };
   }
@@ -191,7 +263,7 @@ class SshDockerHandle implements SandboxHandle {
     const r = await runSsh(this.host, `docker exec -i ${sq(safeToken(this.name))} sh -c ${sq(inner)}`, {
       stdin: data,
     });
-    if (r.code !== 0) throw new Error(`upload to ${path} failed (exit ${r.code})`);
+    if (r.code !== 0) throw new Error(`upload to ${path} failed (exit ${r.code})${errTail(r)}`);
   }
 
   async createSession(sessionKey: string): Promise<void> {
@@ -202,7 +274,7 @@ class SshDockerHandle implements SandboxHandle {
     const r = await this.inContainer(startSessionScript(sessionKey, command));
     const pid = r.stdout.trim();
     if (r.code !== 0 || !/^\d+$/.test(pid)) {
-      throw new Error(`session start failed (exit ${r.code}): ${r.stdout.slice(0, 500)}`);
+      throw new Error(`session start failed (exit ${r.code}): ${r.stdout.slice(0, 500)}${errTail(r)}`);
     }
     return { cmdId: pid };
   }
@@ -235,7 +307,7 @@ class SshDockerHandle implements SandboxHandle {
     const r = await runSsh(this.host, `docker exec -i ${sq(safeToken(this.name))} sh -c ${sq(inner)}`, {
       stdin: data,
     });
-    if (r.code !== 0) throw new Error(`session input failed (exit ${r.code})`);
+    if (r.code !== 0) throw new Error(`session input failed (exit ${r.code})${errTail(r)}`);
   }
 
   async deleteSession(sessionKey: string): Promise<void> {
@@ -278,30 +350,22 @@ export class SshDockerDriver implements SandboxDriver {
   }
 
   async ensureSandbox(name: string, projectSlug: string): Promise<SandboxHandle> {
-    const n = sq(safeToken(name));
-    // The container's own process is just sleep — claude/dockerd/etc. start on demand
-    // (project.ts's ensureDockerd guard revives dockerd at every chat prep). --restart
-    // unless-stopped: a host reboot brings the fleet back warm.
-    const script = [
-      `state=$(docker inspect -f '{{.State.Running}}' ${n} 2>/dev/null)`,
-      `if [ "$state" = "true" ]; then echo ready`,
-      `elif [ "$state" = "false" ]; then docker start ${n} >/dev/null && echo started`,
-      `else`,
-      // --init: docker's tini as PID 1. Without it PID 1 is our `sleep`, which never
-      // reaps orphans — every finished session process would linger as a zombie forever
-      // (and zombies pass kill -0, wedging streams and running-checks; found by the E2E
-      // smoke). Existing containers created without --init must be recreated.
-      `  docker run -d --init --name ${n} ${this.runtimeFlag} --restart unless-stopped \\`,
-      `    -e IS_SANDBOX=1 --label managedBy=bluefin-thin-orchestrator --label project=${sq(safeToken(projectSlug))} \\`,
-      `    --entrypoint sh ${sq(this.cfg.snapshot.image)} -c 'sleep 2147483647' >/dev/null && echo created`,
-      `fi`,
-    ].join('\n');
-    const r = await this.onHost(script, { timeoutMs: 120_000 });
+    const script = ensureSandboxScript(name, projectSlug, this.cfg.snapshot.image, this.runtimeFlag);
+    // Room for the create/pull path plus a stop(-t 10)+start recycle.
+    const r = await this.onHost(script, { timeoutMs: 180_000 });
     const outcome = r.stdout.trim();
-    if (r.code !== 0 || !['ready', 'started', 'created'].includes(outcome)) {
-      throw new Error(`ensureSandbox ${name} failed (exit ${r.code}): ${r.stdout.slice(0, 500)}`);
+    if (r.code !== 0 || !['ready', 'started', 'created', 'revived'].includes(outcome)) {
+      throw new Error(
+        `ensureSandbox ${name} failed (exit ${r.code}): ${r.stdout.slice(0, 500)}${errTail(r)}`,
+      );
     }
-    if (outcome !== 'ready') log.info(`sandbox '${name}' ${outcome} (ssh-docker)`);
+    // A revive means the host wedged the container under us — worth a WARN (it reaches
+    // Sentry), not a silent heal.
+    if (outcome === 'revived') {
+      log.warn(`sandbox '${name}' was up but refused exec — recycled it (ssh-docker):${errTail(r)}`);
+    } else if (outcome !== 'ready') {
+      log.info(`sandbox '${name}' ${outcome} (ssh-docker)`);
+    }
     return new SshDockerHandle(this.host, name, true);
   }
 
