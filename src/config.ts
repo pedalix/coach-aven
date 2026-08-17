@@ -160,7 +160,9 @@ export interface Config {
   // YouTrack support-ticket investigation pilot; undefined (off) unless YOUTRACK_URL +
   // YOUTRACK_TOKEN are set. `label` is the trigger tag; `ping` is the Slack user ids to
   // @-mention with each finding. The token is a read-only YouTrack permanent token.
-  youtrack?: { baseUrl: string; token: string; label: string; ping: string[] };
+  // `englishTaggers` are YouTrack logins/emails whose tag means "this one's for us, not for
+  // support": the writeup comes back in English instead of the ticket's language.
+  youtrack?: { baseUrl: string; token: string; label: string; ping: string[]; englishTaggers: string[] };
   // Channel→project registry: one bot, many channels, one isolated sandbox per project.
   projectsConfigPath: string;
   // Sentry error/perf/log reporting; undefined (off) unless SENTRY_DSN is set. `logs` opt-in
@@ -245,6 +247,10 @@ export function loadConfig(): Config {
             token: process.env.YOUTRACK_TOKEN,
             label: process.env.YOUTRACK_LABEL || 'AI auto review',
             ping: (process.env.YOUTRACK_PING || '')
+              .split(',')
+              .map((s) => s.trim())
+              .filter(Boolean),
+            englishTaggers: (process.env.YOUTRACK_ENGLISH_TAGGERS || '')
               .split(',')
               .map((s) => s.trim())
               .filter(Boolean),

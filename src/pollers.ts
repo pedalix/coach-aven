@@ -13,7 +13,17 @@ import type { Channels } from './channels.js';
 import { dueRoutines } from './schedule.js';
 import { prsToReview, autofixEvents } from './pr.js';
 import { reviewPrompt, REPORT_FRAMING, investigationPrompt, type ReviewEffort } from './prompts.js';
-import { listTaggedIssues, listComments, listAttachments, dueTickets, headerExtras, type YouTrackIssue } from './youtrack.js';
+import {
+  listTaggedIssues,
+  listComments,
+  listAttachments,
+  dueTickets,
+  headerExtras,
+  tagApplier,
+  taggerMatches,
+  applierName,
+  type YouTrackIssue,
+} from './youtrack.js';
 import { ticketCardBlocks } from './blocks.js';
 import { listOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js';
 import { createDriver } from './driver.js';
@@ -321,7 +331,14 @@ export function createPollers(
       const attachRefs = await listAttachments(cfg, ticket.id);
       const attachments = attachRefs.length ? { refs: attachRefs, bearer: cfg.youtrack!.token } : undefined;
       const mentions = (cfg.youtrack?.ping ?? []).map((u) => `<@${u}>`).join(' ');
-      const prompt = investigationPrompt({ ...ticket, comments: commentsText }, mentions);
+      // WHO flagged the ticket decides the answer's language: a support agent's flag means the
+      // writeup gets relayed to the customer, so it stays in the ticket's language; a teammate
+      // on YOUTRACK_ENGLISH_TAGGERS is reading it themselves, so it comes back in English.
+      // Unknown tagger (activities unreadable / tag older than the stream) → ticket language.
+      const applier = await tagApplier(cfg, ticket.id, cfg.youtrack!.label);
+      const flaggedBy = applier ? applierName(applier) : undefined;
+      const replyLanguage = taggerMatches(applier, cfg.youtrack?.englishTaggers ?? []) ? 'English' : undefined;
+      const prompt = investigationPrompt({ ...ticket, comments: commentsText }, mentions, { flaggedBy, replyLanguage });
       // Post a compact header FIRST, then run the whole investigation as a reply under it, so
       // each ticket is one tidy line in the channel with the live status + findings collapsed in
       // its own thread (unlike the other pollers, which post top-level).
@@ -345,7 +362,7 @@ export function createPollers(
             channel,
             thread_ts: rootTs,
             text: `${ticket.id}: ${ticket.summary}`,
-            blocks: ticketCardBlocks(ticket, ticketUrl, attachRefs.map((a) => a.name)),
+            blocks: ticketCardBlocks(ticket, ticketUrl, attachRefs.map((a) => a.name), flaggedBy),
           });
         } catch (e) {
           log.error(`youtrack ${ticket.id}: card post failed: ${e instanceof Error ? e.message : String(e)}`);
