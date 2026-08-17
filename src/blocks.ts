@@ -318,31 +318,67 @@ export function reportPostedBlocks(text: string, ticketId: string, url: string, 
   ];
 }
 
+// The two things you can do to a turn that is still running: look at what it's doing, or
+// stop it. Shared by the live status message and the background card below.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+function liveTurnActions(turnId: string): any {
+  return {
+    type: 'actions',
+    elements: [
+      {
+        // The live trail so far, in a pop-up — the status text streams only a 6-line tail.
+        type: 'button',
+        text: { type: 'plain_text', text: '🧭 Show steps' },
+        action_id: 'show_trail',
+        value: turnId,
+      },
+      {
+        type: 'button',
+        text: { type: 'plain_text', text: '✖ Cancel' },
+        action_id: 'cancel_turn',
+        value: turnId,
+      },
+    ],
+  };
+}
+
 // Live status as a section + a "✖ Cancel" button carrying the turnId. Used while a turn
 // runs; replaced by the answer (markdown blocks) or a plain status on cancel/error.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
 export function statusBlocks(text: string, turnId: string): any[] {
+  return [{ type: 'section', text: { type: 'mrkdwn', text: text || '…' } }, liveTurnActions(turnId)];
+}
+
+// A turn that outlived the SOFT deadline freezes its working message into this card. The
+// live status rewrites itself every few seconds; keeping that up for another 45 minutes is
+// pure channel noise once we've stopped promising an imminent answer — so the clock stops
+// here and the message goes static, with the two buttons that still do something. The
+// answer arrives as a NEW message in the thread (chat.update is silent — after this long
+// the user is elsewhere and needs the ping).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function backgroundBlocks(turnId: string, elapsedMs: number): any[] {
   return [
-    { type: 'section', text: { type: 'mrkdwn', text: text || '…' } },
     {
-      type: 'actions',
-      elements: [
-        {
-          // The live trail so far, in a pop-up — the status text streams only a 6-line tail.
-          type: 'button',
-          text: { type: 'plain_text', text: '🧭 Show steps' },
-          action_id: 'show_trail',
-          value: turnId,
-        },
-        {
-          type: 'button',
-          text: { type: 'plain_text', text: '✖ Cancel' },
-          action_id: 'cancel_turn',
-          value: turnId,
-        },
-      ],
+      type: 'section',
+      text: {
+        type: 'mrkdwn',
+        text:
+          `🌙 *Working in the background* — running for ${fmtElapsed(elapsedMs)}, longer than usual.\n` +
+          `I'll post the answer here as a new message when it's done. *🧭 Show steps* stays live; ` +
+          `*✖ Cancel* stops me.`,
+      },
     },
+    liveTurnActions(turnId),
   ];
+}
+
+// The background card's epitaph: once the answer has been posted as its own message, the
+// card collapses to a one-liner pointing at it (buttons gone — the answer carries its own
+// "🧭 Show steps").
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function backgroundDoneBlocks(label: string, t: { steps: number; elapsedMs: number }): any[] {
+  const meta = t.steps > 0 ? ` · 🧭 ${plural(t.steps, 'step')} · ${fmtElapsed(t.elapsedMs)}` : ` · ${fmtElapsed(t.elapsedMs)}`;
+  return [{ type: 'context', elements: [{ type: 'mrkdwn', text: `${label}${meta}` }] }];
 }
 
 // Render an AskUserQuestion prompt as Slack blocks. `picks` = chosen option indices per
@@ -779,7 +815,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
           '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the full tool-by-tool trail in a pop-up.\n' +
           "• *Background agents* — if I kick off a background subagent that's still running when I reply, I'll follow up with a new *🔔 Background update* message in the thread once it finishes.\n" +
-          "• *Long tasks* — if a task runs long I won't cut it off: I post a *⏳ Still working* note and keep going, and the answer lands in the thread when it's done (✖ Cancel still stops me anytime).\n" +
+          "• *Long tasks* — if a task runs long I won't cut it off: past ~15 minutes the working message stops ticking and turns into a *🌙 Working in the background* card (*🧭 Show steps* still live, *✖ Cancel* still stops me), and the answer arrives as a *new message* in the thread when it's done.\n" +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically _(managed from the project's owner workspace)_.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
           '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context) or ask me there to implement the fix and open a pull request, or hit *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above). The card shows *who* flagged the ticket, and the writeup follows the ticket\'s own language so support can relay it — except when one of the team\'s own accounts applies the tag, which gets you the answer in English.',

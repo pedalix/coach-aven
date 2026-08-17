@@ -12,7 +12,16 @@ import { createDriver } from './driver.js';
 import { fallbackText, fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
-import { MAX_SLACK_TEXT, answerBlocks, reportPostedBlocks, statusBlocks, questionBlocks, errText } from './blocks.js';
+import {
+  MAX_SLACK_TEXT,
+  answerBlocks,
+  backgroundBlocks,
+  backgroundDoneBlocks,
+  reportPostedBlocks,
+  statusBlocks,
+  questionBlocks,
+  errText,
+} from './blocks.js';
 import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase } from './teamkeys.js';
 import { DraftStore } from './drafts.js';
@@ -601,6 +610,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     let lastRendered = '';
     let lastUpdateAt = 0;
     let finished = false;
+    // Set when the turn outlives the soft deadline: the status message stops ticking and
+    // turns into the static background card, and the outcome is delivered as a NEW thread
+    // message instead of rewriting it. See goBackground() below.
+    let background = false;
 
     const render = (): string => {
       const elapsed = Date.now() - start;
@@ -609,7 +622,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       return tail ? `${head}\n${tail}` : head;
     };
     const flush = async (force = false): Promise<void> => {
-      if (finished) return;
+      if (finished || background) return; // background froze the message — no more ticking
       const now = Date.now();
       if (!force && now - lastUpdateAt < 1500) return; // throttle chat.update
       const text = render();
@@ -634,6 +647,45 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       return pendingFlush;
     };
     const heartbeat = setInterval(() => void scheduleFlush(), 4000);
+    // Soft deadline reached. The turn keeps running to the hard cap, but the UI stops
+    // pretending an answer is seconds away: kill the heartbeat, freeze the message into the
+    // static background card (🧭 Show steps stays live, ✖ Cancel still works). Queued
+    // flushes no-op from here (`background` is set before the chain is extended), and the
+    // card goes through pendingFlush so it can't race a tick already in flight.
+    const goBackground = (): void => {
+      if (background || finished) return;
+      background = true;
+      clearInterval(heartbeat);
+      const blocks = backgroundBlocks(turnId, Date.now() - start);
+      pendingFlush = pendingFlush.then(() =>
+        client.chat
+          .update({ channel, ts, text: 'Working in the background…', blocks })
+          .then(
+            () => {},
+            () => {}, // transient Slack failure — the card is cosmetic, the turn runs on
+          ),
+      );
+    };
+    // Where the turn's outcome goes. While the message is still live it rewrites itself, as
+    // always. Once backgrounded, we promised a new message in the thread — so post one (it
+    // pings; chat.update does not) and collapse the card to a pointer at it.
+    const deliver = async (text: string, blocks: ReturnType<typeof answerBlocks>, label: string): Promise<void> => {
+      if (!background) {
+        await client.chat.update({ channel, ts, text, blocks });
+        return;
+      }
+      // Empty blocks → omit the field entirely; postMessage with blocks:[] renders a blank
+      // message instead of falling back to `text` (the error paths pass no blocks).
+      await client.chat.postMessage({ channel, thread_ts: threadTs, text, blocks: blocks.length ? blocks : undefined });
+      await client.chat
+        .update({
+          channel,
+          ts,
+          text: label,
+          blocks: backgroundDoneBlocks(label, { steps: steps.length, elapsedMs: Date.now() - start }),
+        })
+        .catch(() => {});
+    };
     const turnQs = new Set<string>(); // questionIds this turn opened (for cleanup on settle)
 
     // Mark this turn in flight so a restart can reattach and finalize THIS status message
@@ -707,17 +759,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
             },
             ac.signal,
             makeOnQuestion(client, channel, threadTs, ac.signal, (qid) => turnQs.add(qid)),
-            // Soft deadline reached: the turn continues to the hard cap — tell the user
-            // instead of erroring out (the status message keeps streaming steps meanwhile).
-            () => {
-              const msg =
-                '⏳ *Still working* — this is taking longer than usual. ' +
-                "I'll keep going in the background and post the result in this thread when it's ready " +
-                '(✖ Cancel on the working message still stops me).';
-              void client.chat
-                .postMessage({ channel, thread_ts: threadTs, text: fallbackText(msg), blocks: answerBlocks(msg) })
-                .catch((e) => log.error(`long-running notice ${key}: ${e instanceof Error ? e.message : String(e)}`));
-            },
+            // Soft deadline reached: the turn continues to the hard cap — flip the working
+            // message to the background card instead of erroring out. No extra thread
+            // notice: the card says it, and the answer itself will arrive as a new message.
+            goBackground,
           ),
       );
       persist(key, project.slug, chat);
@@ -766,7 +811,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         ytReport: inv?.id,
         ytDraft: opts?.ytDraftFor ? { ticket: opts.ytDraftFor, draftId: turnId } : undefined,
       });
-      await client.chat.update({ channel, ts, text, blocks });
+      await deliver(text, blocks, '✅ Done — answer posted below');
       // Latch the flag the first turn whose answer carries a PR URL — the session panel
       // shows whether this thread has produced a PR.
       if (!store.getChat(key)?.prCreated && prUrls(capped).length)
@@ -781,10 +826,13 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       finished = true;
       outcome = ac.signal.aborted ? 'canceled' : 'error';
       if (ac.signal.aborted) {
+        // Cancel always lands in place: the user just clicked ✖ on this very message.
         await client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] });
         await clearEyes();
       } else {
-        await client.chat.update({ channel, ts, text: errText(err), blocks: [] });
+        // A failure after the turn went background needs the same ping the answer gets —
+        // an hour-old message rewriting itself to an error notifies nobody.
+        await deliver(errText(err), [], '⚠️ Failed — details below');
         if (msgTs) {
           await react(client, channel, msgTs, 'eyes', 'remove');
           await react(client, channel, msgTs, 'x', 'add');
@@ -862,26 +910,45 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
             })
             .catch(() => {});
           const cs = await sessionFor(chat.threadTs, project);
+          // Recovered turns get the live path's treatment at the soft deadline: the status
+          // message goes static ("in the background") and the result arrives as a new thread
+          // message. No buttons here — the recovered turn has no AbortController to cancel
+          // and its step trail died with the old process, so the card is text only.
+          let background = false;
           const r = await cs.adoptInflight(undefined, () => {
-            // Same soft-deadline notice as the live path — the recovered turn keeps
-            // running to the hard cap rather than dying at the soft limit.
+            background = true;
             void client.chat
-              .postMessage({
+              .update({
                 channel: inf.channel,
-                thread_ts: inf.msgThreadTs,
-                text: "⏳ Still working on the recovered turn — I'll post the result here when it's ready.",
+                ts: inf.statusTs,
+                text:
+                  '🌙 *Working in the background* — the recovered turn is taking longer than usual. ' +
+                  "I'll post the result in this thread as a new message when it's done.",
+                blocks: [],
               })
               .catch(() => {});
           });
           persist(chat.threadTs, project.slug, cs);
           if (r.ok) {
             const capped = r.text.slice(0, MAX_SLACK_TEXT) || '(no output)';
-            await client.chat.update({
-              channel: inf.channel,
-              ts: inf.statusTs,
-              text: fallbackText(capped),
-              blocks: answerBlocks(capped),
-            });
+            if (background) {
+              await client.chat.postMessage({
+                channel: inf.channel,
+                thread_ts: inf.msgThreadTs,
+                text: fallbackText(capped),
+                blocks: answerBlocks(capped),
+              });
+              await client.chat
+                .update({ channel: inf.channel, ts: inf.statusTs, text: '✅ Done — answer posted below', blocks: [] })
+                .catch(() => {});
+            } else {
+              await client.chat.update({
+                channel: inf.channel,
+                ts: inf.statusTs,
+                text: fallbackText(capped),
+                blocks: answerBlocks(capped),
+              });
+            }
             // A recovered turn may have opened the PR — latch so the session panel reflects it.
             if (!chat.prCreated && prUrls(capped).length)
               store.patchChat(chat.threadTs, project.slug, { prCreated: true });
