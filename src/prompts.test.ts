@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseEffort, reviewPrompt, reportDraftPrompt, reportDeliveryContract } from './prompts.js';
+import {
+  parseEffort,
+  reviewPrompt,
+  reportDraftPrompt,
+  reportDeliveryContract,
+  investigationPrompt,
+} from './prompts.js';
 
 test('parseEffort — accepts low/med/medium/high (case-insensitive), rejects the rest', () => {
   assert.equal(parseEffort('low'), 'low');
@@ -48,4 +54,29 @@ test('report prompt split — delivery rules live ONLY in the contract, not the 
   assert.match(draft, /SUPPORT TEAM/);
   assert.doesNotMatch(draft, /verbatim/i);
   assert.doesNotMatch(draft, /2500/);
+});
+
+const ticket = {
+  id: 'CB-198',
+  summary: 'ÖV Ticket: Datum stimmt nicht',
+  description: 'Das Datum ist falsch.',
+  comments: '',
+};
+
+test('investigationPrompt: the ticket language is the default reader language', () => {
+  const p = investigationPrompt(ticket, '');
+  assert.match(p, /in the language the ticket is written in/);
+  assert.match(p, /one short line in the ticket's language/);
+  assert.doesNotMatch(p, /flagged for AI review by/); // unknown tagger → no attribution
+});
+
+test("investigationPrompt: an englishTaggers flag overrides the ticket's language, both places", () => {
+  const p = investigationPrompt(ticket, '<@U1>', { flaggedBy: 'Owen', replyLanguage: 'English' });
+  assert.match(p, /flagged for AI review by Owen/);
+  assert.match(p, /in English — ALWAYS English, whatever language the ticket itself is written in/);
+  assert.match(p, /one short line in English/);
+  // the ticket-language instruction must be GONE, not merely supplemented — a leftover
+  // "answer in the ticket's language" fights the override and the model picks one at random.
+  assert.doesNotMatch(p, /language the ticket is written in/);
+  assert.doesNotMatch(p, /ticket's language/);
 });

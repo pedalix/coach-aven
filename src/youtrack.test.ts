@@ -10,6 +10,9 @@ import {
   linkTypeLabel,
   mapIssue,
   headerExtras,
+  pickTagApplier,
+  taggerMatches,
+  applierName,
   type YouTrackIssue,
 } from './youtrack.js';
 
@@ -164,4 +167,60 @@ test('commentUrl: deep-links the comment on the issue', () => {
     commentUrl('https://acmeyt.youtrack.cloud/', 'CG-50', '4-321'),
     'https://acmeyt.youtrack.cloud/issue/CG-50#focus=Comments-4-321.0-0',
   );
+});
+
+// Shape mirrors a real TagsCategory activity stream (verified against acmeyt.youtrack.cloud).
+const tagAct = (login: string, added: string[], timestamp: number, removed: string[] = []) => ({
+  timestamp,
+  author: { login, fullName: login === 'Owen' ? 'Owen' : 'Carla Bowman', email: `${login.toLowerCase()}@example.ch` },
+  added: added.map((name) => ({ name })),
+  removed: removed.map((name) => ({ name })),
+});
+
+test('pickTagApplier: finds who added the trigger tag, ignoring other tags and removals', () => {
+  const stream = [
+    tagAct('Carla', ['Critical'], 1_000),
+    tagAct('Owen', ['ai-auto-review'], 2_000),
+    tagAct('Carla', [], 3_000, ['Critical']),
+  ];
+  assert.equal(pickTagApplier(stream, 'ai-auto-review')?.login, 'Owen');
+  // case/whitespace-insensitive on the label, so YOUTRACK_LABEL casing can't break it
+  assert.equal(pickTagApplier(stream, ' AI-Auto-Review ')?.login, 'Owen');
+  // a tag nobody added, and an empty stream → undefined (caller falls back to the default path)
+  assert.equal(pickTagApplier(stream, 'nope'), undefined);
+  assert.equal(pickTagApplier([], 'ai-auto-review'), undefined);
+});
+
+test('pickTagApplier: re-added tag resolves to the LATEST adder, whatever the stream order', () => {
+  const stream = [
+    tagAct('Owen', ['ai-auto-review'], 5_000), // out of order on purpose — we sort by timestamp
+    tagAct('Carla', ['ai-auto-review'], 1_000),
+    tagAct('Carla', [], 2_000, ['ai-auto-review']),
+  ];
+  assert.equal(pickTagApplier(stream, 'ai-auto-review')?.login, 'Owen');
+});
+
+test('pickTagApplier: an authorless entry yields undefined, missing name fields blank out', () => {
+  assert.equal(pickTagApplier([{ timestamp: 1, added: [{ name: 'ai-auto-review' }] }], 'ai-auto-review'), undefined);
+  assert.deepEqual(
+    pickTagApplier([{ timestamp: 1, author: { login: 'Owen' }, added: [{ name: 'ai-auto-review' }] }], 'ai-auto-review'),
+    { login: 'Owen', fullName: '', email: '' },
+  );
+});
+
+test('taggerMatches: matches login OR email, case-insensitively; empty list = feature off', () => {
+  const owen = { login: 'Owen', fullName: 'Owen', email: 'owen@example.com' };
+  assert.equal(taggerMatches(owen, ['owen']), true); // login, lowercased
+  assert.equal(taggerMatches(owen, [' OWEN@example.com ']), true); // email, padded + uppercased
+  assert.equal(taggerMatches(owen, ['Carla@example.com', 'Owen']), true);
+  assert.equal(taggerMatches(owen, ['Carla@example.com']), false);
+  assert.equal(taggerMatches(owen, []), false);
+  assert.equal(taggerMatches(owen, ['']), false); // a stray comma in the env var must not match all
+  assert.equal(taggerMatches(undefined, ['owen']), false); // unknown tagger → default path
+});
+
+test('applierName: prefers the full name, falls back to login then email', () => {
+  assert.equal(applierName({ login: 'Owen', fullName: 'Owen Hale', email: 'i@x.ch' }), 'Owen Hale');
+  assert.equal(applierName({ login: 'Owen', fullName: '', email: 'i@x.ch' }), 'Owen');
+  assert.equal(applierName({ login: '', fullName: '', email: 'i@x.ch' }), 'i@x.ch');
 });

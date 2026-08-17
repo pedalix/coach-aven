@@ -41,6 +41,15 @@ export interface YouTrackComment {
   text: string;
 }
 
+// Who put the trigger tag on a ticket. The tag itself carries no author — only the issue's
+// ACTIVITY STREAM does — so this comes from a separate read (tagApplier). Used to treat a
+// teammate's manual flag differently from a support agent's: see `taggerMatches`.
+export interface TagApplier {
+  login: string;
+  fullName: string;
+  email: string;
+}
+
 // Shape of a YouTrack issue as returned by the REST API with our `fields` selector.
 interface RawIssue {
   idReadable?: string;
@@ -184,6 +193,68 @@ export async function listComments(cfg: Config, id: string): Promise<YouTrackCom
       }));
   } catch {
     return [];
+  }
+}
+
+// One entry of the issue's TagsCategory activity stream (a tag added or removed, by whom).
+interface RawTagActivity {
+  timestamp?: number; // epoch ms
+  author?: { login?: string; fullName?: string; email?: string };
+  added?: Array<{ name?: string }>;
+  removed?: Array<{ name?: string }>;
+}
+
+// Who most recently ADDED `label`. Pure so the pick is unit-tested. YouTrack returns the
+// stream oldest-first, but we sort by timestamp anyway rather than trust the order: a tag
+// that was added, removed and re-added must resolve to the LATEST adder (that's the person
+// whose flag we're acting on now). undefined when nothing in the stream added the tag —
+// e.g. it predates the activity retention, or the token can't read activities.
+export function pickTagApplier(activities: RawTagActivity[], label: string): TagApplier | undefined {
+  const want = label.trim().toLowerCase();
+  const adds = activities
+    .filter((a) => (a.added ?? []).some((t) => (t.name ?? '').trim().toLowerCase() === want))
+    .sort((x, y) => (x.timestamp ?? 0) - (y.timestamp ?? 0));
+  const last = adds[adds.length - 1];
+  if (!last?.author) return undefined;
+  return {
+    login: last.author.login ?? '',
+    fullName: last.author.fullName ?? '',
+    email: last.author.email ?? '',
+  };
+}
+
+// Does the tagger appear in a configured list of logins/emails? Case- and whitespace-
+// insensitive, and matches EITHER identifier so config can use whichever is stable (login
+// "Owen" or "owen@example.com"). Empty list → false, i.e. the feature is off by default.
+export function taggerMatches(applier: TagApplier | undefined, list: string[]): boolean {
+  if (!applier || list.length === 0) return false;
+  const ids = new Set([applier.login, applier.email].map((s) => s.trim().toLowerCase()).filter(Boolean));
+  return list.some((entry) => {
+    const e = entry.trim().toLowerCase();
+    return !!e && ids.has(e);
+  });
+}
+
+// Best human name for a tagger — full name if the instance has one, else the login/email.
+export function applierName(applier: TagApplier): string {
+  return applier.fullName || applier.login || applier.email;
+}
+
+// Read the issue's tag activity to find who applied the trigger tag. One extra REST call per
+// ticket we're about to investigate (not per poll tick), so the cost is negligible.
+// undefined on any failure — callers must treat "unknown tagger" as the default path.
+export async function tagApplier(cfg: Config, id: string, label: string): Promise<TagApplier | undefined> {
+  const yt = cfg.youtrack;
+  if (!yt) return undefined;
+  try {
+    const arr = (await ytGet(
+      yt,
+      `/issues/${encodeURIComponent(id)}/activities?categories=TagsCategory` +
+        `&fields=timestamp,author(login,fullName,email),added(name),removed(name)&$top=100`,
+    )) as RawTagActivity[];
+    return pickTagApplier(Array.isArray(arr) ? arr : [], label);
+  } catch {
+    return undefined;
   }
 }
 

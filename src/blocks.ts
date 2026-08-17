@@ -415,7 +415,14 @@ export function questionBlocks(
 // about. Longer descriptions are cut with a link to the full ticket.
 const TICKET_EXCERPT = 600;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-export function ticketCardBlocks(t: YouTrackIssue, ticketUrl: string, attachmentNames: string[]): any[] {
+export function ticketCardBlocks(
+  t: YouTrackIssue,
+  ticketUrl: string,
+  attachmentNames: string[],
+  // Who applied the trigger tag, when we could read it — transparency about what started this
+  // (and, for an englishTaggers match, why the writeup came back in English).
+  flaggedBy?: string,
+): any[] {
   const desc = t.description.trim();
   const excerpt =
     desc.length > TICKET_EXCERPT
@@ -424,6 +431,7 @@ export function ticketCardBlocks(t: YouTrackIssue, ticketUrl: string, attachment
   const meta = [
     t.reporter ? `👤 ${t.reporter}` : '',
     t.createdAt ? `created ${t.createdAt.slice(0, 10)}` : '',
+    flaggedBy ? `🏷 flagged by ${flaggedBy}` : '',
     ...t.fields.map((f) => `${f.name}: ${f.value}`),
   ]
     .filter(Boolean)
@@ -774,7 +782,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           "• *Long tasks* — if a task runs long I won't cut it off: I post a *⏳ Still working* note and keep going, and the answer lands in the thread when it's done (✖ Cancel still stops me anytime).\n" +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically _(managed from the project's owner workspace)_.\n` +
           `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).\n` +
-          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context) or ask me there to implement the fix and open a pull request, or hit *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above).',
+          '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context) or ask me there to implement the fix and open a pull request, or hit *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above). The card shows *who* flagged the ticket, and the writeup follows the ticket\'s own language so support can relay it — except when one of the team\'s own accounts applies the tag, which gets you the answer in English.',
       },
     },
     {

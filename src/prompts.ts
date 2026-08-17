@@ -77,8 +77,21 @@ export interface InvestigationTicket {
   fields?: { name: string; value: string }[];
   links?: { type: string; id: string; summary: string; resolved: boolean }[];
 }
-export function investigationPrompt(ticket: InvestigationTicket, mentions: string): string {
+// `flaggedBy` / `replyLanguage` come from WHO applied the trigger tag (youtrack.ts
+// tagApplier): a support agent's flag gets an answer in the ticket's own language, because it
+// is relayed to the customer; a teammate on the englishTaggers list gets English, because the
+// reader is us. Both default to the original behaviour when the tagger is unknown.
+export function investigationPrompt(
+  ticket: InvestigationTicket,
+  mentions: string,
+  opts: { flaggedBy?: string; replyLanguage?: string } = {},
+): string {
   const ping = mentions ? `\n\nWhen done, @-mention ${mentions} so they see the findings.` : '';
+  const lang = opts.replyLanguage;
+  const writeupLang = lang
+    ? `in ${lang} — ALWAYS ${lang}, whatever language the ticket itself is written in`
+    : `in the language the ticket is written in (a German ticket gets a German answer)`;
+  const closingLang = lang ? `in ${lang}` : `in the ticket's language`;
   const meta = [
     ticket.reporter ? `reported by ${ticket.reporter}` : '',
     ticket.createdAt ? `created ${ticket.createdAt.slice(0, 10)}` : '',
@@ -90,7 +103,7 @@ export function investigationPrompt(ticket: InvestigationTicket, mentions: strin
     .map((l) => `- ${l.type} ${l.id} — ${l.summary}${l.resolved ? ' (RESOLVED)' : ' (open)'}`)
     .join('\n');
   return [
-    `[Read-only support investigation] This YouTrack ticket was flagged for AI review. Investigate it and EXPLAIN what's going on, then PROPOSE a solution or next step. Do NOT modify code, create branches, commit, or open PRs — analysis only.`,
+    `[Read-only support investigation] This YouTrack ticket was flagged for AI review${opts.flaggedBy ? ` by ${opts.flaggedBy}` : ''}. Investigate it and EXPLAIN what's going on, then PROPOSE a solution or next step. Do NOT modify code, create branches, commit, or open PRs — analysis only.`,
     '',
     `Ticket ${ticket.id}: ${ticket.summary}${meta ? `\n(${meta})` : ''}`,
     ...(fields ? ['', `Fields: ${fields}`] : []),
@@ -109,12 +122,12 @@ export function investigationPrompt(ticket: InvestigationTicket, mentions: strin
       : []),
     `- If YouTrack MCP tools are available (search_issues / get_issue / get_comments), search for similar tickets — especially already-resolved ones — before concluding, and cite any you find.`,
     `- FACTS ONLY: every claim in your writeup must be backed by something you actually saw — a log line, a code path you read, a metric, a resolved similar ticket. Never present a hypothesis as a finding; when the evidence is missing, say plainly that you don't know and name exactly what data would settle it.`,
-    `- Post ONE concise writeup, in the language the ticket is written in (a German ticket gets a German answer). Your reader is a SUPPORT AGENT, not a developer: plain everyday language throughout — no file paths, class names, queries, or stack traces in the writeup. Shape it EXACTLY like this:`,
+    `- Post ONE concise writeup, ${writeupLang}. Your reader is a SUPPORT AGENT, not a developer: plain everyday language throughout — no file paths, class names, queries, or stack traces in the writeup. Shape it EXACTLY like this:`,
     `  1. *What's going on* — 2–3 sentences the support agent could relay to the affected user: what breaks, for whom, how badly, and the most likely cause in everyday words.`,
     `  2. *What I checked* — short bullets naming each source in plain words (the application's error logs, the booking code, similar past tickets, the attached screenshots) and the key thing each showed.`,
     `  3. *How sure I am* — a confidence score (High / Medium / Low) with a 1–2 sentence justification that cites your strongest concrete evidence; missing data lowers the score, and you say what's missing.`,
     `  4. *Suggested next step* — the concrete action, in plain words: what support should tell the user, and/or what to hand to a developer.`,
-    `- Do NOT include a technical deep-dive section. Close with exactly one short line in the ticket's language meaning: "If you want any technical details, just shoot." — the reply thread keeps your full context, so you can provide them on request.${ping}`,
+    `- Do NOT include a technical deep-dive section. Close with exactly one short line ${closingLang} meaning: "If you want any technical details, just shoot." — the reply thread keeps your full context, so you can provide them on request.${ping}`,
   ].join('\n');
 }
 
