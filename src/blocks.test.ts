@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   answerBlocks,
   statusBlocks,
+  backgroundBlocks,
+  backgroundDoneBlocks,
   ticketCardBlocks,
   ticketModalView,
   trailModalView,
@@ -75,6 +77,21 @@ test('statusBlocks: carries Show steps + Cancel, both with the turnId', () => {
       ['cancel_turn', 't9'],
     ],
   );
+});
+
+test('backgroundBlocks: same two live buttons as the status message, no ticking clock', () => {
+  const blocks = backgroundBlocks('t9', 16 * 60_000);
+  assert.deepEqual(actionIds(blocks), ['show_trail', 'cancel_turn']);
+  const body = blocks[0].text.text;
+  assert.match(body, /Working in the background/);
+  assert.match(body, /16m00s/); // one frozen elapsed reading — nothing rewrites it after this
+  assert.match(body, /new message/); // the promise the delivery path keeps
+});
+
+test('backgroundDoneBlocks: collapses to a pointer line, buttons gone', () => {
+  const blocks = backgroundDoneBlocks('✅ Done — answer posted below', { steps: 198, elapsedMs: 24 * 60_000 });
+  assert.deepEqual(actionIds(blocks), []);
+  assert.equal(blocks[0].elements[0].text, '✅ Done — answer posted below · 🧭 198 steps · 24m00s');
 });
 
 // ── "⚙️ Session" panel ───────────────────────────────────────────────────────
