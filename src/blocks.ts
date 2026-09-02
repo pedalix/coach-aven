@@ -8,6 +8,7 @@ import type { ProjectConfig, ProjectsRegistry } from './projects.js';
 import type { AskQuestion } from './claudeSession.js';
 import type { YouTrackIssue, YouTrackComment } from './youtrack.js';
 import { prUrls, mdToMrkdwn, fmtElapsed } from './format.js';
+import { BAD_REASONS } from './feedback.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
 
@@ -91,11 +92,24 @@ export interface AnswerOpts {
   trail?: TrailMeta;
   ytReport?: string;
   ytDraft?: { ticket: string; draftId: string };
+  // Present on the messages a person is allowed to rate: a turn's answer, and any
+  // background update belonging to it. Everything else a turn posts (status card, skip
+  // notices, agent questions, ticket drafts) deliberately carries no rating control, so a
+  // person has exactly one verdict to give per turn — see feedback.ts.
+  rate?: RateMeta;
+}
+
+// What a rating click has to carry back: the turn it judges, plus the project and
+// conversation key the record is attributed to. Rides in the button value as JSON.
+export interface RateMeta {
+  turnId: string;
+  slug: string;
+  key: string;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
 export function answerBlocks(answer: string, opts: AnswerOpts = {}): any[] {
-  const { followUp, trail, ytReport, ytDraft } = opts;
+  const { followUp, trail, ytReport, ytDraft, rate } = opts;
   const blocks = markdownBlocks(answer);
   if (ytDraft) {
     // Draft mode: the whole message IS the proposed ticket comment. One button, one job.
@@ -171,8 +185,70 @@ export function answerBlocks(answer: string, opts: AnswerOpts = {}): any[] {
       value: JSON.stringify({ key: followUp.key, channel: followUp.channel, threadTs: followUp.threadTs }),
     });
   }
+  if (rate) {
+    // Last in the row: rating is a quiet afterthought next to the actions that DO something.
+    // Both buttons write a verdict on click; the thumbs-down additionally opens the reason
+    // modal, so an abandoned modal still leaves the signal behind.
+    const value = JSON.stringify({ t: rate.turnId, s: rate.slug, k: rate.key });
+    actions.push(
+      { type: 'button', text: { type: 'plain_text', text: '\u{1F44D} Helped' }, action_id: 'fb_good', value },
+      { type: 'button', text: { type: 'plain_text', text: '\u{1F44E} Missed' }, action_id: 'fb_bad', value },
+    );
+  }
   if (actions.length) blocks.push({ type: 'actions', elements: actions });
   return blocks;
+}
+
+// The thumbs-down follow-up. A radio group, not a select: the six causes are the point —
+// showing them all teaches what we can actually act on, where a dropdown hides them and
+// biases every answer toward the first option. The note is optional and prompted with a
+// concrete example, because "bad" without a specific is not actionable.
+export const FB_CALLBACK = 'fb_reason_modal';
+export const FB_REASON = { block: 'fb_reason', action: 'reason' } as const;
+export const FB_NOTE = { block: 'fb_note', action: 'note' } as const;
+export function feedbackModalView(
+  meta: { turnId: string; slug: string; key: string; channel?: string; ts?: string },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view object
+): any {
+  return {
+    type: 'modal',
+    callback_id: FB_CALLBACK,
+    private_metadata: JSON.stringify({ t: meta.turnId, s: meta.slug, k: meta.key, c: meta.channel, ts: meta.ts }),
+    title: { type: 'plain_text', text: 'What went wrong?' },
+    submit: { type: 'plain_text', text: 'Send' },
+    close: { type: 'plain_text', text: 'Skip' },
+    blocks: [
+      {
+        type: 'input',
+        block_id: FB_REASON.block,
+        label: { type: 'plain_text', text: 'Closest cause' },
+        element: {
+          type: 'radio_buttons',
+          action_id: FB_REASON.action,
+          options: BAD_REASONS.map((r) => ({ text: { type: 'plain_text', text: r.label }, value: r.value })),
+        },
+      },
+      {
+        type: 'input',
+        block_id: FB_NOTE.block,
+        optional: true,
+        label: { type: 'plain_text', text: 'What would a good answer have looked like?' },
+        element: {
+          type: 'plain_text_input',
+          action_id: FB_NOTE.action,
+          multiline: true,
+          placeholder: {
+            type: 'plain_text',
+            text: 'e.g. it said a deploy caused it but never said which one, so I could not check',
+          },
+        },
+      },
+      {
+        type: 'context',
+        elements: [{ type: 'mrkdwn', text: 'Recorded against this answer only \u2014 nothing is posted in the thread.' }],
+      },
+    ],
+  };
 }
 
 // Reassemble an answer's full text from its Slack message blocks (the markdown chunks laid
@@ -832,7 +908,8 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           `• *Sandbox upkeep* — \`${CMD} housekeeping on\`/\`off\` schedules (or pauses) the nightly janitor (dockerd guard, docker prune when disk runs high, stale-worktree reap); \`${CMD} housekeeping\` for the last run, \`${CMD} housekeeping now\` to run it once.\n` +
           `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.\n` +
           '• *Check or restart a thread* — hit *⚙️ Session* on any finished answer for a private status card (session, repos/tools, running turn, PR) and a *🔄 Restart session* control if you want the next message to start a brand-new conversation.\n' +
-          `• *Usage* — \`${CMD} usage [days]\` for token/cost/turn totals per project (last 30d by default). _(Operators' home workspace only.)_\n` +
+          '• *Tell me if it landed* — every answer carries *👍 Helped* / *👎 Missed*. One click is enough; a thumbs-down asks what went wrong in a short pop-up. Nothing is posted in the thread and you can change your mind any time.\n' +
+          `• *Usage* — \`${CMD} usage [days]\` for token/cost/turn totals per project, plus how many answers people rated as helpful and what those cost (last 30d by default). _(Operators' home workspace only.)_\n` +
           `• *Who may drive me* — \`${CMD} users\` shows this workspace's access (everyone, by default); admins can \`restrict\` to an allowlist and manage it with \`allow @user\` / \`deny @user\` / \`open\`.\n` +
           `• *Reload config* — \`${CMD} reload\` re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions. _(Operators' home workspace only.)_`,
       },

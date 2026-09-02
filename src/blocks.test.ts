@@ -12,6 +12,8 @@ import {
   reportModalView,
   reportPromptModalView,
   reportPostedBlocks,
+  feedbackModalView,
+  FB_REASON,
   homeBlocks,
   onboardingHomeBlocks,
   sessionPanelBlocks,
@@ -44,6 +46,37 @@ test('answerBlocks: no PR URL → no PR button of any kind (Open a PR is gone by
 
 test('answerBlocks: a PR URL in the message shows "View PR"', () => {
   assert.deepEqual(actionIds(answerBlocks(PR, { followUp })), ['pr_link:0', 'session_panel']);
+});
+
+test('answerBlocks: rating buttons appear only where a verdict is allowed', () => {
+  const rate = { turnId: 'tabc123-1', slug: 'caldora', key: 'thread:1.2' };
+  // The answer of a turn: rateable.
+  assert.deepEqual(actionIds(answerBlocks('the answer', { followUp, rate })), ['session_panel', 'fb_good', 'fb_bad']);
+  // A background update carries no followUp but is still the turn's last word.
+  assert.deepEqual(actionIds(answerBlocks('background update', { rate })), ['fb_good', 'fb_bad']);
+  // Everything else a turn posts stays unrateable, so one turn yields one verdict.
+  assert.deepEqual(actionIds(answerBlocks('the answer', { followUp })), ['session_panel']);
+});
+
+test('answerBlocks: a rating button carries the turn, project and conversation key', () => {
+  const rate = { turnId: 'tabc123-1', slug: 'caldora', key: 'thread:1.2' };
+  const row = answerBlocks('the answer', { rate }).find((b) => b.type === 'actions');
+  const good = row.elements.find((e: { action_id: string }) => e.action_id === 'fb_good');
+  assert.deepEqual(JSON.parse(good.value), { t: 'tabc123-1', s: 'caldora', k: 'thread:1.2' });
+});
+
+test('answerBlocks: a ticket draft offers Edit & send only — never a rating', () => {
+  const ids = actionIds(answerBlocks('draft text', { followUp, rate: { turnId: 'tabc123-1', slug: 'c', key: 'k' }, ytDraft: { ticket: 'CG-1', draftId: 'tabc123-1' } }));
+  assert.deepEqual(ids, ['yt_edit_send']);
+});
+
+test('feedbackModalView: radio options match the published taxonomy and carry the turn', () => {
+  const view = feedbackModalView({ turnId: 'tabc123-1', slug: 'caldora', key: 'thread:1.2', channel: 'C1', ts: '1.1' });
+  assert.deepEqual(JSON.parse(view.private_metadata), { t: 'tabc123-1', s: 'caldora', k: 'thread:1.2', c: 'C1', ts: '1.1' });
+  const radio = view.blocks.find((b: { block_id?: string }) => b.block_id === FB_REASON.block).element;
+  assert.equal(radio.type, 'radio_buttons'); // a group, not a select — the causes stay visible
+  assert.equal(radio.options.length, 6);
+  for (const o of radio.options) assert.ok(o.text.text.length <= 75, 'plain_text option over Slack cap');
 });
 
 test('answerBlocks: no followUp (DM/aven path) → no action row at all', () => {

@@ -7,6 +7,8 @@ queue.jsonl
 drafts/
 # per-month usage metering (token/cost attribution — see docs/multitenancy.md §7):
 usage/
+# per-month answer feedback (the value side of the same metering — see feedback.ts):
+feedback/
 .release
 projects.config.json
 # local-dev per-project prompt files (prod's live in infra/prod/runtime/projects.d/):

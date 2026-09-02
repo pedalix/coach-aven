@@ -176,6 +176,7 @@ cmd_deploy() {
     --exclude='./projects.config.json' \
     --exclude='./state.json' \
     --exclude='./memory' \
+    --exclude='./feedback' \
     --exclude='./.release' \
     --exclude='./infra/prod/.env' \
     --exclude='./infra/prod/runtime' \

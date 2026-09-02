@@ -24,6 +24,10 @@ import type { TurnUsage } from './claudeSession.js';
 export interface UsageRecord {
   at: string; // ISO timestamp of turn settle
   key: string; // conversation key (carries the team once slice-2 re-keying lands)
+  // The turn's own id (`t<boot36>-<seq>`), the join key answer feedback uses to attach a
+  // verdict to what that answer cost (feedback.ts). Optional: records written before this
+  // field existed simply carry no id and join to nothing.
+  turnId?: string;
   slug: string; // project
   kind: 'turn' | 'ask'; // live turn vs no-UI ask (dreams, /aven Q&A)
   status: 'ok' | 'error' | 'canceled';
