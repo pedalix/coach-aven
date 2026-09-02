@@ -207,13 +207,22 @@ export const FB_CALLBACK = 'fb_reason_modal';
 export const FB_REASON = { block: 'fb_reason', action: 'reason' } as const;
 export const FB_NOTE = { block: 'fb_note', action: 'note' } as const;
 export function feedbackModalView(
-  meta: { turnId: string; slug: string; key: string; channel?: string; ts?: string },
+  meta: { turnId: string; slug: string; key: string; channel?: string; ts?: string; threadTs?: string },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view object
 ): any {
   return {
     type: 'modal',
     callback_id: FB_CALLBACK,
-    private_metadata: JSON.stringify({ t: meta.turnId, s: meta.slug, k: meta.key, c: meta.channel, ts: meta.ts }),
+    // `th` carries the thread so the submission's confirmation lands in the thread rather
+    // than the channel — chat.postEphemeral needs it and the view payload has no message.
+    private_metadata: JSON.stringify({
+      t: meta.turnId,
+      s: meta.slug,
+      k: meta.key,
+      c: meta.channel,
+      ts: meta.ts,
+      th: meta.threadTs,
+    }),
     title: { type: 'plain_text', text: 'What went wrong?' },
     submit: { type: 'plain_text', text: 'Send' },
     close: { type: 'plain_text', text: 'Skip' },
@@ -233,15 +242,24 @@ export function feedbackModalView(
         block_id: FB_NOTE.block,
         optional: true,
         label: { type: 'plain_text', text: 'What would a good answer have looked like?' },
-        element: {
-          type: 'plain_text_input',
-          action_id: FB_NOTE.action,
-          multiline: true,
-          placeholder: {
-            type: 'plain_text',
-            text: 'e.g. it said a deploy caused it but never said which one, so I could not check',
+        element: { type: 'plain_text_input', action_id: FB_NOTE.action, multiline: true },
+      },
+      {
+        // Examples sit UNDER the field as readable lines rather than inside a grey
+        // placeholder that vanishes the moment you start typing — the point is to show what
+        // a specific, actionable note looks like, and a placeholder can't do that while you
+        // write one.
+        type: 'context',
+        elements: [
+          {
+            type: 'mrkdwn',
+            text:
+              '*Useful notes look like:*\n' +
+              '\u2022 "said a deploy caused it but never which one, so I couldn\u2019t check"\n' +
+              '\u2022 "the numbers were for staging, I asked about production"\n' +
+              '\u2022 "correct, but I had to ask three times to get it"',
           },
-        },
+        ],
       },
       {
         type: 'context',

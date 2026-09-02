@@ -168,6 +168,9 @@ export function blockActionEnvelope(
   actionId: string,
   value: string,
   channel = 'C_ANY',
+  // Set for buttons that live on a message INSIDE a thread — handlers read it to place
+  // their ephemeral reply in the thread rather than the channel (see #80).
+  threadTs?: string,
 ): Record<string, unknown> {
   return {
     type: 'block_actions',
@@ -176,7 +179,7 @@ export function blockActionEnvelope(
     api_app_id: 'A0TWIN',
     trigger_id: 'trig.1',
     channel: { id: channel },
-    message: { ts: '1.0' },
+    message: threadTs ? { ts: '1.0', thread_ts: threadTs } : { ts: '1.0' },
     actions: [{ action_id: actionId, value, type: 'button' }],
     response_url: 'http://127.0.0.1:1/noop', // rewritten by TwinReceiver.send to the RecordingApi
   };

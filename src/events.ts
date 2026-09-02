@@ -48,7 +48,7 @@ import {
   YT_PROMPT_INPUT,
   YT_PROMPT_NOW,
 } from './blocks.js';
-import { isBadReason, isTurnId } from './feedback.js';
+import { BAD_REASONS, isBadReason, isTurnId } from './feedback.js';
 import { log } from './log.js';
 
 export interface EventDeps {
@@ -346,10 +346,29 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     });
   };
 
-  app.action('fb_good', async ({ ack, action, body, context, respond }) => {
+  // Confirmations go through chat.postEphemeral, never respond()/response_url: the latter
+  // silently drops thread_ts for ephemeral messages and dumps the note at the bottom of the
+  // CHANNEL instead of the thread the answer lives in (the same bug fixed for the Session
+  // panel in #80).
+  const confirmRating = async (
+    client: bolt.webApi.WebClient,
+    where: { channel?: string; user: string; threadTs?: string },
+    text: string,
+  ): Promise<void> => {
+    if (!where.channel) return;
+    await client.chat
+      .postEphemeral({ channel: where.channel, user: where.user, thread_ts: where.threadTs, text })
+      .catch((e) => log.error(`rating confirm: ${e instanceof Error ? e.message : String(e)}`));
+  };
+
+  app.action('fb_good', async ({ ack, action, body, client, context, respond }) => {
     await ack();
     if (!servedTenant(tenantOf(context))) return; // stale button in an offboarded workspace
-    const b = body as { user?: { id?: string }; channel?: { id?: string }; message?: { ts?: string } };
+    const b = body as {
+      user?: { id?: string };
+      channel?: { id?: string };
+      message?: { ts?: string; thread_ts?: string };
+    };
     const gate = actor(tenantOf(context), b.user?.id);
     if (!gate.ok) {
       await respond({ response_type: 'ephemeral', replace_original: false, text: gate.denial }).catch(() => {});
@@ -358,11 +377,11 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     const m = rateMeta((action as { value?: string }).value ?? '');
     if (!m || !b.user?.id) return;
     writeVerdict(m, b.user.id, 'good', { channel: b.channel?.id, ts: b.message?.ts });
-    await respond({
-      response_type: 'ephemeral',
-      replace_original: false,
-      text: ':white_check_mark: Noted — thanks. Change your mind any time by hitting the other button.',
-    }).catch(() => {});
+    await confirmRating(
+      client,
+      { channel: b.channel?.id, user: b.user.id, threadTs: b.message?.thread_ts },
+      'Recorded as *helped*. Only your own verdict changes when you click again — other people\u2019s stand.',
+    );
   });
 
   app.action('fb_bad', async ({ ack, action, body, client, context, respond }) => {
@@ -371,7 +390,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     const b = body as {
       user?: { id?: string };
       channel?: { id?: string };
-      message?: { ts?: string };
+      message?: { ts?: string; thread_ts?: string };
       trigger_id?: string;
     };
     const gate = actor(tenantOf(context), b.user?.id);
@@ -387,19 +406,26 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     await client.views
       .open({
         trigger_id: b.trigger_id,
-        view: feedbackModalView({ turnId: m.t, slug: m.s, key: m.k, channel: b.channel?.id, ts: b.message?.ts }),
+        view: feedbackModalView({
+          turnId: m.t,
+          slug: m.s,
+          key: m.k,
+          channel: b.channel?.id,
+          ts: b.message?.ts,
+          threadTs: b.message?.thread_ts,
+        }),
       })
       .catch((e) => log.error(`fb_bad modal: ${e instanceof Error ? e.message : String(e)}`));
   });
 
   // Reason + optional note → a SECOND record for the same (turnId, user). It supersedes the
   // bare click by timestamp (feedback.latestPerUser), so nothing has to be mutated in place.
-  app.view(FB_CALLBACK, async ({ ack, view, body, context }) => {
+  app.view(FB_CALLBACK, async ({ ack, view, body, client, context }) => {
     await ack();
     if (!servedTenant(tenantOf(context))) return;
     const user = (body as { user?: { id?: string } }).user?.id;
     if (!user) return;
-    let meta: { t?: string; s?: string; k?: string; c?: string; ts?: string };
+    let meta: { t?: string; s?: string; k?: string; c?: string; ts?: string; th?: string };
     try {
       meta = JSON.parse(view.private_metadata || '{}');
     } catch {
@@ -410,6 +436,13 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     const reason = state[FB_REASON.block]?.[FB_REASON.action]?.selected_option?.value;
     const note = state[FB_NOTE.block]?.[FB_NOTE.action]?.value ?? undefined;
     writeVerdict({ t: meta.t, s: meta.s, k: meta.k }, user, 'bad', { reason, note, channel: meta.c, ts: meta.ts });
+    // The modal path used to end in silence — the one place a person had just done real work.
+    const why = reason ? BAD_REASONS.find((r) => r.value === reason)?.label : undefined;
+    await confirmRating(
+      client,
+      { channel: meta.c, user, threadTs: meta.th },
+      why ? `Recorded as *missed* \u2014 ${why.toLowerCase()}. That detail is the useful part, thanks.` : 'Recorded as *missed*. Thanks.',
+    );
   });
 
   // ── "🔍 Full ticket" button → the whole YouTrack ticket in a modal ──────────
