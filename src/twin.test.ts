@@ -76,6 +76,9 @@ function fakeEngine(store: Store) {
     usageReport: () => '',
     recordFeedback: (rec: FeedbackRecord) => {
       ratings.push(rec);
+      // Same collapse the real engine does: one verdict per user, latest wins.
+      const latest = new Map(ratings.filter((r) => r.turnId === rec.turnId).map((r) => [r.user, r.verdict]));
+      return { good: [...latest.values()].filter((v) => v === 'good').length, bad: [...latest.values()].filter((v) => v === 'bad').length };
     },
   } as unknown as TurnEngine;
   return { engine, turns, restarts, ratings, busyKeys };
@@ -241,21 +244,43 @@ test('twin: "⚙️ Session" posts an ephemeral card INTO the thread (thread_ts 
   }
 });
 
-// ── Answer rating — the confirmation must land in the THREAD, not the channel. respond()
-// silently drops thread_ts for ephemeral messages, which is exactly how this shipped first.
-test('twin: rating an answer confirms INTO the thread (thread_ts set), not the channel', async () => {
+// ── Answer rating — the click's confirmation is the vote count on the message itself. No
+// ephemeral: the first version posted one, and respond() dropped thread_ts so it landed at
+// the bottom of the channel. Only the rating row may change; every other block goes back as
+// the click payload delivered it (Slack has rewritten the answer to rich_text by then).
+test('twin: rating an answer rewrites ONLY the rating labels on that message, nothing else', async () => {
   const t = await twin();
   try {
     const value = JSON.stringify({ t: 'tabc123-1', s: 'beta', k: 'thread:9.2' });
-    await t.receiver.send(blockActionEnvelope(HOME, 'fb_good', value, 'C_SHARED', '9.2'));
-    const calls = t.api.of('chat.postEphemeral');
-    assert.equal(calls.length, 1);
-    const p = calls[0].payload as { channel: string; user: string; thread_ts: string; text: string };
+    const blocks = [
+      { type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: 'the answer' }] }] },
+      { type: 'context', elements: [{ type: 'mrkdwn', text: '🧭 3 steps · 12s' }] },
+      {
+        type: 'actions',
+        elements: [
+          { type: 'button', action_id: 'show_trail', text: { type: 'plain_text', text: '🧭 Show steps' }, value: 'tabc123-1' },
+          { type: 'button', action_id: 'fb_good', text: { type: 'plain_text', text: '👍 Helped' }, value },
+          { type: 'button', action_id: 'fb_bad', text: { type: 'plain_text', text: '👎 Missed' }, value },
+        ],
+      },
+    ];
+    await t.receiver.send({ ...blockActionEnvelope(HOME, 'fb_good', value, 'C_SHARED'), message: { ts: '1.0', blocks } });
+    assert.equal(t.api.of('chat.postEphemeral').length, 0); // no more channel-bottom notes
+    assert.equal(t.api.of('respond').length, 0);
+    const updates = t.api.of('chat.update');
+    assert.equal(updates.length, 1);
+    const p = updates[0].payload as { channel: string; ts: string; blocks: string };
     assert.equal(p.channel, 'C_SHARED');
-    assert.equal(p.user, 'U_HUMAN');
-    assert.equal(p.thread_ts, '9.2'); // the bug: respond() dropped this and posted to the channel
-    assert.match(p.text, /helped/i);
-    assert.equal(t.api.of('respond').length, 0); // never the response_url path for this
+    assert.equal(p.ts, '1.0');
+    const sent = JSON.parse(p.blocks) as typeof blocks; // form-encoded, so a JSON string
+    assert.deepEqual(sent[0], blocks[0]); // the rich_text answer went back untouched
+    assert.deepEqual(sent[1], blocks[1]);
+    const row = (sent[2] as { elements: { action_id: string; text: { text: string } }[] }).elements.map((e) => [e.action_id, e.text.text]);
+    assert.deepEqual(row, [
+      ['show_trail', '🧭 Show steps'], // other buttons untouched
+      ['fb_good', '👍 Helped · 1'], // the click, counted
+      ['fb_bad', '👎 Missed'], // zero stays unlabelled
+    ]);
     assert.equal(t.ratings.length, 1);
     assert.equal(t.ratings[0].verdict, 'good');
     assert.equal(t.ratings[0].turnId, 'tabc123-1');
@@ -265,28 +290,44 @@ test('twin: rating an answer confirms INTO the thread (thread_ts set), not the c
   }
 });
 
-test('twin: a thumbs-down opens the reason modal and still records the verdict on click', async () => {
+test('twin: a thumbs-down records on click, opens the reason modal, then shows the count', async () => {
   const t = await twin();
   try {
     const value = JSON.stringify({ t: 'tabc123-2', s: 'beta', k: 'thread:9.3' });
-    await t.receiver.send(blockActionEnvelope(HOME, 'fb_bad', value, 'C_SHARED', '9.3'));
-    const opens = t.api.of('views.open');
-    assert.equal(opens.length, 1);
-    // The Web API form-encodes `view`, so it arrives as a JSON string, not an object.
-    const view = JSON.parse((opens[0].payload as { view: string }).view) as { private_metadata: string };
-    // The thread rides in private_metadata so the submission can confirm in the right place.
-    assert.deepEqual(JSON.parse(view.private_metadata), {
-      t: 'tabc123-2',
-      s: 'beta',
-      k: 'thread:9.3',
-      c: 'C_SHARED',
-      ts: '1.0',
-      th: '9.3',
-    });
+    const blocks = [
+      {
+        type: 'actions',
+        elements: [
+          { type: 'button', action_id: 'fb_good', text: { type: 'plain_text', text: '👍 Helped' }, value },
+          { type: 'button', action_id: 'fb_bad', text: { type: 'plain_text', text: '👎 Missed' }, value },
+        ],
+      },
+    ];
+    await t.receiver.send({ ...blockActionEnvelope(HOME, 'fb_bad', value, 'C_SHARED'), message: { ts: '1.0', blocks } });
     // The verdict is written on the CLICK — an abandoned modal still leaves the signal.
     assert.equal(t.ratings.length, 1);
     assert.equal(t.ratings[0].verdict, 'bad');
     assert.equal(t.ratings[0].reason, undefined); // the reason only arrives with the submission
+    const opens = t.api.of('views.open');
+    assert.equal(opens.length, 1);
+    const view = JSON.parse((opens[0].payload as { view: string }).view) as { private_metadata: string };
+    assert.deepEqual(JSON.parse(view.private_metadata), { t: 'tabc123-2', s: 'beta', k: 'thread:9.3', c: 'C_SHARED', ts: '1.0' });
+    const updates = t.api.of('chat.update');
+    assert.equal(updates.length, 1);
+    const sent = JSON.parse((updates[0].payload as { blocks: string }).blocks) as typeof blocks;
+    assert.deepEqual(sent[0].elements.map((e) => e.text.text), ['👍 Helped', '👎 Missed · 1']);
+  } finally {
+    await t.stop();
+  }
+});
+
+test('twin: a message without a rating row is never updated (stale or foreign blocks)', async () => {
+  const t = await twin();
+  try {
+    const value = JSON.stringify({ t: 'tabc123-3', s: 'beta', k: 'thread:9.4' });
+    await t.receiver.send(blockActionEnvelope(HOME, 'fb_good', value, 'C_SHARED')); // envelope has no blocks
+    assert.equal(t.ratings.length, 1); // the verdict still lands
+    assert.equal(t.api.of('chat.update').length, 0); // but nothing to rewrite
   } finally {
     await t.stop();
   }

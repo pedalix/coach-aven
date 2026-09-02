@@ -8,7 +8,7 @@ import type { ProjectConfig, ProjectsRegistry } from './projects.js';
 import type { AskQuestion } from './claudeSession.js';
 import type { YouTrackIssue, YouTrackComment } from './youtrack.js';
 import { prUrls, mdToMrkdwn, fmtElapsed } from './format.js';
-import { BAD_REASONS } from './feedback.js';
+import { BAD_REASONS, type Tally } from './feedback.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
 
@@ -189,14 +189,48 @@ export function answerBlocks(answer: string, opts: AnswerOpts = {}): any[] {
     // Last in the row: rating is a quiet afterthought next to the actions that DO something.
     // Both buttons write a verdict on click; the thumbs-down additionally opens the reason
     // modal, so an abandoned modal still leaves the signal behind.
-    const value = JSON.stringify({ t: rate.turnId, s: rate.slug, k: rate.key });
-    actions.push(
-      { type: 'button', text: { type: 'plain_text', text: '\u{1F44D} Helped' }, action_id: 'fb_good', value },
-      { type: 'button', text: { type: 'plain_text', text: '\u{1F44E} Missed' }, action_id: 'fb_bad', value },
-    );
+    actions.push(...ratingButtons(rate));
   }
   if (actions.length) blocks.push({ type: 'actions', elements: actions });
   return blocks;
+}
+
+// The two rating buttons. With a tally the labels carry the per-turn vote count
+// ("👍 Helped · 2") — that count IS the click's confirmation: it changes under the
+// cursor, on the message itself, for everyone. Zero counts stay unlabelled so a fresh
+// answer doesn't advertise "· 0".
+const RATING_LABEL = { fb_good: '\u{1F44D} Helped', fb_bad: '\u{1F44E} Missed' } as const;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack button elements
+export function ratingButtons(rate: RateMeta, tally: Tally = { good: 0, bad: 0 }): any[] {
+  const value = JSON.stringify({ t: rate.turnId, s: rate.slug, k: rate.key });
+  const label = (id: keyof typeof RATING_LABEL, n: number) => (n > 0 ? `${RATING_LABEL[id]} \u00b7 ${n}` : RATING_LABEL[id]);
+  return [
+    { type: 'button', text: { type: 'plain_text', text: label('fb_good', tally.good) }, action_id: 'fb_good', value },
+    { type: 'button', text: { type: 'plain_text', text: label('fb_bad', tally.bad) }, action_id: 'fb_bad', value },
+  ];
+}
+
+// Pure: the clicked message's own blocks with ONLY the rating labels rewritten. Everything
+// else — the answer text (which Slack has by now rewritten from `markdown` to `rich_text`),
+// the context line, the other buttons — passes through exactly as the click payload
+// delivered it, so chat.update re-posts what is already there. Returns undefined when the
+// blocks carry no rating row, so the caller knows not to call chat.update at all.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block payloads
+export function withRatingTally(blocks: any[] | undefined, tally: Tally): any[] | undefined {
+  if (!Array.isArray(blocks)) return undefined;
+  let touched = false;
+  const out = blocks.map((b) => {
+    if (b?.type !== 'actions' || !Array.isArray(b.elements)) return b;
+    const elements = b.elements.map((e: { action_id?: string; text?: { text?: string } }) => {
+      if (e?.action_id !== 'fb_good' && e?.action_id !== 'fb_bad') return e;
+      touched = true;
+      const n = e.action_id === 'fb_good' ? tally.good : tally.bad;
+      const base = RATING_LABEL[e.action_id];
+      return { ...e, text: { type: 'plain_text', text: n > 0 ? `${base} \u00b7 ${n}` : base } };
+    });
+    return { ...b, elements };
+  });
+  return touched ? out : undefined;
 }
 
 // The thumbs-down follow-up. A radio group, not a select: the six causes are the point —
@@ -207,22 +241,13 @@ export const FB_CALLBACK = 'fb_reason_modal';
 export const FB_REASON = { block: 'fb_reason', action: 'reason' } as const;
 export const FB_NOTE = { block: 'fb_note', action: 'note' } as const;
 export function feedbackModalView(
-  meta: { turnId: string; slug: string; key: string; channel?: string; ts?: string; threadTs?: string },
+  meta: { turnId: string; slug: string; key: string; channel?: string; ts?: string },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view object
 ): any {
   return {
     type: 'modal',
     callback_id: FB_CALLBACK,
-    // `th` carries the thread so the submission's confirmation lands in the thread rather
-    // than the channel — chat.postEphemeral needs it and the view payload has no message.
-    private_metadata: JSON.stringify({
-      t: meta.turnId,
-      s: meta.slug,
-      k: meta.key,
-      c: meta.channel,
-      ts: meta.ts,
-      th: meta.threadTs,
-    }),
+    private_metadata: JSON.stringify({ t: meta.turnId, s: meta.slug, k: meta.key, c: meta.channel, ts: meta.ts }),
     title: { type: 'plain_text', text: 'What went wrong?' },
     submit: { type: 'plain_text', text: 'Send' },
     close: { type: 'plain_text', text: 'Skip' },
@@ -926,7 +951,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           `• *Sandbox upkeep* — \`${CMD} housekeeping on\`/\`off\` schedules (or pauses) the nightly janitor (dockerd guard, docker prune when disk runs high, stale-worktree reap); \`${CMD} housekeeping\` for the last run, \`${CMD} housekeeping now\` to run it once.\n` +
           `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.\n` +
           '• *Check or restart a thread* — hit *⚙️ Session* on any finished answer for a private status card (session, repos/tools, running turn, PR) and a *🔄 Restart session* control if you want the next message to start a brand-new conversation.\n' +
-          '• *Tell me if it landed* — every answer carries *👍 Helped* / *👎 Missed*. One click is enough; a thumbs-down asks what went wrong in a short pop-up. Nothing is posted in the thread and you can change your mind any time.\n' +
+          '• *Tell me if it landed* — every answer carries *👍 Helped* / *👎 Missed*. One click is enough; the count on the button updates so you see it registered, and a thumbs-down asks what went wrong in a short pop-up. Nothing is posted in the thread; click the other button to change your mind.\n' +
           `• *Usage* — \`${CMD} usage [days]\` for token/cost/turn totals per project, plus how many answers people rated as helpful and what those cost (last 30d by default). _(Operators' home workspace only.)_\n` +
           `• *Who may drive me* — \`${CMD} users\` shows this workspace's access (everyone, by default); admins can \`restrict\` to an allowlist and manage it with \`allow @user\` / \`deny @user\` / \`open\`.\n` +
           `• *Reload config* — \`${CMD} reload\` re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions. _(Operators' home workspace only.)_`,
