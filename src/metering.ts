@@ -50,6 +50,7 @@ export interface UsageRow {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
+  cacheCreationTokens: number;
   costUsd: number;
 }
 
@@ -61,13 +62,14 @@ export function aggregateUsage(records: UsageRecord[], by: 'slug' | 'team'): Usa
     const group = by === 'team' ? teamOf(r.key) : r.slug;
     const row =
       rows.get(group) ??
-      { group, turns: 0, errors: 0, wallMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, costUsd: 0 };
+      { group, turns: 0, errors: 0, wallMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
     row.turns++;
     if (r.status === 'error') row.errors++;
     row.wallMs += r.elapsedMs;
     row.inputTokens += r.usage?.inputTokens ?? 0;
     row.outputTokens += r.usage?.outputTokens ?? 0;
     row.cacheReadTokens += r.usage?.cacheReadTokens ?? 0;
+    row.cacheCreationTokens += r.usage?.cacheCreationTokens ?? 0;
     row.costUsd += r.usage?.costUsd ?? 0;
     rows.set(group, row);
   }
@@ -96,18 +98,31 @@ const fmtH = (ms: number): string => `${(ms / 3_600_000).toFixed(1)}h`;
 
 // Pure: the /aven usage reply (Slack mrkdwn). Wall-clock is labeled as the sandbox-time
 // proxy it is — real per-sandbox hours need provider-side accounting we don't do yet.
+//
+// Cache traffic is printed on its own, and first: an agentic turn re-reads its whole session
+// context on every tool call, so cache reads are routinely ~95% of a turn's tokens and most
+// of its cost (a real caldora turn: 7k in / 18k out / 1.85M cache read → $1.40). Showing
+// only in/out made "690k tokens for $171" look like a bug when it was the hidden 98%.
 export function usageSummaryText(bySlug: UsageRow[], byTeam: UsageRow[], days: number): string {
   if (bySlug.length === 0) return `No agent turns recorded in the last ${days}d.`;
   const line = (r: UsageRow) =>
     `• *${r.group}* — ${r.turns} turns${r.errors ? ` (${r.errors} errors)` : ''} · ` +
+    `${fmtK(r.cacheReadTokens)} cache read / ${fmtK(r.cacheCreationTokens)} cache write / ` +
     `${fmtK(r.inputTokens)} in / ${fmtK(r.outputTokens)} out tok · ~$${r.costUsd.toFixed(2)} · ${fmtH(r.wallMs)} active`;
   const sum = bySlug.reduce(
-    (a, r) => ({ turns: a.turns + r.turns, cost: a.cost + r.costUsd, wall: a.wall + r.wallMs }),
-    { turns: 0, cost: 0, wall: 0 },
+    (a, r) => ({
+      turns: a.turns + r.turns,
+      cost: a.cost + r.costUsd,
+      wall: a.wall + r.wallMs,
+      cache: a.cache + r.cacheReadTokens,
+      tok: a.tok + r.cacheReadTokens + r.cacheCreationTokens + r.inputTokens + r.outputTokens,
+    }),
+    { turns: 0, cost: 0, wall: 0, cache: 0, tok: 0 },
   );
+  const cachePct = sum.tok ? Math.round((sum.cache / sum.tok) * 100) : 0;
   const parts = [
-    `*Usage — last ${days}d*  (~$ = the CLI's computed token cost; runs on our Max subscription)`,
-    `Total: ${sum.turns} turns · ~$${sum.cost.toFixed(2)} · ${fmtH(sum.wall)} agent-active time`,
+    `*Usage — last ${days}d*  (~$ = API-list-price equivalent computed by the CLI, not a bill — we run on a Max subscription)`,
+    `Total: ${sum.turns} turns · ~$${sum.cost.toFixed(2)} · ${fmtK(sum.tok)} tok, ${cachePct}% of them cache reads · ${fmtH(sum.wall)} agent-active time`,
     '',
     '*By project*',
     ...bySlug.map(line),

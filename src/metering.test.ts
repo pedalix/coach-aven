@@ -54,6 +54,31 @@ test('parseUsageLines — tolerant of torn lines and junk', () => {
   assert.deepEqual(parsed.map((r) => r.slug), ['caldora', 'art']);
 });
 
+test('aggregateUsage — cache write tokens are summed too (they used to vanish)', () => {
+  const rows = aggregateUsage(
+    [
+      rec({ usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 100, cacheCreationTokens: 10, costUsd: 0 } }),
+      rec({ usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 200, cacheCreationTokens: 20, costUsd: 0 } }),
+      rec({ usage: { inputTokens: 1, outputTokens: 1, costUsd: 0 } }), // older CLI shape, no cache fields
+    ],
+    'slug',
+  );
+  assert.equal(rows[0].cacheReadTokens, 300);
+  assert.equal(rows[0].cacheCreationTokens, 30);
+});
+
+test('usageSummaryText — cache traffic is printed, first, and its share of all tokens is stated', () => {
+  // A real caldora turn: cache reads were 98% of tokens and two thirds of the cost.
+  const real = rec({
+    usage: { inputTokens: 7_075, outputTokens: 17_534, cacheReadTokens: 1_849_796, cacheCreationTokens: 92_869, costUsd: 1.397 },
+  });
+  const text = usageSummaryText(aggregateUsage([real], 'slug'), aggregateUsage([real], 'team'), 1);
+  assert.match(text, /1\.8M cache read \/ 93k cache write \/ 7k in \/ 18k out tok/); // cache before in/out
+  assert.match(text, /2\.0M tok, 94% of them cache reads/); // the headline that explains the dollars
+  assert.match(text, /API-list-price equivalent/); // never read as a bill
+  assert.match(text, /not a bill/);
+});
+
 test('usageSummaryText — totals + per-project lines; team cut only when multi-team', () => {
   const bySlug = aggregateUsage([rec(), rec({ slug: 'art', status: 'error' })], 'slug');
   const oneTeam = usageSummaryText(bySlug, aggregateUsage([rec()], 'team'), 7);
