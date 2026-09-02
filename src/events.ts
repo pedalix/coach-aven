@@ -38,12 +38,17 @@ import {
   reportExpiredView,
   reportPromptModalView,
   reportPostedBlocks,
+  feedbackModalView,
+  FB_CALLBACK,
+  FB_REASON,
+  FB_NOTE,
   YT_SEND_CALLBACK,
   YT_SEND_INPUT,
   YT_PROMPT_CALLBACK,
   YT_PROMPT_INPUT,
   YT_PROMPT_NOW,
 } from './blocks.js';
+import { isBadReason, isTurnId } from './feedback.js';
 import { log } from './log.js';
 
 export interface EventDeps {
@@ -303,6 +308,108 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     await client.views
       .open({ trigger_id: trigger, view: trailModalView(t) })
       .catch((e) => log.error(`show_trail: ${e instanceof Error ? e.message : String(e)}`));
+  });
+
+  // ── Rating buttons under an answer → the value half of metering (feedback.ts) ────
+  // Both verdicts are written on CLICK, before any modal: an abandoned reason modal must
+  // still leave the signal behind. Gated by the same actor check as every other button —
+  // if someone may not drive the agent, their verdict should not move the metric either.
+  const rateMeta = (raw: string): { t: string; s: string; k: string } | undefined => {
+    try {
+      const v = JSON.parse(raw) as { t?: string; s?: string; k?: string };
+      if (typeof v.t === 'string' && isTurnId(v.t) && typeof v.s === 'string' && typeof v.k === 'string') {
+        return { t: v.t, s: v.s, k: v.k };
+      }
+    } catch {
+      /* malformed button value — ignore the click */
+    }
+    return undefined;
+  };
+
+  const writeVerdict = (
+    m: { t: string; s: string; k: string },
+    user: string,
+    verdict: 'good' | 'bad',
+    extra: { reason?: string; note?: string; channel?: string; ts?: string } = {},
+  ): void => {
+    engine.recordFeedback({
+      at: new Date().toISOString(),
+      turnId: m.t,
+      key: m.k,
+      slug: m.s,
+      user,
+      verdict,
+      reason: extra.reason && isBadReason(extra.reason) ? extra.reason : undefined,
+      note: extra.note?.slice(0, 2000) || undefined,
+      channel: extra.channel,
+      ts: extra.ts,
+    });
+  };
+
+  app.action('fb_good', async ({ ack, action, body, context, respond }) => {
+    await ack();
+    if (!servedTenant(tenantOf(context))) return; // stale button in an offboarded workspace
+    const b = body as { user?: { id?: string }; channel?: { id?: string }; message?: { ts?: string } };
+    const gate = actor(tenantOf(context), b.user?.id);
+    if (!gate.ok) {
+      await respond({ response_type: 'ephemeral', replace_original: false, text: gate.denial }).catch(() => {});
+      return;
+    }
+    const m = rateMeta((action as { value?: string }).value ?? '');
+    if (!m || !b.user?.id) return;
+    writeVerdict(m, b.user.id, 'good', { channel: b.channel?.id, ts: b.message?.ts });
+    await respond({
+      response_type: 'ephemeral',
+      replace_original: false,
+      text: ':white_check_mark: Noted — thanks. Change your mind any time by hitting the other button.',
+    }).catch(() => {});
+  });
+
+  app.action('fb_bad', async ({ ack, action, body, client, context, respond }) => {
+    await ack();
+    if (!servedTenant(tenantOf(context))) return;
+    const b = body as {
+      user?: { id?: string };
+      channel?: { id?: string };
+      message?: { ts?: string };
+      trigger_id?: string;
+    };
+    const gate = actor(tenantOf(context), b.user?.id);
+    if (!gate.ok) {
+      await respond({ response_type: 'ephemeral', replace_original: false, text: gate.denial }).catch(() => {});
+      return;
+    }
+    const m = rateMeta((action as { value?: string }).value ?? '');
+    if (!m || !b.user?.id) return;
+    // Record first, ask why second — the reason is a bonus, the verdict is the data.
+    writeVerdict(m, b.user.id, 'bad', { channel: b.channel?.id, ts: b.message?.ts });
+    if (!b.trigger_id) return;
+    await client.views
+      .open({
+        trigger_id: b.trigger_id,
+        view: feedbackModalView({ turnId: m.t, slug: m.s, key: m.k, channel: b.channel?.id, ts: b.message?.ts }),
+      })
+      .catch((e) => log.error(`fb_bad modal: ${e instanceof Error ? e.message : String(e)}`));
+  });
+
+  // Reason + optional note → a SECOND record for the same (turnId, user). It supersedes the
+  // bare click by timestamp (feedback.latestPerUser), so nothing has to be mutated in place.
+  app.view(FB_CALLBACK, async ({ ack, view, body, context }) => {
+    await ack();
+    if (!servedTenant(tenantOf(context))) return;
+    const user = (body as { user?: { id?: string } }).user?.id;
+    if (!user) return;
+    let meta: { t?: string; s?: string; k?: string; c?: string; ts?: string };
+    try {
+      meta = JSON.parse(view.private_metadata || '{}');
+    } catch {
+      return;
+    }
+    if (!meta.t || !isTurnId(meta.t) || !meta.s || !meta.k) return;
+    const state = view.state.values as Record<string, Record<string, { value?: string; selected_option?: { value?: string } }>>;
+    const reason = state[FB_REASON.block]?.[FB_REASON.action]?.selected_option?.value;
+    const note = state[FB_NOTE.block]?.[FB_NOTE.action]?.value ?? undefined;
+    writeVerdict({ t: meta.t, s: meta.s, k: meta.k }, user, 'bad', { reason, note, channel: meta.c, ts: meta.ts });
   });
 
   // ── "🔍 Full ticket" button → the whole YouTrack ticket in a modal ──────────

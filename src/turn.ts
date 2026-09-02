@@ -26,6 +26,7 @@ import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase } from './teamkeys.js';
 import { DraftStore } from './drafts.js';
 import { UsageLog, aggregateUsage, usageSummaryText } from './metering.js';
+import { FeedbackLog, joinUsage, feedbackSummaryText, type FeedbackRecord } from './feedback.js';
 import { log } from './log.js';
 import { captureError, Sentry } from './sentry.js';
 
@@ -96,8 +97,12 @@ export interface TurnEngine {
   // (drafts/<slug>/<turnId>.md) so it survives restarts; undefined once pruned past the
   // per-project cap — the click then gets the "draft expired" modal.
   ytDraft(draftId: string): string | undefined;
-  // Token/cost/turn summary over the last N days (mrkdwn, for `/aven usage`).
+  // Token/cost/turn summary over the last N days (mrkdwn, for `/aven usage`), with the
+  // answer-feedback cut appended — cost is only half the picture (feedback.ts).
   usageReport(days: number): string;
+  // One rating click → one appended record. Called by the button/modal handlers in
+  // events.ts; best-effort by construction, exactly like usage metering.
+  recordFeedback(rec: FeedbackRecord): void;
 }
 
 // Per-turn behavior switches. `ytDraftFor` marks a "📝 Report to YouTrack" draft turn: the
@@ -199,6 +204,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // Per-turn token/cost accounting → usage/<month>.jsonl (multi-tenancy slice 4,
   // "whose tokens are we burning"). Best-effort by construction — see metering.ts.
   const usageLog = new UsageLog();
+  // The value half of the same story: what an answer was worth, joined to what it cost.
+  const feedbackLog = new FeedbackLog();
 
   // turnIds carry a per-boot prefix: they used to be `t<seq>` and reset every restart,
   // which was fine while everything keyed by them was in-memory — but drafts now live on
@@ -720,7 +727,17 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         const capped = text.slice(0, MAX_SLACK_TEXT) || '(no output)';
         const msg = `🔔 *Background update*\n${capped}`;
         void client.chat
-          .postMessage({ channel, thread_ts: threadTs, text: fallbackText(msg), blocks: answerBlocks(msg) })
+          .postMessage({
+            channel,
+            thread_ts: threadTs,
+            text: fallbackText(msg),
+            // A background update is the LAST word of its turn, so it carries the rating
+            // control too; a verdict here supersedes one left on the answer (feedback.ts,
+            // latestPerUser). Caveat: this callback is re-registered per live turn, so an
+            // update that lands during a LATER turn is attributed to that later turn — the
+            // same imprecision the notify target already has.
+            blocks: answerBlocks(msg, { rate: { turnId, slug: project.slug, key } }),
+          })
           .catch((e) => log.error(`idle-notify ${key}: ${e instanceof Error ? e.message : String(e)}`));
       });
       // Download any inbound files into the sandbox first, then prepend a preamble naming their
@@ -810,6 +827,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         trail: { turnId, steps: steps.length, elapsedMs },
         ytReport: inv?.id,
         ytDraft: opts?.ytDraftFor ? { ticket: opts.ytDraftFor, draftId: turnId } : undefined,
+        rate: { turnId, slug: project.slug, key },
       });
       await deliver(text, blocks, '✅ Done — answer posted below');
       // Latch the flag the first turn whose answer carries a PR URL — the session panel
@@ -845,6 +863,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       usageLog.record({
         at: new Date().toISOString(),
         key,
+        turnId,
         slug: project.slug,
         kind: 'turn',
         status: outcome,
@@ -1067,9 +1086,16 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     trail: (turnId) => trails.get(turnId),
     ytDraft: (draftId) => drafts.get(draftId),
     usageReport: (days) => {
-      const records = usageLog.read(days * 24 * 3600_000);
-      return usageSummaryText(aggregateUsage(records, 'slug'), aggregateUsage(records, 'team'), days);
+      const window = days * 24 * 3600_000;
+      const records = usageLog.read(window);
+      const cost = usageSummaryText(aggregateUsage(records, 'slug'), aggregateUsage(records, 'team'), days);
+      // Only live turns can be rated (dreams and /aven asks post no message), so they are
+      // the honest denominator for coverage.
+      const rateable = records.filter((r) => r.kind === 'turn').length;
+      const value = feedbackSummaryText(joinUsage(feedbackLog.read(window), records), rateable, days);
+      return `${cost}\n\n${value}`;
     },
+    recordFeedback: (rec) => feedbackLog.record(rec),
     questions: {
       get: (qid) => pendingQuestions.get(qid),
       isCompleted: (qid) => completedQuestions.has(qid),
