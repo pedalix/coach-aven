@@ -1,0 +1,170 @@
+{
+  "kind": "message",
+  "subtype": "message_changed",
+  "capturedOn": "2026-09-02",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "bot": "U_FIX_1"
+  },
+  "body": {
+    "token": "FIXTURE_TOKEN",
+    "team_id": "T_FIX_1",
+    "context_team_id": "T_FIX_1",
+    "context_enterprise_id": null,
+    "api_app_id": "AFIXTURE",
+    "event": {
+      "type": "message",
+      "subtype": "message_changed",
+      "message": {
+        "user": "U_FIX_1",
+        "type": "message",
+        "edited": {
+          "user": "U_FIX_1",
+          "ts": "1788339104.000000"
+        },
+        "bot_id": "B_FIX_1",
+        "app_id": "A_FIX_1",
+        "text": "[text]",
+        "team": "T_FIX_1",
+        "bot_profile": {
+          "id": "B_FIX_1",
+          "app_id": "A_FIX_1",
+          "user_id": "U_FIX_1",
+          "name": "fixture",
+          "icons": {
+            "image_36": "fixture",
+            "image_48": "fixture",
+            "image_72": "fixture"
+          },
+          "deleted": false,
+          "updated": 1781871098,
+          "team_id": "T_FIX_1"
+        },
+        "thread_ts": "1788339099.134099",
+        "parent_user_id": "U_FIX_2",
+        "blocks": [
+          {
+            "type": "section",
+            "block_id": "0ApsR",
+            "text": {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "actions",
+            "block_id": "H107Z",
+            "elements": [
+              {
+                "type": "button",
+                "action_id": "show_trail",
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "tmtib742p-1"
+              },
+              {
+                "type": "button",
+                "action_id": "cancel_turn",
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "tmtib742p-1"
+              }
+            ]
+          }
+        ],
+        "ts": "1788339100.456809",
+        "source_team": "T_FIX_1",
+        "user_team": "T_FIX_1"
+      },
+      "previous_message": {
+        "user": "U_FIX_1",
+        "type": "message",
+        "ts": "1788339100.456809",
+        "bot_id": "B_FIX_1",
+        "app_id": "A_FIX_1",
+        "text": "[text]",
+        "team": "T_FIX_1",
+        "bot_profile": {
+          "id": "B_FIX_1",
+          "app_id": "A_FIX_1",
+          "user_id": "U_FIX_1",
+          "name": "fixture",
+          "icons": {
+            "image_36": "fixture",
+            "image_48": "fixture",
+            "image_72": "fixture"
+          },
+          "deleted": false,
+          "updated": 1781871098,
+          "team_id": "T_FIX_1"
+        },
+        "thread_ts": "1788339099.134099",
+        "parent_user_id": "U_FIX_2",
+        "blocks": [
+          {
+            "type": "section",
+            "block_id": "fC+a9",
+            "text": {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "actions",
+            "block_id": "oLhyT",
+            "elements": [
+              {
+                "type": "button",
+                "action_id": "show_trail",
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "tmtib742p-1"
+              },
+              {
+                "type": "button",
+                "action_id": "cancel_turn",
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "tmtib742p-1"
+              }
+            ]
+          }
+        ]
+      },
+      "channel": "C_FIX_1",
+      "hidden": true,
+      "ts": "1788339104.000300",
+      "event_ts": "1788339104.000300",
+      "channel_type": "channel"
+    },
+    "type": "event_callback",
+    "event_id": "EvFIXTURE",
+    "event_time": 1788339104,
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T_FIX_1",
+        "user_id": "U_FIX_1",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": true,
+    "event_context": "FIXTURE_CONTEXT"
+  }
+}

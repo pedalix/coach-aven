@@ -1,0 +1,80 @@
+{
+  "kind": "block_actions",
+  "subtype": "session_restart",
+  "capturedOn": "2026-07-31",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1"
+  },
+  "body": {
+    "type": "block_actions",
+    "user": {
+      "id": "U_FIX_1",
+      "username": "fixture",
+      "name": "fixture",
+      "team_id": "T_FIX_1"
+    },
+    "api_app_id": "AFIXTURE",
+    "token": "FIXTURE_TOKEN",
+    "container": {
+      "type": "message",
+      "message_ts": "1785516027.223400",
+      "channel_id": "C_FIX_1",
+      "is_ephemeral": true,
+      "thread_ts": "1785492344.655089"
+    },
+    "trigger_id": "FIXTURE.trigger.id",
+    "team": {
+      "id": "T_FIX_1",
+      "domain": "fixture"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C_FIX_1",
+      "name": "fixture"
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.invalid/fixture",
+    "actions": [
+      {
+        "confirm": {
+          "title": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          },
+          "text": {
+            "type": "mrkdwn",
+            "text": "[text]",
+            "verbatim": false
+          },
+          "confirm": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          },
+          "deny": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          }
+        },
+        "action_id": "session_restart",
+        "block_id": "h58ps",
+        "text": {
+          "type": "plain_text",
+          "text": "[text]",
+          "emoji": true
+        },
+        "value": "{\"key\":\"thread:1785492344.655089\",\"channel\":\"C_FIX_1\",\"threadTs\":\"1785492344.655089\"}",
+        "style": "danger",
+        "type": "button",
+        "action_ts": "1785516030.237919"
+      }
+    ]
+  }
+}

@@ -12,6 +12,7 @@ import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
 import { Store } from './state.js';
 import type { FeedbackRecord } from './feedback.js';
+import { loadFixture, rehome } from './fixtures.js';
 import { createChannels } from './channels.js';
 import { registerEvents } from './events.js';
 import { slugOfBase, isThreadKey } from './teamkeys.js';
@@ -328,6 +329,81 @@ test('twin: a message without a rating row is never updated (stale or foreign bl
     await t.receiver.send(blockActionEnvelope(HOME, 'fb_good', value, 'C_SHARED')); // envelope has no blocks
     assert.equal(t.ratings.length, 1); // the verdict still lands
     assert.equal(t.api.of('chat.update').length, 0); // but nothing to rewrite
+  } finally {
+    await t.stop();
+  }
+});
+
+// ── Replays of REAL envelopes (src/fixtures/, captured on prod, scrubbed by src/fixtures.ts) ──
+// Everything above this line drives the app with envelopes we composed. These drive it with
+// what Slack actually sent — rehomed onto the twin's team/channel/user ids. When Slack changes
+// a payload shape, refresh with `scripts/pull-fixtures.sh | npx tsx scripts/scrub-fixtures.ts`.
+const HOMED = { team: HOME, channel: 'C_SHARED', actor: 'U_HUMAN', bot: `UBOT_${HOME}` };
+
+test('fixture replay: a real 👍 click passes the real answer (10 blocks, incl. a table) back byte-identical, labels aside', async () => {
+  const t = await twin();
+  try {
+    const fx = loadFixture('block_actions.fb_good');
+    const body = rehome(fx, HOMED);
+    const before = (body.message as { blocks: Array<{ type: string }> }).blocks;
+    assert.ok(before.length >= 8, 'the captured answer should be a real multi-block message');
+    assert.ok(before.some((b) => b.type === 'table'), 'the captured answer carries a table block — a shape no hand-written test had');
+    await t.receiver.send(body);
+    assert.equal(t.ratings.length, 1);
+    assert.equal(t.ratings[0].verdict, 'good');
+    const updates = t.api.of('chat.update');
+    assert.equal(updates.length, 1);
+    const sent = JSON.parse((updates[0].payload as { blocks: string }).blocks) as Array<{ type: string; elements?: Array<{ action_id?: string; text?: { text: string } }> }>;
+    assert.equal(sent.length, before.length);
+    for (let i = 0; i < before.length; i++) {
+      if (before[i].type !== 'actions') assert.deepEqual(sent[i], before[i], `block ${i} (${before[i].type}) changed on the way back`);
+    }
+    const row = sent.find((b) => b.type === 'actions')!.elements!;
+    assert.deepEqual(row.map((e) => e.action_id), ['show_trail', 'session_panel', 'fb_good', 'fb_bad']);
+    assert.equal(row[2].text!.text, '👍 Helped · 1');
+    assert.equal(row[3].text!.text, '👎 Missed');
+    assert.equal(t.api.of('chat.postEphemeral').length, 0);
+  } finally {
+    await t.stop();
+  }
+});
+
+test('fixture replay: a real 👎 click records, opens the modal, updates the count', async () => {
+  const t = await twin();
+  try {
+    await t.receiver.send(rehome(loadFixture('block_actions.fb_bad'), HOMED));
+    assert.equal(t.ratings.length, 1);
+    assert.equal(t.ratings[0].verdict, 'bad');
+    assert.equal(t.api.of('views.open').length, 1);
+    assert.equal(t.api.of('chat.update').length, 1);
+  } finally {
+    await t.stop();
+  }
+});
+
+test('fixture replay: a real reason-modal submission records the reason against the turn', async () => {
+  const t = await twin();
+  try {
+    const fx = loadFixture('view_submission.fb_reason_modal');
+    await t.receiver.send(rehome(fx, HOMED));
+    assert.equal(t.ratings.length, 1);
+    assert.equal(t.ratings[0].verdict, 'bad');
+    assert.ok(t.ratings[0].reason, 'the radio choice should come through view.state');
+    assert.equal(t.ratings[0].user, 'U_HUMAN');
+    assert.equal(t.ratings[0].channel, 'C_SHARED'); // reached inside private_metadata's JSON
+  } finally {
+    await t.stop();
+  }
+});
+
+test('fixture replay: a real @-mention starts a turn on the channel\'s project with the home token', async () => {
+  const t = await twin();
+  try {
+    await t.receiver.send(rehome(loadFixture('app_mention'), HOMED));
+    assert.equal(t.turns.length, 1);
+    assert.equal(t.turns[0].slug, 'beta'); // C_SHARED → bluefin-aven-beta
+    assert.equal(t.turns[0].token, `xoxb-${HOME}`);
+    assert.match(t.turns[0].key, /^thread:/);
   } finally {
     await t.stop();
   }

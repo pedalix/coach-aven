@@ -1,0 +1,976 @@
+{
+  "kind": "block_actions",
+  "subtype": "yt_report",
+  "capturedOn": "2026-07-31",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1"
+  },
+  "body": {
+    "type": "block_actions",
+    "user": {
+      "id": "U_FIX_1",
+      "username": "fixture",
+      "name": "fixture",
+      "team_id": "T_FIX_1"
+    },
+    "api_app_id": "AFIXTURE",
+    "token": "FIXTURE_TOKEN",
+    "container": {
+      "type": "message",
+      "message_ts": "1785489657.725199",
+      "channel_id": "C_FIX_1",
+      "is_ephemeral": false,
+      "thread_ts": "1785489657.354309"
+    },
+    "trigger_id": "FIXTURE.trigger.id",
+    "team": {
+      "id": "T_FIX_1",
+      "domain": "fixture"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C_FIX_1",
+      "name": "fixture"
+    },
+    "message": {
+      "user": "U_FIX_2",
+      "type": "message",
+      "ts": "1785489657.725199",
+      "edited": {
+        "user": "U_FIX_2",
+        "ts": "1785490250.000000"
+      },
+      "bot_id": "B_FIX_1",
+      "app_id": "A_FIX_1",
+      "text": "[text]",
+      "team": "T_FIX_1",
+      "thread_ts": "1785489657.354309",
+      "parent_user_id": "U_FIX_2",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "CRZf1W",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "divider",
+          "block_id": "6e4I9v"
+        },
+        {
+          "type": "header",
+          "block_id": "e/qhY1",
+          "text": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          },
+          "level": 2
+        },
+        {
+          "type": "rich_text",
+          "block_id": "ezLGVL",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "italic": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_list",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true,
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true,
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true,
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true,
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "italic": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                }
+              ],
+              "style": "bullet",
+              "indent": 0
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_preformatted",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_list",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                }
+              ],
+              "style": "bullet",
+              "indent": 0
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_list",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true,
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true,
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                }
+              ],
+              "style": "ordered",
+              "indent": 0
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "user",
+                  "user_id": "U_FIX_1"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "user",
+                  "user_id": "U_FIX_3"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "context",
+          "block_id": "TicSp",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "actions",
+          "block_id": "VZ6pO",
+          "elements": [
+            {
+              "type": "button",
+              "action_id": "make_pr",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"key\":\"thread:1785489657.354309\",\"channel\":\"C_FIX_1\",\"threadTs\":\"1785489657.354309\"}",
+              "confirm": {
+                "title": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "text": {
+                  "type": "mrkdwn",
+                  "text": "[text]",
+                  "verbatim": false
+                },
+                "confirm": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "deny": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                }
+              }
+            },
+            {
+              "type": "button",
+              "action_id": "yt_report",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"t\":\"CB-259\",\"key\":\"thread:1785489657.354309\",\"channel\":\"C_FIX_1\",\"threadTs\":\"1785489657.354309\"}"
+            },
+            {
+              "type": "button",
+              "action_id": "show_trail",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "tms7wd2ku-10"
+            },
+            {
+              "type": "button",
+              "action_id": "session_panel",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"key\":\"thread:1785489657.354309\",\"channel\":\"C_FIX_1\",\"threadTs\":\"1785489657.354309\"}"
+            }
+          ]
+        }
+      ]
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.invalid/fixture",
+    "actions": [
+      {
+        "action_id": "yt_report",
+        "block_id": "VZ6pO",
+        "text": {
+          "type": "plain_text",
+          "text": "[text]",
+          "emoji": true
+        },
+        "value": "{\"t\":\"CB-259\",\"key\":\"thread:1785489657.354309\",\"channel\":\"C_FIX_1\",\"threadTs\":\"1785489657.354309\"}",
+        "type": "button",
+        "action_ts": "1785490736.064439"
+      }
+    ]
+  }
+}

@@ -1,0 +1,274 @@
+{
+  "kind": "block_actions",
+  "subtype": "session_panel",
+  "capturedOn": "2026-07-31",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1"
+  },
+  "body": {
+    "type": "block_actions",
+    "user": {
+      "id": "U_FIX_1",
+      "username": "fixture",
+      "name": "fixture",
+      "team_id": "T_FIX_1"
+    },
+    "api_app_id": "AFIXTURE",
+    "token": "FIXTURE_TOKEN",
+    "container": {
+      "type": "message",
+      "message_ts": "1785513980.963779",
+      "channel_id": "C_FIX_1",
+      "is_ephemeral": false,
+      "thread_ts": "1785492344.655089"
+    },
+    "trigger_id": "FIXTURE.trigger.id",
+    "team": {
+      "id": "T_FIX_1",
+      "domain": "fixture"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C_FIX_1",
+      "name": "fixture"
+    },
+    "message": {
+      "user": "U_FIX_2",
+      "type": "message",
+      "ts": "1785513980.963779",
+      "edited": {
+        "user": "U_FIX_2",
+        "ts": "1785514104.000000"
+      },
+      "bot_id": "B_FIX_1",
+      "app_id": "A_FIX_1",
+      "text": "[text]",
+      "team": "T_FIX_1",
+      "thread_ts": "1785492344.655089",
+      "parent_user_id": "U_FIX_1",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "4JsyH/",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "link",
+                  "url": "https://example.invalid/fixture",
+                  "text": "[text]",
+                  "truncated": true
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_list",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    }
+                  ]
+                }
+              ],
+              "style": "bullet",
+              "indent": 0
+            }
+          ]
+        },
+        {
+          "type": "context",
+          "block_id": "RZaD8",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "actions",
+          "block_id": "oQjTl",
+          "elements": [
+            {
+              "type": "button",
+              "action_id": "pr_link:0",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "url": "https://example.invalid/fixture"
+            },
+            {
+              "type": "button",
+              "action_id": "show_trail",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "tms8xqic0-14"
+            },
+            {
+              "type": "button",
+              "action_id": "session_panel",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"key\":\"thread:1785492344.655089\",\"channel\":\"C_FIX_1\",\"threadTs\":\"1785492344.655089\"}"
+            }
+          ]
+        }
+      ]
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.invalid/fixture",
+    "actions": [
+      {
+        "action_id": "session_panel",
+        "block_id": "oQjTl",
+        "text": {
+          "type": "plain_text",
+          "text": "[text]",
+          "emoji": true
+        },
+        "value": "{\"key\":\"thread:1785492344.655089\",\"channel\":\"C_FIX_1\",\"threadTs\":\"1785492344.655089\"}",
+        "type": "button",
+        "action_ts": "1785516027.149461"
+      }
+    ]
+  }
+}

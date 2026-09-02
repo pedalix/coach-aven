@@ -1,0 +1,65 @@
+{
+  "kind": "message",
+  "subtype": "bot_message",
+  "capturedOn": "2026-09-02",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "bot": "U_FIX_1"
+  },
+  "body": {
+    "token": "FIXTURE_TOKEN",
+    "team_id": "T_FIX_1",
+    "context_team_id": "T_FIX_1",
+    "context_enterprise_id": null,
+    "api_app_id": "AFIXTURE",
+    "event": {
+      "type": "message",
+      "subtype": "bot_message",
+      "text": "[text]",
+      "ts": "1788358150.941449",
+      "bot_id": "B_FIX_1",
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "0ULdz",
+          "text": {
+            "type": "mrkdwn",
+            "text": "[text]",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "divider",
+          "block_id": "Ri0ay"
+        },
+        {
+          "type": "section",
+          "block_id": "n6t3d",
+          "text": {
+            "type": "mrkdwn",
+            "text": "[text]",
+            "verbatim": false
+          }
+        }
+      ],
+      "channel": "C_FIX_1",
+      "event_ts": "1788358150.941449",
+      "channel_type": "channel"
+    },
+    "type": "event_callback",
+    "event_id": "EvFIXTURE",
+    "event_time": 1788358150,
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T_FIX_1",
+        "user_id": "U_FIX_1",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false,
+    "event_context": "FIXTURE_CONTEXT"
+  }
+}
