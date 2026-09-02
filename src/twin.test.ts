@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
 import { Store } from './state.js';
+import type { FeedbackRecord } from './feedback.js';
 import { createChannels } from './channels.js';
 import { registerEvents } from './events.js';
 import { slugOfBase, isThreadKey } from './teamkeys.js';
@@ -40,6 +41,7 @@ function fakeEngine(store: Store) {
     attachments?: RecordedAttachments;
   }> = [];
   const restarts: Array<{ key: string; slug: string }> = [];
+  const ratings: FeedbackRecord[] = [];
   const busyKeys = new Set<string>();
   const engine = {
     liveTurn: async (
@@ -72,8 +74,14 @@ function fakeEngine(store: Store) {
     trail: () => undefined,
     ytDraft: () => undefined,
     usageReport: () => '',
+    recordFeedback: (rec: FeedbackRecord) => {
+      ratings.push(rec);
+      // Same collapse the real engine does: one verdict per user, latest wins.
+      const latest = new Map(ratings.filter((r) => r.turnId === rec.turnId).map((r) => [r.user, r.verdict]));
+      return { good: [...latest.values()].filter((v) => v === 'good').length, bad: [...latest.values()].filter((v) => v === 'bad').length };
+    },
   } as unknown as TurnEngine;
-  return { engine, turns, restarts, busyKeys };
+  return { engine, turns, restarts, ratings, busyKeys };
 }
 
 // One fully-wired twin: registry with a home-only project (alpha) and a SHARED one
@@ -90,7 +98,7 @@ async function twin(files: Record<string, Record<string, unknown>> = {}) {
     },
   };
   const store = new Store(join(mkdtempSync(join(tmpdir(), 'aven-twin-')), 'state.json'));
-  const { engine, turns, restarts, busyKeys } = fakeEngine(store);
+  const { engine, turns, restarts, ratings, busyKeys } = fakeEngine(store);
   const channels = createChannels(reg, () => HOME);
   const servedTenant = (t: string | undefined) =>
     !!t && (t === HOME || (reg.current.workspaces[t as keyof typeof reg.current.workspaces]?.length ?? 0) > 0);
@@ -112,7 +120,7 @@ async function twin(files: Record<string, Record<string, unknown>> = {}) {
     homeTeamId: HOME,
     servedTenant,
   });
-  return { receiver, api, store, turns, restarts, busyKeys, stop };
+  return { receiver, api, store, turns, restarts, ratings, busyKeys, stop };
 }
 
 test('twin: home mention runs a turn with a BARE key and the home token', async () => {
@@ -231,6 +239,95 @@ test('twin: "⚙️ Session" posts an ephemeral card INTO the thread (thread_ts 
     assert.equal(p.user, 'U_HUMAN');
     assert.equal(p.thread_ts, '9.0'); // the actual bug: this was previously dropped entirely
     assert.match(p.text, /Session — beta/);
+  } finally {
+    await t.stop();
+  }
+});
+
+// ── Answer rating — the click's confirmation is the vote count on the message itself. No
+// ephemeral: the first version posted one, and respond() dropped thread_ts so it landed at
+// the bottom of the channel. Only the rating row may change; every other block goes back as
+// the click payload delivered it (Slack has rewritten the answer to rich_text by then).
+test('twin: rating an answer rewrites ONLY the rating labels on that message, nothing else', async () => {
+  const t = await twin();
+  try {
+    const value = JSON.stringify({ t: 'tabc123-1', s: 'beta', k: 'thread:9.2' });
+    const blocks = [
+      { type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: 'the answer' }] }] },
+      { type: 'context', elements: [{ type: 'mrkdwn', text: '🧭 3 steps · 12s' }] },
+      {
+        type: 'actions',
+        elements: [
+          { type: 'button', action_id: 'show_trail', text: { type: 'plain_text', text: '🧭 Show steps' }, value: 'tabc123-1' },
+          { type: 'button', action_id: 'fb_good', text: { type: 'plain_text', text: '👍 Helped' }, value },
+          { type: 'button', action_id: 'fb_bad', text: { type: 'plain_text', text: '👎 Missed' }, value },
+        ],
+      },
+    ];
+    await t.receiver.send({ ...blockActionEnvelope(HOME, 'fb_good', value, 'C_SHARED'), message: { ts: '1.0', blocks } });
+    assert.equal(t.api.of('chat.postEphemeral').length, 0); // no more channel-bottom notes
+    assert.equal(t.api.of('respond').length, 0);
+    const updates = t.api.of('chat.update');
+    assert.equal(updates.length, 1);
+    const p = updates[0].payload as { channel: string; ts: string; blocks: string };
+    assert.equal(p.channel, 'C_SHARED');
+    assert.equal(p.ts, '1.0');
+    const sent = JSON.parse(p.blocks) as typeof blocks; // form-encoded, so a JSON string
+    assert.deepEqual(sent[0], blocks[0]); // the rich_text answer went back untouched
+    assert.deepEqual(sent[1], blocks[1]);
+    const row = (sent[2] as { elements: { action_id: string; text: { text: string } }[] }).elements.map((e) => [e.action_id, e.text.text]);
+    assert.deepEqual(row, [
+      ['show_trail', '🧭 Show steps'], // other buttons untouched
+      ['fb_good', '👍 Helped · 1'], // the click, counted
+      ['fb_bad', '👎 Missed'], // zero stays unlabelled
+    ]);
+    assert.equal(t.ratings.length, 1);
+    assert.equal(t.ratings[0].verdict, 'good');
+    assert.equal(t.ratings[0].turnId, 'tabc123-1');
+    assert.equal(t.ratings[0].user, 'U_HUMAN');
+  } finally {
+    await t.stop();
+  }
+});
+
+test('twin: a thumbs-down records on click, opens the reason modal, then shows the count', async () => {
+  const t = await twin();
+  try {
+    const value = JSON.stringify({ t: 'tabc123-2', s: 'beta', k: 'thread:9.3' });
+    const blocks = [
+      {
+        type: 'actions',
+        elements: [
+          { type: 'button', action_id: 'fb_good', text: { type: 'plain_text', text: '👍 Helped' }, value },
+          { type: 'button', action_id: 'fb_bad', text: { type: 'plain_text', text: '👎 Missed' }, value },
+        ],
+      },
+    ];
+    await t.receiver.send({ ...blockActionEnvelope(HOME, 'fb_bad', value, 'C_SHARED'), message: { ts: '1.0', blocks } });
+    // The verdict is written on the CLICK — an abandoned modal still leaves the signal.
+    assert.equal(t.ratings.length, 1);
+    assert.equal(t.ratings[0].verdict, 'bad');
+    assert.equal(t.ratings[0].reason, undefined); // the reason only arrives with the submission
+    const opens = t.api.of('views.open');
+    assert.equal(opens.length, 1);
+    const view = JSON.parse((opens[0].payload as { view: string }).view) as { private_metadata: string };
+    assert.deepEqual(JSON.parse(view.private_metadata), { t: 'tabc123-2', s: 'beta', k: 'thread:9.3', c: 'C_SHARED', ts: '1.0' });
+    const updates = t.api.of('chat.update');
+    assert.equal(updates.length, 1);
+    const sent = JSON.parse((updates[0].payload as { blocks: string }).blocks) as typeof blocks;
+    assert.deepEqual(sent[0].elements.map((e) => e.text.text), ['👍 Helped', '👎 Missed · 1']);
+  } finally {
+    await t.stop();
+  }
+});
+
+test('twin: a message without a rating row is never updated (stale or foreign blocks)', async () => {
+  const t = await twin();
+  try {
+    const value = JSON.stringify({ t: 'tabc123-3', s: 'beta', k: 'thread:9.4' });
+    await t.receiver.send(blockActionEnvelope(HOME, 'fb_good', value, 'C_SHARED')); // envelope has no blocks
+    assert.equal(t.ratings.length, 1); // the verdict still lands
+    assert.equal(t.api.of('chat.update').length, 0); // but nothing to rewrite
   } finally {
     await t.stop();
   }

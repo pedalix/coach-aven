@@ -12,10 +12,10 @@ import type { UsageRecord } from './metering.js';
 // counts every line there as a turn, so a rating landing in that file would silently double
 // the turn count. Separate store, joined on read.
 //
-// Why turnId and not the message ts: we choose where the rating buttons render (a turn's
-// answer, and any background update belonging to it — see answerBlocks), so a person has
-// exactly one verdict to give per turn. Later clicks supersede earlier ones; the message ts
-// rides along only as a "show me that message" backlink, nothing keys on it.
+// Why turnId and not the message ts: exactly ONE message per turn carries the rating
+// buttons — its answer (see answerBlocks) — so a person has exactly one verdict to give per
+// turn. Later clicks supersede earlier ones; the message ts rides along only as a "show me
+// that message" backlink, nothing keys on it.
 
 // Why a rating was bad. Deliberately causes we can act on, not moods — each maps to a
 // different fix (wrong retrieval vs. missing evidence vs. wrong register). A good verdict
@@ -54,8 +54,8 @@ export function isTurnId(id: string): boolean {
 }
 
 // Pure: collapse the append-only log to one verdict per (turnId, user) — the latest click
-// wins. A turn can carry two buttons (its answer, and a background update that landed after
-// it), and a person may change their mind; either way the final click is the verdict.
+// wins. A person may change their mind (👍 then 👎); the final click is the verdict. There is
+// deliberately no toggle: re-clicking the same verdict is a no-op, never a retraction.
 export function latestPerUser(records: FeedbackRecord[]): FeedbackRecord[] {
   const best = new Map<string, FeedbackRecord>();
   for (const r of records) {
@@ -78,18 +78,33 @@ export interface FeedbackRow {
 
 // A turn counts as good when nobody rated it bad: one dissent disqualifies it. With a
 // handful of raters a strict rule beats a majority vote, and the failure direction we want
-// is pessimistic — never let the number flatter the agent.
-function verdictByTurn(records: FeedbackRecord[]): Map<string, { good: boolean; slug: string; reasons: BadReason[] }> {
-  const out = new Map<string, { good: boolean; slug: string; reasons: BadReason[] }>();
+// is pessimistic — never let the number flatter the agent. Reasons are a SET per turn, so
+// the tally answers "how many missed turns were blamed on X" — two people both saying
+// "wrong" about one answer is one wrong answer, not two.
+function verdictByTurn(records: FeedbackRecord[]): Map<string, { good: boolean; slug: string; reasons: Set<BadReason> }> {
+  const out = new Map<string, { good: boolean; slug: string; reasons: Set<BadReason> }>();
   for (const r of latestPerUser(records)) {
-    const cur = out.get(r.turnId) ?? { good: true, slug: r.slug, reasons: [] };
+    const cur = out.get(r.turnId) ?? { good: true, slug: r.slug, reasons: new Set<BadReason>() };
     if (r.verdict === 'bad') {
       cur.good = false;
-      if (r.reason) cur.reasons.push(r.reason);
+      if (r.reason) cur.reasons.add(r.reason);
     }
     out.set(r.turnId, cur);
   }
   return out;
+}
+
+// The per-turn vote count shown in the button labels ("👍 Helped · 2"). Recomputed from the
+// log on every click so what the message shows IS the data — never a counter that can drift.
+export interface Tally {
+  good: number;
+  bad: number;
+}
+
+export function tallyFor(records: FeedbackRecord[]): Tally {
+  const t = { good: 0, bad: 0 };
+  for (const r of latestPerUser(records)) t[r.verdict]++;
+  return t;
 }
 
 // Pure: feedback + usage → per-project rows. Cost comes from the usage side, so a rating
@@ -199,6 +214,26 @@ export class FeedbackLog {
     } catch (e) {
       log.error(`feedback record: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  // Every record for one turn. A turn is rated within days of being answered, so the
+  // current and previous month files bound the search; anything older is not worth a
+  // full-history scan on a button click.
+  forTurn(turnId: string, now = Date.now()): FeedbackRecord[] {
+    const prev = new Date(now);
+    prev.setUTCDate(1);
+    prev.setUTCMonth(prev.getUTCMonth() - 1);
+    const out: FeedbackRecord[] = [];
+    for (const name of new Set([monthFile(prev), monthFile(new Date(now))])) {
+      try {
+        for (const r of parseFeedbackLines(readFileSync(join(this.dir, name), 'utf8'))) {
+          if (r.turnId === turnId) out.push(r);
+        }
+      } catch {
+        /* no such month file yet */
+      }
+    }
+    return out;
   }
 
   // Records newer than `sinceMs` ago — month files keep this O(window), not O(history).

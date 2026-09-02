@@ -26,7 +26,7 @@ import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase } from './teamkeys.js';
 import { DraftStore } from './drafts.js';
 import { UsageLog, aggregateUsage, usageSummaryText } from './metering.js';
-import { FeedbackLog, joinUsage, feedbackSummaryText, type FeedbackRecord } from './feedback.js';
+import { FeedbackLog, joinUsage, feedbackSummaryText, tallyFor, type FeedbackRecord, type Tally } from './feedback.js';
 import { log } from './log.js';
 import { captureError, Sentry } from './sentry.js';
 
@@ -100,9 +100,10 @@ export interface TurnEngine {
   // Token/cost/turn summary over the last N days (mrkdwn, for `/aven usage`), with the
   // answer-feedback cut appended — cost is only half the picture (feedback.ts).
   usageReport(days: number): string;
-  // One rating click → one appended record. Called by the button/modal handlers in
-  // events.ts; best-effort by construction, exactly like usage metering.
-  recordFeedback(rec: FeedbackRecord): void;
+  // One rating click → one appended record, and back comes the turn's fresh vote count for
+  // the button labels. Called by the button/modal handlers in events.ts; the write is
+  // best-effort by construction, exactly like usage metering.
+  recordFeedback(rec: FeedbackRecord): Tally;
 }
 
 // Per-turn behavior switches. `ytDraftFor` marks a "📝 Report to YouTrack" draft turn: the
@@ -727,17 +728,11 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         const capped = text.slice(0, MAX_SLACK_TEXT) || '(no output)';
         const msg = `🔔 *Background update*\n${capped}`;
         void client.chat
-          .postMessage({
-            channel,
-            thread_ts: threadTs,
-            text: fallbackText(msg),
-            // A background update is the LAST word of its turn, so it carries the rating
-            // control too; a verdict here supersedes one left on the answer (feedback.ts,
-            // latestPerUser). Caveat: this callback is re-registered per live turn, so an
-            // update that lands during a LATER turn is attributed to that later turn — the
-            // same imprecision the notify target already has.
-            blocks: answerBlocks(msg, { rate: { turnId, slug: project.slug, key } }),
-          })
+          // No rating buttons here on purpose: this callback is re-registered per live turn,
+          // so a background result that lands during a LATER turn would be attributed to that
+          // later turn — a rating on it would land on the wrong turnId. Ratings come back
+          // once onIdleResult carries the turn that actually launched the work.
+          .postMessage({ channel, thread_ts: threadTs, text: fallbackText(msg), blocks: answerBlocks(msg) })
           .catch((e) => log.error(`idle-notify ${key}: ${e instanceof Error ? e.message : String(e)}`));
       });
       // Download any inbound files into the sandbox first, then prepend a preamble naming their
@@ -1095,7 +1090,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       const value = feedbackSummaryText(joinUsage(feedbackLog.read(window), records), rateable, days);
       return `${cost}\n\n${value}`;
     },
-    recordFeedback: (rec) => feedbackLog.record(rec),
+    recordFeedback: (rec) => {
+      feedbackLog.record(rec);
+      return tallyFor(feedbackLog.forTurn(rec.turnId));
+    },
     questions: {
       get: (qid) => pendingQuestions.get(qid),
       isCompleted: (qid) => completedQuestions.has(qid),

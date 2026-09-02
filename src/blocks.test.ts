@@ -13,6 +13,8 @@ import {
   reportPromptModalView,
   reportPostedBlocks,
   feedbackModalView,
+  ratingButtons,
+  withRatingTally,
   FB_REASON,
   homeBlocks,
   onboardingHomeBlocks,
@@ -52,8 +54,9 @@ test('answerBlocks: rating buttons appear only where a verdict is allowed', () =
   const rate = { turnId: 'tabc123-1', slug: 'caldora', key: 'thread:1.2' };
   // The answer of a turn: rateable.
   assert.deepEqual(actionIds(answerBlocks('the answer', { followUp, rate })), ['session_panel', 'fb_good', 'fb_bad']);
-  // A background update carries no followUp but is still the turn's last word.
-  assert.deepEqual(actionIds(answerBlocks('background update', { rate })), ['fb_good', 'fb_bad']);
+  // `rate` alone is enough (no followUp needed) — the function doesn't decide WHICH messages
+  // qualify; turn.ts does, and today it passes `rate` for the answer only.
+  assert.deepEqual(actionIds(answerBlocks('just the rating', { rate })), ['fb_good', 'fb_bad']);
   // Everything else a turn posts stays unrateable, so one turn yields one verdict.
   assert.deepEqual(actionIds(answerBlocks('the answer', { followUp })), ['session_panel']);
 });
@@ -68,6 +71,37 @@ test('answerBlocks: a rating button carries the turn, project and conversation k
 test('answerBlocks: a ticket draft offers Edit & send only — never a rating', () => {
   const ids = actionIds(answerBlocks('draft text', { followUp, rate: { turnId: 'tabc123-1', slug: 'c', key: 'k' }, ytDraft: { ticket: 'CG-1', draftId: 'tabc123-1' } }));
   assert.deepEqual(ids, ['yt_edit_send']);
+});
+
+test('ratingButtons: zero votes stay unlabelled, counts ride in the label', () => {
+  const rate = { turnId: 'tabc123-1', slug: 'caldora', key: 'thread:1.2' };
+  const plain = ratingButtons(rate).map((b) => b.text.text);
+  assert.deepEqual(plain, ['👍 Helped', '👎 Missed']); // a fresh answer never advertises "· 0"
+  const counted = ratingButtons(rate, { good: 2, bad: 1 }).map((b) => b.text.text);
+  assert.deepEqual(counted, ['👍 Helped · 2', '👎 Missed · 1']);
+  for (const b of ratingButtons(rate, { good: 999, bad: 999 })) assert.ok(b.text.text.length <= 75, 'label over Slack cap');
+});
+
+test('withRatingTally: rewrites only the rating labels; every other block and button is byte-identical', () => {
+  const answer = { type: 'rich_text', elements: [{ type: 'rich_text_section', elements: [{ type: 'text', text: 'hi' }] }] };
+  const ctx = { type: 'context', elements: [{ type: 'mrkdwn', text: '🧭 2 steps' }] };
+  const other = { type: 'button', action_id: 'session_panel', text: { type: 'plain_text', text: '⚙️ Session' }, value: '{}' };
+  const good = { type: 'button', action_id: 'fb_good', text: { type: 'plain_text', text: '👍 Helped' }, value: 'v' };
+  const bad = { type: 'button', action_id: 'fb_bad', text: { type: 'plain_text', text: '👎 Missed · 3' }, value: 'v' };
+  const out = withRatingTally([answer, ctx, { type: 'actions', elements: [other, good, bad] }], { good: 1, bad: 0 });
+  assert.ok(out);
+  assert.deepEqual(out[0], answer);
+  assert.deepEqual(out[1], ctx);
+  assert.deepEqual(out[2].elements[0], other);
+  assert.equal(out[2].elements[1].text.text, '👍 Helped · 1');
+  assert.equal(out[2].elements[2].text.text, '👎 Missed'); // back to zero → label drops the count
+  assert.equal(out[2].elements[1].value, 'v'); // the button value (turn meta) survives
+});
+
+test('withRatingTally: no rating row → undefined, so the caller skips chat.update', () => {
+  assert.equal(withRatingTally([{ type: 'section', text: { type: 'mrkdwn', text: 'x' } }], { good: 1, bad: 0 }), undefined);
+  assert.equal(withRatingTally(undefined, { good: 1, bad: 0 }), undefined);
+  assert.equal(withRatingTally([{ type: 'actions', elements: [{ action_id: 'show_trail' }] }], { good: 1, bad: 0 }), undefined);
 });
 
 test('feedbackModalView: radio options match the published taxonomy and carry the turn', () => {

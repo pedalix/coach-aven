@@ -7,6 +7,7 @@ import {
   isTurnId,
   isBadReason,
   latestPerUser,
+  tallyFor,
   joinUsage,
   feedbackSummaryText,
   parseFeedbackLines,
@@ -71,6 +72,38 @@ test('latestPerUser — a second button on the same turn is the same verdict slo
   ]);
   assert.equal(rows.length, 1);
   assert.equal(rows[0].verdict, 'good');
+});
+
+test('tallyFor — one vote per user, latest wins, both sides counted', () => {
+  const t = tallyFor([
+    fb({ user: 'U1', verdict: 'good' }),
+    fb({ user: 'U2', verdict: 'good' }),
+    fb({ user: 'U3', verdict: 'bad', reason: 'wrong' }),
+    fb({ at: '2026-09-02T10:05:00Z', user: 'U1', verdict: 'bad', reason: 'slow' }), // U1 flipped
+  ]);
+  assert.deepEqual(t, { good: 1, bad: 2 });
+});
+
+test('tallyFor — re-clicking the same verdict is a no-op, not a retraction', () => {
+  const t = tallyFor([fb({ verdict: 'good' }), fb({ at: '2026-09-02T10:05:00Z', verdict: 'good' })]);
+  assert.deepEqual(t, { good: 1, bad: 0 });
+});
+
+test('joinUsage — two people blaming the same cause on one turn count it once', () => {
+  const rows = joinUsage(
+    [fb({ user: 'U1', verdict: 'bad', reason: 'wrong' }), fb({ user: 'U2', verdict: 'bad', reason: 'wrong' })],
+    [usage()],
+  );
+  assert.equal(rows[0].bad, 1);
+  assert.deepEqual(rows[0].reasons, { wrong: 1 }); // a set per turn, not a vote count
+});
+
+test('joinUsage — different causes on one turn are each attributed once', () => {
+  const rows = joinUsage(
+    [fb({ user: 'U1', verdict: 'bad', reason: 'wrong' }), fb({ user: 'U2', verdict: 'bad', reason: 'tone' })],
+    [usage()],
+  );
+  assert.deepEqual(rows[0].reasons, { wrong: 1, tone: 1 });
 });
 
 test('joinUsage — one dissent disqualifies the turn', () => {
@@ -151,6 +184,18 @@ test('FeedbackLog — round-trips through month files and honours the window', (
   assert.deepEqual(recent.map((r) => r.turnId), ['tabc123-1']);
   const wide = logStore.read(45 * 24 * 60 * 60 * 1000, now);
   assert.equal(wide.length, 2); // reaches back into the previous month file
+});
+
+test('FeedbackLog.forTurn — collects one turn across the current and previous month', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aven-fb-'));
+  const logStore = new FeedbackLog(dir);
+  const now = Date.parse('2026-09-02T12:00:00Z');
+  logStore.record(fb({ at: '2026-08-31T23:00:00Z', turnId: 'tabc123-7', user: 'U1' })); // last month's file
+  logStore.record(fb({ at: '2026-09-01T09:00:00Z', turnId: 'tabc123-7', user: 'U2' }));
+  logStore.record(fb({ at: '2026-09-01T09:00:00Z', turnId: 'tabc123-8', user: 'U1' })); // another turn
+  logStore.record(fb({ at: '2026-06-01T09:00:00Z', turnId: 'tabc123-7', user: 'U3' })); // too old to scan
+  const got = logStore.forTurn('tabc123-7', now);
+  assert.deepEqual(got.map((r) => r.user).sort(), ['U1', 'U2']);
 });
 
 test('FeedbackLog — reading before anything was written is empty, not an error', () => {

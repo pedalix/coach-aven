@@ -39,6 +39,7 @@ import {
   reportPromptModalView,
   reportPostedBlocks,
   feedbackModalView,
+  withRatingTally,
   FB_CALLBACK,
   FB_REASON,
   FB_NOTE,
@@ -48,7 +49,7 @@ import {
   YT_PROMPT_INPUT,
   YT_PROMPT_NOW,
 } from './blocks.js';
-import { isBadReason, isTurnId } from './feedback.js';
+import { isBadReason, isTurnId, type Tally } from './feedback.js';
 import { log } from './log.js';
 
 export interface EventDeps {
@@ -331,7 +332,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     user: string,
     verdict: 'good' | 'bad',
     extra: { reason?: string; note?: string; channel?: string; ts?: string } = {},
-  ): void => {
+  ): Tally =>
     engine.recordFeedback({
       at: new Date().toISOString(),
       turnId: m.t,
@@ -344,12 +345,33 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       channel: extra.channel,
       ts: extra.ts,
     });
+
+  // The confirmation is the message itself: the vote count in the button label changes
+  // under the cursor, for everyone, on the answer that was rated. No ephemeral — the first
+  // version posted one and it landed at the bottom of the CHANNEL (respond() drops
+  // thread_ts) and vanished on reload. Only the rating row is rewritten; every other block
+  // goes back exactly as the click payload delivered it. Best-effort: a failed update loses
+  // the visible count, never the verdict, which is already on disk by now.
+  const showTally = async (
+    client: bolt.webApi.WebClient,
+    msg: { channel?: string; ts?: string; blocks?: unknown[] },
+    tally: Tally,
+  ): Promise<void> => {
+    const blocks = withRatingTally(msg.blocks, tally);
+    if (!msg.channel || !msg.ts || !blocks) return;
+    await client.chat
+      .update({ channel: msg.channel, ts: msg.ts, blocks })
+      .catch((e) => log.error(`rating tally: ${e instanceof Error ? e.message : String(e)}`));
   };
 
-  app.action('fb_good', async ({ ack, action, body, context, respond }) => {
+  app.action('fb_good', async ({ ack, action, body, client, context, respond }) => {
     await ack();
     if (!servedTenant(tenantOf(context))) return; // stale button in an offboarded workspace
-    const b = body as { user?: { id?: string }; channel?: { id?: string }; message?: { ts?: string } };
+    const b = body as {
+      user?: { id?: string };
+      channel?: { id?: string };
+      message?: { ts?: string; blocks?: unknown[] };
+    };
     const gate = actor(tenantOf(context), b.user?.id);
     if (!gate.ok) {
       await respond({ response_type: 'ephemeral', replace_original: false, text: gate.denial }).catch(() => {});
@@ -357,12 +379,8 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     }
     const m = rateMeta((action as { value?: string }).value ?? '');
     if (!m || !b.user?.id) return;
-    writeVerdict(m, b.user.id, 'good', { channel: b.channel?.id, ts: b.message?.ts });
-    await respond({
-      response_type: 'ephemeral',
-      replace_original: false,
-      text: ':white_check_mark: Noted — thanks. Change your mind any time by hitting the other button.',
-    }).catch(() => {});
+    const tally = writeVerdict(m, b.user.id, 'good', { channel: b.channel?.id, ts: b.message?.ts });
+    await showTally(client, { channel: b.channel?.id, ts: b.message?.ts, blocks: b.message?.blocks }, tally);
   });
 
   app.action('fb_bad', async ({ ack, action, body, client, context, respond }) => {
@@ -371,7 +389,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     const b = body as {
       user?: { id?: string };
       channel?: { id?: string };
-      message?: { ts?: string };
+      message?: { ts?: string; blocks?: unknown[] };
       trigger_id?: string;
     };
     const gate = actor(tenantOf(context), b.user?.id);
@@ -381,19 +399,24 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     }
     const m = rateMeta((action as { value?: string }).value ?? '');
     if (!m || !b.user?.id) return;
-    // Record first, ask why second — the reason is a bonus, the verdict is the data.
-    writeVerdict(m, b.user.id, 'bad', { channel: b.channel?.id, ts: b.message?.ts });
-    if (!b.trigger_id) return;
-    await client.views
-      .open({
-        trigger_id: b.trigger_id,
-        view: feedbackModalView({ turnId: m.t, slug: m.s, key: m.k, channel: b.channel?.id, ts: b.message?.ts }),
-      })
-      .catch((e) => log.error(`fb_bad modal: ${e instanceof Error ? e.message : String(e)}`));
+    // Record first, ask why second — the reason is a bonus, the verdict is the data. The
+    // modal must open inside trigger_id's 3s window, so it goes before the tally update.
+    const tally = writeVerdict(m, b.user.id, 'bad', { channel: b.channel?.id, ts: b.message?.ts });
+    if (b.trigger_id) {
+      await client.views
+        .open({
+          trigger_id: b.trigger_id,
+          view: feedbackModalView({ turnId: m.t, slug: m.s, key: m.k, channel: b.channel?.id, ts: b.message?.ts }),
+        })
+        .catch((e) => log.error(`fb_bad modal: ${e instanceof Error ? e.message : String(e)}`));
+    }
+    await showTally(client, { channel: b.channel?.id, ts: b.message?.ts, blocks: b.message?.blocks }, tally);
   });
 
   // Reason + optional note → a SECOND record for the same (turnId, user). It supersedes the
   // bare click by timestamp (feedback.latestPerUser), so nothing has to be mutated in place.
+  // No tally update here: the verdict was already 'bad' from the click, so the count on
+  // the message is unchanged — this only adds the reason and note.
   app.view(FB_CALLBACK, async ({ ack, view, body, context }) => {
     await ack();
     if (!servedTenant(tenantOf(context))) return;
