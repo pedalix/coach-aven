@@ -1,0 +1,159 @@
+{
+  "kind": "block_actions",
+  "subtype": "answer_q",
+  "capturedOn": "2026-08-26",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1"
+  },
+  "body": {
+    "type": "block_actions",
+    "user": {
+      "id": "U_FIX_1",
+      "username": "fixture",
+      "name": "fixture",
+      "team_id": "T_FIX_2"
+    },
+    "api_app_id": "AFIXTURE",
+    "token": "FIXTURE_TOKEN",
+    "container": {
+      "type": "message",
+      "message_ts": "1787749310.164069",
+      "channel_id": "C_FIX_1",
+      "is_ephemeral": false,
+      "thread_ts": "1787748896.896009"
+    },
+    "trigger_id": "FIXTURE.trigger.id",
+    "team": {
+      "id": "T_FIX_1",
+      "domain": "fixture"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C_FIX_1",
+      "name": "fixture"
+    },
+    "message": {
+      "user": "U_FIX_2",
+      "type": "message",
+      "ts": "1787749310.164069",
+      "bot_id": "B_FIX_1",
+      "app_id": "A_FIX_1",
+      "text": "[text]",
+      "team": "T_FIX_2",
+      "thread_ts": "1787748896.896009",
+      "parent_user_id": "U_FIX_1",
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "ZYdwv",
+          "text": {
+            "type": "mrkdwn",
+            "text": "[text]",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "section",
+          "block_id": "iFJV/",
+          "text": {
+            "type": "mrkdwn",
+            "text": "[text]",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "actions",
+          "block_id": "q1:0",
+          "elements": [
+            {
+              "type": "button",
+              "action_id": "answer_q:q1:0:0",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"qid\":\"q1\",\"qi\":0,\"oi\":0}"
+            },
+            {
+              "type": "button",
+              "action_id": "answer_q:q1:0:1",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"qid\":\"q1\",\"qi\":0,\"oi\":1}"
+            },
+            {
+              "type": "button",
+              "action_id": "answer_q:q1:0:2",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"qid\":\"q1\",\"qi\":0,\"oi\":2}"
+            }
+          ]
+        },
+        {
+          "type": "section",
+          "block_id": "sNUPG",
+          "text": {
+            "type": "mrkdwn",
+            "text": "[text]",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "actions",
+          "block_id": "q1:1",
+          "elements": [
+            {
+              "type": "button",
+              "action_id": "answer_q:q1:1:0",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"qid\":\"q1\",\"qi\":1,\"oi\":0}"
+            },
+            {
+              "type": "button",
+              "action_id": "answer_q:q1:1:1",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"qid\":\"q1\",\"qi\":1,\"oi\":1}"
+            }
+          ]
+        }
+      ]
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.invalid/fixture",
+    "actions": [
+      {
+        "action_id": "answer_q:q1:0:1",
+        "block_id": "q1:0",
+        "text": {
+          "type": "plain_text",
+          "text": "[text]",
+          "emoji": true
+        },
+        "value": "{\"qid\":\"q1\",\"qi\":0,\"oi\":1}",
+        "type": "button",
+        "action_ts": "1787750255.344408"
+      }
+    ]
+  }
+}

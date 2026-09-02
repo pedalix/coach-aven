@@ -1,0 +1,105 @@
+{
+  "kind": "block_actions",
+  "subtype": "cancel_turn",
+  "capturedOn": "2026-08-28",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1"
+  },
+  "body": {
+    "type": "block_actions",
+    "user": {
+      "id": "U_FIX_1",
+      "username": "fixture",
+      "name": "fixture",
+      "team_id": "T_FIX_1"
+    },
+    "api_app_id": "AFIXTURE",
+    "token": "FIXTURE_TOKEN",
+    "container": {
+      "type": "message",
+      "message_ts": "1787908655.744859",
+      "channel_id": "C_FIX_1",
+      "is_ephemeral": false,
+      "thread_ts": "1787905854.298729"
+    },
+    "trigger_id": "FIXTURE.trigger.id",
+    "team": {
+      "id": "T_FIX_1",
+      "domain": "fixture"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C_FIX_1",
+      "name": "fixture"
+    },
+    "message": {
+      "user": "U_FIX_2",
+      "type": "message",
+      "ts": "1787908655.744859",
+      "bot_id": "B_FIX_1",
+      "app_id": "A_FIX_1",
+      "text": "[text]",
+      "team": "T_FIX_1",
+      "thread_ts": "1787905854.298729",
+      "parent_user_id": "U_FIX_2",
+      "blocks": [
+        {
+          "type": "section",
+          "block_id": "HKeCT",
+          "text": {
+            "type": "mrkdwn",
+            "text": "[text]",
+            "verbatim": false
+          }
+        },
+        {
+          "type": "actions",
+          "block_id": "wGiOr",
+          "elements": [
+            {
+              "type": "button",
+              "action_id": "show_trail",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "tmtb642bb-5"
+            },
+            {
+              "type": "button",
+              "action_id": "cancel_turn",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "tmtb642bb-5"
+            }
+          ]
+        }
+      ]
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.invalid/fixture",
+    "actions": [
+      {
+        "action_id": "cancel_turn",
+        "block_id": "wGiOr",
+        "text": {
+          "type": "plain_text",
+          "text": "[text]",
+          "emoji": true
+        },
+        "value": "tmtb642bb-5",
+        "type": "button",
+        "action_ts": "1787908660.700909"
+      }
+    ]
+  }
+}

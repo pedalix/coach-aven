@@ -1,0 +1,75 @@
+{
+  "kind": "message",
+  "subtype": "file_share",
+  "capturedOn": "2026-08-19",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1",
+    "bot": "U_FIX_2"
+  },
+  "body": {
+    "token": "FIXTURE_TOKEN",
+    "team_id": "T_FIX_1",
+    "context_team_id": "T_FIX_1",
+    "context_enterprise_id": null,
+    "api_app_id": "AFIXTURE",
+    "event": {
+      "type": "message",
+      "text": "[text]",
+      "files": [
+        {
+          "id": "F_FIX_1",
+          "file_access": "check_file_info",
+          "created": 0,
+          "timestamp": 0,
+          "user": "",
+          "filetype": "png"
+        }
+      ],
+      "upload": false,
+      "user": "U_FIX_1",
+      "display_as_bot": false,
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "VjCno",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "ts": "1787151137.966999",
+      "client_msg_id": "fixture-client-msg-id",
+      "team": "T_FIX_2",
+      "thread_ts": "1787149336.483029",
+      "parent_user_id": "U_FIX_2",
+      "channel": "C_FIX_1",
+      "subtype": "file_share",
+      "event_ts": "1787151137.966999",
+      "channel_type": "channel"
+    },
+    "type": "event_callback",
+    "event_id": "EvFIXTURE",
+    "event_time": 1787151137,
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T_FIX_1",
+        "user_id": "U_FIX_2",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": true,
+    "event_context": "FIXTURE_CONTEXT"
+  }
+}

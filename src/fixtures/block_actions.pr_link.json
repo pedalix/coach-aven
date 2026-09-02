@@ -1,0 +1,609 @@
+{
+  "kind": "block_actions",
+  "subtype": "pr_link",
+  "capturedOn": "2026-08-28",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1"
+  },
+  "body": {
+    "type": "block_actions",
+    "user": {
+      "id": "U_FIX_1",
+      "username": "fixture",
+      "name": "fixture",
+      "team_id": "T_FIX_1"
+    },
+    "api_app_id": "AFIXTURE",
+    "token": "FIXTURE_TOKEN",
+    "container": {
+      "type": "message",
+      "message_ts": "1787908615.699699",
+      "channel_id": "C_FIX_1",
+      "is_ephemeral": false,
+      "thread_ts": "1787905854.298729"
+    },
+    "trigger_id": "FIXTURE.trigger.id",
+    "team": {
+      "id": "T_FIX_1",
+      "domain": "fixture"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C_FIX_1",
+      "name": "fixture"
+    },
+    "message": {
+      "user": "U_FIX_2",
+      "type": "message",
+      "ts": "1787908615.699699",
+      "edited": {
+        "user": "U_FIX_2",
+        "ts": "1787909486.000000"
+      },
+      "bot_id": "B_FIX_1",
+      "app_id": "A_FIX_1",
+      "text": "[text]",
+      "team": "T_FIX_1",
+      "thread_ts": "1787905854.298729",
+      "parent_user_id": "U_FIX_2",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "v+kbE/",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "link",
+                  "url": "https://example.invalid/fixture",
+                  "text": "[text]",
+                  "truncated": true,
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "italic": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "italic": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_list",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true,
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true,
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                }
+              ],
+              "style": "bullet",
+              "indent": 0
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "italic": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "italic": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_preformatted",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "italic": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_list",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "italic": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "italic": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                }
+              ],
+              "style": "ordered",
+              "indent": 0
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "user",
+                  "user_id": "U_FIX_1"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "user",
+                  "user_id": "U_FIX_3"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "context",
+          "block_id": "gEppe",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "actions",
+          "block_id": "5IqLS",
+          "elements": [
+            {
+              "type": "button",
+              "action_id": "pr_link:0",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "url": "https://example.invalid/fixture"
+            },
+            {
+              "type": "button",
+              "action_id": "yt_report",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"t\":\"CB-275\",\"key\":\"thread:1787905854.298729\",\"channel\":\"C_FIX_1\",\"threadTs\":\"1787905854.298729\"}"
+            },
+            {
+              "type": "button",
+              "action_id": "show_trail",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "tmtb642bb-4"
+            },
+            {
+              "type": "button",
+              "action_id": "session_panel",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"key\":\"thread:1787905854.298729\",\"channel\":\"C_FIX_1\",\"threadTs\":\"1787905854.298729\"}"
+            }
+          ]
+        }
+      ]
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.invalid/fixture",
+    "actions": [
+      {
+        "action_id": "pr_link:0",
+        "block_id": "5IqLS",
+        "text": {
+          "type": "plain_text",
+          "text": "[text]",
+          "emoji": true
+        },
+        "type": "button",
+        "action_ts": "1787910477.358283"
+      }
+    ]
+  }
+}

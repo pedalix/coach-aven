@@ -1,0 +1,187 @@
+{
+  "kind": "view_submission",
+  "subtype": "fb_reason_modal",
+  "capturedOn": "2026-09-02",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1"
+  },
+  "body": {
+    "type": "view_submission",
+    "team": {
+      "id": "T_FIX_1",
+      "domain": "fixture"
+    },
+    "user": {
+      "id": "U_FIX_1",
+      "username": "fixture",
+      "name": "fixture",
+      "team_id": "T_FIX_1"
+    },
+    "api_app_id": "AFIXTURE",
+    "token": "FIXTURE_TOKEN",
+    "trigger_id": "FIXTURE.trigger.id",
+    "view": {
+      "id": "V0BU26YN0HM",
+      "team_id": "T_FIX_1",
+      "type": "modal",
+      "blocks": [
+        {
+          "type": "input",
+          "block_id": "fb_reason",
+          "label": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          },
+          "optional": false,
+          "dispatch_action": false,
+          "element": {
+            "type": "radio_buttons",
+            "action_id": "reason",
+            "options": [
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "wrong"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "unverifiable"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "missed"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "tone"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "slow"
+              },
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "backforth"
+              }
+            ]
+          }
+        },
+        {
+          "type": "input",
+          "block_id": "fb_note",
+          "label": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          },
+          "optional": true,
+          "dispatch_action": false,
+          "element": {
+            "type": "plain_text_input",
+            "action_id": "note",
+            "placeholder": {
+              "type": "plain_text",
+              "text": "[text]",
+              "emoji": true
+            },
+            "multiline": true,
+            "dispatch_action_config": {
+              "trigger_actions_on": [
+                "on_enter_pressed"
+              ]
+            }
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "DgfKT",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          ]
+        }
+      ],
+      "private_metadata": "{\"t\":\"tmtka6lpq-1\",\"s\":\"caldora\",\"k\":\"thread:1788367041.990969\",\"c\":\"C_FIX_1\",\"ts\":\"1788367043.168549\"}",
+      "callback_id": "fb_reason_modal",
+      "state": {
+        "values": {
+          "fb_reason": {
+            "reason": {
+              "type": "radio_buttons",
+              "selected_option": {
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "tone"
+              }
+            }
+          },
+          "fb_note": {
+            "note": {
+              "type": "plain_text_input",
+              "value": "[text]"
+            }
+          }
+        }
+      },
+      "hash": "1788367380.uZks2NJU",
+      "title": {
+        "type": "plain_text",
+        "text": "[text]",
+        "emoji": true
+      },
+      "clear_on_close": false,
+      "notify_on_close": false,
+      "close": {
+        "type": "plain_text",
+        "text": "[text]",
+        "emoji": true
+      },
+      "submit": {
+        "type": "plain_text",
+        "text": "[text]",
+        "emoji": true
+      },
+      "previous_view_id": null,
+      "root_view_id": "V0BU26YN0HM",
+      "app_id": "A_FIX_1",
+      "external_id": "",
+      "app_installed_team_id": "T_FIX_1",
+      "bot_id": "B_FIX_1"
+    },
+    "response_urls": [],
+    "is_enterprise_install": false,
+    "enterprise": null
+  }
+}

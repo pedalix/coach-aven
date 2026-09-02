@@ -1,0 +1,1028 @@
+{
+  "kind": "block_actions",
+  "subtype": "fb_bad",
+  "capturedOn": "2026-09-02",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1"
+  },
+  "body": {
+    "type": "block_actions",
+    "user": {
+      "id": "U_FIX_1",
+      "username": "fixture",
+      "name": "fixture",
+      "team_id": "T_FIX_1"
+    },
+    "api_app_id": "AFIXTURE",
+    "token": "FIXTURE_TOKEN",
+    "container": {
+      "type": "message",
+      "message_ts": "1788367043.168549",
+      "channel_id": "C_FIX_1",
+      "is_ephemeral": false,
+      "thread_ts": "1788367041.990969"
+    },
+    "trigger_id": "FIXTURE.trigger.id",
+    "team": {
+      "id": "T_FIX_1",
+      "domain": "fixture"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C_FIX_1",
+      "name": "fixture"
+    },
+    "message": {
+      "user": "U_FIX_2",
+      "type": "message",
+      "ts": "1788367043.168549",
+      "edited": {
+        "user": "U_FIX_2",
+        "ts": "1788367299.000000"
+      },
+      "bot_id": "B_FIX_1",
+      "app_id": "A_FIX_1",
+      "text": "[text]",
+      "team": "T_FIX_1",
+      "thread_ts": "1788367041.990969",
+      "parent_user_id": "U_FIX_1",
+      "blocks": [
+        {
+          "type": "header",
+          "block_id": "Xv3pBd",
+          "text": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          },
+          "level": 2
+        },
+        {
+          "type": "rich_text",
+          "block_id": "M6MNFm",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "header",
+          "block_id": "SfdPO3",
+          "text": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          },
+          "level": 2
+        },
+        {
+          "type": "table",
+          "block_id": "DHTGvW",
+          "rows": [
+            [
+              {
+                "type": "rich_text",
+                "block_id": "xNkhW3",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "rich_text",
+                "block_id": "Ckfufm",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            [
+              {
+                "type": "rich_text",
+                "block_id": "KQW99Y",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "code": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "rich_text",
+                "block_id": "wWkg1t",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "bold": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "bold": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "bold": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            [
+              {
+                "type": "rich_text",
+                "block_id": "zhW4CY",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "rich_text",
+                "block_id": "desi8c",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "code": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "bold": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            [
+              {
+                "type": "rich_text",
+                "block_id": "fecUzv",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "rich_text",
+                "block_id": "NNdzHz",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "bold": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            [
+              {
+                "type": "rich_text",
+                "block_id": "7xeT4x",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "code": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "rich_text",
+                "block_id": "k0Zfkp",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "bold": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            [
+              {
+                "type": "rich_text",
+                "block_id": "cEeKQa",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "code": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "rich_text",
+                "block_id": "mSqOV4",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "bold": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "code": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "code": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "code": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            [
+              {
+                "type": "rich_text",
+                "block_id": "sdJYLr",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "rich_text",
+                "block_id": "ZulrwX",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "bold": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "code": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "code": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            [
+              {
+                "type": "rich_text",
+                "block_id": "YyKkiR",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "rich_text",
+                "block_id": "NIYhtW",
+                "elements": [
+                  {
+                    "type": "rich_text_section",
+                    "elements": [
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]",
+                        "style": {
+                          "bold": true
+                        }
+                      },
+                      {
+                        "type": "text",
+                        "text": "[text]"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          ]
+        },
+        {
+          "type": "header",
+          "block_id": "aaZ0rO",
+          "text": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          },
+          "level": 2
+        },
+        {
+          "type": "rich_text",
+          "block_id": "4212jo",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                }
+              ]
+            },
+            {
+              "type": "rich_text_preformatted",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                }
+              ]
+            },
+            {
+              "type": "rich_text_preformatted",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "header",
+          "block_id": "5sCapU",
+          "text": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          },
+          "level": 2
+        },
+        {
+          "type": "rich_text",
+          "block_id": "Ve9maX",
+          "elements": [
+            {
+              "type": "rich_text_list",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "italic": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "italic": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "code": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                }
+              ],
+              "style": "bullet",
+              "indent": 0
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "context",
+          "block_id": "fT4/c",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "actions",
+          "block_id": "zdrHm",
+          "elements": [
+            {
+              "type": "button",
+              "action_id": "show_trail",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "tmtka6lpq-1"
+            },
+            {
+              "type": "button",
+              "action_id": "session_panel",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"key\":\"thread:1788367041.990969\",\"channel\":\"C_FIX_1\",\"threadTs\":\"1788367041.990969\"}"
+            },
+            {
+              "type": "button",
+              "action_id": "fb_good",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"t\":\"tmtka6lpq-1\",\"s\":\"caldora\",\"k\":\"thread:1788367041.990969\"}"
+            },
+            {
+              "type": "button",
+              "action_id": "fb_bad",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "value": "{\"t\":\"tmtka6lpq-1\",\"s\":\"caldora\",\"k\":\"thread:1788367041.990969\"}"
+            }
+          ]
+        }
+      ]
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.invalid/fixture",
+    "actions": [
+      {
+        "action_id": "fb_bad",
+        "block_id": "zdrHm",
+        "text": {
+          "type": "plain_text",
+          "text": "[text]",
+          "emoji": true
+        },
+        "value": "{\"t\":\"tmtka6lpq-1\",\"s\":\"caldora\",\"k\":\"thread:1788367041.990969\"}",
+        "type": "button",
+        "action_ts": "1788367379.905253"
+      }
+    ]
+  }
+}

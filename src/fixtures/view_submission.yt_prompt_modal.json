@@ -1,0 +1,141 @@
+{
+  "kind": "view_submission",
+  "subtype": "yt_prompt_modal",
+  "capturedOn": "2026-07-30",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1"
+  },
+  "body": {
+    "type": "view_submission",
+    "team": {
+      "id": "T_FIX_1",
+      "domain": "fixture"
+    },
+    "user": {
+      "id": "U_FIX_1",
+      "username": "fixture",
+      "name": "fixture",
+      "team_id": "T_FIX_1"
+    },
+    "api_app_id": "AFIXTURE",
+    "token": "FIXTURE_TOKEN",
+    "trigger_id": "FIXTURE.trigger.id",
+    "view": {
+      "id": "V0BLS8DLN85",
+      "team_id": "T_FIX_1",
+      "type": "modal",
+      "blocks": [
+        {
+          "type": "input",
+          "block_id": "yt_prompt_text",
+          "label": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          },
+          "optional": false,
+          "dispatch_action": false,
+          "element": {
+            "type": "plain_text_input",
+            "action_id": "text",
+            "initial_value": "[text]",
+            "multiline": true,
+            "dispatch_action_config": {
+              "trigger_actions_on": [
+                "on_enter_pressed"
+              ]
+            }
+          }
+        },
+        {
+          "type": "context",
+          "block_id": "jjoPj",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "input",
+          "block_id": "yt_prompt_now",
+          "label": {
+            "type": "plain_text",
+            "text": "[text]",
+            "emoji": true
+          },
+          "optional": true,
+          "dispatch_action": false,
+          "element": {
+            "type": "checkboxes",
+            "action_id": "now",
+            "options": [
+              {
+                "text": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                },
+                "value": "now",
+                "description": {
+                  "type": "plain_text",
+                  "text": "[text]",
+                  "emoji": true
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "private_metadata": "{\"t\":\"CB-256\",\"key\":\"thread:1785404635.274379\",\"channel\":\"C_FIX_1\",\"threadTs\":\"1785404635.274379\"}",
+      "callback_id": "yt_prompt_modal",
+      "state": {
+        "values": {
+          "yt_prompt_text": {
+            "text": {
+              "type": "plain_text_input",
+              "value": "[text]"
+            }
+          },
+          "yt_prompt_now": {
+            "now": {
+              "type": "checkboxes",
+              "selected_options": []
+            }
+          }
+        }
+      },
+      "hash": "1785406853.aEXPVwca",
+      "title": {
+        "type": "plain_text",
+        "text": "[text]",
+        "emoji": true
+      },
+      "clear_on_close": false,
+      "notify_on_close": false,
+      "close": {
+        "type": "plain_text",
+        "text": "[text]",
+        "emoji": true
+      },
+      "submit": {
+        "type": "plain_text",
+        "text": "[text]",
+        "emoji": true
+      },
+      "previous_view_id": null,
+      "root_view_id": "V0BLS8DLN85",
+      "app_id": "A_FIX_1",
+      "external_id": "",
+      "app_installed_team_id": "T_FIX_1",
+      "bot_id": "B_FIX_1"
+    },
+    "response_urls": [],
+    "is_enterprise_install": false,
+    "enterprise": null
+  }
+}

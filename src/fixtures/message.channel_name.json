@@ -1,0 +1,44 @@
+{
+  "kind": "message",
+  "subtype": "channel_name",
+  "capturedOn": "2026-08-20",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1",
+    "bot": "U_FIX_2"
+  },
+  "body": {
+    "token": "FIXTURE_TOKEN",
+    "team_id": "T_FIX_1",
+    "context_team_id": "T_FIX_1",
+    "context_enterprise_id": null,
+    "api_app_id": "AFIXTURE",
+    "event": {
+      "type": "message",
+      "subtype": "channel_name",
+      "user": "U_FIX_1",
+      "old_name": "fixture",
+      "name": "fixture",
+      "text": "[text]",
+      "ts": "1787229644.351539",
+      "channel": "C_FIX_1",
+      "event_ts": "1787229644.351539",
+      "channel_type": "channel"
+    },
+    "type": "event_callback",
+    "event_id": "EvFIXTURE",
+    "event_time": 1787229644,
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T_FIX_1",
+        "user_id": "U_FIX_2",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false,
+    "event_context": "FIXTURE_CONTEXT"
+  }
+}

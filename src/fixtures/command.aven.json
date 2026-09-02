@@ -1,0 +1,25 @@
+{
+  "kind": "command",
+  "subtype": "aven",
+  "capturedOn": "2026-09-02",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1"
+  },
+  "body": {
+    "token": "FIXTURE_TOKEN",
+    "team_id": "T_FIX_1",
+    "team_domain": "fixture",
+    "channel_id": "C_FIX_1",
+    "channel_name": "fixture",
+    "user_id": "U_FIX_1",
+    "user_name": "fixture",
+    "command": "/aven",
+    "text": "[text]",
+    "api_app_id": "AFIXTURE",
+    "is_enterprise_install": "false",
+    "response_url": "https://hooks.slack.invalid/fixture",
+    "trigger_id": "FIXTURE.trigger.id"
+  }
+}

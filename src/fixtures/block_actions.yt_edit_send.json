@@ -1,0 +1,313 @@
+{
+  "kind": "block_actions",
+  "subtype": "yt_edit_send",
+  "capturedOn": "2026-07-20",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1"
+  },
+  "body": {
+    "type": "block_actions",
+    "user": {
+      "id": "U_FIX_1",
+      "username": "fixture",
+      "name": "fixture",
+      "team_id": "T_FIX_1"
+    },
+    "api_app_id": "AFIXTURE",
+    "token": "FIXTURE_TOKEN",
+    "container": {
+      "type": "message",
+      "message_ts": "1784561733.347679",
+      "channel_id": "C_FIX_1",
+      "is_ephemeral": false,
+      "thread_ts": "1784549002.609669"
+    },
+    "trigger_id": "FIXTURE.trigger.id",
+    "team": {
+      "id": "T_FIX_1",
+      "domain": "fixture"
+    },
+    "enterprise": null,
+    "is_enterprise_install": false,
+    "channel": {
+      "id": "C_FIX_1",
+      "name": "fixture"
+    },
+    "message": {
+      "user": "U_FIX_2",
+      "type": "message",
+      "ts": "1784561733.347679",
+      "edited": {
+        "user": "U_FIX_2",
+        "ts": "1784561777.000000"
+      },
+      "bot_id": "B_FIX_1",
+      "app_id": "A_FIX_1",
+      "text": "[text]",
+      "team": "T_FIX_1",
+      "thread_ts": "1784549002.609669",
+      "parent_user_id": "U_FIX_2",
+      "blocks": [
+        {
+          "type": "rich_text",
+          "block_id": "qEeZ3s",
+          "elements": [
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            },
+            {
+              "type": "rich_text_list",
+              "elements": [
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                },
+                {
+                  "type": "rich_text_section",
+                  "elements": [
+                    {
+                      "type": "text",
+                      "text": "[text]",
+                      "style": {
+                        "bold": true
+                      }
+                    },
+                    {
+                      "type": "text",
+                      "text": "[text]"
+                    }
+                  ]
+                }
+              ],
+              "style": "bullet",
+              "indent": 0
+            },
+            {
+              "type": "rich_text_section",
+              "elements": [
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "code": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                },
+                {
+                  "type": "text",
+                  "text": "[text]",
+                  "style": {
+                    "bold": true
+                  }
+                },
+                {
+                  "type": "text",
+                  "text": "[text]"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "context",
+          "block_id": "Fiveh",
+          "elements": [
+            {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          ]
+        },
+        {
+          "type": "actions",
+          "block_id": "1VNze",
+          "elements": [
+            {
+              "type": "button",
+              "action_id": "yt_edit_send",
+              "text": {
+                "type": "plain_text",
+                "text": "[text]",
+                "emoji": true
+              },
+              "style": "primary",
+              "value": "{\"t\":\"CAR-14\",\"d\":\"tmrt6ee3m-9\"}"
+            }
+          ]
+        }
+      ]
+    },
+    "state": {
+      "values": {}
+    },
+    "response_url": "https://hooks.slack.invalid/fixture",
+    "actions": [
+      {
+        "action_id": "yt_edit_send",
+        "block_id": "1VNze",
+        "text": {
+          "type": "plain_text",
+          "text": "[text]",
+          "emoji": true
+        },
+        "value": "{\"t\":\"CAR-14\",\"d\":\"tmrt6ee3m-9\"}",
+        "style": "primary",
+        "type": "button",
+        "action_ts": "1784561896.476240"
+      }
+    ]
+  }
+}

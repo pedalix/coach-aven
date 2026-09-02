@@ -1,0 +1,199 @@
+{
+  "kind": "app_home_opened",
+  "capturedOn": "2026-07-29",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "D_FIX_1",
+    "actor": "U_FIX_1",
+    "bot": "U_FIX_2"
+  },
+  "body": {
+    "token": "FIXTURE_TOKEN",
+    "team_id": "T_FIX_1",
+    "api_app_id": "AFIXTURE",
+    "event": {
+      "type": "app_home_opened",
+      "user": "U_FIX_1",
+      "channel": "D_FIX_1",
+      "tab": "home",
+      "view": {
+        "id": "V0BDHGYMJP6",
+        "team_id": "T_FIX_1",
+        "type": "home",
+        "blocks": [
+          {
+            "type": "header",
+            "block_id": "WDld1",
+            "text": {
+              "type": "plain_text",
+              "text": "[text]",
+              "emoji": true
+            }
+          },
+          {
+            "type": "section",
+            "block_id": "6S8Bo",
+            "text": {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "divider",
+            "block_id": "2aVdt"
+          },
+          {
+            "type": "section",
+            "block_id": "8I1no",
+            "text": {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "section",
+            "block_id": "2QdIJ",
+            "text": {
+              "type": "mrkdwn",
+              "text": "<#C_FIX_1> [text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "section",
+            "block_id": "YZMu9",
+            "text": {
+              "type": "mrkdwn",
+              "text": "<#C_FIX_2> [text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "section",
+            "block_id": "kpvte",
+            "text": {
+              "type": "mrkdwn",
+              "text": "<#C_FIX_3> [text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "section",
+            "block_id": "5rq0V",
+            "text": {
+              "type": "mrkdwn",
+              "text": "<#C_FIX_4> [text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "section",
+            "block_id": "j9RKW",
+            "text": {
+              "type": "mrkdwn",
+              "text": "<#C_FIX_5> [text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "section",
+            "block_id": "wqY02",
+            "text": {
+              "type": "mrkdwn",
+              "text": "<#C_FIX_6> [text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "section",
+            "block_id": "ivh9/",
+            "text": {
+              "type": "mrkdwn",
+              "text": "<#C_FIX_7> [text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "divider",
+            "block_id": "xMp7F"
+          },
+          {
+            "type": "section",
+            "block_id": "AI+0K",
+            "text": {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "section",
+            "block_id": "hfnmM",
+            "text": {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "section",
+            "block_id": "vfXbG",
+            "text": {
+              "type": "mrkdwn",
+              "text": "[text]",
+              "verbatim": false
+            }
+          },
+          {
+            "type": "context",
+            "block_id": "VHBFr",
+            "elements": [
+              {
+                "type": "mrkdwn",
+                "text": "[text]",
+                "verbatim": false
+              }
+            ]
+          }
+        ],
+        "private_metadata": "",
+        "callback_id": "",
+        "state": {
+          "values": {}
+        },
+        "hash": "1784278397.aHDLgwl5",
+        "title": {
+          "type": "plain_text",
+          "text": "[text]",
+          "emoji": true
+        },
+        "clear_on_close": false,
+        "notify_on_close": false,
+        "close": null,
+        "submit": null,
+        "previous_view_id": null,
+        "root_view_id": "V0BDHGYMJP6",
+        "app_id": "A_FIX_1",
+        "external_id": "",
+        "app_installed_team_id": "T_FIX_1",
+        "bot_id": "B_FIX_1"
+      },
+      "event_ts": "1785335605.598184"
+    },
+    "type": "event_callback",
+    "event_id": "EvFIXTURE",
+    "event_time": 1785335605,
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T_FIX_1",
+        "user_id": "U_FIX_2",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": false
+  }
+}

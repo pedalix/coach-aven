@@ -1,0 +1,44 @@
+{
+  "kind": "reaction_added",
+  "capturedOn": "2026-09-02",
+  "roles": {
+    "team": "T_FIX_1",
+    "channel": "C_FIX_1",
+    "actor": "U_FIX_1",
+    "bot": "U_FIX_2"
+  },
+  "body": {
+    "token": "FIXTURE_TOKEN",
+    "team_id": "T_FIX_1",
+    "context_team_id": "T_FIX_1",
+    "context_enterprise_id": null,
+    "api_app_id": "AFIXTURE",
+    "event": {
+      "type": "reaction_added",
+      "user": "U_FIX_1",
+      "reaction": "+1",
+      "item": {
+        "type": "message",
+        "channel": "C_FIX_1",
+        "ts": "1788367043.168549",
+        "channel_type": "channel"
+      },
+      "item_user": "U_FIX_2",
+      "event_ts": "1788367711.012400"
+    },
+    "type": "event_callback",
+    "event_id": "EvFIXTURE",
+    "event_time": 1788367711,
+    "authorizations": [
+      {
+        "enterprise_id": null,
+        "team_id": "T_FIX_1",
+        "user_id": "U_FIX_2",
+        "is_bot": true,
+        "is_enterprise_install": false
+      }
+    ],
+    "is_ext_shared_channel": true,
+    "event_context": "FIXTURE_CONTEXT"
+  }
+}
