@@ -59,7 +59,12 @@ load_env() {
   : "${DEPLOY_HOST:?}" "${DEPLOY_USER:?}" "${ROOT_USER:?}" "${REMOTE_DIR:?}" "${SERVICE_NAME:?}"
   DEPLOYER="${DEPLOY_USER}@${DEPLOY_HOST}"
   ROOT="${ROOT_USER}@${DEPLOY_HOST}"
-  SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10)
+  # Keepalive: `npm ci` on the box runs ~5 min with no output, and an idle SSH session can
+  # get dropped by a NAT/firewall in between ("client_loop: send disconnect: Broken pipe"
+  # killed the v0.37.0 deploy mid-install, leaving the old process running on new code).
+  # A probe every 30s, up to 10 missed, keeps the session alive through the whole install.
+  SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=10)
 }
 
 dssh() { ssh "${SSH_OPTS[@]}" "$DEPLOYER" "$@"; }
