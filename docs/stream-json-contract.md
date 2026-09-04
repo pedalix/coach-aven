@@ -63,6 +63,12 @@ Permission / question answer (reply to a `can_use_tool` request, same id):
    multiSelect, options:[{label, description}]}]}`.
 - `{"type":"result","subtype":"success"|...,"is_error","result","session_id","usage",
    "total_cost_usd", ...}` — **turn-complete marker**. The process stays alive for the next turn.
+- `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"|"allowed_warning"|"rejected",
+   "rateLimitType":"five_hour"|"seven_day","resetsAt":<unix s>,"unifiedWindows":{"five_hour":{"utilization",
+   "resetsAt"},"seven_day":{…}}}}` — **subscription quota state**, emitted right before
+   `system/init` on every turn. UNDOCUMENTED; `unifiedWindows` (utilization 0–1) appears
+   from CLI ≈2.1.2xx (2.1.183 sends status + reset only). Parsed by `src/ratelimit.ts` →
+   alert channel on warning/rejected transitions, `/aven status` quota line.
 
 Parsing notes: stdout arrives in arbitrary chunks (not lines) — buffer and split on `\n`,
 keep the partial tail. Wrap `JSON.parse` in try/catch and skip non-JSON lines (the CLI

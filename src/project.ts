@@ -4,6 +4,8 @@ import type { McpServerSpec } from './projects.js';
 import { buildMcpServers } from './mcp.js';
 import { dockerdGuardCmd } from './housekeeping.js';
 import { captureError } from './sentry.js';
+import { cliUpgradeCmd, parseCliMarkers, cliUpgradeNotice } from './cliversion.js';
+import { alertOps } from './blocks.js';
 import { log } from './log.js';
 
 // The snapshot image (snapshot/Dockerfile → SNAPSHOT_IMAGE) bakes in the sandbox tooling
@@ -12,11 +14,25 @@ import { log } from './log.js';
 // so warm sandboxes pick them up on their next turn with no image rebuild and no lost
 // state (repos/worktrees/history/memory). Anything added here should also go into the
 // Dockerfile so freshly-baked images stop needing the runtime install.
-export async function provisionTooling(sandbox: SandboxHandle) {
+export async function provisionTooling(
+  sandbox: SandboxHandle,
+  opts: { cliVersion?: string; upgradeCli?: boolean; where?: string } = {},
+) {
   // imagemagick is the recovery tool for oversized images: attachments are pre-scaled by the
   // orchestrator, but if one slips through (e.g. a format sharp couldn't decode), the agent
   // resizes in one `magick` step instead of hand-rolling a resizer.
   await sandbox.exec('command -v magick >/dev/null 2>&1 || apk add --no-cache imagemagick', { timeout: 300 });
+  // Claude Code pin (cliversion.ts): converge the warm sandbox's CLI in place — repos,
+  // transcripts and memory stay put, unlike an image swap. Skipped while another turn is
+  // running on this project (upgradeCli=false): never swap the binary under a live process.
+  // Sessions spawned after the install run the new version; ones already open keep their
+  // loaded code until they restart. Costs ~1 min, once per sandbox per bump.
+  if (opts.cliVersion && opts.upgradeCli) {
+    const r = await sandbox.exec(cliUpgradeCmd(opts.cliVersion), { timeout: 600 });
+    const notice = cliUpgradeNotice(parseCliMarkers(r.result ?? ''), opts.where ?? 'sandbox');
+    if (notice) alertOps(notice.text, notice.level);
+    if (notice?.level === 'warning') captureError(new Error(notice.text), { subsystem: 'cli-upgrade' });
+  }
 }
 
 // Make sure dockerd is alive before a turn runs. The dind entrypoint starts it once and

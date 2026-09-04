@@ -5,6 +5,7 @@
 // pruning, threshold-gated deletion, marker format) are pinned by tests. The fire logic
 // (skip-if-busy, skip-if-asleep) lives in pollers.ts; the dockerd guard is also run at
 // every chat prep (project.ts ensureDockerd) so a dead daemon can't linger for days.
+import { cliUpgradeCmd, cliVersionCmd, parseCliMarkers, type CliMarkers } from './cliversion.js';
 
 // Defaults for the `/aven housekeeping on` routine (in ROUTINE_TZ). 04:30: after the
 // 03:00 dream window, still low-traffic.
@@ -48,9 +49,12 @@ export function dockerdGuardCmd(): string {
 //   • Only stopped containers, dangling/old unused images (>7 days), build cache.
 //   • Always report reclaimable space (the "what would be pruned" visibility line),
 //     prune only past the threshold; log markers either way.
-// Output is `hk:` marker lines parsed by parseHousekeepingReport.
-export function housekeepingScript(thresholdPct: number): string {
+// Output is `hk:` marker lines parsed by parseHousekeepingReport. With a CLI pin the pass
+// also converges the sandbox's Claude Code in place (cliversion.ts) — the nightly catch-up
+// for projects idle since the pin moved; without one it just reports the version.
+export function housekeepingScript(thresholdPct: number, cliPin?: string): string {
   return [
+    cliPin ? cliUpgradeCmd(cliPin) : cliVersionCmd(),
     dockerdGuardCmd(),
     `usage=$(df -P / | awk 'NR==2 {gsub(/%/,""); print $5}')`,
     `echo "hk:disk=$usage"`,
@@ -74,6 +78,7 @@ export interface HousekeepingReport {
   diskPct?: number;
   diskAfterPct?: number;
   prune: 'done' | 'skipped' | 'unknown';
+  cli: CliMarkers; // Claude Code version / upgrade outcome (cliversion.ts)
   digest: string; // one line for the routine's lastSummary + the ops log
 }
 
@@ -92,6 +97,7 @@ export function parseHousekeepingReport(out: string, reapedWorktrees: number): H
   const prune = pruneRaw === 'done' || pruneRaw === 'skipped' ? pruneRaw : 'unknown';
   const diskPct = num(pick('disk'));
   const diskAfterPct = num(pick('diskafter'));
+  const cli = parseCliMarkers(out);
 
   const disk =
     diskPct === undefined
@@ -104,6 +110,9 @@ export function parseHousekeepingReport(out: string, reapedWorktrees: number): H
     disk,
     prune === 'done' ? 'pruned' : 'no prune',
     `${reapedWorktrees} worktree${reapedWorktrees === 1 ? '' : 's'} reaped`,
+    ...(cli.version
+      ? [`cli ${cli.version}${cli.upgrade === 'installed' ? ` (from ${cli.from ?? '?'})` : cli.upgrade === 'failed' ? ' (upgrade FAILED)' : ''}`]
+      : []),
   ].join(' · ');
-  return { dockerd, diskPct, diskAfterPct, prune, digest };
+  return { dockerd, diskPct, diskAfterPct, prune, cli, digest };
 }

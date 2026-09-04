@@ -22,9 +22,12 @@ RUN apk add --no-cache \
       openssh-client \
       ca-certificates
 
-# Claude Code (the CLI). npm is the reliable install path on Alpine/musl; the native
-# installer is glibc-oriented. Pin intentionally rather than tracking latest.
-RUN npm install -g @anthropic-ai/claude-code
+# Claude Code (the CLI). npm is the reliable install path on Alpine/musl (the native
+# installer wants extra libs + a settings flag there, for no gain). Pinned to the fleet's
+# CLAUDE_CLI_VERSION (build-and-push.sh passes it) so fresh sandboxes match what
+# provisionTooling converges warm ones to — see src/cliversion.ts.
+ARG CLAUDE_CLI_VERSION=2.1.260
+RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}
 
 # Sail shims: bare `php`/`composer`/`artisan` forward into the Sail container.
 COPY shims/sail-shim.sh /usr/local/bin/sail-shim

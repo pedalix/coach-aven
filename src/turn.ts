@@ -21,11 +21,13 @@ import {
   statusBlocks,
   questionBlocks,
   errText,
+  alertOps,
 } from './blocks.js';
 import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase } from './teamkeys.js';
 import { DraftStore } from './drafts.js';
 import { UsageLog, aggregateUsage, usageSummaryText } from './metering.js';
+import { RateLimitTracker, type RateLimitInfo } from './ratelimit.js';
 import { FeedbackLog, joinUsage, feedbackSummaryText, tallyFor, type FeedbackRecord, type Tally } from './feedback.js';
 import { log } from './log.js';
 import { captureError, Sentry } from './sentry.js';
@@ -79,6 +81,8 @@ export interface TurnEngine {
   hasLive(key: string): boolean; // an in-memory session exists for this key?
   activeKeys(): string[]; // conversation keys with a turn in flight (for /aven status)
   runningCount(): number; // turns in flight right now (for /aven status)
+  // Latest subscription-quota observation from any session (ratelimit.ts; for /aven status).
+  claudeQuota(): RateLimitInfo | undefined;
   projectBusy(slug: string): boolean;
   slugForKey(key: string): string | undefined;
   // "🔄 Restart session" → kill this thread's Claude conversation (live or persisted) and
@@ -205,6 +209,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // Per-turn token/cost accounting → usage/<month>.jsonl (multi-tenancy slice 4,
   // "whose tokens are we burning"). Best-effort by construction — see metering.ts.
   const usageLog = new UsageLog();
+  // Subscription-quota state — ONE tracker for the whole engine (every project runs on the
+  // same plan), fed by each session's rate_limit_event; warns the alert channel on the
+  // allowed → warning → rejected transitions and once on recovery (ratelimit.ts).
+  const rateLimits = new RateLimitTracker();
   // The value half of the same story: what an answer was worth, joined to what it cost.
   const feedbackLog = new FeedbackLog();
 
@@ -351,11 +359,20 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       mcp: project.mcp,
       driver: project.driver,
       composerAuth: project.composerAuth,
+      // CLI pin: per-project canary override, else the fleet pin. Install only when no OTHER
+      // conversation on this project has a turn in flight (this key's own turn is the one
+      // opening the session) — see provisionTooling.
+      cliVersion: project.cliVersion ?? cfg.claudeCliVersion,
+      upgradeCli: !projectBusyExcept(project.slug, key),
       // Survive bot restarts: reattach to the command this thread was driving (if it's
       // still running), and persist the command coords the moment a session (re)opens so
       // even a crash mid-first-turn leaves a reattachable record.
       attach: prior?.sessionKey && prior?.cmdId ? { sessionKey: prior.sessionKey, cmdId: prior.cmdId } : undefined,
       onOpen: (info) => store.patchChat(key, project.slug, { sessionKey: info.sessionKey, cmdId: info.cmdId }),
+      onRateLimit: (info) => {
+        const alert = rateLimits.observe(info, project.slug);
+        if (alert) alertOps(alert.text, alert.level === 'recovered' ? 'info' : 'warning');
+      },
     });
     touchLive(key, chat);
     return chat;
@@ -414,6 +431,13 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   function projectBusy(slug: string): boolean {
     for (const key of queues.keys()) if (slugForKey(key) === slug) return true;
     for (const key of asking) if (slugForKey(key) === slug) return true; // runAsk turns (Q&A, dreams)
+    return false;
+  }
+  // projectBusy minus one conversation — "is anyone ELSE working on this project?", for a
+  // step the calling turn wants to run only when it has the sandbox to itself (CLI upgrade).
+  function projectBusyExcept(slug: string, except: string): boolean {
+    for (const key of queues.keys()) if (key !== except && slugForKey(key) === slug) return true;
+    for (const key of asking) if (key !== except && slugForKey(key) === slug) return true;
     return false;
   }
 
@@ -1073,6 +1097,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     hasLive: (key) => live.has(key),
     activeKeys: () => [...queues.keys()],
     runningCount: () => running.size,
+    claudeQuota: () => rateLimits.latest(),
     projectBusy,
     slugForKey,
     restartSession,

@@ -11,6 +11,8 @@ function sq(s: string): string {
 // AskUserQuestion tool shape (verified against the live CLI). The agent asks one or
 // more questions; we answer via control_response allow+updatedInput.answers, keyed by
 // question TEXT → chosen label(s) (multi-select: labels comma-joined, per Happy).
+import { parseRateLimitEvent, type RateLimitInfo } from './ratelimit.js';
+
 export interface AskQuestion {
   question: string;
   header?: string;
@@ -122,6 +124,9 @@ export class ClaudeSession {
   // constructor-only) so the caller can re-point it at the CURRENT turn's Slack
   // channel/thread on every turn — see tasks.ts's ChatSession.setIdleNotify.
   onIdleResult?: (text: string) => void;
+  // Fires on every `rate_limit_event` (subscription quota state, emitted right before
+  // system/init at the start of each turn) — see ratelimit.ts. Mutable like onIdleResult.
+  onRateLimit?: (info: RateLimitInfo) => void;
 
   constructor(
     private readonly sandbox: SandboxHandle,
@@ -464,6 +469,9 @@ export class ClaudeSession {
       // we were waiting on a Slack answer) — abort the matching question so its buttons
       // close instead of resolving into a dead request id.
       this.inflightTools.get(ev.request_id)?.abort();
+    } else if (t === 'rate_limit_event') {
+      const info = parseRateLimitEvent(ev);
+      if (info) this.onRateLimit?.(info);
     } else if (t === 'result') {
       this.turnStarted = true;
       if (ev.session_id) this.claudeSessionId = ev.session_id; // authoritative per-turn id

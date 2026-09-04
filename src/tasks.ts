@@ -32,6 +32,8 @@ import {
 // "Chat with the project": ensure the sandbox + clone ALL the project's repos, then
 // drive a persistent Claude process over it (the agent can read AND edit; it pushes /
 // opens a PR only if asked). Each ask() is a turn on the same long-lived conversation.
+import type { RateLimitInfo } from './ratelimit.js';
+
 export interface ChatSession {
   // onStep receives a human-readable line per agent tool call (for live UI progress).
   // signal aborts the in-flight turn cleanly (→ throws 'canceled'). onQuestion is
@@ -107,6 +109,8 @@ async function prepareChat(
   repos: string[],
   driverKind?: SandboxDriverKind,
   composerAuth?: Record<string, unknown>,
+  cliVersion?: string,
+  upgradeCli?: boolean,
 ) {
   if (repos.length === 0) throw new Error(`project ${slug} has no repos`);
   const driver = createDriver(cfg, driverKind);
@@ -114,7 +118,7 @@ async function prepareChat(
 
   const proj = store.upsertProject(slug, repos[0], cfg.sandbox.namePrefix);
   const sandbox = await driver.ensureSandbox(proj.sandboxName, slug);
-  await provisionTooling(sandbox);
+  await provisionTooling(sandbox, { cliVersion, upgradeCli, where: proj.sandboxName });
   // dockerd liveness guard: a dead daemon breaks Sail (php/composer/artisan shims) for
   // every turn until revived — catch it here rather than mid-conversation.
   await ensureDockerd(sandbox, slug);
@@ -280,10 +284,17 @@ export async function openChat(
     // Called whenever a session (re)opens, with its command coords — persist immediately
     // so even a mid-FIRST-turn crash leaves a reattachable record.
     onOpen?: (info: { sessionKey: string; cmdId: string }) => void;
+    // The CLI's per-turn quota signal (ratelimit.ts) — one shared subscription, so the
+    // engine funnels every session's events into one tracker.
+    onRateLimit?: (info: RateLimitInfo) => void;
+    // Claude Code CLI pin for this sandbox and whether prep may install it now (false while
+    // another turn runs on the project) — see provisionTooling / cliversion.ts.
+    cliVersion?: string;
+    upgradeCli?: boolean;
   },
 ): Promise<ChatSession> {
   const prep = await withSandboxLock(opts.slug, () =>
-    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.composerAuth),
+    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.composerAuth, opts.cliVersion, opts.upgradeCli),
   );
   const { driver, proj, cwd } = prep;
   let sandbox = prep.sandbox;
@@ -347,6 +358,7 @@ export async function openChat(
           await reattached.open();
           session = reattached;
           session.onIdleResult = idleNotify;
+          session.onRateLimit = opts.onRateLimit;
           emitOpen();
           return session;
         } catch {
@@ -366,6 +378,7 @@ export async function openChat(
         model: cfg.claudeModel,
       });
       session.onIdleResult = idleNotify;
+      session.onRateLimit = opts.onRateLimit;
       await session.open();
       emitOpen();
       return session;

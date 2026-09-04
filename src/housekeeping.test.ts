@@ -70,3 +70,22 @@ test('parse: garbage output degrades to unknowns, digest still one line', () => 
   assert.equal(r.digest, 'dockerd unknown · disk ? · no prune · 1 worktree reaped');
   assert.ok(!r.digest.includes('\n'));
 });
+
+test('script: a CLI pin adds the in-place upgrade step; no pin → version probe only', () => {
+  const pinned = housekeepingScript(80, '2.1.260');
+  assert.match(pinned, /npm install -g @anthropic-ai\/claude-code@2\.1\.260/);
+  assert.match(pinned, /cli:upgrade=/);
+  const probe = housekeepingScript(80);
+  assert.match(probe, /cli:version=/);
+  assert.ok(!probe.includes('npm install'));
+});
+
+test('parse: cli markers ride along in the report and digest', () => {
+  const out = 'cli:from=2.1.183\ncli:upgrade=installed\ncli:version=2.1.260\nhk:dockerd=ok\nhk:disk=40\nhk:prune=skipped\n';
+  const r = parseHousekeepingReport(out, 0);
+  assert.deepEqual(r.cli, { from: '2.1.183', version: '2.1.260', upgrade: 'installed' });
+  assert.equal(r.digest, 'dockerd ok · disk 40% · no prune · 0 worktrees reaped · cli 2.1.260 (from 2.1.183)');
+  const failed = parseHousekeepingReport(out.replace('installed', 'failed').replace('version=2.1.260', 'version=2.1.183'), 0);
+  assert.match(failed.digest, /cli 2\.1\.183 \(upgrade FAILED\)$/);
+  assert.match(parseHousekeepingReport(out.replace('installed', 'current'), 0).digest, /cli 2\.1\.260$/);
+});
