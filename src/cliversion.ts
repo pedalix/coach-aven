@@ -13,8 +13,24 @@
 //     stops "77 versions behind" from happening again.
 // The Dockerfile takes the same pin as a build arg so fresh sandboxes match the fleet.
 // Pure helpers + shell snippets here (tested); the exec/alert plumbing lives in the callers.
+//
+// WHERE it installs: an override prefix under /root (CLI_PREFIX), not the image's
+// /usr/local. Under sysbox (the ssh-docker driver) the image layers belong to an unmapped
+// uid — they read as `nobody` and even root can't rename inside /usr/local/lib/node_modules
+// (npm dies with EACCES; bit proj-coach-aven on 2026-09-04) — while /root is the
+// container's own writable state. So every driver installs into /root/.local and the
+// spawn command puts /root/.local/bin first on PATH (CLI_PATH_ENV): present → wins,
+// absent → the image's copy. Same rule everywhere, no per-driver special case.
 
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
+
+// The per-sandbox install prefix (npm --prefix → <prefix>/bin/claude, <prefix>/lib/node_modules).
+export const CLI_PREFIX = '/root/.local';
+// Env prefix for any command that must see the override first — claudeSession's spawn line.
+export const CLI_PATH_ENV = `PATH=${CLI_PREFIX}/bin:$PATH`;
+// npm's cache goes to a throwaway dir: the image's /root/.npm can carry unwritable entries
+// (same uid story), and we don't want 100 MB of tarballs kept per sandbox anyway.
+const NPM_CACHE = '/tmp/cli-npm-cache';
 
 // A pin is a plain `x.y.z` — nothing else is accepted, because it lands inside a shell
 // command verbatim (config-controlled, but "never interpolate unvalidated text" anyway).
@@ -33,8 +49,9 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-// `claude --version` prints "2.1.183 (Claude Code)"; keep the number. busybox-sh safe.
-const READ_VERSION = `claude --version 2>/dev/null | awk '{print $1}'`;
+// `claude --version` prints "2.1.183 (Claude Code)"; keep the number. Resolved with the
+// override first, exactly as the spawn line does. busybox-sh safe.
+const READ_VERSION = `${CLI_PATH_ENV} claude --version 2>/dev/null | awk '{print $1}'`;
 
 // Marker-only probe for housekeeping/status when no pin is set:  cli:version=<v>
 export function cliVersionCmd(): string {
@@ -52,8 +69,8 @@ export function cliUpgradeCmd(pin: string): string {
   return (
     `cur=$(${READ_VERSION}); echo "cli:from=$cur"; ` +
     `if [ "$cur" = "${pin}" ]; then echo "cli:upgrade=current"; else ` +
-    `if npm install -g @anthropic-ai/claude-code@${pin} >/tmp/cli-upgrade.log 2>&1; then echo "cli:upgrade=installed"; ` +
-    `else echo "cli:upgrade=failed"; fi; fi; ` +
+    `if npm_config_cache=${NPM_CACHE} npm install -g --prefix ${CLI_PREFIX} @anthropic-ai/claude-code@${pin} >/tmp/cli-upgrade.log 2>&1; ` +
+    `then echo "cli:upgrade=installed"; else echo "cli:upgrade=failed"; fi; rm -rf ${NPM_CACHE}; fi; ` +
     `echo "cli:version=$(${READ_VERSION})"`
   );
 }

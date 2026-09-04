@@ -12,6 +12,7 @@ function sq(s: string): string {
 // more questions; we answer via control_response allow+updatedInput.answers, keyed by
 // question TEXT → chosen label(s) (multi-select: labels comma-joined, per Happy).
 import { parseRateLimitEvent, type RateLimitInfo } from './ratelimit.js';
+import { CLI_PATH_ENV } from './cliversion.js';
 
 export interface AskQuestion {
   question: string;
@@ -210,7 +211,8 @@ export class ClaudeSession {
     // to coexist — normal tools auto-run (bypass, no round-trip) while AskUserQuestion
     // STILL fires a can_use_tool control_request we answer (→ Slack buttons).
     const command =
-      `cd ${sq(this.opts.cwd)} && ${CC_TOKEN_ENV} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
+      // CLI_PATH_ENV: the pinned per-sandbox Claude Code (cliversion.ts) wins over the image's.
+      `cd ${sq(this.opts.cwd)} && ${CLI_PATH_ENV} ${CC_TOKEN_ENV} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
       `claude --output-format stream-json --input-format stream-json --verbose ` +
       `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ${model}${mcp}${resume}${sys}`;
     const started = await this.sandbox.startSessionCommand(this.sessionKey, command);
