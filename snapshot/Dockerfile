@@ -25,7 +25,8 @@ RUN apk add --no-cache \
 # Claude Code (the CLI). npm is the reliable install path on Alpine/musl (the native
 # installer wants extra libs + a settings flag there, for no gain). Pinned to the fleet's
 # CLAUDE_CLI_VERSION (build-and-push.sh passes it) so fresh sandboxes match what
-# provisionTooling converges warm ones to — see src/cliversion.ts.
+# provisionTooling converges warm ones to — see src/cliversion.ts. (Runtime upgrades land
+# in /root/.local, ahead of this copy on PATH: under sysbox /usr/local isn't writable.)
 ARG CLAUDE_CLI_VERSION=2.1.260
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}
 

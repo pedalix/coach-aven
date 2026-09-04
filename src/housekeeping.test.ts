@@ -73,7 +73,7 @@ test('parse: garbage output degrades to unknowns, digest still one line', () => 
 
 test('script: a CLI pin adds the in-place upgrade step; no pin → version probe only', () => {
   const pinned = housekeepingScript(80, '2.1.260');
-  assert.match(pinned, /npm install -g @anthropic-ai\/claude-code@2\.1\.260/);
+  assert.match(pinned, /npm install -g --prefix \/root\/\.local @anthropic-ai\/claude-code@2\.1\.260/);
   assert.match(pinned, /cli:upgrade=/);
   const probe = housekeepingScript(80);
   assert.match(probe, /cli:version=/);

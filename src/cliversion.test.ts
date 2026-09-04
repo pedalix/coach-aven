@@ -30,7 +30,9 @@ test('compareVersions — numeric, not lexicographic', () => {
 test('cliUpgradeCmd — pinned: compare, install only when different, emit all markers', () => {
   const cmd = cliUpgradeCmd('2.1.260');
   assert.match(cmd, /claude --version/);
-  assert.match(cmd, /npm install -g @anthropic-ai\/claude-code@2\.1\.260 >\/tmp\/cli-upgrade\.log/);
+  assert.match(cmd, /npm_config_cache=\/tmp\/cli-npm-cache npm install -g --prefix \/root\/\.local @anthropic-ai\/claude-code@2\.1\.260 >\/tmp\/cli-upgrade\.log/);
+  assert.match(cmd, /rm -rf \/tmp\/cli-npm-cache/);
+  assert.match(cmd, /PATH=\/root\/\.local\/bin:\$PATH claude --version/); // the override wins when present
   assert.match(cmd, /cli:upgrade=current/);
   assert.match(cmd, /cli:upgrade=installed/);
   assert.match(cmd, /cli:upgrade=failed/);

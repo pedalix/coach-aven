@@ -85,7 +85,10 @@ stay put), and `build-and-push.sh` bakes the same pin into fresh images. To bump
 `"cliVersion"` on one low-traffic project in `projects.config.json` as a canary, run a few
 real turns (steps, a question, a cancel, a `--resume`), then move `CLAUDE_CLI_VERSION`
 for the fleet. A daily check alerts when the pin falls behind npm's `stable` tag. Rollback
-is the same mechanism with the old number. See `src/cliversion.ts`.
+is the same mechanism with the old number. The upgrade installs into `/root/.local`
+(first on the spawn PATH), not over the image's copy — sysbox containers can't write
+`/usr/local` — so a bare `claude --version` in a shell shows the image's version; use
+`PATH=/root/.local/bin:$PATH claude --version` for the effective one. See `src/cliversion.ts`.
 
 ### GitHub auth
 
