@@ -47,15 +47,6 @@ export interface ProjectConfig {
   // ticket whose id is "<PREFIX>-<n>" is investigated in this project's sandbox/channel. One
   // project may carry several (e.g. caldora ← its several help-desk projects). See youtrack.ts.
   youtrackProjects?: string[];
-  // Composer credentials for private packages, VERBATIM in composer's auth.json shape
-  // (e.g. { "github-oauth": { "github.com": "ghp_…" } }, or "http-basic" for a Satis).
-  // Seeded as <checkout>/auth.json into every repo checkout (git-excluded there): both
-  // the Sail container and the composer bootstrap container mount the checkout, and
-  // composer reads ./auth.json from its working dir — so one file covers every composer
-  // path with no env plumbing into containers. The value lives HERE (this file is
-  // gitignored prod runtime) rather than as an ${ENV} ref: it's a per-project static
-  // secret (e.g. a fine-grained PAT for a package repo our GitHub App can't reach).
-  composerAuth?: Record<string, unknown>;
 }
 
 // A workspaces entry: the short form is just the slug list; the object form adds
@@ -115,12 +106,6 @@ export function loadProjects(path: string): ProjectsRegistry {
       if (!s.name || (!s.command && !s.url)) {
         throw new Error(`${path}: mcp server entries need a "name" and a "command" or "url"`);
       }
-    }
-    if (
-      p.composerAuth !== undefined &&
-      (typeof p.composerAuth !== 'object' || p.composerAuth === null || Array.isArray(p.composerAuth))
-    ) {
-      throw new Error(`${path}: "${p.slug}".composerAuth must be an object in composer auth.json format`);
     }
   }
   // The workspaces block (when present) must reference real slugs — a typo would

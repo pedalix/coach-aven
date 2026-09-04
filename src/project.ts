@@ -160,25 +160,42 @@ export async function reapWorktrees(sandbox: SandboxHandle, repoDir: string): Pr
   return reaped;
 }
 
-// Composer auth for private packages: write the project's composerAuth (auth.json shape,
-// see ProjectConfig) into the checkout root. Composer reads ./auth.json from its working
-// dir, and both the Sail container and the bootstrap throwaway container mount the
-// checkout — one file covers every composer path, no env plumbing into containers.
-// Excluded via .git/info/exclude (NOT .gitignore — that would be a tracked-file edit)
-// so the agent can't accidentally commit the secret. Note worktrees don't inherit the
-// file itself (only the exclude, via the shared git dir) — the system prompt tells the
-// agent to copy it when running composer in a worktree.
-export async function seedComposerAuth(
-  sandbox: SandboxHandle,
-  checkoutDir: string,
-  auth: Record<string, unknown>,
-) {
-  await sandbox.uploadFile(Buffer.from(JSON.stringify(auth, null, 2)), `${checkoutDir}/auth.json`);
-  await sandbox.exec(`chmod 600 ${checkoutDir}/auth.json`, { check: true });
-  await sandbox.exec(
-    `grep -qx auth.json ${checkoutDir}/.git/info/exclude 2>/dev/null || echo auth.json >> ${checkoutDir}/.git/info/exclude`,
-    { check: true },
+// Composer auth for private packages: mirror the GitHub token into <checkout>/auth.json
+// (composer's own credential file) for every checkout that has a composer.json. Why a
+// file and not the credential helper: composer runs INSIDE Sail / the bootstrap
+// throwaway container, where the sandbox's git credential helper doesn't exist — but
+// both containers mount the checkout, and composer reads ./auth.json from its working
+// dir, so one file covers every composer path with no env plumbing. The token is the
+// same per-turn installation token as /root/.gh-token (scoped to the project's repos +
+// the dependency repos the deps scanner found, see tasks.ts), so this is re-run every
+// turn right after seedGitHubAuth — it's a ~1h token. The shell reads it from
+// /root/.gh-token so it never transits a command line. It is written in composer's
+// `http-basic` shape, NOT `github-oauth`: the latter makes composer send
+// `<token>:x-oauth-basic`, which GitHub rejects for installation (ghs_) tokens, whereas
+// `x-access-token:<token>` is accepted by both git-over-https (composer's clone path,
+// including `git@github.com:` URLs it rewrites) and the REST API (its zipball path) —
+// verified with a real `composer update --dry-run` in the caldora sandbox (docs/project-facts.md).
+// Excluded via .git/info/exclude
+// (NOT .gitignore — that would be a tracked-file edit) so the agent can't commit it.
+// Worktrees don't inherit the file (only the exclude, via the shared git dir): copies the
+// agent already made under <checkout>-wt/*/ are refreshed too, so an hour-old worktree
+// doesn't fail its next composer run; the base prompt tells the agent to cp it for new ones.
+// A checkout without composer.json gets no file (and loses a stale one from the old PAT era).
+export function composerAuthScript(checkoutDirs: string[]): string {
+  const perCheckout = checkoutDirs.map(
+    (d) =>
+      `if [ -f ${d}/composer.json ]; then ` +
+      `printf '{"http-basic":{"github.com":{"username":"x-access-token","password":"%s"}}}\\n' "$(cat /root/.gh-token)" > ${d}/auth.json && chmod 600 ${d}/auth.json; ` +
+      `grep -qx auth.json ${d}/.git/info/exclude 2>/dev/null || echo auth.json >> ${d}/.git/info/exclude; ` +
+      `for w in ${d}-wt/*/; do [ -f "$w/auth.json" ] && cp ${d}/auth.json "$w/auth.json"; done; ` +
+      `else rm -f ${d}/auth.json; fi`,
   );
+  return perCheckout.join('; ') + '; true';
+}
+
+export async function seedComposerAuth(sandbox: SandboxHandle, checkoutDirs: string[]) {
+  if (checkoutDirs.length === 0) return;
+  await sandbox.exec(composerAuthScript(checkoutDirs), { check: true });
 }
 
 // Clone (or fetch) a single repo into its own <slug>/<repoName> dir. Used by the chat

@@ -16,8 +16,19 @@ import {
   projectCwd,
 } from './project.js';
 import type { McpServerSpec } from './projects.js';
+import { FactStore } from './facts.js';
+import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './deps.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
 import { ClaudeSession, type OnQuestion, type TurnUsage } from './claudeSession.js';
+
+// Project facts (facts/<slug>.json) — derived, machine-written state; today just the
+// `depends_on_repos` fact the deps scanner writes at prepare time and the token mint reads.
+const facts = new FactStore();
+
+// The GitHub token for a project covers its repos PLUS the same-org dependency repos on
+// record (private composer packages) — see deps.ts. Before the first scan the fact is
+// empty and the scope is just the project's repos, which is all cloning needs.
+const scopedRepos = (slug: string, repos: string[]) => tokenRepos(repos, facts.dependsOnRepos(slug));
 import {
   planIngest,
   downloadAttachment,
@@ -100,15 +111,15 @@ function withSandboxLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
 
 // Prepare a project's sandbox for the chat path: snapshot active, sandbox started,
 // tooling + auth seeded, and ALL the project's repos cloned side by side. The GitHub
-// token is scoped to exactly these repos. cwd is the single repo's dir when there's one
-// repo, else the project root (so Claude sees every repo as a subdir).
+// token is scoped to exactly these repos plus the dependency repos their manifests
+// reference (deps scanner → facts). cwd is the single repo's dir when there's one repo,
+// else the project root (so Claude sees every repo as a subdir).
 async function prepareChat(
   cfg: Config,
   store: Store,
   slug: string,
   repos: string[],
   driverKind?: SandboxDriverKind,
-  composerAuth?: Record<string, unknown>,
   cliVersion?: string,
   upgradeCli?: boolean,
 ) {
@@ -123,13 +134,22 @@ async function prepareChat(
   // every turn until revived — catch it here rather than mid-conversation.
   await ensureDockerd(sandbox, slug);
 
-  await seedGitHubAuth(sandbox, await getGitHubToken(cfg, repos));
+  const scopeBefore = scopedRepos(slug, repos);
+  await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeBefore));
   await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
 
   for (const repo of repos) await cloneRepo(sandbox, cfg, slug, repo);
-  if (composerAuth) {
-    for (const repo of repos) await seedComposerAuth(sandbox, repoCheckout(cfg, slug, repo), composerAuth);
+  // Writer: scan the fresh checkouts' manifests → `depends_on_repos` fact. Readers: if the
+  // token scope changed (first session, or a repo gained/lost a private package), re-mint
+  // so this session's token already covers the packages; then mirror it into composer's
+  // auth.json in every checkout that has a composer.json.
+  const checkouts = repos.map((repo) => ({ repo, dir: repoCheckout(cfg, slug, repo) }));
+  await scanDependencyRepos(sandbox, facts, slug, checkouts);
+  const scopeAfter = scopedRepos(slug, repos);
+  if (scopeAfter.join() !== scopeBefore.join()) {
+    await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeAfter));
   }
+  await seedComposerAuth(sandbox, checkouts.map((c) => c.dir));
   // Agents work in per-task worktrees (see the base prompt); reap finished/orphaned ones.
   for (const repo of repos) await reapWorktrees(sandbox, repoCheckout(cfg, slug, repo));
   const cwd = projectCwd(cfg, slug, repos);
@@ -152,7 +172,8 @@ function buildSystemPrompt(
   repos: string[],
   projectPrompt?: string,
   slackUrl?: string,
-  hasComposerAuth?: boolean,
+  // Same-org private dependency repos on record (facts → deps.ts) — what auth.json covers.
+  packageRepos: string[] = [],
 ): string {
   const lines = [`You are the coding assistant for the project "${slug}", reachable from a Slack channel.`];
   if (repos.length === 1) {
@@ -224,12 +245,14 @@ function buildSystemPrompt(
       `lockfiles unless a repo's CI says otherwise. Anything that deviates from this (a non-Sail ` +
       `repo, a bun/pnpm repo, an infra repo) is called out in the project-specific instructions below.`,
   );
-  if (hasComposerAuth) {
+  if (packageRepos.length) {
     lines.push(
       '',
-      `Private composer packages: every repo checkout has an \`auth.json\` in its root (git-excluded, ` +
-        `pre-seeded with credentials) — composer picks it up automatically there. A git WORKTREE does ` +
-        `NOT inherit it: before running composer in a worktree, copy it in first ` +
+      `Private packages: this project's composer manifests pull from these private GitHub repos, ` +
+        `and your credentials already cover them (both \`git clone\` and composer): ` +
+        `${packageRepos.join(', ')}. Every checkout with a composer.json has an \`auth.json\` in its ` +
+        `root (git-excluded, refreshed each turn) — composer picks it up automatically there. A git ` +
+        `WORKTREE does NOT inherit it: before running composer in a worktree, copy it in first ` +
         `(\`cp <checkout>/auth.json <worktree>/\` — it stays untracked via the shared git exclude). ` +
         `Never commit auth.json or paste its contents anywhere.`,
     );
@@ -275,9 +298,6 @@ export async function openChat(
     mcp?: McpServerSpec[];
     // The project's sandbox provider (ProjectConfig.driver); omitted → deployment default.
     driver?: SandboxDriverKind;
-    // Composer credentials for private packages (ProjectConfig.composerAuth) — seeded as
-    // auth.json into every repo checkout by prepareChat.
-    composerAuth?: Record<string, unknown>;
     // A still-running Daytona command from before a bot restart — reattach to it instead
     // of spawning a fresh process (tried once; falls back to --resume if it's gone).
     attach?: { sessionKey: string; cmdId: string };
@@ -294,7 +314,7 @@ export async function openChat(
   },
 ): Promise<ChatSession> {
   const prep = await withSandboxLock(opts.slug, () =>
-    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.composerAuth, opts.cliVersion, opts.upgradeCli),
+    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli),
   );
   const { driver, proj, cwd } = prep;
   let sandbox = prep.sandbox;
@@ -312,7 +332,7 @@ export async function openChat(
     opts.repos,
     opts.systemPrompt,
     opts.slackUrl,
-    !!opts.composerAuth,
+    reachableDependencyRepos(opts.repos, facts.dependsOnRepos(opts.slug)),
   );
   const emitOpen = () => {
     const a = session?.attachInfo();
@@ -330,7 +350,8 @@ export async function openChat(
       await withSandboxLock(opts.slug, async () => {
         sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug);
         await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
-        await seedGitHubAuth(sandbox, await getGitHubToken(cfg, opts.repos));
+        await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
+        await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
         await seedMcpConfig(sandbox, opts.mcp);
       });
       return session;
@@ -339,7 +360,8 @@ export async function openChat(
       if (session && !session.isDead()) return session;
       sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug);
       await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
-      await seedGitHubAuth(sandbox, await getGitHubToken(cfg, opts.repos));
+      await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
+      await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
       const mcpConfigPath = await seedMcpConfig(sandbox, opts.mcp);
       // Bot restarted while a command was still running? Reattach to it once, rather than
       // spawning a duplicate that would fight over the same working tree. If the command

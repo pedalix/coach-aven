@@ -15,6 +15,8 @@ projects.config.json
 /projects.d/
 # per-project memory journals (server-owned git repos; like state.json, never committed):
 memory/
+# per-project derived facts (facts/<slug>.json — machine-written, re-derivable; see docs/project-facts.md):
+facts/
 *.log
 # secrets — standalone repo, so ignore them here (no parent repo to do it):
 .env
