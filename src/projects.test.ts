@@ -64,24 +64,6 @@ test('validation: mcp entries need a name and a command or url', () => {
   });
 });
 
-test('validation: composerAuth must be an object (auth.json shape), not a bare token', () => {
-  withConfigDir((_dir, cfg) => {
-    writeFileSync(
-      cfg,
-      JSON.stringify({ projects: [{ slug: 'a', repos: ['O/r'], composerAuth: 'ghp_oops' }] }),
-    );
-    assert.throws(() => loadProjects(cfg), /composerAuth must be an object/);
-  });
-});
-
-test('composerAuth passes through verbatim when valid', () => {
-  withConfigDir((_dir, cfg) => {
-    const auth = { 'github-oauth': { 'github.com': 'ghp_x' } };
-    writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'a', repos: ['O/r'], composerAuth: auth }] }));
-    assert.deepEqual(loadProjects(cfg).projects[0].composerAuth, auth);
-  });
-});
-
 test('validation: slug and repos are required', () => {
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'a', repos: [] }] }));

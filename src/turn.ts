@@ -358,7 +358,6 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       slackUrl,
       mcp: project.mcp,
       driver: project.driver,
-      composerAuth: project.composerAuth,
       // CLI pin: per-project canary override, else the fleet pin. Install only when no OTHER
       // conversation on this project has a turn in flight (this key's own turn is the one
       // opening the session) — see provisionTooling.
