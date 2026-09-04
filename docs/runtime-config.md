@@ -31,6 +31,7 @@ sandbox state.
 | `systemPrompt` | **yes** | read at `openChat` → `buildSystemPrompt`; applies on a fresh session |
 | `mcp` | maybe, with session recycle | `--mcp-config` is set at process spawn → needs a restart of the project session |
 | `repos` | no | changes clone layout, cwd, token scope, worktrees → re-prepare the sandbox |
+| `cliVersion` | no (reload is enough) | the per-project Claude Code CLI pin (canary override of `CLAUDE_CLI_VERSION`) — applied in place at the next chat prep / nightly housekeeping; see the README's *Claude Code version* |
 | `composerAuth` | no (reload is enough) | seeded as `auth.json` into checkouts at `prepareChat` — a new session picks it up; a secret, so no Slack editing |
 | `slug` / `slackChannel` | no | routing keys (`dm:…:<slug>`, `cmd:…:<slug>`) — changing orphans live sessions |
 

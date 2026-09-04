@@ -38,6 +38,22 @@ Sentry is SaaS and CoachAven handles **private repos + Slack text**, so:
   the project — so turn latency shows up in tracing.
 - **Logs (opt-in):** `log.info/warn/error` forward to `Sentry.logger.*` when `SENTRY_LOGS=1`.
 
+## Claude subscription quota
+
+All turns run on one Claude Max plan whose 5-hour / 7-day windows are an opaque server-side
+counter — the usage log (`/aven usage`) says what turns cost, not how close we are to the
+wall. The CLI emits a `rate_limit_event` at the start of every turn (see
+`docs/stream-json-contract.md`); `src/ratelimit.ts` parses it, one engine-wide tracker
+keeps the latest state, and transitions post to `AVEN_ALERT_CHANNEL`: ⚠️ on
+`allowed_warning`/`rejected` (once per window — the CLI repeats the same status every turn),
+✅ once on recovery. `/aven status` (home workspace) shows the current line, e.g.
+`Claude quota ✅ · 5h 12% · 7d 42% · as of 3m ago`. Percentages need a sandbox CLI that
+sends `unifiedWindows`; older CLIs still yield the status and reset time.
+
+Not wired (yet): the `GET https://api.anthropic.com/api/oauth/usage` endpoint the interactive
+`/usage` command uses. It returns the same percentages on demand, but needs a token with the
+`user:profile` scope — a `claude setup-token` token (what prod runs on) gets 403.
+
 ## Enabling on prod
 
 1. Create a Sentry project (Node), get the DSN.

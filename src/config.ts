@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { config as loadDotenv } from 'dotenv';
+import { isValidCliVersion } from './cliversion.js';
 
 loadDotenv();
 
@@ -27,6 +28,15 @@ function resolveRelease(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+// CLAUDE_CLI_VERSION must be a plain x.y.z — it is interpolated into a sandbox shell
+// command (cliversion.ts) — so anything else is refused loudly at boot, not ignored.
+function cliVersionEnv(): string | undefined {
+  const v = process.env.CLAUDE_CLI_VERSION;
+  if (!v) return undefined;
+  if (!isValidCliVersion(v)) throw new Error(`CLAUDE_CLI_VERSION must be x.y.z (got '${v}')`);
+  return v;
 }
 
 // Resolve the Claude Code subscription token. Prefer an explicit env var (a stable
@@ -152,6 +162,10 @@ export interface Config {
   // which historically resolved to Sonnet — set CLAUDE_MODEL explicitly (e.g.
   // claude-opus-5) so the fleet's model is a deliberate choice, not a CLI default.
   claudeModel?: string;
+  // Pin for the sandbox Claude Code CLI (x.y.z). Warm sandboxes converge to it in place at
+  // chat prep / nightly housekeeping; the image build bakes the same pin. Unset → sandboxes
+  // keep whatever their image shipped (and the daily drift check nags). See cliversion.ts.
+  claudeCliVersion?: string;
   github: GitHubAuth;
   // Slack is only needed for the `slack` command; undefined otherwise. appToken is always
   // required (Socket Mode); botToken is optional once `oauth` is set — the home workspace's
@@ -238,6 +252,7 @@ export function loadConfig(): Config {
     },
     claudeOauthToken: resolveClaudeToken(),
     claudeModel: process.env.CLAUDE_MODEL || undefined,
+    claudeCliVersion: cliVersionEnv(),
     github: githubAuth(),
     slack: slackConfig(),
     youtrack:

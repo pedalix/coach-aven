@@ -78,6 +78,15 @@ snapshot is created on next boot (`ensureSnapshot`). Existing warm sandboxes kee
 old image until recreated. (If the GHCR package is private, the Daytona runner needs pull
 creds — make it public or add a registry pull secret to the runner.)
 
+**Claude Code version.** The CLI inside the sandboxes is pinned by `CLAUDE_CLI_VERSION`
+(runtime `.env`), not by the image: warm sandboxes converge to the pin in place (an
+`npm i -g` at their next chat prep or nightly housekeeping — repos, transcripts and memory
+stay put), and `build-and-push.sh` bakes the same pin into fresh images. To bump: set
+`"cliVersion"` on one low-traffic project in `projects.config.json` as a canary, run a few
+real turns (steps, a question, a cancel, a `--resume`), then move `CLAUDE_CLI_VERSION`
+for the fleet. A daily check alerts when the pin falls behind npm's `stable` tag. Rollback
+is the same mechanism with the old number. See `src/cliversion.ts`.
+
 ### GitHub auth
 
 The orchestrator clones/pushes/opens PRs as a **GitHub App installation** (preferred) or a

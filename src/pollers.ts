@@ -29,9 +29,10 @@ import { listOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js
 import { createDriver } from './driver.js';
 import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
 import { housekeepingScript, parseHousekeepingReport, pruneThreshold } from './housekeeping.js';
+import { cliUpgradeNotice, cliPinDrift, fetchCliDistTags } from './cliversion.js';
 import { dreamPrompt, dreamDigest } from './dream.js';
 import { snapshotMemory } from './memjournal.js';
-import { autofixNotifyBlocks, shortRepo } from './blocks.js';
+import { autofixNotifyBlocks, shortRepo, alertOps } from './blocks.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
 
@@ -46,6 +47,7 @@ const BOT_LOGIN = 'coach-aven[bot]';
 const AUTO_REVIEW_POLL_MS = 180_000; // 3 min
 const AUTOFIX_POLL_MS = 120_000; // 2 min
 const YOUTRACK_POLL_MS = 120_000; // 2 min — support-ticket investigation pilot
+const CLI_PIN_POLL_MS = 24 * 3_600_000; // daily — is the Claude Code pin behind npm stable?
 
 export interface Pollers {
   startAll(): void;
@@ -178,10 +180,15 @@ export function createPollers(
         for (const repo of project.repos) {
           reaped += await reapWorktrees(sandbox, repoCheckout(cfg, project.slug, repo));
         }
-        const res = await sandbox.exec(housekeepingScript(pruneThreshold()), { timeout: 600 });
+        const pin = project.cliVersion ?? cfg.claudeCliVersion;
+        const res = await sandbox.exec(housekeepingScript(pruneThreshold(), pin), { timeout: 900 });
         const report = parseHousekeepingReport(res.result ?? '', reaped);
         store.patchRoutine(r.id, { lastSummary: report.digest });
         log.info(`housekeeping ${r.id} (${project.slug}): ${report.digest}`);
+        // A CLI upgrade (or its failure) is fleet news, not just a digest line.
+        const notice = cliUpgradeNotice(report.cli, `${cfg.sandbox.namePrefix}${project.slug}`);
+        if (notice) alertOps(notice.text, notice.level);
+        if (notice?.level === 'warning') captureError(new Error(notice.text), { subsystem: 'cli-upgrade', slug: project.slug });
       } catch (e) {
         log.error(`housekeeping ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -415,12 +422,31 @@ export function createPollers(
     setInterval(() => void tick().catch(pollFail('youtrack')), YOUTRACK_POLL_MS);
   }
 
+  // Daily: is the Claude Code PIN itself stale against npm's `stable` dist-tag (cliversion.ts)?
+  // The sandboxes converge to the pin on their own; this is the nudge to move the pin. One
+  // alert per distinct message — a stale pin nags once, not every morning.
+  let lastPinDriftAlert: string | undefined;
+  function startCliPinCheck(): void {
+    const tick = async (): Promise<void> => {
+      const tags = await fetchCliDistTags();
+      const drift = cliPinDrift(cfg.claudeCliVersion, tags?.stable);
+      if (!drift) lastPinDriftAlert = undefined;
+      else if (drift !== lastPinDriftAlert) {
+        lastPinDriftAlert = drift;
+        alertOps(drift, 'warning');
+      }
+    };
+    setTimeout(() => void tick().catch(pollFail('cli-pin')), 60_000);
+    setInterval(() => void tick().catch(pollFail('cli-pin')), CLI_PIN_POLL_MS);
+  }
+
   return {
     startAll: () => {
       startScheduler();
       startAutoReviewPoller();
       startAutofixPoller();
       startYouTrackPoller();
+      startCliPinCheck();
     },
     fireRoutine,
     fireReview,

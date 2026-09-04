@@ -40,6 +40,9 @@ export interface ProjectConfig {
   // deployment default (SANDBOX_DRIVER, currently daytona). Lets the fleet migrate
   // provider by provider — e.g. move a docker-less project to ssh-docker first.
   driver?: SandboxDriverKind;
+  // Pin THIS project's sandbox Claude Code CLI (x.y.z), overriding CLAUDE_CLI_VERSION — the
+  // canary knob: roll a new version on one low-traffic project first (cliversion.ts).
+  cliVersion?: string;
   // YouTrack project prefixes that route to this project (the investigation pilot). A tagged
   // ticket whose id is "<PREFIX>-<n>" is investigated in this project's sandbox/channel. One
   // project may carry several (e.g. caldora ← its several help-desk projects). See youtrack.ts.

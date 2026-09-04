@@ -8,6 +8,7 @@ import type { Config } from './config.js';
 import type { Store } from './state.js';
 import { loadProjects, resolveBySlug, teamProjects, projectOwnerTeam, type ProjectConfig, type RegistryRef } from './projects.js';
 import { tenantOf, withTeam, splitTeam, normalizeTenant } from './teamkeys.js';
+import { rateLimitStatusLine } from './ratelimit.js';
 import { effectiveAccess, mayDrive, isAdmin, deniedText, parseUsersCmd, applyUsersCmd, usersListText } from './access.js';
 import type { TurnEngine } from './turn.js';
 import type { Channels } from './channels.js';
@@ -156,7 +157,13 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       dreams: jobsBySlug.get(p.slug)?.dreams ?? 0,
       hk: jobsBySlug.get(p.slug)?.hk ?? 0,
     }));
-    return { projects, turnsInFlight: engine.runningCount(), daytonaOk, githubOk };
+    return {
+      projects,
+      turnsInFlight: engine.runningCount(),
+      daytonaOk,
+      githubOk,
+      claudeQuota: tid === undefined ? rateLimitStatusLine(engine.claudeQuota()) : undefined,
+    };
   }
 
   // ── /aven access → show what this channel's project exposes (repos + MCP) ────

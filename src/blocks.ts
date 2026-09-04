@@ -749,6 +749,9 @@ export interface StatusReport {
   turnsInFlight: number;
   daytonaOk: boolean;
   githubOk: boolean;
+  // Subscription quota line (ratelimit.ts) — operator info about OUR one Claude plan, so
+  // only the home workspace's report carries it.
+  claudeQuota?: string;
 }
 
 function stateLabel(state?: string): string {
@@ -771,7 +774,8 @@ export function statusReportBlocks(r: StatusReport): any[] {
     return `• *${p.slug}* — ${bits.join(' · ')}`;
   });
   const health = `_Daytona ${r.daytonaOk ? '✅' : '⚠️'} · GitHub ${r.githubOk ? '✅' : '⚠️'} · Slack ✅_`;
-  return [{ type: 'section', text: { type: 'mrkdwn', text: `${head}\n\n${lines.join('\n')}\n\n${health}` } }];
+  const quota = r.claudeQuota ? `\n_${r.claudeQuota}_` : '';
+  return [{ type: 'section', text: { type: 'mrkdwn', text: `${head}\n\n${lines.join('\n')}\n\n${health}${quota}` } }];
 }
 
 // "Org/name" → "name", for compact display.
@@ -949,7 +953,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.\n` +
           `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.\n` +
           `• *Sandbox upkeep* — \`${CMD} housekeeping on\`/\`off\` schedules (or pauses) the nightly janitor (dockerd guard, docker prune when disk runs high, stale-worktree reap); \`${CMD} housekeeping\` for the last run, \`${CMD} housekeeping now\` to run it once.\n` +
-          `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, and open PRs.\n` +
+          `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, open PRs — and (operators) the Claude subscription quota.\n` +
           '• *Check or restart a thread* — hit *⚙️ Session* on any finished answer for a private status card (session, repos/tools, running turn, PR) and a *🔄 Restart session* control if you want the next message to start a brand-new conversation.\n' +
           '• *Tell me if it landed* — every answer carries *👍 Helped* / *👎 Missed*. One click is enough; the count on the button updates so you see it registered, and a thumbs-down asks what went wrong in a short pop-up. Nothing is posted in the thread; click the other button to change your mind.\n' +
           `• *Usage* — \`${CMD} usage [days]\` for token/cost/turn totals per project, plus how many answers people rated as helpful and what those cost (last 30d by default). _(Operators' home workspace only.)_\n` +
@@ -1097,15 +1101,23 @@ export function info(msg: string): string {
 // Set by runSlack when AVEN_ALERT_CHANNEL is configured: mirror operator-visible errors to a
 // Slack channel (free-tier alerting that Sentry's free plan can't do). errText is the central
 // error formatter, so every turn/command failure flows through here.
-let alertSink: ((text: string) => void) | undefined;
-export function setAlertSink(fn: (text: string) => void): void {
+export type AlertLevel = 'error' | 'warning' | 'info';
+let alertSink: ((text: string, level: AlertLevel) => void) | undefined;
+export function setAlertSink(fn: (text: string, level: AlertLevel) => void): void {
   alertSink = fn;
+}
+// Operator notice that is NOT an error (quota warnings, recoveries): logged, mirrored to
+// the alert channel at its level, no Sentry issue — Sentry is for things with a stack.
+export function alertOps(text: string, level: Exclude<AlertLevel, 'error'> = 'warning'): void {
+  if (level === 'warning') log.warn(text);
+  else log.info(text);
+  alertSink?.(text, level);
 }
 export function errText(err: unknown): string {
   const m = err instanceof Error ? err.message : String(err);
   log.error(m);
   captureError(err); // central error formatter → Sentry issue (with stack), no-op if Sentry off
-  alertSink?.(m); // mirror to the alert channel if configured (no-op otherwise)
+  alertSink?.(m, 'error'); // mirror to the alert channel if configured (no-op otherwise)
   return `:x: ${m}`.slice(0, MAX_SLACK_TEXT);
 }
 

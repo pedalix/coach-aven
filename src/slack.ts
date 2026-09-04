@@ -21,7 +21,7 @@ import { createChannels } from './channels.js';
 import { createPollers } from './pollers.js';
 import { registerCommands } from './commands.js';
 import { registerEvents } from './events.js';
-import { setAlertSink, summary, notConfiguredText } from './blocks.js';
+import { setAlertSink, summary, notConfiguredText, type AlertLevel } from './blocks.js';
 import { log } from './log.js';
 
 const { App } = bolt;
@@ -216,14 +216,19 @@ export async function runSlack(cfg: Config): Promise<void> {
   const recentAlerts = new Map<string, number>();
   if (ALERT_CHANNEL && homeClient) {
     const alertClient = homeClient; // alerts go to OUR workspace (the alert channel lives there)
-    setAlertSink((text: string) => {
+    const PREFIX: Record<AlertLevel, string> = {
+      error: ':rotating_light: CoachAven error:',
+      warning: ':warning: CoachAven:',
+      info: ':white_check_mark: CoachAven:',
+    };
+    setAlertSink((text: string, level: AlertLevel) => {
       const now = Date.now();
       const last = recentAlerts.get(text);
       if (last && now - last < ALERT_DEDUPE_MS) return; // same error just posted — skip
       recentAlerts.set(text, now);
       if (recentAlerts.size > 200) recentAlerts.clear(); // bound the map
       void alertClient.chat
-        .postMessage({ channel: ALERT_CHANNEL, text: `:rotating_light: CoachAven error: ${text}`.slice(0, 2000) })
+        .postMessage({ channel: ALERT_CHANNEL, text: `${PREFIX[level]} ${text}`.slice(0, 2000) })
         .catch(() => {}); // never let an alert failure cascade (no log.error here → no loop)
     });
   }
