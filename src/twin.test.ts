@@ -291,6 +291,40 @@ test('twin: rating an answer rewrites ONLY the rating labels on that message, no
   }
 });
 
+// ── "🧭 Show steps" — when Slack refuses the modal, the click must still say something ──
+// The prod failure this locks in (2026-09-08): views.open answered `internal_error` on every
+// click for a whole turn, the handler logged it and returned, and the person clicking got
+// nothing at all — no modal, no error, no sign the button had been pressed. A trigger_id is
+// single-use, so the fallback is an ephemeral, not a retry of the open.
+test('twin: a steps modal Slack refuses leaves a visible ephemeral, not just a log line', async () => {
+  const t = await twin();
+  try {
+    t.api.failures['views.open'] = 'internal_error';
+    await t.receiver.send(blockActionEnvelope(HOME, 'show_trail', 'tabc123-1', 'C_SHARED', '9.0'));
+    assert.equal(t.api.of('views.open').length, 1); // tried once
+    const eph = t.api.of('chat.postEphemeral');
+    assert.equal(eph.length, 1);
+    const p = eph[0].payload as { channel: string; user: string; thread_ts?: string; text: string };
+    assert.equal(p.channel, 'C_SHARED');
+    assert.equal(p.user, 'U_HUMAN');
+    assert.equal(p.thread_ts, '9.0'); // in the thread, not at the channel bottom
+    assert.match(p.text, /steps view/i);
+  } finally {
+    await t.stop();
+  }
+});
+
+test('twin: a steps modal that opens fine says nothing extra', async () => {
+  const t = await twin();
+  try {
+    await t.receiver.send(blockActionEnvelope(HOME, 'show_trail', 'tabc123-1', 'C_SHARED', '9.0'));
+    assert.equal(t.api.of('views.open').length, 1);
+    assert.equal(t.api.of('chat.postEphemeral').length, 0);
+  } finally {
+    await t.stop();
+  }
+});
+
 test('twin: a thumbs-down records on click, opens the reason modal, then shows the count', async () => {
   const t = await twin();
   try {

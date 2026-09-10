@@ -19,6 +19,7 @@ import { projectCwd } from './project.js';
 import { memoryFilePath } from './memory.js';
 import { memoryRepoDir, readSnapshotFile } from './memjournal.js';
 import { stripMention, mdToMrkdwn } from './format.js';
+import { captureError } from './sentry.js';
 import { getIssue, listComments, listAttachments, postInternalComment } from './youtrack.js';
 import {
   MAX_SLACK_TEXT,
@@ -306,9 +307,26 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     const trigger = (body as { trigger_id?: string }).trigger_id;
     if (!trigger) return;
     const t = engine.trail((action as { value?: string }).value ?? '');
-    await client.views
-      .open({ trigger_id: trigger, view: trailModalView(t) })
-      .catch((e) => log.error(`show_trail: ${e instanceof Error ? e.message : String(e)}`));
+    await client.views.open({ trigger_id: trigger, view: trailModalView(t) }).catch(async (e) => {
+      // A failed views.open used to be logged and nothing else: in prod on 2026-09-08 someone
+      // clicked this seven times on a broken trail and got no modal, no error, no hint that
+      // anything had happened at all. Whatever goes wrong with the view, the click must leave
+      // a visible trace. Ephemeral, not a retry: a trigger_id is single-use, so re-opening
+      // with the same one would fail too.
+      const err = e instanceof Error ? e.message : String(e);
+      log.error(`show_trail: ${err}`);
+      captureError(e instanceof Error ? e : new Error(`show_trail: ${err}`));
+      const b = body as { user?: { id?: string }; channel?: { id?: string }; container?: { thread_ts?: string }; message?: { thread_ts?: string } };
+      if (!b.channel?.id || !b.user?.id) return;
+      await client.chat
+        .postEphemeral({
+          channel: b.channel.id,
+          user: b.user.id,
+          thread_ts: b.container?.thread_ts ?? b.message?.thread_ts,
+          text: "Couldn't open the steps view just now — Slack rejected it. Try again in a moment; if it keeps failing, the trail is in the logs.",
+        })
+        .catch(() => {});
+    });
   });
 
   // ── Rating buttons under an answer → the value half of metering (feedback.ts) ────

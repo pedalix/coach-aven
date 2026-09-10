@@ -8,6 +8,7 @@ import type { ProjectConfig, ProjectsRegistry } from './projects.js';
 import type { AskQuestion } from './claudeSession.js';
 import type { YouTrackIssue, YouTrackComment } from './youtrack.js';
 import { prUrls, mdToMrkdwn, fmtElapsed } from './format.js';
+import { trailView } from './steps.js';
 import { BAD_REASONS, type Tally } from './feedback.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
@@ -720,12 +721,13 @@ export function trailModalView(t: { steps: string[]; elapsedMs: number; done: bo
       type: 'context',
       elements: [{ type: 'mrkdwn', text: `🧭 ${plural(t.steps.length, 'step')} · ${fmtElapsed(t.elapsedMs)}${t.done ? '' : ' so far'}` }],
     });
-    let chunks = chunkText(t.steps.map((s, i) => `${i + 1}. ${s}`).join('\n'), MODAL_TEXT);
+    // trailView folds repeats and elides the middle so the payload stays well under Slack's
+    // ~250 KB view limit — the block cap alone did NOT (95 × 2900 ≈ 267 KB), which is how this
+    // modal died on long turns in prod. The slice below is now unreachable and stays as a
+    // second floor: nothing here may ever hand Slack an oversized view again.
+    let chunks = chunkText(trailView(t.steps).join('\n'), MODAL_TEXT);
     const cap = MODAL_BLOCKS - 3; // headroom for the header + "trimmed" + "still running" notes
-    if (chunks.length > cap) {
-      blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: '_… earliest steps trimmed to fit._' }] });
-      chunks = chunks.slice(-cap);
-    }
+    if (chunks.length > cap) chunks = chunks.slice(-cap);
     for (const c of chunks) blocks.push({ type: 'section', text: { type: 'mrkdwn', text: c } });
   }
   if (t && !t.done) blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: '⏳ Still running — close and reopen to catch up.' }] });
@@ -936,7 +938,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task; works in Slack Connect channels too. If I can't use a file, I'll reply saying which one and why. _(Voice/video not supported yet.)_\n" +
           "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).\n" +
           '• *Stop me* — hit *✖ Cancel* on any working message.\n' +
-          '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the full tool-by-tool trail in a pop-up.\n' +
+          '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the tool-by-tool trail in a pop-up; a very long run comes condensed.\n' +
           "• *Background agents* — if I kick off a background subagent that's still running when I reply, I'll follow up with a new *🔔 Background update* message in the thread once it finishes.\n" +
           "• *Long tasks* — if a task runs long I won't cut it off: past ~15 minutes the working message stops ticking and turns into a *🌙 Working in the background* card (*🧭 Show steps* still live, *✖ Cancel* still stops me), and the answer arrives as a *new message* in the thread when it's done.\n" +
           `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically _(managed from the project's owner workspace)_.\n` +

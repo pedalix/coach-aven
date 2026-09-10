@@ -283,12 +283,18 @@ test('trailModalView: queued (no steps yet) and lost (restart) both explain them
   assert.ok(JSON.stringify(trailModalView(undefined).blocks).includes('no longer available'));
 });
 
-test('trailModalView: a huge trail keeps the tail within Slack limits and notes the cut', () => {
+test('trailModalView: a huge trail keeps head + tail and stays under Slack\'s view-size limit', () => {
+  // The regression this guards: the block cap alone allowed ~267 KB of view JSON, over Slack's
+  // ~250 KB limit, so every click on a long turn's trail failed with `internal_error` forever.
+  // Bytes are the assertion that matters here — the block count never was the binding constraint.
   const steps = Array.from({ length: 20000 }, (_, i) => `🔧 step ${i} ${'x'.repeat(20)}`);
   const view = trailModalView({ steps, elapsedMs: 60_000, done: true });
   assert.ok(view.blocks.length <= 100, `blocks: ${view.blocks.length}`);
+  assert.ok(JSON.stringify(view).length < 100_000, `bytes: ${JSON.stringify(view).length}`);
   const all = JSON.stringify(view.blocks);
-  assert.ok(all.includes('step 19999') && all.includes('trimmed')); // tail kept, cut announced
+  assert.ok(all.includes('1. 🔧 step 0')); // head kept — how the turn started
+  assert.ok(all.includes('20000. 🔧 step 19999')); // tail kept, with its true step number
+  assert.match(all, /steps hidden/); // and the cut is announced, not silent
 });
 
 // ── the "📝 Report to YouTrack" flow ─────────────────────────────────────────
