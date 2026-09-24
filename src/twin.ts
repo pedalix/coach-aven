@@ -56,6 +56,10 @@ export interface ApiCall {
 // an id missing from the map answers ok with NO file, Slack's access-denied shape).
 export class RecordingApi {
   readonly calls: ApiCall[] = [];
+  // Force a method to answer ok:false, e.g. `api.failures['views.open'] = 'internal_error'`.
+  // Slack's own failures are what the fallback paths exist for, so a test has to be able to
+  // stage one — the show_trail modal died in prod exactly this way and nobody saw it.
+  readonly failures: Record<string, string> = {};
   private server?: Server;
   constructor(
     private readonly channelNames: Record<string, string> = {},
@@ -79,6 +83,11 @@ export class RecordingApi {
         }
         const token = (req.headers.authorization ?? '').replace(/^Bearer\s+/i, '') || String(payload.token ?? '');
         this.calls.push({ method, token, payload });
+        res.setHeader('content-type', 'application/json');
+        if (this.failures[method]) {
+          res.end(JSON.stringify({ ok: false, error: this.failures[method] }));
+          return;
+        }
         const body: Record<string, unknown> = { ok: true, ts: '9999.0001' };
         if (method === 'conversations.info') {
           const id = String(payload.channel ?? '');
