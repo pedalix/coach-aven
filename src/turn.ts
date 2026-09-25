@@ -3,6 +3,7 @@
 // agent-question (AskUserQuestion) registry, and post-restart turn recovery. Slack
 // surfaces (events.ts, commands.ts, pollers.ts) call in; rendering comes from blocks.ts.
 
+import { avenSessionValue } from './gwtoken.js';
 import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
 import type { Store } from './state.js';
@@ -357,6 +358,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       systemPrompt: project.systemPrompt,
       slackUrl,
       mcp: project.mcp,
+      avenSession: avenSessionValue(key),
       driver: project.driver,
       // CLI pin: per-project canary override, else the fleet pin. Install only when no OTHER
       // conversation on this project has a turn in flight (this key's own turn is the one

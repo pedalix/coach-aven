@@ -2,6 +2,8 @@
 // line per agent tool call. Kept free of Slack/Daytona deps so it unit-tests in isolation
 // (steps.test.ts); the stream plumbing that calls this lives in claudeSession.ts.
 
+import { GATEWAY_SERVER_NAME } from './mcp.js'; // type-only deps: stays Slack/Daytona-free
+
 function truncate(s: unknown, n = 50): string {
   const str = typeof s === 'string' ? s : '';
   return str.length > n ? str.slice(0, n - 1) + '…' : str;
@@ -51,7 +53,14 @@ export function stepLabel(name: string, input: Record<string, unknown> = {}, sub
       // MCP tools stream as mcp__<server>__<tool> — render "🔌 server: tool <key arg>"
       // so e.g. a YouTrack search reads as a search, not as a raw identifier.
       const mcp = name.match(/^mcp__(.+?)__(.+)$/);
-      if (mcp) return `🔌 ${mcp[1]}: ${mcp[2]}${argPreview(input)}`;
+      if (mcp) {
+        // Through the MCP gateway the server is always `gw` and the tool carries its upstream
+        // as a prefix (`<target>_<tool>`, targets never contain `_`) — show the target, so the
+        // trail still reads "youtrack: search_issues", not "gw: youtrack_search_issues".
+        const gw = mcp[1] === GATEWAY_SERVER_NAME ? mcp[2].match(/^([^_]+)_(.+)$/) : null;
+        if (gw) return `🔌 ${gw[1]}: ${gw[2]}${argPreview(input)}`;
+        return `🔌 ${mcp[1]}: ${mcp[2]}${argPreview(input)}`;
+      }
       return `🔧 ${name}`;
     }
   }

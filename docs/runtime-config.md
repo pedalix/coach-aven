@@ -87,3 +87,26 @@ The soft/instructional needs are largely already covered by [project memory](mem
 - [Project memory](memory.md) — read-only `/aven prompt` lands there; soft instructions via memory.
 - Config loading: `loadProjects` / `registry` in `src/projects.ts`, `src/slack.ts`.
 - Server-owned state that survives deploy: `state.json` (`src/state.ts`).
+
+## MCP gateway (per project)
+
+A project can reach all its MCP sources through the gateway (bluefin-infra `engine/`, agentgateway at
+`https://<gateway-host>/gw/<slug>/mcp`) instead of listing each upstream:
+
+```json
+"mcp": [{ "name": "gw", "url": "https://<gateway-host>/gw/<slug>/mcp", "auth": "gateway-m2m" }]
+```
+
+- The bot is the Auth0 M2M client `coach-aven-<slug>`. The orchestrator mints and caches its token
+  (`src/gwtoken.ts`, ≤ 1 mint per project per day — Auth0 Free allows 1000/month) from
+  `AUTH0_M2M_TOKEN_URL` + `AUTH0_M2M_<SLUG>_ID/_SECRET` in the prod `.env`, and writes only the token
+  into the sandbox (`/root/.aven/gw-token-gw`, 600) every turn. Claude Code reads it through the
+  server's `headersHelper` (`/root/.aven/gw-headers.sh`), which also sends `x-aven-session`
+  (the chat key) — the gateway logs it as `aven_session`, joining its audit to our event log.
+- What the bot may do is decided by the gateway's route policy, not here. Tool names become
+  `<source>_<tool>` (e.g. `youtrack_search_issues`); the project prompt should map them.
+- Name the entry `gw` — `steps.ts` renders `mcp__gw__<target>_<tool>` by target.
+
+**Rollback** (one edit): in `projects.config.json` move the project's `mcpDirectBackup` list back
+to `mcp` (caldora keeps its pre-gateway list there), `prod:export`, `/aven reload`; running
+conversations keep the old config until their claude process ends (or restart the bot to recycle).

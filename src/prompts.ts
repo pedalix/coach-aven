@@ -120,7 +120,7 @@ export function investigationPrompt(
           `- Check the linked issues first — a RESOLVED duplicate/related ticket may already name the cause or the fix; say so if it does.`,
         ]
       : []),
-    `- If YouTrack MCP tools are available (search_issues / get_issue / get_comments), search for similar tickets — especially already-resolved ones — before concluding, and cite any you find.`,
+    `- If YouTrack MCP tools are available (search_issues / get_issue / get_comments — through the MCP gateway they are named youtrack_search_issues / youtrack_get_issue / youtrack_get_comments), search for similar tickets — especially already-resolved ones — before concluding, and cite any you find.`,
     `- FACTS ONLY: every claim in your writeup must be backed by something you actually saw — a log line, a code path you read, a metric, a resolved similar ticket. Never present a hypothesis as a finding; when the evidence is missing, say plainly that you don't know and name exactly what data would settle it.`,
     `- Post ONE concise writeup, ${writeupLang}. Your reader is a SUPPORT AGENT, not a developer: plain everyday language throughout — no file paths, class names, queries, or stack traces in the writeup. Shape it EXACTLY like this:`,
     `  1. *What's going on* — 2–3 sentences the support agent could relay to the affected user: what breaks, for whom, how badly, and the most likely cause in everyday words.`,

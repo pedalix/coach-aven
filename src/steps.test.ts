@@ -121,3 +121,14 @@ test('trailView — the ceiling holds for a mixed real-shaped trail', () => {
   const joined = trailView(steps).join('\n');
   assert.equal(joined.length <= TRAIL_BUDGET, true);
 });
+
+test('stepLabel: a gateway tool renders by its upstream target, not as gw', () => {
+  assert.equal(
+    stepLabel('mcp__gw__youtrack_search_issues', { query: 'project: CG' }),
+    '🔌 youtrack: search_issues project: CG',
+  );
+  assert.equal(stepLabel('mcp__gw__caldora-hillrail_get-revenue-summary-tool', {}), '🔌 caldora-hillrail: get-revenue-summary-tool');
+  assert.equal(stepLabel('mcp__gw__sql_execute_sql', {}), '🔌 sql: execute_sql');
+  // a non-gateway server keeps the old shape even when the tool has underscores
+  assert.equal(stepLabel('mcp__youtrack__get_issue', { id: 'CB-53' }), '🔌 youtrack: get_issue CB-53');
+});

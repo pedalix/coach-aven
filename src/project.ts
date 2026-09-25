@@ -1,7 +1,8 @@
 import type { SandboxHandle } from './driver.js';
 import type { Config } from './config.js';
 import type { McpServerSpec } from './projects.js';
-import { buildMcpServers } from './mcp.js';
+import { buildMcpServers, GATEWAY_DIR, GATEWAY_HELPER_PATH, GATEWAY_HELPER_SCRIPT, gatewayTokenPath } from './mcp.js';
+import { gatewayTokens } from './gwtoken.js';
 import { dockerdGuardCmd } from './housekeeping.js';
 import { captureError } from './sentry.js';
 import { cliUpgradeCmd, parseCliMarkers, cliUpgradeNotice } from './cliversion.js';
@@ -127,6 +128,35 @@ export async function seedMcpConfig(
   await sandbox.uploadFile(Buffer.from(JSON.stringify({ mcpServers })), MCP_CONFIG_PATH);
   await sandbox.exec(`chmod 600 ${MCP_CONFIG_PATH}`, { check: true });
   return MCP_CONFIG_PATH;
+}
+
+// Gateway auth (McpServerSpec.auth === 'gateway-m2m'): write the project bot's current M2M
+// token + the headers helper into the sandbox. Called every turn beside seedMcpConfig, so the
+// file always holds a token with ≥ 1 h left (gwtoken.ts refreshes under that); a long-lived
+// claude that hits 401 re-runs the helper and reads the fresh file. The M2M client SECRET
+// never enters the sandbox — only the 24 h token does. A mint failure is reported and the
+// turn goes on without gateway tools rather than failing the whole turn.
+export async function seedGatewayAuth(
+  sandbox: SandboxHandle,
+  slug: string,
+  mcp: McpServerSpec[] | undefined,
+  tokens: { get(slug: string, audience: string): Promise<string> } = gatewayTokens,
+): Promise<void> {
+  const specs = (mcp ?? []).filter((s) => s.auth === 'gateway-m2m' && s.url);
+  if (!specs.length) return;
+  await sandbox.exec(`mkdir -p ${GATEWAY_DIR} && chmod 700 ${GATEWAY_DIR}`, { check: true });
+  await sandbox.uploadFile(Buffer.from(GATEWAY_HELPER_SCRIPT), GATEWAY_HELPER_PATH);
+  await sandbox.exec(`chmod 700 ${GATEWAY_HELPER_PATH}`, { check: true });
+  for (const s of specs) {
+    try {
+      const token = await tokens.get(slug, s.url!);
+      await sandbox.uploadFile(Buffer.from(token), gatewayTokenPath(s.name));
+      await sandbox.exec(`chmod 600 ${gatewayTokenPath(s.name)}`, { check: true });
+    } catch (e) {
+      log.error(`gateway token for ${slug}/${s.name} failed: ${e instanceof Error ? e.message : String(e)}`);
+      captureError(e, { subsystem: 'gateway-auth', slug, server: s.name });
+    }
+  }
 }
 
 // Integer hours (busybox `$(( ))` in the sandbox is integer-only — a float would break it).
