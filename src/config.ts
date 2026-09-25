@@ -160,7 +160,7 @@ export interface Config {
   claudeOauthToken: string;
   // Model for the sandbox claude processes (`--model`). Unset → the Claude Code default,
   // which historically resolved to Sonnet — set CLAUDE_MODEL explicitly (e.g.
-  // claude-opus-5) so the fleet's model is a deliberate choice, not a CLI default.
+  // claude-opus-5-5) so the fleet's model is a deliberate choice, not a CLI default.
   claudeModel?: string;
   // Pin for the sandbox Claude Code CLI (x.y.z). Warm sandboxes converge to it in place at
   // chat prep / nightly housekeeping; the image build bakes the same pin. Unset → sandboxes
