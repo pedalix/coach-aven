@@ -50,6 +50,9 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   `src/drafts.ts` (`drafts/<slug>/` — report drafts on disk, per project), and
   `src/metering.ts` (`usage/<month>.jsonl` — per-turn token/cost attribution, `/aven usage`).
 - `src/schedule.ts` — pure cron/schedule logic for scheduled report jobs.
+- `src/gwtoken.ts` — Auth0 M2M tokens for the MCP gateway (`mcp` entry with `auth: "gateway-m2m"`):
+  cached/single-flight mint in the orchestrator, only the token goes into the sandbox — see
+  `docs/runtime-config.md` → *MCP gateway*.
 - `src/facts.ts` / `src/deps.ts` — project **facts** (`facts/<slug>.json`): derived, machine-written
   state with provenance. Today one writer (the composer dependency scanner) and readers (GitHub
   token scope, composer `auth.json`, system prompt) — see `docs/project-facts.md`.

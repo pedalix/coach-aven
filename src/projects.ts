@@ -23,6 +23,11 @@ export interface McpServerSpec {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  // `gateway-m2m`: a remote server behind the MCP gateway (<gateway-host>/gw/<slug>/mcp)
+  // that the bot reaches as its Auth0 M2M client coach-aven-<slug>. The orchestrator mints and
+  // caches the token (gwtoken.ts) and writes it into the sandbox; Claude Code picks it up via
+  // the server's `headersHelper` (mcp.ts). Needs AUTH0_M2M_<SLUG>_ID/_SECRET + AUTH0_M2M_TOKEN_URL.
+  auth?: 'gateway-m2m';
 }
 
 export interface ProjectConfig {
@@ -105,6 +110,10 @@ export function loadProjects(path: string): ProjectsRegistry {
     for (const s of p.mcp ?? []) {
       if (!s.name || (!s.command && !s.url)) {
         throw new Error(`${path}: mcp server entries need a "name" and a "command" or "url"`);
+      }
+      if (s.auth === 'gateway-m2m' && (!s.url || !/^[A-Za-z0-9_-]+$/.test(s.name))) {
+        // The name becomes a sandbox file name (gw-token-<name>) — keep it path-safe.
+        throw new Error(`${path}: a gateway-m2m mcp entry needs a "url" and a [A-Za-z0-9_-] "name"`);
       }
     }
   }

@@ -136,6 +136,10 @@ export class ClaudeSession {
       resumeSessionId?: string;
       systemPrompt?: string;
       mcpConfigPath?: string;
+      // Conversation id exported as AVEN_SESSION to the claude process; the MCP gateway's
+      // headers helper sends it as x-aven-session (gateway audit ↔ coach-aven event log).
+      // Must already be shell-safe (gwtoken.ts avenSessionValue).
+      avenSession?: string;
       // Passed as `--model` on spawn. Unset → the CLI's own default. Ignored on attach
       // (the running process already has its model).
       model?: string;
@@ -213,6 +217,7 @@ export class ClaudeSession {
     const command =
       // CLI_PATH_ENV: the pinned per-sandbox Claude Code (cliversion.ts) wins over the image's.
       `cd ${sq(this.opts.cwd)} && ${CLI_PATH_ENV} ${CC_TOKEN_ENV} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
+      (this.opts.avenSession ? `AVEN_SESSION=${sq(this.opts.avenSession)} ` : '') +
       `claude --output-format stream-json --input-format stream-json --verbose ` +
       `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ${model}${mcp}${resume}${sys}`;
     const started = await this.sandbox.startSessionCommand(this.sessionKey, command);

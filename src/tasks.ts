@@ -7,6 +7,7 @@ import {
   seedClaudeAuth,
   seedComposerAuth,
   seedMcpConfig,
+  seedGatewayAuth,
   provisionTooling,
   ensureDockerd,
   cloneRepo,
@@ -296,6 +297,8 @@ export async function openChat(
     // PR back to the discussion. Set only for channel threads (DMs have no shareable link).
     slackUrl?: string;
     mcp?: McpServerSpec[];
+    // Conversation id for the MCP gateway audit (x-aven-session via the headers helper).
+    avenSession?: string;
     // The project's sandbox provider (ProjectConfig.driver); omitted → deployment default.
     driver?: SandboxDriverKind;
     // A still-running Daytona command from before a bot restart — reattach to it instead
@@ -353,6 +356,7 @@ export async function openChat(
         await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
         await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
         await seedMcpConfig(sandbox, opts.mcp);
+        await seedGatewayAuth(sandbox, opts.slug, opts.mcp);
       });
       return session;
     }
@@ -363,6 +367,7 @@ export async function openChat(
       await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
       await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
       const mcpConfigPath = await seedMcpConfig(sandbox, opts.mcp);
+      await seedGatewayAuth(sandbox, opts.slug, opts.mcp);
       // Bot restarted while a command was still running? Reattach to it once, rather than
       // spawning a duplicate that would fight over the same working tree. If the command
       // already finished/vanished, attach throws → fall through to a fresh --resume open.
@@ -374,6 +379,7 @@ export async function openChat(
             cwd,
             systemPrompt,
             mcpConfigPath,
+            avenSession: opts.avenSession,
             attach: target,
             resumeSessionId: sessionId, // seed claudeSessionId; not used to relaunch
           });
@@ -397,6 +403,7 @@ export async function openChat(
         resumeSessionId: resume,
         systemPrompt,
         mcpConfigPath,
+        avenSession: opts.avenSession,
         model: cfg.claudeModel,
       });
       session.onIdleResult = idleNotify;
