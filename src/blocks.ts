@@ -12,6 +12,7 @@ import { trailView } from './steps.js';
 import { BAD_REASONS, type Tally } from './feedback.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
+import { stackHead } from './netretry.js';
 
 // Slack hard-caps a single message at 40k chars; leave headroom.
 export const MAX_SLACK_TEXT = 39000;
@@ -1117,7 +1118,9 @@ export function alertOps(text: string, level: Exclude<AlertLevel, 'error'> = 'wa
 }
 export function errText(err: unknown): string {
   const m = err instanceof Error ? err.message : String(err);
-  log.error(m);
+  // The journal keeps where it failed too (Sentry has the full stack; this is for grep on the box).
+  const where = stackHead(err, 4);
+  log.error(where ? `${m} [${where}]` : m);
   captureError(err); // central error formatter → Sentry issue (with stack), no-op if Sentry off
   alertSink?.(m, 'error'); // mirror to the alert channel if configured (no-op otherwise)
   return `:x: ${m}`.slice(0, MAX_SLACK_TEXT);
