@@ -2,6 +2,7 @@ import { Daytona, DaytonaConflictError, DaytonaNotFoundError, type Sandbox } fro
 import type { Config } from './config.js';
 import type { ExecOpts, ExecResult, SandboxDriver, SandboxHandle } from './driver.js';
 import { log } from './log.js';
+import { withNetRetry } from './netretry.js';
 
 // The Daytona implementation of SandboxDriver (see driver.ts for the contract). This is
 // the ONLY file (plus scripts/peek-sandbox.ts) that may import @daytonaio/sdk — the rest
@@ -79,6 +80,15 @@ export class DaytonaDriver implements SandboxDriver {
     });
   }
 
+  // Transient network failures on Daytona API calls (a dropped TLS handshake after the bot sat
+  // idle — see netretry.ts) are retried twice; real answers (404/409/5xx) propagate unchanged.
+  private net<T>(what: string, fn: () => Promise<T>): Promise<T> {
+    return withNetRetry(fn, {
+      onRetry: (err, n, ms) =>
+        log.warn(`daytona ${what}: ${err instanceof Error ? err.message : String(err)} — retry ${n} in ${ms} ms`),
+    });
+  }
+
   // Ensure the project snapshot exists and is active. `image` is a plain registry
   // reference (string) → Daytona pulls it; NO build context upload, NO S3.
   async ensureImage(): Promise<void> {
@@ -88,7 +98,7 @@ export class DaytonaDriver implements SandboxDriver {
     // already exists" that hid the real error — so anything but not-found propagates.
     let snap;
     try {
-      snap = await this.daytona.snapshot.get(cfg.snapshot.name);
+      snap = await this.net('snapshot.get', () => this.daytona.snapshot.get(cfg.snapshot.name));
     } catch (err) {
       if (!(err instanceof DaytonaNotFoundError)) throw err;
     }
@@ -146,9 +156,12 @@ export class DaytonaDriver implements SandboxDriver {
   async ensureSandbox(name: string, projectSlug: string): Promise<SandboxHandle> {
     const { cfg } = this;
     let sandbox: Sandbox | undefined;
+    // Only a not-found means "create it". A network failure used to land here too and send a
+    // live, merely-unreachable sandbox down the create() path — retry it instead, rethrow the rest.
     try {
-      sandbox = await this.daytona.get(name);
-    } catch {
+      sandbox = await this.net('get', () => this.daytona.get(name));
+    } catch (err) {
+      if (!(err instanceof DaytonaNotFoundError)) throw err;
       sandbox = undefined;
     }
 
@@ -176,7 +189,7 @@ export class DaytonaDriver implements SandboxDriver {
     if (sandbox.state !== 'started') {
       log.step(`sandbox '${name}' is '${sandbox.state}' — starting`);
       await this.daytona.start(sandbox, 180);
-      sandbox = await this.daytona.get(name);
+      sandbox = await this.net('get', () => this.daytona.get(name));
     }
     log.info(`sandbox '${name}' ready (${sandbox.id})`);
     return new DaytonaHandle(sandbox, name, true);
