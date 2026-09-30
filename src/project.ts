@@ -8,6 +8,7 @@ import { captureError } from './sentry.js';
 import { cliUpgradeCmd, parseCliMarkers, cliUpgradeNotice } from './cliversion.js';
 import { alertOps } from './blocks.js';
 import { log } from './log.js';
+import { withGitRetry } from './gitretry.js';
 
 // The snapshot image (snapshot/Dockerfile → SNAPSHOT_IMAGE) bakes in the sandbox tooling
 // (git, gh, node, Claude Code, sail shims), so per-boot provisioning is gone. This ensures
@@ -244,14 +245,23 @@ export async function cloneRepo(sandbox: SandboxHandle, cfg: Config, slug: strin
     await sandbox.exec(`git -C ${dir} remote set-url origin https://github.com/${repo}.git`, {
       check: true,
     });
-    await sandbox.exec(`git -C ${dir} fetch --all --prune`, { check: true, timeout: 600 });
+    // The token this fetch uses was minted seconds ago; a not-yet-propagated token makes
+    // GitHub answer "Repository not found" (2026-09-30, one lost turn) — retry those (gitretry.ts).
+    await withGitRetry(() => sandbox.exec(`git -C ${dir} fetch --all --prune`, { check: true, timeout: 600 }), retryLog(repo));
   } else {
     log.step(`cloning ${repo} → ${dir}`);
     await sandbox.exec(`mkdir -p ${projectDir(cfg, slug)}`, { check: true });
-    await sandbox.exec(`git clone https://github.com/${repo}.git ${dir}`, {
-      check: true,
-      timeout: 900,
-    });
+    await withGitRetry(
+      () => sandbox.exec(`git clone https://github.com/${repo}.git ${dir}`, { check: true, timeout: 900 }),
+      retryLog(repo),
+    );
   }
 }
+
+const retryLog = (repo: string) => ({
+  onRetry: (err: unknown, attempt: number, delayMs: number) =>
+    log.warn(`git on ${repo} failed transiently (${firstLine(err)}) — retry ${attempt} in ${delayMs} ms`),
+});
+const firstLine = (err: unknown) =>
+  (err instanceof Error ? err.message : String(err)).split('\n').find((l) => /remote:|fatal:|error:/.test(l))?.trim() ?? 'unknown';
 
