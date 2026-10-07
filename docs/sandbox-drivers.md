@@ -75,6 +75,16 @@ Laravel Sail keeps working.
    existing `proj-<slug>` keeps the flags it was born with — `docker rm` it on the sandbox
    host and the next turn recreates it with the new ones.
 
+**Local mode.** `SSHDOCKER_HOST=local` (the literal word) skips ssh entirely: the driver
+runs the very same scripts through `sh -c` against this machine's Docker daemon. It is
+for a single-box self-hosted instance — a laptop/WSL, a Mac mini — where the bot and
+the sandboxes share the host and running sshd just to reach localhost would be theatre.
+Everything else (`docker run … sleep`, exec via stdin, FIFO sessions) is unchanged, and
+`SNAPSHOT_NAME` may stay unset under `SANDBOX_DRIVER=ssh-docker` (it only names a Daytona
+snapshot). Trust note: in local mode the bot process and the sandboxes share a kernel, so
+pair it with projects that run `sandbox.privileged: false` (plain image, no DinD) rather
+than the `--privileged` hammer.
+
 **How it maps** (vs Daytona)
 
 | Concern | ssh-docker behavior |

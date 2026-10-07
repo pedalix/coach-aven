@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript } from './sshdocker.js';
+import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript, transportArgv, LOCAL_HOST } from './sshdocker.js';
 
 test('sq — single-quotes and survives embedded quotes', () => {
   assert.equal(sq('plain'), `'plain'`);
@@ -130,4 +130,19 @@ test('parseContainerStates — docker states map onto started/stopped', () => {
 test('parseContainerStates — empty/garbage input yields an empty map', () => {
   assert.equal(parseContainerStates('').size, 0);
   assert.equal(parseContainerStates('no-tabs-here\n').size, 0);
+});
+
+test('transportArgv — a real host goes over ssh in BatchMode with the remote command verbatim', () => {
+  const t = transportArgv('aven-sbx', "docker exec -i 'proj-x' sh -s");
+  assert.equal(t.cmd, 'ssh');
+  assert.deepEqual(t.args, ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', 'aven-sbx', "docker exec -i 'proj-x' sh -s"]);
+});
+
+test('transportArgv — the literal `local` host runs the same command through sh -c, no ssh', () => {
+  const cmd = "docker exec -i 'proj-x' sh -s";
+  const t = transportArgv(LOCAL_HOST, cmd);
+  assert.equal(t.cmd, 'sh');
+  assert.deepEqual(t.args, ['-c', cmd]);
+  // Only the exact literal switches transport — `localhost` is still an ssh target.
+  assert.equal(transportArgv('localhost', cmd).cmd, 'ssh');
 });

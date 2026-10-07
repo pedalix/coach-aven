@@ -150,7 +150,10 @@ export interface Config {
   // (a pure ssh-docker deployment shouldn't have to fake DAYTONA_* vars, and vice versa).
   daytona?: { apiUrl: string; apiKey: string; organizationId: string };
   // ssh-docker: `host` is an ssh target (user@host or an ~/.ssh/config alias; key auth,
-  // BatchMode). `runtime` picks how containers get DinD for Laravel Sail.
+  // BatchMode), or the literal `local` to drive this machine's own Docker daemon via
+  // `sh -c` with no sshd at all (single-box self-hosted instance — see
+  // docs/sandbox-drivers.md "Local mode"). `runtime` picks how containers get DinD for
+  // Laravel Sail; irrelevant for projects that run with `sandbox.privileged: false`.
   sshDocker?: { host: string; runtime: 'sysbox-runc' | 'privileged' };
   sandboxDriver: SandboxDriverKind;
   snapshot: { name: string; image: string; cpu: number; memory: number; disk: number };
@@ -239,7 +242,10 @@ export function loadConfig(): Config {
       : undefined,
     sandboxDriver: driver,
     snapshot: {
-      name: req('SNAPSHOT_NAME'),
+      // SNAPSHOT_NAME only names the Daytona snapshot (daytona.ts); ssh-docker runs the
+      // image directly, so an ssh-docker deployment may leave it unset. A deployment
+      // that mixes drivers per project still needs the real name for its Daytona projects.
+      name: process.env.SNAPSHOT_NAME || (driver === 'ssh-docker' ? 'unused-under-ssh-docker' : req('SNAPSHOT_NAME')),
       image: req('SNAPSHOT_IMAGE'),
       cpu: num('SANDBOX_CPU', 2),
       memory: num('SANDBOX_MEMORY', 4),

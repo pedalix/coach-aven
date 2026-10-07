@@ -194,13 +194,28 @@ interface SshResult {
 // discarded: docker's own failures — "container is not running", "OCI runtime exec
 // failed: …" — never reach the script's stdout, and dropping them turned a wedged
 // sandbox into a bare `exit 126` with no clue what broke (prod, 2026-08-10).
+// The literal host `local` means "this machine": the same command runs through `sh -c`
+// instead of `ssh`, for a single-box self-hosted instance (laptop/WSL, a Mac mini) where
+// the bot and the sandboxes share the Docker daemon and nobody wants to run sshd to
+// talk to localhost. This is the ONLY place that knows; every script builder above stays
+// byte-identical, and the remote command (`docker exec … sh -s`, `sh -s`) is exactly what
+// ssh would have handed the remote shell. Note the trust change: bot and sandboxes then
+// share a kernel, so pair local mode with `sandbox.privileged: false` projects.
+export const LOCAL_HOST = 'local';
+
+export function transportArgv(host: string, remoteCmd: string): { cmd: string; args: string[] } {
+  if (host === LOCAL_HOST) return { cmd: 'sh', args: ['-c', remoteCmd] };
+  return { cmd: 'ssh', args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', host, remoteCmd] };
+}
+
 function runSsh(
   host: string,
   remoteCmd: string,
   opts: { stdin?: Buffer | string; timeoutMs?: number; onStdout?: (chunk: string) => void } = {},
 ): Promise<SshResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', host, remoteCmd], {
+    const t = transportArgv(host, remoteCmd);
+    const child = spawn(t.cmd, t.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
