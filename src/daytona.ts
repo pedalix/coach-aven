@@ -2,6 +2,7 @@ import { Daytona, DaytonaConflictError, DaytonaNotFoundError, type Sandbox } fro
 import type { Config } from './config.js';
 import type { ExecOpts, ExecResult, SandboxDriver, SandboxHandle } from './driver.js';
 import { log } from './log.js';
+import { isDefaultSandbox, resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import { withNetRetry } from './netretry.js';
 
 // The Daytona implementation of SandboxDriver (see driver.ts for the contract). This is
@@ -152,9 +153,18 @@ export class DaytonaDriver implements SandboxDriver {
     log.warn(`snapshot '${cfg.snapshot.name}' exists in state '${snap.state}' — leaving as-is`);
   }
 
-  // Get a warm per-project sandbox by name, creating or starting it as needed.
-  async ensureSandbox(name: string, projectSlug: string): Promise<SandboxHandle> {
+  // Projects whose non-default sandbox options we already warned about (once per boot).
+  private readonly optsWarned = new Set<string>();
+
+  // Get a warm per-project sandbox by name, creating or starting it as needed. Daytona
+  // snapshots carry their own runtime; per-project privileged/dind/mounts cannot be
+  // honoured here, so say so once rather than silently running the fleet default.
+  async ensureSandbox(name: string, projectSlug: string, opts?: SandboxOptions): Promise<SandboxHandle> {
     const { cfg } = this;
+    if (opts && !isDefaultSandbox(resolveSandboxOptions(opts)) && !this.optsWarned.has(projectSlug)) {
+      this.optsWarned.add(projectSlug);
+      log.warn(`project '${projectSlug}' sets sandbox options the daytona driver ignores (use driver: "ssh-docker")`);
+    }
     let sandbox: Sandbox | undefined;
     // Only a not-found means "create it". A network failure used to land here too and send a
     // live, merely-unreachable sandbox down the create() path — retry it instead, rethrow the rest.

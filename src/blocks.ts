@@ -961,7 +961,8 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
           '• *Tell me if it landed* — every answer carries *👍 Helped* / *👎 Missed*. One click is enough; the count on the button updates so you see it registered, and a thumbs-down asks what went wrong in a short pop-up. Nothing is posted in the thread; click the other button to change your mind.\n' +
           `• *Usage* — \`${CMD} usage [days]\` for token/cost/turn totals per project, plus how many answers people rated as helpful and what those cost (last 30d by default). _(Operators' home workspace only.)_\n` +
           `• *Who may drive me* — \`${CMD} users\` shows this workspace's access (everyone, by default); admins can \`restrict\` to an allowlist and manage it with \`allow @user\` / \`deny @user\` / \`open\`.\n` +
-          `• *Reload config* — \`${CMD} reload\` re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions. _(Operators' home workspace only.)_`,
+          `• *Reload config* — \`${CMD} reload\` re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions. _(Operators' home workspace only.)_\n` +
+          '• *Pasted secrets stay here* — passwords, tokens, API keys and connection strings in what you type are redacted to `[REDACTED:…]` before the model sees them (same secret → same tag, so I can still tell them apart). Prefer linking to a vault entry over pasting a credential; if I ask for one, give me a *reference*, not the value.',
       },
     },
     {

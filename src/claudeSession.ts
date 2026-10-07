@@ -13,6 +13,8 @@ function sq(s: string): string {
 // question TEXT → chosen label(s) (multi-select: labels comma-joined, per Happy).
 import { parseRateLimitEvent, type RateLimitInfo } from './ratelimit.js';
 import { CLI_PATH_ENV } from './cliversion.js';
+import { log } from './log.js';
+import { scrubSummary, scrubText } from './scrub.js';
 
 export interface AskQuestion {
   question: string;
@@ -143,6 +145,9 @@ export class ClaudeSession {
       // Passed as `--model` on spawn. Unset → the CLI's own default. Ignored on attach
       // (the running process already has its model).
       model?: string;
+      // Redact pasted secrets from user text before it goes to the process (scrub.ts).
+      // undefined/true → on; false → the project opted out (ProjectConfig.scrubSecrets).
+      scrubSecrets?: boolean;
       // Reattach to an already-running command (the bot restarted; claude kept running in
       // the sandbox) instead of spawning a fresh process — see open().
       attach?: { sessionKey: string; cmdId: string };
@@ -289,7 +294,9 @@ export class ClaudeSession {
         else signal.addEventListener('abort', onAbort, { once: true });
       }
 
-      const line = JSON.stringify({ type: 'user', message: { role: 'user', content: text } }) + '\n';
+      // The last hop before the API: whatever a person typed in Slack (plus the attachment
+      // preamble) becomes model input here, so this is where pasted secrets get redacted.
+      const line = JSON.stringify({ type: 'user', message: { role: 'user', content: this.scrub(text, 'turn') } }) + '\n';
       void this.sandbox
         .sendSessionInput(this.sessionKey, this.cmdId!, line)
         .catch((e: unknown) =>
@@ -300,6 +307,18 @@ export class ClaudeSession {
           }),
         );
     });
+  }
+
+  // Redact secrets from user-originated text (scrub.ts) unless the project opted out. One
+  // info line with kinds + count — never the values — so operators can see it happened.
+  private scrub(text: string, where: 'turn' | 'answer'): string {
+    if (this.opts.scrubSecrets === false || !text) return text;
+    const { text: out, findings } = scrubText(text);
+    if (findings.length) {
+      const { kinds, count } = scrubSummary(findings);
+      log.info(`redacted ${count} secret(s) [${kinds.join(',')}] from ${where} input before sending to claude`);
+    }
+    return out;
   }
 
   // Scan a reattach snapshot: if its LAST event is a `result`, the conversation is idle —
@@ -513,7 +532,11 @@ export class ClaudeSession {
         try {
           const answers = await this.pending.onQuestion(input.questions ?? [], ac.signal);
           if (ac.signal.aborted) return; // claude withdrew the request — don't respond
-          await allow({ ...input, answers });
+          // Button labels are the agent's own words, but a free-text "Other" answer is user
+          // input like any message — scrub the values the same way.
+          const safe: QuestionAnswers = {};
+          for (const [q, a] of Object.entries(answers)) safe[q] = this.scrub(a, 'answer');
+          await allow({ ...input, answers: safe });
         } catch {
           // Withdrawn by claude, or the turn was canceled (interrupt tears it down) —
           // don't ALSO send a control_response (would be a second, racing message).

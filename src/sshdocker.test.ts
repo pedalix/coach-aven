@@ -86,6 +86,38 @@ test('ensureSandboxScript — probes exec and recycles a running-but-wedged cont
   assert.ok(s.includes('exit 1'));
 });
 
+test('ensureSandboxScript — unprivileged plain project: no runtime flag, ro mount, no exec-probe dance', () => {
+  const s = ensureSandboxScript(
+    'proj-owen-ops',
+    'owen-ops',
+    'ghcr.io/x/plain:abc',
+    '',
+    [{ source: '/srv/owen-ops/sources', target: '/data/sources', mode: 'ro' }],
+    false,
+  );
+  const run = s.split('\n').find((l) => l.includes('docker run'))!;
+  assert.equal(
+    run,
+    `  docker run -d --init --name 'proj-owen-ops' -v '/srv/owen-ops/sources:/data/sources:ro' --restart unless-stopped \\`,
+  );
+  assert.equal(s.includes('--privileged'), false);
+  assert.equal(s.includes('--runtime'), false);
+  // No dockerd in there → the sysbox exec-probe/recycle block is pointless and skipped.
+  assert.equal(s.includes('exec probe failed'), false);
+  assert.equal(s.includes('outcome=revived'), false);
+  assert.ok(s.trim().endsWith('echo "$outcome"'));
+  // Mount paths are re-validated at the shell boundary even though sandboxopts checked them.
+  assert.throws(() => ensureSandboxScript('proj-x', 'x', 'img', '', [{ source: '/srv/a b', target: '/data', mode: 'ro' }], false));
+  assert.throws(() => ensureSandboxScript('proj-x', 'x', 'img', '', [{ source: '/srv/../etc', target: '/data', mode: 'ro' }], false));
+});
+
+test('ensureSandboxScript — default (no options) is byte-identical to the historical dind script', () => {
+  const a = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged');
+  const b = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged', [], true);
+  assert.equal(a, b);
+  assert.ok(a.includes(`docker run -d --init --name 'proj-caldora' --privileged --restart unless-stopped`));
+});
+
 test('parseContainerStates — docker states map onto started/stopped', () => {
   const out = 'proj-caldora\trunning\nproj-bluefin-infra\texited\n\nproj-art\tcreated\n';
   const states = parseContainerStates(out);

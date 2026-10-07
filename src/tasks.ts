@@ -17,6 +17,7 @@ import {
   projectCwd,
 } from './project.js';
 import type { McpServerSpec } from './projects.js';
+import type { SandboxOptions } from './sandboxopts.js';
 import { FactStore } from './facts.js';
 import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './deps.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
@@ -123,17 +124,19 @@ async function prepareChat(
   driverKind?: SandboxDriverKind,
   cliVersion?: string,
   upgradeCli?: boolean,
+  sandboxOpts?: SandboxOptions,
 ) {
   if (repos.length === 0) throw new Error(`project ${slug} has no repos`);
   const driver = createDriver(cfg, driverKind);
   await driver.ensureImage();
 
   const proj = store.upsertProject(slug, repos[0], cfg.sandbox.namePrefix);
-  const sandbox = await driver.ensureSandbox(proj.sandboxName, slug);
+  const sandbox = await driver.ensureSandbox(proj.sandboxName, slug, sandboxOpts);
   await provisionTooling(sandbox, { cliVersion, upgradeCli, where: proj.sandboxName });
   // dockerd liveness guard: a dead daemon breaks Sail (php/composer/artisan shims) for
-  // every turn until revived — catch it here rather than mid-conversation.
-  await ensureDockerd(sandbox, slug);
+  // every turn until revived — catch it here rather than mid-conversation. A plain project
+  // (sandbox.dind === false) has no dockerd to guard — the probe would only ever "fail".
+  if (sandboxOpts?.dind !== false) await ensureDockerd(sandbox, slug);
 
   const scopeBefore = scopedRepos(slug, repos);
   await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeBefore));
@@ -314,10 +317,14 @@ export async function openChat(
     // another turn runs on the project) — see provisionTooling / cliversion.ts.
     cliVersion?: string;
     upgradeCli?: boolean;
+    // Per-project container options (ProjectConfig.sandbox) — creation-time flags + mounts.
+    sandbox?: SandboxOptions;
+    // ProjectConfig.scrubSecrets; undefined → on. See claudeSession.ts / scrub.ts.
+    scrubSecrets?: boolean;
   },
 ): Promise<ChatSession> {
   const prep = await withSandboxLock(opts.slug, () =>
-    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli),
+    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox),
   );
   const { driver, proj, cwd } = prep;
   let sandbox = prep.sandbox;
@@ -351,7 +358,7 @@ export async function openChat(
   async function ensureSession(): Promise<ClaudeSession> {
     if (session && !session.isDead()) {
       await withSandboxLock(opts.slug, async () => {
-        sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug);
+        sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug, opts.sandbox);
         await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
         await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
         await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
@@ -362,7 +369,7 @@ export async function openChat(
     }
     return withSandboxLock(opts.slug, async () => {
       if (session && !session.isDead()) return session;
-      sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug);
+      sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug, opts.sandbox);
       await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
       await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
       await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
@@ -380,6 +387,7 @@ export async function openChat(
             systemPrompt,
             mcpConfigPath,
             avenSession: opts.avenSession,
+            scrubSecrets: opts.scrubSecrets,
             attach: target,
             resumeSessionId: sessionId, // seed claudeSessionId; not used to relaunch
           });
@@ -404,6 +412,7 @@ export async function openChat(
         systemPrompt,
         mcpConfigPath,
         avenSession: opts.avenSession,
+        scrubSecrets: opts.scrubSecrets,
         model: cfg.claudeModel,
       });
       session.onIdleResult = idleNotify;

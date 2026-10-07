@@ -181,7 +181,9 @@ export function createPollers(
           reaped += await reapWorktrees(sandbox, repoCheckout(cfg, project.slug, repo));
         }
         const pin = project.cliVersion ?? cfg.claudeCliVersion;
-        const res = await sandbox.exec(housekeepingScript(pruneThreshold(), pin), { timeout: 900 });
+        const res = await sandbox.exec(housekeepingScript(pruneThreshold(), pin, project.sandbox?.dind !== false), {
+          timeout: 900,
+        });
         const report = parseHousekeepingReport(res.result ?? '', reaped);
         store.patchRoutine(r.id, { lastSummary: report.digest });
         log.info(`housekeeping ${r.id} (${project.slug}): ${report.digest}`);

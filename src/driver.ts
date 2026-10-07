@@ -1,3 +1,4 @@
+import type { SandboxOptions } from './sandboxopts.js';
 import type { Config, SandboxDriverKind } from './config.js';
 import { DaytonaDriver } from './daytona.js';
 import { SshDockerDriver } from './sshdocker.js';
@@ -63,8 +64,10 @@ export interface SandboxHandle {
 export interface SandboxDriver {
   // Make sure the base image/snapshot the sandboxes boot from exists (idempotent).
   ensureImage(): Promise<void>;
-  // Warm named sandbox: create it from the base image, or wake it if stopped.
-  ensureSandbox(name: string, projectSlug: string): Promise<SandboxHandle>;
+  // Warm named sandbox: create it from the base image, or wake it if stopped. `opts` are the
+  // project's sandbox options (privileged/dind/mounts); they shape CREATION only — a sandbox
+  // that already exists keeps the flags it was created with.
+  ensureSandbox(name: string, projectSlug: string, opts?: SandboxOptions): Promise<SandboxHandle>;
   // Peek at a sandbox WITHOUT creating or waking it — undefined if it doesn't exist.
   // Used by paths that must not defeat auto-stop (housekeeping, /aven memory).
   getSandbox(name: string): Promise<SandboxHandle | undefined>;
