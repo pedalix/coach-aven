@@ -12,8 +12,9 @@
 // layer catches high-entropy strings sitting right after a credential keyword or inside a
 // code block. Per-project opt-out: ProjectConfig.scrubSecrets = false.
 //
-// Ported from owen-ops/connectors/common/scrub.ts (the puller-side scrubber); the two must
-// stay in step — a shape added there belongs here too.
+// The same detectors serve the ingest side (src/sources/*): classifyMessage/scrubMessage decide
+// whether a pulled mail or chat message is a credential CARRIER (body withheld, secrets filed in
+// the age vault) or merely needs inline redaction. One module, one set of shapes.
 import { createHash } from 'node:crypto';
 
 export type Confidence = 'exact' | 'likely';
@@ -41,6 +42,46 @@ export interface ScrubResult {
 }
 
 
+
+// ---------------------------------------------------------------------------------------
+// helpers
+// ---------------------------------------------------------------------------------------
+
+export interface AttachmentLike {
+  name: string;
+  size?: number;
+}
+
+/**
+ * The minimal shape every puller record satisfies; extra fields pass through untouched. No index
+ * signature on purpose: puller `MessageRecord` interfaces must be assignable as-is.
+ */
+export interface ScrubbableMessage {
+  source: string;
+  id: string;
+  subject?: string;
+  text: string;
+  attachments?: AttachmentLike[];
+}
+
+export interface ScrubMeta {
+  /** Body replaced by the withheld marker. */
+  withheld: boolean;
+  /** Distinct finding kinds, sorted — lets a reader see "this had a dsn" without the value. */
+  kinds: string[];
+  /** Number of redactions applied (0 when withheld — the body is gone wholesale). */
+  redactions: number;
+  /** Set when withheld: where vault.ts filed the raw secrets. */
+  vault?: string;
+}
+
+export interface ExtractedSecret {
+  kind: string;
+  value: string;
+  hash6: string;
+  /** ±40 chars around the value, with the value itself replaced — for a human reading the vault entry. */
+  context: string;
+}
 
 // ---------------------------------------------------------------------------------------
 // helpers
@@ -102,8 +143,8 @@ const HEX_ONLY = /^[0-9a-f]+$/i;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Credential keywords, multilingual (EN/DE/RU). `\b` is ASCII-only in JS, so Cyrillic words use
-// explicit letter-class lookarounds. Used by the kv layer and the entropy-context layer (the
-// puller-side carrier classifier lives in owen-ops, not here).
+// explicit letter-class lookarounds. Used by the kv layer, the entropy-context layer and the
+// carrier classifier.
 const KEYWORD_SRC =
   '(?:pass(?:word|wort|wd)?|pwd|secret|token|api[_\\s-]?key|client[_\\s-]?secret|private[_\\s-]?key|access[_\\s-]?key|auth[_\\s-]?token|' +
   'kennwort|passwort|zugangsdaten|anmeldedaten|пароль|парол[ья]|токен|секрет)';
@@ -361,4 +402,108 @@ export function scrubText(text: string, opts: ScrubOptions = {}): ScrubResult {
 // What the operator log line needs: the kinds (sorted, deduped) and the count — never a value.
 export function scrubSummary(findings: Finding[]): { kinds: string[]; count: number } {
   return { kinds: [...new Set(findings.map((f) => f.kind))].sort(), count: findings.length };
+}
+
+// ── Puller side: message classification, withholding, vault extraction ──────────────
+// Used by src/sources/* on the BOT HOST only (extractSecrets returns raw values). The sandbox
+// never imports this module; the model boundary above is what it gets.
+
+/**
+ * Subject-level carrier phrases — STRONG forms only. A mail titled "Zugangsdaten VPN" or "your
+ * login details" delivers credentials even before a password shows up in the body. Generic words
+ * (access, account, login, keys, vpn, password on its own) are NOT here: the first live pull showed
+ * they withhold Dependabot digests, "[Action required] Migrate your legacy user API keys" and
+ * Asana's "You have 1 overdue task" — 75 of 605 bodies — while contributing nothing: a body with a
+ * real secret is caught by the exact detectors anyway.
+ */
+const CARRIER_SUBJECT = new RegExp(
+  '(?<![\\p{L}\\p{N}])(?:credentials?|zugangsdaten|anmeldedaten|access\\s+data|login\\s+(?:details|data|information)|' +
+    'your\\s+(?:new\\s+|temporary\\s+|initial\\s+)?password|password\\s+for\\b|' +
+    'vpn\\s+(?:config(?:uration)?|zugang|access|credentials|profile|login)|' +
+    'учетные\\s+данные|учётные\\s+данные|данные\\s+для\\s+(?:входа|доступа)|логин\\s+и\\s+пароль|пароль\\s+(?:от|для|к)\\b)(?![\\p{L}\\p{N}])',
+  'iu',
+);
+/**
+ * Finding kinds whose single presence makes the message a carrier: a DSN, a private key, an
+ * `.env` line, a JWT, a Bearer token or a vendor token never appear in a mail *about* something —
+ * they ARE the payload. `kv`, `card`, `iban`, `entropy` alone are inline-redacted instead: one
+ * "password: changed" or one Luhn-valid order number must not cost the whole body.
+ */
+const STRONG_KINDS = new Set(['dsn', 'pem', 'env', 'jwt', 'bearer', 'aws', 'github', 'slack', 'granola', 'openai', 'google', 'gitlab', 'npm', 'sendgrid']);
+/** A `Password: …` line next to a login/username line is a credential bundle (the Contoso-account mail shape). */
+const PASSWORD_KEY = /(?:pass(?:word|wort|wd)?|pwd|kennwort|пароль)\s*(?::=|->|:|=|\bis\b|\bist\b)\s*$/iu;
+const LOGIN_WORD = /(?<![\p{L}\p{N}])(?:login|log-in|username|user\s?name|benutzer(?:name)?|anmeldename|логин|пользователь|user)(?![\p{L}\p{N}])\s*[:=]/iu;
+const CARRIER_ATTACHMENT = /(?:^|[\\/.])env(?:\.[a-z0-9]+)?$|\.(?:pem|key|p12|pfx|kdbx|ppk|jks|ovpn|asc|gpg)$|credential|password|passwort|zugangsdaten|secret|\bkeys?\b/i;
+
+export interface Classification {
+  carrier: boolean;
+  reasons: string[];
+}
+
+export function classifyMessage(msg: { subject?: string; text: string; attachments?: AttachmentLike[] }, opts: ScrubOptions = {}): Classification {
+  const reasons: string[] = [];
+  const text = msg.text ?? '';
+  const exact = collectHits(text, { ...opts, exactOnly: true });
+  const kinds = [...new Set(exact.map((h) => h.kind))].sort();
+  const strong = kinds.filter((k) => STRONG_KINDS.has(k));
+  // Two findings make a carrier only when they are not just card/IBAN numbers: Luhn-valid task
+  // ids and invoice references appear in pairs in perfectly ordinary notification mail.
+  const nonFinancial = exact.filter((h) => h.kind !== 'card' && h.kind !== 'iban');
+  if (strong.length) reasons.push(`exact:${strong.join(',')}`);
+  else if (nonFinancial.length >= 2) reasons.push(`exact:${kinds.join(',')}`);
+  else if (exact.length === 1 && exact[0]!.kind === 'kv') {
+    const before = text.slice(Math.max(0, exact[0]!.start - 40), exact[0]!.start);
+    if (PASSWORD_KEY.test(before) && LOGIN_WORD.test(text)) reasons.push('exact:kv+login');
+  }
+  if (msg.subject && CARRIER_SUBJECT.test(msg.subject)) reasons.push('subject');
+  for (const a of msg.attachments ?? []) {
+    if (CARRIER_ATTACHMENT.test(a.name)) {
+      reasons.push(`attachment:${a.name}`);
+      break;
+    }
+  }
+  return { carrier: reasons.length > 0, reasons };
+}
+
+/** Deterministic vault key for a message: sha256("<source>:<id>")[0..12]. */
+export function vaultId(source: string, id: string): string {
+  return createHash('sha256').update(`${source}:${id}`, 'utf8').digest('hex').slice(0, 12);
+}
+
+export function withheldMarker(vault: string): string {
+  return `[BODY WITHHELD: credential carrier — see vault ${vault}]`;
+}
+
+/**
+ * The one call every puller makes before writing a message record. Returns a copy; the input is
+ * not mutated (pullers may still need the raw text for `extractSecrets` → vault).
+ */
+export function scrubMessage<T extends ScrubbableMessage>(msg: T, opts: ScrubOptions = {}): T & { scrub: ScrubMeta } {
+  const cls = classifyMessage(msg, opts);
+  const attachments = msg.attachments?.map((a) => ({ name: a.name, size: a.size }));
+  if (cls.carrier) {
+    const vault = vaultId(msg.source, msg.id);
+    // Meta lists every exact kind present, not just the one that tripped the carrier rule.
+    const kinds = [...new Set(collectHits(msg.text ?? '', { ...opts, exactOnly: true }).map((h) => h.kind))].sort();
+    const scrub: ScrubMeta = { withheld: true, kinds, redactions: 0, vault };
+    return { ...msg, text: withheldMarker(vault), ...(attachments ? { attachments } : {}), scrub };
+  }
+  const { text, findings } = scrubText(msg.text ?? '', opts);
+  const scrub: ScrubMeta = { withheld: false, kinds: [...new Set(findings.map((f) => f.kind))].sort(), redactions: findings.length };
+  return { ...msg, text, ...(attachments ? { attachments } : {}), scrub };
+}
+
+/**
+ * RAW VALUES. Token-host only — feeds vault.ts. Never import from anything that runs in the sandbox.
+ * Returns every exact finding (and `likely` ones, flagged by kind) with a redacted context window
+ * so a human opening the vault entry knows what the secret unlocks.
+ */
+export function extractSecrets(msg: { subject?: string; text: string }, opts: ScrubOptions = {}): ExtractedSecret[] {
+  const text = msg.text ?? '';
+  const hits = collectHits(text, opts);
+  return hits.map((h) => {
+    const before = text.slice(Math.max(0, h.start - 40), h.start);
+    const after = text.slice(h.end, h.end + 40);
+    return { kind: h.kind, value: h.value, hash6: hash6(h.value), context: `${before}«${h.kind}»${after}`.replace(/\s+/g, ' ') };
+  });
 }

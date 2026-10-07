@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { entropy, hash6, ibanValid, luhn, scrubSummary, scrubText } from './scrub.js';
+import { readFileSync } from 'node:fs';
+import { classifyMessage, entropy, extractSecrets, hash6, ibanValid, luhn, scrubMessage, scrubSummary, scrubText, vaultId, withheldMarker } from './scrub.js';
+import { buildPayload, vaultFile } from './sources/common/vault.js';
+import { vaultPathsFor } from './sources/tokens.js';
 
 // Shapes mirror real traffic (a vendor's "your account" mail pasted into Slack, a pasted .env,
 // a shell snippet) with FAKE values. If a shape stops matching reality, change the fixture,
@@ -128,5 +131,175 @@ test('canary: planted secrets never reach the output', () => {
       assert.equal(out.indexOf(s), -1, `${c.id}: leaked ${s}\n${out}`);
       assert.equal(out.indexOf(s.replace(/(.{4})/g, '$1 ').trim()), -1, `${c.id}: leaked spaced ${s}`);
     }
+  }
+});
+
+/** Run `fn` with env overrides, restoring the previous values afterwards. */
+function withEnv<T>(vars: Record<string, string>, fn: () => T): T {
+  const prev: Record<string, string | undefined> = {};
+  for (const [k, v] of Object.entries(vars)) {
+    prev[k] = process.env[k];
+    process.env[k] = v;
+  }
+  try {
+    return fn();
+  } finally {
+    for (const [k, v] of Object.entries(prev)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+// ── Puller side (src/sources): carrier classification, withholding, vault ─────────────────
+
+// Fixtures are shaped after real traffic (Tobin's account mail, pasted .env in a DM, a snippet reply
+// in a thread) with FAKE values. If a shape here stops matching real mail, change the fixture, not
+// the assertion.
+const CONTOSO_MAIL = {
+  source: 'gmail',
+  id: 'm1',
+  subject: 'Your Contoso Account',
+  text: `Hi Owen,
+Sorry for the delay. Here are your Contoso credentials:
+Login: https://outlook.office.com/
+Username: owen.test@contoso.example
+Password: K/9988776655ab
+
+Please change your password after your first login.
+DSN for staging: mysql://pms_ro:S3cr3t-Pa55@db.staging.example:3306/pms
+Cheers, Tobin`,
+  attachments: [{ name: 'image.png', size: 2048, contentType: 'image/png' }],
+};
+
+const SLACK_ENV_DM = {
+  source: 'slack',
+  id: 'D1:1.1',
+  text: `here you go
+\`\`\`
+APP_ENV=production
+DB_HOST=10.0.0.5
+DB_USERNAME=app
+DB_PASSWORD=Tr0ub4dor&3xyz
+MAIL_HOST=smtp.example
+STRIPE_KEY=sk-live-ZmFrZS1zdHJpcGUta2V5LWZvci10ZXN0cw
+\`\`\`
+ping me if it fails`,
+};
+
+const SLACK_SNIPPET_REPLY = {
+  source: 'slack',
+  id: 'C2:2.2',
+  subject: 're: deploy broken again',
+  text: `    export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+    export AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+    aws s3 ls`,
+};
+
+
+test('classifyMessage: carriers by strong exact kind, two findings, password+login bundle, strong subject, attachment', () => {
+  assert.equal(classifyMessage(CONTOSO_MAIL).carrier, true);
+  assert.ok(classifyMessage(CONTOSO_MAIL).reasons.some((r) => r.startsWith('exact:') && r.includes('dsn')));
+  // The same mail without the DSN: a lone kv hit, but "Password:" beside "Username:" is a credential bundle.
+  const bundle = { ...CONTOSO_MAIL, text: CONTOSO_MAIL.text.replace(/DSN for staging:.*\n/, '') };
+  assert.deepEqual(classifyMessage(bundle).reasons, ['exact:kv+login']);
+  assert.ok(classifyMessage({ subject: 'Zugangsdaten VPN', text: 'siehe anhang' }).reasons.includes('subject'));
+  assert.ok(classifyMessage({ subject: 'Your login details for the portal', text: 'see below' }).reasons.includes('subject'));
+  assert.ok(classifyMessage({ text: 'fyi', attachments: [{ name: 'prod.env' }] }).reasons[0]!.startsWith('attachment:'));
+  assert.ok(classifyMessage({ text: 'fyi', attachments: [{ name: 'server.pem' }] }).carrier);
+  // Two weak findings together are a carrier; one is not.
+  assert.equal(classifyMessage({ text: 'token: abc123def456 and secret: zyx987wvu654' }).carrier, true);
+  assert.equal(classifyMessage({ text: 'password: changed' }).carrier, false);
+  // Two Luhn-valid numbers (task ids, invoice refs) are not a credential bundle.
+  assert.equal(classifyMessage({ subject: 'You have 2 overdue tasks', text: 'Task 4539578763621486 and task 6011000990139424 are overdue' }).carrier, false);
+  assert.equal(classifyMessage({ text: 'card 4539578763621486 pin: 123456' }).carrier, false, 'card + one kv stays inline');
+  // Body phrases alone no longer withhold: a body *about* credentials is inline-redacted, not dropped.
+  assert.equal(classifyMessage({ text: 'here are your credentials for the portal, call me' }).carrier, false);
+  assert.equal(classifyMessage({ subject: 'Lunch?', text: 'the VPN was slow today, also the password reset flow is nicer now' }).carrier, false);
+  assert.equal(classifyMessage({ text: 'logo.png attached', attachments: [{ name: 'logo.png' }] }).carrier, false);
+});
+
+test('classifyMessage: the subjects the first live pull wrongly withheld are not carriers', () => {
+  const real = [
+    '[Action required] Migrate your legacy user API keys',
+    '[GitHub] Your Dependabot alerts for the week of Sep 29 - Oct 6',
+    '[Brevo] SMTP keys are marked inactive',
+    '📅 You have 1 overdue task',
+    'Re: Cloudvisor x WAFR',
+    'Updates to managing AI crawlers on your account',
+    'Your Contoso Account', // subject alone is generic — the BODY decides (see bundle test above)
+    'Password reset requested',
+    'Accepted: BLUEFIN Devs Weekly Sync',
+  ];
+  for (const subject of real) {
+    const c = classifyMessage({ subject, text: 'Plain notification body with a link https://example.com/x?id=42 and nothing else.' });
+    assert.equal(c.carrier, false, `${subject} → ${c.reasons.join(',')}`);
+  }
+});
+
+test('scrubMessage: carrier → body withheld, attachments reduced to name+size, meta set, input untouched', () => {
+  const before = JSON.stringify(CONTOSO_MAIL);
+  const out = scrubMessage(CONTOSO_MAIL);
+  assert.equal(JSON.stringify(CONTOSO_MAIL), before);
+  const vid = vaultId('gmail', 'm1');
+  assert.equal(out.text, withheldMarker(vid));
+  assert.deepEqual(out.attachments, [{ name: 'image.png', size: 2048 }]);
+  assert.deepEqual(out.scrub, { withheld: true, kinds: ['dsn', 'kv'], redactions: 0, vault: vid });
+  assert.equal(out.subject, 'Your Contoso Account'); // headers survive
+  assert.equal(JSON.stringify(out).includes('K/9988776655ab'), false);
+  assert.equal(JSON.stringify(out).includes('S3cr3t-Pa55'), false);
+});
+
+test('scrubMessage: non-carrier keeps body with inline redactions', () => {
+  const out = scrubMessage({ source: 'slack', id: 'x', text: 'deployed, build 805a863, ping @nico' });
+  assert.equal(out.text, 'deployed, build 805a863, ping @nico');
+  assert.deepEqual(out.scrub, { withheld: false, kinds: [], redactions: 0 });
+});
+
+test('Slack .env in a code block and a snippet reply are carriers; extractSecrets returns the raw values', () => {
+  for (const m of [SLACK_ENV_DM, SLACK_SNIPPET_REPLY]) {
+    const out = scrubMessage(m);
+    assert.equal(out.scrub.withheld, true, m.id);
+  }
+  const secrets = extractSecrets(SLACK_ENV_DM);
+  const values = secrets.map((s) => s.value);
+  assert.ok(values.includes('Tr0ub4dor&3xyz'));
+  assert.ok(values.includes('sk-live-ZmFrZS1zdHJpcGUta2V5LWZvci10ZXN0cw'));
+  for (const s of secrets) {
+    assert.equal(s.context.includes(s.value), false, 'context must not contain the value');
+    assert.equal(s.hash6, hash6(s.value));
+  }
+  const aws = extractSecrets(SLACK_SNIPPET_REPLY).map((s) => s.kind);
+  assert.ok(aws.includes('aws'));
+  assert.ok(aws.includes('kv')); // AWS_SECRET_ACCESS_KEY=… via the secret/key keyword
+});
+
+test('vault: deterministic id, path validation, payload carries secrets + ref, never the scrubbed marker', () => {
+  assert.equal(vaultId('gmail', 'm1'), vaultId('gmail', 'm1'));
+  assert.notEqual(vaultId('gmail', 'm1'), vaultId('slack', 'm1'));
+  const paths = withEnv({ XDG_CONFIG_HOME: '/home/x/.xdg', AVEN_DATA_DIR: '/srv/aven-data' }, () => vaultPathsFor('proj-a'));
+  assert.equal(paths.dir, '/srv/aven-data/proj-a/vault');
+  assert.equal(paths.recipientFile, '/home/x/.xdg/coach-aven/sources/proj-a/vault.recipient');
+  assert.equal(vaultFile(paths.dir, vaultId('gmail', 'm1')), `/srv/aven-data/proj-a/vault/${vaultId('gmail', 'm1')}.json.age`);
+  assert.throws(() => vaultFile(paths.dir, '../etc/passwd'));
+  const p = buildPayload({ ...CONTOSO_MAIL, account: 'owen@example.com', ts: '2026-10-01T11:18:42Z', author: 'tobin@example' });
+  assert.equal(p.vault_id, vaultId('gmail', 'm1'));
+  assert.equal(p.body, CONTOSO_MAIL.text);
+  assert.deepEqual(p.secrets.map((s) => s.kind).sort(), ['dsn', 'kv']);
+  assert.equal(p.ref.account, 'owen@example.com');
+});
+
+// CANARY: every planted secret in the fixture set must be absent from the serialised output.
+// Add a line to src/fixtures/scrub-canary.jsonl whenever a real leak shape is discovered (and
+// the same line to scrub-gold.jsonl, which `orch sources audit` measures recall on).
+test('canary: planted secrets never reach a scrubbed message', () => {
+  const lines = readFileSync(new URL('./fixtures/scrub-canary.jsonl', import.meta.url), 'utf8').trim().split('\n');
+  assert.ok(lines.length >= 8);
+  for (const line of lines) {
+    const { secrets, ...msg } = JSON.parse(line) as { secrets: string[] } & Parameters<typeof scrubMessage>[0];
+    const out = JSON.stringify(scrubMessage(msg));
+    for (const s of secrets) assert.equal(out.indexOf(s), -1, `${msg.id}: leaked ${s}\n${out}`);
+    // and the IBAN/card also must not survive with its original spacing
+    for (const s of secrets) assert.equal(out.indexOf(s.replace(/(.{4})/g, '$1 ').trim()), -1, `${msg.id}: leaked spaced ${s}`);
   }
 });
