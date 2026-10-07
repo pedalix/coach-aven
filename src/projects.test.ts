@@ -144,3 +144,32 @@ test('validation accepts the object form and still catches unknown slugs in it',
     assert.deepEqual(teamProjects(loadProjects(cfg), 'T0X11111', 'T0HOME').map((p) => p.slug), ['alpha']);
   });
 });
+
+test('a project with sources gets the replica mount merged into its sandbox options at load', () => {
+  withConfigDir((dir, configPath) => {
+    process.env.AVEN_DATA_DIR = join(dir, 'data');
+    try {
+      writeFileSync(
+        configPath,
+        JSON.stringify({
+          projects: [
+            { slug: 'ops', repos: ['Org/ops'], sandbox: { privileged: false, dind: false }, sources: { slack: { workspaces: ['T1'] } } },
+            { slug: 'plain', repos: ['Org/plain'] },
+          ],
+        }),
+      );
+      const reg = loadProjects(configPath);
+      const ops = reg.projects.find((p) => p.slug === 'ops')!;
+      assert.deepEqual(ops.sandbox?.mounts, [`${join(dir, 'data', 'ops', 'replica')}:/data/sources:ro`]);
+      assert.equal(reg.projects.find((p) => p.slug === 'plain')!.sandbox, undefined, 'no sources → untouched');
+      // A hand-written mount on the same target is a boot error, not a silent shadow.
+      writeFileSync(
+        configPath,
+        JSON.stringify({ projects: [{ slug: 'ops', repos: ['Org/ops'], sandbox: { privileged: false, dind: false, mounts: ['/elsewhere:/data/sources'] }, sources: { slack: { workspaces: ['T1'] } } }] }),
+      );
+      assert.throws(() => loadProjects(configPath), /duplicate mount target/);
+    } finally {
+      delete process.env.AVEN_DATA_DIR;
+    }
+  });
+});

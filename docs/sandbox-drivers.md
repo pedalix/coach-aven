@@ -57,8 +57,9 @@ Laravel Sail keeps working.
      "sandbox": {
        "privileged": false,
        "dind": false,
-       "mounts": ["/srv/ops/sources:/data/sources"]
-     }
+       "mounts": ["/srv/ops/notes:/data/notes"]
+     },
+     "sources": { "slack": { "workspaces": ["T0…"] } }
    }
    ```
 
@@ -69,6 +70,9 @@ Laravel Sail keeps working.
    - `mounts` → `-v host:container:mode`; mode defaults to `ro`. Paths must be absolute,
      `[A-Za-z0-9._/-]`, no `..`. Read-only is the point: the agent reads the archive, it
      never edits it.
+   - A project with a `sources` block gets one more mount for free: its store replica,
+     `data/<slug>/replica` → `/data/sources:ro` (`docs/sources.md` → "Replica"). Don't write
+     that one by hand — the same target twice is a boot error.
 
    The image itself stays deployment-wide (`SNAPSHOT_IMAGE`), so a plain project lives on
    an instance whose fleet image is the plain variant. Options shape CREATION only: an
