@@ -8,8 +8,11 @@
 // follow (see docs/sources.md "What comes next").
 import type { VaultPaths } from './common/vault.js';
 
-export type SourceKind = 'google' | 'slack' | 'msgraph';
-export const SOURCE_KINDS: readonly SourceKind[] = ['google', 'slack', 'msgraph'];
+export type SourceKind = 'google' | 'slack' | 'msgraph' | 'youtrack' | 'jira' | 'asana';
+export const SOURCE_KINDS: readonly SourceKind[] = ['google', 'slack', 'msgraph', 'youtrack', 'jira', 'asana'];
+/** The task-tracker family: same contract, one normalised `task` shape (trackers/task.ts). */
+export type TrackerKind = 'youtrack' | 'jira' | 'asana';
+export const TRACKER_KINDS: readonly TrackerKind[] = ['youtrack', 'jira', 'asana'];
 
 export type GoogleKind = 'gmail' | 'drive' | 'calendar';
 export type MsgraphKind = 'mail' | 'calendar' | 'chats' | 'channels' | 'files';
@@ -47,10 +50,48 @@ export interface MsgraphSourcesConfig {
   only?: MsgraphKind[];
 }
 
+export interface YoutrackSourcesConfig {
+  /** Base URL, e.g. https://acme.youtrack.cloud */
+  url: string;
+  /** Read the permanent token from this env var instead of ~/.config/coach-aven/sources/<slug>/youtrack.json. */
+  tokenEnv?: string;
+  /** Project short names (CG, CAR, …). */
+  projects: string[];
+  /** Login to scope to: issues assigned to, reported by, or commented on by this user. Unset = whole projects. */
+  assignee?: string;
+  /** YYYY-MM-DD lower bound on `updated` for the first pull (default 90 days back). */
+  since?: string;
+}
+
+export interface JiraSourcesConfig {
+  /** Atlassian Cloud host, e.g. contoso.atlassian.net */
+  site: string;
+  /** Account e-mail for basic auth (also read from the token file / netrc when omitted). */
+  email?: string;
+  /** Take e-mail + API token from ~/.netrc's `machine <site>` entry. */
+  fromNetrc?: boolean;
+  /** Overrides the default "involves me" JQL; `updated >= …` is always ANDed on. */
+  jql?: string;
+  since?: string;
+}
+
+export interface AsanaSourcesConfig {
+  /** Workspace gid. */
+  workspace: string;
+  /** `me` (default) or a user gid/e-mail — whose assigned tasks to pull. */
+  assignee?: string;
+  /** Project gids pulled in full on top of the assignee's tasks. */
+  projects?: string[];
+  since?: string;
+}
+
 export interface SourcesConfig {
   google?: GoogleSourcesConfig;
   slack?: SlackSourcesConfig;
   msgraph?: MsgraphSourcesConfig;
+  youtrack?: YoutrackSourcesConfig;
+  jira?: JiraSourcesConfig;
+  asana?: AsanaSourcesConfig;
   /** Poller interval (PR-C); default 15. Validated now so a typo fails at boot, not later. */
   intervalMinutes?: number;
   /** Path (relative to projects.config.json) of the people/identities JSON used by the store build (PR-B). */

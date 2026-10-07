@@ -30,7 +30,7 @@ import { identitiesOf, identityIndex, loadPeople, resolveIdentity, type Person }
 import { ensureDir } from './paths.js';
 import type { Logger } from './types.js';
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 /** Where the sandbox sees the replica directory (the file inside is always `store.sqlite`). */
 export const REPLICA_FILE = 'store.sqlite';
 
@@ -79,6 +79,36 @@ CREATE TABLE IF NOT EXISTS message_people (
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS message_people_person ON message_people(person_id);
 CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+-- Task trackers (youtrack/jira/asana) share one shape (trackers/task.ts). comments is a JSON
+-- array; comments_text is its flattened text, kept only so FTS can index it.
+CREATE TABLE IF NOT EXISTS tasks (
+  ref TEXT PRIMARY KEY, source TEXT NOT NULL, account TEXT NOT NULL, key TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', status_category TEXT NOT NULL DEFAULT 'todo',
+  assignee_raw TEXT NOT NULL DEFAULT '', assignee_person TEXT, reporter_raw TEXT NOT NULL DEFAULT '', reporter_person TEXT,
+  due TEXT NOT NULL DEFAULT '', created TEXT NOT NULL DEFAULT '', updated TEXT NOT NULL DEFAULT '',
+  project TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '', labels TEXT NOT NULL DEFAULT '[]',
+  text TEXT NOT NULL DEFAULT '', comments TEXT NOT NULL DEFAULT '[]', comments_text TEXT NOT NULL DEFAULT '',
+  scrub_withheld INTEGER NOT NULL DEFAULT 0, scrub_kinds TEXT NOT NULL DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS tasks_updated ON tasks(updated);
+CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee_person);
+CREATE INDEX IF NOT EXISTS tasks_due ON tasks(due);
+CREATE VIRTUAL TABLE IF NOT EXISTS tasks_fts USING fts5(
+  title, text, comments_text, content='tasks', content_rowid='rowid',
+  tokenize = 'porter unicode61 remove_diacritics 2'
+);
+CREATE TRIGGER IF NOT EXISTS tasks_ai AFTER INSERT ON tasks WHEN new.deleted = 0 BEGIN
+  INSERT INTO tasks_fts(rowid, title, text, comments_text) VALUES (new.rowid, new.title, new.text, new.comments_text);
+END;
+CREATE TRIGGER IF NOT EXISTS tasks_ad AFTER DELETE ON tasks WHEN old.deleted = 0 BEGIN
+  INSERT INTO tasks_fts(tasks_fts, rowid, title, text, comments_text) VALUES ('delete', old.rowid, old.title, old.text, old.comments_text);
+END;
+CREATE TRIGGER IF NOT EXISTS tasks_au_del AFTER UPDATE ON tasks WHEN old.deleted = 0 BEGIN
+  INSERT INTO tasks_fts(tasks_fts, rowid, title, text, comments_text) VALUES ('delete', old.rowid, old.title, old.text, old.comments_text);
+END;
+CREATE TRIGGER IF NOT EXISTS tasks_au_ins AFTER UPDATE ON tasks WHEN new.deleted = 0 BEGIN
+  INSERT INTO tasks_fts(rowid, title, text, comments_text) VALUES (new.rowid, new.title, new.text, new.comments_text);
+END;
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
   subject, text, content='messages', content_rowid='rowid',
   tokenize = 'porter unicode61 remove_diacritics 2'
@@ -116,7 +146,7 @@ export function openReadOnly(path: string): DatabaseSync {
 // Raw file discovery + classification. The pullers' output names are the contract
 // (google/pull.ts, slack/pull.ts, msgraph/pull.ts headers) — anything else is skipped once.
 // ---------------------------------------------------------------------------------------
-export type RawKind = 'messages' | 'events' | 'files' | 'tombstones';
+export type RawKind = 'messages' | 'events' | 'files' | 'tombstones' | 'tasks';
 
 export function classifyRawFile(name: string): RawKind | undefined {
   switch (basename(name)) {
@@ -131,6 +161,8 @@ export function classifyRawFile(name: string): RawKind | undefined {
       return 'files';
     case 'tombstones.jsonl':
       return 'tombstones';
+    case 'tasks.jsonl':
+      return 'tasks';
     default:
       return undefined;
   }
@@ -217,6 +249,7 @@ export interface BuildSummary {
   messages: number;
   events: number;
   fileRecords: number;
+  tasks: number;
   tombstones: number;
   truncatedFiles: string[];
   skippedFiles: string[];
@@ -247,6 +280,8 @@ class Statements {
   readonly evTomb: StatementSync;
   readonly fileUpsert: StatementSync;
   readonly fileTomb: StatementSync;
+  readonly taskUpsert: StatementSync;
+  readonly taskTomb: StatementSync;
   readonly mpDel: StatementSync;
   readonly mpIns: StatementSync;
   readonly threadUp: StatementSync;
@@ -272,6 +307,15 @@ class Statements {
     this.fileUpsert = db.prepare(`INSERT INTO files(ref, source, account, name, path, mime, modified, size, link, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
       ON CONFLICT(ref) DO UPDATE SET name=excluded.name, path=excluded.path, mime=excluded.mime, modified=excluded.modified, size=excluded.size, link=excluded.link, deleted=0`);
     this.fileTomb = db.prepare('INSERT INTO files(ref, source, account, deleted) VALUES (?, ?, ?, 1) ON CONFLICT(ref) DO UPDATE SET deleted=1');
+    this.taskUpsert = db.prepare(`INSERT INTO tasks(ref, source, account, key, title, status, status_category, assignee_raw, assignee_person, reporter_raw, reporter_person,
+        due, created, updated, project, url, labels, text, comments, comments_text, scrub_withheld, scrub_kinds, deleted)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      ON CONFLICT(ref) DO UPDATE SET key=excluded.key, title=excluded.title, status=excluded.status, status_category=excluded.status_category,
+        assignee_raw=excluded.assignee_raw, assignee_person=excluded.assignee_person, reporter_raw=excluded.reporter_raw, reporter_person=excluded.reporter_person,
+        due=excluded.due, created=excluded.created, updated=excluded.updated, project=excluded.project, url=excluded.url, labels=excluded.labels,
+        text=excluded.text, comments=excluded.comments, comments_text=excluded.comments_text, scrub_withheld=excluded.scrub_withheld,
+        scrub_kinds=excluded.scrub_kinds, deleted=0`);
+    this.taskTomb = db.prepare('INSERT INTO tasks(ref, source, account, deleted) VALUES (?, ?, ?, 1) ON CONFLICT(ref) DO UPDATE SET deleted=1');
     this.mpDel = db.prepare('DELETE FROM message_people WHERE ref = ?');
     this.mpIns = db.prepare('INSERT OR IGNORE INTO message_people(ref, person_id, role) VALUES (?, ?, ?)');
     this.threadUp = db.prepare(`INSERT OR REPLACE INTO threads(thread_id, source, container, first_ts, last_ts, n)
@@ -300,12 +344,30 @@ export function seedPeople(db: DatabaseSync, people: readonly Person[]): Map<str
 }
 
 /** Apply one parsed raw record. Returns what kind of row it changed, for the summary. */
-function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<string, string>, touched: { refs: Set<string>; threads: Set<string> }): 'message' | 'event' | 'file' | 'tombstone' | 'skip' {
+function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<string, string>, touched: { refs: Set<string>; threads: Set<string> }): 'message' | 'event' | 'file' | 'task' | 'tombstone' | 'skip' {
   const ref = refOf(r);
   if (!ref) return 'skip';
   const source = str(r.source);
   const account = str(r.account);
   const deleted = r.deleted === true;
+  if (kind === 'tasks') {
+    if (deleted) {
+      st.taskTomb.run(ref, source, account);
+      return 'tombstone';
+    }
+    const comments = Array.isArray(r.comments) ? (r.comments as Rec[]).filter((c) => c && typeof c === 'object') : [];
+    const scrub = (r.scrub && typeof r.scrub === 'object' ? (r.scrub as Rec) : {}) as Rec;
+    const assignee = str(r.assignee);
+    const reporter = str(r.reporter);
+    st.taskUpsert.run(
+      ref, source, account, str(r.key), str(r.title), str(r.status), str(r.statusCategory) || 'todo',
+      assignee, resolveIdentity(assignee, index) ?? null, reporter, resolveIdentity(reporter, index) ?? null,
+      str(r.due), str(r.created), str(r.updated), str(r.project), str(r.url), JSON.stringify(strs(r.labels)), str(r.text),
+      JSON.stringify(comments), comments.map((c) => str(c.text)).join('\n'),
+      scrub.withheld === true ? 1 : 0, strs(scrub.kinds).join(','),
+    );
+    return 'task';
+  }
   const effective: RawKind = kind === 'tombstones' ? (r.kind === 'calendar' ? 'events' : r.kind === 'file' ? 'files' : 'messages') : kind;
   if (effective === 'messages') {
     if (deleted) {
@@ -356,7 +418,7 @@ export function buildStore(ctx: BuildContext): BuildSummary {
   const now = ctx.now ?? (() => new Date());
   const chunk = ctx.chunk ?? 2000;
   const db = openStore(ctx.storePath);
-  const sum: BuildSummary = { files: 0, lines: 0, malformed: 0, replayed: 0, messages: 0, events: 0, fileRecords: 0, tombstones: 0, truncatedFiles: [], skippedFiles: [], people: 0 };
+  const sum: BuildSummary = { files: 0, lines: 0, malformed: 0, replayed: 0, messages: 0, events: 0, fileRecords: 0, tasks: 0, tombstones: 0, truncatedFiles: [], skippedFiles: [], people: 0 };
   try {
     let index: ReadonlyMap<string, string> = new Map();
     if (ctx.peoplePath && existsSync(ctx.peoplePath)) {
@@ -420,6 +482,7 @@ export function buildStore(ctx: BuildContext): BuildSummary {
             if (what === 'message') sum.messages++;
             else if (what === 'event') sum.events++;
             else if (what === 'file') sum.fileRecords++;
+            else if (what === 'task') sum.tasks++;
             else if (what === 'tombstone') sum.tombstones++;
           }
           for (const t of touched.threads) {

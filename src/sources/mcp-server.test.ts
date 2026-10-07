@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildStore, openReadOnly, type BuildContext } from './store.js';
+import { buildStore, openReadOnly, SCHEMA_VERSION, type BuildContext } from './store.js';
 import { SOURCES_MCP_SOURCE } from './mcp.js';
 // The server script IS the implementation under test (see its header): import it directly.
 import {
@@ -173,7 +173,7 @@ test('stats reports per-source coverage, withheld count and sync meta', () => {
     );
     assert.equal(s.withheld, 1);
     assert.equal(s.people, 3);
-    assert.equal(s.meta.schema_version, '1');
+    assert.equal(s.meta.schema_version, String(SCHEMA_VERSION));
   } finally {
     db.close();
   }
@@ -193,7 +193,7 @@ test('handleMessage speaks the JSON-RPC subset the MCP client needs and never th
     (list.result as { tools: { name: string }[] }).tools.map((t) => t.name),
     TOOLS.map((t) => t.name),
   );
-  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'people', 'stats']);
+  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'tasks', 'people', 'stats']);
   const call = handleMessage({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'search', arguments: { query: 'forensic' } } }, dbPath)!;
   const content = (call.result as { content: { text: string }[]; isError: boolean });
   assert.equal(content.isError, false);
@@ -235,7 +235,7 @@ test('the script runs as a real stdio server: initialize → tools/list → tool
   const [init, list, stats] = lines.map((l) => JSON.parse(l));
   assert.equal(init.id, 1);
   assert.equal(init.result.serverInfo.name, 'sources');
-  assert.equal(list.result.tools.length, 4);
+  assert.equal(list.result.tools.length, TOOLS.length);
   assert.equal(JSON.parse(stats.result.content[0].text).people, 3);
   assert.equal(stderr.join(''), '', 'server must stay silent on stderr');
   await new Promise((r) => child.on('close', r));

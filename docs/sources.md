@@ -255,14 +255,53 @@ whenever the bot ships a newer copy. The layer-1 system prompt gains one paragra
 enabled: search first, cite permalinks, redaction markers are final. A project may declare its own
 `sources` MCP entry to override the built-in one.
 
+## Task trackers
+
+YouTrack, Jira and Asana are one family: same contract (`auth check|add`, `pull` with a cursor on
+`updated`, pure `normalise` with tests), one normalised shape — `task` (`src/sources/trackers/task.ts`):
+
+`{source, account, id, key, title, status, statusCategory: todo|doing|done, assignee, reporter, due,
+created, updated, project, url, labels[], text, comments:[{author, ts, text}], deleted?}`
+
+`assignee`/`reporter` are e-mails where the tracker exposes them, else `youtrack:<login>`,
+`jira:<accountId>`, `asana:<gid>` — add those strings to a person's `identities` in the people file
+to join them. Raw files are `raw/<kind>/<account>/tasks.jsonl` + `cursor.json`; the store gets a
+`tasks` table and `tasks_fts` (title, description, comments) with the same tokenizer and the same
+"deleted means gone from the index" triggers.
+
+```jsonc
+"sources": {
+  "youtrack": { "url": "https://acme.youtrack.cloud", "tokenEnv": "YOUTRACK_TOKEN",
+                "projects": ["CG", "CAR"], "assignee": "Owen", "since": "2026-09-15" },
+  "jira":     { "site": "acme.atlassian.net", "fromNetrc": true, "since": "2026-09-15" },
+  "asana":    { "workspace": "7520977444554", "projects": ["1208573315693393"] }
+}
+```
+
+| Tracker | Credentials | What is pulled | Limits |
+| --- | --- | --- | --- |
+| YouTrack | permanent token: `tokenEnv` (reuse the bot's `YOUTRACK_TOKEN`) or `youtrack.json {token}` via `auth … youtrack add` | per project, `updated` since the cursor; with `assignee`, only issues that person is assigned to, reported or commented on. Query verified on Cloud: a parenthesised OR group needs explicit `and`, the keyword is `reporter:` (not `by:`), and no `sort by:` after a group | paced 5 req/s |
+| Jira Cloud | e-mail + API token: `fromNetrc` (the host's `machine <site>` entry) or `jira.json {email, token}` via `auth … jira add --email …` | `POST /rest/api/3/search/jql` (the enhanced search; `nextPageToken` paging); default JQL "involves me" (assignee/reporter/watcher/comment), a configured `jql` replaces it, `updated >=` is always ANDed. ADF → plain text | paced 4 req/s, `Retry-After` honoured |
+| Asana | PAT: `asana.json {token}` via `auth … asana add` | `GET /tasks?assignee=me&workspace=…&modified_since=…` (search is premium-only) plus every configured project; comment stories per changed task. Status = board section, `completed` → done | 150 rpm free tier → paced at 450 ms |
+
+Scrubbing: description and every comment go through `scrubForWrite` separately, so one comment
+with a DSN withholds that comment (filed in the vault), not the whole ticket; titles are redacted
+inline. Secrets come in through `--token-env NAME` or stdin, never argv.
+
+The `sources` MCP server learns trackers too: `search` covers tasks (hits carry `kind: "task"` and
+a status; `source: youtrack|jira|asana` narrows to them), `get` returns a ticket with its comments,
+`stats` counts tasks per source with the open share, and a new tool **`tasks({assignee, status,
+dueBefore, project, source, updatedSince, limit})`** is the work list — open tasks by default,
+soonest due first.
+
 ## What comes next
 
 | Slice | Adds |
 | --- | --- |
 | ~~PR-B sources-store~~ | shipped: the store, the replica and the automatic mount above |
 | ~~PR-C sources-poller~~ | shipped: the poller below |
-
 | ~~PR-D sources-mcp~~ | shipped: the `sources` MCP server above |
+| ~~sources-tasks~~ | shipped: the task-tracker family above (YouTrack, Jira, Asana) |
 
 Each pull ends with the store build, so the replica the sandbox sees is never older than
 the last pull. The CLI stays for bootstrap, backfills (`--since`, `--full`) and audits.

@@ -1,6 +1,6 @@
 // `orch sources …` — the operator CLI for per-project source ingestion (docs/sources.md).
 //
-//   orch sources auth  <slug> <google|slack|msgraph> <action…>   one-time bootstrap / health checks
+//   orch sources auth  <slug> <google|slack|msgraph|youtrack|jira|asana> <action…>   one-time bootstrap / health checks
 //   orch sources pull  <slug> [--only …] [--since …] [--full] [--calendars …] [--no-build] [--verbose]
 //   orch sources build <slug>                                     rebuild store.sqlite + replica from raw/
 //   orch sources audit <slug> [--no-gitleaks] [--gold FILE] [--dir EXTRA…]
@@ -13,11 +13,8 @@ import { loadConfig } from '../config.js';
 import { loadProjects, type ProjectConfig } from '../projects.js';
 import { runAudit } from './audit.js';
 import { UsageError } from './errors.js';
-import { runGoogleAuth } from './google/auth.js';
-import { runMsgraphAuth } from './msgraph/auth.js';
 import { dataDir, rawDir } from './paths.js';
-import { configuredKinds, pullProject, runBuild } from './run.js';
-import { runSlackAuth } from './slack/auth.js';
+import { configuredKinds, pullProject, runAuth, runBuild } from './run.js';
 import { tokenPath } from './tokens.js';
 import { SOURCE_KINDS, type SourceKind } from './types.js';
 
@@ -47,14 +44,13 @@ export function registerSourcesCommands(program: Command): void {
       if (!isKind(kind)) throw new UsageError(`kind must be one of ${SOURCE_KINDS.join(', ')}`);
       const p = project(slug);
       const ctx = { slug: p.slug, tokenPath: tokenPath(p.slug, kind), log: (line: string) => process.stderr.write(`${line}\n`) };
-      const code = kind === 'google' ? await runGoogleAuth(ctx, args) : kind === 'slack' ? await runSlackAuth(ctx, args) : await runMsgraphAuth(ctx, args);
-      process.exitCode = code;
+      process.exitCode = await runAuth(ctx, kind, args, p);
     });
 
   sources
     .command('pull <slug>')
     .description('Pull every configured source of a project into data/<slug>/raw (incremental; scrubbed at write)')
-    .option('--only <kinds>', 'comma list of google,slack,msgraph')
+    .option('--only <kinds>', 'comma list of google,slack,msgraph,youtrack,jira,asana')
     .option('--since <date>', 'YYYY-MM-DD lower bound for FIRST backfills (overrides the config)')
     .option('--full', 'ignore cursors and resync everything', false)
     .option('--calendars <ids>', 'extra Google calendar ids (comma list)')

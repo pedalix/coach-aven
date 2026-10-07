@@ -479,7 +479,7 @@ export function createPollers(
       lastAuthCheckDay = due;
       for (const p of reg.current.projects) {
         for (const kind of configuredKinds(p)) {
-          const r = await authCheck(p.slug, kind);
+          const r = await authCheck(p.slug, kind, p);
           if (r.code === 0) continue;
           const tail = r.lines.filter((l) => !l.startsWith('  ')).slice(-4).join('\n');
           alertOps(`sources auth check *${p.slug}/${kind}* failed (exit ${r.code}):\n${tail}`, 'warning');
