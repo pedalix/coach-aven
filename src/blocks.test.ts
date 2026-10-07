@@ -17,6 +17,7 @@ import {
   withRatingTally,
   FB_REASON,
   homeBlocks,
+  homeBullets,
   packSections,
   onboardingHomeBlocks,
   sessionPanelBlocks,
@@ -290,7 +291,7 @@ test('homeBlocks: "How to use me" bullets survive packing intact, every section 
   for (const t of sections) assert.ok(t.length <= 3000, `section over cap: ${t.length}`);
   const joined = sections.join('\n');
   const bullets = joined.split('\n').filter((l) => l.startsWith('• '));
-  assert.equal(bullets.length, 24, 'every bullet present, none split across sections');
+  assert.deepEqual(bullets, homeBullets(), 'every bullet present, in order, none split across sections');
   assert.equal(joined.split('\n').length, bullets.length, 'no stray non-bullet lines');
   // Bluefin-check both ends and the newest bullet.
   assert.ok(bullets[0].startsWith('• *Build / collaborate*'));

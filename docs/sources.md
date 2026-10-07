@@ -185,14 +185,62 @@ on any real hit or gold miss. The rule: **every miss becomes a gold row and a ca
 rotated, and the number improves measurably instead of by feel. Run it after the first backfill
 (baseline), quarterly, after a detector change, and when a new source joins.
 
+## Poller
+
+The bot pulls on its own: a fifth poller (`src/pollers.ts` → `src/sources/sync.ts`) ticks
+every minute and runs `pull → store build → replica` for every project whose pass is due.
+
+- **Cadence.** `sources.intervalMinutes` per project (default 15). A pass with any failure
+  doubles the wait — 15 → 30 → 60 → 120 min, capped at two hours — and a clean pass resets it.
+- **Single-flight.** One pass per project at a time, projects sequentially: one process, one
+  disk, and the pullers already parallelise inside (accounts, conversations).
+- **Re-auth.** A kind whose puller reports `reauth` (Google `invalid_grant`, a revoked Slack
+  token, an Entra refresh that needs a human) is *parked*: the other kinds keep their cadence,
+  the parked one is probed once every two hours, and the operator gets ONE alert
+  (`alertOps`) per distinct situation — not a nag every two hours. It is released the moment
+  a probe reports ok again, i.e. after `orch sources auth <slug> <kind> …` on the bot host.
+- **No sandbox involvement.** Pulls run on the bot host with tokens the sandbox never sees;
+  the replica swap is an atomic rename, so an in-flight turn keeps reading the old file.
+- **Daily credential check.** At 06:00 (`AVEN_TZ`) every configured kind's `check` runs
+  headless; a failing one alerts with the checker's last lines.
+
+### State: the `sources_sync` fact
+
+Sync state is one facts predicate per project in `facts/<slug>.json` (docs/project-facts.md) —
+derived, re-derivable by pulling again, never in `state.json`, never in an export:
+
+```json
+{
+  "subject": "project:owen-ops",
+  "predicate": "sources_sync",
+  "value": {
+    "lastRunAt": "2026-10-07T13:45:02.118Z",
+    "lastOkAt": "2026-10-07T13:45:02.118Z",
+    "lastSummary": {
+      "google": { "ok": true, "reauth": false, "records": 312, "finishedAt": "…", "errors": [] },
+      "slack":  { "ok": true, "reauth": false, "records": 15,  "finishedAt": "…", "errors": [] }
+    },
+    "consecutiveFailures": 0,
+    "needsReauth": [],
+    "reauthProbeAt": "…",
+    "lastError": "…"
+  },
+  "sources": ["data/owen-ops/raw", "projects.config.json#sources"],
+  "observedAt": "2026-10-07T13:45:02.400Z"
+}
+```
+
+`/aven status` renders it under the project line as
+`↳ sources: last pull 13:45, 327 records, next in 7m | reauth needed: google`
+(times in `AVEN_TZ`; `never pulled, due now` before the first pass; `N failing` while backing off).
+
 ## What comes next
 
 | Slice | Adds |
 | --- | --- |
 | ~~PR-B sources-store~~ | shipped: the store, the replica and the automatic mount above |
-| **PR-C sources-poller** | pulls on the poller loop (interval per project, single-flight, backoff, re-auth alerts), sync state in `facts/<slug>.json`, `/aven status` line, App Home bullet |
+| ~~PR-C sources-poller~~ | shipped: the poller below |
 | **PR-D sources-mcp** | an MCP server inside the sandbox over the read-only store: `search`, `get`, `people`, `stats`, every hit with its permalink |
 
-Until PR-C, schedule `orch sources pull <slug>` yourself (cron/launchd every 15 min keeps the
-Gmail `historyId` alive; a lapsed one costs a full resync, not data). Each pull ends with the
-store build, so the replica the sandbox sees is never older than the last pull.
+Each pull ends with the store build, so the replica the sandbox sees is never older than
+the last pull. The CLI stays for bootstrap, backfills (`--since`, `--full`) and audits.

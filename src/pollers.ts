@@ -1,5 +1,6 @@
 // The bot's background work: the routine scheduler (reports + dreams), the auto-review
-// and autofix PR pollers, and the YouTrack investigation poller — plus the fire*
+// and autofix PR pollers, the YouTrack investigation poller and the sources poller (per-project
+// mail/chat/calendar pulls, docs/sources.md) — plus the fire*
 // helpers they share with the /aven command router (run a routine/review on demand).
 // Socket Mode has no webhooks, so GitHub/YouTrack state is polled.
 
@@ -35,6 +36,9 @@ import { snapshotMemory } from './memjournal.js';
 import { autofixNotifyBlocks, shortRepo, alertOps } from './blocks.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
+import { FactStore } from './facts.js';
+import { authCheck, configuredKinds, pullProject } from './sources/run.js';
+import { authCheckDue, createSourcesTicker } from './sources/sync.js';
 
 // Timezone the cron schedules are evaluated in. Set AVEN_TZ (IANA, e.g. Europe/Zurich)
 // in the runtime .env for local times; defaults to UTC.
@@ -48,6 +52,7 @@ const AUTO_REVIEW_POLL_MS = 180_000; // 3 min
 const AUTOFIX_POLL_MS = 120_000; // 2 min
 const YOUTRACK_POLL_MS = 120_000; // 2 min — support-ticket investigation pilot
 const CLI_PIN_POLL_MS = 24 * 3_600_000; // daily — is the Claude Code pin behind npm stable?
+const SOURCES_POLL_MS = 60_000; // 1 min tick; each project's own interval/backoff decides (sources/sync.ts)
 
 export interface Pollers {
   startAll(): void;
@@ -442,6 +447,48 @@ export function createPollers(
     setInterval(() => void tick().catch(pollFail('cli-pin')), CLI_PIN_POLL_MS);
   }
 
+  // Sources poller: every minute ask sync.ts which projects are due (per-project interval,
+  // doubling backoff on failure, 2-hourly probes of kinds awaiting re-auth) and run
+  // pull → store build → replica for them, one project at a time. State is the `sources_sync`
+  // facts predicate, so a restart neither re-pulls early nor forgets a dead grant. Pulls never
+  // touch the sandbox: they run on this host with tokens the sandbox must not see, and the
+  // replica swap is an atomic rename, so an in-flight turn is unaffected (docs/sources.md).
+  const facts = new FactStore();
+  function startSourcesPoller(): void {
+    const ticker = createSourcesTicker({
+      projects: () => reg.current.projects,
+      facts,
+      now: () => new Date(),
+      alert: (text) => alertOps(text, 'warning'),
+      log: (line) => log.info(line),
+      pull: async (p, kinds) => (await pullProject(p, { only: kinds, build: true })).summaries,
+    });
+    // First pass after the bot has settled (channels resolved, recovery done), then every minute.
+    setTimeout(() => void ticker.tick().catch(pollFail('sources')), 30_000);
+    setInterval(() => void ticker.tick().catch(pollFail('sources')), SOURCES_POLL_MS);
+  }
+
+  // Daily 06:00 (AVEN_TZ): run each configured kind's `check` (the same action the operator
+  // runs by hand) and alert once per failing kind with the checker's last lines. Catches a
+  // revoked grant or a blocked refresh path before the 2-hourly probe trips over it.
+  let lastAuthCheckDay: string | undefined;
+  function startSourcesAuthCheck(): void {
+    const tick = async (): Promise<void> => {
+      const due = authCheckDue(new Date(), ROUTINE_TZ, lastAuthCheckDay);
+      if (!due) return;
+      lastAuthCheckDay = due;
+      for (const p of reg.current.projects) {
+        for (const kind of configuredKinds(p)) {
+          const r = await authCheck(p.slug, kind);
+          if (r.code === 0) continue;
+          const tail = r.lines.filter((l) => !l.startsWith('  ')).slice(-4).join('\n');
+          alertOps(`sources auth check *${p.slug}/${kind}* failed (exit ${r.code}):\n${tail}`, 'warning');
+        }
+      }
+    };
+    setInterval(() => void tick().catch(pollFail('sources-auth')), SOURCES_POLL_MS);
+  }
+
   return {
     startAll: () => {
       startScheduler();
@@ -449,6 +496,8 @@ export function createPollers(
       startAutofixPoller();
       startYouTrackPoller();
       startCliPinCheck();
+      startSourcesPoller();
+      startSourcesAuthCheck();
     },
     fireRoutine,
     fireReview,
