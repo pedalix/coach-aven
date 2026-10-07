@@ -17,6 +17,7 @@ import {
   withRatingTally,
   FB_REASON,
   homeBlocks,
+  packSections,
   onboardingHomeBlocks,
   sessionPanelBlocks,
   YT_SEND_CALLBACK,
@@ -260,6 +261,41 @@ test('homeBlocks: every mrkdwn text block stays under Slack\'s 3000-char section
     .filter(Boolean) as string[];
   assert.ok(texts.length > 0);
   for (const t of texts) assert.ok(t.length <= 3000, `block over Slack's cap: ${t.length} chars`);
+});
+
+test('packSections: greedy, in order, never splits a bullet, oversize bullet stands alone', () => {
+  assert.deepEqual(packSections(['a', 'bb', 'ccc'], 4), ['a\nbb', 'ccc']);
+  assert.deepEqual(packSections(['aaaaaa', 'b'], 4), ['aaaaaa', 'b']); // oversize → own block, not dropped
+  assert.deepEqual(packSections([], 10), []);
+  const many = Array.from({ length: 40 }, (_, i) => `• bullet ${i}`);
+  const packed = packSections(many, 60);
+  assert.equal(packed.join('\n'), many.join('\n')); // nothing lost, nothing reordered
+  for (const t of packed) assert.ok(t.length <= 60);
+});
+
+// The real copy, laid out by packSections: a wider command name (dev installs use e.g.
+// /dev-aven) widens every `CMD` mention, which is exactly how the hand-split version
+// crossed 3000 and broke views.publish for the whole workspace.
+test('homeBlocks: "How to use me" bullets survive packing intact, every section ≤ 3000 chars', () => {
+  const projects: ProjectConfig[] = Array.from({ length: 5 }, (_, i) => ({
+    slug: `proj-${i}`,
+    repos: [`Org/repo-${i}`, `Org/repo-${i}-infra`],
+    youtrackProjects: [`PRJ${i}`],
+  }));
+  const blocks = homeBlocks(projects, 'aven-');
+  const howIdx = blocks.findIndex((b) => b.text?.text === '*How to use me*');
+  assert.ok(howIdx > 0);
+  const sections = blocks.slice(howIdx + 1).filter((b) => b.type === 'section').map((b) => b.text.text as string);
+  assert.ok(sections.length >= 2, 'the list does not fit one section');
+  for (const t of sections) assert.ok(t.length <= 3000, `section over cap: ${t.length}`);
+  const joined = sections.join('\n');
+  const bullets = joined.split('\n').filter((l) => l.startsWith('• '));
+  assert.equal(bullets.length, 24, 'every bullet present, none split across sections');
+  assert.equal(joined.split('\n').length, bullets.length, 'no stray non-bullet lines');
+  // Bluefin-check both ends and the newest bullet.
+  assert.ok(bullets[0].startsWith('• *Build / collaborate*'));
+  assert.ok(bullets.some((b) => b.startsWith('• *Pasted secrets stay here*')));
+  assert.ok(bullets.some((b) => b.startsWith('• *Auto-investigate support tickets*') && b.includes('English.')));
 });
 
 test('onboardingHomeBlocks: stays under Slack\'s 3000-char section cap', () => {
