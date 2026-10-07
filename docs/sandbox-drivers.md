@@ -42,6 +42,15 @@ Laravel Sail keeps working.
      privileged container is root on the host; acceptable only because the box is
      dedicated to these sandboxes.
 
+   Both exist only because the fleet image (`snapshot/Dockerfile`, the `laravel`
+   variant) runs dockerd for Sail. A project that never starts containers of its own can
+   use the `plain` image variant instead (`snapshot/plain/Dockerfile`: no dockerd,
+   multi-arch amd64 + arm64) and then needs neither sysbox nor `--privileged`, which is
+   what makes a self-hosted instance on an Apple-silicon Mac viable. Today the runtime
+   flag is still host-wide and `ensureDockerd` still runs for every project, so pairing
+   a project with the plain image needs the per-project `sandbox` options that are
+   tracked as a follow-up (unprivileged run, `dind: false`, read-only mounts).
+
 **How it maps** (vs Daytona)
 
 | Concern | ssh-docker behavior |

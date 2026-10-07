@@ -28,9 +28,10 @@ Daytona toolbox (stream-json), and the agent pushes and opens a PR.
 
 ```
 snapshot/
-  Dockerfile            # the project sandbox image
+  Dockerfile            # the `laravel` sandbox image (dind + Sail shims, amd64)
+  plain/Dockerfile      # the `plain` variant: no dockerd, multi-arch (amd64 + arm64)
   shims/sail-shim.sh    # bare php/composer/artisan → ./vendor/bin/sail
-  build-and-push.sh     # build + push to GHCR
+  build-and-push.sh     # build + push one variant to GHCR (default: laravel)
 src/
   cli.ts            # commander CLI (the `slack` command)
   slack.ts          # composition root: engine + resolvers + handlers + pollers
@@ -69,8 +70,19 @@ additions newer than the running fleet's image. To rebuild and roll a new image:
 
 ```bash
 echo "$GHCR_PAT" | docker login ghcr.io -u <you> --password-stdin   # needs write:packages
-cd snapshot && ./build-and-push.sh        # pushes :<gitsha> and :latest
+cd snapshot && ./build-and-push.sh        # laravel variant: pushes :<gitsha> and :latest
+cd snapshot && ./build-and-push.sh plain  # plain variant (own image name, amd64 + arm64)
+PUSH=0 ./build-and-push.sh plain          # build-only: proves the Dockerfile on every platform
 ```
+
+**Image variants.** `laravel` (`snapshot/Dockerfile`) is the fleet default: `docker:28-dind`
+plus Sail shims, `linux/amd64`, and it needs sysbox or `--privileged` on the sandbox host.
+`plain` (`snapshot/plain/Dockerfile`) drops dockerd and Sail, builds for amd64 *and* arm64,
+and runs as an ordinary unprivileged container — for projects that never start containers
+of their own and for a self-hosted instance on Apple silicon. Variants share the
+`CLAUDE_CLI_VERSION` ARG, so one pin serves both. A project on the plain image must also
+run with the driver's `dind` disabled (otherwise chat-prep waits for a dockerd that is not
+there); see `docs/sandbox-drivers.md`.
 
 Point `SNAPSHOT_IMAGE` at the **`:<gitsha>` tag** the script prints (pin it — `:latest`
 tells you nothing about what the fleet actually runs) and set a new `SNAPSHOT_NAME`; the
