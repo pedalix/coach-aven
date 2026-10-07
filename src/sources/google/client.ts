@@ -220,7 +220,6 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
  * a 403 for a missing scope must fail fast. 401 is NOT handled here; `gfetch` owns token refresh.
  */
 export async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
-  let last: Response | undefined;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     let res: Response;
     try {
@@ -236,11 +235,14 @@ export async function fetchWithRetry(url: string, init: RequestInit): Promise<Re
       const body = await res.clone().text();
       if (!/ateLimitExceeded|quotaExceeded|RESOURCE_EXHAUSTED/.test(body)) return res;
     }
-    last = res;
+    // Out of attempts: hand the caller the response UNREAD so it can still `.text()` the error.
+    // (Cancelling the body here and returning it later was the "Body is unusable" failure on the
+    // first real Gmail backfill — a burst of 429s on messages.get exhausted the attempts.)
+    if (attempt === MAX_ATTEMPTS - 1) return res;
     await res.body?.cancel().catch(() => undefined);
     await sleep(retryAfterMs(res) ?? backoffMs(attempt));
   }
-  return last!;
+  throw new Error('unreachable');
 }
 
 /** Authenticated GET/POST as `account`. On 401 the cached token is dropped and the call retried once with a fresh one. */
