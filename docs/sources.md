@@ -234,13 +234,35 @@ derived, re-derivable by pulling again, never in `state.json`, never in an expor
 `↳ sources: last pull 13:45, 327 records, next in 7m | reauth needed: google`
 (times in `AVEN_TZ`; `never pulled, due now` before the first pass; `N failing` while backing off).
 
+## Search tool
+
+A project with a `sources` block gets a fifth MCP server in every chat: **`sources`**
+(`snapshot/plain/sources-mcp.mjs`, injected by `src/sources/mcp.ts` → `withSourcesMcp`). It is a
+dependency-free stdio server that runs on the image's own Node and opens the read-only replica at
+`/data/sources/store.sqlite` — per call, so a replica swapped between turns is picked up without a
+restart. The agent sees `mcp__sources__search`, `get`, `people`, `stats`:
+
+| Tool | Does |
+| --- | --- |
+| `search({query, since, until, source, person, initiative, limit})` | FTS5 (`bm25`) over subject+text; every token is quoted so user text cannot reach the MATCH grammar (`word*` keeps prefix matching). `person` is an identity (email, slack id) or a name fragment; `initiative` filters by the people whose default initiative it is. No query → newest first. Hits carry `ref`, `permalink`, a highlighted snippet and `withheld` when the body was removed. |
+| `get({ref})` | The full row, up to five thread neighbours each way, the people on it and the scrub metadata. A withheld body returns its `[BODY WITHHELD…]` marker verbatim — that *is* the answer. |
+| `people({q})` | Known people with their identities (from `projects.d/<slug>.people.json`). |
+| `stats()` | Per-source counts and time range, events, files, withheld count, build meta — what the replica covers, before the agent concludes something is missing. |
+
+Shipping: the script is baked into the plain image at `/opt/aven/sources-mcp.mjs` and
+`provisionTooling()` compares sha256 and re-uploads it into warm sandboxes (and the laravel image)
+whenever the bot ships a newer copy. The layer-1 system prompt gains one paragraph when sources are
+enabled: search first, cite permalinks, redaction markers are final. A project may declare its own
+`sources` MCP entry to override the built-in one.
+
 ## What comes next
 
 | Slice | Adds |
 | --- | --- |
 | ~~PR-B sources-store~~ | shipped: the store, the replica and the automatic mount above |
 | ~~PR-C sources-poller~~ | shipped: the poller below |
-| **PR-D sources-mcp** | an MCP server inside the sandbox over the read-only store: `search`, `get`, `people`, `stats`, every hit with its permalink |
+
+| ~~PR-D sources-mcp~~ | shipped: the `sources` MCP server above |
 
 Each pull ends with the store build, so the replica the sandbox sees is never older than
 the last pull. The CLI stays for bootstrap, backfills (`--since`, `--full`) and audits.

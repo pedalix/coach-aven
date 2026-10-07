@@ -16,6 +16,7 @@ import {
   repoName,
   projectCwd,
 } from './project.js';
+import { SOURCES_PROMPT_PARAGRAPH, withSourcesMcp } from './sources/mcp.js';
 import type { McpServerSpec } from './projects.js';
 import type { SandboxOptions } from './sandboxopts.js';
 import { FactStore } from './facts.js';
@@ -125,6 +126,7 @@ async function prepareChat(
   cliVersion?: string,
   upgradeCli?: boolean,
   sandboxOpts?: SandboxOptions,
+  sourcesEnabled = false,
 ) {
   if (repos.length === 0) throw new Error(`project ${slug} has no repos`);
   const driver = createDriver(cfg, driverKind);
@@ -132,7 +134,7 @@ async function prepareChat(
 
   const proj = store.upsertProject(slug, repos[0], cfg.sandbox.namePrefix);
   const sandbox = await driver.ensureSandbox(proj.sandboxName, slug, sandboxOpts);
-  await provisionTooling(sandbox, { cliVersion, upgradeCli, where: proj.sandboxName });
+  await provisionTooling(sandbox, { cliVersion, upgradeCli, where: proj.sandboxName, sourcesMcp: sourcesEnabled });
   // dockerd liveness guard: a dead daemon breaks Sail (php/composer/artisan shims) for
   // every turn until revived — catch it here rather than mid-conversation. A plain project
   // (sandbox.dind === false) has no dockerd to guard — the probe would only ever "fail".
@@ -178,6 +180,8 @@ function buildSystemPrompt(
   slackUrl?: string,
   // Same-org private dependency repos on record (facts → deps.ts) — what auth.json covers.
   packageRepos: string[] = [],
+  // ProjectConfig.sources set → the `sources` MCP server is injected; tell the agent how to use it.
+  sourcesEnabled = false,
 ): string {
   const lines = [`You are the coding assistant for the project "${slug}", reachable from a Slack channel.`];
   if (repos.length === 1) {
@@ -261,6 +265,9 @@ function buildSystemPrompt(
         `Never commit auth.json or paste its contents anywhere.`,
     );
   }
+  if (sourcesEnabled) {
+    lines.push('', SOURCES_PROMPT_PARAGRAPH);
+  }
   if (slackUrl) {
     lines.push(
       '',
@@ -321,10 +328,16 @@ export async function openChat(
     sandbox?: SandboxOptions;
     // ProjectConfig.scrubSecrets; undefined → on. See claudeSession.ts / scrub.ts.
     scrubSecrets?: boolean;
+    // ProjectConfig.sources present → the `sources` MCP server (sources/mcp.ts) is added to the
+    // chat's MCP list, its script is provisioned into the sandbox, and the system prompt explains it.
+    sources?: boolean;
   },
 ): Promise<ChatSession> {
+  const sourcesEnabled = opts.sources === true;
+  // One merged list for every seeding site below: the project's own servers plus `sources`.
+  const mcp = withSourcesMcp(opts.mcp, sourcesEnabled);
   const prep = await withSandboxLock(opts.slug, () =>
-    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox),
+    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox, sourcesEnabled),
   );
   const { driver, proj, cwd } = prep;
   let sandbox = prep.sandbox;
@@ -343,6 +356,7 @@ export async function openChat(
     opts.systemPrompt,
     opts.slackUrl,
     reachableDependencyRepos(opts.repos, facts.dependsOnRepos(opts.slug)),
+    sourcesEnabled,
   );
   const emitOpen = () => {
     const a = session?.attachInfo();
@@ -362,8 +376,8 @@ export async function openChat(
         await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
         await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
         await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
-        await seedMcpConfig(sandbox, opts.mcp);
-        await seedGatewayAuth(sandbox, opts.slug, opts.mcp);
+        await seedMcpConfig(sandbox, mcp);
+        await seedGatewayAuth(sandbox, opts.slug, mcp);
       });
       return session;
     }
@@ -373,8 +387,8 @@ export async function openChat(
       await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
       await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
       await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
-      const mcpConfigPath = await seedMcpConfig(sandbox, opts.mcp);
-      await seedGatewayAuth(sandbox, opts.slug, opts.mcp);
+      const mcpConfigPath = await seedMcpConfig(sandbox, mcp);
+      await seedGatewayAuth(sandbox, opts.slug, mcp);
       // Bot restarted while a command was still running? Reattach to it once, rather than
       // spawning a duplicate that would fight over the same working tree. If the command
       // already finished/vanished, attach throws → fall through to a fresh --resume open.
