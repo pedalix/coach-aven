@@ -13,6 +13,13 @@ import { pullMsgraph } from './msgraph/pull.js';
 import { dataDir, ensureDir, rawDir, replicaDir, storePath } from './paths.js';
 import { runSlackAuth } from './slack/auth.js';
 import { pullSlack } from './slack/pull.js';
+import { runAsanaAuth } from './asana/auth.js';
+import { pullAsana } from './asana/pull.js';
+import { runJiraAuth } from './jira/auth.js';
+import { pullJira } from './jira/pull.js';
+import { runYoutrackAuth } from './youtrack/auth.js';
+import { pullYoutrack } from './youtrack/pull.js';
+import { UsageError } from './errors.js';
 import { buildStore, type BuildSummary } from './store.js';
 import { tokenPath, vaultPathsFor } from './tokens.js';
 import type { AuthContext } from './types.js';
@@ -76,7 +83,7 @@ export function runBuild(p: ProjectConfig, verbose: boolean, sink: (line: string
     log: (line) => (verbose || !line.startsWith('  ') ? sink(`${prefix} ${line}`) : undefined),
   });
   sink(
-    `${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tombstones ${s.tombstones}` +
+    `${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tasks ${s.tasks}, tombstones ${s.tombstones}` +
       `${s.replayed ? `, replayed ${s.replayed}` : ''}${s.malformed ? `, malformed ${s.malformed}` : ''}; people ${s.people}; replica ${s.replica ?? '(none)'}`,
   );
   for (const f of s.truncatedFiles) log.warn(`${prefix} ${f} shrank below its consumed offset — re-read from 0`);
@@ -120,6 +127,9 @@ export async function pullProject(p: ProjectConfig, o: PullProjectOptions = {}, 
         ...(sl.threadWindowDays !== undefined ? { threadWindowDays: sl.threadWindowDays } : {}),
         ...(sl.editWindowHours !== undefined ? { editWindowHours: sl.editWindowHours } : {}),
       });
+    } else if (kind === 'youtrack' || kind === 'jira' || kind === 'asana') {
+      const o2 = { full: o.full ?? false, ...(o.since ? { since: o.since } : {}) };
+      s = kind === 'youtrack' ? await pullYoutrack(ctx, p.sources.youtrack!, o2) : kind === 'jira' ? await pullJira(ctx, p.sources.jira!, o2) : await pullAsana(ctx, p.sources.asana!, o2);
     } else {
       const m = p.sources.msgraph!;
       s = await pullMsgraph(ctx, {
@@ -149,9 +159,30 @@ export async function pullProject(p: ProjectConfig, o: PullProjectOptions = {}, 
  * by hand (`orch sources auth <slug> <kind> check`), driven headless. Returns the auth
  * module's exit code (0 ok, 3 = a human must act) and the lines it printed.
  */
-export async function authCheck(slug: string, kind: SourceKind): Promise<{ code: number; lines: string[] }> {
+export async function authCheck(slug: string, kind: SourceKind, p?: ProjectConfig): Promise<{ code: number; lines: string[] }> {
   const lines: string[] = [];
   const ctx: AuthContext = { slug, tokenPath: tokenPath(slug, kind), log: (line) => lines.push(line) };
-  const code = kind === 'google' ? await runGoogleAuth(ctx, ['check']) : kind === 'slack' ? await runSlackAuth(ctx, ['check']) : await runMsgraphAuth(ctx, ['check']);
+  const code = await runAuth(ctx, kind, ['check'], p);
   return { code, lines };
+}
+
+/** Dispatch `auth <kind> <args>`; trackers read their URL/site/workspace from the project's sources block. */
+export async function runAuth(ctx: AuthContext, kind: SourceKind, args: string[], p?: ProjectConfig): Promise<number> {
+  switch (kind) {
+    case 'google':
+      return runGoogleAuth(ctx, args);
+    case 'slack':
+      return runSlackAuth(ctx, args);
+    case 'msgraph':
+      return runMsgraphAuth(ctx, args);
+    case 'youtrack':
+    case 'jira':
+    case 'asana': {
+      const cfg = p?.sources?.[kind];
+      if (!cfg) throw new UsageError(`project "${ctx.slug}" has no sources.${kind} block — configure it first (url/site/workspace live there)`);
+      if (kind === 'youtrack') return runYoutrackAuth(ctx, args, p!.sources!.youtrack!);
+      if (kind === 'jira') return runJiraAuth(ctx, args, p!.sources!.jira!);
+      return runAsanaAuth(ctx, args, p!.sources!.asana!);
+    }
+  }
 }

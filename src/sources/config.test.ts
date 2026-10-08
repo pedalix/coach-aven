@@ -38,3 +38,18 @@ test('sources config: rejects unknown keys, bad dates, bad kinds, non-GUID tenan
 test('sources config: slack with no workspaces means "every stored workspace"', () => {
   assert.deepEqual(validateSourcesConfig({ slack: { workspaces: [] } }).slack, { workspaces: [] });
 });
+
+test('tracker blocks validate and normalise', () => {
+  const c = validateSourcesConfig({
+    youtrack: { url: 'https://bluefin-example.youtrack.cloud/', tokenEnv: 'YOUTRACK_TOKEN', projects: ['CG', 'CAR'], assignee: 'owen' },
+    jira: { site: 'Contoso.Atlassian.net', fromNetrc: true, since: '2026-09-15' },
+    asana: { workspace: '7520977444554', projects: ['1208573315693393'] },
+  });
+  assert.equal(c.youtrack!.url, 'https://bluefin-example.youtrack.cloud');
+  assert.equal(c.jira!.site, 'contoso.atlassian.net');
+  assert.equal(c.asana!.projects![0], '1208573315693393');
+  assert.throws(() => validateSourcesConfig({ youtrack: { url: 'http://x', projects: ['A'] } }), /https/);
+  assert.throws(() => validateSourcesConfig({ youtrack: { url: 'https://x.y', projects: ['A'], tokenEnv: 'bad name' } }), /environment variable/);
+  assert.throws(() => validateSourcesConfig({ asana: { workspace: 'abc' } }), /numeric/);
+  assert.throws(() => validateSourcesConfig({ jira: { site: 'not a host' } }), /host name/);
+});

@@ -75,12 +75,62 @@ export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesC
       ...(subset(`${where}.msgraph`, m.only, 'only', MSGRAPH_KINDS) ? { only: m.only as MsgraphKind[] } : {}),
     };
   }
+  const obj = (k: string): Record<string, unknown> => (typeof r[k] === 'object' && r[k] && !Array.isArray(r[k]) ? r[k] : fail(`${where}.${k}`, 'must be an object')) as Record<string, unknown>;
+  const optStr = (w: string, v: unknown, field: string): string | undefined => {
+    if (v === undefined) return undefined;
+    if (typeof v !== 'string' || !v.trim()) fail(w, `"${field}" must be a non-empty string`);
+    return v.trim();
+  };
+  if (r.youtrack !== undefined) {
+    const w = `${where}.youtrack`;
+    const y = obj('youtrack');
+    if (typeof y.url !== 'string' || !/^https:\/\/[^\s/]+/.test(y.url)) fail(w, '"url" must be an https:// base URL');
+    const tokenEnv = optStr(w, y.tokenEnv, 'tokenEnv');
+    if (tokenEnv && !/^[A-Z_][A-Z0-9_]*$/.test(tokenEnv)) fail(w, '"tokenEnv" must be an environment variable name');
+    const assignee = optStr(w, y.assignee, 'assignee');
+    out.youtrack = {
+      url: y.url.replace(/\/+$/, ''),
+      projects: strings(w, y.projects, 'projects'),
+      ...(tokenEnv ? { tokenEnv } : {}),
+      ...(assignee ? { assignee } : {}),
+      ...(date(w, y.since, 'since') ? { since: y.since as string } : {}),
+    };
+  }
+  if (r.jira !== undefined) {
+    const w = `${where}.jira`;
+    const j = obj('jira');
+    if (typeof j.site !== 'string' || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(j.site.trim())) fail(w, '"site" must be a host name like acme.atlassian.net');
+    const email = optStr(w, j.email, 'email');
+    if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) fail(w, `"${email}" is not an e-mail address`);
+    if (j.fromNetrc !== undefined && typeof j.fromNetrc !== 'boolean') fail(w, '"fromNetrc" must be true or false');
+    const jql = optStr(w, j.jql, 'jql');
+    out.jira = {
+      site: j.site.trim().toLowerCase(),
+      ...(email ? { email: email.toLowerCase() } : {}),
+      ...(j.fromNetrc ? { fromNetrc: true } : {}),
+      ...(jql ? { jql } : {}),
+      ...(date(w, j.since, 'since') ? { since: j.since as string } : {}),
+    };
+  }
+  if (r.asana !== undefined) {
+    const w = `${where}.asana`;
+    const a = obj('asana');
+    if (typeof a.workspace !== 'string' || !/^\d+$/.test(a.workspace)) fail(w, '"workspace" must be the numeric workspace gid');
+    const assignee = optStr(w, a.assignee, 'assignee');
+    out.asana = {
+      workspace: a.workspace,
+      ...(assignee ? { assignee } : {}),
+      ...(a.projects !== undefined ? { projects: strings(w, a.projects, 'projects', { nonEmpty: false }) } : {}),
+      ...(date(w, a.since, 'since') ? { since: a.since as string } : {}),
+    };
+    for (const pr of out.asana.projects ?? []) if (!/^\d+$/.test(pr)) fail(w, `project "${pr}" must be a numeric gid`);
+  }
   const interval = int(where, r.intervalMinutes, 'intervalMinutes', 1, 24 * 60);
   if (interval !== undefined) out.intervalMinutes = interval;
   if (r.people !== undefined) {
     if (typeof r.people !== 'string' || !r.people.trim() || r.people.includes('..')) fail(where, '"people" must be a relative file path without ".."');
     out.people = r.people;
   }
-  if (!out.google && !out.slack && !out.msgraph) fail(where, 'declares no source (expected at least one of google, slack, msgraph)');
+  if (!SOURCE_KINDS.some((k) => out[k])) fail(where, `declares no source (expected at least one of ${SOURCE_KINDS.join(', ')})`);
   return out;
 }

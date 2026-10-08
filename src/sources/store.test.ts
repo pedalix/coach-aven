@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } fro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { identitiesOf, validatePeople } from './people.js';
-import { buildStore, classifyRawFile, openReadOnly, openStore, readNewLines, threadIdOf, type BuildContext } from './store.js';
+import { buildStore, classifyRawFile, openReadOnly, openStore, readNewLines, SCHEMA_VERSION, threadIdOf, type BuildContext } from './store.js';
 
 function scaffold() {
   const root = mkdtempSync(join(tmpdir(), 'store-'));
@@ -175,7 +175,7 @@ test('build: replica is a renamed VACUUM INTO copy that opens immutable and matc
   assert.ok(!existsSync(`${s.replica!}.tmp`));
   const r = openReadOnly(s.replica!);
   assert.equal((r.prepare('SELECT count(*) c FROM messages').get() as { c: number }).c, 1);
-  assert.equal((r.prepare("SELECT value FROM sync_state WHERE key = 'schema_version'").get() as { value: string }).value, '1');
+  assert.equal((r.prepare("SELECT value FROM sync_state WHERE key = 'schema_version'").get() as { value: string }).value, String(SCHEMA_VERSION));
   r.close();
   // Live store stays WAL; the replica must not need it.
   const live = openStore(ctx.storePath);

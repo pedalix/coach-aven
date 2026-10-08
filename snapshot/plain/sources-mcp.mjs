@@ -26,7 +26,9 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.0.0';
+export const SERVER_VERSION = '1.1.0';
+// Task-tracker sources live in their own table (`tasks`); everything else is a message.
+export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // The newest spec revision we implement; if the client proposes an older one we echo theirs
 // (the subset we speak is identical across 2024-11-05 … 2025-06-18).
 export const PROTOCOL_VERSION = '2025-06-18';
@@ -111,13 +113,103 @@ export function buildSearchSql(f) {
   };
 }
 
+// Same contract as buildSearchSql, over `tasks` (trackers). Person filters match assignee or
+// reporter. Rows come back in the message-hit column names so results merge into one list.
+export function buildTaskSearchSql(f) {
+  const where = ['t.deleted = 0'];
+  const params = [];
+  if (f.since) {
+    where.push('t.updated >= ?');
+    params.push(f.since);
+  }
+  if (f.until) {
+    where.push('t.updated <= ?');
+    params.push(f.until);
+  }
+  if (f.source) {
+    where.push('t.source = ?');
+    params.push(f.source);
+  }
+  if (f.personIds && f.personIds.length) {
+    const ph = f.personIds.map(() => '?').join(',');
+    where.push(`(t.assignee_person IN (${ph}) OR t.reporter_person IN (${ph}))`);
+    params.push(...f.personIds, ...f.personIds);
+  }
+  const limit = Math.max(1, Math.min(100, Number(f.limit) || 20));
+  const cols =
+    "t.ref, t.source, t.account, t.project AS container, t.ref AS thread_id, t.updated AS ts, t.assignee_person AS author_person, " +
+    "t.assignee_raw AS author_raw, (t.key || ' ' || t.title) AS subject, t.url AS permalink, t.scrub_withheld, t.scrub_kinds, t.status, t.status_category";
+  if (f.match) {
+    return {
+      mode: 'fts',
+      sql:
+        `SELECT ${cols}, snippet(tasks_fts, -1, '«', '»', '…', 14) AS snippet, bm25(tasks_fts) AS rank ` +
+        `FROM tasks_fts JOIN tasks t ON t.rowid = tasks_fts.rowid WHERE tasks_fts MATCH ? AND ${where.join(' AND ')} ORDER BY rank LIMIT ?`,
+      params: [f.match, ...params, limit],
+    };
+  }
+  return {
+    mode: 'recent',
+    sql: `SELECT ${cols}, substr(t.text, 1, 200) AS snippet, 0 AS rank FROM tasks t WHERE ${where.join(' AND ')} ORDER BY t.updated DESC LIMIT ?`,
+    params: [...params, limit],
+  };
+}
+
+// `tasks` tool: the "what is on me / what burns" view. Open tasks only unless status says
+// otherwise; due-dated ones first (soonest), then most recently updated.
+export function buildTasksListSql(f) {
+  const where = ['t.deleted = 0'];
+  const params = [];
+  const st = f.status ? String(f.status).toLowerCase() : 'open';
+  if (st === 'open') where.push("t.status_category != 'done'");
+  else if (['todo', 'doing', 'done'].includes(st)) {
+    where.push('t.status_category = ?');
+    params.push(st);
+  } else if (st !== 'any') {
+    where.push('lower(t.status) = ?');
+    params.push(st);
+  }
+  if (f.personIds && f.personIds.length) {
+    const ph = f.personIds.map(() => '?').join(',');
+    where.push(`t.assignee_person IN (${ph})`);
+    params.push(...f.personIds);
+  } else if (f.assigneeRaw) {
+    where.push('lower(t.assignee_raw) LIKE ?');
+    params.push(`%${String(f.assigneeRaw).toLowerCase()}%`);
+  }
+  if (f.dueBefore) {
+    where.push("t.due != '' AND t.due <= ?");
+    params.push(f.dueBefore);
+  }
+  if (f.project) {
+    where.push('(lower(t.project) = lower(?) OR lower(t.key) LIKE lower(?))');
+    params.push(String(f.project), `${String(f.project)}-%`);
+  }
+  if (f.source) {
+    where.push('t.source = ?');
+    params.push(f.source);
+  }
+  if (f.updatedSince) {
+    where.push('t.updated >= ?');
+    params.push(f.updatedSince);
+  }
+  const limit = Math.max(1, Math.min(200, Number(f.limit) || 50));
+  return {
+    sql:
+      'SELECT t.ref, t.source, t.key, t.title, t.status, t.status_category, t.assignee_person, t.assignee_raw, t.due, t.updated, t.project, t.url ' +
+      `FROM tasks t WHERE ${where.join(' AND ')} ORDER BY (t.due = '') ASC, t.due ASC, t.updated DESC LIMIT ?`,
+    params: [...params, limit],
+  };
+}
+
 export const TOOLS = [
   {
     name: 'search',
     description:
       'Full-text search over the project\'s read-only, scrubbed replica of connected mail, chat and calendar ' +
       '(FTS5, ranked). Returns refs + snippets; call `get` for a full message. Filters: since/until (ISO date or ' +
-      'datetime), source (gmail|slack|msgraph|…), person (email, slack id, or a name fragment), initiative. ' +
+      'datetime), source (gmail|slack|msgraph|youtrack|jira|asana|…), person (email, slack id, or a name fragment), initiative. ' +
+      'Tracker tickets (YouTrack/Jira/Asana) are searched too — their hits carry `kind: "task"` and a status. ' +
       'With an empty query it lists the newest messages matching the filters. Cite the `permalink` of anything you quote.',
     inputSchema: {
       type: 'object',
@@ -141,13 +233,33 @@ export const TOOLS = [
     inputSchema: { type: 'object', properties: { ref: { type: 'string' } }, required: ['ref'] },
   },
   {
+    name: 'tasks',
+    description:
+      'Tracker tickets (YouTrack, Jira, Asana) as a work list — "what is on me", "what is overdue". Defaults to OPEN ' +
+      'tasks (status category todo/doing), soonest due first. Filters: assignee (email, login, or name — resolved via ' +
+      'people), status (open|todo|doing|done|any|<exact status name>), dueBefore (ISO date), project (key prefix or ' +
+      'project name), source, updatedSince. Use `get` with a ref for description and comments.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        assignee: { type: 'string' },
+        status: { type: 'string' },
+        dueBefore: { type: 'string' },
+        project: { type: 'string' },
+        source: { type: 'string' },
+        updatedSince: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+      },
+    },
+  },
+  {
     name: 'people',
     description: 'Look up known people by name or identity (email / slack id); returns person_id, company, default initiative, identities.',
     inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
   },
   {
     name: 'stats',
-    description: 'Coverage of the replica: per-source message counts and time range, events, files, people, last build.',
+    description: 'Coverage of the replica: per-source message and task counts and time ranges, events, files, people, last build.',
     inputSchema: { type: 'object', properties: {} },
   },
 ];
@@ -195,17 +307,33 @@ function resolvePersonIds(db, person, initiative) {
   return { ids: [...ids] };
 }
 
+function hasTable(db, name) {
+  return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
+}
+
 export function runSearch(db, args) {
   const since = normalizeTime(args.since, 'since');
   const until = normalizeTime(args.until, 'until');
   const match = sanitizeFtsQuery(args.query);
   const { ids: personIds, note } = resolvePersonIds(db, args.person, args.initiative);
-  const q = buildSearchSql({ match, since, until, source: args.source, personIds, limit: args.limit });
-  const rows = db.prepare(q.sql).all(...q.params);
+  const f = { match, since, until, source: args.source, personIds, limit: args.limit };
+  const isTracker = args.source && TRACKER_SOURCES.includes(String(args.source));
+  const q = buildSearchSql(f);
+  let rows = isTracker ? [] : db.prepare(q.sql).all(...q.params);
+  // Old replicas (built before trackers existed) have no tasks table — search messages only.
+  if ((!args.source || isTracker) && hasTable(db, 'tasks')) {
+    const tq = buildTaskSearchSql(f);
+    const trows = db.prepare(tq.sql).all(...tq.params).map((r) => ({ ...r, kind: 'task' }));
+    // bm25 scores from two FTS tables are not strictly comparable, but both are "lower is
+    // better" on similar-length text — good enough to interleave; recency mode sorts by ts.
+    rows = [...rows, ...trows].sort((a, b) => (q.mode === 'fts' ? a.rank - b.rank : String(b.ts).localeCompare(String(a.ts))));
+    rows = rows.slice(0, Math.max(1, Math.min(100, Number(args.limit) || 20)));
+  }
   return {
     mode: q.mode,
     ...(note ? { note } : {}),
     hits: rows.map((r) => ({
+      ...(r.kind === 'task' ? { kind: 'task', status: r.status, statusCategory: r.status_category } : {}),
       ref: r.ref,
       source: r.source,
       ts: r.ts,
@@ -219,10 +347,82 @@ export function runSearch(db, args) {
   };
 }
 
+function taskRow(t) {
+  let comments = [];
+  try {
+    comments = JSON.parse(t.comments || '[]');
+  } catch {
+    comments = [];
+  }
+  return {
+    kind: 'task',
+    ref: t.ref,
+    source: t.source,
+    key: t.key,
+    title: t.title,
+    status: t.status,
+    statusCategory: t.status_category,
+    assignee: t.assignee_person || t.assignee_raw,
+    reporter: t.reporter_person || t.reporter_raw,
+    due: t.due,
+    created: t.created,
+    updated: t.updated,
+    project: t.project,
+    url: t.url,
+    labels: JSON.parse(t.labels || '[]'),
+    text: t.text, // withheld bodies carry the marker verbatim
+    comments,
+    deleted: !!t.deleted,
+    scrub: { withheld: !!t.scrub_withheld, kinds: t.scrub_kinds ? t.scrub_kinds.split(',').filter(Boolean) : [] },
+  };
+}
+
+export function runTasks(db, args) {
+  if (!hasTable(db, 'tasks')) return { tasks: [], note: 'no tracker sources in this replica' };
+  let personIds;
+  let note;
+  if (args.assignee) {
+    const r = resolvePersonIds(db, args.assignee, undefined);
+    if (r.ids[0] !== '__nobody__') personIds = r.ids;
+    else note = `${r.note}; matching assignee text instead`;
+  }
+  const q = buildTasksListSql({
+    status: args.status,
+    personIds,
+    assigneeRaw: personIds ? undefined : args.assignee,
+    dueBefore: normalizeTime(args.dueBefore, 'until'),
+    project: args.project,
+    source: args.source,
+    updatedSince: normalizeTime(args.updatedSince, 'since'),
+    limit: args.limit,
+  });
+  const rows = db.prepare(q.sql).all(...q.params);
+  return {
+    ...(note ? { note } : {}),
+    tasks: rows.map((t) => ({
+      ref: t.ref,
+      source: t.source,
+      key: t.key,
+      title: t.title,
+      status: t.status,
+      statusCategory: t.status_category,
+      assignee: t.assignee_person || t.assignee_raw,
+      due: t.due,
+      updated: t.updated,
+      project: t.project,
+      url: t.url,
+    })),
+  };
+}
+
 export function runGet(db, args) {
   const ref = String(args.ref ?? '');
   const m = db.prepare('SELECT * FROM messages WHERE ref = ?').get(ref);
-  if (!m) return { error: `no message with ref ${JSON.stringify(ref)}` };
+  if (!m) {
+    const t = hasTable(db, 'tasks') ? db.prepare('SELECT * FROM tasks WHERE ref = ?').get(ref) : undefined;
+    if (t) return taskRow(t);
+    return { error: `no message or task with ref ${JSON.stringify(ref)}` };
+  }
   const before = db
     .prepare('SELECT ref, ts, author_person, author_raw, substr(text,1,300) AS text FROM messages WHERE thread_id = ? AND deleted = 0 AND ts < ? ORDER BY ts DESC LIMIT 5')
     .all(m.thread_id, m.ts)
@@ -282,7 +482,15 @@ export function runStats(db) {
       .all()
       .map((r) => [r.key, r.value]),
   );
-  return { messages: bySource, withheld: withheld.n, events, files: files.n, people: people.n, meta };
+  const tasks = hasTable(db, 'tasks')
+    ? db
+        .prepare(
+          "SELECT source, count(*) AS n, sum(status_category != 'done') AS open, min(updated) AS first_updated, max(updated) AS last_updated " +
+            'FROM tasks WHERE deleted = 0 GROUP BY source ORDER BY source',
+        )
+        .all()
+    : [];
+  return { messages: bySource, tasks, withheld: withheld.n, events, files: files.n, people: people.n, meta };
 }
 
 export function callTool(dbPath, name, args) {
@@ -295,6 +503,8 @@ export function callTool(dbPath, name, args) {
         return runGet(db, args ?? {});
       case 'people':
         return runPeople(db, args ?? {});
+      case 'tasks':
+        return runTasks(db, args ?? {});
       case 'stats':
         return runStats(db);
       default:

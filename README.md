@@ -44,7 +44,7 @@ src/
   tasks.ts          # chat session over a sandbox; the 3-layer system prompt
   scrub.ts          # secrets redaction: model boundary (claudeSession send) + ingest (sources)
   sandboxopts.ts    # per-project container options: privileged / dind / mounts
-  sources/          # per-project ingestion of mail/chat/calendar/files (docs/sources.md):
+  sources/          # per-project ingestion of mail/chat/calendar/files + task trackers (youtrack/jira/asana) (docs/sources.md):
                     #   google/ slack/ msgraph/ pullers + auth, common/ vault+sink, audit.ts, cli.ts
   sources/store.ts  # per-project SQLite (FTS5) built from raw/, replica mounted ro into the sandbox
   claudeSession.ts  # the persistent claude process (stream-json protocol)
