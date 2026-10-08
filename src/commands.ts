@@ -3,6 +3,8 @@
 // Pure Slack-side orchestration: the heavy lifting lives in the turn engine, the pollers'
 // fire* helpers, and the memory/journal modules.
 
+import { FactStore } from './facts.js';
+import { DEFAULT_INTERVAL_MIN, readSyncState, statusLine } from './sources/sync.js';
 import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
 import type { Store } from './state.js';
@@ -97,6 +99,9 @@ export async function readMemory(
   return out;
 }
 
+// Facts are a file-backed derived cache (facts.ts); a second reader beside tasks.ts is fine.
+const facts = new FactStore();
+
 export function registerCommands(app: bolt.App, deps: CommandDeps): void {
   const { cfg, store, reg, engine, channels, pollers, homeTeamId } = deps;
 
@@ -156,6 +161,9 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       jobs: jobsBySlug.get(p.slug)?.jobs ?? 0,
       dreams: jobsBySlug.get(p.slug)?.dreams ?? 0,
       hk: jobsBySlug.get(p.slug)?.hk ?? 0,
+      ...(p.sources
+        ? { sources: statusLine(readSyncState(facts, p.slug), p.sources.intervalMinutes ?? DEFAULT_INTERVAL_MIN, new Date(), ROUTINE_TZ) }
+        : {}),
     }));
     return {
       projects,

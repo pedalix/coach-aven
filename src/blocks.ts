@@ -746,6 +746,7 @@ export interface ProjectStatus {
   jobs: number; // scheduled report routines
   dreams: number; // scheduled dream routines
   hk: number; // scheduled housekeeping routines
+  sources?: string; // sources/sync.ts statusLine for projects with a `sources` block
 }
 export interface StatusReport {
   projects: ProjectStatus[];
@@ -774,7 +775,8 @@ export function statusReportBlocks(r: StatusReport): any[] {
     if (p.jobs) bits.push(plural(p.jobs, 'job'));
     if (p.dreams) bits.push(`${p.dreams} 🌙`);
     if (p.hk) bits.push(`${p.hk} 🧹`);
-    return `• *${p.slug}* — ${bits.join(' · ')}`;
+    const line = `• *${p.slug}* — ${bits.join(' · ')}`;
+    return p.sources ? `${line}\n    ↳ ${p.sources}` : line;
   });
   const health = `_Daytona ${r.daytonaOk ? '✅' : '⚠️'} · GitHub ${r.githubOk ? '✅' : '⚠️'} · Slack ✅_`;
   const quota = r.claudeQuota ? `\n_${r.claudeQuota}_` : '';
@@ -913,6 +915,38 @@ export function packSections(bullets: string[], max = 2900): string[] {
   return out;
 }
 
+// The "How to use me" cheat-sheet, one bullet per entry (CLAUDE.md: every user-facing change
+// lands here). Exported so the Home-tab packing test can assert nothing is dropped or split.
+export function homeBullets(): string[] {
+  return [
+    '• *Build / collaborate* — @-mention me with a task in a project channel. I reply in a thread; keep replying (no need to re-mention) and I remember the conversation.',
+    `• *Quick private answer* — \`${CMD} <question>\` in a project channel. I answer privately in our DM.`,
+    "• *DM me directly* — just message me in a DM; if it's not clear which project you mean, I'll show a picker.",
+    `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every job across this workspace's projects).`,
+    "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task; works in Slack Connect channels too. If I can't use a file, I'll reply saying which one and why. _(Voice/video not supported yet.)_",
+    "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).",
+    '• *Stop me* — hit *✖ Cancel* on any working message.',
+    '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the tool-by-tool trail in a pop-up; a very long run comes condensed.',
+    "• *Background agents* — if I kick off a background subagent that's still running when I reply, I'll follow up with a new *🔔 Background update* message in the thread once it finishes.",
+    "• *Long tasks* — if a task runs long I won't cut it off: past ~15 minutes the working message stops ticking and turns into a *🌙 Working in the background* card (*🧭 Show steps* still live, *✖ Cancel* still stops me), and the answer arrives as a *new message* in the thread when it's done.",
+    `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically _(managed from the project's owner workspace)_.`,
+    `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).`,
+    '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context) or ask me there to implement the fix and open a pull request, or hit *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above). The card shows *who* flagged the ticket, and the writeup follows the ticket\'s own language so support can relay it — except when one of the team\'s own accounts applies the tag, which gets you the answer in English.',
+    `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.`,
+    `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.`,
+    `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.`,
+    `• *Sandbox upkeep* — \`${CMD} housekeeping on\`/\`off\` schedules (or pauses) the nightly janitor (dockerd guard, docker prune when disk runs high, stale-worktree reap); \`${CMD} housekeeping\` for the last run, \`${CMD} housekeeping now\` to run it once.`,
+    `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, open PRs — and (operators) the Claude subscription quota.`,
+    '• *Check or restart a thread* — hit *⚙️ Session* on any finished answer for a private status card (session, repos/tools, running turn, PR) and a *🔄 Restart session* control if you want the next message to start a brand-new conversation.',
+    '• *Tell me if it landed* — every answer carries *👍 Helped* / *👎 Missed*. One click is enough; the count on the button updates so you see it registered, and a thumbs-down asks what went wrong in a short pop-up. Nothing is posted in the thread; click the other button to change your mind.',
+    `• *Usage* — \`${CMD} usage [days]\` for token/cost/turn totals per project, plus how many answers people rated as helpful and what those cost (last 30d by default). _(Operators' home workspace only.)_`,
+    `• *Who may drive me* — \`${CMD} users\` shows this workspace's access (everyone, by default); admins can \`restrict\` to an allowlist and manage it with \`allow @user\` / \`deny @user\` / \`open\`.`,
+    `• *Reload config* — \`${CMD} reload\` re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions. _(Operators' home workspace only.)_`,
+    '• *Connected sources* — projects with linked mail, chat or calendar archives are pulled every 15 minutes on the bot host and scrubbed before anything reaches me; ask me about a thread or a meeting and I cite the original.',
+    '• *Pasted secrets stay here* — passwords, tokens, API keys and connection strings in what you type are redacted to `[REDACTED:…]` before the model sees them (same secret → same tag, so I can still tell them apart). Prefer linking to a vault entry over pasting a credential; if I ask for one, give me a *reference*, not the value.',
+  ];
+}
+
 // The Home tab: what I am, the VIEWER TENANT's projects + the channels that drive them,
 // and a usage cheat-sheet. Takes the tenant's subset (teamProjects), never the whole
 // registry — a client workspace must not see the fleet. The empty subset renders
@@ -946,32 +980,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
   // list grew (and `CMD` can be longer than `/aven` on a dev install: every occurrence
   // widens the text), at which point views.publish rejected the whole view and the Home
   // tab spun forever for everyone — so the layout is computed, not assumed.
-  const bullets = [
-    '• *Build / collaborate* — @-mention me with a task in a project channel. I reply in a thread; keep replying (no need to re-mention) and I remember the conversation.',
-    `• *Quick private answer* — \`${CMD} <question>\` in a project channel. I answer privately in our DM.`,
-    "• *DM me directly* — just message me in a DM; if it's not clear which project you mean, I'll show a picker.",
-    `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every job across this workspace's projects).`,
-    "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task; works in Slack Connect channels too. If I can't use a file, I'll reply saying which one and why. _(Voice/video not supported yet.)_",
-    "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).",
-    '• *Stop me* — hit *✖ Cancel* on any working message.',
-    '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the tool-by-tool trail in a pop-up; a very long run comes condensed.',
-    "• *Background agents* — if I kick off a background subagent that's still running when I reply, I'll follow up with a new *🔔 Background update* message in the thread once it finishes.",
-    "• *Long tasks* — if a task runs long I won't cut it off: past ~15 minutes the working message stops ticking and turns into a *🌙 Working in the background* card (*🧭 Show steps* still live, *✖ Cancel* still stops me), and the answer arrives as a *new message* in the thread when it's done.",
-    `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically _(managed from the project's owner workspace)_.`,
-    `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).`,
-    '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context) or ask me there to implement the fix and open a pull request, or hit *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above). The card shows *who* flagged the ticket, and the writeup follows the ticket\'s own language so support can relay it — except when one of the team\'s own accounts applies the tag, which gets you the answer in English.',
-    `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.`,
-    `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.`,
-    `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.`,
-    `• *Sandbox upkeep* — \`${CMD} housekeeping on\`/\`off\` schedules (or pauses) the nightly janitor (dockerd guard, docker prune when disk runs high, stale-worktree reap); \`${CMD} housekeeping\` for the last run, \`${CMD} housekeeping now\` to run it once.`,
-    `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, open PRs — and (operators) the Claude subscription quota.`,
-    '• *Check or restart a thread* — hit *⚙️ Session* on any finished answer for a private status card (session, repos/tools, running turn, PR) and a *🔄 Restart session* control if you want the next message to start a brand-new conversation.',
-    '• *Tell me if it landed* — every answer carries *👍 Helped* / *👎 Missed*. One click is enough; the count on the button updates so you see it registered, and a thumbs-down asks what went wrong in a short pop-up. Nothing is posted in the thread; click the other button to change your mind.',
-    `• *Usage* — \`${CMD} usage [days]\` for token/cost/turn totals per project, plus how many answers people rated as helpful and what those cost (last 30d by default). _(Operators' home workspace only.)_`,
-    `• *Who may drive me* — \`${CMD} users\` shows this workspace's access (everyone, by default); admins can \`restrict\` to an allowlist and manage it with \`allow @user\` / \`deny @user\` / \`open\`.`,
-    `• *Reload config* — \`${CMD} reload\` re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions. _(Operators' home workspace only.)_`,
-    '• *Pasted secrets stay here* — passwords, tokens, API keys and connection strings in what you type are redacted to `[REDACTED:…]` before the model sees them (same secret → same tag, so I can still tell them apart). Prefer linking to a vault entry over pasting a credential; if I ask for one, give me a *reference*, not the value.',
-  ];
+  const bullets = homeBullets();
   blocks.push(
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*How to use me*' } },

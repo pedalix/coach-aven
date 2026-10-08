@@ -11,20 +11,15 @@
 import type { Command } from 'commander';
 import { loadConfig } from '../config.js';
 import { loadProjects, type ProjectConfig } from '../projects.js';
-import { log } from '../log.js';
 import { runAudit } from './audit.js';
 import { UsageError } from './errors.js';
 import { runGoogleAuth } from './google/auth.js';
-import { pullGoogle } from './google/pull.js';
 import { runMsgraphAuth } from './msgraph/auth.js';
-import { pullMsgraph } from './msgraph/pull.js';
-import { dataDir, ensureDir, rawDir, replicaDir, storePath } from './paths.js';
-import { buildStore, type BuildSummary } from './store.js';
-import { dirname, resolve } from 'node:path';
+import { dataDir, rawDir } from './paths.js';
+import { configuredKinds, pullProject, runBuild } from './run.js';
 import { runSlackAuth } from './slack/auth.js';
-import { pullSlack } from './slack/pull.js';
-import { tokenPath, vaultPathsFor } from './tokens.js';
-import { SOURCE_KINDS, type GoogleKind, type MsgraphKind, type PullContext, type PullSummary, type SourceKind } from './types.js';
+import { tokenPath } from './tokens.js';
+import { SOURCE_KINDS, type SourceKind } from './types.js';
 
 function project(slug: string): ProjectConfig {
   const cfg = loadConfig();
@@ -34,50 +29,8 @@ function project(slug: string): ProjectConfig {
   return p;
 }
 
-/** People file: `sources.people` relative to projects.config.json, else projects.d/<slug>.people.json beside it. */
-function peoplePath(p: ProjectConfig): string {
-  const base = dirname(loadConfig().projectsConfigPath);
-  return resolve(base, p.sources?.people ?? `projects.d/${p.slug}.people.json`);
-}
-
-function runBuild(p: ProjectConfig, verbose: boolean): BuildSummary {
-  const prefix = `[sources:${p.slug}/store]`;
-  const s = buildStore({
-    slug: p.slug,
-    rawDir: rawDir(p.slug),
-    storePath: storePath(p.slug),
-    replicaDir: replicaDir(p.slug),
-    peoplePath: peoplePath(p),
-    log: (line) => (verbose || !line.startsWith('  ') ? log.info(`${prefix} ${line}`) : undefined),
-  });
-  log.info(`${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tombstones ${s.tombstones}` +
-    `${s.replayed ? `, replayed ${s.replayed}` : ''}${s.malformed ? `, malformed ${s.malformed}` : ''}; people ${s.people}; replica ${s.replica ?? '(none)'}`);
-  for (const f of s.truncatedFiles) log.warn(`${prefix} ${f} shrank below its consumed offset — re-read from 0`);
-  for (const f of s.skippedFiles) log.warn(`${prefix} ${f}: unknown raw file name, skipped`);
-  return s;
-}
-
 function isKind(k: string): k is SourceKind {
   return (SOURCE_KINDS as readonly string[]).includes(k);
-}
-
-function pullContext(slug: string, kind: SourceKind, verbose: boolean): PullContext {
-  const out = ensureDir(rawDir(slug));
-  ensureDir(dataDir(slug));
-  const prefix = `[sources:${slug}/${kind}]`;
-  return {
-    slug,
-    outDir: out,
-    tokenPath: tokenPath(slug, kind),
-    vault: vaultPathsFor(slug),
-    log: (line) => (verbose || !line.startsWith('  ') ? log.info(`${prefix} ${line}`) : undefined),
-  };
-}
-
-function printSummary(s: PullSummary): void {
-  const total = Object.values(s.counts).reduce((a, b) => a + b, 0);
-  log.info(`[sources:${s.kind}] ${s.ok ? 'ok' : 'FAILED'}${s.reauth ? ' (RE-AUTH REQUIRED)' : ''}: ${total} records; ${Object.entries(s.counts).map(([k, v]) => `${k}=${v}`).join(' ') || 'nothing new'}`);
-  for (const e of s.errors) log.warn(`[sources:${s.kind}] ${e}`);
 }
 
 const csv = (v: string | undefined): string[] | undefined => v?.split(',').map((x) => x.trim()).filter(Boolean);
@@ -111,49 +64,20 @@ export function registerSourcesCommands(program: Command): void {
     .action(async (slug: string, o: { only?: string; since?: string; full: boolean; calendars?: string; chatsFull: boolean; build: boolean; verbose: boolean }) => {
       const p = project(slug);
       if (!p.sources) throw new UsageError(`project "${slug}" has no "sources" block in projects.config.json`);
-      const only = csv(o.only);
-      const wanted = SOURCE_KINDS.filter((k) => p.sources![k] && (!only || only.includes(k)));
-      if (!wanted.length) throw new UsageError(`nothing to pull (configured: ${SOURCE_KINDS.filter((k) => p.sources![k]).join(', ') || 'none'})`);
-      let ok = true;
-      let reauth = false;
-      for (const kind of wanted) {
-        const ctx = pullContext(p.slug, kind, o.verbose);
-        let s: PullSummary;
-        if (kind === 'google') {
-          const g = p.sources.google!;
-          s = await pullGoogle(ctx, {
-            accounts: g.accounts,
-            ...(g.kinds ? { kinds: g.kinds as GoogleKind[] } : {}),
-            ...(o.since ?? g.since ? { since: o.since ?? g.since } : {}),
-            full: o.full,
-            calendars: [...(g.calendars ?? []), ...(csv(o.calendars) ?? [])],
-          });
-        } else if (kind === 'slack') {
-          const sl = p.sources.slack!;
-          s = await pullSlack(ctx, {
-            workspaces: sl.workspaces,
-            ...(o.since ?? sl.since ? { since: o.since ?? sl.since } : {}),
-            ...(sl.threadWindowDays !== undefined ? { threadWindowDays: sl.threadWindowDays } : {}),
-            ...(sl.editWindowHours !== undefined ? { editWindowHours: sl.editWindowHours } : {}),
-          });
-        } else {
-          const m = p.sources.msgraph!;
-          s = await pullMsgraph(ctx, {
-            accounts: m.accounts.map((a) => (a.includes(':') ? a : `${m.tenant}:${a}`)),
-            ...(m.only ? { only: m.only as MsgraphKind[] } : {}),
-            ...(o.since ?? m.since ? { since: o.since ?? m.since } : {}),
-            chatsFull: o.chatsFull,
-            verbose: o.verbose,
-          });
-        }
-        printSummary(s);
-        ok &&= s.ok;
-        reauth ||= s.reauth;
-      }
-      // Build even after a partial failure: whatever landed in raw/ should reach the replica.
-      if (o.build) runBuild(p, o.verbose);
+      const only = csv(o.only)?.filter(isKind);
+      const wanted = configuredKinds(p).filter((k) => !only || only.includes(k));
+      if (!wanted.length) throw new UsageError(`nothing to pull (configured: ${configuredKinds(p).join(', ') || 'none'})`);
+      const r = await pullProject(p, {
+        only: wanted,
+        ...(o.since ? { since: o.since } : {}),
+        full: o.full,
+        ...(csv(o.calendars) ? { calendars: csv(o.calendars)! } : {}),
+        chatsFull: o.chatsFull,
+        build: o.build,
+        verbose: o.verbose,
+      });
       // 3 = a human must re-run auth; 1 = something failed; mirrors the pullers' own codes.
-      process.exitCode = reauth ? 3 : ok ? 0 : 1;
+      process.exitCode = r.reauth ? 3 : r.ok ? 0 : 1;
     });
 
   sources
