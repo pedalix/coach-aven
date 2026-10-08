@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SandboxDriverKind } from './config.js';
 import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
+import { validateSourcesConfig } from './sources/config.js';
+import type { SourcesConfig } from './sources/types.js';
 
 // Registry of the projects the bot serves. ONE bot, MANY channels: each Slack channel
 // is bound to a project, and each project gets its OWN isolated sandbox (proj-<slug>).
@@ -62,6 +64,11 @@ export interface ProjectConfig {
   // reaches the Claude process (scrub.ts). Default TRUE for every project — the API boundary
   // is the one place a pasted secret can't be recalled from. `false` opts a project out.
   scrubSecrets?: boolean;
+  // External systems the BOT reads on this project's behalf (mail, chat, calendar, files) into
+  // a scrubbed archive under data/<slug>/ that the sandbox will later get read-only. Tokens live
+  // in ~/.config/coach-aven/sources/<slug>/ and are bootstrapped with `orch sources auth`. See
+  // docs/sources.md. Validated at boot (sources/config.ts).
+  sources?: SourcesConfig;
 }
 
 // A workspaces entry: the short form is just the slug list; the object form adds
@@ -123,6 +130,13 @@ export function loadProjects(path: string): ProjectsRegistry {
       resolveSandboxOptions(p.sandbox);
     } catch (e) {
       throw new Error(`${path}: project "${p.slug}" ${e instanceof Error ? e.message : String(e)}`);
+    }
+    if (p.sources !== undefined) {
+      try {
+        p.sources = validateSourcesConfig(p.sources, `project "${p.slug}" sources`);
+      } catch (e) {
+        throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
     for (const s of p.mcp ?? []) {
       if (!s.name || (!s.command && !s.url)) {

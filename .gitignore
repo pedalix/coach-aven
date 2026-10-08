@@ -29,3 +29,4 @@ infra/prod/runtime/*
 /.claude/worktrees/transparency-trail/
 /.claude/worktrees/youtrack-rich-context/
 events/
+data/

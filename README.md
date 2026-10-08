@@ -42,8 +42,10 @@ src/
   blocks.ts         # every Block Kit renderer + user-facing text helpers
   channels.ts       # channel ↔ project resolution
   tasks.ts          # chat session over a sandbox; the 3-layer system prompt
-  scrub.ts          # secrets redaction at the model boundary (claudeSession send)
+  scrub.ts          # secrets redaction: model boundary (claudeSession send) + ingest (sources)
   sandboxopts.ts    # per-project container options: privileged / dind / mounts
+  sources/          # per-project ingestion of mail/chat/calendar/files (docs/sources.md):
+                    #   google/ slack/ msgraph/ pullers + auth, common/ vault+sink, audit.ts, cli.ts
   claudeSession.ts  # the persistent claude process (stream-json protocol)
   project.ts        # clone, worktrees, auth/MCP seeding into the sandbox
   daytona.ts        # SDK client: ensureSnapshot / ensureSandbox / exec
