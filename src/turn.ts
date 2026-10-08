@@ -362,6 +362,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       driver: project.driver,
       sandbox: project.sandbox,
       scrubSecrets: project.scrubSecrets,
+      sources: project.sources !== undefined,
       // CLI pin: per-project canary override, else the fleet pin. Install only when no OTHER
       // conversation on this project has a turn in flight (this key's own turn is the one
       // opening the session) — see provisionTooling.

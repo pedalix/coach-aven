@@ -21,13 +21,14 @@
  *            https://developers.google.com/workspace/calendar/api/guides/sync
  *
  * Quota (per user, per minute): Gmail 6,000 units (messages.get = 20 → ~300/min), Drive 325,000
- * units, Calendar 600 requests. Gmail is the only one a backfill can hit, hence the small
- * concurrency pool there; everything else is paginated sequentially. Batch requests would not
+ * units, Calendar 600 requests. Gmail is the only one a backfill can hit: every Gmail call goes
+ * through a per-account token bucket paced to 60% of the limit (client.ts QuotaBucket), and a
+ * full sync that dies resumes from what raw already holds; everything else is paginated sequentially. Batch requests would not
  * help — the quota page charges every inner request separately.
  */
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { HttpError, ReauthRequired, Tokens, gjson, loadStore, withQuery } from './client.js';
+import { GMAIL_PACE_UNITS_PER_MIN, GMAIL_UNITS, HttpError, QuotaBucket, ReauthRequired, Tokens, gjson, loadStore, withQuery } from './client.js';
 import {
   drivePath,
   driveTombstone,
@@ -122,6 +123,40 @@ interface Ctx {
   sink: SinkOptions;
   /** Calendars skipped this run, logged once each. */
   skippedLogged: Set<string>;
+  /** Gmail quota pacing, one bucket per account (the limit is per user). */
+  gmailBuckets: Map<string, QuotaBucket>;
+}
+
+/** Gmail call through the account's quota bucket. Every Gmail request goes through here. */
+async function gmailJson<T>(ctx: Ctx, account: string, url: string, units: number): Promise<T> {
+  let b = ctx.gmailBuckets.get(account);
+  if (!b) ctx.gmailBuckets.set(account, (b = new QuotaBucket(GMAIL_PACE_UNITS_PER_MIN, GMAIL_PACE_UNITS_PER_MIN / 6)));
+  await b.take(units);
+  return gjson<T>(ctx.tokens, account, url);
+}
+
+/**
+ * Ids of Gmail messages already written to this account's raw file. A full sync that died
+ * mid-way (quota, crash, restart) resumes by skipping these instead of re-fetching hundreds of
+ * messages at 20 units each — the raw file IS the checkpoint (synchronous appends, so what is
+ * there is complete). Tombstoned ids count as not-present. Exported for tests.
+ */
+export function gmailIdsInRaw(path: string, account: string): Set<string> {
+  const have = new Set<string>();
+  if (!existsSync(path)) return have;
+  for (const line of readFileSync(path, 'utf8').split('\n')) {
+    if (!line) continue;
+    let r: { id?: unknown; account?: unknown; deleted?: unknown };
+    try { r = JSON.parse(line) as typeof r; } catch { continue; } // a torn last line
+    if (typeof r.id !== 'string' || (r.account !== undefined && r.account !== account)) continue;
+    if (r.deleted === true) have.delete(r.id); else have.add(r.id);
+  }
+  return have;
+}
+
+/** The ids a full sync still has to fetch: everything listed minus what raw already holds (unless forced). */
+export function idsToFetch(listed: readonly string[], have: ReadonlySet<string>, force: boolean): string[] {
+  return force ? [...listed] : listed.filter((id) => !have.has(id));
 }
 
 /** Puller log lines are prefixed by the caller (cli.ts / poller); keep them short and greppable. */
@@ -142,7 +177,7 @@ async function fetchMessages(ctx: Ctx, account: string, ids: readonly string[], 
   let n = 0;
   await pmap(ids, GMAIL_GET_CONCURRENCY, async (id) => {
     try {
-      const raw = await gjson<RawGmailMessage>(ctx.tokens, account, withQuery(`${GMAIL}/messages/${id}`, { format: 'full' }));
+      const raw = await gmailJson<RawGmailMessage>(ctx, account, withQuery(`${GMAIL}/messages/${id}`, { format: 'full' }), GMAIL_UNITS.get);
       out.write(normaliseGmailMessage(raw, account));
     } catch (e) {
       // 404: deleted between list and get. Not a tombstone — history will report the deletion, or
@@ -153,31 +188,33 @@ async function fetchMessages(ctx: Ctx, account: string, ids: readonly string[], 
   });
 }
 
-async function gmailFull(ctx: Ctx, account: string, out: Jsonl): Promise<GmailCursor> {
+async function gmailFull(ctx: Ctx, account: string, out: Jsonl, rawPath: string): Promise<GmailCursor> {
   // Baseline BEFORE listing: anything that lands during the (hours-long) backfill is then also
   // covered by the next history.list, at the cost of a few duplicate records.
-  const profile = await gjson<{ historyId: string }>(ctx.tokens, account, `${GMAIL}/profile`);
+  const profile = await gmailJson<{ historyId: string }>(ctx, account, `${GMAIL}/profile`, GMAIL_UNITS.profile);
   const ids: string[] = [];
   let pageToken: string | undefined;
   do {
-    const page = await gjson<GmailList>(ctx.tokens, account, withQuery(`${GMAIL}/messages`, {
+    const page = await gmailJson<GmailList>(ctx, account, withQuery(`${GMAIL}/messages`, {
       maxResults: 500,
       fields: 'nextPageToken,messages/id',
       // Gmail search syntax; after:YYYY/MM/DD bounds a backfill. Spam/trash are excluded by
       // default (includeSpamTrash=false) — noise for a commitments ledger.
       q: ctx.since ? `after:${ctx.since.replace(/-/g, '/')}` : undefined,
       pageToken,
-    }));
+    }), GMAIL_UNITS.list);
     for (const m of page.messages ?? []) ids.push(m.id);
     pageToken = page.nextPageToken;
   } while (pageToken);
-  ctx.log(fmt(`  gmail ${account}: full sync, ${ids.length} messages to fetch (~${Math.ceil(ids.length / 300)} min at the per-user quota)`));
-  await fetchMessages(ctx, account, ids, out);
+  const todo = idsToFetch(ids, gmailIdsInRaw(rawPath, account), ctx.full);
+  const perMin = GMAIL_PACE_UNITS_PER_MIN / GMAIL_UNITS.get;
+  ctx.log(fmt(`  gmail ${account}: full sync, ${ids.length} listed, ${ids.length - todo.length} already in raw, ${todo.length} to fetch (~${Math.ceil(todo.length / perMin)} min at ${perMin}/min)`));
+  await fetchMessages(ctx, account, todo, out);
   const now = new Date().toISOString();
   return { historyId: profile.historyId, synced_at: now, full_at: now };
 }
 
-async function gmailIncremental(ctx: Ctx, account: string, cur: GmailCursor, out: Jsonl): Promise<GmailCursor> {
+async function gmailIncremental(ctx: Ctx, account: string, cur: GmailCursor, out: Jsonl, rawPath: string): Promise<GmailCursor> {
   const added = new Set<string>();
   const deleted = new Set<string>();
   let latest = cur.historyId;
@@ -185,17 +222,17 @@ async function gmailIncremental(ctx: Ctx, account: string, cur: GmailCursor, out
   do {
     let page: GmailHistory;
     try {
-      page = await gjson<GmailHistory>(ctx.tokens, account, withQuery(`${GMAIL}/history`, {
+      page = await gmailJson<GmailHistory>(ctx, account, withQuery(`${GMAIL}/history`, {
         startHistoryId: cur.historyId,
         historyTypes: ['messageAdded', 'messageDeleted'],
         maxResults: 500,
         pageToken,
-      }));
+      }), GMAIL_UNITS.history);
     } catch (e) {
       // 404 = our historyId is older than what Gmail retains. The only recovery is a full listing.
       if (e instanceof HttpError && e.status === 404) {
         ctx.log(fmt(`  gmail ${account}: historyId ${cur.historyId} expired → full resync`));
-        return gmailFull(ctx, account, out);
+        return gmailFull(ctx, account, out, rawPath);
       }
       throw e;
     }
@@ -468,6 +505,7 @@ export async function pullGoogle(pctx: PullContext, opts: GooglePullOptions = {}
     log: pctx.log,
     sink: { log: pctx.log, warned, ...(pctx.vault ? { vault: pctx.vault } : {}) },
     skippedLogged: new Set(),
+    gmailBuckets: new Map(),
   };
 
   const cursorPath = join(ctx.outDir, 'google', 'cursor.json');
@@ -483,11 +521,12 @@ export async function pullGoogle(pctx: PullContext, opts: GooglePullOptions = {}
     const cur: AccountCursor = cursor[account] ?? {};
     for (const kind of kinds) {
       const file = { gmail: 'messages', drive: 'files', calendar: 'events' }[kind];
-      const out = new Jsonl(join(ctx.outDir, 'google', account, `${file}.jsonl`), ctx.sink);
+      const rawPath = join(ctx.outDir, 'google', account, `${file}.jsonl`);
+      const out = new Jsonl(rawPath, ctx.sink);
       const t0 = Date.now();
       try {
         if (kind === 'gmail') {
-          cur.gmail = cur.gmail && !ctx.full ? await gmailIncremental(ctx, account, cur.gmail, out) : await gmailFull(ctx, account, out);
+          cur.gmail = cur.gmail && !ctx.full ? await gmailIncremental(ctx, account, cur.gmail, out, rawPath) : await gmailFull(ctx, account, out, rawPath);
         } else if (kind === 'drive') {
           const idx = new DriveIndex(ctx, account);
           await idx.init();

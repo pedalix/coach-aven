@@ -28,6 +28,11 @@ RUN apk add --no-cache \
 ARG CLAUDE_CLI_VERSION=2.1.282
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}
 
+# The `sources` MCP server (src/sources/mcp.ts injects it for projects with a `sources` block):
+# a dependency-free .mjs that queries the read-only replica mounted at /data/sources. Baked in
+# so fresh sandboxes have it; provisionTooling() re-uploads it when the bot ships a newer one.
+COPY sources-mcp.mjs /opt/aven/sources-mcp.mjs
+
 # Same marker the drivers set via -e at run time; harmless here, handy when the image is
 # poked at by hand.
 ENV IS_SANDBOX=1

@@ -212,15 +212,46 @@ function backoffMs(attempt: number): number {
   return Math.min(2 ** attempt * 1000 + Math.floor(Math.random() * 1000), MAX_BACKOFF_MS);
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+/**
+ * A quota rejection is accounted per MINUTE ("Units per minute per user"), so the 1-2-4-8 s
+ * schedule above retries straight back into the same exhausted window — the second live Gmail
+ * backfill burned all eight attempts inside ~2 minutes and died on HTTP 403. Wait at least 15 s,
+ * double to a 60 s cap, plus up to 5 s jitter so concurrent workers do not re-collide.
+ */
+export function rateLimitBackoffMs(attempt: number, rand: () => number = Math.random): number {
+  return Math.min(15_000 * 2 ** attempt, 60_000) + Math.floor(rand() * 5_000);
+}
 
 /**
- * Retries 429, 5xx and dropped connections. 403 is retried only when the body says it is a rate
- * limit (`userRateLimitExceeded`, `rateLimitExceeded`, `quotaExceeded`, `RESOURCE_EXHAUSTED`) —
- * a 403 for a missing scope must fail fast. 401 is NOT handled here; `gfetch` owns token refresh.
+ * Is this error body Google saying "slow down" (retryable) rather than "no" (a missing scope, a
+ * disabled API — fail fast)? Parsed, not substring-matched: the standard error envelope carries
+ * `error.status`, `error.errors[].reason` and `error.message`.
+ * https://developers.google.com/workspace/gmail/api/guides/handle-errors
+ */
+export function isRateLimitBody(body: string): boolean {
+  let err: { status?: unknown; message?: unknown; errors?: { reason?: unknown }[]; details?: { reason?: unknown }[] } | undefined;
+  try {
+    err = (JSON.parse(body) as { error?: typeof err }).error;
+  } catch {
+    return false;
+  }
+  if (!err || typeof err !== 'object') return false;
+  if (err.status === 'RESOURCE_EXHAUSTED') return true;
+  const reasons = new Set(['rateLimitExceeded', 'userRateLimitExceeded', 'quotaExceeded', 'RATE_LIMIT_EXCEEDED']);
+  if ([...(err.errors ?? []), ...(err.details ?? [])].some((e) => typeof e?.reason === 'string' && reasons.has(e.reason))) return true;
+  return typeof err.message === 'string' && /quota exceeded|rate limit exceeded/i.test(err.message);
+}
+
+/** Test seam: the retry loop's sleeper. Tests swap it for an instant one. */
+export const retryClock = { sleep: (ms: number) => new Promise<void>((r) => setTimeout(r, ms)) };
+
+/**
+ * Retries 429, 5xx and dropped connections. 403 is retried only when the parsed body says it is a
+ * rate limit (`isRateLimitBody`); a 403 for a missing scope must fail fast. Quota rejections (any
+ * 429, a rate-limit 403) wait on the minute-aware schedule; 5xx and network errors on Google's
+ * short exponential one. 401 is NOT handled here; `gfetch` owns token refresh.
  */
 export async function fetchWithRetry(url: string, init: RequestInit): Promise<Response> {
-  let last: Response | undefined;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     let res: Response;
     try {
@@ -228,20 +259,70 @@ export async function fetchWithRetry(url: string, init: RequestInit): Promise<Re
     } catch (e) {
       // undici surfaces TLS resets / DNS hiccups as TypeError('fetch failed'); treat like a 503.
       if (attempt === MAX_ATTEMPTS - 1) throw e;
-      await sleep(backoffMs(attempt));
+      await retryClock.sleep(backoffMs(attempt));
       continue;
     }
     if (res.status !== 429 && res.status < 500 && res.status !== 403) return res;
+    let quota = res.status === 429;
     if (res.status === 403) {
-      const body = await res.clone().text();
-      if (!/ateLimitExceeded|quotaExceeded|RESOURCE_EXHAUSTED/.test(body)) return res;
+      if (!isRateLimitBody(await res.clone().text())) return res;
+      quota = true;
     }
-    last = res;
+    // Out of attempts: hand the caller the response UNREAD so it can still `.text()` the error.
+    // (Cancelling the body here and returning it later was the "Body is unusable" failure on the
+    // first real Gmail backfill — a burst of 429s on messages.get exhausted the attempts.)
+    if (attempt === MAX_ATTEMPTS - 1) return res;
     await res.body?.cancel().catch(() => undefined);
-    await sleep(retryAfterMs(res) ?? backoffMs(attempt));
+    await retryClock.sleep(retryAfterMs(res) ?? (quota ? rateLimitBackoffMs(attempt) : backoffMs(attempt)));
   }
-  return last!;
+  throw new Error('unreachable');
 }
+
+/**
+ * Per-account token bucket in Gmail quota units. The per-user limit is 6,000 units/minute and a
+ * `messages.get` costs 20 (https://developers.google.com/workspace/gmail/api/reference/quota), so
+ * four unpaced workers hit it in seconds and live entirely off retries. Pacing to ~60% of the
+ * limit (3,600 units/min = 180 gets/min) leaves headroom for the operator's own clients and
+ * the Drive/Calendar calls that share the same user. The clock and sleeper are injectable for tests.
+ */
+export class QuotaBucket {
+  private tokens: number;
+  private last: number;
+  private chain: Promise<void> = Promise.resolve();
+  constructor(
+    private readonly unitsPerMinute: number,
+    private readonly capacity: number,
+    private readonly now: () => number = Date.now,
+    private readonly sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  ) {
+    this.tokens = capacity;
+    this.last = now();
+  }
+  private refill(): void {
+    const t = this.now();
+    this.tokens = Math.min(this.capacity, this.tokens + ((t - this.last) * this.unitsPerMinute) / 60_000);
+    this.last = t;
+  }
+  /** Milliseconds until `units` are available (0 = now). Pure given the clock. */
+  waitFor(units: number): number {
+    this.refill();
+    return this.tokens >= units ? 0 : Math.ceil(((units - this.tokens) * 60_000) / this.unitsPerMinute);
+  }
+  /** Take `units`, waiting if needed. Serialised so concurrent workers queue fairly instead of all waking at once. */
+  take(units: number): Promise<void> {
+    const run = this.chain.then(async () => {
+      for (let w = this.waitFor(units); w > 0; w = this.waitFor(units)) await this.sleep(w);
+      this.tokens -= units;
+    });
+    this.chain = run.catch(() => undefined);
+    return run;
+  }
+}
+
+/** Gmail method costs (quota units), from the quota reference above. */
+export const GMAIL_UNITS = { get: 20, list: 5, history: 2, profile: 1 } as const;
+/** 60% of the 6,000 units/min per-user limit; burst capacity = 10 s worth. */
+export const GMAIL_PACE_UNITS_PER_MIN = 3_600;
 
 /** Authenticated GET/POST as `account`. On 401 the cached token is dropped and the call retried once with a fresh one. */
 export async function gfetch(tokens: Tokens, account: string, url: string, init: RequestInit = {}): Promise<Response> {
