@@ -204,6 +204,8 @@ function buildSystemPrompt(
       `a sibling dir, e.g. ../<repo>-wt/<branch>; ` +
       `(3) cd into <path>, make your changes there, commit, push, and open a PR against the default ` +
       `branch with the gh CLI; ` +
+      `never set a git identity (no \`-c user.name/user.email\`, no \`--author\`, no \`git config user.*\`) — ` +
+      `the sandbox already commits as coach-aven[bot]; ` +
       `git auth is already configured via a credential helper (and gh) — use the plain ` +
       `https://github.com/<org>/<repo>.git remote and NEVER embed a token in a remote URL ` +
       `(no x-access-token:<token>@github.com): a baked-in token expires within the hour and ` +

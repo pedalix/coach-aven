@@ -10,6 +10,7 @@ import { alertOps } from './blocks.js';
 import { log } from './log.js';
 import { withGitRetry } from './gitretry.js';
 import { SOURCES_MCP_PATH, sourcesMcpScript, sourcesMcpSha256 } from './sources/mcp.js';
+import { GIT_EMAIL, GIT_NAME } from './gitidentity.js';
 
 // The snapshot image (snapshot/Dockerfile → SNAPSHOT_IMAGE) bakes in the sandbox tooling
 // (git, gh, node, Claude Code, sail shims), so per-boot provisioning is gone. This ensures
@@ -108,15 +109,10 @@ export async function seedGitHubAuth(sandbox: SandboxHandle, token: string) {
     `git config --global credential.helper '!f() { echo username=x-access-token; echo "password=$(cat /root/.gh-token)"; }; f'`,
     { check: true },
   );
-  // Committer identity = the GitHub App's own bot user, so commits map to a real
-  // GitHub account. The previous fake email (agent@example.com) belonged to no
-  // account, which made Vercel refuse PR deploys ("no GitHub account matching the
-  // commit author email"). The numeric id is coach-aven[bot]'s user id.
-  await sandbox.exec(`git config --global user.name "coach-aven[bot]"`, { check: true });
-  await sandbox.exec(
-    `git config --global user.email "271933357+coach-aven[bot]@users.noreply.github.com"`,
-    { check: true },
-  );
+  // Committer identity = the GitHub App's own bot user (gitidentity.ts). Kept for
+  // shells outside the claude process; the process itself also gets GIT_AUTHOR_* env.
+  await sandbox.exec(`git config --global user.name "${GIT_NAME}"`, { check: true });
+  await sandbox.exec(`git config --global user.email "${GIT_EMAIL}"`, { check: true });
   // gh: authenticate so the agent's `gh pr create` works.
   await sandbox.exec(`gh auth login --with-token < /root/.gh-token`, { check: true });
 }

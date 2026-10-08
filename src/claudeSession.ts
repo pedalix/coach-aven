@@ -15,6 +15,7 @@ import { parseRateLimitEvent, type RateLimitInfo } from './ratelimit.js';
 import { CLI_PATH_ENV } from './cliversion.js';
 import { log } from './log.js';
 import { scrubSummary, scrubText } from './scrub.js';
+import { ATTRIBUTION_SETTINGS, gitIdentityEnv } from './gitidentity.js';
 
 export interface AskQuestion {
   question: string;
@@ -221,10 +222,13 @@ export class ClaudeSession {
     // STILL fires a can_use_tool control_request we answer (→ Slack buttons).
     const command =
       // CLI_PATH_ENV: the pinned per-sandbox Claude Code (cliversion.ts) wins over the image's.
-      `cd ${sq(this.opts.cwd)} && ${CLI_PATH_ENV} ${CC_TOKEN_ENV} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
+      // gitIdentityEnv + --settings attribution: commits are authored by and credit
+      // coach-aven[bot], whatever identity the agent tries to pass (gitidentity.ts).
+      `cd ${sq(this.opts.cwd)} && ${CLI_PATH_ENV} ${CC_TOKEN_ENV} ${gitIdentityEnv()} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
       (this.opts.avenSession ? `AVEN_SESSION=${sq(this.opts.avenSession)} ` : '') +
       `claude --output-format stream-json --input-format stream-json --verbose ` +
-      `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ${model}${mcp}${resume}${sys}`;
+      `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ` +
+      `--settings ${sq(JSON.stringify(ATTRIBUTION_SETTINGS))} ${model}${mcp}${resume}${sys}`;
     const started = await this.sandbox.startSessionCommand(this.sessionKey, command);
     this.cmdId = started.cmdId;
     // Stream stdout until the process exits; resolution/rejection both mean "process gone".
