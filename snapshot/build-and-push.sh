@@ -1,34 +1,76 @@
 #!/usr/bin/env bash
-# Build the project snapshot image and push it to GHCR.
+# Build a sandbox image VARIANT and push it to GHCR.
+#
+# Variants (one directory per Dockerfile; `laravel` is the historical default and keeps
+# its old image name, platform and tags so nothing that exists today changes):
+#   laravel  — snapshot/Dockerfile: docker:28-dind + Sail shims, linux/amd64 only (the
+#              Daytona runner / Hetzner sandbox host are amd64; dind needs sysbox or
+#              --privileged on the host).
+#   plain    — snapshot/plain/Dockerfile: no dockerd, no Sail, multi-arch
+#              (linux/amd64 + linux/arm64) for unprivileged sandboxes — e.g. a personal
+#              CoachAven instance on an Apple-silicon Mac mini, or any project that never
+#              runs containers of its own. Needs the driver's `dind: false` to skip the
+#              dockerd guard (see docs/sandbox-drivers.md).
 #
 # Prereqs:
-#   - docker available locally (this host has it via the `bluefin` user / your laptop)
+#   - docker buildx available locally; multi-arch needs QEMU binfmt (docker buildx ls
+#     lists linux/arm64) or a native arm builder
 #   - logged in to GHCR:  echo "$GHCR_PAT" | docker login ghcr.io -u <user> --password-stdin
 #     (PAT needs write:packages; or a GitHub App token with packages:write)
 #
 # Usage:
-#   ./build-and-push.sh                 # builds + pushes :<gitsha> and :latest
-#   IMAGE=ghcr.io/foo/bar ./build-and-push.sh
+#   ./build-and-push.sh                   # laravel: builds + pushes :<gitsha> and :latest
+#   ./build-and-push.sh plain             # plain variant (or VARIANT=plain)
+#   IMAGE=ghcr.io/foo/bar ./build-and-push.sh plain
+#   PLATFORMS=linux/arm64 ./build-and-push.sh plain    # override the variant's platforms
+#   PUSH=0 ./build-and-push.sh plain      # build only (validates the Dockerfile on every
+#                                         # platform; nothing is pushed or loaded)
 set -euo pipefail
 cd "$(dirname "$0")"
 
-IMAGE="${IMAGE:-ghcr.io/bluefinorg/bluefin-sandbox-laravel}"
+VARIANT="${1:-${VARIANT:-laravel}}"
+case "$VARIANT" in
+  laravel)
+    CONTEXT="."
+    DEFAULT_IMAGE="ghcr.io/bluefinorg/bluefin-sandbox-laravel"
+    DEFAULT_PLATFORMS="linux/amd64"
+    ;;
+  plain)
+    CONTEXT="./plain"
+    DEFAULT_IMAGE="ghcr.io/bluefinorg/bluefin-sandbox-plain"
+    DEFAULT_PLATFORMS="linux/amd64,linux/arm64"
+    ;;
+  *)
+    echo "unknown variant '$VARIANT' (known: laravel, plain)" >&2
+    exit 2
+    ;;
+esac
+
+IMAGE="${IMAGE:-$DEFAULT_IMAGE}"
+PLATFORMS="${PLATFORMS:-$DEFAULT_PLATFORMS}"
+PUSH="${PUSH:-1}"
 TAG="${TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo manual)}"
 # The Claude Code pin baked into the image: CLAUDE_CLI_VERSION from the environment, else
 # the prod runtime .env, else the Dockerfile's own ARG default. Keep it equal to what the
 # bot runs with, or fresh sandboxes will immediately re-install at their first chat prep.
+# Both variants take the same ARG so one pin serves the whole fleet.
 CLI_PIN="${CLAUDE_CLI_VERSION:-$(grep -E '^CLAUDE_CLI_VERSION=' ../infra/prod/runtime/.env 2>/dev/null | cut -d= -f2- || true)}"
 
-echo ">> building ${IMAGE}:${TAG} (Claude Code ${CLI_PIN:-Dockerfile default})"
-# linux/amd64 explicitly — the Daytona runner box is amd64; building on an arm laptop
-# would otherwise push an arm image the runner can't run.
+echo ">> building ${IMAGE}:${TAG} [variant=${VARIANT} platforms=${PLATFORMS}] (Claude Code ${CLI_PIN:-Dockerfile default})"
+# Without --push buildx keeps the result in the build cache only: that is the point of
+# PUSH=0 — prove the Dockerfile builds on every platform before touching the registry.
+# (--load cannot take a multi-platform result, so a dry run deliberately loads nothing.)
 docker buildx build \
-  --platform linux/amd64 \
+  --platform "$PLATFORMS" \
   ${CLI_PIN:+--build-arg CLAUDE_CLI_VERSION=$CLI_PIN} \
   -t "${IMAGE}:${TAG}" \
   -t "${IMAGE}:latest" \
-  --push \
-  .
+  $([ "$PUSH" = 1 ] && echo --push) \
+  "$CONTEXT"
 
-echo ">> pushed ${IMAGE}:${TAG} and ${IMAGE}:latest"
-echo ">> register it as a Daytona snapshot with: ../src cli snapshot:ensure (or POST /api/snapshots {imageName})"
+if [ "$PUSH" = 1 ]; then
+  echo ">> pushed ${IMAGE}:${TAG} and ${IMAGE}:latest"
+  [ "$VARIANT" = laravel ] && echo ">> register it as a Daytona snapshot with: ../src cli snapshot:ensure (or POST /api/snapshots {imageName})"
+else
+  echo ">> build-only run finished (PUSH=0): nothing pushed"
+fi
