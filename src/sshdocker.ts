@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import type { Config } from './config.js';
 import type { ExecOpts, ExecResult, SandboxDriver, SandboxHandle } from './driver.js';
 import { log } from './log.js';
+import { resolveSandboxOptions, type Mount, type SandboxOptions } from './sandboxopts.js';
 
 // SshDockerDriver: sandboxes as Docker containers on a host we own, driven over SSH.
 // The self-hosted answer to Daytona's freeze (see driver.ts): one fixed-cost box runs
@@ -115,13 +116,39 @@ export function runningProbeScript(pid: string): string {
 // re-registers the container with sysbox and costs nothing here — an exec-less sandbox
 // is useless anyway, so recycling can only improve on it. Probed twice before recycling
 // so a momentarily busy daemon doesn't kill a live session.
+//
+// `runtimeFlag` is '' for an unprivileged project (plain `docker run`); `mounts` become
+// `-v src:dst:mode` (paths pre-validated by sandboxopts.ts, quoted again here); `dind`
+// false skips the exec-probe/recycle block — that dance exists for sysbox's registry,
+// which an ordinary container never touches.
 export function ensureSandboxScript(
   name: string,
   projectSlug: string,
   image: string,
   runtimeFlag: string,
+  mounts: Mount[] = [],
+  dind = true,
 ): string {
   const n = sq(safeToken(name));
+  const volumeArgs = mounts.map((m) => `-v ${sq(`${safeToken(m.source)}:${safeToken(m.target)}:${m.mode}`)}`).join(' ');
+  const runFlags = [runtimeFlag, volumeArgs].filter(Boolean).join(' ');
+  const probe = dind
+    ? [
+        `if ! docker exec ${n} true >/dev/null 2>&1; then`,
+        `  sleep 2`,
+        `  if ! err=$(docker exec ${n} true 2>&1); then`,
+        `    echo "exec probe failed, recycling ${name}: $err" >&2`,
+        `    docker stop -t 10 ${n} >/dev/null 2>&1`,
+        `    docker start ${n} >/dev/null 2>&1`,
+        `    if ! err=$(docker exec ${n} true 2>&1); then`,
+        `      echo "still no exec after recycle: $err" >&2`,
+        `      exit 1`,
+        `    fi`,
+        `    outcome=revived`,
+        `  fi`,
+        `fi`,
+      ]
+    : [];
   return [
     `state=$(docker inspect -f '{{.State.Running}}' ${n} 2>/dev/null)`,
     `if [ "$state" = "true" ]; then outcome=ready`,
@@ -131,24 +158,12 @@ export function ensureSandboxScript(
     // orphans — every finished session process would linger as a zombie forever (and
     // zombies pass kill -0, wedging streams and running-checks; found by the E2E smoke).
     // Existing containers created without --init must be recreated.
-    `  docker run -d --init --name ${n} ${runtimeFlag} --restart unless-stopped \\`,
+    `  docker run -d --init --name ${n}${runFlags ? ` ${runFlags}` : ''} --restart unless-stopped \\`,
     `    -e IS_SANDBOX=1 --label managedBy=bluefin-thin-orchestrator --label project=${sq(safeToken(projectSlug))} \\`,
     `    --entrypoint sh ${sq(image)} -c 'sleep 2147483647' >/dev/null || exit 1`,
     `  outcome=created`,
     `fi`,
-    `if ! docker exec ${n} true >/dev/null 2>&1; then`,
-    `  sleep 2`,
-    `  if ! err=$(docker exec ${n} true 2>&1); then`,
-    `    echo "exec probe failed, recycling ${name}: $err" >&2`,
-    `    docker stop -t 10 ${n} >/dev/null 2>&1`,
-    `    docker start ${n} >/dev/null 2>&1`,
-    `    if ! err=$(docker exec ${n} true 2>&1); then`,
-    `      echo "still no exec after recycle: $err" >&2`,
-    `      exit 1`,
-    `    fi`,
-    `    outcome=revived`,
-    `  fi`,
-    `fi`,
+    ...probe,
     `echo "$outcome"`,
   ].join('\n');
 }
@@ -179,13 +194,28 @@ interface SshResult {
 // discarded: docker's own failures — "container is not running", "OCI runtime exec
 // failed: …" — never reach the script's stdout, and dropping them turned a wedged
 // sandbox into a bare `exit 126` with no clue what broke (prod, 2026-08-10).
+// The literal host `local` means "this machine": the same command runs through `sh -c`
+// instead of `ssh`, for a single-box self-hosted instance (laptop/WSL, a Mac mini) where
+// the bot and the sandboxes share the Docker daemon and nobody wants to run sshd to
+// talk to localhost. This is the ONLY place that knows; every script builder above stays
+// byte-identical, and the remote command (`docker exec … sh -s`, `sh -s`) is exactly what
+// ssh would have handed the remote shell. Note the trust change: bot and sandboxes then
+// share a kernel, so pair local mode with `sandbox.privileged: false` projects.
+export const LOCAL_HOST = 'local';
+
+export function transportArgv(host: string, remoteCmd: string): { cmd: string; args: string[] } {
+  if (host === LOCAL_HOST) return { cmd: 'sh', args: ['-c', remoteCmd] };
+  return { cmd: 'ssh', args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', host, remoteCmd] };
+}
+
 function runSsh(
   host: string,
   remoteCmd: string,
   opts: { stdin?: Buffer | string; timeoutMs?: number; onStdout?: (chunk: string) => void } = {},
 ): Promise<SshResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', host, remoteCmd], {
+    const t = transportArgv(host, remoteCmd);
+    const child = spawn(t.cmd, t.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -349,8 +379,17 @@ export class SshDockerDriver implements SandboxDriver {
     if (r.stdout.trim() !== 'present') log.info(`pulled sandbox image ${image}`);
   }
 
-  async ensureSandbox(name: string, projectSlug: string): Promise<SandboxHandle> {
-    const script = ensureSandboxScript(name, projectSlug, this.cfg.snapshot.image, this.runtimeFlag);
+  async ensureSandbox(name: string, projectSlug: string, opts?: SandboxOptions): Promise<SandboxHandle> {
+    // Project options shape creation only; sshdocker is the one driver that can honour them.
+    const o = resolveSandboxOptions(opts);
+    const script = ensureSandboxScript(
+      name,
+      projectSlug,
+      this.cfg.snapshot.image,
+      o.privileged ? this.runtimeFlag : '',
+      o.mounts,
+      o.dind,
+    );
     // Room for the create/pull path plus a stop(-t 10)+start recycle.
     const r = await this.onHost(script, { timeoutMs: 180_000 });
     const outcome = r.stdout.trim();

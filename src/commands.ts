@@ -79,7 +79,7 @@ export async function readMemory(
     }
     try {
       // The sandbox exists (checked above), so ensure = wake it, not create.
-      sandbox = await driver.ensureSandbox(name, project.slug);
+      sandbox = await driver.ensureSandbox(name, project.slug, project.sandbox);
     } catch (e) {
       log.error(`readMemory start ${name}: ${e instanceof Error ? e.message : String(e)}`);
       throw new Error(`Couldn't wake the *${project.slug}* sandbox just now — try again in a moment.`);

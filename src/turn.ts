@@ -360,6 +360,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       mcp: project.mcp,
       avenSession: avenSessionValue(key),
       driver: project.driver,
+      sandbox: project.sandbox,
+      scrubSecrets: project.scrubSecrets,
       // CLI pin: per-project canary override, else the fleet pin. Install only when no OTHER
       // conversation on this project has a turn in flight (this key's own turn is the one
       // opening the session) — see provisionTooling.

@@ -52,10 +52,12 @@ export function dockerdGuardCmd(): string {
 // Output is `hk:` marker lines parsed by parseHousekeepingReport. With a CLI pin the pass
 // also converges the sandbox's Claude Code in place (cliversion.ts) — the nightly catch-up
 // for projects idle since the pin moved; without one it just reports the version.
-export function housekeepingScript(thresholdPct: number, cliPin?: string): string {
+// `dind` false (a plain, docker-less project — sandboxopts.ts): no dockerd guard and no
+// prune, there is nothing to guard or prune; the disk line still reports.
+export function housekeepingScript(thresholdPct: number, cliPin?: string, dind = true): string {
   return [
     cliPin ? cliUpgradeCmd(cliPin) : cliVersionCmd(),
-    dockerdGuardCmd(),
+    ...(dind ? [dockerdGuardCmd()] : []),
     `usage=$(df -P / | awk 'NR==2 {gsub(/%/,""); print $5}')`,
     `echo "hk:disk=$usage"`,
     // Reclaimable space per docker's own accounting — visibility even when not pruning.

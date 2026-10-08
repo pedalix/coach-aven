@@ -3,7 +3,8 @@
     "T0YOURHOME1": [
       "caldora",
       "cms-general",
-      "dorfberg-monitoring"
+      "dorfberg-monitoring",
+      "ops-plain"
     ],
     "T0CLIENT001": [
       "dorfberg-monitoring"
@@ -70,6 +71,24 @@
       "repos": [
         "BluefinOrg/REPLACE-dorfberg-repo"
       ],
+      "env": {},
+      "mcp": []
+    },
+    {
+      "slug": "ops-plain",
+      "repos": [
+        "REPLACE-you/REPLACE-ops-ledger"
+      ],
+      "driver": "ssh-docker",
+      "sandbox": {
+        "privileged": false,
+        "dind": false,
+        "mounts": [
+          "/srv/ops/sources:/data/sources"
+        ]
+      },
+      "scrubSecrets": true,
+      "systemPrompt": "Example of a docker-less project on the `plain` image variant (snapshot/plain/Dockerfile): an ordinary unprivileged container with a read-only data mount. See docs/sandbox-drivers.md.",
       "env": {},
       "mcp": []
     }

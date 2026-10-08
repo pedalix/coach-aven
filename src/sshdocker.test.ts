@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript } from './sshdocker.js';
+import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript, transportArgv, LOCAL_HOST } from './sshdocker.js';
 
 test('sq — single-quotes and survives embedded quotes', () => {
   assert.equal(sq('plain'), `'plain'`);
@@ -86,6 +86,38 @@ test('ensureSandboxScript — probes exec and recycles a running-but-wedged cont
   assert.ok(s.includes('exit 1'));
 });
 
+test('ensureSandboxScript — unprivileged plain project: no runtime flag, ro mount, no exec-probe dance', () => {
+  const s = ensureSandboxScript(
+    'proj-owen-ops',
+    'owen-ops',
+    'ghcr.io/x/plain:abc',
+    '',
+    [{ source: '/srv/owen-ops/sources', target: '/data/sources', mode: 'ro' }],
+    false,
+  );
+  const run = s.split('\n').find((l) => l.includes('docker run'))!;
+  assert.equal(
+    run,
+    `  docker run -d --init --name 'proj-owen-ops' -v '/srv/owen-ops/sources:/data/sources:ro' --restart unless-stopped \\`,
+  );
+  assert.equal(s.includes('--privileged'), false);
+  assert.equal(s.includes('--runtime'), false);
+  // No dockerd in there → the sysbox exec-probe/recycle block is pointless and skipped.
+  assert.equal(s.includes('exec probe failed'), false);
+  assert.equal(s.includes('outcome=revived'), false);
+  assert.ok(s.trim().endsWith('echo "$outcome"'));
+  // Mount paths are re-validated at the shell boundary even though sandboxopts checked them.
+  assert.throws(() => ensureSandboxScript('proj-x', 'x', 'img', '', [{ source: '/srv/a b', target: '/data', mode: 'ro' }], false));
+  assert.throws(() => ensureSandboxScript('proj-x', 'x', 'img', '', [{ source: '/srv/../etc', target: '/data', mode: 'ro' }], false));
+});
+
+test('ensureSandboxScript — default (no options) is byte-identical to the historical dind script', () => {
+  const a = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged');
+  const b = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged', [], true);
+  assert.equal(a, b);
+  assert.ok(a.includes(`docker run -d --init --name 'proj-caldora' --privileged --restart unless-stopped`));
+});
+
 test('parseContainerStates — docker states map onto started/stopped', () => {
   const out = 'proj-caldora\trunning\nproj-bluefin-infra\texited\n\nproj-art\tcreated\n';
   const states = parseContainerStates(out);
@@ -98,4 +130,19 @@ test('parseContainerStates — docker states map onto started/stopped', () => {
 test('parseContainerStates — empty/garbage input yields an empty map', () => {
   assert.equal(parseContainerStates('').size, 0);
   assert.equal(parseContainerStates('no-tabs-here\n').size, 0);
+});
+
+test('transportArgv — a real host goes over ssh in BatchMode with the remote command verbatim', () => {
+  const t = transportArgv('aven-sbx', "docker exec -i 'proj-x' sh -s");
+  assert.equal(t.cmd, 'ssh');
+  assert.deepEqual(t.args, ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', 'aven-sbx', "docker exec -i 'proj-x' sh -s"]);
+});
+
+test('transportArgv — the literal `local` host runs the same command through sh -c, no ssh', () => {
+  const cmd = "docker exec -i 'proj-x' sh -s";
+  const t = transportArgv(LOCAL_HOST, cmd);
+  assert.equal(t.cmd, 'sh');
+  assert.deepEqual(t.args, ['-c', cmd]);
+  // Only the exact literal switches transport — `localhost` is still an ssh target.
+  assert.equal(transportArgv('localhost', cmd).cmd, 'ssh');
 });

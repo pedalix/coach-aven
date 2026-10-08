@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SandboxDriverKind } from './config.js';
+import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 
 // Registry of the projects the bot serves. ONE bot, MANY channels: each Slack channel
 // is bound to a project, and each project gets its OWN isolated sandbox (proj-<slug>).
@@ -52,6 +53,15 @@ export interface ProjectConfig {
   // ticket whose id is "<PREFIX>-<n>" is investigated in this project's sandbox/channel. One
   // project may carry several (e.g. caldora ← its several help-desk projects). See youtrack.ts.
   youtrackProjects?: string[];
+  // How this project's container is run (ssh-docker): privileged/dind (the fleet default, for
+  // Sail) or a plain unprivileged container, plus read-only host mounts. See sandboxopts.ts.
+  // Applies to NEW containers only — an existing proj-<slug> keeps its flags until recreated
+  // (`docker rm` it on the sandbox host; the next turn creates it with the new options).
+  sandbox?: SandboxOptions;
+  // Redact passwords, tokens and connection strings from everything users type before it
+  // reaches the Claude process (scrub.ts). Default TRUE for every project — the API boundary
+  // is the one place a pasted secret can't be recalled from. `false` opts a project out.
+  scrubSecrets?: boolean;
 }
 
 // A workspaces entry: the short form is just the slug list; the object form adds
@@ -106,6 +116,13 @@ export function loadProjects(path: string): ProjectsRegistry {
   for (const p of reg.projects) {
     if (!p.slug || !Array.isArray(p.repos) || p.repos.length === 0) {
       throw new Error(`${path}: each project needs a "slug" and at least one repo in "repos"`);
+    }
+    // Validate at boot: a bad mount or a privileged:false/dind:true contradiction must fail
+    // here, not at the first turn of that project.
+    try {
+      resolveSandboxOptions(p.sandbox);
+    } catch (e) {
+      throw new Error(`${path}: project "${p.slug}" ${e instanceof Error ? e.message : String(e)}`);
     }
     for (const s of p.mcp ?? []) {
       if (!s.name || (!s.command && !s.url)) {

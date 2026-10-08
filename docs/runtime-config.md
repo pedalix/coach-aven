@@ -33,6 +33,8 @@ sandbox state.
 | `repos` | no | changes clone layout, cwd, token scope, worktrees → re-prepare the sandbox |
 | `cliVersion` | no (reload is enough) | the per-project Claude Code CLI pin (canary override of `CLAUDE_CLI_VERSION`) — applied in place at the next chat prep / nightly housekeeping; see the README's *Claude Code version* |
 | `slug` / `slackChannel` | no | routing keys (`dm:…:<slug>`, `cmd:…:<slug>`) — changing orphans live sessions |
+| `sandbox` | no | `{ privileged, dind, mounts }` are `docker run` flags — they apply to a NEW container only; an existing `proj-<slug>` keeps its flags until it is removed on the sandbox host and recreated by the next turn (`docs/sandbox-drivers.md`) |
+| `scrubSecrets` | yes (reload is enough) | read when a session opens; `false` turns off the redaction of pasted passwords/tokens/DSNs before model input (`src/scrub.ts`). Default on |
 
 The soft/instructional needs are largely already covered by [project memory](memory.md)
 ("запомни для проекта: …"). So Slack editing here focuses on the deliberate
