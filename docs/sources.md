@@ -99,10 +99,57 @@ data/<slug>/raw/msgraph/<account-slug>/{messages,calendar,files,tombstones}.json
 data/<slug>/vault/<id>.json.age
 ```
 
-`data/` sits at the package root beside `facts/`, `memory/`, `drafts/` (gitignored, mode 700).
-Raw files are **append-only**: the same id may recur (edits, resyncs) and deletions arrive as
-`{ "deleted": true }` tombstones — readers compact by id, last record wins, tombstone wins.
-PR-B turns this into `data/<slug>/store.sqlite` and a read-only replica for the sandbox.
+`data/` sits at the package root beside `facts/`, `memory/`, `drafts/` (gitignored, mode 700;
+`AVEN_DATA_DIR` relocates it). Raw files are **append-only**: the same id may recur (edits,
+resyncs) and deletions arrive as `{ "deleted": true }` tombstones — the store compacts by id,
+last record wins, tombstone wins.
+
+## Store
+
+Raw JSONL is the archive; the agent needs something it can *query*. `orch sources build <slug>`
+(run automatically at the end of every `pull`, `--no-build` to skip) folds the new bytes of
+every raw file into **one SQLite per project**, `data/<slug>/store.sqlite` (`src/sources/store.ts`,
+on Node's built-in `node:sqlite`, no native dependency):
+
+| Table | What |
+| --- | --- |
+| `raw_records` | one row per raw **line** (`source, account, id, line_hash`) — the idempotency unit; a replayed line is a no-op |
+| `messages` | compacted mail + chat: `ref` = `source:account:id`, `thread_id`, `ts`, `author_person`/`author_raw`, `subject`, `text`, `permalink`, `raw_ref`, `scrub_withheld`/`scrub_kinds`, `deleted` |
+| `messages_fts` | FTS5 over `subject`+`text` (`porter unicode61 remove_diacritics 2`: *läuft* ↔ *lauft*, *running* ↔ *run*); triggers keep it in step and **drop deleted rows from the index** |
+| `threads` | per-thread rollup (first/last ts, count), recomputed for the threads a build touched |
+| `events`, `files` | calendar items and file metadata, same compaction and tombstones |
+| `people`, `identities`, `message_people` | who is who — reseeded on every build from the people file, then `from`/`to` rows per message |
+| `sync_state` | `schema_version` + the byte offset consumed per raw file |
+
+Why this shape: GB-scale personal mail and chat are an FTS problem first (the research behind
+the design is in the owen-ops repo, `docs/research-landscape.md` §2); embeddings would be an
+optional, disposable side index, never the source of truth. Thread ids follow the pullers'
+`raw_ref`s: Gmail `gmail:<account>/<threadId>`, Slack `slack:<team>/<channel>/<thread_ts>`,
+everything else is its own thread.
+
+**Build semantics.** Only complete lines are consumed — a half-written last line waits for the
+next build; a raw file that shrank below its offset is re-read from zero and reported. Each
+chunk of lines is applied with its new offset in one transaction, so a crash can never leave
+rows without the offset that produced them (and `raw_records` makes the replay harmless).
+
+**People.** `sources.people` (relative to `projects.config.json`), default
+`projects.d/<slug>.people.json`: a JSON array of
+`{ "person_id", "name", "company?", "default_initiative?", "identities": [...] }`. Identity kinds
+are inferred — contains `@` → e-mail; `slack:` → the display name the Slack puller writes;
+`msgraph:` → UPN; bare string → display name. Matching is by lower-cased key, and
+`"Name <addr>"` authors fall back to the address. The same key for two people is a load error.
+
+### Replica
+
+After each build the store is copied with `VACUUM INTO data/<slug>/replica/store.sqlite.tmp`
+and renamed into place — a consistent single-file snapshot with no WAL. That **directory** is
+what the sandbox gets, mounted read-only at `/data/sources` (`SOURCES_MOUNT_TARGET`), and it is
+added to the project's `sandbox.mounts` **automatically** by `loadProjects` whenever the
+project has a `sources` block — nobody writes that line by hand, and a hand-written mount on
+the same target fails the boot as a duplicate. The directory (not the file) is mounted so
+the rename is visible inside the container; readers open it with `?immutable=1`
+(`openReadOnly()` in `store.ts`). Like every sandbox option it applies at container creation:
+turning sources on for an existing `proj-<slug>` needs a `docker rm` first.
 
 ## Secrets
 
@@ -142,9 +189,10 @@ rotated, and the number improves measurably instead of by feel. Run it after the
 
 | Slice | Adds |
 | --- | --- |
-| **PR-B sources-store** | `data/<slug>/store.sqlite` built incrementally from `raw/` (raw immutable, messages, threads, events, files, people/identities, FTS5), `VACUUM INTO` replica, the replica mounted read-only into the sandbox automatically (no hand-written `sandbox.mounts`) |
+| ~~PR-B sources-store~~ | shipped: the store, the replica and the automatic mount above |
 | **PR-C sources-poller** | pulls on the poller loop (interval per project, single-flight, backoff, re-auth alerts), sync state in `facts/<slug>.json`, `/aven status` line, App Home bullet |
 | **PR-D sources-mcp** | an MCP server inside the sandbox over the read-only store: `search`, `get`, `people`, `stats`, every hit with its permalink |
 
 Until PR-C, schedule `orch sources pull <slug>` yourself (cron/launchd every 15 min keeps the
-Gmail `historyId` alive; a lapsed one costs a full resync, not data).
+Gmail `historyId` alive; a lapsed one costs a full resync, not data). Each pull ends with the
+store build, so the replica the sandbox sees is never older than the last pull.

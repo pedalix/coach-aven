@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_SANDBOX_OPTIONS, isDefaultSandbox, parseMount, resolveSandboxOptions } from './sandboxopts.js';
+import { DEFAULT_SANDBOX_OPTIONS, isDefaultSandbox, parseMount, resolveSandboxOptions, withSourcesMount, SOURCES_MOUNT_TARGET } from './sandboxopts.js';
 
 test('resolveSandboxOptions — absent/empty → fleet defaults (privileged dind, no mounts)', () => {
   assert.deepEqual(resolveSandboxOptions(undefined), DEFAULT_SANDBOX_OPTIONS);
@@ -37,4 +37,13 @@ test('parseMount — relative paths, "..", spaces, shell chars and "/" itself ar
 
 test('resolveSandboxOptions — duplicate container targets are rejected', () => {
   assert.throws(() => resolveSandboxOptions({ mounts: ['/a:/data', '/b:/data'] }), /duplicate mount target/);
+});
+
+test('withSourcesMount — adds the ro replica mount once; a hand-written clash is still a duplicate for resolve', () => {
+  const merged = withSourcesMount({ privileged: false, dind: false, mounts: ['/srv/x:/x'] }, '/data/p/replica');
+  assert.deepEqual(merged.mounts, ['/srv/x:/x', `/data/p/replica:${SOURCES_MOUNT_TARGET}:ro`]);
+  assert.deepEqual(withSourcesMount(merged, '/data/p/replica'), merged, 'idempotent');
+  assert.deepEqual(withSourcesMount(undefined, '/d/r').mounts, [`/d/r:${SOURCES_MOUNT_TARGET}:ro`]);
+  const clash = withSourcesMount({ mounts: [`/elsewhere:${SOURCES_MOUNT_TARGET}`] }, '/d/r');
+  assert.throws(() => resolveSandboxOptions(clash), /duplicate mount target/);
 });

@@ -46,6 +46,7 @@ src/
   sandboxopts.ts    # per-project container options: privileged / dind / mounts
   sources/          # per-project ingestion of mail/chat/calendar/files (docs/sources.md):
                     #   google/ slack/ msgraph/ pullers + auth, common/ vault+sink, audit.ts, cli.ts
+  sources/store.ts  # per-project SQLite (FTS5) built from raw/, replica mounted ro into the sandbox
   claudeSession.ts  # the persistent claude process (stream-json protocol)
   project.ts        # clone, worktrees, auth/MCP seeding into the sandbox
   daytona.ts        # SDK client: ensureSnapshot / ensureSandbox / exec

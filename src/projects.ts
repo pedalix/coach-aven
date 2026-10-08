@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SandboxDriverKind } from './config.js';
-import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
+import { resolveSandboxOptions, withSourcesMount, type SandboxOptions } from './sandboxopts.js';
 import { validateSourcesConfig } from './sources/config.js';
+import { replicaDir } from './sources/paths.js';
 import type { SourcesConfig } from './sources/types.js';
 
 // Registry of the projects the bot serves. ONE bot, MANY channels: each Slack channel
@@ -134,6 +135,12 @@ export function loadProjects(path: string): ProjectsRegistry {
     if (p.sources !== undefined) {
       try {
         p.sources = validateSourcesConfig(p.sources, `project "${p.slug}" sources`);
+        // The store replica rides into the sandbox automatically (docs/sources.md → "Replica").
+        // Merged here, once, so every ensureSandbox caller — turns, /aven memory, pollers —
+        // sees the same options without each knowing about sources. Re-validated so a
+        // hand-written mount on the same target fails the boot as a duplicate.
+        p.sandbox = withSourcesMount(p.sandbox, replicaDir(p.slug));
+        resolveSandboxOptions(p.sandbox);
       } catch (e) {
         throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
       }

@@ -1,7 +1,8 @@
 // `orch sources …` — the operator CLI for per-project source ingestion (docs/sources.md).
 //
 //   orch sources auth  <slug> <google|slack|msgraph> <action…>   one-time bootstrap / health checks
-//   orch sources pull  <slug> [--only …] [--since …] [--full] [--calendars …] [--verbose]
+//   orch sources pull  <slug> [--only …] [--since …] [--full] [--calendars …] [--no-build] [--verbose]
+//   orch sources build <slug>                                     rebuild store.sqlite + replica from raw/
 //   orch sources audit <slug> [--no-gitleaks] [--gold FILE] [--dir EXTRA…]
 //
 // Everything here runs on the BOT HOST as the bot's own user: it reads the same projects
@@ -17,7 +18,9 @@ import { runGoogleAuth } from './google/auth.js';
 import { pullGoogle } from './google/pull.js';
 import { runMsgraphAuth } from './msgraph/auth.js';
 import { pullMsgraph } from './msgraph/pull.js';
-import { dataDir, ensureDir, rawDir } from './paths.js';
+import { dataDir, ensureDir, rawDir, replicaDir, storePath } from './paths.js';
+import { buildStore, type BuildSummary } from './store.js';
+import { dirname, resolve } from 'node:path';
 import { runSlackAuth } from './slack/auth.js';
 import { pullSlack } from './slack/pull.js';
 import { tokenPath, vaultPathsFor } from './tokens.js';
@@ -29,6 +32,29 @@ function project(slug: string): ProjectConfig {
   const p = reg.projects.find((x) => x.slug === slug);
   if (!p) throw new UsageError(`unknown project "${slug}" (known: ${reg.projects.map((x) => x.slug).join(', ')})`);
   return p;
+}
+
+/** People file: `sources.people` relative to projects.config.json, else projects.d/<slug>.people.json beside it. */
+function peoplePath(p: ProjectConfig): string {
+  const base = dirname(loadConfig().projectsConfigPath);
+  return resolve(base, p.sources?.people ?? `projects.d/${p.slug}.people.json`);
+}
+
+function runBuild(p: ProjectConfig, verbose: boolean): BuildSummary {
+  const prefix = `[sources:${p.slug}/store]`;
+  const s = buildStore({
+    slug: p.slug,
+    rawDir: rawDir(p.slug),
+    storePath: storePath(p.slug),
+    replicaDir: replicaDir(p.slug),
+    peoplePath: peoplePath(p),
+    log: (line) => (verbose || !line.startsWith('  ') ? log.info(`${prefix} ${line}`) : undefined),
+  });
+  log.info(`${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tombstones ${s.tombstones}` +
+    `${s.replayed ? `, replayed ${s.replayed}` : ''}${s.malformed ? `, malformed ${s.malformed}` : ''}; people ${s.people}; replica ${s.replica ?? '(none)'}`);
+  for (const f of s.truncatedFiles) log.warn(`${prefix} ${f} shrank below its consumed offset — re-read from 0`);
+  for (const f of s.skippedFiles) log.warn(`${prefix} ${f}: unknown raw file name, skipped`);
+  return s;
 }
 
 function isKind(k: string): k is SourceKind {
@@ -80,8 +106,9 @@ export function registerSourcesCommands(program: Command): void {
     .option('--full', 'ignore cursors and resync everything', false)
     .option('--calendars <ids>', 'extra Google calendar ids (comma list)')
     .option('--chats-full', 'msgraph: open every chat (daily edit/delete sweep)', false)
+    .option('--no-build', 'leave store.sqlite and the replica as they are (default: build after the pull)')
     .option('--verbose', 'per-conversation / per-folder lines', false)
-    .action(async (slug: string, o: { only?: string; since?: string; full: boolean; calendars?: string; chatsFull: boolean; verbose: boolean }) => {
+    .action(async (slug: string, o: { only?: string; since?: string; full: boolean; calendars?: string; chatsFull: boolean; build: boolean; verbose: boolean }) => {
       const p = project(slug);
       if (!p.sources) throw new UsageError(`project "${slug}" has no "sources" block in projects.config.json`);
       const only = csv(o.only);
@@ -123,8 +150,20 @@ export function registerSourcesCommands(program: Command): void {
         ok &&= s.ok;
         reauth ||= s.reauth;
       }
+      // Build even after a partial failure: whatever landed in raw/ should reach the replica.
+      if (o.build) runBuild(p, o.verbose);
       // 3 = a human must re-run auth; 1 = something failed; mirrors the pullers' own codes.
       process.exitCode = reauth ? 3 : ok ? 0 : 1;
+    });
+
+  sources
+    .command('build <slug>')
+    .description('Rebuild data/<slug>/store.sqlite incrementally from raw/ and publish the read-only replica')
+    .option('--verbose', 'per-file lines', false)
+    .action((slug: string, o: { verbose: boolean }) => {
+      const p = project(slug);
+      if (!p.sources) throw new UsageError(`project "${slug}" has no "sources" block in projects.config.json`);
+      runBuild(p, o.verbose);
     });
 
   sources
