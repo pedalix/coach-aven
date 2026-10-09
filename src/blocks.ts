@@ -922,7 +922,7 @@ export function homeBullets(): string[] {
     '• *Build / collaborate* — @-mention me with a task in a project channel. I reply in a thread; keep replying (no need to re-mention) and I remember the conversation.',
     `• *Quick private answer* — \`${CMD} <question>\` in a project channel. I answer privately in our DM.`,
     "• *DM me directly* — just message me in a DM; if it's not clear which project you mean, I'll show a picker.",
-    `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; \`${CMD} schedule task weekdays 19:30 | what to do\` runs a job that may edit and commit as the project's instructions say; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every job across this workspace's projects).`,
+    `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; \`${CMD} schedule task weekdays 19:30 | what to do\` runs a job that may edit and commit as the project's instructions say; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every job across this workspace's projects). Routine results arrive as a thread — reply there to continue with the same context.`,
     "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task; works in Slack Connect channels too. If I can't use a file, I'll reply saying which one and why. _(Voice/video not supported yet.)_",
     "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).",
     '• *Stop me* — hit *✖ Cancel* on any working message.',

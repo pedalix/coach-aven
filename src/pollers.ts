@@ -35,7 +35,7 @@ import { housekeepingScript, parseHousekeepingReport, pruneThreshold } from './h
 import { cliUpgradeNotice, cliPinDrift, fetchCliDistTags } from './cliversion.js';
 import { dreamPrompt, dreamDigest } from './dream.js';
 import { snapshotMemory } from './memjournal.js';
-import { startRoutineTurn } from './routinerun.js';
+import { routineLabel, startRoutineTurn } from './routinerun.js';
 import { autofixNotifyBlocks, shortRepo, alertOps } from './blocks.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
@@ -126,6 +126,7 @@ export function createPollers(
   // commit, per the project's instructions) via the normal turn
   // machinery; a dream runs a silent memory-only pass (see fireDream). Shared by the
   // scheduler and the manual run triggers. Returns false if it can't run right now.
+  const routinesInFlight = new Set<string>();
   function fireRoutine(c: bolt.webApi.WebClient, r: RoutineRecord): boolean {
     const project = resolveBySlug(reg.current, r.slug);
     if (!project) return false; // project removed from the registry
@@ -135,20 +136,29 @@ export function createPollers(
     }
     if (r.kind === 'dream') return fireDream(project, r);
     if (r.kind === 'housekeeping') return fireHousekeeping(project, r);
-    const key = withTeam(r.teamId, home(), `cron:${r.id}:${r.slug}`);
-    if (engine.hasKey(key)) return false; // previous run still in flight — don't stack
+    const legacyKey = withTeam(r.teamId, home(), `cron:${r.id}:${r.slug}`);
+    if (routinesInFlight.has(r.id)) return false; // previous run still in flight — don't stack
+    routinesInFlight.add(r.id);
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
-    // Fresh Claude session per fire (routinerun.ts): picks up an edited project prompt and keeps
-    // a daily routine's context from growing forever.
+    // One top-level parent per run, the turn in its thread under thread:<ts> — replies there
+    // continue the same (fresh-per-run) session. See routinerun.ts.
     void startRoutineTurn(
       {
         restartSession: engine.restartSession,
-        liveTurn: (k, p, prompt) => engine.liveTurn(c, r.channel, undefined, undefined, k, p, prompt),
+        liveTurn: (k, threadTs, p, prompt, onAnswer) => engine.liveTurn(c, r.channel, undefined, threadTs, k, p, prompt, undefined, { onAnswer }),
       },
-      key,
+      {
+        postParent: async (text) => (await c.chat.postMessage({ channel: r.channel, text })).ts as string,
+        updateParent: async (ts, text) => {
+          await c.chat.update({ channel: r.channel, ts, text });
+        },
+      },
+      { legacyKey, threadKey: (ts) => withTeam(r.teamId, home(), `thread:${ts}`), label: routineLabel(r.kind, r.prompt) },
       project,
       routineFraming(r.kind) + r.prompt,
-    ).catch(turnFail(`routine ${r.id}`));
+    )
+      .catch(turnFail(`routine ${r.id}`))
+      .finally(() => routinesInFlight.delete(r.id));
     return true;
   }
 
