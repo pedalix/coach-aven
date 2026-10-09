@@ -20,6 +20,7 @@ export function buildSearchSql(f: {
   personIds?: string[];
   initiative?: string;
   limit?: number | string;
+  excludeBots?: boolean;
 }): { mode: 'fts' | 'recent'; sql: string; params: unknown[] };
 
 export function buildTaskSearchSql(f: {
@@ -39,8 +40,12 @@ export function buildMeetingSearchSql(f: {
   personIds?: string[];
   initiative?: string;
   limit?: number | string;
+  hasCalls?: boolean;
 }): { mode: 'fts' | 'recent'; sql: string; params: unknown[] };
-export function buildMeetingsListSql(f: { since?: string; until?: string; personIds?: string[]; source?: string; limit?: number | string }): { sql: string; params: unknown[] };
+export function buildMeetingsListSql(f: { since?: string; until?: string; personIds?: string[]; source?: string; limit?: number | string; hasCalls?: boolean }): { sql: string; params: unknown[] };
+export function collapseCalls<T extends { kind?: string; call_id?: string | null; source: string; ref: string }>(rows: T[]): (T & { also?: { source: string; ref: string }[] })[];
+export function buildCalendarSql(f: { since?: string; until?: string; source?: string; needles?: string[]; q?: string; limit?: number | string }): { sql: string; params: unknown[] };
+export function runCalendar(db: DatabaseSync, args: Record<string, unknown>): { note?: string; events: Record<string, unknown>[] };
 export function buildFragmentsSql(f: { since?: string; until?: string; initiative?: string; status?: string; limit?: number | string }): { sql: string; params: unknown[] };
 export function buildTasksListSql(f: {
   status?: string;

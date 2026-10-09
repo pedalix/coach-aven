@@ -261,8 +261,9 @@ restart. The agent sees `mcp__sources__search`, `get`, `people`, `stats`:
 
 | Tool | Does |
 | --- | --- |
-| `search({query, since, until, source, person, initiative, limit})` | FTS5 (`bm25`) over subject+text; every token is quoted so user text cannot reach the MATCH grammar (`word*` keeps prefix matching). `person` is an identity (email, slack id) or a name fragment; `initiative` filters by the people whose default initiative it is. No query → newest first. Hits carry `ref`, `permalink`, a highlighted snippet and `withheld` when the body was removed. |
+| `search({query, since, until, source, person, initiative, includeBots, limit})` | FTS5 (`bm25`) over subject+text; every word is quoted so user text cannot reach the MATCH grammar. Exposed on purpose: `"quoted phrases"`, `word*` prefix, and upper-case `OR` / `AND` / `NOT` between two terms (lower-case `or` is a word; dangling operators drop). Bot/integration messages (`messages.is_bot`) are excluded unless `includeBots`. A call recorded by several recorders comes back once, with the other copies in `also`. `person` is an identity (email, slack id) or a name fragment; `initiative` filters by the people whose default initiative it is. No query → newest first. Hits carry `ref`, `permalink`, a highlighted snippet and `withheld` when the body was removed. |
 | `get({ref})` | The full row, up to five thread neighbours each way, the people on it and the scrub metadata. A withheld body returns its `[BODY WITHHELD…]` marker verbatim — that *is* the answer. |
+| `calendar({since, until, person, q, source, limit})` | Calendar events (Google, Outlook) ordered by start — the source for "meetings today". `person` matches attendees/organizer via the person's identities (or the raw text); `q` matches the title. |
 | `people({q})` | Known people with their identities (from `projects.d/<slug>.people.json`). |
 | `stats()` | Per-source counts and time range, events, files, withheld count, build meta — what the replica covers, before the agent concludes something is missing. |
 
@@ -345,6 +346,28 @@ every note it wrote, because recorders keep rewriting a note after the call.
 
 The `sources` tool gains **`meetings({since, until, person, source})`**; `search` returns call
 hits as `kind: "meeting"`, `get` returns summary, next steps, transcript and the call's attributions.
+
+### Calls: one conversation, several recorders
+
+Running Granola, Gemini in Meet and Wispr at once (normal while migrating between recorders)
+yields up to three `meetings` rows per real call. Every build regroups them (`src/sources/calls.ts`,
+`calls` table + `meetings.call_id`): two copies are the same call when their windows overlap by
+more than half of the shorter recording; a copy never joins a call that already has one from the
+same recorder (back-to-back Granola notes stay two calls); several candidates → shared attendees,
+then title words, then overlap decide. A copy with no end time counts as 30 minutes. The primary
+copy has the longest transcript (then the richest summary); the call title is the first real title
+among the copies ("Instant meeting" loses). `meetings` lists one row per call with `sources` and the
+next steps of every copy merged; `search` collapses copies; `get` on any copy returns the call with
+each recorder's summary and next steps side by side — the place to compare recorder quality.
+
+### Bots and Slack names
+
+`messages.is_bot` marks integrations: the Slack puller's own flag (`bot_id`, `bot_message`, a
+users-map bot), known app names (Intercom, monto-webhook, Sentry, Gleap, Zapier, …) and no-reply /
+notification mail senders (`src/sources/bots.ts`). Slack DMs and authors still carrying a raw user
+id are renamed at build from `raw/slack/slack.users.json`; the puller asks `users.info` for ids
+`users.list` does not return (Slack Connect guests, deactivated accounts). A better users map or new
+bot rules relabel every stored row on the next build (they are part of the derived fingerprint).
 
 ## Tenant annotations
 

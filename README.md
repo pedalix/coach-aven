@@ -33,7 +33,8 @@ snapshot/
   shims/sail-shim.sh    # bare php/composer/artisan → ./vendor/bin/sail
   build-and-push.sh     # build + push one variant to GHCR (default: laravel)
 src/
-  cli.ts            # commander CLI (the `slack` command)
+  cli.ts            # commander CLI (`slack`, `sources …`, `routines list|run`)
+  control.ts        # local control channel: CLI → running bot (data/control/run-<id>.json)
   slack.ts          # composition root: engine + resolvers + handlers + pollers
   turn.ts           # turn engine: queues, live status, agent questions, restart recovery
   events.ts         # @mentions, thread replies, DMs, buttons, App Home
@@ -47,6 +48,8 @@ src/
   sources/          # per-project ingestion of mail/chat/calendar/files + task trackers (youtrack/jira/asana) (docs/sources.md):
                     #   google/ slack/ msgraph/ pullers + auth, common/ vault+sink, audit.ts, cli.ts
   sources/store.ts  # per-project SQLite (FTS5) built from raw/, replica mounted ro into the sandbox
+  sources/calls.ts  # recorder copies (granola/gmeet/wispr) of one call grouped into one call
+  sources/bots.ts   # integration/no-reply detection + Slack id → name resolution at build
   claudeSession.ts  # the persistent claude process (stream-json protocol)
   project.ts        # clone, worktrees, auth/MCP seeding into the sandbox
   daytona.ts        # SDK client: ensureSnapshot / ensureSandbox / exec
@@ -157,6 +160,10 @@ isolated sandbox** (`proj-<slug>`). Channels **auto-bind by name** via the wildc
 cp projects.config.example.json projects.config.json   # list projects (slug + repos)
 # create a Slack channel `bluefin-aven-<slug>` per project — it auto-binds by name
 npm run orch -- slack
+
+# operate scheduled routines from the bot host (no Slack needed)
+npm run orch -- routines list [slug]
+npm run orch -- routines run r3     # hands the request to the running bot via data/control/
 ```
 
 ### Multi-workspace installs (OAuth, optional)

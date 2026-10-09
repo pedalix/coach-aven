@@ -78,6 +78,37 @@ function fixtureReplica(): { dbPath: string } {
       transcript: 'Me: we rotate the GWS secret tomorrow', url: 'https://notes.granola.ai/d/g1', text: '', scrub: { withheld: false, kinds: [], redactions: 0 },
     }),
   );
+  // Calendar: two Google events + one Outlook event (start order ≠ file order on purpose).
+  const ev = (source: string, account: string, id: string, start: string, title: string, attendees: string[], organizer: string) =>
+    line({ source, account, id, kind: 'calendar', calendar: 'primary', start, end: start.replace('T09', 'T10'), title, attendees, organizer, link: `https://cal/${id}` });
+  writeFileSync(
+    join(raw, 'google', 'me@x.com', 'events.jsonl'),
+    ev('gcal', 'me@x.com', 'e2', '2026-10-09T09:30:00.000Z', 'BLUEFIN Devs Weekly Sync', ['me@x.com', 'nicola@bluefin.example'], 'me@x.com') +
+      ev('gcal', 'me@x.com', 'e1', '2026-10-09T09:00:00.000Z', 'Daily Catch-up', ['me@x.com'], 'me@x.com'),
+  );
+  mkdirSync(join(raw, 'msgraph', 'owen@example.com'), { recursive: true });
+  writeFileSync(join(raw, 'msgraph', 'owen@example.com', 'calendar.jsonl'), ev('msgraph', 'owen@example.com', 'o1', '2026-10-09T09:15:00.000Z', 'T4M security sync', ['Tess North@example.com', 'owen@example.com'], 'Tess North@example.com'));
+  // The same call captured by Wispr too (overlapping window, longer transcript) → one call.
+  mkdirSync(join(raw, 'meetings', 'wispr', 'wispr'), { recursive: true });
+  writeFileSync(
+    join(raw, 'meetings', 'wispr', 'wispr', 'meetings.jsonl'),
+    line({
+      source: 'wispr', account: 'wispr', id: 'w1', title: 'Instant meeting', start: '2026-10-08T17:01:00.000Z', end: '2026-10-08T17:39:00.000Z',
+      attendees: [], summary: 'Security incident: URL encryption', next_steps: ['(Owen) compare findings with the agent output'],
+      transcript: 'Owen: we rotate the GWS secret tomorrow and add a WAF in front of the app before Friday', url: 'https://notes.wisprflow.ai/w1', text: '',
+      scrub: { withheld: false, kinds: [], redactions: 0 },
+    }),
+  );
+  // An integration posting into the channel: excluded from search unless includeBots.
+  writeFileSync(
+    join(raw, 'slack', 'slack.messages.jsonl'),
+    line({
+      source: 'slack', account: 'T1', container: '#lumora', id: 'T1:C1:1700000000.000300', ts: '2026-10-05T12:10:00.000Z',
+      author: 'Intercom Convert', participants: ['Intercom Convert'], text: 'New conversation about the staging sign-off.',
+      permalink: 'https://slack/p3', raw_ref: 'slack:T1/C1/1700000000.000300', scrub: { withheld: false, kinds: [], redactions: 0 },
+    }),
+    { flag: 'a' },
+  );
   // The tenant's decisions: m1+m2 → hcg/p1; the meeting via the account-free shorthand → a sub-initiative;
   // a superseded fragment that must be ignored.
   const fragments = join(root, 'fragments.jsonl');
@@ -100,9 +131,15 @@ function fixtureReplica(): { dbPath: string } {
 test('sanitizeFtsQuery quotes every token so user text cannot reach the MATCH grammar', () => {
   assert.equal(sanitizeFtsQuery('Tess North'), '"Tobin" "Alder"');
   assert.equal(sanitizeFtsQuery('  team4multimedia  '), '"team4multimedia"');
-  // operators and column filters are neutralised, prefix star survives
-  assert.equal(sanitizeFtsQuery('NOT (secret) subject:x OR y*'), '"NOT" "secret" "subjectx" "OR" "y"*');
+  // column filters and parentheses are neutralised; a leading NOT is dangling and dropped;
+  // OR between two terms survives as an operator; prefix star survives
+  assert.equal(sanitizeFtsQuery('NOT (secret) subject:x OR y*'), '"secret" "subjectx" OR "y"*');
   assert.equal(sanitizeFtsQuery('say "hi"'), '"say" "hi"');
+  // quoted phrases stay phrases; lower-case "or" is a word; doubled / trailing operators drop
+  assert.equal(sanitizeFtsQuery('"backup encryption" OR OR waf AND'), '"backup encryption" OR "waf"');
+  assert.equal(sanitizeFtsQuery('monto or cartgenie'), '"monto" "or" "cartgenie"');
+  assert.equal(sanitizeFtsQuery('aws NOT billing'), '"aws" NOT "billing"');
+  assert.equal(sanitizeFtsQuery('"unterminated phrase'), '"unterminated phrase"');
   assert.equal(sanitizeFtsQuery('""'), '');
   assert.equal(sanitizeFtsQuery(undefined), '');
   assert.equal(sanitizeFtsQuery('owen@example.com'), '"owen@example.com"');
@@ -199,7 +236,7 @@ test('stats reports per-source coverage, withheld count and sync meta', () => {
       s.messages.map((m) => [m.source, m.n]),
       [
         ['gmail', 4],
-        ['slack', 1],
+        ['slack', 2],
       ],
     );
     assert.equal(s.withheld, 1);
@@ -224,7 +261,7 @@ test('handleMessage speaks the JSON-RPC subset the MCP client needs and never th
     (list.result as { tools: { name: string }[] }).tools.map((t) => t.name),
     TOOLS.map((t) => t.name),
   );
-  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'tasks', 'meetings', 'fragments', 'people', 'stats']);
+  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'tasks', 'meetings', 'calendar', 'fragments', 'people', 'stats']);
   const call = handleMessage({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'search', arguments: { query: 'forensic' } } }, dbPath)!;
   const content = (call.result as { content: { text: string }[]; isError: boolean });
   assert.equal(content.isError, false);
@@ -253,7 +290,7 @@ test('the script runs as a real stdio server: initialize → tools/list → tool
       while ((i = buf.indexOf('\n')) >= 0) {
         lines.push(buf.slice(0, i));
         buf = buf.slice(i + 1);
-        if (lines.length === 3) resolve();
+        if (lines.length === 6) resolve();
       }
     });
   });
@@ -261,13 +298,26 @@ test('the script runs as a real stdio server: initialize → tools/list → tool
   child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
   child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) + '\n');
   child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'stats', arguments: {} } }) + '\n');
+  child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'calendar', arguments: { since: '2026-10-09', until: '2026-10-09' } } }) + '\n');
+  child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'calendar', arguments: { since: '2026-10-09', person: 'tobin' } } }) + '\n');
+  child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'calendar', arguments: { q: 'sync', until: '2026-10-08' } } }) + '\n');
   await Promise.race([got, new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout; stderr=${stderr.join('')}`)), 10_000))]);
   child.stdin.end();
-  const [init, list, stats] = lines.map((l) => JSON.parse(l));
+  const [init, list, stats, today, withTobin, none] = lines.map((l) => JSON.parse(l));
   assert.equal(init.id, 1);
   assert.equal(init.result.serverInfo.name, 'sources');
   assert.equal(list.result.tools.length, TOOLS.length);
   assert.equal(JSON.parse(stats.result.content[0].text).people, 3);
+  const st = JSON.parse(stats.result.content[0].text);
+  assert.equal(st.events.n, 3);
+  assert.deepEqual(st.events.bySource.map((x: { source: string; n: number }) => [x.source, x.n]), [['gcal', 2], ['msgraph', 1]]);
+  const evs = JSON.parse(today.result.content[0].text).events as { title: string; source: string; attendees: string[]; link: string }[];
+  assert.deepEqual(evs.map((e) => e.title), ['Daily Catch-up', 'T4M security sync', 'BLUEFIN Devs Weekly Sync'], 'ordered by start across sources');
+  assert.equal(evs[1]!.source, 'msgraph');
+  assert.ok(evs[2]!.attendees.includes('nicola@bluefin.example'));
+  assert.deepEqual((JSON.parse(withTobin.result.content[0].text).events as { title: string }[]).map((e) => e.title), ['T4M security sync']);
+  assert.equal(JSON.parse(none.result.content[0].text).events.length, 0);
+  assert.ok(list.result.tools.some((t: { name: string; description: string }) => t.name === 'calendar' && /meetings today/.test(t.description)));
   assert.equal(stderr.join(''), '', 'server must stay silent on stderr');
   await new Promise((r) => child.on('close', r));
 });
@@ -279,7 +329,7 @@ test('meetings: listed by attendee, searchable by transcript, get returns summar
     const list = runMeetings(db, { person: 'tobin', since: '2026-10-08' }).meetings;
     assert.equal(list.length, 1);
     assert.equal(list[0]!.title, 'FO Cloud security incident');
-    assert.deepEqual(list[0]!.next_steps, ['(Owen) run the security agent on the repo']);
+    assert.deepEqual(list[0]!.next_steps, ['(Owen) compare findings with the agent output', '(Owen) run the security agent on the repo'], 'next steps from every copy, primary first');
     assert.equal(runMeetings(db, { person: 'Carla' }).meetings.length, 0);
     assert.equal(runSearch(db, { query: 'GWS secret', source: 'granola' }).hits.length, 1);
     const g = runGet(db, { ref: 'granola:me@x.com:g1' });
@@ -292,6 +342,29 @@ test('meetings: listed by attendee, searchable by transcript, get returns summar
     assert.deepEqual(runFragments(db, { status: 'superseded' }).fragments, []);
     const people = runPeople(db, { q: 'Carla' }).people;
     assert.deepEqual(people[0]!.marker, { type: 'broad', initiatives: ['bluefin/lumora'] });
+  } finally {
+    db.close();
+  }
+});
+
+test('calls: recorder copies collapse in search and meetings; get shows every copy side by side; bots excluded by default', () => {
+  const { dbPath } = fixtureReplica();
+  const db = openReadOnly(dbPath);
+  try {
+    const hits = runSearch(db, { query: 'GWS secret' }).hits;
+    const meet = hits.filter((h: { kind?: string }) => h.kind === 'meeting') as { also: unknown[] }[];
+    assert.equal(meet.length, 1, 'one call, not two copies');
+    assert.equal(meet[0]!.also.length, 1);
+    const list = runMeetings(db, { since: '2026-10-08' }).meetings as { sources: unknown[]; source: string }[];
+    assert.equal(list.length, 1);
+    assert.equal(list[0]!.sources.length, 2);
+    assert.equal(list[0]!.source, 'wispr', 'primary = longest transcript');
+    const call = runGet(db, { ref: 'granola:me@x.com:g1' }) as { copies: { source: string }[] };
+    assert.equal(call.copies.length, 2);
+    assert.deepEqual(call.copies.map((c) => c.source).sort(), ['granola', 'wispr']);
+    assert.equal(runSearch(db, { query: 'staging' }).hits.length, 1, 'the Intercom post is excluded');
+    assert.equal(runSearch(db, { query: 'staging', includeBots: true }).hits.length, 2);
+    assert.equal(runSearch(db, { query: 'forensic OR Konrad' }).hits.length, 2, 'OR works');
   } finally {
     db.close();
   }

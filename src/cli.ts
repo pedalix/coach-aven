@@ -5,6 +5,7 @@ import { runSlack } from './slack.js';
 import { log } from './log.js';
 import { initSentry, captureError, flushSentry } from './sentry.js';
 import { registerSourcesCommands } from './sources/cli.js';
+import { registerRoutinesCommands } from './routinescli.js';
 import { UsageError } from './sources/errors.js';
 
 const program = new Command();
@@ -23,6 +24,7 @@ program
   });
 
 registerSourcesCommands(program);
+registerRoutinesCommands(program);
 
 program.parseAsync(process.argv).catch(async (err) => {
   // A wrong invocation is not an incident: plain message, exit 2, nothing to Sentry.
