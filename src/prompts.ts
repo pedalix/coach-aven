@@ -56,6 +56,20 @@ export function autofixPrompt(repo: string, number: number): string {
 }
 
 // Prepended to every scheduled report turn: read-only, summarise, change nothing.
+// Scheduled task (kind 'task'): unlike a digest it may change files — the project's own
+// system prompt says where and how (e.g. a tenant repo's annotation files). Still bounded:
+// no PRs into other repos, one summary message plus whatever escalations the instructions ask for.
+export const TASK_FRAMING =
+  "[Scheduled task] Run the task below as the project's instructions describe — you MAY edit and commit " +
+  "files when the instructions say so (follow the project's system prompt for where and how), never open " +
+  'PRs against other repositories, never post more than one summary message plus any escalation messages ' +
+  'the instructions call for. If nothing needed doing, say so in one line.\n\n';
+
+// Framing for a fired report/task routine (dream/housekeeping never reach a turn).
+export function routineFraming(kind: string | undefined): string {
+  return kind === 'task' ? TASK_FRAMING : REPORT_FRAMING;
+}
+
 export const REPORT_FRAMING =
   '[Scheduled read-only digest] Do NOT modify code, create branches, commit, or open PRs. ' +
   'Read-only: gather the requested information and post one concise summary. If nothing is ' +

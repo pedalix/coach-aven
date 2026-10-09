@@ -13,7 +13,7 @@ import type { TurnEngine, ClientForTeam } from './turn.js';
 import type { Channels } from './channels.js';
 import { dueRoutines } from './schedule.js';
 import { prsToReview, autofixEvents } from './pr.js';
-import { reviewPrompt, REPORT_FRAMING, investigationPrompt, type ReviewEffort } from './prompts.js';
+import { reviewPrompt, routineFraming, investigationPrompt, type ReviewEffort } from './prompts.js';
 import {
   listTaggedIssues,
   listComments,
@@ -119,7 +119,8 @@ export function createPollers(
   // "month-day hh:mm" it last fired on.
   const firedThisMinute = new Map<string, string>();
 
-  // Fire one routine now. A report posts a read-only digest turn via the normal turn
+  // Fire one routine now. A report posts a read-only digest turn (a task: a turn that may
+  // commit, per the project's instructions) via the normal turn
   // machinery; a dream runs a silent memory-only pass (see fireDream). Shared by the
   // scheduler and the manual run triggers. Returns false if it can't run right now.
   function fireRoutine(c: bolt.webApi.WebClient, r: RoutineRecord): boolean {
@@ -134,7 +135,7 @@ export function createPollers(
     const key = withTeam(r.teamId, home(), `cron:${r.id}:${r.slug}`);
     if (engine.hasKey(key)) return false; // previous run still in flight — don't stack
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
-    void engine.liveTurn(c, r.channel, undefined, undefined, key, project, REPORT_FRAMING + r.prompt).catch(
+    void engine.liveTurn(c, r.channel, undefined, undefined, key, project, routineFraming(r.kind) + r.prompt).catch(
       turnFail(`routine ${r.id}`),
     );
     return true;

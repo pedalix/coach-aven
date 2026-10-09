@@ -402,3 +402,14 @@ test('reportPostedBlocks: the shared ✅ confirmation keeps the text and deep-li
   assert.equal(blocks[0].text, 'what was posted');
   assert.match(blocks[1].elements[0].text, /Posted to \*CG-50\*.*open in YouTrack/);
 });
+
+import { routineListBlocks as listRoutinesForTask } from './blocks.js';
+test('routineListBlocks: a task routine carries its own label, a digest does not', () => {
+  const base = { slug: 'p', channel: 'C1', cron: '30 19 * * 1-5', tz: 'Europe/Moscow', spec: 'weekdays 19:30', enabled: true, createdBy: 'U1', createdAt: '2026-10-09T00:00:00Z' };
+  const text = JSON.stringify(listRoutinesForTask([
+    { ...base, id: 'r1', prompt: 'review session', kind: 'task' },
+    { ...base, id: 'r2', prompt: 'digest of PRs' },
+  ] as any));
+  assert.match(text, /\*r1\* 🛠 task/);
+  assert.doesNotMatch(text, /\*r2\* 🛠 task/);
+});

@@ -11,6 +11,7 @@ import {
   type TimeParts,
   type SchedulableRoutine,
 } from './schedule.js';
+import { parseScheduleCommand } from './schedule.js';
 
 // Base parts representing Wed 2026-06-24 09:00 (dow: Sun=0 → Wed=3). Override per-case.
 const at = (over: Partial<TimeParts>): TimeParts => ({ mi: 0, ho: 9, dom: 24, mon: 6, dow: 3, ...over });
@@ -139,4 +140,18 @@ test('groupRoutinesBySlug — groups by slug, sorted, preserves per-slug order',
     { slug: 'dorfberg', routines: [{ id: 'r1', slug: 'dorfberg' }, { id: 'r3', slug: 'dorfberg' }] },
   ]);
   assert.deepEqual(groupRoutinesBySlug([]), []);
+});
+
+test('parseScheduleCommand: classic digest form stays a report', () => {
+  assert.deepEqual(parseScheduleCommand(' weekdays 9:00 | status of open PRs '), { kind: 'report', when: 'weekdays 9:00', prompt: 'status of open PRs' });
+});
+test('parseScheduleCommand: leading task makes a task routine', () => {
+  assert.deepEqual(parseScheduleCommand('task weekdays 19:30 | review session'), { kind: 'task', when: 'weekdays 19:30', prompt: 'review session' });
+  assert.deepEqual(parseScheduleCommand('TASK cron 30 19 * * 1-5 | x'), { kind: 'task', when: 'cron 30 19 * * 1-5', prompt: 'x' });
+});
+test('parseScheduleCommand: "taskforce" is not the task keyword; missing bar/when/prompt → usage', () => {
+  assert.deepEqual(parseScheduleCommand('taskforce | x'), { kind: 'report', when: 'taskforce', prompt: 'x' });
+  assert.deepEqual(parseScheduleCommand('task weekdays 9:00'), { error: 'usage' });
+  assert.deepEqual(parseScheduleCommand('task | x'), { error: 'usage' });
+  assert.deepEqual(parseScheduleCommand('daily 9:00 |  '), { error: 'usage' });
 });

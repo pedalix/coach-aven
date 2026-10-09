@@ -15,7 +15,7 @@ import { effectiveAccess, mayDrive, isAdmin, deniedText, parseUsersCmd, applyUse
 import type { TurnEngine } from './turn.js';
 import type { Channels } from './channels.js';
 import { ROUTINE_TZ, type Pollers } from './pollers.js';
-import { parseSchedule, groupRoutinesBySlug } from './schedule.js';
+import { parseSchedule, parseScheduleCommand, groupRoutinesBySlug } from './schedule.js';
 import { mdToMrkdwn, parseTopics } from './format.js';
 import { resolvePr } from './pr.js';
 import { parseEffort, type ReviewEffort } from './prompts.js';
@@ -203,15 +203,13 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
     myProjects: ProjectConfig[],
   ): Promise<{ text: string; blocks?: unknown[] }> {
     const usage =
-      `Usage: \`${CMD} schedule <when> | <what to report>\`\n` +
+      `Usage: \`${CMD} schedule <when> | <what to report>\` (read-only digest) or ` +
+      `\`${CMD} schedule task <when> | <what to do>\` (may edit/commit per the project's instructions)\n` +
       '`<when>` = `daily 9:00`, `weekdays 9:00`, `weekly mon 9:00`, or `cron 0 9 * * 1-5`' +
       ` (times in ${ROUTINE_TZ}).`;
-    const rest = cmdText.slice('schedule'.length).trim();
-    const bar = rest.indexOf('|');
-    if (bar < 0) return { text: `:information_source: ${usage}` };
-    const when = rest.slice(0, bar).trim();
-    const prompt = rest.slice(bar + 1).trim();
-    if (!when || !prompt) return { text: `:information_source: ${usage}` };
+    const parsed = parseScheduleCommand(cmdText.slice('schedule'.length));
+    if ('error' in parsed) return { text: `:information_source: ${usage}` };
+    const { kind, when, prompt } = parsed;
 
     const sched = parseSchedule(when);
     if ('error' in sched) return { text: `:x: ${sched.error}` };
@@ -232,11 +230,15 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
       prompt,
       enabled: true,
       createdBy: userId,
+      ...(kind === 'task' ? { kind: 'task' as const } : {}),
     });
     return {
       text:
         `:white_check_mark: Scheduled *${rec.id}* — \`${rec.spec}\` (${ROUTINE_TZ}) for *${project.slug}*. ` +
-        `I'll post the digest here. Read-only — I won't change code or open PRs.\n_Manage:_ \`${CMD} routines\``,
+        (kind === 'task'
+          ? `I'll run it as a task — it may edit and commit as the project's instructions say, and posts one summary here.`
+          : `I'll post the digest here. Read-only — I won't change code or open PRs.`) +
+        `\n_Manage:_ \`${CMD} routines\``,
     };
   }
 

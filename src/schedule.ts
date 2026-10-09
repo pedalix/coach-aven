@@ -139,3 +139,25 @@ export function groupRoutinesBySlug<T extends { slug: string }>(routines: T[]): 
   }
   return [...by.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([slug, rs]) => ({ slug, routines: rs }));
 }
+
+// `/aven schedule [task] <when> | <prompt>` body (the text after "schedule"). A leading `task`
+// makes a routine that MAY edit and commit (kind 'task'); without it the routine is the
+// classic read-only digest (kind 'report'). Pure so the command parser is testable.
+export type ScheduleCommand =
+  | { kind: 'report' | 'task'; when: string; prompt: string }
+  | { error: 'usage' };
+export function parseScheduleCommand(rest: string): ScheduleCommand {
+  let body = rest.trim();
+  let kind: 'report' | 'task' = 'report';
+  const m = /^task\b\s*/i.exec(body);
+  if (m) {
+    kind = 'task';
+    body = body.slice(m[0].length);
+  }
+  const bar = body.indexOf('|');
+  if (bar < 0) return { error: 'usage' };
+  const when = body.slice(0, bar).trim();
+  const prompt = body.slice(bar + 1).trim();
+  if (!when || !prompt) return { error: 'usage' };
+  return { kind, when, prompt };
+}
