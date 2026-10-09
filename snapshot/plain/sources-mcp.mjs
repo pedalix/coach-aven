@@ -338,6 +338,38 @@ export function buildTasksListSql(f) {
   };
 }
 
+// `calendar` tool: events in a window, ordered by start. `needles` are lower-cased identities
+// (emails, names) any of which must appear among attendees/organizer; `q` matches the title.
+export function buildCalendarSql(f) {
+  const where = ['e.deleted = 0', "e.start <> ''"];
+  const params = [];
+  if (f.since) {
+    where.push('e.start >= ?');
+    params.push(f.since);
+  }
+  if (f.until) {
+    where.push('e.start <= ?');
+    params.push(f.until);
+  }
+  if (f.source) {
+    where.push('e.source = ?');
+    params.push(f.source);
+  }
+  if (f.needles && f.needles.length) {
+    where.push(`(${f.needles.map(() => '(lower(e.attendees) LIKE ? OR lower(e.organizer) LIKE ?)').join(' OR ')})`);
+    for (const n of f.needles) params.push(`%${n}%`, `%${n}%`);
+  }
+  if (f.q) {
+    where.push('lower(e.title) LIKE ?');
+    params.push(`%${String(f.q).toLowerCase()}%`);
+  }
+  const limit = Math.max(1, Math.min(500, Number(f.limit) || 100));
+  return {
+    sql: `SELECT e.ref, e.source, e.account, e.calendar, e.start, e."end", e.title, e.attendees, e.organizer, e.link FROM events e WHERE ${where.join(' AND ')} ORDER BY e.start ASC LIMIT ?`,
+    params: [...params, limit],
+  };
+}
+
 export const TOOLS = [
   {
     name: 'search',
@@ -399,6 +431,25 @@ export const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: { since: { type: 'string' }, until: { type: 'string' }, person: { type: 'string' }, source: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
+    },
+  },
+  {
+    name: 'calendar',
+    description:
+      'Calendar events (Google Calendar, Outlook) ordered by start — THE source for "meetings today", "what is on my calendar ' +
+      'tomorrow", "when do I meet X". Filters: since/until (ISO date = whole day, or datetime), person (attendee or organizer: ' +
+      'email, name or person id), q (title words), source (gcal|msgraph|…). Returns start/end/title/attendees/organizer/link/source. ' +
+      'Recorded calls with transcripts are in `meetings`, not here.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: { type: 'string' },
+        until: { type: 'string' },
+        person: { type: 'string' },
+        q: { type: 'string' },
+        source: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
+      },
     },
   },
   {
@@ -652,6 +703,38 @@ export function runMeetings(db, args) {
   return { ...(note ? { note } : {}), meetings: out };
 }
 
+export function runCalendar(db, args) {
+  if (!hasTable(db, 'events')) return { events: [], note: 'no calendar sources in this replica' };
+  let needles;
+  let note;
+  if (args.person) {
+    const p = String(args.person).trim().toLowerCase();
+    const r = resolvePersonIds(db, args.person);
+    const ids = r.ids[0] === '__nobody__' ? [] : r.ids;
+    const idents = ids.length
+      ? db.prepare(`SELECT identity FROM identities WHERE person_id IN (${ids.map(() => '?').join(',')})`).all(...ids).map((x) => String(x.identity).replace(/^[a-z]+:/, '').toLowerCase())
+      : [];
+    needles = [...new Set([p, ...idents].filter(Boolean))];
+    if (!ids.length) note = `no known person matches ${JSON.stringify(args.person)}; matching the text in attendees/organizer`;
+  }
+  const q = buildCalendarSql({ since: normalizeTime(args.since, 'since'), until: normalizeTime(args.until, 'until'), source: args.source, needles, q: args.q, limit: args.limit });
+  return {
+    ...(note ? { note } : {}),
+    events: db.prepare(q.sql).all(...q.params).map((e) => ({
+      ref: e.ref,
+      source: e.source,
+      account: e.account,
+      calendar: e.calendar,
+      start: e.start,
+      end: e.end,
+      title: e.title,
+      attendees: parseJson(e.attendees || '[]', []),
+      organizer: e.organizer,
+      link: e.link,
+    })),
+  };
+}
+
 export function runFragments(db, args) {
   if (!hasTable(db, 'fragments')) return { fragments: [], note: 'this replica has no fragments (built before tenant annotations)' };
   const q = buildFragmentsSql({ since: normalizeTime(args.since, 'since'), until: normalizeTime(args.until, 'until'), initiative: args.initiative, status: args.status, limit: args.limit });
@@ -789,6 +872,7 @@ export function runStats(db) {
     .prepare('SELECT source, count(*) AS n, min(ts) AS first_ts, max(ts) AS last_ts FROM messages WHERE deleted = 0 GROUP BY source ORDER BY source')
     .all();
   const events = db.prepare('SELECT count(*) AS n, min(start) AS first, max(start) AS last FROM events WHERE deleted = 0').get();
+  events.bySource = db.prepare("SELECT source, count(*) AS n, min(start) AS first, max(start) AS last FROM events WHERE deleted = 0 AND start <> '' GROUP BY source ORDER BY source").all();
   const files = db.prepare('SELECT count(*) AS n FROM files WHERE deleted = 0').get();
   const people = db.prepare('SELECT count(*) AS n FROM people').get();
   const withheld = db.prepare('SELECT count(*) AS n FROM messages WHERE deleted = 0 AND scrub_withheld = 1').get();
@@ -831,6 +915,8 @@ export function callTool(dbPath, name, args) {
         return runMeetings(db, args ?? {});
       case 'fragments':
         return runFragments(db, args ?? {});
+      case 'calendar':
+        return runCalendar(db, args ?? {});
       case 'stats':
         return runStats(db);
       default:

@@ -263,6 +263,7 @@ restart. The agent sees `mcp__sources__search`, `get`, `people`, `stats`:
 | --- | --- |
 | `search({query, since, until, source, person, initiative, includeBots, limit})` | FTS5 (`bm25`) over subject+text; every word is quoted so user text cannot reach the MATCH grammar. Exposed on purpose: `"quoted phrases"`, `word*` prefix, and upper-case `OR` / `AND` / `NOT` between two terms (lower-case `or` is a word; dangling operators drop). Bot/integration messages (`messages.is_bot`) are excluded unless `includeBots`. A call recorded by several recorders comes back once, with the other copies in `also`. `person` is an identity (email, slack id) or a name fragment; `initiative` filters by the people whose default initiative it is. No query → newest first. Hits carry `ref`, `permalink`, a highlighted snippet and `withheld` when the body was removed. |
 | `get({ref})` | The full row, up to five thread neighbours each way, the people on it and the scrub metadata. A withheld body returns its `[BODY WITHHELD…]` marker verbatim — that *is* the answer. |
+| `calendar({since, until, person, q, source, limit})` | Calendar events (Google, Outlook) ordered by start — the source for "meetings today". `person` matches attendees/organizer via the person's identities (or the raw text); `q` matches the title. |
 | `people({q})` | Known people with their identities (from `projects.d/<slug>.people.json`). |
 | `stats()` | Per-source counts and time range, events, files, withheld count, build meta — what the replica covers, before the agent concludes something is missing. |
 

@@ -78,6 +78,16 @@ function fixtureReplica(): { dbPath: string } {
       transcript: 'Me: we rotate the GWS secret tomorrow', url: 'https://notes.granola.ai/d/g1', text: '', scrub: { withheld: false, kinds: [], redactions: 0 },
     }),
   );
+  // Calendar: two Google events + one Outlook event (start order ≠ file order on purpose).
+  const ev = (source: string, account: string, id: string, start: string, title: string, attendees: string[], organizer: string) =>
+    line({ source, account, id, kind: 'calendar', calendar: 'primary', start, end: start.replace('T09', 'T10'), title, attendees, organizer, link: `https://cal/${id}` });
+  writeFileSync(
+    join(raw, 'google', 'me@x.com', 'events.jsonl'),
+    ev('gcal', 'me@x.com', 'e2', '2026-10-09T09:30:00.000Z', 'BLUEFIN Devs Weekly Sync', ['me@x.com', 'nicola@bluefin.example'], 'me@x.com') +
+      ev('gcal', 'me@x.com', 'e1', '2026-10-09T09:00:00.000Z', 'Daily Catch-up', ['me@x.com'], 'me@x.com'),
+  );
+  mkdirSync(join(raw, 'msgraph', 'owen@example.com'), { recursive: true });
+  writeFileSync(join(raw, 'msgraph', 'owen@example.com', 'calendar.jsonl'), ev('msgraph', 'owen@example.com', 'o1', '2026-10-09T09:15:00.000Z', 'T4M security sync', ['Tess North@example.com', 'owen@example.com'], 'Tess North@example.com'));
   // The same call captured by Wispr too (overlapping window, longer transcript) → one call.
   mkdirSync(join(raw, 'meetings', 'wispr', 'wispr'), { recursive: true });
   writeFileSync(
@@ -251,7 +261,7 @@ test('handleMessage speaks the JSON-RPC subset the MCP client needs and never th
     (list.result as { tools: { name: string }[] }).tools.map((t) => t.name),
     TOOLS.map((t) => t.name),
   );
-  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'tasks', 'meetings', 'fragments', 'people', 'stats']);
+  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'tasks', 'meetings', 'calendar', 'fragments', 'people', 'stats']);
   const call = handleMessage({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'search', arguments: { query: 'forensic' } } }, dbPath)!;
   const content = (call.result as { content: { text: string }[]; isError: boolean });
   assert.equal(content.isError, false);
@@ -280,7 +290,7 @@ test('the script runs as a real stdio server: initialize → tools/list → tool
       while ((i = buf.indexOf('\n')) >= 0) {
         lines.push(buf.slice(0, i));
         buf = buf.slice(i + 1);
-        if (lines.length === 3) resolve();
+        if (lines.length === 6) resolve();
       }
     });
   });
@@ -288,13 +298,26 @@ test('the script runs as a real stdio server: initialize → tools/list → tool
   child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
   child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }) + '\n');
   child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'stats', arguments: {} } }) + '\n');
+  child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'calendar', arguments: { since: '2026-10-09', until: '2026-10-09' } } }) + '\n');
+  child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'calendar', arguments: { since: '2026-10-09', person: 'tobin' } } }) + '\n');
+  child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'calendar', arguments: { q: 'sync', until: '2026-10-08' } } }) + '\n');
   await Promise.race([got, new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout; stderr=${stderr.join('')}`)), 10_000))]);
   child.stdin.end();
-  const [init, list, stats] = lines.map((l) => JSON.parse(l));
+  const [init, list, stats, today, withTobin, none] = lines.map((l) => JSON.parse(l));
   assert.equal(init.id, 1);
   assert.equal(init.result.serverInfo.name, 'sources');
   assert.equal(list.result.tools.length, TOOLS.length);
   assert.equal(JSON.parse(stats.result.content[0].text).people, 3);
+  const st = JSON.parse(stats.result.content[0].text);
+  assert.equal(st.events.n, 3);
+  assert.deepEqual(st.events.bySource.map((x: { source: string; n: number }) => [x.source, x.n]), [['gcal', 2], ['msgraph', 1]]);
+  const evs = JSON.parse(today.result.content[0].text).events as { title: string; source: string; attendees: string[]; link: string }[];
+  assert.deepEqual(evs.map((e) => e.title), ['Daily Catch-up', 'T4M security sync', 'BLUEFIN Devs Weekly Sync'], 'ordered by start across sources');
+  assert.equal(evs[1]!.source, 'msgraph');
+  assert.ok(evs[2]!.attendees.includes('nicola@bluefin.example'));
+  assert.deepEqual((JSON.parse(withTobin.result.content[0].text).events as { title: string }[]).map((e) => e.title), ['T4M security sync']);
+  assert.equal(JSON.parse(none.result.content[0].text).events.length, 0);
+  assert.ok(list.result.tools.some((t: { name: string; description: string }) => t.name === 'calendar' && /meetings today/.test(t.description)));
   assert.equal(stderr.join(''), '', 'server must stay silent on stderr');
   await new Promise((r) => child.on('close', r));
 });
