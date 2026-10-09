@@ -377,6 +377,21 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         const alert = rateLimits.observe(info, project.slug);
         if (alert) alertOps(alert.text, alert.level === 'recovered' ? 'info' : 'warning');
       },
+      // A background Task/Agent that finishes after its turn settled makes the CLI run a
+      // whole extra turn on its own — real tokens with no liveTurn/runAsk around them to
+      // meter it. Record it against this conversation as kind 'background'. No turnId: the
+      // session can't tell which earlier turn launched the work (same reason the
+      // 🔔 Background update carries no rating buttons).
+      onIdleUsage: ({ usage, isError, durationMs }) =>
+        usageLog.record({
+          at: new Date().toISOString(),
+          key,
+          slug: project.slug,
+          kind: 'background',
+          status: isError ? 'error' : 'ok',
+          elapsedMs: durationMs,
+          usage,
+        }),
     });
     touchLive(key, chat);
     return chat;
