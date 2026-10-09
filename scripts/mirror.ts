@@ -26,7 +26,9 @@ import { initSentry, captureError, flushSentry } from '../src/sentry.js';
 import { log } from '../src/log.js';
 
 const MIRRORS = [
-  // HSX Sanity studio — its devs still work in the old BluefinAG org.
+  // HSX Sanity studio — its devs still work in BluefinAG, a USER account where we are only
+  // collaborators, so no fine-grained PAT can target it (and a classic PAT would reach everything).
+  // Token left unset → skipped: the mirror stays a snapshot until BluefinAG moves into the org.
   { src: 'BluefinAG/dev-hsx-cms', dst: 'BluefinOrg/dev-hsx-cms', srcTokenEnv: 'MIRROR_SRC_BLUEFINAG' },
   // vendor-labs' multi-tenant studio; ours is projects/mia-vallora.
   { src: 'vendor-labs/omni-cms-v2', dst: 'BluefinOrg/omni-cms-v2', srcTokenEnv: 'MIRROR_SRC_INSIDELABS' },
@@ -79,9 +81,13 @@ async function main(): Promise<void> {
 
   let failed = 0;
   for (const m of MIRRORS) {
+    const srcToken = process.env[m.srcTokenEnv];
+    if (!srcToken) {
+      // Deliberately unset (see above) is a state, not an incident: log, don't page.
+      log.info(`mirror ${m.src} → ${m.dst} skipped: ${m.srcTokenEnv} not set (snapshot only)`);
+      continue;
+    }
     try {
-      const srcToken = process.env[m.srcTokenEnv];
-      if (!srcToken) throw new Error(`${m.srcTokenEnv} is not set`);
       const dir = join(CACHE, `${m.dst.replace('/', '__')}.git`);
       if (!existsSync(dir)) execFileSync('git', ['init', '-q', '--bare', dir]);
       git(['fetch', '-q', '--prune', `https://github.com/${m.src}.git`, '+refs/heads/*:refs/heads/*', '+refs/tags/*:refs/tags/*'], dir, srcToken);

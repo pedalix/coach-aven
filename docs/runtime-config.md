@@ -133,5 +133,8 @@ agent not to push or open PRs there.
   (`gh api -X PUT repos/<mirror>/actions/permissions -F enabled=false` — upstream deploy
   workflows would otherwise run on every sync), add the entry to `MIRRORS` in the script, add
   the repo to the owner's PAT (or a new `MIRROR_SRC_*` + `.env.example` line), deploy.
+- **No token → snapshot:** a mirror whose `MIRROR_SRC_*` is unset is skipped (logged, no alert).
+  `BluefinAG` is a *user* account where we're only collaborators — fine-grained PATs can't
+  target it — so the HSX mirror stays a manual snapshot until those repos move into the org.
 - Dependabot is enforced by the org's security configuration and can't be turned off per mirror;
   close any PR it opens there.
