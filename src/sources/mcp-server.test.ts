@@ -13,7 +13,10 @@ import {
   buildSearchSql,
   handleMessage,
   normalizeTime,
+  runFragments,
   runGet,
+  runMeetings,
+  runPeople,
   runSearch,
   runStats,
   sanitizeFtsQuery,
@@ -29,7 +32,8 @@ function fixtureReplica(): { dbPath: string } {
   writeFileSync(
     people,
     JSON.stringify([
-      { person_id: 'tobin', name: 'Tess North', company: 'contoso', default_initiative: 'hcg/p1', identities: ['Tess North@example.com'] },
+      { person_id: 'tobin', name: 'Tess North', company: 'contoso', marker: { type: 'broad', initiatives: ['hcg/p1'] }, identities: ['Tess North@example.com'] },
+      // legacy field: read as a broad marker
       { person_id: 'Carla', name: 'Carla Bowman', company: 'bluefin', default_initiative: 'bluefin/lumora', identities: ['slack:Carla Bowman'] },
       { person_id: 'owen', name: 'Owen', identities: ['me@x.com', 'slack:Owen'] },
     ]),
@@ -64,8 +68,29 @@ function fixtureReplica(): { dbPath: string } {
       }) +
       line({ source: 'slack', account: 'T1', id: 'T1:C1:1700000000.000200', deleted: true }),
   );
+  mkdirSync(join(raw, 'meetings', 'granola', 'granola'), { recursive: true });
+  writeFileSync(
+    join(raw, 'meetings', 'granola', 'granola', 'meetings.jsonl'),
+    line({
+      source: 'granola', account: 'me@x.com', id: 'g1', title: 'FO Cloud security incident', start: '2026-10-08T17:00:00.000Z', end: '2026-10-08T17:40:00.000Z',
+      attendees: [{ email: 'Tess North@example.com', name: 'Tess North' }, { email: 'me@x.com', name: 'Owen' }],
+      summary: '# Incident\n- base64 URL encryption reverse-engineered', next_steps: ['(Owen) run the security agent on the repo'],
+      transcript: 'Me: we rotate the GWS secret tomorrow', url: 'https://notes.granola.ai/d/g1', text: '', scrub: { withheld: false, kinds: [], redactions: 0 },
+    }),
+  );
+  // The tenant's decisions: m1+m2 → hcg/p1; the meeting via the account-free shorthand → a sub-initiative;
+  // a superseded fragment that must be ignored.
+  const fragments = join(root, 'fragments.jsonl');
+  writeFileSync(
+    fragments,
+    line({ id: 'f1', kind: 'thread', start: '2026-10-01T09:00:00Z', end: '2026-10-02T09:00:00Z', refs: ['gmail:me@x.com:m1', 'gmail:me@x.com:m2'], attributions: [{ initiative: 'hcg/p1', share: 1 }], decided_by: 'rule', status: 'decided' }) +
+      line({ id: 'f2', kind: 'call', start: '2026-10-08T17:00:00Z', end: '2026-10-08T17:40:00Z', refs: ['meeting:granola:g1'], attributions: [{ initiative: 'hcg/p1/fo-cloud', share: 1 }], decided_by: 'owen', rationale: 'incident call', status: 'decided' }) +
+      line({ id: 'f3', kind: 'thread', start: '2026-10-05T12:00:00Z', refs: ['slack:T1:T1:C1:1700000000.000100'], attributions: [{ initiative: 'bluefin/lumora', share: 1 }], decided_by: 'model', status: 'decided' }) +
+      line({ id: 'f3', kind: 'thread', start: '2026-10-05T12:00:00Z', refs: ['slack:T1:T1:C1:1700000000.000100'], attributions: [{ initiative: 'bluefin/lumora', share: 1 }], decided_by: 'model', status: 'superseded' }) +
+      'not json\n',
+  );
   const ctx: BuildContext = {
-    slug: 't', rawDir: raw, storePath: join(root, 'store.sqlite'), replicaDir: join(root, 'replica'), peoplePath: people, log: () => undefined,
+    slug: 't', rawDir: raw, storePath: join(root, 'store.sqlite'), replicaDir: join(root, 'replica'), peoplePath: people, fragmentsPath: fragments, log: () => undefined,
   };
   buildStore(ctx);
   return { dbPath: join(root, 'replica', 'store.sqlite') };
@@ -121,9 +146,14 @@ test('search ranks FTS hits, honours diacritics/porter, filters by person and in
     assert.equal(runSearch(db, { query: 'access', person: 'Tess North@example.com' }).hits.length, 2);
     assert.equal(runSearch(db, { query: 'release', person: 'Carla' }).hits.length, 1);
     assert.equal(runSearch(db, { query: 'release', person: 'nobody-here' }).hits.length, 0);
-    // initiative filter via people.default_initiative
+    // initiative filter via the tenant's attributions (never via people): m1+m2 are hcg/p1;
+    // the superseded fragment f3 must not make the Slack message bluefin/lumora.
     assert.equal(runSearch(db, { query: 'access', initiative: 'hcg/p1' }).hits.length, 2);
-    assert.equal(runSearch(db, { query: 'access', initiative: 'bluefin/lumora' }).hits.length, 0);
+    assert.equal(runSearch(db, { query: 'release', initiative: 'bluefin/lumora' }).hits.length, 0);
+    // prefix: hcg/p1 covers hcg/p1/fo-cloud, and the meeting shorthand ref resolves
+    const incident = runSearch(db, { query: 'encryption', initiative: 'hcg/p1' }).hits;
+    assert.deepEqual(incident.map((h) => [h.kind, h.ref]), [['meeting', 'granola:me@x.com:g1']]);
+    assert.equal(runSearch(db, { query: 'encryption', initiative: 'hcg/p2' }).hits.length, 0);
     // deleted Slack message is gone from search even by its exact words
     assert.equal(runSearch(db, { query: 'hunter2' }).hits.length, 0);
     // no query → recent, newest first, source filter applies
@@ -164,6 +194,7 @@ test('stats reports per-source coverage, withheld count and sync meta', () => {
   const db = openReadOnly(dbPath);
   try {
     const s = runStats(db) as { messages: { source: string; n: number }[]; withheld: number; people: number; meta: Record<string, string> };
+    assert.equal((s as unknown as { attributions: number }).attributions, 3);
     assert.deepEqual(
       s.messages.map((m) => [m.source, m.n]),
       [
@@ -193,7 +224,7 @@ test('handleMessage speaks the JSON-RPC subset the MCP client needs and never th
     (list.result as { tools: { name: string }[] }).tools.map((t) => t.name),
     TOOLS.map((t) => t.name),
   );
-  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'tasks', 'people', 'stats']);
+  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'tasks', 'meetings', 'fragments', 'people', 'stats']);
   const call = handleMessage({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'search', arguments: { query: 'forensic' } } }, dbPath)!;
   const content = (call.result as { content: { text: string }[]; isError: boolean });
   assert.equal(content.isError, false);
@@ -239,4 +270,29 @@ test('the script runs as a real stdio server: initialize → tools/list → tool
   assert.equal(JSON.parse(stats.result.content[0].text).people, 3);
   assert.equal(stderr.join(''), '', 'server must stay silent on stderr');
   await new Promise((r) => child.on('close', r));
+});
+
+test('meetings: listed by attendee, searchable by transcript, get returns summary + attributions; fragments + markers exposed', () => {
+  const { dbPath } = fixtureReplica();
+  const db = openReadOnly(dbPath);
+  try {
+    const list = runMeetings(db, { person: 'tobin', since: '2026-10-08' }).meetings;
+    assert.equal(list.length, 1);
+    assert.equal(list[0]!.title, 'FO Cloud security incident');
+    assert.deepEqual(list[0]!.next_steps, ['(Owen) run the security agent on the repo']);
+    assert.equal(runMeetings(db, { person: 'Carla' }).meetings.length, 0);
+    assert.equal(runSearch(db, { query: 'GWS secret', source: 'granola' }).hits.length, 1);
+    const g = runGet(db, { ref: 'granola:me@x.com:g1' });
+    assert.equal(g.kind, 'meeting');
+    assert.match(String(g.transcript), /rotate/);
+    assert.deepEqual((g.attributions as { initiative: string }[]).map((a) => a.initiative), ['hcg/p1/fo-cloud']);
+    assert.ok((g.people as { person_id: string }[]).some((p) => p.person_id === 'tobin'));
+    const frags = runFragments(db, { initiative: 'hcg' }).fragments;
+    assert.deepEqual(frags.map((f) => f.id).sort(), ['f1', 'f2']);
+    assert.deepEqual(runFragments(db, { status: 'superseded' }).fragments, []);
+    const people = runPeople(db, { q: 'Carla' }).people;
+    assert.deepEqual(people[0]!.marker, { type: 'broad', initiatives: ['bluefin/lumora'] });
+  } finally {
+    db.close();
+  }
 });

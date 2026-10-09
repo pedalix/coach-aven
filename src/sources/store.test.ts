@@ -188,3 +188,89 @@ test('people: the same key written twice for one person collapses; for two peopl
   assert.deepEqual(identitiesOf(ok).map((i) => [i.identity, i.kind]), [['owen', 'slack'], ['a@x.y', 'email']]);
   assert.throws(() => validatePeople([{ person_id: 'a', name: 'A', identities: ['x@y.z'] }, { person_id: 'b', name: 'B', identities: ['X@Y.Z'] }]), /already belongs/);
 });
+
+// ── tenant-derived recompute (the 2026-10-08 relink bug) ─────────────────────────────────
+test('build: a people.json change relinks ALREADY stored rows; unchanged files skip the recompute', () => {
+  const { raw, ctx } = scaffold();
+  writeFileSync(join(raw, 'google', 'acc@x.com', 'messages.jsonl'), gmail('r1', 'from an unknown sender', { author: 'rowan@mf.com', participants: ['rowan@mf.com', 'owen@example.com'] }));
+  const s1 = buildStore(ctx);
+  assert.equal(s1.recomputed, true); // first build: nothing recorded yet
+  let db = openReadOnly(ctx.storePath);
+  assert.equal((db.prepare('SELECT author_person FROM messages').get() as { author_person: string | null }).author_person, null);
+  db.close();
+  assert.equal(buildStore(ctx).recomputed, false, 'nothing changed → no recompute');
+  // Rowan gets an identity — no new raw lines at all, yet the old message must now resolve.
+  writeFileSync(
+    ctx.peoplePath!,
+    JSON.stringify([
+      { person_id: 'rowan', name: 'Rowan', marker: { type: 'narrow', initiatives: ['rowan/monto', 'rowan/cartgenie'] }, identities: ['rowan@mf.com'] },
+      { person_id: 'owen', name: 'Owen', identities: ['owen@example.com'] },
+    ]),
+  );
+  const s3 = buildStore(ctx);
+  assert.equal(s3.lines, 0);
+  assert.equal(s3.recomputed, true);
+  db = openReadOnly(ctx.storePath);
+  assert.equal((db.prepare('SELECT author_person FROM messages').get() as { author_person: string }).author_person, 'rowan');
+  assert.deepEqual(plain(db.prepare('SELECT person_id, role FROM message_people ORDER BY person_id').all()), [{ person_id: 'owen', role: 'to' }, { person_id: 'rowan', role: 'from' }]);
+  assert.deepEqual(plain(db.prepare('SELECT marker_type, marker_initiatives FROM people WHERE person_id = ?').all('rowan')), [{ marker_type: 'narrow', marker_initiatives: '["rowan/monto","rowan/cartgenie"]' }]);
+  // FTS untouched by the person-only update (the index must still find the message).
+  assert.equal((db.prepare("SELECT count(*) c FROM messages_fts WHERE messages_fts MATCH 'unknown'").get() as { c: number }).c, 1);
+  db.close();
+});
+
+test('build: fragments.jsonl → fragments + attributions, last line per id, superseded dropped; edits recompute', () => {
+  const { root, raw, ctx } = scaffold();
+  writeFileSync(join(raw, 'google', 'acc@x.com', 'messages.jsonl'), gmail('a1', 'one') + gmail('a2', 'two'));
+  const frag = join(root, 'fragments.jsonl');
+  writeFileSync(frag, line({ id: 'f1', kind: 'thread', refs: ['gmail:acc@x.com:a1'], attributions: [{ initiative: 'hcg/p3', share: 0.6 }, { initiative: 'hcg/p4', share: 0.4 }], decided_by: 'model', status: 'decided' }));
+  const c = { ...ctx, fragmentsPath: frag };
+  const s1 = buildStore(c);
+  assert.equal(s1.fragments, 1);
+  assert.equal(s1.attributions, 2);
+  appendFileSync(frag, line({ id: 'f1', kind: 'thread', refs: ['gmail:acc@x.com:a1', 'gmail:acc@x.com:a2'], attributions: [{ initiative: 'hcg/p3', share: 1 }], decided_by: 'owen', status: 'decided' }) + line({ id: 'f9', refs: ['x'], attributions: [{ initiative: 'y' }], status: 'escalated' }));
+  const s2 = buildStore(c);
+  assert.equal(s2.recomputed, true);
+  const db = openReadOnly(ctx.storePath);
+  assert.deepEqual(plain(db.prepare('SELECT ref, initiative, share, decided_by FROM attributions ORDER BY ref').all()), [
+    { ref: 'gmail:acc@x.com:a1', initiative: 'hcg/p3', share: 1, decided_by: 'owen' },
+    { ref: 'gmail:acc@x.com:a2', initiative: 'hcg/p3', share: 1, decided_by: 'owen' },
+  ]);
+  // escalated fragments are stored (the review session lists them) but attribute nothing
+  assert.deepEqual(plain(db.prepare('SELECT id, status FROM fragments ORDER BY id').all()), [{ id: 'f1', status: 'decided' }, { id: 'f9', status: 'escalated' }]);
+  db.close();
+});
+
+test('build: a store from an older schema is discarded and rebuilt from raw', () => {
+  const { raw, ctx } = scaffold();
+  writeFileSync(join(raw, 'google', 'acc@x.com', 'messages.jsonl'), gmail('o1', 'old schema row'));
+  buildStore(ctx);
+  const db = openStore(ctx.storePath);
+  db.prepare("UPDATE sync_state SET value = '2' WHERE key = 'schema_version'").run();
+  db.close();
+  const lines: string[] = [];
+  const s = buildStore({ ...ctx, log: (l) => lines.push(l) });
+  assert.ok(lines.some((l) => /schema v2 < v3/.test(l)));
+  assert.equal(s.messages, 1, 'raw re-read from offset 0');
+});
+
+test('build: meetings land compacted with attendees → meeting_people, transcript searchable, tombstone removes', () => {
+  const { raw, ctx } = scaffold();
+  mkdirSync(join(raw, 'meetings', 'gmeet', 'acc@x.com'), { recursive: true });
+  const f = join(raw, 'meetings', 'gmeet', 'acc@x.com', 'meetings.jsonl');
+  const meeting = (extra: object = {}) =>
+    line({ source: 'gmeet', account: 'acc@x.com', id: 'doc1', title: 'Instant meeting', start: '2026-10-07T07:11:00.000Z', end: '2026-10-07T07:11:00.000Z', attendees: [{ email: '', name: 'Tess North' }], summary: 'Produktstrategie', next_steps: [], transcript: 'Tobin: Personalabbau', url: 'u', text: '', scrub: { withheld: false, kinds: [] }, ...extra });
+  writeFileSync(f, meeting());
+  const s = buildStore(ctx);
+  assert.equal(s.meetings, 1);
+  let db = openReadOnly(ctx.storePath);
+  assert.deepEqual(plain(db.prepare('SELECT person_id FROM meeting_people').all()), [{ person_id: 'tobin' }]);
+  assert.equal((db.prepare("SELECT count(*) c FROM meetings_fts WHERE meetings_fts MATCH 'personalabbau'").get() as { c: number }).c, 1);
+  db.close();
+  appendFileSync(f, meeting({ summary: 'Produktstrategie v2' }) + line({ source: 'gmeet', account: 'acc@x.com', id: 'doc1', deleted: true }));
+  buildStore(ctx);
+  db = openReadOnly(ctx.storePath);
+  assert.equal((db.prepare("SELECT count(*) c FROM meetings_fts WHERE meetings_fts MATCH 'produktstrategie'").get() as { c: number }).c, 0);
+  assert.equal((db.prepare('SELECT deleted FROM meetings').get() as { deleted: number }).deleted, 1);
+  db.close();
+});

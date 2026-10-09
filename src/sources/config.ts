@@ -2,7 +2,7 @@
 // loadProjects() at boot so a typo fails there, and from `orch sources` so the CLI explains
 // the same way. Permissive where the data is: e-mails and ids are checked for shape, not
 // existence (that is what `orch sources auth … check` is for).
-import { SOURCE_KINDS, type GoogleKind, type MsgraphKind, type SourcesConfig } from './types.js';
+import { SOURCE_KINDS, type GoogleKind, type MeetingsSourcesConfig, type MsgraphKind, type SourcesConfig } from './types.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const GOOGLE_KINDS: readonly GoogleKind[] = ['gmail', 'drive', 'calendar'];
@@ -43,7 +43,7 @@ function int(where: string, v: unknown, field: string, min: number, max: number)
 export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesConfig {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) fail(where, 'must be an object');
   const r = raw as Record<string, unknown>;
-  const known = new Set<string>([...SOURCE_KINDS, 'intervalMinutes', 'people']);
+  const known = new Set<string>([...SOURCE_KINDS, 'intervalMinutes', 'people', 'tenant']);
   for (const k of Object.keys(r)) if (!known.has(k)) fail(where, `unknown key "${k}" (allowed: ${[...known].join(', ')})`);
   const out: SourcesConfig = {};
   if (r.google !== undefined) {
@@ -124,6 +124,37 @@ export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesC
       ...(date(w, a.since, 'since') ? { since: a.since as string } : {}),
     };
     for (const pr of out.asana.projects ?? []) if (!/^\d+$/.test(pr)) fail(w, `project "${pr}" must be a numeric gid`);
+  }
+  if (r.meetings !== undefined) {
+    const w = `${where}.meetings`;
+    const m = obj('meetings');
+    for (const k of Object.keys(m)) if (!['granola', 'gmeet', 'wispr'].includes(k)) fail(w, `unknown provider "${k}" (allowed: granola, gmeet, wispr)`);
+    const sub = (k: string): Record<string, unknown> => (typeof m[k] === 'object' && m[k] && !Array.isArray(m[k]) ? m[k] : fail(`${w}.${k}`, 'must be an object')) as Record<string, unknown>;
+    const mt: MeetingsSourcesConfig = {};
+    if (m.granola !== undefined) {
+      const g = sub('granola');
+      mt.granola = date(`${w}.granola`, g.since, 'since') ? { since: g.since as string } : {};
+    }
+    if (m.gmeet !== undefined) {
+      const g = sub('gmeet');
+      mt.gmeet = { accounts: strings(`${w}.gmeet`, g.accounts, 'accounts').map((a) => a.toLowerCase()), ...(date(`${w}.gmeet`, g.since, 'since') ? { since: g.since as string } : {}) };
+    }
+    if (m.wispr !== undefined) {
+      const g = sub('wispr');
+      mt.wispr = date(`${w}.wispr`, g.since, 'since') ? { since: g.since as string } : {};
+    }
+    if (!mt.granola && !mt.gmeet && !mt.wispr) fail(w, 'declares no provider (granola, gmeet, wispr)');
+    out.meetings = mt;
+  }
+  if (r.tenant !== undefined) {
+    const w = `${where}.tenant`;
+    const t = obj('tenant');
+    if (typeof t.repo !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(t.repo)) fail(w, '"repo" must be owner/name');
+    const ref = optStr(w, t.ref, 'ref');
+    if (ref && !/^[A-Za-z0-9._/-]+$/.test(ref)) fail(w, '"ref" must be a branch name');
+    const path = optStr(w, t.path, 'path');
+    if (path && (path.includes('..') || path.startsWith('/'))) fail(w, '"path" must be relative without ".."');
+    out.tenant = { repo: t.repo, ...(ref ? { ref } : {}), ...(path ? { path } : {}) };
   }
   const interval = int(where, r.intervalMinutes, 'intervalMinutes', 1, 24 * 60);
   if (interval !== undefined) out.intervalMinutes = interval;

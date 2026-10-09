@@ -26,9 +26,22 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.1.0';
+export const SERVER_VERSION = '1.2.0';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
+// Meeting recorders live in `meetings`.
+export const MEETING_SOURCES = ['granola', 'gmeet', 'wispr'];
+
+// Initiative filter: the tenant's decisions (attributions), never people. A prefix matches its
+// sub-initiatives ("hcg/simplify" covers "hcg/simplify/p1-t4m-security"). Meetings may be
+// attributed by the account-free shorthand meeting:<source>:<id>, so meetings match either form.
+export function initiativeClause(refExpr, initiative, meetingShorthand) {
+  const alt = meetingShorthand ? ` OR a.ref = ${meetingShorthand}` : '';
+  return {
+    sql: `EXISTS (SELECT 1 FROM attributions a WHERE (a.ref = ${refExpr}${alt}) AND (a.initiative = ? OR a.initiative LIKE ?))`,
+    params: [String(initiative), `${String(initiative)}/%`],
+  };
+}
 // The newest spec revision we implement; if the client proposes an older one we echo theirs
 // (the subset we speak is identical across 2024-11-05 … 2025-06-18).
 export const PROTOCOL_VERSION = '2025-06-18';
@@ -91,6 +104,11 @@ export function buildSearchSql(f) {
     );
     params.push(...f.personIds, ...f.personIds);
   }
+  if (f.initiative) {
+    const c = initiativeClause('m.ref', f.initiative);
+    where.push(c.sql);
+    params.push(...c.params);
+  }
   const limit = Math.max(1, Math.min(100, Number(f.limit) || 20));
   const cols =
     'm.ref, m.source, m.account, m.container, m.thread_id, m.ts, m.author_person, m.author_raw, m.subject, m.permalink, m.scrub_withheld, m.scrub_kinds';
@@ -135,6 +153,11 @@ export function buildTaskSearchSql(f) {
     where.push(`(t.assignee_person IN (${ph}) OR t.reporter_person IN (${ph}))`);
     params.push(...f.personIds, ...f.personIds);
   }
+  if (f.initiative) {
+    const c = initiativeClause('t.ref', f.initiative);
+    where.push(c.sql);
+    params.push(...c.params);
+  }
   const limit = Math.max(1, Math.min(100, Number(f.limit) || 20));
   const cols =
     "t.ref, t.source, t.account, t.project AS container, t.ref AS thread_id, t.updated AS ts, t.assignee_person AS author_person, " +
@@ -151,6 +174,107 @@ export function buildTaskSearchSql(f) {
   return {
     mode: 'recent',
     sql: `SELECT ${cols}, substr(t.text, 1, 200) AS snippet, 0 AS rank FROM tasks t WHERE ${where.join(' AND ')} ORDER BY t.updated DESC LIMIT ?`,
+    params: [...params, limit],
+  };
+}
+
+// Same contract over `meetings` (title/summary/transcript FTS); person = an attendee.
+export function buildMeetingSearchSql(f) {
+  const where = ['mt.deleted = 0'];
+  const params = [];
+  if (f.since) {
+    where.push('mt.start >= ?');
+    params.push(f.since);
+  }
+  if (f.until) {
+    where.push('mt.start <= ?');
+    params.push(f.until);
+  }
+  if (f.source) {
+    where.push('mt.source = ?');
+    params.push(f.source);
+  }
+  if (f.personIds && f.personIds.length) {
+    const ph = f.personIds.map(() => '?').join(',');
+    where.push(`EXISTS (SELECT 1 FROM meeting_people mp WHERE mp.ref = mt.ref AND mp.person_id IN (${ph}))`);
+    params.push(...f.personIds);
+  }
+  if (f.initiative) {
+    const c = initiativeClause('mt.ref', f.initiative, "'meeting:' || mt.source || ':' || mt.id");
+    where.push(c.sql);
+    params.push(...c.params);
+  }
+  const limit = Math.max(1, Math.min(100, Number(f.limit) || 20));
+  const cols = "mt.ref, mt.source, mt.account, '' AS container, mt.ref AS thread_id, mt.start AS ts, '' AS author_person, '' AS author_raw, mt.title AS subject, mt.url AS permalink, mt.scrub_withheld, mt.scrub_kinds";
+  if (f.match) {
+    return {
+      mode: 'fts',
+      sql:
+        `SELECT ${cols}, snippet(meetings_fts, -1, '«', '»', '…', 14) AS snippet, bm25(meetings_fts) AS rank ` +
+        `FROM meetings_fts JOIN meetings mt ON mt.rowid = meetings_fts.rowid WHERE meetings_fts MATCH ? AND ${where.join(' AND ')} ORDER BY rank LIMIT ?`,
+      params: [f.match, ...params, limit],
+    };
+  }
+  return {
+    mode: 'recent',
+    sql: `SELECT ${cols}, substr(mt.summary, 1, 200) AS snippet, 0 AS rank FROM meetings mt WHERE ${where.join(' AND ')} ORDER BY mt.start DESC LIMIT ?`,
+    params: [...params, limit],
+  };
+}
+
+// `meetings` tool: calls in a time window, newest first, optionally with one person.
+export function buildMeetingsListSql(f) {
+  const where = ['mt.deleted = 0'];
+  const params = [];
+  if (f.since) {
+    where.push('mt.start >= ?');
+    params.push(f.since);
+  }
+  if (f.until) {
+    where.push('mt.start <= ?');
+    params.push(f.until);
+  }
+  if (f.personIds && f.personIds.length) {
+    const ph = f.personIds.map(() => '?').join(',');
+    where.push(`EXISTS (SELECT 1 FROM meeting_people mp WHERE mp.ref = mt.ref AND mp.person_id IN (${ph}))`);
+    params.push(...f.personIds);
+  }
+  if (f.source) {
+    where.push('mt.source = ?');
+    params.push(f.source);
+  }
+  const limit = Math.max(1, Math.min(200, Number(f.limit) || 50));
+  return {
+    sql:
+      'SELECT mt.ref, mt.source, mt.id, mt.title, mt.start, mt."end", mt.attendees, mt.next_steps, mt.url, length(mt.transcript) AS transcript_chars, mt.scrub_withheld ' +
+      `FROM meetings mt WHERE ${where.join(' AND ')} ORDER BY mt.start DESC LIMIT ?`,
+    params: [...params, limit],
+  };
+}
+
+// `fragments` tool: the tenant's attribution decisions in a window.
+export function buildFragmentsSql(f) {
+  const where = ['1 = 1'];
+  const params = [];
+  if (f.since) {
+    where.push('f.start >= ?');
+    params.push(f.since);
+  }
+  if (f.until) {
+    where.push('f.start <= ?');
+    params.push(f.until);
+  }
+  if (f.status) {
+    where.push('f.status = ?');
+    params.push(String(f.status));
+  }
+  if (f.initiative) {
+    where.push('EXISTS (SELECT 1 FROM attributions a WHERE a.fragment_id = f.id AND (a.initiative = ? OR a.initiative LIKE ?))');
+    params.push(String(f.initiative), `${String(f.initiative)}/%`);
+  }
+  const limit = Math.max(1, Math.min(500, Number(f.limit) || 100));
+  return {
+    sql: `SELECT f.* FROM fragments f WHERE ${where.join(' AND ')} ORDER BY f.start DESC LIMIT ?`,
     params: [...params, limit],
   };
 }
@@ -208,8 +332,8 @@ export const TOOLS = [
     description:
       'Full-text search over the project\'s read-only, scrubbed replica of connected mail, chat and calendar ' +
       '(FTS5, ranked). Returns refs + snippets; call `get` for a full message. Filters: since/until (ISO date or ' +
-      'datetime), source (gmail|slack|msgraph|youtrack|jira|asana|…), person (email, slack id, or a name fragment), initiative. ' +
-      'Tracker tickets (YouTrack/Jira/Asana) are searched too — their hits carry `kind: "task"` and a status. ' +
+      'datetime), source (gmail|slack|msgraph|youtrack|jira|asana|granola|gmeet|wispr|…), person (email, slack id, or a name fragment), ' +
+      'initiative (only what the tenant has attributed). Tracker tickets carry `kind: "task"`, recorded calls `kind: "meeting"`. ' +
       'With an empty query it lists the newest messages matching the filters. Cite the `permalink` of anything you quote.',
     inputSchema: {
       type: 'object',
@@ -219,7 +343,7 @@ export const TOOLS = [
         until: { type: 'string' },
         source: { type: 'string' },
         person: { type: 'string' },
-        initiative: { type: 'string' },
+        initiative: { type: 'string', description: 'Initiative id or prefix; filters by the tenant\'s attribution decisions' },
         limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
       },
     },
@@ -253,13 +377,33 @@ export const TOOLS = [
     },
   },
   {
+    name: 'meetings',
+    description:
+      'Recorded calls (Granola, Gemini in Meet, Wispr) in a time window, newest first: title, start/end, attendees, next steps, ' +
+      'transcript size. Filters: since/until, person (an attendee), source. `get` a ref for the summary and transcript.',
+    inputSchema: {
+      type: 'object',
+      properties: { since: { type: 'string' }, until: { type: 'string' }, person: { type: 'string' }, source: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
+    },
+  },
+  {
+    name: 'fragments',
+    description:
+      'The tenant\'s attribution decisions: fragments of Owen\'s day (a call, a thread, a work block) with their initiative(s) and ' +
+      'shares, who decided (rule|model|owen) and why. Filters: since/until (fragment start), initiative (id or prefix), status (decided|escalated).',
+    inputSchema: {
+      type: 'object',
+      properties: { since: { type: 'string' }, until: { type: 'string' }, initiative: { type: 'string' }, status: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 } },
+    },
+  },
+  {
     name: 'people',
-    description: 'Look up known people by name or identity (email / slack id); returns person_id, company, default initiative, identities.',
+    description: 'Look up known people by name or identity (email / slack id); returns person_id, company, marker {type: exclusive|narrow|broad, initiatives}, identities.',
     inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
   },
   {
     name: 'stats',
-    description: 'Coverage of the replica: per-source message and task counts and time ranges, events, files, people, last build.',
+    description: 'Coverage of the replica: per-source message, task and meeting counts and time ranges, events, files, people, fragments, last build.',
     inputSchema: { type: 'object', properties: {} },
   },
 ];
@@ -277,7 +421,7 @@ function openDb(path) {
   }
 }
 
-function resolvePersonIds(db, person, initiative) {
+function resolvePersonIds(db, person) {
   const ids = new Set();
   if (person) {
     const p = String(person).trim();
@@ -292,18 +436,6 @@ function resolvePersonIds(db, person, initiative) {
     }
     if (!ids.size) return { ids: ['__nobody__'], note: `no person matches ${JSON.stringify(p)}` };
   }
-  if (initiative) {
-    const rows = db.prepare('SELECT person_id FROM people WHERE default_initiative = ?').all(String(initiative));
-    const set = new Set(rows.map((r) => r.person_id));
-    if (person) {
-      // Both given: intersect — "messages with Tobin about P1" means Tobin AND P1 people.
-      for (const id of [...ids]) if (!set.has(id)) ids.delete(id);
-      if (!ids.size) return { ids: ['__nobody__'], note: 'no person matches both filters' };
-    } else {
-      for (const id of set) ids.add(id);
-      if (!ids.size) return { ids: ['__nobody__'], note: `no people have default_initiative ${JSON.stringify(initiative)}` };
-    }
-  }
   return { ids: [...ids] };
 }
 
@@ -315,25 +447,36 @@ export function runSearch(db, args) {
   const since = normalizeTime(args.since, 'since');
   const until = normalizeTime(args.until, 'until');
   const match = sanitizeFtsQuery(args.query);
-  const { ids: personIds, note } = resolvePersonIds(db, args.person, args.initiative);
-  const f = { match, since, until, source: args.source, personIds, limit: args.limit };
-  const isTracker = args.source && TRACKER_SOURCES.includes(String(args.source));
+  const { ids: personIds, note: personNote } = resolvePersonIds(db, args.person);
+  const initiative = args.initiative ? String(args.initiative) : undefined;
+  const notes = personNote ? [personNote] : [];
+  if (initiative && !hasTable(db, 'attributions')) return { mode: 'fts', note: 'this replica has no attributions yet (built before tenant annotations)', hits: [] };
+  if (initiative && !db.prepare('SELECT 1 FROM attributions LIMIT 1').get()) notes.push('the tenant has not attributed anything yet — the initiative filter matches nothing');
+  const f = { match, since, until, source: args.source, personIds, initiative, limit: args.limit };
+  const src = args.source ? String(args.source) : undefined;
+  const isTracker = src && TRACKER_SOURCES.includes(src);
+  const isMeeting = src && MEETING_SOURCES.includes(src);
   const q = buildSearchSql(f);
-  let rows = isTracker ? [] : db.prepare(q.sql).all(...q.params);
-  // Old replicas (built before trackers existed) have no tasks table — search messages only.
-  if ((!args.source || isTracker) && hasTable(db, 'tasks')) {
+  let rows = isTracker || isMeeting ? [] : db.prepare(q.sql).all(...q.params);
+  // Old replicas (built before trackers / meetings existed) lack those tables — skip them.
+  if ((!src || isTracker) && hasTable(db, 'tasks')) {
     const tq = buildTaskSearchSql(f);
-    const trows = db.prepare(tq.sql).all(...tq.params).map((r) => ({ ...r, kind: 'task' }));
-    // bm25 scores from two FTS tables are not strictly comparable, but both are "lower is
-    // better" on similar-length text — good enough to interleave; recency mode sorts by ts.
-    rows = [...rows, ...trows].sort((a, b) => (q.mode === 'fts' ? a.rank - b.rank : String(b.ts).localeCompare(String(a.ts))));
-    rows = rows.slice(0, Math.max(1, Math.min(100, Number(args.limit) || 20)));
+    rows.push(...db.prepare(tq.sql).all(...tq.params).map((r) => ({ ...r, kind: 'task' })));
   }
+  if ((!src || isMeeting) && hasTable(db, 'meetings')) {
+    const mq = buildMeetingSearchSql(f);
+    rows.push(...db.prepare(mq.sql).all(...mq.params).map((r) => ({ ...r, kind: 'meeting' })));
+  }
+  // bm25 scores from different FTS tables are not strictly comparable, but all are "lower is
+  // better" — good enough to interleave; recency mode sorts by ts.
+  rows = rows.sort((a, b) => (q.mode === 'fts' ? a.rank - b.rank : String(b.ts).localeCompare(String(a.ts))));
+  rows = rows.slice(0, Math.max(1, Math.min(100, Number(args.limit) || 20)));
   return {
     mode: q.mode,
-    ...(note ? { note } : {}),
+    ...(notes.length ? { note: notes.join('; ') } : {}),
     hits: rows.map((r) => ({
       ...(r.kind === 'task' ? { kind: 'task', status: r.status, statusCategory: r.status_category } : {}),
+      ...(r.kind === 'meeting' ? { kind: 'meeting' } : {}),
       ref: r.ref,
       source: r.source,
       ts: r.ts,
@@ -377,12 +520,97 @@ function taskRow(t) {
   };
 }
 
+const parseJson = (v, d) => {
+  try {
+    return JSON.parse(v);
+  } catch {
+    return d;
+  }
+};
+
+function attributionsFor(db, refs) {
+  if (!hasTable(db, 'attributions')) return [];
+  const ph = refs.map(() => '?').join(',');
+  return db.prepare(`SELECT initiative, share, fragment_id, decided_by FROM attributions WHERE ref IN (${ph})`).all(...refs);
+}
+
+function meetingRow(db, mt) {
+  const people = db
+    .prepare('SELECT p.person_id, p.name FROM meeting_people mp JOIN people p ON p.person_id = mp.person_id WHERE mp.ref = ?')
+    .all(mt.ref);
+  return {
+    kind: 'meeting',
+    ref: mt.ref,
+    source: mt.source,
+    account: mt.account,
+    title: mt.title,
+    start: mt.start,
+    end: mt.end,
+    attendees: parseJson(mt.attendees || '[]', []),
+    people,
+    summary: mt.summary, // withheld bodies carry the marker verbatim
+    next_steps: parseJson(mt.next_steps || '[]', []),
+    transcript: mt.transcript,
+    url: mt.url,
+    deleted: !!mt.deleted,
+    attributions: attributionsFor(db, [mt.ref, `meeting:${mt.source}:${mt.id}`]),
+    scrub: { withheld: !!mt.scrub_withheld, kinds: mt.scrub_kinds ? mt.scrub_kinds.split(',').filter(Boolean) : [] },
+  };
+}
+
+export function runMeetings(db, args) {
+  if (!hasTable(db, 'meetings')) return { meetings: [], note: 'no meeting sources in this replica' };
+  let personIds;
+  let note;
+  if (args.person) {
+    const r = resolvePersonIds(db, args.person);
+    personIds = r.ids;
+    note = r.note;
+  }
+  const q = buildMeetingsListSql({ since: normalizeTime(args.since, 'since'), until: normalizeTime(args.until, 'until'), personIds, source: args.source, limit: args.limit });
+  return {
+    ...(note ? { note } : {}),
+    meetings: db.prepare(q.sql).all(...q.params).map((r) => ({
+      ref: r.ref,
+      source: r.source,
+      title: r.title,
+      start: r.start,
+      end: r.end,
+      attendees: parseJson(r.attendees || '[]', []),
+      next_steps: parseJson(r.next_steps || '[]', []),
+      transcript_chars: r.transcript_chars,
+      url: r.url,
+      ...(r.scrub_withheld ? { withheld: true } : {}),
+    })),
+  };
+}
+
+export function runFragments(db, args) {
+  if (!hasTable(db, 'fragments')) return { fragments: [], note: 'this replica has no fragments (built before tenant annotations)' };
+  const q = buildFragmentsSql({ since: normalizeTime(args.since, 'since'), until: normalizeTime(args.until, 'until'), initiative: args.initiative, status: args.status, limit: args.limit });
+  return {
+    fragments: db.prepare(q.sql).all(...q.params).map((f) => ({
+      id: f.id,
+      kind: f.kind,
+      start: f.start,
+      end: f.end,
+      refs: parseJson(f.refs || '[]', []),
+      attributions: parseJson(f.attributions || '[]', []),
+      decided_by: f.decided_by,
+      ...(f.rule_id ? { rule_id: f.rule_id } : {}),
+      rationale: f.rationale,
+      decided_at: f.decided_at,
+      status: f.status,
+    })),
+  };
+}
+
 export function runTasks(db, args) {
   if (!hasTable(db, 'tasks')) return { tasks: [], note: 'no tracker sources in this replica' };
   let personIds;
   let note;
   if (args.assignee) {
-    const r = resolvePersonIds(db, args.assignee, undefined);
+    const r = resolvePersonIds(db, args.assignee);
     if (r.ids[0] !== '__nobody__') personIds = r.ids;
     else note = `${r.note}; matching assignee text instead`;
   }
@@ -421,7 +649,9 @@ export function runGet(db, args) {
   if (!m) {
     const t = hasTable(db, 'tasks') ? db.prepare('SELECT * FROM tasks WHERE ref = ?').get(ref) : undefined;
     if (t) return taskRow(t);
-    return { error: `no message or task with ref ${JSON.stringify(ref)}` };
+    const mt = hasTable(db, 'meetings') ? db.prepare('SELECT * FROM meetings WHERE ref = ?').get(ref) : undefined;
+    if (mt) return meetingRow(db, mt);
+    return { error: `no message, task or meeting with ref ${JSON.stringify(ref)}` };
   }
   const before = db
     .prepare('SELECT ref, ts, author_person, author_raw, substr(text,1,300) AS text FROM messages WHERE thread_id = ? AND deleted = 0 AND ts < ? ORDER BY ts DESC LIMIT 5')
@@ -448,6 +678,7 @@ export function runGet(db, args) {
     deleted: !!m.deleted,
     scrub: { withheld: !!m.scrub_withheld, kinds: m.scrub_kinds ? m.scrub_kinds.split(',').filter(Boolean) : [] },
     people,
+    attributions: attributionsFor(db, [m.ref]),
     thread: { before: before.map(sib), after: after.map(sib) },
   };
 }
@@ -457,14 +688,22 @@ export function runPeople(db, args) {
   const rows = q
     ? db
         .prepare(
-          'SELECT DISTINCT p.person_id, p.name, p.company, p.default_initiative FROM people p ' +
+          'SELECT DISTINCT p.person_id, p.name, p.company, p.marker_type, p.marker_initiatives FROM people p ' +
             'LEFT JOIN identities i ON i.person_id = p.person_id ' +
             'WHERE lower(p.name) LIKE ? OR lower(p.person_id) LIKE ? OR lower(i.identity) LIKE ? ORDER BY p.name LIMIT 50',
         )
         .all(`%${q}%`, `%${q}%`, `%${q}%`)
-    : db.prepare('SELECT person_id, name, company, default_initiative FROM people ORDER BY name LIMIT 200').all();
+    : db.prepare('SELECT person_id, name, company, marker_type, marker_initiatives FROM people ORDER BY name LIMIT 200').all();
   const ids = db.prepare('SELECT identity, kind FROM identities WHERE person_id = ?');
-  return { people: rows.map((p) => ({ ...p, identities: ids.all(p.person_id) })) };
+  return {
+    people: rows.map((p) => ({
+      person_id: p.person_id,
+      name: p.name,
+      company: p.company,
+      marker: p.marker_type ? { type: p.marker_type, initiatives: parseJson(p.marker_initiatives || '[]', []) } : null,
+      identities: ids.all(p.person_id),
+    })),
+  };
 }
 
 export function runStats(db) {
@@ -490,7 +729,12 @@ export function runStats(db) {
         )
         .all()
     : [];
-  return { messages: bySource, tasks, withheld: withheld.n, events, files: files.n, people: people.n, meta };
+  const meetings = hasTable(db, 'meetings')
+    ? db.prepare('SELECT source, count(*) AS n, min(start) AS first, max(start) AS last FROM meetings WHERE deleted = 0 GROUP BY source ORDER BY source').all()
+    : [];
+  const fragments = hasTable(db, 'fragments') ? db.prepare('SELECT status, count(*) AS n FROM fragments GROUP BY status').all() : [];
+  const attributions = hasTable(db, 'attributions') ? db.prepare('SELECT count(*) AS n FROM attributions').get().n : 0;
+  return { messages: bySource, tasks, meetings, withheld: withheld.n, events, files: files.n, people: people.n, fragments, attributions, meta };
 }
 
 export function callTool(dbPath, name, args) {
@@ -505,6 +749,10 @@ export function callTool(dbPath, name, args) {
         return runPeople(db, args ?? {});
       case 'tasks':
         return runTasks(db, args ?? {});
+      case 'meetings':
+        return runMeetings(db, args ?? {});
+      case 'fragments':
+        return runFragments(db, args ?? {});
       case 'stats':
         return runStats(db);
       default:

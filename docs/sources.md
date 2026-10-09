@@ -118,8 +118,10 @@ on Node's built-in `node:sqlite`, no native dependency):
 | `messages_fts` | FTS5 over `subject`+`text` (`porter unicode61 remove_diacritics 2`: *läuft* ↔ *lauft*, *running* ↔ *run*); triggers keep it in step and **drop deleted rows from the index** |
 | `threads` | per-thread rollup (first/last ts, count), recomputed for the threads a build touched |
 | `events`, `files` | calendar items and file metadata, same compaction and tombstones |
-| `people`, `identities`, `message_people` | who is who — reseeded on every build from the people file, then `from`/`to` rows per message |
-| `sync_state` | `schema_version` + the byte offset consumed per raw file |
+| `people`, `identities`, `message_people` | who is who — from the tenant's people file (markers included), then `from`/`to` rows per message |
+| `meetings`, `meetings_fts`, `meeting_people` | recorded calls (see *Meetings*): title, start/end, attendees, summary, next steps, transcript; FTS over title+summary+transcript |
+| `fragments`, `attributions` | the tenant's decisions (see *Tenant annotations*): which refs belong to which initiative, with shares and who decided |
+| `sync_state` | `schema_version`, `derived_fingerprint`, `last_build_at` + the byte offset consumed per raw file |
 
 Why this shape: GB-scale personal mail and chat are an FTS problem first (the research behind
 the design is in the owen-ops repo, `docs/research-landscape.md` §2); embeddings would be an
@@ -132,9 +134,24 @@ next build; a raw file that shrank below its offset is re-read from zero and rep
 chunk of lines is applied with its new offset in one transaction, so a crash can never leave
 rows without the offset that produced them (and `raw_records` makes the replay harmless).
 
-**People.** `sources.people` (relative to `projects.config.json`), default
-`projects.d/<slug>.people.json`: a JSON array of
-`{ "person_id", "name", "company?", "default_initiative?", "identities": [...] }`. Identity kinds
+**Schema changes rebuild.** A store written by an older schema is deleted and rebuilt from raw
+at the next build (raw is the source of truth; 84k lines take ~15 s) — there are no migrations.
+
+**Derived vs ingested.** Raw → tables is incremental. Everything that depends on the tenant's
+files — person resolution on every row (`author_person`, assignee/reporter, `message_people`,
+`meeting_people`), people markers, `fragments`, `attributions` — is recomputed **in full** whenever
+those files change (`derived_fingerprint`). A fix to people.json therefore applies to the rows
+already stored, not only to the next pull. Person-only updates never touch the FTS indexes: each
+table has ONE `AFTER UPDATE OF <indexed columns>, deleted` trigger that deletes-then-inserts in
+that order (two separate update triggers fire in reverse creation order, which used to drop every
+re-emitted row from the index).
+
+**People.** In order: the tenant's `annotations/people.json` (when `sources.tenant` is set), else
+`sources.people` (relative to `projects.config.json`), else `projects.d/<slug>.people.json`: a JSON array of
+`{ "person_id", "name", "company?", "marker?": { "type": "exclusive|narrow|broad", "initiatives": [...] }, "identities": [...] }`.
+The marker is the tenant's statement of how much a person says about which initiative a
+conversation belongs to; the store only carries it to `people`. The older `default_initiative`
+field is still read, as a `broad` marker. Identity kinds
 are inferred — contains `@` → e-mail; `slack:` → the display name the Slack puller writes;
 `msgraph:` → UPN; bare string → display name. Matching is by lower-cased key, and
 `"Name <addr>"` authors fall back to the address. The same key for two people is a load error.
@@ -294,6 +311,60 @@ a status; `source: youtrack|jira|asana` narrows to them), `get` returns a ticket
 dueBefore, project, source, updatedSince, limit})`** is the work list — open tasks by default,
 soonest due first.
 
+## Meetings
+
+`sources.meetings` adds recorded calls as a fifth shape (`src/sources/meetings/`), one record per
+call: `{ source: granola|gmeet|wispr, account, id, title, start, end, attendees: [{email, name}],
+summary, next_steps: [...], transcript, url }`, raw at `raw/meetings/<provider>/<account>/meetings.jsonl`.
+Summary and transcript are scrubbed separately — a password read out loud withholds the
+transcript (marker + vault) and keeps the summary. Each provider's cursor remembers the version of
+every note it wrote, because recorders keep rewriting a note after the call.
+
+```jsonc
+"meetings": {
+  "granola": { "since": "2026-10-01" },          // Personal API key: orch sources auth <slug> meetings granola add
+  "gmeet":   { "accounts": ["owen@example.com"] }, // Gemini "Notes by Gemini" docs via the google token (drive.readonly)
+  "wispr":   { "since": "2026-10-01" }           // device-code login: orch sources auth <slug> meetings wispr login
+}
+```
+
+- **Granola** — Personal API (`public-api.granola.ai/v1`, Business/Enterprise plans), token in
+  `granola.json`. Paced to 4 rps; a note still processing (404) is retried next run.
+- **Gemini in Meet** — Drive search for `… – Notes by Gemini` docs, exported as text/plain; the
+  doc name carries title and local start time, the doc carries summary, next steps and (when
+  transcription was on) the transcript tab. The "Notes:" mail repeats the doc and is not used.
+- **Wispr Flow** — no REST API and no personal token. The one programmatic door is the remote MCP
+  server `https://api.wisprflow.ai/connect/mcp`, and it IS headless-capable: its authorization server
+  `https://mcp-auth.wisprflow.com` advertises dynamic client registration, the device-code grant and
+  `refresh_token` with `offline_access` (verified 2026-10-09 against its RFC 8414 metadata; a
+  registration + device authorization round-trip worked). `wispr login` registers a public client
+  once, prints a verification URL + code to approve in a browser (Google/Apple/Microsoft/SSO — Wispr
+  email+password logins cannot authorize MCP), and stores `{client_id, refresh_token}` in
+  `wispr.json`. The pull refreshes (rotated refresh tokens are rewritten), opens an MCP session and
+  calls `search_meetings` / `get_meeting` (transcript paged by `start_char`).
+
+The `sources` tool gains **`meetings({since, until, person, source})`**; `search` returns call
+hits as `kind: "meeting"`, `get` returns summary, next steps, transcript and the call's attributions.
+
+## Tenant annotations
+
+`sources.tenant: { repo, ref?, path? }` names the project's own repo of decisions (default path
+`annotations/`). Before every build the bot fetches it into `data/<slug>/tenant/` (shallow, hard
+reset, GitHub token passed as a one-shot header — never in a remote URL or `.git/config`); a fetch
+failure keeps the previous checkout and is logged, never fatal. The bot only **reads**:
+
+- `annotations/people.json` — people, identities, markers (above);
+- `annotations/fragments.jsonl` — append-only, last line per `id` wins, `superseded` ignored:
+  `{ id, kind: call|thread|work, start, end, refs: [...], attributions: [{initiative, share}],
+  decided_by: rule|model|owen, rule_id?, rationale, decided_at, status: decided|escalated|superseded }`.
+  `refs` are store refs (`source:account:id`) or the account-free shorthand `meeting:<source>:<id>`.
+
+Decided fragments become `attributions(ref, initiative, share, fragment_id, decided_by)`.
+`search(initiative=…)` filters by them (a prefix covers sub-initiatives: `hcg/simplify` matches
+`hcg/simplify/p1-…`) and nothing else — people no longer imply an initiative. The tool
+**`fragments({since, until, initiative, status})`** lists the decisions themselves. Who decides is
+the tenant's business (its review session in the sandbox commits these files); the bot indexes.
+
 ## What comes next
 
 | Slice | Adds |
@@ -302,6 +373,7 @@ soonest due first.
 | ~~PR-C sources-poller~~ | shipped: the poller below |
 | ~~PR-D sources-mcp~~ | shipped: the `sources` MCP server above |
 | ~~sources-tasks~~ | shipped: the task-tracker family above (YouTrack, Jira, Asana) |
+| ~~meetings + tenant annotations~~ | shipped: recorded calls and the tenant's attribution loop above |
 
 Each pull ends with the store build, so the replica the sandbox sees is never older than
 the last pull. The CLI stays for bootstrap, backfills (`--since`, `--full`) and audits.
