@@ -24,6 +24,7 @@ import { pullYoutrack } from './youtrack/pull.js';
 import { UsageError } from './errors.js';
 import { runMeetingsAuth } from './meetings/auth.js';
 import { pullMeetings } from './meetings/pull.js';
+import { pullLocal } from './local/pull.js';
 import { annotationsDir, syncTenant, type TenantSync } from './tenant.js';
 import { buildStore, type BuildSummary } from './store.js';
 import { tokenPath, vaultPathsFor } from './tokens.js';
@@ -111,7 +112,7 @@ export function runBuild(p: ProjectConfig, verbose: boolean, sink: (line: string
     log: (line) => (verbose || !line.startsWith('  ') ? sink(`${prefix} ${line}`) : undefined),
   });
   sink(
-    `${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tasks ${s.tasks}, meetings ${s.meetings} → ${s.calls} calls, tombstones ${s.tombstones}` +
+    `${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tasks ${s.tasks}, meetings ${s.meetings} → ${s.calls} calls, activity ${s.activity}, tombstones ${s.tombstones}` +
       `${s.replayed ? `, replayed ${s.replayed}` : ''}${s.malformed ? `, malformed ${s.malformed}` : ''}; people ${s.people}; fragments ${s.fragments}, attributions ${s.attributions}` +
       `${s.recomputed ? ' (recomputed)' : ''}${s.malformedFragments ? `, ${s.malformedFragments} bad fragment lines` : ''}; replica ${s.replica ?? '(none)'}`,
   );
@@ -156,6 +157,8 @@ export async function pullProject(p: ProjectConfig, o: PullProjectOptions = {}, 
         ...(sl.threadWindowDays !== undefined ? { threadWindowDays: sl.threadWindowDays } : {}),
         ...(sl.editWindowHours !== undefined ? { editWindowHours: sl.editWindowHours } : {}),
       });
+    } else if (kind === 'local') {
+      s = await pullLocal(ctx, p.sources.local!, { full: o.full ?? false, ...(o.since ? { since: o.since } : {}) });
     } else if (kind === 'meetings') {
       s = await pullMeetings(ctx, p.sources.meetings!, { full: o.full ?? false, ...(o.since ? { since: o.since } : {}) });
     } else if (kind === 'youtrack' || kind === 'jira' || kind === 'asana') {
@@ -209,6 +212,10 @@ export async function runAuth(ctx: AuthContext, kind: SourceKind, args: string[]
       return runMsgraphAuth(ctx, args);
     case 'meetings':
       return runMeetingsAuth(ctx, args, p?.sources?.meetings);
+    case 'local':
+      // Nothing to authorise: the source reads the bot's own filesystem.
+      ctx.log('local: no credentials needed (reads git repos and Claude transcripts on this machine)');
+      return 0;
     case 'youtrack':
     case 'jira':
     case 'asana': {

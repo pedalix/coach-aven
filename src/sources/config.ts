@@ -146,6 +146,16 @@ export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesC
     if (!mt.granola && !mt.gmeet && !mt.wispr) fail(w, 'declares no provider (granola, gmeet, wispr)');
     out.meetings = mt;
   }
+  if (r.local !== undefined) {
+    const w = `${where}.local`;
+    const l = obj('local');
+    const roots = strings(w, l.roots, 'roots');
+    for (const p of roots) if (!p.startsWith('/') || p.includes('..')) fail(w, `root "${p}" must be an absolute path without ".."`);
+    const authors = strings(w, l.authors, 'authors');
+    const cpd = optStr(w, l.claudeProjectsDir, 'claudeProjectsDir');
+    if (cpd && (!cpd.startsWith('/') || cpd.includes('..'))) fail(w, '"claudeProjectsDir" must be an absolute path without ".."');
+    out.local = { roots, authors, ...(cpd ? { claudeProjectsDir: cpd } : {}), ...(date(w, l.since, 'since') ? { since: l.since as string } : {}) };
+  }
   if (r.tenant !== undefined) {
     const w = `${where}.tenant`;
     const t = obj('tenant');

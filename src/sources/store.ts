@@ -43,7 +43,8 @@ import { ensureDir } from './paths.js';
 import type { Logger } from './types.js';
 
 // v4: messages.is_bot, meetings.call_id + calls (recorder copies grouped), Slack ids → names.
-export const SCHEMA_VERSION = 4;
+// v5: activity (+activity_fts) — local git / Claude Code work blocks (local/pull.ts).
+export const SCHEMA_VERSION = 5;
 /** Bumped when bots.ts rules change, so every row's is_bot / Slack labels get recomputed. */
 export const LABEL_RULES_VERSION = 1;
 /** Where the sandbox sees the replica directory (the file inside is always `store.sqlite`). */
@@ -135,6 +136,29 @@ CREATE TRIGGER IF NOT EXISTS meetings_au AFTER UPDATE OF title, summary, transcr
   INSERT INTO meetings_fts(meetings_fts, rowid, title, summary, transcript) SELECT 'delete', old.rowid, old.title, old.summary, old.transcript WHERE old.deleted = 0;
   INSERT INTO meetings_fts(rowid, title, summary, transcript) SELECT new.rowid, new.title, new.summary, new.transcript WHERE new.deleted = 0;
 END;
+-- Local work blocks (local/pull.ts): git commit clusters and Claude Code session clusters.
+-- items = JSON [{ts, text}] (commit subjects / first prompts); items_text flattens them for FTS.
+CREATE TABLE IF NOT EXISTS activity (
+  ref TEXT PRIMARY KEY, source TEXT NOT NULL, account TEXT NOT NULL, id TEXT NOT NULL DEFAULT '',
+  container TEXT NOT NULL DEFAULT '', start TEXT NOT NULL DEFAULT '', "end" TEXT NOT NULL DEFAULT '', minutes INTEGER NOT NULL DEFAULT 0,
+  title TEXT NOT NULL DEFAULT '', items TEXT NOT NULL DEFAULT '[]', items_text TEXT NOT NULL DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS activity_start ON activity(start);
+CREATE INDEX IF NOT EXISTS activity_container ON activity(container);
+CREATE VIRTUAL TABLE IF NOT EXISTS activity_fts USING fts5(
+  title, items_text, content='activity', content_rowid='rowid',
+  tokenize = 'porter unicode61 remove_diacritics 2'
+);
+CREATE TRIGGER IF NOT EXISTS activity_ai AFTER INSERT ON activity WHEN new.deleted = 0 BEGIN
+  INSERT INTO activity_fts(rowid, title, items_text) VALUES (new.rowid, new.title, new.items_text);
+END;
+CREATE TRIGGER IF NOT EXISTS activity_ad AFTER DELETE ON activity WHEN old.deleted = 0 BEGIN
+  INSERT INTO activity_fts(activity_fts, rowid, title, items_text) VALUES ('delete', old.rowid, old.title, old.items_text);
+END;
+CREATE TRIGGER IF NOT EXISTS activity_au AFTER UPDATE OF title, items_text, deleted ON activity BEGIN
+  INSERT INTO activity_fts(activity_fts, rowid, title, items_text) SELECT 'delete', old.rowid, old.title, old.items_text WHERE old.deleted = 0;
+  INSERT INTO activity_fts(rowid, title, items_text) SELECT new.rowid, new.title, new.items_text WHERE new.deleted = 0;
+END;
 -- The tenant's decisions. refs are store refs, or the account-free shorthand
 -- meeting:<source>:<id> which the search tool resolves against meetings at query time.
 CREATE TABLE IF NOT EXISTS fragments (
@@ -219,7 +243,7 @@ export function openReadOnly(path: string): DatabaseSync {
 // Raw file discovery + classification. The pullers' output names are the contract
 // (google/pull.ts, slack/pull.ts, msgraph/pull.ts headers) — anything else is skipped once.
 // ---------------------------------------------------------------------------------------
-export type RawKind = 'messages' | 'events' | 'files' | 'tombstones' | 'tasks' | 'meetings';
+export type RawKind = 'messages' | 'events' | 'files' | 'tombstones' | 'tasks' | 'meetings' | 'activity';
 
 export function classifyRawFile(name: string): RawKind | undefined {
   switch (basename(name)) {
@@ -238,6 +262,8 @@ export function classifyRawFile(name: string): RawKind | undefined {
       return 'tasks';
     case 'meetings.jsonl':
       return 'meetings';
+    case 'activity.jsonl':
+      return 'activity';
     default:
       return undefined;
   }
@@ -326,6 +352,8 @@ export interface BuildSummary {
   fileRecords: number;
   tasks: number;
   meetings: number;
+  /** Local work blocks (git / Claude Code). */
+  activity: number;
   /** Distinct calls after grouping recorder copies (calls.ts). */
   calls: number;
   tombstones: number;
@@ -369,6 +397,8 @@ class Statements {
   readonly taskTomb: StatementSync;
   readonly meetUpsert: StatementSync;
   readonly meetTomb: StatementSync;
+  readonly actUpsert: StatementSync;
+  readonly actTomb: StatementSync;
   readonly mtpDel: StatementSync;
   readonly mtpIns: StatementSync;
   readonly mpDel: StatementSync;
@@ -409,6 +439,11 @@ class Statements {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
       ON CONFLICT(ref) DO UPDATE SET title=excluded.title, start=excluded.start, "end"=excluded."end", attendees=excluded.attendees, summary=excluded.summary,
         next_steps=excluded.next_steps, transcript=excluded.transcript, url=excluded.url, scrub_withheld=excluded.scrub_withheld, scrub_kinds=excluded.scrub_kinds, deleted=0`);
+    this.actUpsert = db.prepare(`INSERT INTO activity(ref, source, account, id, container, start, "end", minutes, title, items, items_text, deleted)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      ON CONFLICT(ref) DO UPDATE SET container=excluded.container, start=excluded.start, "end"=excluded."end", minutes=excluded.minutes,
+        title=excluded.title, items=excluded.items, items_text=excluded.items_text, deleted=0`);
+    this.actTomb = db.prepare('INSERT INTO activity(ref, source, account, deleted) VALUES (?, ?, ?, 1) ON CONFLICT(ref) DO UPDATE SET deleted=1');
     this.meetTomb = db.prepare('INSERT INTO meetings(ref, source, account, deleted) VALUES (?, ?, ?, 1) ON CONFLICT(ref) DO UPDATE SET deleted=1');
     this.mtpDel = db.prepare('DELETE FROM meeting_people WHERE ref = ?');
     this.mtpIns = db.prepare('INSERT OR IGNORE INTO meeting_people(ref, person_id) VALUES (?, ?)');
@@ -479,12 +514,24 @@ function labelled(source: string, r: Rec, dir: SlackDirectory): { container: str
   };
 }
 
-function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<string, string>, touched: { refs: Set<string>; threads: Set<string> }, dir: SlackDirectory = new Map()): 'message' | 'event' | 'file' | 'task' | 'meeting' | 'tombstone' | 'skip' {
+function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<string, string>, touched: { refs: Set<string>; threads: Set<string> }, dir: SlackDirectory = new Map()): 'message' | 'event' | 'file' | 'task' | 'meeting' | 'activity' | 'tombstone' | 'skip' {
   const ref = refOf(r);
   if (!ref) return 'skip';
   const source = str(r.source);
   const account = str(r.account);
   const deleted = r.deleted === true;
+  if (kind === 'activity') {
+    if (deleted) {
+      st.actTomb.run(ref, source, account);
+      return 'tombstone';
+    }
+    const items = Array.isArray(r.items) ? (r.items as unknown[]).filter((x): x is Rec => !!x && typeof x === 'object') : [];
+    st.actUpsert.run(
+      ref, source, account, str(r.id), str(r.container), str(r.start), str(r.end), Math.max(0, Math.round(Number(r.minutes) || 0)), str(r.title),
+      JSON.stringify(items.map((i) => ({ ts: str(i.ts), text: str(i.text) }))), items.map((i) => str(i.text)).join('\n'),
+    );
+    return 'activity';
+  }
   if (kind === 'meetings') {
     if (deleted) {
       st.meetTomb.run(ref, source, account);
@@ -697,7 +744,7 @@ export function buildStore(ctx: BuildContext): BuildSummary {
   resetIfOldSchema(ctx.storePath, ctx.log);
   const db = openStore(ctx.storePath);
   const sum: BuildSummary = {
-    files: 0, lines: 0, malformed: 0, replayed: 0, messages: 0, events: 0, fileRecords: 0, tasks: 0, meetings: 0, calls: 0, tombstones: 0,
+    files: 0, lines: 0, malformed: 0, replayed: 0, messages: 0, events: 0, fileRecords: 0, tasks: 0, meetings: 0, activity: 0, calls: 0, tombstones: 0,
     recomputed: false, fragments: 0, attributions: 0, malformedFragments: 0, truncatedFiles: [], skippedFiles: [], people: 0,
   };
   try {
@@ -769,6 +816,7 @@ export function buildStore(ctx: BuildContext): BuildSummary {
             else if (what === 'file') sum.fileRecords++;
             else if (what === 'task') sum.tasks++;
             else if (what === 'meeting') sum.meetings++;
+            else if (what === 'activity') sum.activity++;
             else if (what === 'tombstone') sum.tombstones++;
           }
           for (const t of touched.threads) {

@@ -8,8 +8,8 @@
 // follow (see docs/sources.md "What comes next").
 import type { VaultPaths } from './common/vault.js';
 
-export type SourceKind = 'google' | 'slack' | 'msgraph' | 'youtrack' | 'jira' | 'asana' | 'meetings';
-export const SOURCE_KINDS: readonly SourceKind[] = ['google', 'slack', 'msgraph', 'youtrack', 'jira', 'asana', 'meetings'];
+export type SourceKind = 'google' | 'slack' | 'msgraph' | 'youtrack' | 'jira' | 'asana' | 'meetings' | 'local';
+export const SOURCE_KINDS: readonly SourceKind[] = ['google', 'slack', 'msgraph', 'youtrack', 'jira', 'asana', 'meetings', 'local'];
 /** Meeting recorders: one `meeting` shape (meetings/normalise.ts), several providers. */
 export type MeetingProvider = 'granola' | 'gmeet' | 'wispr';
 export const MEETING_PROVIDERS: readonly MeetingProvider[] = ['granola', 'gmeet', 'wispr'];
@@ -98,6 +98,21 @@ export interface MeetingsSourcesConfig {
 }
 
 /**
+ * Hands-on work on the bot's own machine (local/pull.ts): git commits under `roots` by any of
+ * `authors`, and Claude Code transcripts under `claudeProjectsDir`. No credentials.
+ */
+export interface LocalSourcesConfig {
+  /** Absolute directories scanned for git repos (depth ≤ 4). */
+  roots: string[];
+  /** git --author patterns (name or e-mail fragments), OR-ed. */
+  authors: string[];
+  /** e.g. /home/me/.claude/projects — omit to skip Claude sessions. */
+  claudeProjectsDir?: string;
+  /** YYYY-MM-DD window start for the first pull (default 30 days back). */
+  since?: string;
+}
+
+/**
  * The tenant repo: where the project's own decisions live (people with markers, fragments →
  * initiatives, rules). The bot keeps a host-side checkout under data/<slug>/tenant and READS it
  * at build time; it never writes there — the sandbox commits, the bot indexes.
@@ -119,6 +134,7 @@ export interface SourcesConfig {
   jira?: JiraSourcesConfig;
   asana?: AsanaSourcesConfig;
   meetings?: MeetingsSourcesConfig;
+  local?: LocalSourcesConfig;
   tenant?: TenantConfig;
   /** Poller interval (PR-C); default 15. Validated now so a typo fails at boot, not later. */
   intervalMinutes?: number;

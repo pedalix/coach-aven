@@ -250,7 +250,7 @@ test('build: a store from an older schema is discarded and rebuilt from raw', ()
   db.close();
   const lines: string[] = [];
   const s = buildStore({ ...ctx, log: (l) => lines.push(l) });
-  assert.ok(lines.some((l) => /schema v2 < v4/.test(l)));
+  assert.ok(lines.some((l) => new RegExp(`schema v2 < v${SCHEMA_VERSION}`).test(l)));
   assert.equal(s.messages, 1, 'raw re-read from offset 0');
 });
 

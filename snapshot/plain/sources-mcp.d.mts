@@ -46,6 +46,8 @@ export function buildMeetingsListSql(f: { since?: string; until?: string; person
 export function collapseCalls<T extends { kind?: string; call_id?: string | null; source: string; ref: string }>(rows: T[]): (T & { also?: { source: string; ref: string }[] })[];
 export function buildCalendarSql(f: { since?: string; until?: string; source?: string; needles?: string[]; q?: string; limit?: number | string }): { sql: string; params: unknown[] };
 export function runCalendar(db: DatabaseSync, args: Record<string, unknown>): { note?: string; events: Record<string, unknown>[] };
+export function buildActivitySql(f: { since?: string; until?: string; container?: unknown; source?: unknown; q?: unknown; limit?: number | string }): { sql: string; params: unknown[] };
+export function runActivity(db: DatabaseSync, args: Record<string, unknown>): { note?: string; activity: Record<string, unknown>[] };
 export function buildFragmentsSql(f: { since?: string; until?: string; initiative?: string; status?: string; limit?: number | string }): { sql: string; params: unknown[] };
 export function buildTasksListSql(f: {
   status?: string;
