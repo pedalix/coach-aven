@@ -120,6 +120,9 @@ export interface TurnEngine {
 export interface TurnOpts {
   ytDraftFor?: string;
   autoPost?: (text: string) => Promise<{ url: string; group: string }>;
+  // Called with the final answer after it is delivered (routine runs rewrite their top-level
+  // parent to the answer's headline — routinerun.ts). Errors are swallowed.
+  onAnswer?: (text: string) => Promise<void>;
 }
 
 // What the "🧭 Show steps" click renders: every step line the turn streamed (growing while
@@ -566,7 +569,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       threadTs,
       msgTs,
       question,
-      plain: !attachments?.refs.length && !opts,
+      // onAnswer alone keeps a turn replayable (a replay just skips the parent's headline update).
+      plain: !attachments?.refs.length && (!opts || (!opts.ytDraftFor && !opts.autoPost)),
     });
 
     // Cancel while still queued (doTurn hasn't claimed this turnId yet) — settle right
@@ -868,6 +872,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         rate: { turnId, slug: project.slug, key },
       });
       await deliver(text, blocks, '✅ Done — answer posted below');
+      if (opts?.onAnswer) await opts.onAnswer(capped).catch(() => {});
       // Latch the flag the first turn whose answer carries a PR URL — the session panel
       // shows whether this thread has produced a PR.
       if (!store.getChat(key)?.prCreated && prUrls(capped).length)
