@@ -48,25 +48,35 @@ export const PROTOCOL_VERSION = '2025-06-18';
 
 // ── pure query builders (unit-tested from src/sources/mcp-server.test.ts) ───────────────
 
-// FTS5 MATCH has its own grammar (AND/OR/NOT, NEAR, column filters, `*`, quotes). User text
-// goes in as a sequence of QUOTED phrases joined by implicit AND, so nothing the model (or a
-// Slack message it copied) types can change the query's shape or error out. A trailing `*`
-// on a token keeps prefix matching, the one operator worth exposing.
+// FTS5 MATCH has its own grammar (AND/OR/NOT, NEAR, column filters, `*`, quotes). User text is
+// rebuilt from scratch: every word becomes a QUOTED term, so nothing the model (or a Slack
+// message it copied) types can change the query's shape or error out. Exposed on purpose:
+// "quoted phrases", a trailing `*` (prefix), and the UPPER-CASE operators OR / AND / NOT between
+// two terms (lower-case "or" is just a word). A dangling or doubled operator is dropped.
 export function sanitizeFtsQuery(input) {
-  const tokens = String(input ?? '')
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .map((t) => {
+  const raw = String(input ?? '').match(/"[^"]*"?|\S+/g) ?? [];
+  const out = [];
+  const isOp = (t) => t === 'OR' || t === 'AND' || t === 'NOT';
+  for (const t of raw) {
+    if (isOp(t)) {
+      if (out.length && !isOp(out[out.length - 1])) out.push(t);
+      continue;
+    }
+    let term = '';
+    if (t.startsWith('"')) {
+      const phrase = t.replace(/^"|"$/g, '').replace(/["^*():{}]/g, ' ').replace(/\s+/g, ' ').trim();
+      if (phrase) term = `"${phrase}"`;
+    } else {
       const prefix = t.endsWith('*');
       // Strip everything that is FTS syntax or noise; keep letters (any script), digits, and
       // the in-word punctuation that appears in emails/handles/paths.
       const core = (prefix ? t.slice(0, -1) : t).replace(/["^*():{}]/g, '').replace(/^[-+]+/, '');
-      if (!core) return '';
-      return `"${core.replace(/"/g, '""')}"${prefix ? '*' : ''}`;
-    })
-    .filter(Boolean);
-  return tokens.join(' ');
+      if (core) term = `"${core}"${prefix ? '*' : ''}`;
+    }
+    if (term) out.push(term);
+  }
+  while (out.length && isOp(out[out.length - 1])) out.pop();
+  return out.join(' ');
 }
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?$/;
@@ -109,6 +119,8 @@ export function buildSearchSql(f) {
     where.push(c.sql);
     params.push(...c.params);
   }
+  // Bots (integrations, webhooks, no-reply mail) drown human conversation; excluded unless asked.
+  if (f.excludeBots) where.push('m.is_bot = 0');
   const limit = Math.max(1, Math.min(100, Number(f.limit) || 20));
   const cols =
     'm.ref, m.source, m.account, m.container, m.thread_id, m.ts, m.author_person, m.author_raw, m.subject, m.permalink, m.scrub_withheld, m.scrub_kinds';
@@ -205,7 +217,7 @@ export function buildMeetingSearchSql(f) {
     params.push(...c.params);
   }
   const limit = Math.max(1, Math.min(100, Number(f.limit) || 20));
-  const cols = "mt.ref, mt.source, mt.account, '' AS container, mt.ref AS thread_id, mt.start AS ts, '' AS author_person, '' AS author_raw, mt.title AS subject, mt.url AS permalink, mt.scrub_withheld, mt.scrub_kinds";
+  const cols = `mt.ref, mt.source, mt.account, '' AS container, mt.ref AS thread_id, mt.start AS ts, '' AS author_person, '' AS author_raw, mt.title AS subject, mt.url AS permalink, mt.scrub_withheld, mt.scrub_kinds, ${f.hasCalls ? 'mt.call_id' : 'NULL'} AS call_id`;
   if (f.match) {
     return {
       mode: 'fts',
@@ -246,7 +258,7 @@ export function buildMeetingsListSql(f) {
   const limit = Math.max(1, Math.min(200, Number(f.limit) || 50));
   return {
     sql:
-      'SELECT mt.ref, mt.source, mt.id, mt.title, mt.start, mt."end", mt.attendees, mt.next_steps, mt.url, length(mt.transcript) AS transcript_chars, mt.scrub_withheld ' +
+      `SELECT mt.ref, mt.source, mt.id, mt.title, mt.start, mt."end", mt.attendees, mt.next_steps, mt.url, length(mt.transcript) AS transcript_chars, mt.scrub_withheld, ${f.hasCalls ? 'mt.call_id' : 'NULL AS call_id'} ` +
       `FROM meetings mt WHERE ${where.join(' AND ')} ORDER BY mt.start DESC LIMIT ?`,
     params: [...params, limit],
   };
@@ -334,16 +346,18 @@ export const TOOLS = [
       '(FTS5, ranked). Returns refs + snippets; call `get` for a full message. Filters: since/until (ISO date or ' +
       'datetime), source (gmail|slack|msgraph|youtrack|jira|asana|granola|gmeet|wispr|…), person (email, slack id, or a name fragment), ' +
       'initiative (only what the tenant has attributed). Tracker tickets carry `kind: "task"`, recorded calls `kind: "meeting"`. ' +
-      'With an empty query it lists the newest messages matching the filters. Cite the `permalink` of anything you quote.',
+      'With an empty query it lists the newest messages matching the filters. Bot/integration messages are excluded unless includeBots. ' +
+      'A call recorded by several recorders comes back once (`also` lists the other copies). Cite the `permalink` of anything you quote.',
     inputSchema: {
       type: 'object',
       properties: {
-        query: { type: 'string', description: 'Words or phrases; a trailing * does prefix matching' },
+        query: { type: 'string', description: 'Words, "quoted phrases", a trailing * for prefix; OR / AND / NOT (upper-case) between terms' },
         since: { type: 'string' },
         until: { type: 'string' },
         source: { type: 'string' },
         person: { type: 'string' },
         initiative: { type: 'string', description: 'Initiative id or prefix; filters by the tenant\'s attribution decisions' },
+        includeBots: { type: 'boolean', description: 'Include integrations/webhooks/no-reply mail (excluded by default)', default: false },
         limit: { type: 'integer', minimum: 1, maximum: 100, default: 20 },
       },
     },
@@ -379,8 +393,9 @@ export const TOOLS = [
   {
     name: 'meetings',
     description:
-      'Recorded calls (Granola, Gemini in Meet, Wispr) in a time window, newest first: title, start/end, attendees, next steps, ' +
-      'transcript size. Filters: since/until, person (an attendee), source. `get` a ref for the summary and transcript.',
+      'Recorded calls in a time window, newest first — ONE row per call even when Granola, Gemini in Meet and Wispr all recorded it ' +
+      '(`sources` lists every copy; the primary copy has the longest transcript). Fields: title, start/end, attendees, next steps, ' +
+      'transcript size. Filters: since/until, person (an attendee), source. `get` any copy\'s ref for the call with all copies side by side.',
     inputSchema: {
       type: 'object',
       properties: { since: { type: 'string' }, until: { type: 'string' }, person: { type: 'string' }, source: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 } },
@@ -439,6 +454,35 @@ function resolvePersonIds(db, person) {
   return { ids: [...ids] };
 }
 
+function hasColumn(db, table, col) {
+  try {
+    return db.prepare(`PRAGMA table_info(${table})`).all().some((c) => c.name === col);
+  } catch {
+    return false;
+  }
+}
+
+// Rows already sorted best-first: keep the first hit per call, remember the other copies.
+export function collapseCalls(rows) {
+  const seen = new Map();
+  const out = [];
+  for (const r of rows) {
+    if (r.kind !== 'meeting' || !r.call_id) {
+      out.push(r);
+      continue;
+    }
+    const first = seen.get(r.call_id);
+    if (first) {
+      first.also.push({ source: r.source, ref: r.ref });
+      continue;
+    }
+    const row = { ...r, also: [] };
+    seen.set(r.call_id, row);
+    out.push(row);
+  }
+  return out;
+}
+
 function hasTable(db, name) {
   return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(name);
 }
@@ -452,7 +496,9 @@ export function runSearch(db, args) {
   const notes = personNote ? [personNote] : [];
   if (initiative && !hasTable(db, 'attributions')) return { mode: 'fts', note: 'this replica has no attributions yet (built before tenant annotations)', hits: [] };
   if (initiative && !db.prepare('SELECT 1 FROM attributions LIMIT 1').get()) notes.push('the tenant has not attributed anything yet — the initiative filter matches nothing');
-  const f = { match, since, until, source: args.source, personIds, initiative, limit: args.limit };
+  const excludeBots = !args.includeBots && hasColumn(db, 'messages', 'is_bot');
+  const hasCalls = hasColumn(db, 'meetings', 'call_id');
+  const f = { match, since, until, source: args.source, personIds, initiative, limit: args.limit, excludeBots, hasCalls };
   const src = args.source ? String(args.source) : undefined;
   const isTracker = src && TRACKER_SOURCES.includes(src);
   const isMeeting = src && MEETING_SOURCES.includes(src);
@@ -470,13 +516,14 @@ export function runSearch(db, args) {
   // bm25 scores from different FTS tables are not strictly comparable, but all are "lower is
   // better" — good enough to interleave; recency mode sorts by ts.
   rows = rows.sort((a, b) => (q.mode === 'fts' ? a.rank - b.rank : String(b.ts).localeCompare(String(a.ts))));
+  rows = collapseCalls(rows);
   rows = rows.slice(0, Math.max(1, Math.min(100, Number(args.limit) || 20)));
   return {
     mode: q.mode,
     ...(notes.length ? { note: notes.join('; ') } : {}),
     hits: rows.map((r) => ({
       ...(r.kind === 'task' ? { kind: 'task', status: r.status, statusCategory: r.status_category } : {}),
-      ...(r.kind === 'meeting' ? { kind: 'meeting' } : {}),
+      ...(r.kind === 'meeting' ? { kind: 'meeting', ...(r.call_id ? { call_id: r.call_id } : {}), ...(r.also?.length ? { also: r.also } : {}) } : {}),
       ref: r.ref,
       source: r.source,
       ts: r.ts,
@@ -567,22 +614,42 @@ export function runMeetings(db, args) {
     personIds = r.ids;
     note = r.note;
   }
-  const q = buildMeetingsListSql({ since: normalizeTime(args.since, 'since'), until: normalizeTime(args.until, 'until'), personIds, source: args.source, limit: args.limit });
-  return {
-    ...(note ? { note } : {}),
-    meetings: db.prepare(q.sql).all(...q.params).map((r) => ({
-      ref: r.ref,
-      source: r.source,
-      title: r.title,
-      start: r.start,
-      end: r.end,
-      attendees: parseJson(r.attendees || '[]', []),
-      next_steps: parseJson(r.next_steps || '[]', []),
-      transcript_chars: r.transcript_chars,
-      url: r.url,
-      ...(r.scrub_withheld ? { withheld: true } : {}),
-    })),
-  };
+  const hasCalls = hasColumn(db, 'meetings', 'call_id') && hasTable(db, 'calls');
+  const limit = Math.max(1, Math.min(200, Number(args.limit) || 50));
+  // Over-fetch copies, then fold them into calls: up to three recorders per call.
+  const q = buildMeetingsListSql({ since: normalizeTime(args.since, 'since'), until: normalizeTime(args.until, 'until'), personIds, source: args.source, limit: limit * 3, hasCalls });
+  const rows = db.prepare(q.sql).all(...q.params);
+  const callMeta = hasCalls ? db.prepare('SELECT primary_ref, sources, start, "end", title FROM calls WHERE call_id = ?') : undefined;
+  const byCall = new Map();
+  const out = [];
+  for (const r of rows) {
+    const key = r.call_id || r.ref;
+    if (byCall.has(key)) continue;
+    const meta = r.call_id && callMeta ? callMeta.get(r.call_id) : undefined;
+    const primary = meta && meta.primary_ref !== r.ref ? db.prepare('SELECT ref, source, title, start, "end", attendees, next_steps, url, length(transcript) AS transcript_chars, scrub_withheld FROM meetings WHERE ref = ?').get(meta.primary_ref) ?? r : r;
+    const sources = meta ? parseJson(meta.sources || '[]', []) : [{ source: r.source, ref: r.ref }];
+    const row = {
+      ...(r.call_id ? { call_id: r.call_id } : {}),
+      ref: primary.ref,
+      source: primary.source,
+      sources,
+      title: (meta && meta.title) || primary.title,
+      start: (meta && meta.start) || primary.start,
+      end: (meta && meta.end) || primary.end,
+      attendees: parseJson(primary.attendees || '[]', []),
+      // Next steps from EVERY copy (primary first, de-duplicated): recorders catch different ones.
+      next_steps: r.call_id
+        ? [...new Set([primary, ...db.prepare('SELECT next_steps FROM meetings WHERE call_id = ? AND deleted = 0 AND ref <> ?').all(r.call_id, primary.ref)].flatMap((x) => parseJson(x.next_steps || '[]', [])))]
+        : parseJson(primary.next_steps || '[]', []),
+      transcript_chars: primary.transcript_chars,
+      url: primary.url,
+      ...(primary.scrub_withheld ? { withheld: true } : {}),
+    };
+    byCall.set(key, row);
+    out.push(row);
+    if (out.length >= limit) break;
+  }
+  return { ...(note ? { note } : {}), meetings: out };
 }
 
 export function runFragments(db, args) {
@@ -650,7 +717,18 @@ export function runGet(db, args) {
     const t = hasTable(db, 'tasks') ? db.prepare('SELECT * FROM tasks WHERE ref = ?').get(ref) : undefined;
     if (t) return taskRow(t);
     const mt = hasTable(db, 'meetings') ? db.prepare('SELECT * FROM meetings WHERE ref = ?').get(ref) : undefined;
-    if (mt) return meetingRow(db, mt);
+    if (mt) {
+      const row = meetingRow(db, mt);
+      if (!mt.call_id || !hasTable(db, 'calls')) return row;
+      const copies = db.prepare('SELECT ref, source, title, summary, next_steps, url, length(transcript) AS transcript_chars, scrub_withheld FROM meetings WHERE call_id = ? AND deleted = 0').all(mt.call_id);
+      const call = db.prepare('SELECT call_id, primary_ref, start, "end", title FROM calls WHERE call_id = ?').get(mt.call_id);
+      // Every recorder's view side by side: Owen compares recorder quality on exactly this.
+      return {
+        ...row,
+        call: call ? { call_id: call.call_id, primary_ref: call.primary_ref, start: call.start, end: call.end, title: call.title } : undefined,
+        copies: copies.map((c) => ({ ref: c.ref, source: c.source, title: c.title, summary: c.summary, next_steps: parseJson(c.next_steps || '[]', []), transcript_chars: c.transcript_chars, url: c.url, ...(c.scrub_withheld ? { withheld: true } : {}) })),
+      };
+    }
     return { error: `no message, task or meeting with ref ${JSON.stringify(ref)}` };
   }
   const before = db

@@ -36,11 +36,16 @@ import { attributionRows, loadFragments, type Fragment } from './annotations.js'
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join, relative, basename } from 'node:path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
+import { isBotAuthor, parseSlackDirectory, resolveSlackContainer, resolveSlackName, slackDirectoryText, type SlackDirectory } from './bots.js';
+import { clusterMeetings, type MeetingForCall } from './calls.js';
 import { identitiesOf, identityIndex, loadPeople, resolveIdentity, type Person } from './people.js';
 import { ensureDir } from './paths.js';
 import type { Logger } from './types.js';
 
-export const SCHEMA_VERSION = 3;
+// v4: messages.is_bot, meetings.call_id + calls (recorder copies grouped), Slack ids → names.
+export const SCHEMA_VERSION = 4;
+/** Bumped when bots.ts rules change, so every row's is_bot / Slack labels get recomputed. */
+export const LABEL_RULES_VERSION = 1;
 /** Where the sandbox sees the replica directory (the file inside is always `store.sqlite`). */
 export const REPLICA_FILE = 'store.sqlite';
 
@@ -55,7 +60,7 @@ CREATE TABLE IF NOT EXISTS messages (
   thread_id TEXT NOT NULL, ts TEXT NOT NULL, author_person TEXT, author_raw TEXT NOT NULL DEFAULT '',
   subject TEXT NOT NULL DEFAULT '', text TEXT NOT NULL DEFAULT '', permalink TEXT NOT NULL DEFAULT '',
   raw_ref TEXT NOT NULL DEFAULT '', scrub_withheld INTEGER NOT NULL DEFAULT 0, scrub_kinds TEXT NOT NULL DEFAULT '',
-  participants TEXT NOT NULL DEFAULT '[]', deleted INTEGER NOT NULL DEFAULT 0
+  participants TEXT NOT NULL DEFAULT '[]', deleted INTEGER NOT NULL DEFAULT 0, is_bot INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_ts ON messages(ts);
 CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id);
@@ -97,9 +102,17 @@ CREATE TABLE IF NOT EXISTS meetings (
   title TEXT NOT NULL DEFAULT '', start TEXT NOT NULL DEFAULT '', "end" TEXT NOT NULL DEFAULT '',
   attendees TEXT NOT NULL DEFAULT '[]', summary TEXT NOT NULL DEFAULT '', next_steps TEXT NOT NULL DEFAULT '[]',
   transcript TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
-  scrub_withheld INTEGER NOT NULL DEFAULT 0, scrub_kinds TEXT NOT NULL DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0
+  scrub_withheld INTEGER NOT NULL DEFAULT 0, scrub_kinds TEXT NOT NULL DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0,
+  call_id TEXT
 );
 CREATE INDEX IF NOT EXISTS meetings_start ON meetings(start);
+CREATE INDEX IF NOT EXISTS meetings_call ON meetings(call_id);
+-- One row per real call, however many recorders captured it (calls.ts). sources = JSON [{source, ref}].
+CREATE TABLE IF NOT EXISTS calls (
+  call_id TEXT PRIMARY KEY, start TEXT NOT NULL DEFAULT '', "end" TEXT NOT NULL DEFAULT '', title TEXT NOT NULL DEFAULT '',
+  primary_ref TEXT NOT NULL, sources TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS calls_start ON calls(start);
 CREATE TABLE IF NOT EXISTS meeting_people (
   ref TEXT NOT NULL, person_id TEXT NOT NULL, PRIMARY KEY (ref, person_id)
 ) WITHOUT ROWID;
@@ -313,6 +326,8 @@ export interface BuildSummary {
   fileRecords: number;
   tasks: number;
   meetings: number;
+  /** Distinct calls after grouping recorder copies (calls.ts). */
+  calls: number;
   tombstones: number;
   /** Tenant files changed → person resolution + attributions recomputed for every stored row. */
   recomputed: boolean;
@@ -365,11 +380,11 @@ class Statements {
   constructor(db: DatabaseSync) {
     this.rawIns = db.prepare('INSERT OR IGNORE INTO raw_records(source, account, id, line_hash, body, ingested_at) VALUES (?, ?, ?, ?, ?, ?)');
     this.msgGet = db.prepare('SELECT thread_id FROM messages WHERE ref = ?');
-    this.msgUpsert = db.prepare(`INSERT INTO messages(ref, source, account, container, thread_id, ts, author_person, author_raw, subject, text, permalink, raw_ref, scrub_withheld, scrub_kinds, participants, deleted)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    this.msgUpsert = db.prepare(`INSERT INTO messages(ref, source, account, container, thread_id, ts, author_person, author_raw, subject, text, permalink, raw_ref, scrub_withheld, scrub_kinds, participants, is_bot, deleted)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
       ON CONFLICT(ref) DO UPDATE SET container=excluded.container, thread_id=excluded.thread_id, ts=excluded.ts, author_person=excluded.author_person,
         author_raw=excluded.author_raw, subject=excluded.subject, text=excluded.text, permalink=excluded.permalink, raw_ref=excluded.raw_ref,
-        scrub_withheld=excluded.scrub_withheld, scrub_kinds=excluded.scrub_kinds, participants=excluded.participants, deleted=0`);
+        scrub_withheld=excluded.scrub_withheld, scrub_kinds=excluded.scrub_kinds, participants=excluded.participants, is_bot=excluded.is_bot, deleted=0`);
     // A tombstone for an unknown ref still gets a row: "deleted" is information (the id existed
     // upstream), and a later resurrecting line upserts over it.
     this.msgTomb = db.prepare(`INSERT INTO messages(ref, source, account, thread_id, ts, deleted) VALUES (?, ?, ?, ?, ?, 1)
@@ -451,7 +466,20 @@ function linkMeetingPeople(st: Statements, ref: string, attendees: readonly unkn
   }
 }
 
-function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<string, string>, touched: { refs: Set<string>; threads: Set<string> }): 'message' | 'event' | 'file' | 'task' | 'meeting' | 'tombstone' | 'skip' {
+/** Container / author / participants with Slack ids resolved to names, plus the bot flag (bots.ts). */
+function labelled(source: string, r: Rec, dir: SlackDirectory): { container: string; author: string; participants: string[]; isBot: boolean } {
+  const rawAuthor = str(r.author);
+  const slack = source === 'slack';
+  const author = slack ? resolveSlackName(rawAuthor, dir) : rawAuthor;
+  return {
+    container: slack ? resolveSlackContainer(str(r.container), dir) : str(r.container),
+    author,
+    participants: slack ? strs(r.participants).map((p) => resolveSlackName(p, dir)) : strs(r.participants),
+    isBot: isBotAuthor(source, rawAuthor, dir, r.is_bot === true) || (author !== rawAuthor && isBotAuthor(source, author, dir)),
+  };
+}
+
+function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<string, string>, touched: { refs: Set<string>; threads: Set<string> }, dir: SlackDirectory = new Map()): 'message' | 'event' | 'file' | 'task' | 'meeting' | 'tombstone' | 'skip' {
   const ref = refOf(r);
   if (!ref) return 'skip';
   const source = str(r.source);
@@ -502,13 +530,14 @@ function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<s
       return 'tombstone';
     }
     const thread = threadIdOf(r, ref);
-    const author = str(r.author);
+    const l = labelled(source, r, dir);
+    const author = l.author;
     const scrub = (r.scrub && typeof r.scrub === 'object' ? (r.scrub as Rec) : {}) as Rec;
-    const participants = strs(r.participants);
+    const participants = l.participants;
     st.msgUpsert.run(
-      ref, source, account, str(r.container), thread, str(r.ts),
+      ref, source, account, l.container, thread, str(r.ts),
       resolveIdentity(author, index) ?? null, author, str(r.subject), str(r.text), str(r.permalink), str(r.raw_ref),
-      scrub.withheld === true ? 1 : 0, strs(scrub.kinds).join(','), JSON.stringify(participants),
+      scrub.withheld === true ? 1 : 0, strs(scrub.kinds).join(','), JSON.stringify(participants), l.isBot ? 1 : 0,
     );
     linkMessagePeople(st, ref, author, participants, index);
     touched.refs.add(ref);
@@ -558,8 +587,8 @@ export function resetIfOldSchema(path: string, log: Logger): boolean {
 }
 
 /** Fingerprint of everything the derived tables depend on besides raw. */
-export function derivedFingerprint(peopleText: string, fragmentsText: string): string {
-  return createHash('sha256').update(`v${SCHEMA_VERSION}\0${peopleText}\0${fragmentsText}`).digest('hex');
+export function derivedFingerprint(peopleText: string, fragmentsText: string, slackUsersText = ''): string {
+  return createHash('sha256').update(`v${SCHEMA_VERSION}.${LABEL_RULES_VERSION}\0${peopleText}\0${fragmentsText}\0${slackUsersText}`).digest('hex');
 }
 
 /**
@@ -567,22 +596,37 @@ export function derivedFingerprint(peopleText: string, fragmentsText: string): s
  * assignee / reporter person, message_people, meeting_people, fragments, attributions. One
  * transaction; O(rows) in JS — fine for the tens of thousands a personal corpus has.
  */
-export function recomputeDerived(db: DatabaseSync, people: readonly Person[], fragments: readonly Fragment[]): { attributions: number } {
+export function recomputeDerived(db: DatabaseSync, people: readonly Person[], fragments: readonly Fragment[], dir: SlackDirectory = new Map()): { attributions: number } {
   const index = seedPeople(db, people);
   const st = new Statements(db);
   db.exec('BEGIN');
   try {
     db.exec('DELETE FROM message_people; DELETE FROM meeting_people; DELETE FROM fragments; DELETE FROM attributions;');
-    const setAuthor = db.prepare('UPDATE messages SET author_person = ? WHERE ref = ?');
-    for (const m of db.prepare('SELECT ref, author_raw, participants FROM messages WHERE deleted = 0').all() as { ref: string; author_raw: string; participants: string }[]) {
+    // Labels come from the newest raw line per ref (the archive is the truth; the compacted row may
+    // carry names resolved under an older users map), so a better users map or new bot rules fix
+    // every row, not only rows ingested after the change.
+    const latestRaw = db.prepare('SELECT body FROM raw_records WHERE source = ? AND account = ? AND id = ? ORDER BY ingested_at DESC LIMIT 1');
+    const setRow = db.prepare('UPDATE messages SET author_person = ?, author_raw = ?, container = ?, participants = ?, is_bot = ? WHERE ref = ?');
+    for (const m of db.prepare('SELECT ref, source, account, author_raw, container, participants FROM messages WHERE deleted = 0').all() as { ref: string; source: string; account: string; author_raw: string; container: string; participants: string }[]) {
+      let r: Rec | undefined;
+      const idPart = m.ref.startsWith(`${m.source}:${m.account}:`) ? m.ref.slice(m.source.length + m.account.length + 2) : undefined;
+      if (idPart !== undefined) {
+        const row = latestRaw.get(m.source, m.account, idPart) as { body?: string } | undefined;
+        try {
+          r = row?.body ? (JSON.parse(row.body) as Rec) : undefined;
+        } catch {
+          r = undefined;
+        }
+      }
       let parts: string[] = [];
       try {
         parts = strs(JSON.parse(m.participants || '[]'));
       } catch {
         parts = [];
       }
-      setAuthor.run(resolveIdentity(m.author_raw, index) ?? null, m.ref);
-      linkMessagePeople(st, m.ref, m.author_raw, parts, index);
+      const l = r ? labelled(m.source, r, dir) : { container: m.container, author: m.author_raw, participants: parts, isBot: isBotAuthor(m.source, m.author_raw, dir) };
+      setRow.run(resolveIdentity(l.author, index) ?? null, l.author, l.container, JSON.stringify(l.participants), l.isBot ? 1 : 0, m.ref);
+      linkMessagePeople(st, m.ref, l.author, l.participants, index);
     }
     const setTask = db.prepare('UPDATE tasks SET assignee_person = ?, reporter_person = ? WHERE ref = ?');
     for (const t of db.prepare('SELECT ref, assignee_raw, reporter_raw FROM tasks').all() as { ref: string; assignee_raw: string; reporter_raw: string }[]) {
@@ -610,13 +654,50 @@ export function recomputeDerived(db: DatabaseSync, people: readonly Person[], fr
   }
 }
 
+/**
+ * Group recorder copies into calls (calls.ts) and stamp meetings.call_id. Recomputed on every
+ * build: a few hundred rows, and a late-arriving copy (Gemini docs land after the call) must be
+ * able to join an existing call. Returns the number of calls.
+ */
+export function recomputeCalls(db: DatabaseSync): number {
+  const rows = db.prepare('SELECT ref, source, title, start, "end" AS e, attendees, length(transcript) AS tl, length(summary) AS sl FROM meetings WHERE deleted = 0').all() as {
+    ref: string; source: string; title: string; start: string; e: string; attendees: string; tl: number; sl: number;
+  }[];
+  const input: MeetingForCall[] = rows.map((r) => {
+    let att: unknown[] = [];
+    try {
+      att = JSON.parse(r.attendees || '[]') as unknown[];
+    } catch {
+      att = [];
+    }
+    const names = (Array.isArray(att) ? att : []).map((a) => (typeof a === 'string' ? a : a && typeof a === 'object' ? str((a as Rec).email) || str((a as Rec).name) : '')).filter(Boolean);
+    return { ref: r.ref, source: r.source, title: r.title, start: r.start, end: r.e, attendees: names, transcriptChars: r.tl, summaryChars: r.sl };
+  });
+  const calls = clusterMeetings(input);
+  db.exec('BEGIN');
+  try {
+    db.exec('DELETE FROM calls; UPDATE meetings SET call_id = NULL;');
+    const ins = db.prepare('INSERT INTO calls(call_id, start, "end", title, primary_ref, sources) VALUES (?, ?, ?, ?, ?, ?)');
+    const stamp = db.prepare('UPDATE meetings SET call_id = ? WHERE ref = ?');
+    for (const c of calls) {
+      ins.run(c.call_id, c.start, c.end, c.title, c.primary_ref, JSON.stringify(c.sources));
+      for (const s of c.sources) stamp.run(c.call_id, s.ref);
+    }
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+  return calls.length;
+}
+
 export function buildStore(ctx: BuildContext): BuildSummary {
   const now = ctx.now ?? (() => new Date());
   const chunk = ctx.chunk ?? 2000;
   resetIfOldSchema(ctx.storePath, ctx.log);
   const db = openStore(ctx.storePath);
   const sum: BuildSummary = {
-    files: 0, lines: 0, malformed: 0, replayed: 0, messages: 0, events: 0, fileRecords: 0, tasks: 0, meetings: 0, tombstones: 0,
+    files: 0, lines: 0, malformed: 0, replayed: 0, messages: 0, events: 0, fileRecords: 0, tasks: 0, meetings: 0, calls: 0, tombstones: 0,
     recomputed: false, fragments: 0, attributions: 0, malformedFragments: 0, truncatedFiles: [], skippedFiles: [], people: 0,
   };
   try {
@@ -634,6 +715,8 @@ export function buildStore(ctx: BuildContext): BuildSummary {
     sum.people = people.length;
     const fragmentsText = ctx.fragmentsPath && existsSync(ctx.fragmentsPath) ? readFileSync(ctx.fragmentsPath, 'utf8') : '';
     const index: ReadonlyMap<string, string> = identityIndex(identitiesOf(people));
+    const slackUsersText = slackDirectoryText(ctx.rawDir);
+    const dir = parseSlackDirectory(slackUsersText);
     const st = new Statements(db);
     for (const file of listRawFiles(ctx.rawDir)) {
       const kind = classifyRawFile(file);
@@ -680,7 +763,7 @@ export function buildStore(ctx: BuildContext): BuildSummary {
               sum.replayed++;
               continue;
             }
-            const what = applyRecord(st, kind, r, index, touched);
+            const what = applyRecord(st, kind, r, index, touched, dir);
             if (what === 'message') sum.messages++;
             else if (what === 'event') sum.events++;
             else if (what === 'file') sum.fileRecords++;
@@ -701,18 +784,19 @@ export function buildStore(ctx: BuildContext): BuildSummary {
         }
       }
     }
-    const fp = derivedFingerprint(peopleText, fragmentsText);
+    const fp = derivedFingerprint(peopleText, fragmentsText, slackUsersText);
     const prevFp = (st.syncGet.get('derived_fingerprint') as { value?: string } | undefined)?.value;
     const { fragments, malformed } = loadFragments(ctx.fragmentsPath);
     sum.fragments = fragments.length;
     sum.malformedFragments = malformed;
     if (fp !== prevFp) {
-      sum.attributions = recomputeDerived(db, people, fragments).attributions;
+      sum.attributions = recomputeDerived(db, people, fragments, dir).attributions;
       st.syncSet.run('derived_fingerprint', fp);
       sum.recomputed = true;
     } else {
       sum.attributions = Number((db.prepare('SELECT count(*) AS n FROM attributions').get() as { n: number }).n);
     }
+    sum.calls = recomputeCalls(db);
     st.syncSet.run('last_build_at', now().toISOString());
     if (ctx.replicaDir) sum.replica = writeReplica(db, ctx.replicaDir);
   } finally {

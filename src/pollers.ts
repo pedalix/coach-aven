@@ -4,6 +4,8 @@
 // helpers they share with the /aven command router (run a routine/review on demand).
 // Socket Mode has no webhooks, so GitHub/YouTrack state is polled.
 
+import { mkdirSync, watch } from 'node:fs';
+import { consumeRunRequests, controlDir } from './control.js';
 import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
 import type { Store, RoutineRecord } from './state.js';
@@ -225,6 +227,37 @@ export function createPollers(
 
   // Scheduler: every 60s, fire any routine due this wall-clock minute (see dueRoutines).
   // Routines live in state.json, so they need no separate restart recovery.
+  // Operator-requested runs (`orch routines run <id>` writes data/control/run-<id>.json):
+  // fs.watch for promptness, a 5 s poll because watch events are lossy on some filesystems
+  // (WSL, network mounts). Claiming is atomic in control.ts, so the two never double-fire.
+  function startControlWatcher(): void {
+    const dir = controlDir();
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    const drain = (): void => {
+      try {
+        consumeRunRequests(dir, (id) => {
+          const r = store.getRoutine(id);
+          if (!r) {
+            log.warn(`control: run requested for unknown routine ${id} — ignored`);
+            return;
+          }
+          const c = clientOrSkip(r.teamId, `routine ${r.id}`);
+          const ok = c ? fireRoutine(c, r) : false;
+          log.info(`control: routine ${id} run requested from the CLI → ${ok ? 'fired' : 'not fired (busy, disabled tenant or no client)'}`);
+        });
+      } catch (e) {
+        pollFail('control')(e);
+      }
+    };
+    try {
+      watch(dir, () => drain());
+    } catch (e) {
+      log.warn(`control: fs.watch unavailable (${e instanceof Error ? e.message : String(e)}) — polling only`);
+    }
+    drain();
+    setInterval(drain, 5_000);
+  }
+
   function startScheduler(): void {
     const tick = (): void => {
       for (const { routine, key } of dueRoutines(store.listRoutines(), new Date(), firedThisMinute)) {
@@ -493,6 +526,7 @@ export function createPollers(
   return {
     startAll: () => {
       startScheduler();
+      startControlWatcher();
       startAutoReviewPoller();
       startAutofixPoller();
       startYouTrackPoller();

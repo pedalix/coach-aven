@@ -250,7 +250,7 @@ test('build: a store from an older schema is discarded and rebuilt from raw', ()
   db.close();
   const lines: string[] = [];
   const s = buildStore({ ...ctx, log: (l) => lines.push(l) });
-  assert.ok(lines.some((l) => /schema v2 < v3/.test(l)));
+  assert.ok(lines.some((l) => /schema v2 < v4/.test(l)));
   assert.equal(s.messages, 1, 'raw re-read from offset 0');
 });
 
@@ -272,5 +272,54 @@ test('build: meetings land compacted with attendees → meeting_people, transcri
   db = openReadOnly(ctx.storePath);
   assert.equal((db.prepare("SELECT count(*) c FROM meetings_fts WHERE meetings_fts MATCH 'produktstrategie'").get() as { c: number }).c, 0);
   assert.equal((db.prepare('SELECT deleted FROM meetings').get() as { deleted: number }).deleted, 1);
+  db.close();
+});
+
+test('build v4: recorder copies of one call share a call_id; Slack ids resolve to names; bots flagged', () => {
+  const { raw, ctx } = scaffold();
+  mkdirSync(join(raw, 'meetings', 'granola', 'acc@x.com'), { recursive: true });
+  mkdirSync(join(raw, 'meetings', 'wispr', 'wispr'), { recursive: true });
+  const mt = (source: string, account: string, id: string, start: string, end: string, transcript: string) =>
+    line({ source, account, id, title: 'FO Cloud incident', start, end, attendees: [], summary: 's', next_steps: [], transcript, url: '', text: '', scrub: { withheld: false, kinds: [] } });
+  writeFileSync(join(raw, 'meetings', 'granola', 'acc@x.com', 'meetings.jsonl'), mt('granola', 'acc@x.com', 'g1', '2026-10-08T17:07:00Z', '2026-10-08T17:50:00Z', 'short'));
+  writeFileSync(join(raw, 'meetings', 'wispr', 'wispr', 'meetings.jsonl'), mt('wispr', 'wispr', 'w1', '2026-10-08T17:08:00Z', '2026-10-08T17:49:00Z', 'a much longer transcript'));
+  mkdirSync(join(raw, 'slack'), { recursive: true });
+  writeFileSync(join(raw, 'slack', 'slack.users.json'), JSON.stringify({ T1: { fetched_at: 'x', users: [{ id: 'U0FLORIN01', name: 'florin', profile: { display_name: 'Florin' } }] } }));
+  const sl = (id: string, author: string, extra: object = {}) =>
+    line({ source: 'slack', account: 'T1', container: 'dm:U0FLORIN01', id, ts: '2026-10-08T10:00:00Z', author, participants: [author], text: 'hello', permalink: '', raw_ref: '', scrub: { withheld: false, kinds: [] }, ...extra });
+  writeFileSync(join(raw, 'slack', 'slack.messages.jsonl'), sl('C1:1', 'U0FLORIN01') + sl('C1:2', 'Intercom Convert') + sl('C1:3', 'Somebot', { is_bot: true }));
+  const s = buildStore(ctx);
+  assert.equal(s.calls, 1);
+  const db = openReadOnly(ctx.storePath);
+  const calls = db.prepare('SELECT * FROM calls').all() as { call_id: string; primary_ref: string; sources: string }[];
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0]!.primary_ref, 'wispr:wispr:w1');
+  assert.equal(JSON.parse(calls[0]!.sources).length, 2);
+  const ids = db.prepare('SELECT DISTINCT call_id FROM meetings').all() as { call_id: string }[];
+  assert.equal(ids.length, 1);
+  const msgs = db.prepare('SELECT id_part, container, author_raw, is_bot FROM (SELECT substr(ref, 10) AS id_part, container, author_raw, is_bot FROM messages) ORDER BY id_part').all() as { container: string; author_raw: string; is_bot: number }[];
+  assert.deepEqual(msgs.map((m) => [m.container, m.author_raw, m.is_bot]), [
+    ['dm:@florin', 'Florin', 0],
+    ['dm:@florin', 'Intercom Convert', 1],
+    ['dm:@florin', 'Somebot', 1],
+  ]);
+  db.close();
+});
+
+test('build v4: a better users map relabels rows already in the store', () => {
+  const { raw, ctx } = scaffold();
+  mkdirSync(join(raw, 'slack'), { recursive: true });
+  writeFileSync(join(raw, 'slack', 'slack.messages.jsonl'),
+    line({ source: 'slack', account: 'T1', container: 'dm:U0GUEST001', id: 'D1:1', ts: '2026-10-08T10:00:00Z', author: 'U0GUEST001', participants: ['U0GUEST001'], text: 'hi', permalink: '', raw_ref: '', scrub: { withheld: false, kinds: [] } }));
+  buildStore(ctx);
+  let db = openReadOnly(ctx.storePath);
+  assert.equal((db.prepare('SELECT container FROM messages').get() as { container: string }).container, 'dm:U0GUEST001');
+  db.close();
+  writeFileSync(join(raw, 'slack', 'slack.users.json'), JSON.stringify({ T1: { fetched_at: 'x', users: [{ id: 'U0GUEST001', name: 'guest', real_name: 'Guest Person' }] } }));
+  const s = buildStore(ctx);
+  assert.equal(s.recomputed, true);
+  db = openReadOnly(ctx.storePath);
+  const row = db.prepare('SELECT container, author_raw FROM messages').get() as { container: string; author_raw: string };
+  assert.deepEqual([row.container, row.author_raw], ['dm:@guest', 'Guest Person']);
   db.close();
 });

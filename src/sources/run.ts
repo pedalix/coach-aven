@@ -111,7 +111,7 @@ export function runBuild(p: ProjectConfig, verbose: boolean, sink: (line: string
     log: (line) => (verbose || !line.startsWith('  ') ? sink(`${prefix} ${line}`) : undefined),
   });
   sink(
-    `${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tasks ${s.tasks}, meetings ${s.meetings}, tombstones ${s.tombstones}` +
+    `${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tasks ${s.tasks}, meetings ${s.meetings} → ${s.calls} calls, tombstones ${s.tombstones}` +
       `${s.replayed ? `, replayed ${s.replayed}` : ''}${s.malformed ? `, malformed ${s.malformed}` : ''}; people ${s.people}; fragments ${s.fragments}, attributions ${s.attributions}` +
       `${s.recomputed ? ' (recomputed)' : ''}${s.malformedFragments ? `, ${s.malformedFragments} bad fragment lines` : ''}; replica ${s.replica ?? '(none)'}`,
   );

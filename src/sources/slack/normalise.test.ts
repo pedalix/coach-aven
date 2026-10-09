@@ -239,6 +239,9 @@ test('normaliseMessage labels bot authors and folds attachment text in', () => {
   assert.deepEqual(rec.participants, ['Deploy Bot']);
   assert.equal(rec.text, 'Deploy finished\nBuild 123: all green');
   assert.equal(rec.id, 'C012AB3CD:1759750000.000200');
+  assert.equal(rec.is_bot, true, 'apps are flagged so search can hide them');
+  const human = normaliseMessage({ type: 'message', user: 'U0ALICE001', text: 'hi', ts: '1759740009.000000' }, channel, ctx);
+  assert.equal(human?.is_bot, undefined);
 });
 
 test('unknown user ids and deleted users degrade gracefully', () => {

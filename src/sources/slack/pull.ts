@@ -38,7 +38,7 @@
  */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { loadStore, saveStore, SlackClient, SlackApiError, SlackAuthError, type WorkspaceRecord, type TokenStore } from './client.js';
+import { loadStore, saveStore, SlackClient, SlackApiError, SlackAuthError, type SlackResponse, type WorkspaceRecord, type TokenStore } from './client.js';
 import {
   compareTs,
   isThreadParent,
@@ -184,6 +184,7 @@ class WorkspaceSync {
   private stats: Stats = { conversations: 0, tombstones: 0, messages: 0, replies: 0, files: 0, calls: 0, limited: [], skipped: [] };
   private ctx!: WorkspaceContext;
   private usersRefreshedThisRun = false;
+  private readonly lookedUp = new Set<string>();
 
   constructor(
     private readonly client: SlackClient,
@@ -204,6 +205,8 @@ class WorkspaceSync {
     await this.client.ensureFresh();
     await this.loadUsers(this.opts.refreshUsers);
     const convs = await this.listConversations();
+    // DM counterparts users.list does not know (Slack Connect, deactivated): name them up front.
+    await this.lookupUsers([...new Set(convs.filter((c) => c.is_im && c.user).map((c) => c.user as string))]);
     if (this.opts.list) {
       for (const c of convs) this.log(`  ${c.id}  ${kind(c).padEnd(8)} ${c.is_archived ? '[archived] ' : ''}${label(c)}`);
       return this.stats;
@@ -256,11 +259,46 @@ class WorkspaceSync {
   }
 
   private async ensureUsersKnown(msgs: RawMessage[]): Promise<void> {
-    if (this.usersRefreshedThisRun) return;
-    if (msgs.some((m) => m.user && !this.ctx.users.has(m.user))) {
+    const unknown = (ids: string[]) => ids.filter((id) => !this.ctx.users.has(id));
+    const ids = [...new Set(msgs.map((m) => m.user).filter((u): u is string => !!u))];
+    if (!this.usersRefreshedThisRun && unknown(ids).length) {
       this.usersRefreshedThisRun = true;
       await this.loadUsers(true);
     }
+    await this.lookupUsers(unknown(ids));
+  }
+
+  /**
+   * users.info for ids that users.list does not return — Slack Connect people from other
+   * workspaces and deactivated accounts. Without this their DMs read `dm:U09…` and their
+   * messages are authored by an id, so people matching and search by name fail. Tier 4; each id
+   * is asked once per run, successes are cached beside the users.list result.
+   * https://docs.slack.dev/reference/methods/users.info
+   */
+  private async lookupUsers(ids: string[]): Promise<void> {
+    const todo = ids.filter((id) => !this.lookedUp.has(id) && !this.ctx.users.has(id));
+    if (!todo.length) return;
+    const found: RawUser[] = [];
+    for (const id of todo) {
+      this.lookedUp.add(id);
+      try {
+        const r = await this.client.call<SlackResponse & { user?: RawUser }>('users.info', { user: id });
+        this.stats.calls++;
+        if (r.user?.id) found.push(r.user);
+      } catch (err) {
+        if (err instanceof SlackApiError && (err.code === 'user_not_found' || err.code === 'user_not_visible')) continue;
+        throw err;
+      }
+    }
+    if (!found.length) return;
+    const cache = this.usersCache[this.ws.team_id] ?? { fetched_at: new Date(0).toISOString(), users: [] };
+    const byId = new Map(cache.users.map((u) => [u.id, u]));
+    for (const u of found) byId.set(u.id, u);
+    cache.users = [...byId.values()];
+    this.usersCache[this.ws.team_id] = cache;
+    await writeJsonAtomic(this.files.users, this.usersCache);
+    this.setUsers(cache.users);
+    this.log(`  [${this.ws.team}] users.info: resolved ${found.length} of ${todo.length} unknown user(s)`);
   }
 
   private async listConversations(): Promise<RawConversation[]> {

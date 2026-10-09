@@ -37,6 +37,8 @@ export interface MessageRecord {
   permalink: string;
   /** `slack:<team>/<channel>/<ts>` (+ `#<thread_ts>` for replies) — enough to re-fetch the raw object. */
   raw_ref: string;
+  /** Posted by an app/integration (bot_id, bot_message, or a users-map bot) — search hides these by default. */
+  is_bot?: boolean;
 }
 
 export interface FileRecord {
@@ -330,6 +332,7 @@ export function normaliseMessage(
     permalink: permalink(ctx.url, conv.id, msg.ts, msg.thread_ts),
     raw_ref: `slack:${ctx.team_id}/${conv.id}/${msg.ts}${reply ? `#${msg.thread_ts}` : ''}`,
   };
+  if (!msg.user || msg.bot_id || msg.subtype === 'bot_message' || ctx.users.get(msg.user)?.is_bot) record.is_bot = true;
   if (reply && opts.parentText) record.subject = `re: ${truncate(flattenText(opts.parentText, ctx.users), 60)}`;
   return record;
 }
