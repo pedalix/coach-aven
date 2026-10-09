@@ -29,7 +29,9 @@ export interface UsageRecord {
   // field existed simply carry no id and join to nothing.
   turnId?: string;
   slug: string; // project
-  kind: 'turn' | 'ask'; // live turn vs no-UI ask (dreams, /aven Q&A)
+  // live turn vs no-UI ask (dreams, /aven Q&A) vs a turn the CLI ran on its own when a
+  // background Task/Agent finished after its owning turn settled (no message in).
+  kind: 'turn' | 'ask' | 'background';
   status: 'ok' | 'error' | 'canceled';
   elapsedMs: number; // wall clock — doubles as the sandbox-hours proxy for now
   usage?: TurnUsage;
@@ -44,7 +46,8 @@ export function teamOf(key: string): string {
 
 export interface UsageRow {
   group: string; // slug or team, per the aggregation dimension
-  turns: number;
+  turns: number; // prompts in (live turns + asks)
+  background: number; // self-started CLI turns — their cost is in the totals, not in `turns`
   errors: number;
   wallMs: number;
   inputTokens: number;
@@ -62,8 +65,9 @@ export function aggregateUsage(records: UsageRecord[], by: 'slug' | 'team'): Usa
     const group = by === 'team' ? teamOf(r.key) : r.slug;
     const row =
       rows.get(group) ??
-      { group, turns: 0, errors: 0, wallMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
-    row.turns++;
+      { group, turns: 0, background: 0, errors: 0, wallMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+    if (r.kind === 'background') row.background++;
+    else row.turns++;
     if (r.status === 'error') row.errors++;
     row.wallMs += r.elapsedMs;
     row.inputTokens += r.usage?.inputTokens ?? 0;
@@ -106,23 +110,24 @@ const fmtH = (ms: number): string => `${(ms / 3_600_000).toFixed(1)}h`;
 export function usageSummaryText(bySlug: UsageRow[], byTeam: UsageRow[], days: number): string {
   if (bySlug.length === 0) return `No agent turns recorded in the last ${days}d.`;
   const line = (r: UsageRow) =>
-    `• *${r.group}* — ${r.turns} turns${r.errors ? ` (${r.errors} errors)` : ''} · ` +
+    `• *${r.group}* — ${r.turns} turns${r.background ? ` + ${r.background} background` : ''}${r.errors ? ` (${r.errors} errors)` : ''} · ` +
     `${fmtK(r.cacheReadTokens)} cache read / ${fmtK(r.cacheCreationTokens)} cache write / ` +
     `${fmtK(r.inputTokens)} in / ${fmtK(r.outputTokens)} out tok · ~$${r.costUsd.toFixed(2)} · ${fmtH(r.wallMs)} active`;
   const sum = bySlug.reduce(
     (a, r) => ({
       turns: a.turns + r.turns,
+      background: a.background + r.background,
       cost: a.cost + r.costUsd,
       wall: a.wall + r.wallMs,
       cache: a.cache + r.cacheReadTokens,
       tok: a.tok + r.cacheReadTokens + r.cacheCreationTokens + r.inputTokens + r.outputTokens,
     }),
-    { turns: 0, cost: 0, wall: 0, cache: 0, tok: 0 },
+    { turns: 0, background: 0, cost: 0, wall: 0, cache: 0, tok: 0 },
   );
   const cachePct = sum.tok ? Math.round((sum.cache / sum.tok) * 100) : 0;
   const parts = [
     `*Usage — last ${days}d*  (~$ = API-list-price equivalent computed by the CLI, not a bill — we run on a Max subscription)`,
-    `Total: ${sum.turns} turns · ~$${sum.cost.toFixed(2)} · ${fmtK(sum.tok)} tok, ${cachePct}% of them cache reads · ${fmtH(sum.wall)} agent-active time`,
+    `Total: ${sum.turns} turns${sum.background ? ` + ${sum.background} background` : ''} · ~$${sum.cost.toFixed(2)} · ${fmtK(sum.tok)} tok, ${cachePct}% of them cache reads · ${fmtH(sum.wall)} agent-active time`,
     '',
     '*By project*',
     ...bySlug.map(line),

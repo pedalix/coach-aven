@@ -64,6 +64,35 @@ test('ClaudeSession — a result with no pending turn fires onIdleResult (backgr
   assert.deepEqual(seen, ['Background agent finished: output was `X`.']);
 });
 
+test('ClaudeSession — every unsolicited result is metered via onIdleUsage, even empty/error ones', async () => {
+  const { session, push } = await openFake();
+  const usage: { costUsd?: number; isError: boolean; durationMs: number }[] = [];
+  const texts: string[] = [];
+  session.onIdleUsage = (u) => usage.push({ costUsd: u.usage?.costUsd, isError: u.isError, durationMs: u.durationMs });
+  session.onIdleResult = (text) => texts.push(text);
+
+  push({ type: 'result', result: 'done', is_error: false, total_cost_usd: 0.42, duration_ms: 5000, session_id: 's1' });
+  push({ type: 'result', result: '', is_error: true, total_cost_usd: 0.1, session_id: 's1' });
+  await new Promise((r) => setImmediate(r));
+
+  // Both cost money → both metered; only the clean one is worth a Slack post.
+  assert.deepEqual(usage, [
+    { costUsd: 0.42, isError: false, durationMs: 5000 },
+    { costUsd: 0.1, isError: true, durationMs: 0 },
+  ]);
+  assert.deepEqual(texts, ['done']);
+});
+
+test('ClaudeSession — a settled turn is not double-metered via onIdleUsage', async () => {
+  const { session, push } = await openFake();
+  let idleUsage = 0;
+  session.onIdleUsage = () => idleUsage++;
+  const turn = session.send('hello');
+  push({ type: 'result', result: 'hi', is_error: false, total_cost_usd: 1, session_id: 's1' });
+  await turn;
+  assert.equal(idleUsage, 0);
+});
+
 test('ClaudeSession — a result while a turn IS pending goes to settle, never onIdleResult', async () => {
   const { session, push } = await openFake();
   let idleCalls = 0;

@@ -322,6 +322,10 @@ export async function openChat(
     // The CLI's per-turn quota signal (ratelimit.ts) — one shared subscription, so the
     // engine funnels every session's events into one tracker.
     onRateLimit?: (info: RateLimitInfo) => void;
+    // Cost of a turn the CLI ran on its own (a background Task/Agent finishing after its
+    // owning turn settled) — see ClaudeSession.onIdleUsage. Set once at open, like
+    // onRateLimit, so it covers no-UI asks and dreams too.
+    onIdleUsage?: ClaudeSession['onIdleUsage'];
     // Claude Code CLI pin for this sandbox and whether prep may install it now (false while
     // another turn runs on the project) — see provisionTooling / cliversion.ts.
     cliVersion?: string;
@@ -411,6 +415,7 @@ export async function openChat(
           session = reattached;
           session.onIdleResult = idleNotify;
           session.onRateLimit = opts.onRateLimit;
+          session.onIdleUsage = opts.onIdleUsage;
           emitOpen();
           return session;
         } catch {
@@ -433,6 +438,7 @@ export async function openChat(
       });
       session.onIdleResult = idleNotify;
       session.onRateLimit = opts.onRateLimit;
+      session.onIdleUsage = opts.onIdleUsage;
       await session.open();
       emitOpen();
       return session;

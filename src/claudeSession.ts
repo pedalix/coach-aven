@@ -128,6 +128,12 @@ export class ClaudeSession {
   // constructor-only) so the caller can re-point it at the CURRENT turn's Slack
   // channel/thread on every turn — see tasks.ts's ChatSession.setIdleNotify.
   onIdleResult?: (text: string) => void;
+  // Fires on EVERY such unsolicited `result` — including empty or is_error ones, which
+  // onIdleResult skips — with what that self-started turn cost. Kept separate from
+  // onIdleResult on purpose: that one is a per-turn Slack hook (re-pointed each live turn,
+  // never set on no-UI asks/dreams), while metering must hold for every session from the
+  // moment it opens, or background work burns tokens no usage record ever sees.
+  onIdleUsage?: (info: { usage?: TurnUsage; isError: boolean; durationMs: number }) => void;
   // Fires on every `rate_limit_event` (subscription quota state, emitted right before
   // system/init at the start of each turn) — see ratelimit.ts. Mutable like onIdleResult.
   onRateLimit?: (info: RateLimitInfo) => void;
@@ -509,9 +515,14 @@ export class ClaudeSession {
       if (this.pending) {
         const status: TurnResult['status'] = this.pending.canceled ? 'canceled' : 'ok';
         this.settle({ status, resultText, isError: !!ev.is_error, usage: usageOf(ev) });
-      } else if (resultText && !ev.is_error) {
+      } else {
         // No turn was waiting on this — a background task finished on its own.
-        this.onIdleResult?.(resultText);
+        this.onIdleUsage?.({
+          usage: usageOf(ev),
+          isError: !!ev.is_error,
+          durationMs: typeof ev.duration_ms === 'number' ? ev.duration_ms : 0,
+        });
+        if (resultText && !ev.is_error) this.onIdleResult?.(resultText);
       }
     }
   }

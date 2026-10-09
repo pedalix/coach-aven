@@ -91,6 +91,21 @@ test('usageSummaryText — totals + per-project lines; team cut only when multi-
   assert.equal(usageSummaryText([], [], 30), 'No agent turns recorded in the last 30d.');
 });
 
+test('aggregateUsage — background turns add cost but not prompt turns', () => {
+  const rows = aggregateUsage(
+    [rec(), rec({ kind: 'background', usage: { costUsd: 0.75, outputTokens: 10 } })],
+    'slug',
+  );
+  assert.equal(rows[0].turns, 1); // turns = prompts in; a self-started CLI turn isn't one
+  assert.equal(rows[0].background, 1);
+  assert.ok(Math.abs(rows[0].costUsd - 2.0) < 1e-9); // …but its money is in the total
+  const text = usageSummaryText(rows, rows, 30);
+  assert.ok(text.includes('Total: 1 turns + 1 background · ~$2.00'));
+  assert.ok(text.includes('1 turns + 1 background ·'));
+  // No background records → no suffix (the common case stays as it was).
+  assert.ok(usageSummaryText(aggregateUsage([rec()], 'slug'), [], 30).includes('Total: 1 turns · '));
+});
+
 test('UsageLog — appends month files, read() honors the window across months', () => {
   const dir = mkdtempSync(join(tmpdir(), 'aven-usage-'));
   const logStore = new UsageLog(dir);
