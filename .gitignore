@@ -30,3 +30,6 @@ infra/prod/runtime/*
 /.claude/worktrees/youtrack-rich-context/
 events/
 data/
+
+# prod-box cache of scripts/mirror.ts (bare repos + log)
+/mirrors/
