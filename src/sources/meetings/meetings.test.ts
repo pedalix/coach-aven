@@ -167,3 +167,14 @@ test('wispr device login: registers a public client, polls through authorization
   assert.equal(JSON.parse(readFileSync(tok, 'utf8')).refresh_token, 'rt');
   assert.ok(lines.some((l) => l.includes('ABCD-EFGH')));
 });
+
+import { authorizeUrl, WISPR_REDIRECT } from './wispr.js';
+test('wispr authorizeUrl: PKCE S256, loopback redirect, MCP resource, offline scope', () => {
+  const u = new URL(authorizeUrl('cid', 'chal', 'st'));
+  assert.equal(u.origin + u.pathname, 'https://mcp-auth.wisprflow.com/oauth2/authorize');
+  assert.equal(u.searchParams.get('code_challenge_method'), 'S256');
+  assert.equal(u.searchParams.get('redirect_uri'), WISPR_REDIRECT);
+  assert.equal(u.searchParams.get('resource'), 'https://api.wisprflow.ai/connect/mcp');
+  assert.match(u.searchParams.get('scope') ?? '', /offline_access/);
+  assert.equal(u.searchParams.get('state'), 'st');
+});
