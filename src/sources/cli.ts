@@ -14,7 +14,7 @@ import { loadProjects, type ProjectConfig } from '../projects.js';
 import { runAudit } from './audit.js';
 import { UsageError } from './errors.js';
 import { dataDir, rawDir } from './paths.js';
-import { configuredKinds, pullProject, runAuth, runBuild } from './run.js';
+import { configuredKinds, pullProject, refreshTenant, runAuth, runBuild } from './run.js';
 import { tokenPath } from './tokens.js';
 import { SOURCE_KINDS, type SourceKind } from './types.js';
 
@@ -50,7 +50,7 @@ export function registerSourcesCommands(program: Command): void {
   sources
     .command('pull <slug>')
     .description('Pull every configured source of a project into data/<slug>/raw (incremental; scrubbed at write)')
-    .option('--only <kinds>', 'comma list of google,slack,msgraph,youtrack,jira,asana')
+    .option('--only <kinds>', 'comma list of google,slack,msgraph,youtrack,jira,asana,meetings')
     .option('--since <date>', 'YYYY-MM-DD lower bound for FIRST backfills (overrides the config)')
     .option('--full', 'ignore cursors and resync everything', false)
     .option('--calendars <ids>', 'extra Google calendar ids (comma list)')
@@ -80,9 +80,10 @@ export function registerSourcesCommands(program: Command): void {
     .command('build <slug>')
     .description('Rebuild data/<slug>/store.sqlite incrementally from raw/ and publish the read-only replica')
     .option('--verbose', 'per-file lines', false)
-    .action((slug: string, o: { verbose: boolean }) => {
+    .action(async (slug: string, o: { verbose: boolean }) => {
       const p = project(slug);
       if (!p.sources) throw new UsageError(`project "${slug}" has no "sources" block in projects.config.json`);
+      await refreshTenant(p);
       runBuild(p, o.verbose);
     });
 

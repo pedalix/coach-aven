@@ -2,7 +2,9 @@
 // store and publish the replica. Shared by the operator CLI (`orch sources pull`) and the
 // poller (pollers.ts → sync.ts): the two must do exactly the same thing, so the logic lives
 // once, here, and both callers only differ in how they log and what they do with the result.
-import { dirname, resolve } from 'node:path';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { getGitHubToken } from '../github.js';
 import { loadConfig } from '../config.js';
 import type { ProjectConfig } from '../projects.js';
 import { log } from '../log.js';
@@ -20,6 +22,9 @@ import { pullJira } from './jira/pull.js';
 import { runYoutrackAuth } from './youtrack/auth.js';
 import { pullYoutrack } from './youtrack/pull.js';
 import { UsageError } from './errors.js';
+import { runMeetingsAuth } from './meetings/auth.js';
+import { pullMeetings } from './meetings/pull.js';
+import { annotationsDir, syncTenant, type TenantSync } from './tenant.js';
 import { buildStore, type BuildSummary } from './store.js';
 import { tokenPath, vaultPathsFor } from './tokens.js';
 import type { AuthContext } from './types.js';
@@ -53,10 +58,32 @@ export interface PullProjectResult {
   reauth: boolean;
 }
 
-/** People file: `sources.people` relative to projects.config.json, else projects.d/<slug>.people.json beside it. */
+/**
+ * People file, in order: the tenant's annotations/people.json (when sources.tenant is set and the
+ * checkout has one), else `sources.people` relative to projects.config.json, else
+ * projects.d/<slug>.people.json beside it — the pre-tenant layout, kept as the fallback.
+ */
 export function peoplePath(p: ProjectConfig, projectsConfigPath = loadConfig().projectsConfigPath): string {
+  if (p.sources?.tenant) {
+    const t = join(annotationsDir(p.slug, p.sources.tenant), 'people.json');
+    if (existsSync(t)) return t;
+  }
   const base = dirname(projectsConfigPath);
   return resolve(base, p.sources?.people ?? `projects.d/${p.slug}.people.json`);
+}
+
+/** The tenant's fragments.jsonl, when the project has a tenant repo. */
+export function fragmentsPath(p: ProjectConfig): string | undefined {
+  return p.sources?.tenant ? join(annotationsDir(p.slug, p.sources.tenant), 'fragments.jsonl') : undefined;
+}
+
+/** Fetch the tenant checkout (if configured) so the build reads the latest decisions. Never throws. */
+export async function refreshTenant(p: ProjectConfig, sink: (line: string) => void = log.info.bind(log)): Promise<TenantSync | undefined> {
+  const t = p.sources?.tenant;
+  if (!t) return undefined;
+  const r = await syncTenant(p.slug, t, async () => getGitHubToken(loadConfig(), [t.repo]));
+  sink(`[sources:${p.slug}/tenant] ${t.repo}${r.head ? `@${r.head.slice(0, 7)}` : ''}${r.changed ? ' (updated)' : ''}${r.error ? ` — FAILED: ${r.error}` : ''}`);
+  return r;
 }
 
 export function pullContext(slug: string, kind: SourceKind, verbose: boolean, sink: (line: string) => void): PullContext {
@@ -80,11 +107,13 @@ export function runBuild(p: ProjectConfig, verbose: boolean, sink: (line: string
     storePath: storePath(p.slug),
     replicaDir: replicaDir(p.slug),
     peoplePath: peoplePath(p, projectsConfigPath),
+    ...(fragmentsPath(p) ? { fragmentsPath: fragmentsPath(p)! } : {}),
     log: (line) => (verbose || !line.startsWith('  ') ? sink(`${prefix} ${line}`) : undefined),
   });
   sink(
-    `${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tasks ${s.tasks}, tombstones ${s.tombstones}` +
-      `${s.replayed ? `, replayed ${s.replayed}` : ''}${s.malformed ? `, malformed ${s.malformed}` : ''}; people ${s.people}; replica ${s.replica ?? '(none)'}`,
+    `${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tasks ${s.tasks}, meetings ${s.meetings}, tombstones ${s.tombstones}` +
+      `${s.replayed ? `, replayed ${s.replayed}` : ''}${s.malformed ? `, malformed ${s.malformed}` : ''}; people ${s.people}; fragments ${s.fragments}, attributions ${s.attributions}` +
+      `${s.recomputed ? ' (recomputed)' : ''}${s.malformedFragments ? `, ${s.malformedFragments} bad fragment lines` : ''}; replica ${s.replica ?? '(none)'}`,
   );
   for (const f of s.truncatedFiles) log.warn(`${prefix} ${f} shrank below its consumed offset — re-read from 0`);
   for (const f of s.skippedFiles) log.warn(`${prefix} ${f}: unknown raw file name, skipped`);
@@ -127,6 +156,8 @@ export async function pullProject(p: ProjectConfig, o: PullProjectOptions = {}, 
         ...(sl.threadWindowDays !== undefined ? { threadWindowDays: sl.threadWindowDays } : {}),
         ...(sl.editWindowHours !== undefined ? { editWindowHours: sl.editWindowHours } : {}),
       });
+    } else if (kind === 'meetings') {
+      s = await pullMeetings(ctx, p.sources.meetings!, { full: o.full ?? false, ...(o.since ? { since: o.since } : {}) });
     } else if (kind === 'youtrack' || kind === 'jira' || kind === 'asana') {
       const o2 = { full: o.full ?? false, ...(o.since ? { since: o.since } : {}) };
       s = kind === 'youtrack' ? await pullYoutrack(ctx, p.sources.youtrack!, o2) : kind === 'jira' ? await pullJira(ctx, p.sources.jira!, o2) : await pullAsana(ctx, p.sources.asana!, o2);
@@ -145,6 +176,7 @@ export async function pullProject(p: ProjectConfig, o: PullProjectOptions = {}, 
     summaries.push(s);
   }
   // Build even after a partial failure: whatever landed in raw/ should reach the replica.
+  if (o.build ?? true) await refreshTenant(p, sink);
   const build = (o.build ?? true) ? runBuild(p, verbose, sink, projectsConfigPath) : undefined;
   return {
     summaries,
@@ -175,6 +207,8 @@ export async function runAuth(ctx: AuthContext, kind: SourceKind, args: string[]
       return runSlackAuth(ctx, args);
     case 'msgraph':
       return runMsgraphAuth(ctx, args);
+    case 'meetings':
+      return runMeetingsAuth(ctx, args, p?.sources?.meetings);
     case 'youtrack':
     case 'jira':
     case 'asana': {

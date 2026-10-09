@@ -7,8 +7,13 @@
 //
 // Shape (JSON array):
 //   [{ "person_id": "vincent", "name": "Vera Lindqvist", "company": "hcg",
-//      "default_initiative": "hcg/hcg/st-steering",
-//      "identities": ["Vera Lindqvist@example.com", "slack:Vera Lindqvist"] }]
+//      "identities": ["Vera Lindqvist@example.com", "slack:Vera Lindqvist"],
+//      "marker": { "type": "broad", "initiatives": ["hcg/hcg/st-steering"] } }]
+// Canonical home: the tenant repo's annotations/people.json (docs/sources.md → "Tenant").
+// `marker` says how much a person tells about WHICH initiative a conversation belongs to:
+// exclusive (always these), narrow (one of these, content picks), broad (a hint at most). It is
+// the tenant's review session that uses it; the store only carries it through to `people`.
+// Migration: the older `default_initiative` field is read as { type: "broad", initiatives: [x] }.
 // Identity kinds are inferred: contains "@" → email; "slack:" prefix → Slack display name
 // or handle (what the Slack puller writes as author/participants); "msgraph:" prefix → UPN
 // or Graph id; anything else → a bare display name (matched case-insensitively).
@@ -16,11 +21,19 @@ import { readFileSync } from 'node:fs';
 
 export type IdentityKind = 'email' | 'slack' | 'msgraph' | 'name';
 
+export type MarkerType = 'exclusive' | 'narrow' | 'broad';
+export const MARKER_TYPES: readonly MarkerType[] = ['exclusive', 'narrow', 'broad'];
+
+export interface PersonMarker {
+  type: MarkerType;
+  initiatives: string[];
+}
+
 export interface Person {
   person_id: string;
   name: string;
   company?: string;
-  default_initiative?: string;
+  marker?: PersonMarker;
   identities: string[];
 }
 
@@ -70,13 +83,22 @@ export function validatePeople(raw: unknown, where = 'people'): Person[] {
       seenIdent.set(key, e.person_id);
     }
     const p: Person = { person_id: e.person_id, name: e.name.trim(), identities: (e.identities as string[]).map((s) => s.trim()) };
-    if (e.company !== undefined) {
+    // null is "unknown" — the tenant's collector writes it for people it has not placed yet.
+    if (e.company !== undefined && e.company !== null) {
       if (typeof e.company !== 'string') throw new Error(`${w}: "company" must be a string`);
       p.company = e.company;
     }
-    if (e.default_initiative !== undefined) {
+    if (e.marker !== undefined && e.marker !== null) {
+      const m = e.marker as Record<string, unknown> | null;
+      if (!m || typeof m !== 'object' || Array.isArray(m)) throw new Error(`${w}: "marker" must be an object`);
+      if (typeof m.type !== 'string' || !(MARKER_TYPES as readonly string[]).includes(m.type)) throw new Error(`${w}: "marker.type" must be one of ${MARKER_TYPES.join(', ')}`);
+      if (!Array.isArray(m.initiatives) || m.initiatives.some((x) => typeof x !== 'string' || !x.trim())) throw new Error(`${w}: "marker.initiatives" must be an array of initiative ids`);
+      if (m.type !== 'broad' && m.initiatives.length === 0) throw new Error(`${w}: an ${m.type} marker needs at least one initiative`);
+      p.marker = { type: m.type as MarkerType, initiatives: (m.initiatives as string[]).map((x) => x.trim()) };
+    } else if (e.default_initiative !== undefined && e.default_initiative !== null) {
+      // Migration path for pre-marker files.
       if (typeof e.default_initiative !== 'string') throw new Error(`${w}: "default_initiative" must be a string`);
-      p.default_initiative = e.default_initiative;
+      p.marker = { type: 'broad', initiatives: [e.default_initiative] };
     }
     return p;
   });

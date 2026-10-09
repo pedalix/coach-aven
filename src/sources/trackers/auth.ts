@@ -31,7 +31,7 @@ export function parseFlags(argv: string[]): { pos: string[]; flags: Record<strin
   return { pos, flags };
 }
 
-async function readSecret(flags: Record<string, string>): Promise<string> {
+export async function readSecret(flags: Record<string, string>): Promise<string> {
   if (flags['token-env']) {
     const v = process.env[flags['token-env']];
     if (!v) throw new UsageError(`env var ${flags['token-env']} is empty`);

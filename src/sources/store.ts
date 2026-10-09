@@ -11,11 +11,20 @@
 //   messages      compacted view: last line per id wins, tombstones flip `deleted`
 //   events/files  same compaction for calendar items and file metadata
 //   threads       per-thread rollup, recomputed for the threads a build touched
-//   people/identities/message_people   who is who, reseeded from the project's people file
+//   people/identities/message_people   who is who, from the tenant's people file (annotations/people.json)
+//   meetings/meeting_people/meetings_fts   calls from Granola / Gemini / Wispr, same compaction
+//   fragments/attributions   the tenant's decisions (annotations/fragments.jsonl): which refs
+//                belong to which initiative. Indexed, never inferred here.
 //   sync_state    byte offset consumed per raw file (+ schema version)
 //   messages_fts  external-content FTS5 over subject+text; triggers keep it in step and
 //                 REMOVE deleted rows, so a message someone deleted does not survive in the
 //                 index (the Slack puller's 48 h edit window exists for exactly that promise)
+//
+// Derived vs ingested: raw → compacted tables is incremental (byte offsets). Everything that
+// depends on the TENANT's files — person resolution (author_person, *_person, message_people,
+// meeting_people), people markers, fragments/attributions — is recomputed in full whenever those
+// files change (fingerprint in sync_state). That is what makes a fix to people.json apply to the
+// 40k messages already stored, not just to tomorrow's (the relink bug of 2026-10-08).
 //
 // Build = read only the new bytes of each raw file (a half-written last line stays
 // unconsumed), apply inside one transaction per file chunk with the new offset, then
@@ -23,14 +32,15 @@
 // live file, is what the sandbox mounts: a bind-mounted FILE would pin an inode and never
 // see the swap, so the mount is the replica DIRECTORY (sandboxopts.ts → SOURCES_MOUNT_TARGET).
 import { createHash } from 'node:crypto';
-import { closeSync, existsSync, openSync, readdirSync, readSync, renameSync, rmSync, statSync } from 'node:fs';
+import { attributionRows, loadFragments, type Fragment } from './annotations.js';
+import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join, relative, basename } from 'node:path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 import { identitiesOf, identityIndex, loadPeople, resolveIdentity, type Person } from './people.js';
 import { ensureDir } from './paths.js';
 import type { Logger } from './types.js';
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 /** Where the sandbox sees the replica directory (the file inside is always `store.sqlite`). */
 export const REPLICA_FILE = 'store.sqlite';
 
@@ -45,7 +55,7 @@ CREATE TABLE IF NOT EXISTS messages (
   thread_id TEXT NOT NULL, ts TEXT NOT NULL, author_person TEXT, author_raw TEXT NOT NULL DEFAULT '',
   subject TEXT NOT NULL DEFAULT '', text TEXT NOT NULL DEFAULT '', permalink TEXT NOT NULL DEFAULT '',
   raw_ref TEXT NOT NULL DEFAULT '', scrub_withheld INTEGER NOT NULL DEFAULT 0, scrub_kinds TEXT NOT NULL DEFAULT '',
-  deleted INTEGER NOT NULL DEFAULT 0
+  participants TEXT NOT NULL DEFAULT '[]', deleted INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS messages_ts ON messages(ts);
 CREATE INDEX IF NOT EXISTS messages_thread ON messages(thread_id);
@@ -68,7 +78,8 @@ CREATE TABLE IF NOT EXISTS files (
   size INTEGER NOT NULL DEFAULT 0, link TEXT NOT NULL DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS people (
-  person_id TEXT PRIMARY KEY, name TEXT NOT NULL, company TEXT, default_initiative TEXT
+  person_id TEXT PRIMARY KEY, name TEXT NOT NULL, company TEXT,
+  marker_type TEXT, marker_initiatives TEXT NOT NULL DEFAULT '[]'
 );
 CREATE TABLE IF NOT EXISTS identities (
   identity TEXT PRIMARY KEY, person_id TEXT NOT NULL REFERENCES people(person_id), kind TEXT NOT NULL
@@ -79,6 +90,51 @@ CREATE TABLE IF NOT EXISTS message_people (
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS message_people_person ON message_people(person_id);
 CREATE TABLE IF NOT EXISTS sync_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+-- Meetings (granola/gmeet/wispr) share one shape (meetings/normalise.ts). attendees and
+-- next_steps are JSON arrays; attendees_text flattens attendee names for FTS.
+CREATE TABLE IF NOT EXISTS meetings (
+  ref TEXT PRIMARY KEY, source TEXT NOT NULL, account TEXT NOT NULL, id TEXT NOT NULL DEFAULT '',
+  title TEXT NOT NULL DEFAULT '', start TEXT NOT NULL DEFAULT '', "end" TEXT NOT NULL DEFAULT '',
+  attendees TEXT NOT NULL DEFAULT '[]', summary TEXT NOT NULL DEFAULT '', next_steps TEXT NOT NULL DEFAULT '[]',
+  transcript TEXT NOT NULL DEFAULT '', url TEXT NOT NULL DEFAULT '',
+  scrub_withheld INTEGER NOT NULL DEFAULT 0, scrub_kinds TEXT NOT NULL DEFAULT '', deleted INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS meetings_start ON meetings(start);
+CREATE TABLE IF NOT EXISTS meeting_people (
+  ref TEXT NOT NULL, person_id TEXT NOT NULL, PRIMARY KEY (ref, person_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS meeting_people_person ON meeting_people(person_id);
+CREATE VIRTUAL TABLE IF NOT EXISTS meetings_fts USING fts5(
+  title, summary, transcript, content='meetings', content_rowid='rowid',
+  tokenize = 'porter unicode61 remove_diacritics 2'
+);
+CREATE TRIGGER IF NOT EXISTS meetings_ai AFTER INSERT ON meetings WHEN new.deleted = 0 BEGIN
+  INSERT INTO meetings_fts(rowid, title, summary, transcript) VALUES (new.rowid, new.title, new.summary, new.transcript);
+END;
+CREATE TRIGGER IF NOT EXISTS meetings_ad AFTER DELETE ON meetings WHEN old.deleted = 0 BEGIN
+  INSERT INTO meetings_fts(meetings_fts, rowid, title, summary, transcript) VALUES ('delete', old.rowid, old.title, old.summary, old.transcript);
+END;
+-- ONE update trigger, delete-then-insert in that order: two AFTER UPDATE triggers fire in
+-- reverse creation order, so a separate "insert" trigger ran BEFORE the "delete" one and every
+-- re-emitted row silently vanished from the index (found 2026-10-09). OF the indexed columns
+-- + deleted only, so person recomputes (UPDATE … SET author_person) never touch the index.
+CREATE TRIGGER IF NOT EXISTS meetings_au AFTER UPDATE OF title, summary, transcript, deleted ON meetings BEGIN
+  INSERT INTO meetings_fts(meetings_fts, rowid, title, summary, transcript) SELECT 'delete', old.rowid, old.title, old.summary, old.transcript WHERE old.deleted = 0;
+  INSERT INTO meetings_fts(rowid, title, summary, transcript) SELECT new.rowid, new.title, new.summary, new.transcript WHERE new.deleted = 0;
+END;
+-- The tenant's decisions. refs are store refs, or the account-free shorthand
+-- meeting:<source>:<id> which the search tool resolves against meetings at query time.
+CREATE TABLE IF NOT EXISTS fragments (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, start TEXT NOT NULL DEFAULT '', "end" TEXT NOT NULL DEFAULT '',
+  refs TEXT NOT NULL DEFAULT '[]', attributions TEXT NOT NULL DEFAULT '[]', decided_by TEXT NOT NULL,
+  rule_id TEXT, rationale TEXT NOT NULL DEFAULT '', decided_at TEXT NOT NULL DEFAULT '', status TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS fragments_start ON fragments(start);
+CREATE TABLE IF NOT EXISTS attributions (
+  ref TEXT NOT NULL, initiative TEXT NOT NULL, share REAL NOT NULL, fragment_id TEXT NOT NULL, decided_by TEXT NOT NULL,
+  PRIMARY KEY (ref, initiative, fragment_id)
+) WITHOUT ROWID;
+CREATE INDEX IF NOT EXISTS attributions_initiative ON attributions(initiative);
 -- Task trackers (youtrack/jira/asana) share one shape (trackers/task.ts). comments is a JSON
 -- array; comments_text is its flattened text, kept only so FTS can index it.
 CREATE TABLE IF NOT EXISTS tasks (
@@ -103,11 +159,13 @@ END;
 CREATE TRIGGER IF NOT EXISTS tasks_ad AFTER DELETE ON tasks WHEN old.deleted = 0 BEGIN
   INSERT INTO tasks_fts(tasks_fts, rowid, title, text, comments_text) VALUES ('delete', old.rowid, old.title, old.text, old.comments_text);
 END;
-CREATE TRIGGER IF NOT EXISTS tasks_au_del AFTER UPDATE ON tasks WHEN old.deleted = 0 BEGIN
-  INSERT INTO tasks_fts(tasks_fts, rowid, title, text, comments_text) VALUES ('delete', old.rowid, old.title, old.text, old.comments_text);
-END;
-CREATE TRIGGER IF NOT EXISTS tasks_au_ins AFTER UPDATE ON tasks WHEN new.deleted = 0 BEGIN
-  INSERT INTO tasks_fts(rowid, title, text, comments_text) VALUES (new.rowid, new.title, new.text, new.comments_text);
+-- ONE update trigger, delete-then-insert in that order: two AFTER UPDATE triggers fire in
+-- reverse creation order, so a separate "insert" trigger ran BEFORE the "delete" one and every
+-- re-emitted row silently vanished from the index (found 2026-10-09). OF the indexed columns
+-- + deleted only, so person recomputes (UPDATE … SET author_person) never touch the index.
+CREATE TRIGGER IF NOT EXISTS tasks_au AFTER UPDATE OF title, text, comments_text, deleted ON tasks BEGIN
+  INSERT INTO tasks_fts(tasks_fts, rowid, title, text, comments_text) SELECT 'delete', old.rowid, old.title, old.text, old.comments_text WHERE old.deleted = 0;
+  INSERT INTO tasks_fts(rowid, title, text, comments_text) SELECT new.rowid, new.title, new.text, new.comments_text WHERE new.deleted = 0;
 END;
 CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
   subject, text, content='messages', content_rowid='rowid',
@@ -121,11 +179,13 @@ END;
 CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages WHEN old.deleted = 0 BEGIN
   INSERT INTO messages_fts(messages_fts, rowid, subject, text) VALUES ('delete', old.rowid, old.subject, old.text);
 END;
-CREATE TRIGGER IF NOT EXISTS messages_au_del AFTER UPDATE ON messages WHEN old.deleted = 0 BEGIN
-  INSERT INTO messages_fts(messages_fts, rowid, subject, text) VALUES ('delete', old.rowid, old.subject, old.text);
-END;
-CREATE TRIGGER IF NOT EXISTS messages_au_ins AFTER UPDATE ON messages WHEN new.deleted = 0 BEGIN
-  INSERT INTO messages_fts(rowid, subject, text) VALUES (new.rowid, new.subject, new.text);
+-- ONE update trigger, delete-then-insert in that order: two AFTER UPDATE triggers fire in
+-- reverse creation order, so a separate "insert" trigger ran BEFORE the "delete" one and every
+-- re-emitted row silently vanished from the index (found 2026-10-09). OF the indexed columns
+-- + deleted only, so person recomputes (UPDATE … SET author_person) never touch the index.
+CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF subject, text, deleted ON messages BEGIN
+  INSERT INTO messages_fts(messages_fts, rowid, subject, text) SELECT 'delete', old.rowid, old.subject, old.text WHERE old.deleted = 0;
+  INSERT INTO messages_fts(rowid, subject, text) SELECT new.rowid, new.subject, new.text WHERE new.deleted = 0;
 END;
 `;
 
@@ -146,7 +206,7 @@ export function openReadOnly(path: string): DatabaseSync {
 // Raw file discovery + classification. The pullers' output names are the contract
 // (google/pull.ts, slack/pull.ts, msgraph/pull.ts headers) — anything else is skipped once.
 // ---------------------------------------------------------------------------------------
-export type RawKind = 'messages' | 'events' | 'files' | 'tombstones' | 'tasks';
+export type RawKind = 'messages' | 'events' | 'files' | 'tombstones' | 'tasks' | 'meetings';
 
 export function classifyRawFile(name: string): RawKind | undefined {
   switch (basename(name)) {
@@ -163,6 +223,8 @@ export function classifyRawFile(name: string): RawKind | undefined {
       return 'tombstones';
     case 'tasks.jsonl':
       return 'tasks';
+    case 'meetings.jsonl':
+      return 'meetings';
     default:
       return undefined;
   }
@@ -250,7 +312,13 @@ export interface BuildSummary {
   events: number;
   fileRecords: number;
   tasks: number;
+  meetings: number;
   tombstones: number;
+  /** Tenant files changed → person resolution + attributions recomputed for every stored row. */
+  recomputed: boolean;
+  fragments: number;
+  attributions: number;
+  malformedFragments: number;
   truncatedFiles: string[];
   skippedFiles: string[];
   people: number;
@@ -265,6 +333,8 @@ export interface BuildContext {
   replicaDir?: string;
   /** People/identities file; undefined or missing = no people seeding (logged). */
   peoplePath?: string;
+  /** The tenant's fragments.jsonl; undefined or missing = no attributions. */
+  fragmentsPath?: string;
   log: Logger;
   now?: () => Date;
   /** Lines per transaction. */
@@ -282,6 +352,10 @@ class Statements {
   readonly fileTomb: StatementSync;
   readonly taskUpsert: StatementSync;
   readonly taskTomb: StatementSync;
+  readonly meetUpsert: StatementSync;
+  readonly meetTomb: StatementSync;
+  readonly mtpDel: StatementSync;
+  readonly mtpIns: StatementSync;
   readonly mpDel: StatementSync;
   readonly mpIns: StatementSync;
   readonly threadUp: StatementSync;
@@ -291,11 +365,11 @@ class Statements {
   constructor(db: DatabaseSync) {
     this.rawIns = db.prepare('INSERT OR IGNORE INTO raw_records(source, account, id, line_hash, body, ingested_at) VALUES (?, ?, ?, ?, ?, ?)');
     this.msgGet = db.prepare('SELECT thread_id FROM messages WHERE ref = ?');
-    this.msgUpsert = db.prepare(`INSERT INTO messages(ref, source, account, container, thread_id, ts, author_person, author_raw, subject, text, permalink, raw_ref, scrub_withheld, scrub_kinds, deleted)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+    this.msgUpsert = db.prepare(`INSERT INTO messages(ref, source, account, container, thread_id, ts, author_person, author_raw, subject, text, permalink, raw_ref, scrub_withheld, scrub_kinds, participants, deleted)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
       ON CONFLICT(ref) DO UPDATE SET container=excluded.container, thread_id=excluded.thread_id, ts=excluded.ts, author_person=excluded.author_person,
         author_raw=excluded.author_raw, subject=excluded.subject, text=excluded.text, permalink=excluded.permalink, raw_ref=excluded.raw_ref,
-        scrub_withheld=excluded.scrub_withheld, scrub_kinds=excluded.scrub_kinds, deleted=0`);
+        scrub_withheld=excluded.scrub_withheld, scrub_kinds=excluded.scrub_kinds, participants=excluded.participants, deleted=0`);
     // A tombstone for an unknown ref still gets a row: "deleted" is information (the id existed
     // upstream), and a later resurrecting line upserts over it.
     this.msgTomb = db.prepare(`INSERT INTO messages(ref, source, account, thread_id, ts, deleted) VALUES (?, ?, ?, ?, ?, 1)
@@ -316,6 +390,13 @@ class Statements {
         text=excluded.text, comments=excluded.comments, comments_text=excluded.comments_text, scrub_withheld=excluded.scrub_withheld,
         scrub_kinds=excluded.scrub_kinds, deleted=0`);
     this.taskTomb = db.prepare('INSERT INTO tasks(ref, source, account, deleted) VALUES (?, ?, ?, 1) ON CONFLICT(ref) DO UPDATE SET deleted=1');
+    this.meetUpsert = db.prepare(`INSERT INTO meetings(ref, source, account, id, title, start, "end", attendees, summary, next_steps, transcript, url, scrub_withheld, scrub_kinds, deleted)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+      ON CONFLICT(ref) DO UPDATE SET title=excluded.title, start=excluded.start, "end"=excluded."end", attendees=excluded.attendees, summary=excluded.summary,
+        next_steps=excluded.next_steps, transcript=excluded.transcript, url=excluded.url, scrub_withheld=excluded.scrub_withheld, scrub_kinds=excluded.scrub_kinds, deleted=0`);
+    this.meetTomb = db.prepare('INSERT INTO meetings(ref, source, account, deleted) VALUES (?, ?, ?, 1) ON CONFLICT(ref) DO UPDATE SET deleted=1');
+    this.mtpDel = db.prepare('DELETE FROM meeting_people WHERE ref = ?');
+    this.mtpIns = db.prepare('INSERT OR IGNORE INTO meeting_people(ref, person_id) VALUES (?, ?)');
     this.mpDel = db.prepare('DELETE FROM message_people WHERE ref = ?');
     this.mpIns = db.prepare('INSERT OR IGNORE INTO message_people(ref, person_id, role) VALUES (?, ?, ?)');
     this.threadUp = db.prepare(`INSERT OR REPLACE INTO threads(thread_id, source, container, first_ts, last_ts, n)
@@ -331,9 +412,9 @@ export function seedPeople(db: DatabaseSync, people: readonly Person[]): Map<str
   db.exec('BEGIN');
   try {
     db.exec('DELETE FROM identities; DELETE FROM people;');
-    const pIns = db.prepare('INSERT INTO people(person_id, name, company, default_initiative) VALUES (?, ?, ?, ?)');
+    const pIns = db.prepare('INSERT INTO people(person_id, name, company, marker_type, marker_initiatives) VALUES (?, ?, ?, ?, ?)');
     const iIns = db.prepare('INSERT INTO identities(identity, person_id, kind) VALUES (?, ?, ?)');
-    for (const p of people) pIns.run(p.person_id, p.name, p.company ?? null, p.default_initiative ?? null);
+    for (const p of people) pIns.run(p.person_id, p.name, p.company ?? null, p.marker?.type ?? null, JSON.stringify(p.marker?.initiatives ?? []));
     for (const i of ids) iIns.run(i.identity, i.person_id, i.kind);
     db.exec('COMMIT');
   } catch (e) {
@@ -344,12 +425,53 @@ export function seedPeople(db: DatabaseSync, people: readonly Person[]): Map<str
 }
 
 /** Apply one parsed raw record. Returns what kind of row it changed, for the summary. */
-function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<string, string>, touched: { refs: Set<string>; threads: Set<string> }): 'message' | 'event' | 'file' | 'task' | 'tombstone' | 'skip' {
+/** A meeting attendee as stored ({email,name}) → person, e-mail first. */
+export function resolveAttendee(a: unknown, index: ReadonlyMap<string, string>): string | undefined {
+  if (typeof a === 'string') return resolveIdentity(a, index);
+  if (!a || typeof a !== 'object') return undefined;
+  const o = a as Rec;
+  return (str(o.email) && resolveIdentity(str(o.email), index)) || (str(o.name) && resolveIdentity(str(o.name), index)) || undefined;
+}
+
+function linkMessagePeople(st: Statements, ref: string, author: string, participants: readonly string[], index: ReadonlyMap<string, string>): void {
+  st.mpDel.run(ref);
+  const from = resolveIdentity(author, index);
+  if (from) st.mpIns.run(ref, from, 'from');
+  for (const p of participants) {
+    const pid = resolveIdentity(p, index);
+    if (pid && pid !== from) st.mpIns.run(ref, pid, 'to');
+  }
+}
+
+function linkMeetingPeople(st: Statements, ref: string, attendees: readonly unknown[], index: ReadonlyMap<string, string>): void {
+  st.mtpDel.run(ref);
+  for (const a of attendees) {
+    const pid = resolveAttendee(a, index);
+    if (pid) st.mtpIns.run(ref, pid);
+  }
+}
+
+function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<string, string>, touched: { refs: Set<string>; threads: Set<string> }): 'message' | 'event' | 'file' | 'task' | 'meeting' | 'tombstone' | 'skip' {
   const ref = refOf(r);
   if (!ref) return 'skip';
   const source = str(r.source);
   const account = str(r.account);
   const deleted = r.deleted === true;
+  if (kind === 'meetings') {
+    if (deleted) {
+      st.meetTomb.run(ref, source, account);
+      st.mtpDel.run(ref);
+      return 'tombstone';
+    }
+    const scrub = (r.scrub && typeof r.scrub === 'object' ? (r.scrub as Rec) : {}) as Rec;
+    const attendees = Array.isArray(r.attendees) ? (r.attendees as unknown[]) : [];
+    st.meetUpsert.run(
+      ref, source, account, str(r.id), str(r.title), str(r.start), str(r.end), JSON.stringify(attendees), str(r.summary),
+      JSON.stringify(strs(r.next_steps)), str(r.transcript), str(r.url), scrub.withheld === true ? 1 : 0, strs(scrub.kinds).join(','),
+    );
+    linkMeetingPeople(st, ref, attendees, index);
+    return 'meeting';
+  }
   if (kind === 'tasks') {
     if (deleted) {
       st.taskTomb.run(ref, source, account);
@@ -382,18 +504,13 @@ function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<s
     const thread = threadIdOf(r, ref);
     const author = str(r.author);
     const scrub = (r.scrub && typeof r.scrub === 'object' ? (r.scrub as Rec) : {}) as Rec;
+    const participants = strs(r.participants);
     st.msgUpsert.run(
       ref, source, account, str(r.container), thread, str(r.ts),
       resolveIdentity(author, index) ?? null, author, str(r.subject), str(r.text), str(r.permalink), str(r.raw_ref),
-      scrub.withheld === true ? 1 : 0, strs(scrub.kinds).join(','),
+      scrub.withheld === true ? 1 : 0, strs(scrub.kinds).join(','), JSON.stringify(participants),
     );
-    st.mpDel.run(ref);
-    const from = resolveIdentity(author, index);
-    if (from) st.mpIns.run(ref, from, 'from');
-    for (const p of strs(r.participants)) {
-      const pid = resolveIdentity(p, index);
-      if (pid && pid !== from) st.mpIns.run(ref, pid, 'to');
-    }
+    linkMessagePeople(st, ref, author, participants, index);
     touched.refs.add(ref);
     touched.threads.add(thread);
     return 'message';
@@ -414,24 +531,109 @@ function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<s
   return 'file';
 }
 
+/** Schema version recorded in an existing store file, or undefined (no file / not a store). */
+export function storedSchemaVersion(path: string): number | undefined {
+  if (!existsSync(path)) return undefined;
+  const db = new DatabaseSync(path);
+  try {
+    const row = db.prepare("SELECT value FROM sync_state WHERE key = 'schema_version'").get() as { value?: string } | undefined;
+    return row?.value ? Number(row.value) : undefined;
+  } catch {
+    return undefined;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * A store built by an older schema is thrown away and rebuilt from raw — raw is the source of
+ * truth and a full rebuild takes seconds (84k lines ≈ 15 s), so we never write migrations.
+ */
+export function resetIfOldSchema(path: string, log: Logger): boolean {
+  const v = storedSchemaVersion(path);
+  if (v === undefined || v >= SCHEMA_VERSION) return false;
+  for (const f of [path, `${path}-wal`, `${path}-shm`]) rmSync(f, { force: true });
+  log(`store schema v${v} < v${SCHEMA_VERSION}: rebuilding from raw`);
+  return true;
+}
+
+/** Fingerprint of everything the derived tables depend on besides raw. */
+export function derivedFingerprint(peopleText: string, fragmentsText: string): string {
+  return createHash('sha256').update(`v${SCHEMA_VERSION}\0${peopleText}\0${fragmentsText}`).digest('hex');
+}
+
+/**
+ * Recompute every tenant-dependent column for ALL stored rows: people + identities, author /
+ * assignee / reporter person, message_people, meeting_people, fragments, attributions. One
+ * transaction; O(rows) in JS — fine for the tens of thousands a personal corpus has.
+ */
+export function recomputeDerived(db: DatabaseSync, people: readonly Person[], fragments: readonly Fragment[]): { attributions: number } {
+  const index = seedPeople(db, people);
+  const st = new Statements(db);
+  db.exec('BEGIN');
+  try {
+    db.exec('DELETE FROM message_people; DELETE FROM meeting_people; DELETE FROM fragments; DELETE FROM attributions;');
+    const setAuthor = db.prepare('UPDATE messages SET author_person = ? WHERE ref = ?');
+    for (const m of db.prepare('SELECT ref, author_raw, participants FROM messages WHERE deleted = 0').all() as { ref: string; author_raw: string; participants: string }[]) {
+      let parts: string[] = [];
+      try {
+        parts = strs(JSON.parse(m.participants || '[]'));
+      } catch {
+        parts = [];
+      }
+      setAuthor.run(resolveIdentity(m.author_raw, index) ?? null, m.ref);
+      linkMessagePeople(st, m.ref, m.author_raw, parts, index);
+    }
+    const setTask = db.prepare('UPDATE tasks SET assignee_person = ?, reporter_person = ? WHERE ref = ?');
+    for (const t of db.prepare('SELECT ref, assignee_raw, reporter_raw FROM tasks').all() as { ref: string; assignee_raw: string; reporter_raw: string }[]) {
+      setTask.run(resolveIdentity(t.assignee_raw, index) ?? null, resolveIdentity(t.reporter_raw, index) ?? null, t.ref);
+    }
+    for (const mt of db.prepare('SELECT ref, attendees FROM meetings WHERE deleted = 0').all() as { ref: string; attendees: string }[]) {
+      let att: unknown[] = [];
+      try {
+        att = JSON.parse(mt.attendees || '[]') as unknown[];
+      } catch {
+        att = [];
+      }
+      linkMeetingPeople(st, mt.ref, Array.isArray(att) ? att : [], index);
+    }
+    const fIns = db.prepare('INSERT OR REPLACE INTO fragments(id, kind, start, "end", refs, attributions, decided_by, rule_id, rationale, decided_at, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const f of fragments) fIns.run(f.id, f.kind, f.start, f.end, JSON.stringify(f.refs), JSON.stringify(f.attributions), f.decided_by, f.rule_id ?? null, f.rationale ?? '', f.decided_at ?? '', f.status);
+    const aIns = db.prepare('INSERT OR REPLACE INTO attributions(ref, initiative, share, fragment_id, decided_by) VALUES (?, ?, ?, ?, ?)');
+    const rows = attributionRows(fragments);
+    for (const a of rows) aIns.run(a.ref, a.initiative, a.share, a.fragment_id, a.decided_by);
+    db.exec('COMMIT');
+    return { attributions: rows.length };
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
+}
+
 export function buildStore(ctx: BuildContext): BuildSummary {
   const now = ctx.now ?? (() => new Date());
   const chunk = ctx.chunk ?? 2000;
+  resetIfOldSchema(ctx.storePath, ctx.log);
   const db = openStore(ctx.storePath);
-  const sum: BuildSummary = { files: 0, lines: 0, malformed: 0, replayed: 0, messages: 0, events: 0, fileRecords: 0, tasks: 0, tombstones: 0, truncatedFiles: [], skippedFiles: [], people: 0 };
+  const sum: BuildSummary = {
+    files: 0, lines: 0, malformed: 0, replayed: 0, messages: 0, events: 0, fileRecords: 0, tasks: 0, meetings: 0, tombstones: 0,
+    recomputed: false, fragments: 0, attributions: 0, malformedFragments: 0, truncatedFiles: [], skippedFiles: [], people: 0,
+  };
   try {
-    let index: ReadonlyMap<string, string> = new Map();
+    // People drive identity resolution during ingest; the TABLES are (re)seeded below only when
+    // the tenant files changed. A configured-but-missing file means "no people" — visible in the
+    // log, never silently the previous set.
+    let people: Person[] = [];
+    let peopleText = '';
     if (ctx.peoplePath && existsSync(ctx.peoplePath)) {
-      const people = loadPeople(ctx.peoplePath);
-      index = seedPeople(db, people);
-      sum.people = people.length;
+      peopleText = readFileSync(ctx.peoplePath, 'utf8');
+      people = loadPeople(ctx.peoplePath);
     } else {
       ctx.log(`people: no file at ${ctx.peoplePath ?? '(unset)'} — author/person resolution disabled`);
-      // Keep whatever an earlier build seeded only if the file is merely unset; a configured
-      // but missing file is a misconfiguration the operator should see, not silently reuse.
-      if (ctx.peoplePath) seedPeople(db, []);
-      else index = new Map((db.prepare('SELECT identity, person_id FROM identities').all() as { identity: string; person_id: string }[]).map((r) => [r.identity, r.person_id]));
     }
+    sum.people = people.length;
+    const fragmentsText = ctx.fragmentsPath && existsSync(ctx.fragmentsPath) ? readFileSync(ctx.fragmentsPath, 'utf8') : '';
+    const index: ReadonlyMap<string, string> = identityIndex(identitiesOf(people));
     const st = new Statements(db);
     for (const file of listRawFiles(ctx.rawDir)) {
       const kind = classifyRawFile(file);
@@ -483,6 +685,7 @@ export function buildStore(ctx: BuildContext): BuildSummary {
             else if (what === 'event') sum.events++;
             else if (what === 'file') sum.fileRecords++;
             else if (what === 'task') sum.tasks++;
+            else if (what === 'meeting') sum.meetings++;
             else if (what === 'tombstone') sum.tombstones++;
           }
           for (const t of touched.threads) {
@@ -498,6 +701,19 @@ export function buildStore(ctx: BuildContext): BuildSummary {
         }
       }
     }
+    const fp = derivedFingerprint(peopleText, fragmentsText);
+    const prevFp = (st.syncGet.get('derived_fingerprint') as { value?: string } | undefined)?.value;
+    const { fragments, malformed } = loadFragments(ctx.fragmentsPath);
+    sum.fragments = fragments.length;
+    sum.malformedFragments = malformed;
+    if (fp !== prevFp) {
+      sum.attributions = recomputeDerived(db, people, fragments).attributions;
+      st.syncSet.run('derived_fingerprint', fp);
+      sum.recomputed = true;
+    } else {
+      sum.attributions = Number((db.prepare('SELECT count(*) AS n FROM attributions').get() as { n: number }).n);
+    }
+    st.syncSet.run('last_build_at', now().toISOString());
     if (ctx.replicaDir) sum.replica = writeReplica(db, ctx.replicaDir);
   } finally {
     db.close();

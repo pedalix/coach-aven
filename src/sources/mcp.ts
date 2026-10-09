@@ -44,8 +44,9 @@ export function withSourcesMcp(mcp: McpServerSpec[] | undefined, sourcesEnabled:
 
 /** Layer-1 system-prompt paragraph for projects with sources (tasks.ts buildSystemPrompt). */
 export const SOURCES_PROMPT_PARAGRAPH =
-  `Connected sources: the \`sources\` MCP tools (search, get, people, stats) query a READ-ONLY, ` +
-  `scrubbed replica of this project's connected mail, chat and calendar at ${SOURCES_DB_PATH}. ` +
+  `Connected sources: the \`sources\` MCP tools (search, get, tasks, meetings, fragments, people, stats) query a READ-ONLY, ` +
+  `scrubbed replica of this project's connected mail, chat, calendar, trackers and recorded calls at ${SOURCES_DB_PATH}. ` +
+  `\`initiative\` filters and \`fragments\` reflect only what the project's own review has attributed — absence there is not evidence. ` +
   `Search first, then \`get\` the refs you need, and cite the \`permalink\` of anything you quote or ` +
   `rely on. \`[REDACTED:…]\` tags and \`[BODY WITHHELD…]\` markers are deliberate — a secret was ` +
   `removed before it reached you; never ask anyone for the value, never try to reconstruct it, and ` +

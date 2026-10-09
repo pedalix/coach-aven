@@ -8,8 +8,11 @@
 // follow (see docs/sources.md "What comes next").
 import type { VaultPaths } from './common/vault.js';
 
-export type SourceKind = 'google' | 'slack' | 'msgraph' | 'youtrack' | 'jira' | 'asana';
-export const SOURCE_KINDS: readonly SourceKind[] = ['google', 'slack', 'msgraph', 'youtrack', 'jira', 'asana'];
+export type SourceKind = 'google' | 'slack' | 'msgraph' | 'youtrack' | 'jira' | 'asana' | 'meetings';
+export const SOURCE_KINDS: readonly SourceKind[] = ['google', 'slack', 'msgraph', 'youtrack', 'jira', 'asana', 'meetings'];
+/** Meeting recorders: one `meeting` shape (meetings/normalise.ts), several providers. */
+export type MeetingProvider = 'granola' | 'gmeet' | 'wispr';
+export const MEETING_PROVIDERS: readonly MeetingProvider[] = ['granola', 'gmeet', 'wispr'];
 /** The task-tracker family: same contract, one normalised `task` shape (trackers/task.ts). */
 export type TrackerKind = 'youtrack' | 'jira' | 'asana';
 export const TRACKER_KINDS: readonly TrackerKind[] = ['youtrack', 'jira', 'asana'];
@@ -85,6 +88,29 @@ export interface AsanaSourcesConfig {
   since?: string;
 }
 
+export interface MeetingsSourcesConfig {
+  /** Granola Personal API (Business plan): token in ~/.config/coach-aven/sources/<slug>/granola.json. */
+  granola?: { since?: string };
+  /** Gemini "Notes by Gemini" docs in the listed Google accounts' Drive (uses the google token). */
+  gmeet?: { accounts: string[]; since?: string };
+  /** Wispr Flow Notetaker via its remote MCP endpoint (device-code OAuth, token in wispr.json). */
+  wispr?: { since?: string };
+}
+
+/**
+ * The tenant repo: where the project's own decisions live (people with markers, fragments →
+ * initiatives, rules). The bot keeps a host-side checkout under data/<slug>/tenant and READS it
+ * at build time; it never writes there — the sandbox commits, the bot indexes.
+ */
+export interface TenantConfig {
+  /** owner/name on GitHub. */
+  repo: string;
+  /** Branch to track (default: the repo's default branch). */
+  ref?: string;
+  /** Directory inside the repo holding people.json, fragments.jsonl, … (default "annotations"). */
+  path?: string;
+}
+
 export interface SourcesConfig {
   google?: GoogleSourcesConfig;
   slack?: SlackSourcesConfig;
@@ -92,6 +118,8 @@ export interface SourcesConfig {
   youtrack?: YoutrackSourcesConfig;
   jira?: JiraSourcesConfig;
   asana?: AsanaSourcesConfig;
+  meetings?: MeetingsSourcesConfig;
+  tenant?: TenantConfig;
   /** Poller interval (PR-C); default 15. Validated now so a typo fails at boot, not later. */
   intervalMinutes?: number;
   /** Path (relative to projects.config.json) of the people/identities JSON used by the store build (PR-B). */
