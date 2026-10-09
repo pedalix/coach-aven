@@ -264,6 +264,39 @@ export function buildMeetingsListSql(f) {
   };
 }
 
+// `activity` tool: local work blocks (git commit clusters, Claude Code sessions) in a window,
+// oldest first; q = FTS over title + commit subjects / first prompts.
+export function buildActivitySql(f) {
+  const where = ['a.deleted = 0'];
+  const params = [];
+  if (f.since) {
+    where.push('a."end" >= ?');
+    params.push(f.since);
+  }
+  if (f.until) {
+    where.push('a.start <= ?');
+    params.push(f.until);
+  }
+  if (f.container) {
+    where.push('a.container LIKE ?');
+    params.push(`%${String(f.container)}%`);
+  }
+  if (f.source) {
+    where.push('a.source = ?');
+    params.push(String(f.source));
+  }
+  const limit = Math.max(1, Math.min(500, Number(f.limit) || 100));
+  const cols = 'a.ref, a.source, a.account, a.container, a.start, a."end", a.minutes, a.title, a.items';
+  const q = f.q ? sanitizeFtsQuery(f.q) : '';
+  if (q) {
+    return {
+      sql: `SELECT ${cols} FROM activity_fts JOIN activity a ON a.rowid = activity_fts.rowid WHERE activity_fts MATCH ? AND ${where.join(' AND ')} ORDER BY a.start LIMIT ?`,
+      params: [q, ...params, limit],
+    };
+  }
+  return { sql: `SELECT ${cols} FROM activity a WHERE ${where.join(' AND ')} ORDER BY a.start LIMIT ?`, params: [...params, limit] };
+}
+
 // `fragments` tool: the tenant's attribution decisions in a window.
 export function buildFragmentsSql(f) {
   const where = ['1 = 1'];
@@ -453,6 +486,25 @@ export const TOOLS = [
     },
   },
   {
+    name: 'activity',
+    description:
+      'Hands-on work on Owen\'s machine: git commit clusters per repo and Claude Code session clusters per working directory, ' +
+      'each a block with start/end/minutes, a title and items (commit subjects, or the first prompt of each session). THE source for ' +
+      '"what did I work on", coding time and work fragments. Filters: since/until (ISO date = whole day, or datetime), container ' +
+      '(repo like owner/name, or a path fragment), source (git|claude), q (words in titles/items).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: { type: 'string' },
+        until: { type: 'string' },
+        container: { type: 'string' },
+        source: { type: 'string' },
+        q: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
+      },
+    },
+  },
+  {
     name: 'fragments',
     description:
       'The tenant\'s attribution decisions: fragments of Owen\'s day (a call, a thread, a work block) with their initiative(s) and ' +
@@ -469,7 +521,7 @@ export const TOOLS = [
   },
   {
     name: 'stats',
-    description: 'Coverage of the replica: per-source message, task and meeting counts and time ranges, events, files, people, fragments, last build.',
+    description: 'Coverage of the replica: per-source message, task, meeting and local-activity counts and time ranges, events, files, people, fragments, last build.',
     inputSchema: { type: 'object', properties: {} },
   },
 ];
@@ -735,6 +787,24 @@ export function runCalendar(db, args) {
   };
 }
 
+export function runActivity(db, args) {
+  if (!hasTable(db, 'activity')) return { activity: [], note: 'no local activity in this replica (built before the local source)' };
+  const q = buildActivitySql({ since: normalizeTime(args.since, 'since'), until: normalizeTime(args.until, 'until'), container: args.container, source: args.source, q: args.q, limit: args.limit });
+  return {
+    activity: db.prepare(q.sql).all(...q.params).map((a) => ({
+      ref: a.ref,
+      source: a.source,
+      host: a.account,
+      container: a.container,
+      start: a.start,
+      end: a.end,
+      minutes: a.minutes,
+      title: a.title,
+      items: parseJson(a.items || '[]', []),
+    })),
+  };
+}
+
 export function runFragments(db, args) {
   if (!hasTable(db, 'fragments')) return { fragments: [], note: 'this replica has no fragments (built before tenant annotations)' };
   const q = buildFragmentsSql({ since: normalizeTime(args.since, 'since'), until: normalizeTime(args.until, 'until'), initiative: args.initiative, status: args.status, limit: args.limit });
@@ -894,9 +964,12 @@ export function runStats(db) {
   const meetings = hasTable(db, 'meetings')
     ? db.prepare('SELECT source, count(*) AS n, min(start) AS first, max(start) AS last FROM meetings WHERE deleted = 0 GROUP BY source ORDER BY source').all()
     : [];
+  const activity = hasTable(db, 'activity')
+    ? db.prepare('SELECT source, count(*) AS n, sum(minutes) AS minutes, min(start) AS first, max(start) AS last FROM activity WHERE deleted = 0 GROUP BY source ORDER BY source').all()
+    : [];
   const fragments = hasTable(db, 'fragments') ? db.prepare('SELECT status, count(*) AS n FROM fragments GROUP BY status').all() : [];
   const attributions = hasTable(db, 'attributions') ? db.prepare('SELECT count(*) AS n FROM attributions').get().n : 0;
-  return { messages: bySource, tasks, meetings, withheld: withheld.n, events, files: files.n, people: people.n, fragments, attributions, meta };
+  return { messages: bySource, tasks, meetings, activity, withheld: withheld.n, events, files: files.n, people: people.n, fragments, attributions, meta };
 }
 
 export function callTool(dbPath, name, args) {
@@ -917,6 +990,8 @@ export function callTool(dbPath, name, args) {
         return runFragments(db, args ?? {});
       case 'calendar':
         return runCalendar(db, args ?? {});
+      case 'activity':
+        return runActivity(db, args ?? {});
       case 'stats':
         return runStats(db);
       default:

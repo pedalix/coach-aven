@@ -261,7 +261,7 @@ test('handleMessage speaks the JSON-RPC subset the MCP client needs and never th
     (list.result as { tools: { name: string }[] }).tools.map((t) => t.name),
     TOOLS.map((t) => t.name),
   );
-  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'tasks', 'meetings', 'calendar', 'fragments', 'people', 'stats']);
+  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'tasks', 'meetings', 'calendar', 'activity', 'fragments', 'people', 'stats']);
   const call = handleMessage({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'search', arguments: { query: 'forensic' } } }, dbPath)!;
   const content = (call.result as { content: { text: string }[]; isError: boolean });
   assert.equal(content.isError, false);

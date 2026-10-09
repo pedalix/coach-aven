@@ -369,6 +369,35 @@ id are renamed at build from `raw/slack/slack.users.json`; the puller asks `user
 `users.list` does not return (Slack Connect guests, deactivated accounts). A better users map or new
 bot rules relabel every stored row on the next build (they are part of the derived fingerprint).
 
+## Local activity
+
+The review session runs in the sandbox and cannot see the host's git repos or Claude Code
+transcripts, yet most of "where did my day go" is exactly that kind of work. The `local` source
+pulls it like any other source (no credentials — it reads the bot's own filesystem):
+
+```json
+"local": {
+  "roots": ["/home/me/code"],
+  "authors": ["Jane Doe", "jane@example.com"],
+  "claudeProjectsDir": "/home/me/.claude/projects",
+  "since": "2026-10-01"
+}
+```
+
+- **git**: repos under `roots` (depth ≤ 4, worktrees included), commits by any of `authors` on any
+  branch. Commits ≤ 90 min apart form one block, +20 min lead-in for the work before the first
+  commit, a lone commit counts 20 min. Container = `host/owner/name` from `origin`, so clones and
+  worktrees of one repo collapse. Items = `sha subject`.
+- **claude**: every transcript line carries a timestamp; activity is clustered per working
+  directory per local day (gap ≤ 60 min, min 10). A cwd inside a repo gets that repo's container.
+  Items = the first real prompt of each session (200 chars). Files > 50 MB are read head + tail.
+- Blocks are bucketed by local day in `AVEN_TZ`. A day is recomputed in full whenever anything in
+  it changed; a block that disappears (a new commit merged two blocks) is tombstoned. Titles and
+  items are scrubbed inline (a pasted token in a prompt is redacted, never withheld).
+- Raw: `raw/local/activity.jsonl` + `cursor.json`. Store: `activity` + `activity_fts`. The
+  sandbox tool `activity({since, until, container, source, q})` lists blocks oldest first;
+  `stats` counts them per source.
+
 ## Tenant annotations
 
 `sources.tenant: { repo, ref?, path? }` names the project's own repo of decisions (default path
