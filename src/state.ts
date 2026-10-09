@@ -60,8 +60,9 @@ export interface RoutineRecord {
   createdAt: string;
   lastRunAt?: string; // last fire (dedupes within a minute + across restarts)
   // undefined/'report' = scheduled digest; 'dream' = memory consolidation;
-  // 'housekeeping' = the deterministic sandbox janitor (docs/housekeeping.md)
-  kind?: 'report' | 'dream' | 'housekeeping';
+  // 'housekeeping' = the deterministic sandbox janitor (docs/housekeeping.md);
+  // 'task' = a scheduled turn that MAY edit/commit per the project's instructions (TASK_FRAMING)
+  kind?: 'report' | 'dream' | 'housekeeping' | 'task';
   lastSummary?: string; // dream: one-line digest of the last run (visibility without channel noise)
 }
 

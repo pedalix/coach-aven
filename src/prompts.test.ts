@@ -80,3 +80,12 @@ test("investigationPrompt: an englishTaggers flag overrides the ticket's languag
   assert.doesNotMatch(p, /language the ticket is written in/);
   assert.doesNotMatch(p, /ticket's language/);
 });
+
+import { routineFraming, TASK_FRAMING, REPORT_FRAMING } from './prompts.js';
+test('routineFraming: task routines may commit, everything else stays a read-only digest', () => {
+  assert.equal(routineFraming('task'), TASK_FRAMING);
+  assert.match(TASK_FRAMING, /MAY edit and commit/);
+  assert.equal(routineFraming(undefined), REPORT_FRAMING);
+  assert.equal(routineFraming('report'), REPORT_FRAMING);
+  assert.match(REPORT_FRAMING, /Do NOT modify code/);
+});
