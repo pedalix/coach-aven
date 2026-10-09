@@ -23,7 +23,7 @@ Today `projects.config.json` is read **once at boot** (`loadProjects`), so any c
 ## Scope — soft vs structural
 
 Not all fields are equal in risk. Only **soft** fields are runtime-editable from Slack;
-**structural** fields stay on file + deploy (`/add-project`), because they're tied to
+**structural** fields stay on file + deploy (`/manage-project` skill), because they're tied to
 sandbox state.
 
 | Field | Runtime-editable from Slack? | Why |
@@ -75,7 +75,7 @@ The soft/instructional needs are largely already covered by [project memory](mem
 
 ## Boundaries
 
-- **Structural changes** (add a repo, new project) → file + deploy + `/add-project`, not here.
+- **Structural changes** (add a repo, new project) → file + deploy via the `/manage-project` skill, not here.
 - **Memory** (the learned layer) → [memory.md](memory.md). `/aven prompt` edits the
   deliberate layer; `/aven memory` reads the learned one.
 
