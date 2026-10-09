@@ -35,6 +35,7 @@ import { housekeepingScript, parseHousekeepingReport, pruneThreshold } from './h
 import { cliUpgradeNotice, cliPinDrift, fetchCliDistTags } from './cliversion.js';
 import { dreamPrompt, dreamDigest } from './dream.js';
 import { snapshotMemory } from './memjournal.js';
+import { startRoutineTurn } from './routinerun.js';
 import { autofixNotifyBlocks, shortRepo, alertOps } from './blocks.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
@@ -137,9 +138,17 @@ export function createPollers(
     const key = withTeam(r.teamId, home(), `cron:${r.id}:${r.slug}`);
     if (engine.hasKey(key)) return false; // previous run still in flight — don't stack
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
-    void engine.liveTurn(c, r.channel, undefined, undefined, key, project, routineFraming(r.kind) + r.prompt).catch(
-      turnFail(`routine ${r.id}`),
-    );
+    // Fresh Claude session per fire (routinerun.ts): picks up an edited project prompt and keeps
+    // a daily routine's context from growing forever.
+    void startRoutineTurn(
+      {
+        restartSession: engine.restartSession,
+        liveTurn: (k, p, prompt) => engine.liveTurn(c, r.channel, undefined, undefined, k, p, prompt),
+      },
+      key,
+      project,
+      routineFraming(r.kind) + r.prompt,
+    ).catch(turnFail(`routine ${r.id}`));
     return true;
   }
 
