@@ -12,6 +12,8 @@
 //
 // Refresh tokens may rotate; every refresh rewrites the file. MCP over streamable HTTP: a POST
 // may answer JSON or an SSE stream; we read the body once and parse either.
+import { createHash, randomBytes } from 'node:crypto';
+import { createServer } from 'node:http';
 import { TrackerHttpError } from '../trackers/http.js';
 import { readTokenFile, writeTokenFile } from '../trackers/writer.js';
 import type { PullContext } from '../types.js';
@@ -55,7 +57,7 @@ export async function registerClient(fetchImpl: typeof fetch = fetch): Promise<s
     JSON.stringify({
       client_name: 'coach-aven sources',
       // A redirect URI is mandatory for registration even though we only use the device grant.
-      redirect_uris: ['http://127.0.0.1:53682/callback'],
+      redirect_uris: ['http://127.0.0.1:53682/callback'], // the browser login's loopback (WISPR_REDIRECT)
       grant_types: ['authorization_code', DEVICE_GRANT, 'refresh_token'],
       response_types: ['code'],
       token_endpoint_auth_method: 'none',
@@ -101,6 +103,68 @@ export async function deviceLogin(tokenPath: string, log: (l: string) => void, f
     throw new Error(`wispr: device flow failed: ${err} ${String(t.json.error_description ?? '')}`);
   }
   throw new Error('wispr: device code expired before approval');
+}
+
+export const WISPR_REDIRECT = 'http://127.0.0.1:53682/callback';
+
+function tokenFrom(client_id: string, j: Rec): WisprToken {
+  return {
+    client_id,
+    access_token: String(j.access_token),
+    expires_at: Date.now() + (Number(j.expires_in ?? 3600) - 60) * 1000,
+    ...(typeof j.refresh_token === 'string' ? { refresh_token: j.refresh_token } : {}),
+  };
+}
+
+/** Pure: the authorize URL for the PKCE loopback flow (tested). */
+export function authorizeUrl(client_id: string, challenge: string, state: string): string {
+  const q = new URLSearchParams({
+    response_type: 'code',
+    client_id,
+    redirect_uri: WISPR_REDIRECT,
+    scope: SCOPE,
+    code_challenge: challenge,
+    code_challenge_method: 'S256',
+    state,
+    resource: WISPR_MCP,
+  });
+  return `${WISPR_AUTH}/oauth2/authorize?${q.toString()}`;
+}
+
+/**
+ * Browser login: authorization code + PKCE over the loopback redirect registered at DCR time.
+ * Why not only the device flow: Wispr's hosted login page rejects device-code approvals with
+ * "Missing external_auth_id" (its IdP needs the browser round-trip the code flow provides),
+ * although the metadata advertises the device grant. Under WSL2 the Windows browser reaches the
+ * 127.0.0.1 listener through localhost forwarding; if it does not, paste the final redirect URL.
+ */
+export async function browserLogin(tokenPath: string, log: (l: string) => void, fetchImpl: typeof fetch = fetch): Promise<WisprToken> {
+  const existing = readTokenFile<WisprToken>(tokenPath);
+  const client_id = existing?.client_id ?? (await registerClient(fetchImpl));
+  const verifier = randomBytes(32).toString('base64url');
+  const challenge = createHash('sha256').update(verifier).digest('base64url');
+  const state = randomBytes(16).toString('base64url');
+  const code = await new Promise<string>((resolve, reject) => {
+    const server = createServer((req, res) => {
+      const u = new URL(req.url ?? '/', WISPR_REDIRECT);
+      if (u.pathname !== '/callback') { res.writeHead(404).end(); return; }
+      const err = u.searchParams.get('error');
+      const c = u.searchParams.get('code');
+      const ok = !err && c && u.searchParams.get('state') === state;
+      res.writeHead(ok ? 200 : 400, { 'content-type': 'text/plain; charset=utf-8' }).end(ok ? 'Wispr connected — you can close this tab.' : `Wispr login failed: ${err ?? 'state mismatch'}`);
+      server.close();
+      ok ? resolve(c!) : reject(new Error(`wispr: authorize failed: ${err ?? 'state mismatch'} ${u.searchParams.get('error_description') ?? ''}`));
+    });
+    server.on('error', reject);
+    server.listen(53682, '127.0.0.1', () => log(`Open this URL in your browser and sign in to Wispr:\n${authorizeUrl(client_id, challenge, state)}`));
+    setTimeout(() => { server.close(); reject(new Error('wispr: no redirect within 10 minutes')); }, 600_000).unref();
+  });
+  const t = await post(`${WISPR_AUTH}/oauth2/token`, form({ grant_type: 'authorization_code', code, redirect_uri: WISPR_REDIRECT, client_id, code_verifier: verifier }), 'application/x-www-form-urlencoded', fetchImpl);
+  if (t.status !== 200 || typeof t.json.access_token !== 'string') throw new Error(`wispr: code exchange failed: ${JSON.stringify(t.json).slice(0, 200)}`);
+  const tok = tokenFrom(client_id, t.json);
+  if (!tok.refresh_token) log('wispr: WARNING — no refresh token returned; the pull will need a new login when the access token expires');
+  writeTokenFile(tokenPath, tok);
+  return tok;
 }
 
 /** A valid access token, refreshing (and persisting the rotated refresh token) when needed. */

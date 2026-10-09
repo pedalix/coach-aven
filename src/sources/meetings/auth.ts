@@ -1,7 +1,7 @@
 // `orch sources auth <slug> meetings <granola|wispr|gmeet> <action>`
 //   granola add [--token-env NAME]   store the Personal API key (verified first)
 //   granola check                    one list call
-//   wispr login                      device-code OAuth in a browser (prints URL + code)
+//   wispr login [--device]           browser OAuth (PKCE, loopback 127.0.0.1:53682); --device = device code
 //   wispr check                      refresh + MCP initialize
 //   gmeet check                      uses the google token; nothing of its own to store
 // `check` with no provider checks every configured provider (what the daily poller check runs).
@@ -14,7 +14,7 @@ import { tokenPath } from '../tokens.js';
 import type { AuthContext, MeetingsSourcesConfig } from '../types.js';
 import { checkGranola } from './granola.js';
 import { granolaTokenPath, wisprTokenPath } from './pull.js';
-import { WisprMcp, accessToken, deviceLogin } from './wispr.js';
+import { WisprMcp, accessToken, browserLogin, deviceLogin } from './wispr.js';
 
 async function checkWispr(slug: string): Promise<{ ok: boolean; line: string }> {
   const p = wisprTokenPath(slug);
@@ -68,7 +68,10 @@ export async function runMeetingsAuth(ctx: AuthContext, argv: string[], cfg?: Me
     }
   } else if (provider === 'wispr') {
     if (action === 'login') {
-      await deviceLogin(wisprTokenPath(ctx.slug), ctx.log);
+      // Browser (PKCE loopback) by default: Wispr's login page rejects device-code approvals
+      // with "Missing external_auth_id". `--device` keeps the device flow for a headless box.
+      if (flags.device) await deviceLogin(wisprTokenPath(ctx.slug), ctx.log);
+      else await browserLogin(wisprTokenPath(ctx.slug), ctx.log);
       const r = await checkWispr(ctx.slug);
       ctx.log(r.line);
       return r.ok ? 0 : 3;
