@@ -180,6 +180,7 @@ cmd_deploy() {
     --exclude='./github-app-private-key.pem' \
     --exclude='./projects.config.json' \
     --exclude='./state.json' \
+    --exclude='./mirrors' \
     --exclude='./memory' \
     --exclude='./feedback' \
     --exclude='./.release' \

@@ -113,3 +113,28 @@ A project can reach all its MCP sources through the gateway (bluefin-infra `engi
 **Rollback** (one edit): in `projects.config.json` move the project's `mcpDirectBackup` list back
 to `mcp` (caldora keeps its pre-gateway list there), `prod:export`, `/aven reload`; running
 conversations keep the old config until their claude process ends (or restart the bot to recycle).
+
+## Repo mirrors
+
+Some repos a project needs live outside the App's installations (the HSX studio in the old
+`BluefinAG` org, the Vallora studio in `vendor-labs/omni-cms-v2`). A project's GitHub
+token is minted from ONE installation, so they can't simply be listed in `repos[]`. Instead
+`scripts/mirror.ts` keeps a **one-way, read-only mirror** of each in BluefinOrg, and the
+project lists the mirror. Upstream stays the source of truth — the project prompt tells the
+agent not to push or open PRs there.
+
+- **Where it runs:** the deployer's crontab on the prod box, every 30 min —
+  `*/30 * * * * cd /var/www/coach-aven && <node> --import tsx scripts/mirror.ts >> mirrors/mirror.log 2>&1`.
+  Not GitHub Actions: the write side needs the App key, which must not leave the box.
+- **Credentials:** read = `MIRROR_SRC_<OWNER>` fine-grained PATs (Contents:read, that repo only)
+  in the runtime `.env`; write = an App token minted per run, scoped to the one mirror repo with
+  `contents` + `workflows` write. Failures go to Sentry (tag `mirror`) and `mirrors/mirror.log`.
+- **Adding a mirror:** create the private repo in BluefinOrg, **disable its Actions**
+  (`gh api -X PUT repos/<mirror>/actions/permissions -F enabled=false` — upstream deploy
+  workflows would otherwise run on every sync), add the entry to `MIRRORS` in the script, add
+  the repo to the owner's PAT (or a new `MIRROR_SRC_*` + `.env.example` line), deploy.
+- **No token → snapshot:** a mirror whose `MIRROR_SRC_*` is unset is skipped (logged, no alert).
+  `BluefinAG` is a *user* account where we're only collaborators — fine-grained PATs can't
+  target it — so the HSX mirror stays a manual snapshot until those repos move into the org.
+- Dependabot is enforced by the org's security configuration and can't be turned off per mirror;
+  close any PR it opens there.
