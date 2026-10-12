@@ -76,13 +76,24 @@ test('wispr: get_meeting result → meeting; attendees as names', () => {
   assert.deepEqual(m.next_steps, ['(Owen Hale) Contact Dimitri']);
 });
 
-test('scrubMeeting: a password read out in the transcript withholds the TRANSCRIPT only', () => {
-  const m = normaliseGranolaNote({ ...granolaNote, transcript: [{ text: 'the prod db is mysql://root:S3cr3tPass@db.prod.example:3306/app', speaker: { attribution: 'them' } }] });
+test('scrubMeeting: the transcript is passed through (no withholding on speech); summary still scrubbed', () => {
+  // The 2026-10-11 false positive: "токен" twice in ordinary talk used to withhold the whole call.
+  const talk = 'Them: получить токен. Потому что, ну, эксес нужен.\nMe: Дайте мне, блин, токен, если я сам себе девопс.';
+  const m = normaliseGranolaNote({ ...granolaNote, transcript: [{ text: talk, speaker: { attribution: 'them' } }] });
+  m.summary += '\nDB: mysql://root:S3cr3tPass@db.prod.example:3306/app';
   const s = scrubMeeting(m);
-  assert.equal(s.scrub.withheld, true);
-  assert.match(s.transcript, /^\[BODY WITHHELD/);
-  assert.match(s.summary, /Security Incident Overview/);
-  assert.ok(!JSON.stringify(s).includes('S3cr3tPass'));
+  assert.equal(s.transcript, m.transcript);
+  assert.equal(s.scrub.transcript, 'passthrough');
+  assert.equal(s.scrub.withheld, true); // the DSN in the summary still withholds the summary
+  assert.match(s.summary, /^\[BODY WITHHELD/);
+  assert.ok(!s.summary.includes('S3cr3tPass'));
+});
+
+test('scrubMeeting: a pluggable transcript scrubber replaces the passthrough', () => {
+  const m = normaliseGranolaNote({ ...granolaNote, transcript: [{ text: 'secret word', speaker: { attribution: 'me' } }] });
+  const s = scrubMeeting(m, {}, { policy: 'passthrough', scrub: (t) => ({ text: t.replace('secret', '[X]'), kinds: ['x'], redactions: 1 }) });
+  assert.equal(s.transcript, 'Me: [X] word');
+  assert.deepEqual(s.scrub.kinds.includes('x'), true);
 });
 
 // ── granola puller against a fake API ────────────────────────────────────────────────────

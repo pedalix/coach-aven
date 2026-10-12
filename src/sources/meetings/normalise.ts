@@ -39,7 +39,7 @@ export interface MeetingRecord {
   deleted?: boolean;
 }
 
-export type ScrubbedMeeting = MeetingRecord & { scrub: ScrubMeta };
+export type ScrubbedMeeting = MeetingRecord & { scrub: ScrubMeta & { transcript: TranscriptPolicy } };
 
 type Rec = Record<string, unknown>;
 const s = (v: unknown): string => (typeof v === 'string' ? v : v === null || v === undefined ? '' : String(v));
@@ -221,24 +221,36 @@ export function normaliseWisprMeeting(raw: Rec, transcript: string, account = 'w
 }
 
 // ── scrub at the one write path ──────────────────────────────────────────────────────────
-// Summary and transcript are scrubbed as separate messages: a transcript where someone READ OUT
-// a password is withheld on its own (marker + vault) without taking the summary with it.
+// Title, summary and next steps go through the text scrubber. The TRANSCRIPT does not: regexes
+// can't see a password read out loud (speech-to-text writes "es-two-four, capital Q…", rarely
+// right after "password"), while "token"/"пароль" in ordinary talk trips `kv` and used to
+// withhold whole calls (2026-10-11 Granola intro call). The slot stays — `transcriptScrubber`
+// is a passthrough until there is a detector that works on speech; `scrub.transcript` records
+// which policy a record was written under.
 
-export function scrubMeeting(m: MeetingRecord, sink: SinkOptions = {}): ScrubbedMeeting {
+export type TranscriptPolicy = 'passthrough';
+export interface TranscriptScrubber {
+  policy: TranscriptPolicy;
+  scrub(text: string): { text: string; kinds: string[]; redactions: number };
+}
+export const passthroughTranscript: TranscriptScrubber = { policy: 'passthrough', scrub: (text) => ({ text, kinds: [], redactions: 0 }) };
+
+export function scrubMeeting(m: MeetingRecord, sink: SinkOptions = {}, transcriptScrubber: TranscriptScrubber = passthroughTranscript): ScrubbedMeeting {
   const sum = scrubForWrite({ source: m.source, id: m.id, subject: m.title, text: m.summary }, sink);
-  const tr = m.transcript ? scrubForWrite({ source: m.source, id: `${m.id}#transcript`, text: m.transcript }, sink) : { text: '', scrub: { withheld: false, kinds: [], redactions: 0 } as ScrubMeta };
+  const tr = transcriptScrubber.scrub(m.transcript);
   const title = scrubText(m.title);
   const steps = m.next_steps.map((x) => scrubText(x));
-  const kinds = new Set([...sum.scrub.kinds, ...tr.scrub.kinds, ...title.findings.map((f) => f.kind), ...steps.flatMap((x) => x.findings.map((f) => f.kind))]);
+  const kinds = new Set([...sum.scrub.kinds, ...tr.kinds, ...title.findings.map((f) => f.kind), ...steps.flatMap((x) => x.findings.map((f) => f.kind))]);
   const out: MeetingRecord = { ...m, title: title.text, summary: sum.text, transcript: tr.text, next_steps: steps.map((x) => x.text) };
   out.text = flatten(out);
   return {
     ...out,
     scrub: {
-      withheld: sum.scrub.withheld || tr.scrub.withheld,
+      withheld: sum.scrub.withheld,
       kinds: [...kinds].sort(),
-      redactions: sum.scrub.redactions + tr.scrub.redactions + title.findings.length + steps.reduce((n, x) => n + x.findings.length, 0),
-      ...(sum.scrub.vault ? { vault: sum.scrub.vault } : tr.scrub.vault ? { vault: tr.scrub.vault } : {}),
+      redactions: sum.scrub.redactions + tr.redactions + title.findings.length + steps.reduce((n, x) => n + x.findings.length, 0),
+      ...(sum.scrub.vault ? { vault: sum.scrub.vault } : {}),
+      transcript: transcriptScrubber.policy,
     },
   };
 }
