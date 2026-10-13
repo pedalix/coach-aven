@@ -65,7 +65,11 @@ test('ensureSandboxScript — reuses, wakes, or creates; --init and labels survi
   assert.ok(s.includes('outcome=ready'));
   assert.ok(s.includes(`docker start 'proj-caldora' >/dev/null || exit 1`));
   assert.ok(s.includes('--init')); // no tini → session processes rot as zombies
-  assert.ok(s.includes('--restart unless-stopped'));
+  // No daemon restart policy: the daemon would start the container before the host fs
+  // is exported (Docker Desktop/WSL) and bind mounts come up empty. The orchestrator
+  // wakes stopped containers itself; old ones are migrated in place.
+  assert.equal(s.includes('--restart unless-stopped'), false);
+  assert.ok(s.includes(`docker update --restart=no 'proj-caldora' >/dev/null 2>&1 || true`));
   assert.ok(s.includes('--runtime sysbox-runc'));
   assert.ok(s.includes(`--label project='caldora'`));
   assert.ok(s.trim().endsWith('echo "$outcome"'));
@@ -98,13 +102,14 @@ test('ensureSandboxScript — unprivileged plain project: no runtime flag, ro mo
   const run = s.split('\n').find((l) => l.includes('docker run'))!;
   assert.equal(
     run,
-    `  docker run -d --init --name 'proj-owen-ops' -v '/srv/owen-ops/sources:/data/sources:ro' --restart unless-stopped \\`,
+    `  docker run -d --init --name 'proj-owen-ops' -v '/srv/owen-ops/sources:/data/sources:ro' \\`,
   );
   assert.equal(s.includes('--privileged'), false);
   assert.equal(s.includes('--runtime'), false);
   // No dockerd in there → the sysbox exec-probe/recycle block is pointless and skipped.
+  // (The mount probe below can still revive it — that one is per mount, not per runtime.)
   assert.equal(s.includes('exec probe failed'), false);
-  assert.equal(s.includes('outcome=revived'), false);
+  assert.equal(s.includes('docker exec \'proj-owen-ops\' true'), false);
   assert.ok(s.trim().endsWith('echo "$outcome"'));
   // Mount paths are re-validated at the shell boundary even though sandboxopts checked them.
   assert.throws(() => ensureSandboxScript('proj-x', 'x', 'img', '', [{ source: '/srv/a b', target: '/data', mode: 'ro' }], false));
@@ -115,7 +120,31 @@ test('ensureSandboxScript — default (no options) is byte-identical to the hist
   const a = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged');
   const b = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged', [], true);
   assert.equal(a, b);
-  assert.ok(a.includes(`docker run -d --init --name 'proj-caldora' --privileged --restart unless-stopped`));
+  assert.ok(a.includes(`docker run -d --init --name 'proj-caldora' --privileged \\`));
+  assert.equal(a.includes('ls -A'), false); // no mounts → no mount probe
+});
+
+test('ensureSandboxScript — a bind mount that came up empty is recycled, not served', () => {
+  const s = ensureSandboxScript(
+    'proj-owen-ops',
+    'owen-ops',
+    'img',
+    '',
+    [{ source: '/srv/owen-ops/replica', target: '/data/sources', mode: 'ro' }],
+    false,
+  );
+  // Host side has content, container side doesn't → the mount attached before the host
+  // fs was exported to the engine (Docker Desktop/WSL after a daemon restart).
+  assert.ok(s.includes(`if [ -n "$(ls -A '/srv/owen-ops/replica' 2>/dev/null)" ] && [ -z "$(docker exec 'proj-owen-ops' ls -A '/data/sources' 2>/dev/null)" ]; then`));
+  assert.ok(s.includes(`docker stop -t 10 'proj-owen-ops'`));
+  assert.ok(s.includes(`docker start 'proj-owen-ops' >/dev/null 2>&1`));
+  assert.ok(s.includes('outcome=revived'));
+  // Degraded, not useless: a still-empty mount is reported, the turn goes on.
+  assert.ok(s.includes('still empty after recycle'));
+  assert.equal(s.split('exit 1').length - 1, 2); // only the wake and create failures exit
+  // The sysbox exec dance stays off for a plain project even with the mount probe on.
+  assert.equal(s.includes('exec probe failed'), false);
+  assert.ok(s.trim().endsWith('echo "$outcome"'));
 });
 
 test('parseContainerStates — docker states map onto started/stopped', () => {

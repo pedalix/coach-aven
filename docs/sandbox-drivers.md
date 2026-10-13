@@ -93,9 +93,9 @@ than the `--privileged` hammer.
 
 | Concern | ssh-docker behavior |
 |---|---|
-| Warm sandbox | `docker run -d --name proj-<slug> … --restart unless-stopped` with `sleep` as PID 1; dockerd starts lazily via the existing `ensureDockerd` guard |
+| Warm sandbox | `docker run -d --name proj-<slug> …` with `sleep` as PID 1 and **no restart policy**; dockerd starts lazily via the existing `ensureDockerd` guard |
 | Auto-stop | None — an idle container on our own box costs nothing (`SANDBOX_AUTOSTOP_MINUTES` is ignored) |
-| Wake | `docker start`; a host reboot restarts the fleet via `--restart unless-stopped` |
+| Wake | `docker start` on the first turn after a stop — including after a host/daemon reboot. Deliberately NOT `--restart unless-stopped`: a daemon-started container races the host filesystem export (Docker Desktop/WSL) and its bind mounts come up empty. Every warm-up also probes each bind mount (non-empty host dir ⇒ non-empty target) and stop+starts a container whose mount attached to nothing |
 | exec / upload | `docker exec` with the script (or file bytes) piped via stdin — no shell-quoting of payloads |
 | Persistent claude | FIFO + `out.log` under `/tmp/aven-sess/<key>/` in the container; snapshot = `cat`, tail = `tail -f`; survives bot restarts like Daytona session commands |
 | `/aven status` | `docker ps` states mapped to started/stopped |
