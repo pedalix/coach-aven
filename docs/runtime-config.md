@@ -139,3 +139,71 @@ agent not to push or open PRs there.
   target it — so the HSX mirror stays a manual snapshot until those repos move into the org.
 - Dependabot is enforced by the org's security configuration and can't be turned off per mirror;
   close any PR it opens there.
+
+## Routine delivery guard (`ROUTINE_GUARD`)
+
+Off by default. `ROUTINE_GUARD=1` in the runtime `.env` (read once at boot) makes a scheduled
+routine **land or say why not**. With the switch unset the scheduler, the routine prompt and the
+Slack output are byte for byte what they were before the guard existed — `src/routineguard.test.ts`
+pins that — so production keeps the historical behaviour until the guard has proven itself on the
+home bot. Everything is `src/routineguard.ts` (pure decisions, tested) wired by `src/pollers.ts`.
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `ROUTINE_GUARD` | unset (off) | `1` turns the four behaviours below on |
+| `ROUTINE_GUARD_CATCHUP_HOURS` | `6` | how long after its cron slot a missed run is still fired, and a retry still allowed |
+| `ROUTINE_GUARD_RETRY_MINUTES` | `15` | minimum delay before the one automatic retry of a failed run |
+
+What it does (report/task routines only — dreams and housekeeping keep their silent paths):
+
+1. **Missed-fire catch-up.** The scheduler used to match the live wall-clock minute only, so a
+   slot the process did not observe (laptop asleep, restart or deploy across the minute, a fire
+   skipped because the previous run was still in flight) was lost. Now every tick — the first one
+   at boot included — also fires a routine whose most recent cron occurrence is later than its
+   `lastRunAt` and no older than the grace window, as a **late run**: the parent message reads
+   `📋 Morning brief · late run (missed 08:30) · running…`. `lastRunAt` is stamped at fire, so a run
+   that fired and failed is not re-fired by this path (that is the retry's job), and a routine that
+   never ran is owed only slots after its `createdAt`.
+2. **Outcome on record + one retry.** When the run's turn settles, the routine record gets
+   `lastOutcome` (`ok` / `error` / `canceled`), `lastDeliveredAt` + `lastSummary` (the answer's
+   headline) on success, `lastReason` on error — and a failed run's parent is rewritten to
+   `⚠️ <label> — failed: <reason>` instead of staying at `running…` forever. A **scheduled or late**
+   run that errored is re-fired ONCE, ≥ `ROUTINE_GUARD_RETRY_MINUTES` later, provided the retry
+   still falls inside the slot's grace window; the pending retry lives on the record (`retry:
+   { at, slot }`), so it survives a restart, and is consumed by whatever fire of the routine comes
+   first (a manual `/aven routines run` counts). A retry's own failure, a manual run's failure and a
+   cancel are recorded, not re-fired. The scheduler logs every fire with its kind and every skip
+   with its reason (in flight / no client / tenant lost / project gone / already fired this minute
+   by a previous process / retry dropped: disabled, window passed, last run did not fail).
+3. **Deterministic "previous run" line.** Every routine prompt is prefixed with one bot-rendered
+   line from state — `[Routine state] Previous run of this routine: ok at 2026-10-13T05:31:12Z
+   (08:31 Europe/Moscow) (delivered: …)` / `error at … (not delivered: <reason>)` / `missed at …
+   — the scheduled run did not fire` / `started at …, outcome not recorded` (the bot restarted
+   mid-run) / `none recorded` — plus, for a late run or a retry, what this run is. The LLM never
+   decides whether yesterday's run happened.
+4. **Tolerant GitHub preflight.** `gh auth login --with-token` (the one network round-trip in
+   `seedGitHubAuth`, `src/project.ts`) is retried on transient output (`src/gitretry.ts`) and, if it
+   still fails, logged as a warning and skipped — git itself needs no network at seed time, and a
+   later `gh` call fails visibly inside the turn. With the guard off it stays fatal, as before.
+
+Not gated (no-ops in prod by construction): the `ssh-docker` mount probe now **fails** `ensureSandbox`
+when a bind mount is still empty after the recycle (prod projects mount nothing), and every usage
+record of a routine turn carries `routineId` / `routineLabel` (additive).
+
+**State fields added** to `RoutineRecord` (`state.json`, written only while the guard is on; absent
+on prod records): `lastOutcome`, `lastReason`, `lastDeliveredAt`, `lastFire`
+(`scheduled|late|retry|manual`), `retry: { at, slot }`; `lastSummary` is reused for the delivered
+headline. All are cleared at every fire and set at settle. Nothing to migrate: old records simply
+have none of them, and the first guarded fire renders `none recorded` / `outcome not recorded`.
+
+**Restarting the home bot.** The code is read at boot, so a change needs
+`systemctl --user restart coach-aven-home`. Do it in the **20:30–08:00 Europe/Moscow window**, and
+never at **08:30 / 18:30 / 19:30 ±1 min** (the r1/r2/r3 fire minutes): without the guard a bot down
+across the minute loses the fire (no catch-up) and a restart inside the minute right after the fire
+double-fires it (`firedThisMinute` is in-memory); with the guard on both are covered (late run;
+`lastRunAt` dedupe), but a restart *during* a run still leaves its parent at `running…` — recovery
+re-posts the answer, not the headline — so keep the window anyway. The Home tab (`homeBlocks`,
+`src/blocks.ts`) needs no change: the guard adds no command or button. To switch it on at home:
+add `ROUTINE_GUARD=1` to the checkout's `.env`, restart in the window, then watch the next 08:30
+run — its thread starts with the `[Routine state]` line and the journal shows `routine r1
+(owen-ops): fired — scheduled` … `delivered — <headline>`.

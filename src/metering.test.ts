@@ -127,6 +127,14 @@ test('UsageLog — read on a missing dir is empty, not an error', () => {
   assert.deepEqual(new UsageLog(join(tmpdir(), 'aven-usage-nope')).read(1000), []);
 });
 
+test('parseUsageLines — the routine stamp (routineId/routineLabel) round-trips; records without it still parse', () => {
+  const stamped = { ...rec(), key: 'thread:1700000000.0001', routineId: 'r1', routineLabel: '📋 Morning brief' };
+  const [a, b] = parseUsageLines(`${JSON.stringify(stamped)}\n${JSON.stringify(rec())}\n`);
+  assert.equal(a!.routineId, 'r1');
+  assert.equal(a!.routineLabel, '📋 Morning brief');
+  assert.equal(b!.routineId, undefined);
+});
+
 test('costOf — a record without costUsdCumulative is pre-fix: its dollars are legacy, never per-turn', () => {
   assert.deepEqual(costOf(rec({ usage: { costUsd: 0.12, costUsdCumulative: 0.31 } })), { usd: 0.12, legacyUsd: 0 });
   assert.deepEqual(costOf(rec({ usage: { costUsd: 0.31 } })), { usd: 0, legacyUsd: 0.31 }); // the running total, recorded verbatim

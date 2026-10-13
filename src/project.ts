@@ -8,7 +8,8 @@ import { captureError } from './sentry.js';
 import { cliUpgradeCmd, parseCliMarkers, cliUpgradeNotice } from './cliversion.js';
 import { alertOps } from './blocks.js';
 import { log } from './log.js';
-import { withGitRetry } from './gitretry.js';
+import { withGitRetry, type GitRetryOpts } from './gitretry.js';
+import { routineGuard } from './routineguard.js';
 import { SOURCES_MCP_PATH, sourcesMcpScript, sourcesMcpSha256 } from './sources/mcp.js';
 import { GIT_EMAIL, GIT_NAME } from './gitidentity.js';
 
@@ -98,10 +99,20 @@ export function projectCwd(cfg: Config, slug: string, repos: string[]): string {
   return repos.length === 1 ? repoCheckout(cfg, slug, repos[0]) : projectDir(cfg, slug);
 }
 
+// How the `gh auth login` step of seedGitHubAuth treats a failure: 'strict' = fatal, as it always
+// was; 'tolerant' = retried, then a warning. The default follows ROUTINE_GUARD so production keeps
+// the historical preflight until the guard is switched on there.
+export type GhLoginMode = 'strict' | 'tolerant';
+
 // Write the GitHub installation token into the sandbox WITHOUT it showing up in
 // command logs (fs.uploadFile, not echo). A git credential helper + gh read it.
 // Call this at the start of every task so the (≈1h) token is always fresh.
-export async function seedGitHubAuth(sandbox: SandboxHandle, token: string) {
+export async function seedGitHubAuth(
+  sandbox: SandboxHandle,
+  token: string,
+  ghLogin: GhLoginMode = routineGuard.enabled ? 'tolerant' : 'strict',
+  retry: GitRetryOpts = {}, // tests inject the sleep; production uses gitretry's defaults
+) {
   await sandbox.uploadFile(Buffer.from(token), '/root/.gh-token');
   await sandbox.exec('chmod 600 /root/.gh-token', { check: true });
   // git: credential helper that emits the token for github.com over https.
@@ -114,8 +125,31 @@ export async function seedGitHubAuth(sandbox: SandboxHandle, token: string) {
   await sandbox.exec(`git config --global user.name "${GIT_NAME}"`, { check: true });
   await sandbox.exec(`git config --global user.email "${GIT_EMAIL}"`, { check: true });
   // gh: authenticate so the agent's `gh pr create` works.
-  await sandbox.exec(`gh auth login --with-token < /root/.gh-token`, { check: true });
+  if (ghLogin === 'strict') {
+    await sandbox.exec(`gh auth login --with-token < /root/.gh-token`, { check: true });
+    return;
+  }
+  // Tolerant (ROUTINE_GUARD): the login VALIDATES the token against api.github.com — the only
+  // network round-trip in this seeding, and a fatal one: on 2026-10-12 a proxy hiccup there
+  // ("error validating token: Get https://api.github.com/: EOF") killed two scheduled runs in
+  // the preflight, although git itself needs no network at seed time (the helper above). So:
+  // retry the transient shapes (gitretry.ts) and, if it still fails, WARN and go on — the git
+  // side works, and a `gh` call that really needs the login fails visibly inside the turn,
+  // where the agent can say so, instead of the whole run dying before it started.
+  const login = async (): Promise<void> => {
+    const r = await sandbox.exec(`gh auth login --with-token < /root/.gh-token`, { check: false, timeout: 60 });
+    if (r.exitCode !== 0) throw new Error(`gh auth login failed (exit ${r.exitCode}): ${(r.result ?? '').trim().slice(0, 500)}`);
+  };
+  try {
+    await withGitRetry(login, {
+      onRetry: (err, attempt, delayMs) => log.warn(`gh auth login failed transiently (${headLine(err)}) — retry ${attempt} in ${delayMs} ms`),
+      ...retry,
+    });
+  } catch (err) {
+    log.warn(`gh auth login failed (${headLine(err)}) — continuing without gh auth; a gh command in this turn will report it`);
+  }
 }
+const headLine = (err: unknown): string => (err instanceof Error ? err.message : String(err)).split('\n')[0]!.slice(0, 200);
 
 // Write the Claude Code token into the sandbox (via fs, not echoed). claude reads
 // CLAUDE_CODE_OAUTH_TOKEN; we set it per-command as `$(cat /root/.cc-token)` so the

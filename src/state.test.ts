@@ -50,6 +50,18 @@ test('routines — patch toggles fields, delete removes', () => {
   assert.equal(store.deleteRoutine(r.id), false);
 });
 
+test('routines — a key patched to undefined is deleted (the delivery guard clears outcome fields at fire)', () => {
+  const { store } = freshStore();
+  const r = store.addRoutine(routine());
+  store.patchRoutine(r.id, { lastOutcome: 'error', lastReason: 'boom', retry: { at: '2026-10-13T05:45:00.000Z', slot: '2026-10-13T05:30:00.000Z' } });
+  assert.equal(store.getRoutine(r.id)?.retry?.at, '2026-10-13T05:45:00.000Z');
+  store.patchRoutine(r.id, { lastOutcome: undefined, retry: undefined });
+  const rec = store.getRoutine(r.id)!;
+  assert.equal('lastOutcome' in rec, false);
+  assert.equal('retry' in rec, false);
+  assert.equal(rec.lastReason, 'boom'); // untouched keys stay
+});
+
 test('routines — id is max(existing)+1 (can reuse a freed number)', () => {
   const { store } = freshStore();
   store.addRoutine(routine()); // r1

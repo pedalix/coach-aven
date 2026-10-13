@@ -12,9 +12,14 @@
 // a DNS hiccup, a GitHub 5xx. A genuine "not found" (repo renamed, App not installed on it) will
 // simply fail again after the retries and propagate with the same message — the cost is a few
 // seconds. Pure module (no sandbox import) so it is testable on the error text alone.
+//
+// Also used for `gh auth login --with-token` (project.ts seedGitHubAuth under ROUTINE_GUARD): gh
+// validates the token against api.github.com and reports a dropped connection there as
+// "error validating token: Get \"https://api.github.com/\": EOF" (2026-10-12, twice, 5 min apart —
+// it killed two scheduled runs in the preflight). Go's net errors end in ": EOF", hence that tail.
 
 const TRANSIENT_OUTPUT =
-  /Repository not found|Could not resolve host|Could not read from remote repository|remote end hung up unexpectedly|early EOF|RPC failed|The requested URL returned error: 5\d\d|Connection (?:timed out|reset by peer|refused)|TLS connection|unexpected disconnect|Failed to connect to github\.com|GnuTLS recv error|Error in the pull function|transfer closed with outstanding read data/i;
+  /Repository not found|Could not resolve host|Could not read from remote repository|remote end hung up unexpectedly|early EOF|RPC failed|The requested URL returned error: 5\d\d|Connection (?:timed out|reset by peer|refused)|TLS connection|unexpected disconnect|Failed to connect to github\.com|GnuTLS recv error|Error in the pull function|transfer closed with outstanding read data|error validating token|: EOF/i;
 
 // True when a failed git command's message/output looks like something one more try can fix.
 export function isTransientGitFailure(err: unknown): boolean {

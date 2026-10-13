@@ -133,8 +133,13 @@ export function runningProbeScript(pid: string): string {
 // empty target over a non-empty source is a bind mount that attached to nothing
 // (see above) and can only be fixed by stop+start — `docker start` re-resolves the
 // mount. Verified before every turn because it is one `ls -A` per mount; a target that
-// is still empty after the recycle is reported on stderr but does NOT fail the turn
-// (a sandbox without its sources is degraded, not useless, unlike one without exec).
+// is still empty after the recycle FAILS the ensure (exit 1, the reason on stderr).
+// It used to be a stderr note only ("degraded, not useless") — but a run against a
+// missing sources replica is worse than no run: on 2026-10-13 two scheduled runs
+// settled "ok" with every data call failing, and nothing machine-readable said so.
+// A failed ensure surfaces as a failed turn, which the routine delivery guard
+// (routineguard.ts) labels and retries. Prod projects mount nothing, so this branch
+// never runs there.
 //
 // `runtimeFlag` is '' for an unprivileged project (plain `docker run`); `mounts` become
 // `-v src:dst:mode` (paths pre-validated by sandboxopts.ts, quoted again here); `dind`
@@ -177,7 +182,8 @@ export function ensureSandboxScript(
       `  echo "mount ${m.target} is empty while ${m.source} is not — recycling ${name} (bind mount attached before the host fs was up)" >&2`,
       `  docker stop -t 10 ${n} >/dev/null 2>&1`,
       `  docker start ${n} >/dev/null 2>&1`,
-      `  if [ -z "$(${inside})" ]; then echo "mount ${m.target} still empty after recycle" >&2; else outcome=revived; fi`,
+      `  if [ -z "$(${inside})" ]; then echo "mount ${m.target} still empty after recycle" >&2; exit 1; fi`,
+      `  outcome=revived`,
       `fi`,
     ];
   });

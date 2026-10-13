@@ -74,3 +74,15 @@ test('withGitRetry passes a non-transient error through on the first attempt', a
   );
   assert.equal(calls, 1);
 });
+
+test('gh token validation hiccups count as transient (the 2026-10-12 proxy EOF); a timeout or a plain refusal does not', () => {
+  for (const msg of [
+    'gh auth login failed (exit 1): error validating token: Get "https://api.github.com/": EOF',
+    'gh auth login failed (exit 1): error validating token: Get "https://api.github.com/": dial tcp: lookup api.github.com: no such host',
+    'gh auth login failed (exit 1): error connecting to api.github.com: EOF',
+  ]) {
+    assert.equal(isTransientGitFailure(new Error(msg)), true, msg);
+  }
+  assert.equal(isTransientGitFailure(new Error('gh auth login failed (exit 124): ')), false); // the 60 s cap — not a retry case
+  assert.equal(isTransientGitFailure(new Error('gh auth login failed (exit 1): The token in /root/.gh-token is invalid.')), false);
+});

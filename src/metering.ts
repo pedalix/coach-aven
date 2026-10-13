@@ -35,6 +35,8 @@ export interface UsageRecord {
   status: 'ok' | 'error' | 'canceled';
   elapsedMs: number; // wall clock — doubles as the sandbox-hours proxy for now
   usage?: TurnUsage;
+  routineId?: string; // the scheduled routine this turn ran for (pollers.ts) — cuts usage/feedback per routine
+  routineLabel?: string; // its human label at the time ("📋 Morning brief")
 }
 
 // Tenant id from a tenant-scoped conversation key, e.g. "T0ABCDEF:thread:123.45" →

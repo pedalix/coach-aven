@@ -52,7 +52,9 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   Beside it: `src/queuejournal.ts` (`queue.jsonl` — queued-turn journal, replayed at boot),
   `src/drafts.ts` (`drafts/<slug>/` — report drafts on disk, per project), and
   `src/metering.ts` (`usage/<month>.jsonl` — per-turn token/cost attribution, `/aven usage`).
-- `src/schedule.ts` — pure cron/schedule logic for scheduled report jobs.
+- `src/schedule.ts` — pure cron/schedule logic for scheduled report jobs; `src/routineguard.ts` —
+  the routine delivery guard (missed-fire catch-up, outcome + one retry, "previous run" preamble),
+  behind `ROUTINE_GUARD=1` — see `docs/runtime-config.md`.
 - `src/gwtoken.ts` — Auth0 M2M tokens for the MCP gateway (`mcp` entry with `auth: "gateway-m2m"`):
   cached/single-flight mint in the orchestrator, only the token goes into the sandbox — see
   `docs/runtime-config.md` → *MCP gateway*.

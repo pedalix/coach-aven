@@ -13,7 +13,19 @@ import { resolveBySlug, projectOwnerTeam, teamProjects, type ProjectConfig, type
 import { withTeam, normalizeTenant } from './teamkeys.js';
 import type { TurnEngine, ClientForTeam } from './turn.js';
 import type { Channels } from './channels.js';
-import { dueRoutines } from './schedule.js';
+import {
+  routineGuard,
+  plannedFires,
+  routinePrompt,
+  fireLabel,
+  fireNote,
+  firePatch,
+  settlePatch,
+  MANUAL_FIRE,
+  type Fire,
+  type RoutineOutcome,
+  type SettleInfo,
+} from './routineguard.js';
 import { prsToReview, autofixEvents } from './pr.js';
 import { reviewPrompt, routineFraming, investigationPrompt, type ReviewEffort } from './prompts.js';
 import {
@@ -59,7 +71,9 @@ const SOURCES_POLL_MS = 60_000; // 1 min tick; each project's own interval/backo
 
 export interface Pollers {
   startAll(): void;
-  fireRoutine(client: bolt.webApi.WebClient, r: RoutineRecord): boolean;
+  // `fire` says why this fire happens (scheduled/late/retry — the scheduler's business); the
+  // command and CLI paths leave it out and get a manual run.
+  fireRoutine(client: bolt.webApi.WebClient, r: RoutineRecord, fire?: Fire): boolean;
   fireReview(
     client: bolt.webApi.WebClient,
     project: ProjectConfig,
@@ -125,11 +139,21 @@ export function createPollers(
   // Fire one routine now. A report posts a read-only digest turn (a task: a turn that may
   // commit, per the project's instructions) via the normal turn
   // machinery; a dream runs a silent memory-only pass (see fireDream). Shared by the
-  // scheduler and the manual run triggers. Returns false if it can't run right now.
+  // scheduler and the manual run triggers. Returns false if it can't run right now — every
+  // skip is logged with its reason (the "no client" one by clientOrSkip at the call sites).
+  //
+  // Routine delivery guard (ROUTINE_GUARD=1, routineguard.ts): the prompt gets the bot-rendered
+  // "previous run" line, a late run / retry is labelled as such, and the run's outcome lands on
+  // the routine record when the turn settles — an error rewrites the parent (routinerun.ts) and
+  // may schedule the one retry the scheduler fires later. With the guard off, prompt, label,
+  // stamp and engine call are the historical ones.
   const routinesInFlight = new Set<string>();
-  function fireRoutine(c: bolt.webApi.WebClient, r: RoutineRecord): boolean {
+  function fireRoutine(c: bolt.webApi.WebClient, r: RoutineRecord, fire: Fire = MANUAL_FIRE): boolean {
     const project = resolveBySlug(reg.current, r.slug);
-    if (!project) return false; // project removed from the registry
+    if (!project) {
+      log.warn(`routine ${r.id}: project ${r.slug} is no longer in the registry — skipped`);
+      return false;
+    }
     if (!tenantHasProject(r.teamId, r.slug)) {
       log.warn(`routine ${r.id}: tenant ${r.teamId ?? 'home'} no longer has ${r.slug} — skipped`);
       return false;
@@ -137,15 +161,41 @@ export function createPollers(
     if (r.kind === 'dream') return fireDream(project, r);
     if (r.kind === 'housekeeping') return fireHousekeeping(project, r);
     const legacyKey = withTeam(r.teamId, home(), `cron:${r.id}:${r.slug}`);
-    if (routinesInFlight.has(r.id)) return false; // previous run still in flight — don't stack
+    if (routinesInFlight.has(r.id)) {
+      log.info(`routine ${r.id} (${r.slug}): skipped — the previous run is still in flight`);
+      return false; // don't stack
+    }
     routinesInFlight.add(r.id);
-    store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
+    const now = new Date();
+    const base = routineLabel(r.kind, r.prompt);
+    // Derived from the record BEFORE the fire stamp below clears the previous run's fields.
+    const prompt = routinePrompt(routineFraming(r.kind), r, fire, routineGuard, now);
+    const label = fireLabel(base, fire, r.tz, now);
+    store.patchRoutine(r.id, firePatch(now, fire, routineGuard));
+    log.info(`routine ${r.id} (${r.slug}): fired — ${fireNote(fire, r.tz, now)}`);
+    // Settle recorder (guard only). Idempotent: the engine calls it once, but the catch below
+    // may also reach it for a run that died before the engine took over (parent post failed).
+    let settled = false;
+    const onSettle = routineGuard.enabled
+      ? async (outcome: RoutineOutcome, info: SettleInfo): Promise<void> => {
+          if (settled) return;
+          settled = true;
+          const { patch, note } = settlePatch(fire, outcome, info, new Date(), routineGuard);
+          store.patchRoutine(r.id, patch);
+          log.info(`routine ${r.id} (${r.slug}): ${note}`);
+        }
+      : undefined;
     // One top-level parent per run, the turn in its thread under thread:<ts> — replies there
     // continue the same (fresh-per-run) session. See routinerun.ts.
     void startRoutineTurn(
       {
         restartSession: engine.restartSession,
-        liveTurn: (k, threadTs, p, prompt, onAnswer) => engine.liveTurn(c, r.channel, undefined, threadTs, k, p, prompt, undefined, { onAnswer }),
+        liveTurn: (k, threadTs, p, prompt, onAnswer, onTurnSettle) =>
+          engine.liveTurn(c, r.channel, undefined, threadTs, k, p, prompt, undefined, {
+            onAnswer,
+            routine: { id: r.id, label: base },
+            ...(onTurnSettle ? { onSettle: onTurnSettle } : {}),
+          }),
       },
       {
         postParent: async (text) => (await c.chat.postMessage({ channel: r.channel, text })).ts as string,
@@ -153,11 +203,15 @@ export function createPollers(
           await c.chat.update({ channel: r.channel, ts, text });
         },
       },
-      { legacyKey, threadKey: (ts) => withTeam(r.teamId, home(), `thread:${ts}`), label: routineLabel(r.kind, r.prompt) },
+      { legacyKey, threadKey: (ts) => withTeam(r.teamId, home(), `thread:${ts}`), label },
       project,
-      routineFraming(r.kind) + r.prompt,
+      prompt,
+      onSettle ? { onSettle } : undefined,
     )
-      .catch(turnFail(`routine ${r.id}`))
+      .catch(async (e: unknown) => {
+        turnFail(`routine ${r.id}`)(e);
+        if (onSettle) await onSettle('error', { reason: e instanceof Error ? e.message.split('\n')[0]!.slice(0, 200) : String(e) });
+      })
       .finally(() => routinesInFlight.delete(r.id));
     return true;
   }
@@ -277,12 +331,21 @@ export function createPollers(
     setInterval(drain, 5_000);
   }
 
+  // The tick's decision is plannedFires (routineguard.ts): with ROUTINE_GUARD off exactly the
+  // current-minute dueRoutines; with it on also the missed slots inside the grace window (as
+  // late runs — the first tick at boot is what catches a slot the bot slept through) and the
+  // due retries, plus the skips to log (and stale retry records to drop).
   function startScheduler(): void {
     const tick = (): void => {
-      for (const { routine, key } of dueRoutines(store.listRoutines(), new Date(), firedThisMinute)) {
-        firedThisMinute.set(routine.id, key);
-        const c = clientOrSkip(routine.teamId, `routine ${routine.id}`);
-        if (c) fireRoutine(c, routine);
+      const { fires, skips } = plannedFires(store.listRoutines(), new Date(), firedThisMinute, routineGuard);
+      for (const sk of skips) {
+        log.info(`routine ${sk.routine.id} (${sk.routine.slug}): skipped — ${sk.reason}`);
+        if (sk.clearRetry) store.patchRoutine(sk.routine.id, { retry: undefined });
+      }
+      for (const f of fires) {
+        if (f.key) firedThisMinute.set(f.routine.id, f.key);
+        const c = clientOrSkip(f.routine.teamId, `routine ${f.routine.id}`);
+        if (c) fireRoutine(c, f.routine, f);
       }
     };
     tick();

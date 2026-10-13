@@ -63,7 +63,20 @@ export interface RoutineRecord {
   // 'housekeeping' = the deterministic sandbox janitor (docs/housekeeping.md);
   // 'task' = a scheduled turn that MAY edit/commit per the project's instructions (TASK_FRAMING)
   kind?: 'report' | 'dream' | 'housekeeping' | 'task';
-  lastSummary?: string; // dream: one-line digest of the last run (visibility without channel noise)
+  // dream/housekeeping: one-line digest of the last run (visibility without channel noise);
+  // report/task under the delivery guard: the delivered answer's headline.
+  lastSummary?: string;
+  // ── routine delivery guard (ROUTINE_GUARD=1 — docs/runtime-config.md) ──────────────────
+  // Written only while the guard is on (routineguard.ts); prod records never carry them. All
+  // cleared at every fire and set when the run settles, so an absent lastOutcome with a
+  // lastRunAt means "the bot restarted mid-run — outcome not recorded".
+  lastOutcome?: 'ok' | 'error' | 'canceled'; // how the last fire's turn settled
+  lastReason?: string; // error: one line of the failure (≤ 200 chars)
+  lastDeliveredAt?: string; // ok: ISO, when the answer landed in Slack
+  lastFire?: 'scheduled' | 'late' | 'retry' | 'manual'; // what kind of fire the last run was
+  // A pending one-shot retry of a failed scheduled run: fired by the scheduler at the first tick
+  // ≥ `at` while `slot` is still inside the grace window; consumed by any fire of the routine.
+  retry?: { at: string; slot: string };
 }
 
 // Per-project runtime settings (mutable, unlike the read-once projects.config.json).
@@ -285,10 +298,15 @@ export class Store {
     return full;
   }
 
+  // A key set to `undefined` is deleted (as in patchChat) — the delivery guard clears the
+  // previous run's outcome fields at every fire.
   patchRoutine(id: string, patch: Partial<RoutineRecord>): RoutineRecord | undefined {
     const cur = this.data.routines?.[id];
     if (!cur) return undefined;
     const next = { ...cur, ...patch, id };
+    for (const k of Object.keys(patch) as (keyof RoutineRecord)[]) {
+      if (patch[k] === undefined) delete next[k];
+    }
     (this.data.routines ??= {})[id] = next;
     this.save();
     return next;
