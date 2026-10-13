@@ -14,6 +14,21 @@ import { DEFAULT_SANDBOX_OPTIONS, type ResolvedSandboxOptions } from './sandboxo
 // deliberate: re-capture the golden on purpose, never "fix the test".
 const golden = (name: string) => readFileSync(new URL(`./fixtures/prompt/${name}.txt`, import.meta.url), 'utf8');
 
+// The ONE deliberate change this branch makes to the production text (plan item F24 b): a
+// ScheduleWakeup result surfaces exactly like a background completion — a "🔔 Background
+// update" in the thread, never as the turn's answer. prodGolden() = the frozen golden with that
+// single replacement, so the equalities below prove it is the only diff. When the base prompt
+// next changes on purpose, re-capture the goldens from the new output and drop this delta.
+const BEFORE = 'as a "🔔 Background update", so the user still gets the outcome. For ordinary commands';
+const AFTER =
+  'as a "🔔 Background update", so the user still gets the outcome; a ScheduleWakeup result is posted the ' +
+  'same way — as a "🔔 Background update" in the thread, never as the turn\'s answer. For ordinary commands';
+const prodGolden = (name: string) => {
+  const g = golden(name);
+  assert.equal(g.split(BEFORE).length, 2, `${name}: the anchor sentence occurs exactly once in the golden`);
+  return g.replace(BEFORE, AFTER);
+};
+
 // The fleet default (privileged + dind) and the plain, docker-less container.
 const DIND: ResolvedSandboxOptions = DEFAULT_SANDBOX_OPTIONS;
 const PLAIN: ResolvedSandboxOptions = { privileged: false, dind: false, mounts: [] };
@@ -38,26 +53,26 @@ const MULTI: SystemPromptInputs = {
 };
 
 test('golden: production prompt, single repo', () => {
-  assert.equal(buildSystemPrompt(SINGLE), golden('single-repo'));
+  assert.equal(buildSystemPrompt(SINGLE), prodGolden('single-repo'));
 });
 
 test('golden: production prompt, multi-repo + project prompt + Slack link + private package', () => {
-  assert.equal(buildSystemPrompt(MULTI), golden('multi-repo'));
+  assert.equal(buildSystemPrompt(MULTI), prodGolden('multi-repo'));
 });
 
 test('golden: production prompt, multi-repo with the sources MCP paragraph', () => {
-  assert.equal(buildSystemPrompt({ ...MULTI, sourcesEnabled: true }), golden('multi-repo-sources'));
+  assert.equal(buildSystemPrompt({ ...MULTI, sourcesEnabled: true }), prodGolden('multi-repo-sources'));
 });
 
 test('gitFlow absent and gitFlow "pr" are the same prompt — "pr" is the default', () => {
-  assert.equal(buildSystemPrompt({ ...MULTI, gitFlow: 'pr' }), golden('multi-repo'));
-  assert.equal(buildSystemPrompt({ ...SINGLE, gitFlow: 'pr' }), golden('single-repo'));
+  assert.equal(buildSystemPrompt({ ...MULTI, gitFlow: 'pr' }), prodGolden('multi-repo'));
+  assert.equal(buildSystemPrompt({ ...SINGLE, gitFlow: 'pr' }), prodGolden('single-repo'));
 });
 
 // ── gitFlow "direct" ────────────────────────────────────────────────────────
 
 const direct = buildSystemPrompt({ ...MULTI, gitFlow: 'direct' });
-const prLines = golden('multi-repo').split('\n');
+const prLines = prodGolden('multi-repo').split('\n');
 const directLines = direct.split('\n');
 
 test('direct: the opening line is neutral — an agent, not a coding assistant', () => {
@@ -86,7 +101,7 @@ test('direct: the git-hygiene sentences survive verbatim in both flows', () => {
     'git auth is already configured via a credential helper (and gh) — use the plain https://github.com/<org>/<repo>.git remote and NEVER embed a token in a remote URL (no x-access-token:<token>@github.com): a baked-in token expires within the hour and breaks later pushes',
   ].join('');
   assert.ok(direct.includes(hygiene), 'direct keeps the hygiene text');
-  assert.ok(golden('multi-repo').includes(hygiene), 'pr keeps the hygiene text');
+  assert.ok(prodGolden('multi-repo').includes(hygiene), 'pr keeps the hygiene text');
 });
 
 test('direct: the Slack thread goes into the commit message instead of a PR description', () => {
@@ -118,7 +133,7 @@ test('direct: everything else is byte-identical to the pr prompt (same lines, fo
 // ── sandbox.dind ────────────────────────────────────────────────────────────
 
 test('dind false: exactly the toolchain paragraph (and its blank line) disappears, nothing else', () => {
-  const g = golden('multi-repo-sources').split('\n');
+  const g = prodGolden('multi-repo-sources').split('\n');
   const i = g.findIndex((l) => l.startsWith('Toolchain — this sandbox is a Docker-in-Docker image'));
   assert.ok(i > 0 && g[i - 1] === '', 'golden has the paragraph preceded by a blank line');
   const expected = [...g.slice(0, i - 1), ...g.slice(i + 1)].join('\n');

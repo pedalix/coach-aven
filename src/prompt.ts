@@ -133,8 +133,10 @@ export function buildSystemPrompt(inp: SystemPromptInputs): string {
       `should not block your reply: run them with Bash's run_in_background (or a background ` +
       `Task/Agent) and finish the reply with what you know so far — the orchestrator automatically ` +
       `posts each background completion to the Slack thread as a "🔔 Background update", so the ` +
-      `user still gets the outcome. For ordinary commands (unit tests, typecheck, installs), keep ` +
-      `waiting normally — do NOT background things just to answer faster.`,
+      `user still gets the outcome; a ScheduleWakeup result is posted the same way — as a ` +
+      `"🔔 Background update" in the thread, never as the turn's answer. For ordinary commands ` +
+      `(unit tests, typecheck, installs), keep waiting normally — do NOT background things just ` +
+      `to answer faster.`,
   );
   if (inp.sandbox.dind) {
     lines.push('', TOOLCHAIN);
