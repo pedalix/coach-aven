@@ -39,9 +39,9 @@ locally. Requires Claude Code **≥ 2.1.59**, on by default.
 
 ### Where memory sits in the prompt stack
 
-CoachAven already layers project context (`buildSystemPrompt`, `src/tasks.ts`):
+CoachAven already layers project context (`buildSystemPrompt`, `src/prompt.ts`):
 
-1. Orchestrator base (identity, repo layout, worktree/PR rules)
+1. Orchestrator base (identity, repo layout, git flow — worktree/PR or direct commits — toolchain)
 2. Project `systemPrompt` from the registry — *the deliberate layer, set by us*
 3. Each repo's own `CLAUDE.md` — auto-loaded by Claude Code
 4. **Auto memory** — *the learned layer, written by the agent*

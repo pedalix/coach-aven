@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { log } from './log.js';
-import type { UsageRecord } from './metering.js';
+import { costOf, type UsageRecord } from './metering.js';
 
 // Answer feedback — the "was that any good?" counter, the value half of the metering story
 // (metering.ts is the cost half). Cost has always been recorded; usefulness never was,
@@ -71,8 +71,14 @@ export interface FeedbackRow {
   rated: number; // turns with at least one verdict
   good: number;
   bad: number;
-  ratedCostUsd: number; // cost of the rated turns
-  goodCostUsd: number; // cost of the turns that helped
+  ratedCostUsd: number; // cost of the rated turns — per-turn metered records only
+  goodCostUsd: number; // cost of the turns that helped — same
+  // Rated turns whose usage record predates per-turn cost metering (metering.ts costOf):
+  // how many, how many of those helped, and their overstated dollars — kept apart so the
+  // cost-per-helped figure is built from honest numbers only.
+  legacyRated: number;
+  legacyGood: number;
+  legacyCostUsd: number;
   reasons: Partial<Record<BadReason, number>>;
 }
 
@@ -109,22 +115,35 @@ export function tallyFor(records: FeedbackRecord[]): Tally {
 
 // Pure: feedback + usage → per-project rows. Cost comes from the usage side, so a rating
 // whose turn predates turnId-stamped usage records contributes 0 cost rather than a wrong
-// one. Ordered by rated count, then name, so the table is stable across calls.
+// one, and one whose record predates per-turn cost metering is tallied as legacy (its
+// figure is a running total, not the turn's). Ordered by rated count, then name, so the
+// table is stable across calls.
 export function joinUsage(records: FeedbackRecord[], usage: UsageRecord[]): FeedbackRow[] {
   const costByTurn = new Map<string, number>();
+  const legacyByTurn = new Map<string, number>();
   const slugByTurn = new Map<string, string>();
   for (const u of usage) {
     if (!u.turnId) continue;
-    costByTurn.set(u.turnId, (costByTurn.get(u.turnId) ?? 0) + (u.usage?.costUsd ?? 0));
+    const { usd, legacyUsd } = costOf(u);
+    costByTurn.set(u.turnId, (costByTurn.get(u.turnId) ?? 0) + usd);
+    if (legacyUsd) legacyByTurn.set(u.turnId, (legacyByTurn.get(u.turnId) ?? 0) + legacyUsd);
     slugByTurn.set(u.turnId, u.slug);
   }
   const rows = new Map<string, FeedbackRow>();
   for (const [turnId, v] of verdictByTurn(records)) {
     const group = slugByTurn.get(turnId) ?? v.slug;
-    const row = rows.get(group) ?? { group, rated: 0, good: 0, bad: 0, ratedCostUsd: 0, goodCostUsd: 0, reasons: {} };
+    const row =
+      rows.get(group) ??
+      { group, rated: 0, good: 0, bad: 0, ratedCostUsd: 0, goodCostUsd: 0, legacyRated: 0, legacyGood: 0, legacyCostUsd: 0, reasons: {} };
     const cost = costByTurn.get(turnId) ?? 0;
+    const legacy = legacyByTurn.get(turnId);
     row.rated++;
     row.ratedCostUsd += cost;
+    if (legacy !== undefined) {
+      row.legacyRated++;
+      row.legacyCostUsd += legacy;
+      if (v.good) row.legacyGood++;
+    }
     if (v.good) {
       row.good++;
       row.goodCostUsd += cost;
@@ -149,7 +168,13 @@ export function feedbackSummaryText(rows: FeedbackRow[], totalTurns: number, day
   }
   const good = rows.reduce((a, r) => a + r.good, 0);
   const ratedCost = rows.reduce((a, r) => a + r.ratedCostUsd, 0);
-  const perGood = good > 0 ? `~$${(ratedCost / good).toFixed(2)}` : 'n/a';
+  const legacyRated = rows.reduce((a, r) => a + r.legacyRated, 0);
+  const legacyGood = rows.reduce((a, r) => a + r.legacyGood, 0);
+  const legacyCost = rows.reduce((a, r) => a + r.legacyCostUsd, 0);
+  // Per helped answer, over the turns whose cost is per-turn metered: a legacy turn's
+  // dollars are not in ratedCost, so it must not be in the divisor either.
+  const pricedGood = good - legacyGood;
+  const perGood = pricedGood > 0 ? `~$${(ratedCost / pricedGood).toFixed(2)}` : 'n/a';
   // The denominator can lag the ratings (a turn whose usage line predates turnId, or a
   // window boundary that caught the click but not the turn). Clamp it rather than print a
   // nonsense "1 of 0" — coverage is never over 100%, and never over the turns we counted.
@@ -159,11 +184,21 @@ export function feedbackSummaryText(rows: FeedbackRow[], totalTurns: number, day
     `*Feedback — last ${days}d*`,
     `${rated} of ${total} turns rated (${pct}%) · ${good} helped, ${rated - good} missed · ${perGood} per answer that helped`,
   ];
+  // Same transition rule as usageSummaryText: pre-fix dollars are named, never mixed in.
+  if (legacyRated) {
+    parts.push(
+      `${legacyRated} of the rated turns predate the per-turn cost fix (~$${legacyCost.toFixed(2)} recorded, overstated) — left out of the $ figures`,
+    );
+  }
   if (rows.length > 1) {
     parts.push(
       '',
       '*By project*',
-      ...rows.map((r) => `• *${r.group}* — ${r.good}/${r.rated} helped · ~$${r.ratedCostUsd.toFixed(2)} rated`),
+      ...rows.map(
+        (r) =>
+          `• *${r.group}* — ${r.good}/${r.rated} helped · ~$${r.ratedCostUsd.toFixed(2)} rated` +
+          `${r.legacyCostUsd ? ` (+ ~$${r.legacyCostUsd.toFixed(2)} legacy)` : ''}`,
+      ),
     );
   }
   const tally = new Map<BadReason, number>();

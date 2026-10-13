@@ -173,3 +173,25 @@ test('a project with sources gets the replica mount merged into its sandbox opti
     }
   });
 });
+
+test('gitFlow: "pr" | "direct" accepted, absent stays undefined (→ pr); anything else fails the boot', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(
+      cfg,
+      JSON.stringify({
+        projects: [
+          { slug: 'ledger', repos: ['Org/ledger'], gitFlow: 'direct' },
+          { slug: 'code', repos: ['Org/code'], gitFlow: 'pr' },
+          { slug: 'legacy', repos: ['Org/legacy'] },
+        ],
+      }),
+    );
+    const reg = loadProjects(cfg);
+    assert.deepEqual(reg.projects.map((p) => p.gitFlow), ['direct', 'pr', undefined]);
+    // The mode is explicit only: a typo must not silently fall back to the PR flow.
+    writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'ledger', repos: ['Org/ledger'], gitFlow: 'trunk' }] }));
+    assert.throws(() => loadProjects(cfg), /project "ledger" gitFlow must be one of "pr", "direct", got "trunk"/);
+    writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'ledger', repos: ['Org/ledger'], gitFlow: true }] }));
+    assert.throws(() => loadProjects(cfg), /gitFlow must be one of/);
+  });
+});

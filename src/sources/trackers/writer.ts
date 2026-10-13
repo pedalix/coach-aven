@@ -1,6 +1,7 @@
 // Shared pull plumbing for the tracker connectors: where tasks go, the per-account cursor, and
 // the run loop that turns "fetch tasks updated since X" into an append-only, scrubbed JSONL
 // file + a PullSummary. Each connector supplies only `fetchUpdated(since)` and its token check.
+import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PullContext, PullSummary, TrackerKind } from '../types.js';
@@ -16,7 +17,18 @@ export interface TrackerCursor {
   /** Max `updated` seen (ISO); the next pull asks for updated >= this − overlap. */
   updated?: string;
   lastRunAt?: string;
+  /**
+   * id → sha256 of the scrubbed JSON line last appended, for exactly the ids the last successful
+   * pass returned. The cursor is INCLUSIVE (`updated >= max(updated)`, minute-granular in Jira),
+   * so the rows sitting at the cursor come back every pass for ever — with overlap 0 just the
+   * same. Byte-identical lines are not appended again (the store deduped them anyway; raw grew
+   * ~5 MB/day). Bounded by construction: only the ids of one pass.
+   */
+  hashes?: Record<string, string>;
 }
+
+/** The store's idempotency key for a raw line (raw_records.line_hash) — same function, same bytes. */
+export const lineHash = (line: string): string => createHash('sha256').update(line).digest('hex');
 
 export function accountDir(outDir: string, kind: TrackerKind, account: string): string {
   const safe = account.replace(/[^A-Za-z0-9._@-]/g, '_');
@@ -69,23 +81,35 @@ export async function runTrackerPull(ctx: PullContext, run: TrackerRun): Promise
   let maxUpdated = cursor.updated ?? '';
   let n = 0;
   let withheld = 0;
+  let unchanged = 0;
+  const prevHashes = cursor.hashes ?? {};
+  const hashes: Record<string, string> = {};
   try {
     ctx.log(`${run.account}: tasks updated since ${from.toISOString()}`);
     for await (const t of run.fetchUpdated(from, ctx.log)) {
       const s = scrubTask(t, { log: ctx.log, warned, ...(ctx.vault ? { vault: ctx.vault } : {}) });
-      appendFileSync(file, `${JSON.stringify(s)}\n`, { mode: 0o600 });
+      const line = JSON.stringify(s);
+      const hash = lineHash(line);
+      hashes[s.id] = hash;
+      if (s.updated > maxUpdated) maxUpdated = s.updated;
+      // Same bytes as the last pass appended for this id → the archive already has it.
+      if (prevHashes[s.id] === hash) {
+        unchanged++;
+        continue;
+      }
+      appendFileSync(file, `${line}\n`, { mode: 0o600 });
       n++;
       if (s.scrub.withheld) withheld++;
-      if (s.updated > maxUpdated) maxUpdated = s.updated;
     }
     // Advance only after the whole page set landed: a crash mid-way re-reads (the store dedupes).
-    writeCursor(dir, { ...(maxUpdated ? { updated: maxUpdated } : {}), lastRunAt: now().toISOString() });
+    // Cursor and hash map move together — a failed pass leaves both untouched.
+    writeCursor(dir, { ...(maxUpdated ? { updated: maxUpdated } : {}), lastRunAt: now().toISOString(), hashes });
   } catch (e) {
     if (e instanceof TrackerHttpError && e.reauth) reauth = true;
     errors.push(`${run.account}: ${e instanceof Error ? e.message : String(e)}`);
   }
   counts[`${run.account}/tasks`] = n;
-  ctx.log(`${run.account}: ${n} tasks${withheld ? ` (${withheld} with withheld bodies)` : ''}${errors.length ? ' — FAILED' : ''}`);
+  ctx.log(`${run.account}: ${n} tasks${unchanged ? ` (${unchanged} unchanged, not re-appended)` : ''}${withheld ? ` (${withheld} with withheld bodies)` : ''}${errors.length ? ' — FAILED' : ''}`);
   return { kind: run.kind, ok: errors.length === 0, reauth, counts, errors, startedAt, finishedAt: now().toISOString() };
 }
 

@@ -34,8 +34,11 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   recovery), `src/events.ts` (mentions/DMs/buttons/App Home), `src/commands.ts` (the
   `/aven` router), `src/pollers.ts` (scheduler + auto-review/autofix/YouTrack pollers),
   `src/blocks.ts` (all Block Kit rendering), `src/channels.ts` (channel↔project).
-- `src/tasks.ts` — chat session over a sandbox; the **3-layer system prompt**
-  (orchestrator base → project prompt → repo `CLAUDE.md`).
+- `src/tasks.ts` — chat session over a sandbox. `src/prompt.ts` — the **3-layer system prompt**
+  (orchestrator base → project prompt → repo `CLAUDE.md`), pure and golden-tested: the base text
+  reaches every production session, so `src/fixtures/prompt/*.txt` pins it byte-exact — change it
+  on purpose and re-snapshot. Per project it varies only by `gitFlow` (`pr`/`direct`) and
+  `sandbox.dind` (the Sail/DinD toolchain paragraph).
 - `src/driver.ts` — the provider-agnostic **sandbox driver** interface (warm sandboxes,
   exec, persistent process sessions). Implementations: `src/daytona.ts` (the ONLY file
   allowed to import `@daytonaio/sdk`) and `src/sshdocker.ts` (containers on our own host

@@ -28,12 +28,13 @@ sandbox state.
 
 | Field | Runtime-editable from Slack? | Why |
 | --- | --- | --- |
-| `systemPrompt` | **yes** | read at `openChat` → `buildSystemPrompt`; applies on a fresh session |
+| `systemPrompt` | **yes** | read at `openChat` → `buildSystemPrompt` (`src/prompt.ts`); applies on a fresh session |
+| `gitFlow` | yes (reload is enough) | `"pr"` (default) or `"direct"` — how the agent gets changes out of the sandbox, as told in the base system prompt (`src/prompt.ts`): `pr` = a dedicated worktree off the remote default branch + a pull request (code under review); `direct` = `git pull --rebase --autostash`, commit on the checkout's current branch, push, and reference the Slack thread in the commit message (a repo with no review flow, e.g. an ops ledger the agent itself keeps). Explicit only — never inferred from repo names or `sources`. Read when a session opens; running conversations keep theirs |
 | `mcp` | maybe, with session recycle | `--mcp-config` is set at process spawn → needs a restart of the project session |
 | `repos` | no | changes clone layout, cwd, token scope, worktrees → re-prepare the sandbox |
 | `cliVersion` | no (reload is enough) | the per-project Claude Code CLI pin (canary override of `CLAUDE_CLI_VERSION`) — applied in place at the next chat prep / nightly housekeeping; see the README's *Claude Code version* |
 | `slug` / `slackChannel` | no | routing keys (`dm:…:<slug>`, `cmd:…:<slug>`) — changing orphans live sessions |
-| `sandbox` | no | `{ privileged, dind, mounts }` are `docker run` flags — they apply to a NEW container only; an existing `proj-<slug>` keeps its flags until it is removed on the sandbox host and recreated by the next turn (`docs/sandbox-drivers.md`) |
+| `sandbox` | no | `{ privileged, dind, mounts }` are `docker run` flags — they apply to a NEW container only; an existing `proj-<slug>` keeps its flags until it is removed on the sandbox host and recreated by the next turn (`docs/sandbox-drivers.md`); `dind: false` also drops the Sail/Docker-in-Docker toolchain paragraph from the base system prompt (`src/prompt.ts`, new sessions) |
 | `scrubSecrets` | yes (reload is enough) | read when a session opens; `false` turns off the redaction of pasted passwords/tokens/DSNs before model input (`src/scrub.ts`). Default on |
 | `sources` | partly (reload re-reads intervals/accounts for the next pull) | which mail/chat/calendar/file systems, task trackers (YouTrack, Jira, Asana) and meeting recorders (Granola, Gemini in Meet, Wispr) the BOT pulls for this project into `data/<slug>/raw` (`docs/sources.md`); credentials are bootstrapped separately with `orch sources auth` and live under `~/.config/coach-aven/sources/<slug>/`, so adding a source needs that one-time step on the host as well; `sources.tenant` names the project's repo of decisions (people with markers, fragments → initiatives) that the bot fetches and indexes before each build; the store replica mount (`/data/sources`) is added to the project's sandbox options automatically, and that applies at container creation (recreate `proj-<slug>` after turning sources on) |
 

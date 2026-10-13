@@ -1,6 +1,6 @@
 // Central home for the orchestrator's turn-framing prompts (PR review, autofix, scheduled
 // report, follow-up PR). Keep prompt copy here so it's easy to find and tune in one place.
-// (The 3-layer system prompt lives in tasks.ts/buildSystemPrompt; the dream/memory prompt
+// (The 3-layer system prompt lives in prompt.ts/buildSystemPrompt; the dream/memory prompt
 // in dream.ts — they belong to those subsystems and can join here by coordination.)
 //
 // The review prompt borrows Claude Code's /code-review methodology (find → verify with a

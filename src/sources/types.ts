@@ -51,6 +51,12 @@ export interface MsgraphSourcesConfig {
   since?: string;
   /** Subset of mail,calendar,chats,channels,files (default all). */
   only?: MsgraphKind[];
+  /**
+   * Outlook calendar ids read in addition to the account's default calendar (default: the default
+   * calendar only). Shared calendars, holidays and birthdays show up in /me/calendars too; they are
+   * listed in the log every pass so one can be opted in here. Every event carries its calendar.
+   */
+  calendars?: string[];
 }
 
 export interface YoutrackSourcesConfig {
@@ -83,7 +89,11 @@ export interface AsanaSourcesConfig {
   workspace: string;
   /** `me` (default) or a user gid/e-mail — whose assigned tasks to pull. */
   assignee?: string;
-  /** Project gids pulled in full on top of the assignee's tasks. */
+  /**
+   * Project gids watched on top of the assignee's own tasks: a task there is kept when it is
+   * assigned to `assignee` OR lists them as a follower (Asana adds @mentioned users as followers,
+   * so "comments addressed to me in other people's tasks" arrive this way). Never whole projects.
+   */
   projects?: string[];
   since?: string;
 }

@@ -68,10 +68,23 @@ export interface FileRecord {
   link: string;
 }
 
+/**
+ * Which calendar an event was read from. Graph reports `organizer` = the mailbox owner for
+ * every item in a calendar shared INTO the mailbox (a colleague's calendar, holidays, birthdays),
+ * so ownership cannot be told from organizer/attendees — only from the calendar id at pull time.
+ * `is_default` marks the account's own calendar.
+ */
+export interface CalendarInfo {
+  id: string;
+  name: string;
+  is_default: boolean;
+}
+
 export interface CalendarRecord {
   source: 'msgraph';
   account: string;
   id: string;
+  calendar: CalendarInfo;
   start: string;
   end: string;
   title: string;
@@ -683,15 +696,17 @@ export function eventTombstone(raw: RawEvent, ctx: AccountContext): Tombstone {
  * calendarView already expands recurring series into occurrences, so every record is one
  * concrete slot. Cancelled events are kept with a `[cancelled]` prefix (the slot was
  * promised once; the consumer decides). Series masters are skipped — they have no concrete
- * time and the occurrences carry the same subject/attendees.
+ * time and the occurrences carry the same subject/attendees. `calendar` is required: both
+ * branches of the pull (primary delta, secondary window poll) know which calendar they read.
  */
-export function normaliseEvent(raw: RawEvent, ctx: AccountContext): CalendarRecord | null {
+export function normaliseEvent(raw: RawEvent, ctx: AccountContext, calendar: CalendarInfo): CalendarRecord | null {
   if (raw['@removed'] || raw.type === 'seriesMaster') return null;
   const title = `${raw.isCancelled ? '[cancelled] ' : ''}${raw.subject?.trim() || '(no subject)'}`;
   return {
     source: 'msgraph',
     account: ctx.upn,
     id: raw.id,
+    calendar: { id: calendar.id, name: calendar.name, is_default: calendar.is_default },
     start: graphDateTimeToIso(raw.start),
     end: graphDateTimeToIso(raw.end),
     title,
