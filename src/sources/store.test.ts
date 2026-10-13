@@ -340,7 +340,8 @@ test('build v4: recorder copies of one call share a call_id; Slack ids resolve t
   const mt = (source: string, account: string, id: string, start: string, end: string, transcript: string) =>
     line({ source, account, id, title: 'FO Cloud incident', start, end, attendees: [], summary: 's', next_steps: [], transcript, url: '', text: '', scrub: { withheld: false, kinds: [] } });
   writeFileSync(join(raw, 'meetings', 'granola', 'acc@x.com', 'meetings.jsonl'), mt('granola', 'acc@x.com', 'g1', '2026-10-08T17:07:00Z', '2026-10-08T17:50:00Z', 'short'));
-  writeFileSync(join(raw, 'meetings', 'wispr', 'wispr', 'meetings.jsonl'), mt('wispr', 'wispr', 'w1', '2026-10-08T17:08:00Z', '2026-10-08T17:49:00Z', 'a much longer transcript'));
+  // Granola's 5-char stub is no transcript (calls.ts MIN_TRANSCRIPT_CHARS); Wispr's real one speaks for the call.
+  writeFileSync(join(raw, 'meetings', 'wispr', 'wispr', 'meetings.jsonl'), mt('wispr', 'wispr', 'w1', '2026-10-08T17:08:00Z', '2026-10-08T17:49:00Z', 'Owen: a much longer transcript\n'.repeat(10)));
   mkdirSync(join(raw, 'slack'), { recursive: true });
   writeFileSync(join(raw, 'slack', 'slack.users.json'), JSON.stringify({ T1: { fetched_at: 'x', users: [{ id: 'U0FLORIN01', name: 'florin', profile: { display_name: 'Florin' } }] } }));
   const sl = (id: string, author: string, extra: object = {}) =>

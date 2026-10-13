@@ -263,16 +263,27 @@ restart. The agent sees `mcp__sources__search`, `get`, `people`, `stats`:
 | Tool | Does |
 | --- | --- |
 | `search({query, since, until, source, person, initiative, includeBots, limit})` | FTS5 (`bm25`) over subject+text; every word is quoted so user text cannot reach the MATCH grammar. Exposed on purpose: `"quoted phrases"`, `word*` prefix, and upper-case `OR` / `AND` / `NOT` between two terms (lower-case `or` is a word; dangling operators drop). Bot/integration messages (`messages.is_bot`) are excluded unless `includeBots`. A call recorded by several recorders comes back once, with the other copies in `also`. `person` is an identity (email, slack id) or a name fragment; `initiative` filters by the people whose default initiative it is. No query → newest first. Hits carry `ref`, `permalink`, a highlighted snippet and `withheld` when the body was removed. |
-| `get({ref})` | The full row, up to five thread neighbours each way, the people on it and the scrub metadata. A withheld body returns its `[BODY WITHHELD…]` marker verbatim — that *is* the answer. |
+| `get({ref})` | The full row, up to five thread neighbours each way, the people on it and the scrub metadata. A withheld body returns its `[BODY WITHHELD…]` marker verbatim — that *is* the answer. A task comes with its comments; a meeting comes *compact* (see *Meetings*): full summary, next steps, `transcript_chars`, `speakers`, every recorder copy — never the transcript. |
+| `transcript({ref, q, offset, limit})` | One copy's transcript (a `meetings` ref, or a `call:` id → its primary copy), paged by characters on whole lines: default 30k, max 50k, `next_offset` until null. With `q` (all words must occur in a line, case-insensitive) only the matching lines ±1 line of context, numbered `L<n>:`. A withheld transcript returns its marker. |
 | `calendar({since, until, person, q, source, limit})` | Calendar events (Google, Outlook) ordered by start — the source for "meetings today". `person` matches attendees/organizer via the person's identities (or the raw text); `q` matches the title. Every row carries `calendar` (see *Store*): for Outlook the JSON `{id, name, is_default}` — the only way to tell an own event from one in a calendar shared into the mailbox, since Graph names the mailbox owner as organizer for both. |
 | `people({q})` | Known people with their identities (from `projects.d/<slug>.people.json`). |
-| `stats()` | Per-source counts and time range, events, files, withheld count, build meta — what the replica covers, before the agent concludes something is missing. |
+| `stats()` | Per-source counts and time range, events, files, withheld count, `tz`, `now` and build meta — what the replica covers, before the agent concludes something is missing. `meta.pulled.<source> {at, age_minutes}` is derived from the `pulled:<kind>` scalars in `sync_state` (the last **ok** pull per kind, see *Store*); a source older than its interval is named with its last pull, never read as "quiet". |
+
+**Dates are local days.** The sandbox runs in UTC without tzdata, so the server — not the model —
+decides what "today" is: `sourcesMcpSpec()` passes the bot's `AVEN_TZ` as `SOURCES_TZ` into the
+server's env, and every `since`/`until`/`dueBefore`/`updatedSince` is read in that zone. A bare
+`YYYY-MM-DD` is that whole local day (`until: 2026-10-07` ends at 23:59:59.999 local), a zone-less
+datetime is local wall time, and anything with `Z` or an offset is taken as given. Tool descriptions
+and `stats.tz` name the zone. An unknown zone name falls back to UTC rather than killing the server.
 
 Shipping: the script is baked into the plain image at `/opt/aven/sources-mcp.mjs` and
 `provisionTooling()` compares sha256 and re-uploads it into warm sandboxes (and the laravel image)
-whenever the bot ships a newer copy. The layer-1 system prompt gains one paragraph when sources are
-enabled: search first, cite permalinks, redaction markers are final. A project may declare its own
-`sources` MCP entry to override the built-in one.
+whenever the bot ships a newer copy — a change to the server reaches every sandbox at its next
+session prep, no image rebuild. The layer-1 system prompt gains one paragraph when sources are
+enabled: search first, cite permalinks, redaction markers are final, transcripts are read through
+`transcript` (in a subagent when a question needs the whole call), and an unavailable replica is
+reported in one line — never polled or waited for, the orchestrator re-runs failed scheduled turns.
+A project may declare its own `sources` MCP entry to override the built-in one.
 
 ## Task trackers
 
@@ -318,7 +329,9 @@ The `sources` MCP server learns trackers too: `search` covers tasks (hits carry 
 a status; `source: youtrack|jira|asana` narrows to them), `get` returns a ticket with its comments,
 `stats` counts tasks per source with the open share, and a new tool **`tasks({assignee, status,
 dueBefore, project, source, updatedSince, limit})`** is the work list — open tasks by default,
-soonest due first.
+soonest due first. Every row carries `lastComment {by, at}`, and with `updatedSince` also
+`commentsSince {n, authors}` (computed from the stored comments at query time), so a morning brief
+can say "Rowan: 2 comments on AWS billing alerts" without a `get` per task.
 
 ## Meetings
 
@@ -352,8 +365,17 @@ every note it wrote, because recorders keep rewriting a note after the call.
   `wispr.json`. The pull refreshes (rotated refresh tokens are rewritten), opens an MCP session and
   calls `search_meetings` / `get_meeting` (transcript paged by `start_char`).
 
-The `sources` tool gains **`meetings({since, until, person, source})`**; `search` returns call
-hits as `kind: "meeting"`, `get` returns summary, next steps, transcript and the call's attributions.
+The `sources` tool gains **`meetings({since, until, person, source, limit})`** — one row per call
+with the summary's first ~900 chars (`summary_truncated` when cut), next steps, transcript size and
+every copy's `speakers`; without `since`/`until` it shows the last 14 days, 20 calls by default.
+`search` returns call hits as `kind: "meeting"`. `get` on a meeting ref is *compact*: full summary,
+next steps, attendees, `transcript_chars`, `speakers`, the call's attributions and every copy side
+by side — never the transcript, which **`transcript({ref, q, offset, limit})`** pages (a 90k-char
+call used to arrive in one `get` and overflow the tool-result cap). `speakers` is judged from the
+transcript's own labels at query time: `me-them` (Granola's microphone-vs-speaker split,
+attribution-grade), `names-diarized` (Wispr, Gemini — diarization guesses that swap turns),
+`anonymous` ("Speaker N" only) or `null` (no labelled lines, e.g. withheld). Quotes from a
+names-diarized or anonymous copy are marked unverified unless a me-them copy confirms the speaker.
 
 ### Calls: one conversation, several recorders
 
@@ -363,10 +385,15 @@ yields up to three `meetings` rows per real call. Every build regroups them (`sr
 more than half of the shorter recording; a copy never joins a call that already has one from the
 same recorder (back-to-back Granola notes stay two calls); several candidates → shared attendees,
 then title words, then overlap decide. A copy with no end time counts as 30 minutes. The primary
-copy has the longest transcript (then the richest summary); the call title is the first real title
-among the copies ("Instant meeting" loses). `meetings` lists one row per call with `sources` and the
-next steps of every copy merged; `search` collapses copies; `get` on any copy returns the call with
-each recorder's summary and next steps side by side — the place to compare recorder quality.
+copy is the highest-priority recorder that has a transcript — Granola, then Wispr, then Gemini
+(Granola's Me/Them labels are attribution-grade, the others diarize and swap turns) — and among
+equals the longer transcript; a transcript under 200 chars does not count (a withheld one is its
+60-char marker, which must not make that copy primary), and copies without one fall back to the
+richest summary. The call title is the first real title among the copies ("Instant meeting"
+loses). `meetings` lists one row per call with `sources` (each copy's ref, transcript size and
+`speakers`) and the next steps of every copy merged; `search` collapses copies; `get` on any copy
+returns the call with each recorder's summary, next steps and `speakers` side by side — the place
+to compare recorder quality; `transcript` takes any copy's ref.
 
 ### Bots and Slack names
 

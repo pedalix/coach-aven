@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { clusterMeetings, overlapShare, type MeetingForCall } from './calls.js';
+import { clusterMeetings, MIN_TRANSCRIPT_CHARS, overlapShare, primaryOf, type MeetingForCall } from './calls.js';
 
 const m = (ref: string, source: string, start: string, end: string, extra: Partial<MeetingForCall> = {}): MeetingForCall => ({
   ref,
@@ -20,16 +20,34 @@ test('overlapShare is relative to the shorter window', () => {
   assert.equal(overlapShare({ s: 0, e: 100 }, { s: 40, e: 140 }), 0.6);
 });
 
-test('two copies of one call merge; primary = longest transcript', () => {
+test('two copies of one call merge; primary = the highest-priority recorder with a transcript, not the longest', () => {
   const calls = clusterMeetings([
     m('g1', 'granola', '2026-10-08T17:07:00Z', '2026-10-08T17:52:00Z', { transcriptChars: 900, title: 'FO Cloud incident' }),
     m('w1', 'wispr', '2026-10-08T17:08:30Z', '2026-10-08T17:50:00Z', { transcriptChars: 4000, title: 'Instant meeting' }),
   ]);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]!.primary_ref, 'w1');
+  assert.equal(calls[0]!.primary_ref, 'g1', 'Granola (Me/Them) beats a longer Wispr transcript');
   assert.equal(calls[0]!.call_id, 'call:g1');
   assert.equal(calls[0]!.title, 'FO Cloud incident', 'a real title beats the primary copy\'s placeholder');
   assert.deepEqual(calls[0]!.sources.map((s) => s.source), ['granola', 'wispr']);
+});
+
+test('primaryOf: a withheld transcript (60-char marker) never makes its copy primary; equals rank by length; no transcript → richest summary', () => {
+  // The Dmitry call on 10-12: Granola's transcript withheld by the scrubber, Wispr's intact.
+  const marker = 60;
+  assert.ok(marker < MIN_TRANSCRIPT_CHARS);
+  const withheld = m('g', 'granola', '2026-10-11T10:00:00Z', '2026-10-11T11:00:00Z', { transcriptChars: marker, summaryChars: 4000 });
+  const wispr = m('w', 'wispr', '2026-10-11T10:01:00Z', '2026-10-11T11:00:00Z', { transcriptChars: 80_000, summaryChars: 2000 });
+  assert.equal(primaryOf([withheld, wispr]).ref, 'w');
+  // restored (#133): Granola wins again although Wispr is longer
+  assert.equal(primaryOf([{ ...withheld, transcriptChars: 73_000 }, wispr]).ref, 'g');
+  // same rank (unknown recorders) → longer transcript
+  assert.equal(primaryOf([m('a', 'otter', '', '', { transcriptChars: 300 }), m('b', 'fireflies', '', '', { transcriptChars: 900 })]).ref, 'b');
+  // Gemini with a transcript beats Granola without one
+  assert.equal(primaryOf([m('g', 'granola', '', '', { summaryChars: 5000 }), m('mt', 'gmeet', '', '', { transcriptChars: 20_000 })]).ref, 'mt');
+  // nobody has a transcript → richest summary, then rank
+  assert.equal(primaryOf([m('g', 'granola', '', '', { summaryChars: 100 }), m('w', 'wispr', '', '', { summaryChars: 500 })]).ref, 'w');
+  assert.equal(primaryOf([m('g', 'granola', '', '', { summaryChars: 500 }), m('w', 'wispr', '', '', { summaryChars: 500 })]).ref, 'g');
 });
 
 test('three recorders on one call become one call; gmeet without end still joins', () => {
