@@ -65,8 +65,10 @@ Laravel Sail keeps working.
 
    - `privileged: false` → plain `docker run`, no `--privileged`, no `--runtime` (requires
      `dind: false`; docker-in-docker needs one of the two runtimes).
-   - `dind: false` → no dockerd guard at chat prep or in housekeeping, no docker prune, and
-     no exec-probe/recycle dance (that one exists for sysbox's registry).
+   - `dind: false` → no dockerd guard at chat prep or in housekeeping, no docker prune, no
+     exec-probe/recycle dance (that one exists for sysbox's registry), and the base system
+     prompt drops its Sail/Docker-in-Docker toolchain paragraph (`src/prompt.ts`) — there are
+     no shims to explain.
    - `mounts` → `-v host:container:mode`; mode defaults to `ro`. Paths must be absolute,
      `[A-Za-z0-9._/-]`, no `..`. Read-only is the point: the agent reads the archive, it
      never edits it.
