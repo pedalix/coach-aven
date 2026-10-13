@@ -255,6 +255,19 @@ figures from the claude CLI's `result` event (`usage` + `total_cost_usd`). `/ave
   the `~$` figure is the CLI's computed token cost, i.e. what the traffic *would* cost
   at API prices. That's exactly the number needed to (a) hand-write an invoice, and
   (b) decide when a client's volume justifies a per-tenant API key.
+- **Cost is per turn (metering fix, 2026-10).** The CLI's `total_cost_usd` is the
+  *process's running total*, not the turn's — every turn of a persistent session reports
+  everything spent so far — and from v0.22.0 until this fix it was recorded verbatim and
+  summed, so `/aven usage` and the feedback "$ per answer that helped" overstated by
+  roughly 2× (home bot, Oct 2026: Σ $47.77 recorded vs ≈ $25 reconstructed; a canceled
+  zero-token turn carried the previous turn's exact figure). Records now hold the delta in
+  `usage.costUsd` and the raw total in `usage.costUsdCumulative` (`claudeSession.ts`
+  `CostDelta`, one per CLI process: starts at 0 on spawn, seeded from the replayed log on
+  reattach, restarts if the counter runs backwards). A record without
+  `costUsdCumulative` is pre-fix: `/aven usage` reports those on a separate *Legacy* line
+  and the feedback section leaves them out of the $ figures, so **totals drop to about
+  half of earlier reports** — nothing else about the output changed. Routine turns that
+  carry the scheduler's `routineId`/`routineLabel` stamp get their own *By routine* cut.
 - **Team attribution is forward-compatible**: records store the conversation key; keys
   gain a `team_id` prefix in the slice-2/3 re-keying and `teamOf()` picks it up with no
   migration. Until then everything aggregates as the home team — which is factually true.

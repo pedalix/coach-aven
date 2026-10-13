@@ -63,6 +63,9 @@ Permission / question answer (reply to a `can_use_tool` request, same id):
    multiSelect, options:[{label, description}]}]}`.
 - `{"type":"result","subtype":"success"|...,"is_error","result","session_id","usage",
    "total_cost_usd", ...}` — **turn-complete marker**. The process stays alive for the next turn.
+   `usage` is this turn's tokens; `total_cost_usd` is the PROCESS's running total (every turn
+   reports all spent so far) — `claudeSession.ts` `CostDelta` turns it into the per-turn cost
+   the metering records carry.
 - `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"|"allowed_warning"|"rejected",
    "rateLimitType":"five_hour"|"seven_day","resetsAt":<unix s>,"unifiedWindows":{"five_hour":{"utilization",
    "resetsAt"},"seven_day":{…}}}}` — **subscription quota state**, emitted right before
