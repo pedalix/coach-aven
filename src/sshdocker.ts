@@ -104,7 +104,18 @@ export function runningProbeScript(pid: string): string {
 // Warm the named container and hand back what happened: ready | started | created |
 // revived. The container's own process is just sleep — claude/dockerd/etc. start on
 // demand (project.ts's ensureDockerd guard revives dockerd at every chat prep).
-// --restart unless-stopped: a host reboot brings the fleet back warm.
+//
+// NO docker restart policy, on purpose. Containers used to carry `--restart
+// unless-stopped` so a host reboot brought the fleet back warm — but that lets the
+// DAEMON start the container at the worst moment: the first seconds after it boots.
+// On Docker Desktop/WSL the host filesystem is not yet exported to the engine VM at
+// that point, so every bind mount comes up as an EMPTY directory and stays that way
+// (the sources replica vanished from proj-owen-ops for 8h on 2026-10-13: the container
+// was auto-restarted at 08:31Z, the host side was fine all along). With no policy the
+// container just stays stopped until the next turn, when THIS script's `docker start`
+// branch wakes it — a lazy start at a moment the filesystem is guaranteed to be there,
+// for the price of a few seconds on the first turn after a reboot. Existing containers
+// are migrated in place (`docker update --restart=no`) — the flag is per container.
 //
 // The trailing health probe is not paranoia: a container can be `running` and still
 // refuse EVERY `docker exec`. sysbox keeps its own registry of the containers it
@@ -116,6 +127,14 @@ export function runningProbeScript(pid: string): string {
 // re-registers the container with sysbox and costs nothing here — an exec-less sandbox
 // is useless anyway, so recycling can only improve on it. Probed twice before recycling
 // so a momentarily busy daemon doesn't kill a live session.
+//
+// The mount probe guards the same failure from the other side: for every bind mount
+// whose host directory has content, the container must see content at the target. An
+// empty target over a non-empty source is a bind mount that attached to nothing
+// (see above) and can only be fixed by stop+start — `docker start` re-resolves the
+// mount. Verified before every turn because it is one `ls -A` per mount; a target that
+// is still empty after the recycle is reported on stderr but does NOT fail the turn
+// (a sandbox without its sources is degraded, not useless, unlike one without exec).
 //
 // `runtimeFlag` is '' for an unprivileged project (plain `docker run`); `mounts` become
 // `-v src:dst:mode` (paths pre-validated by sandboxopts.ts, quoted again here); `dind`
@@ -149,6 +168,19 @@ export function ensureSandboxScript(
         `fi`,
       ]
     : [];
+  const mountProbe = mounts.flatMap((m) => {
+    const src = sq(safeToken(m.source));
+    const tgt = sq(safeToken(m.target));
+    const inside = `docker exec ${n} ls -A ${tgt} 2>/dev/null`;
+    return [
+      `if [ -n "$(ls -A ${src} 2>/dev/null)" ] && [ -z "$(${inside})" ]; then`,
+      `  echo "mount ${m.target} is empty while ${m.source} is not — recycling ${name} (bind mount attached before the host fs was up)" >&2`,
+      `  docker stop -t 10 ${n} >/dev/null 2>&1`,
+      `  docker start ${n} >/dev/null 2>&1`,
+      `  if [ -z "$(${inside})" ]; then echo "mount ${m.target} still empty after recycle" >&2; else outcome=revived; fi`,
+      `fi`,
+    ];
+  });
   return [
     `state=$(docker inspect -f '{{.State.Running}}' ${n} 2>/dev/null)`,
     `if [ "$state" = "true" ]; then outcome=ready`,
@@ -158,12 +190,16 @@ export function ensureSandboxScript(
     // orphans — every finished session process would linger as a zombie forever (and
     // zombies pass kill -0, wedging streams and running-checks; found by the E2E smoke).
     // Existing containers created without --init must be recreated.
-    `  docker run -d --init --name ${n}${runFlags ? ` ${runFlags}` : ''} --restart unless-stopped \\`,
+    `  docker run -d --init --name ${n}${runFlags ? ` ${runFlags}` : ''} \\`,
     `    -e IS_SANDBOX=1 --label managedBy=bluefin-thin-orchestrator --label project=${sq(safeToken(projectSlug))} \\`,
     `    --entrypoint sh ${sq(image)} -c 'sleep 2147483647' >/dev/null || exit 1`,
     `  outcome=created`,
     `fi`,
+    // Migration for containers created with the old `--restart unless-stopped`: the
+    // policy lives on the container, so strip it in place (idempotent, no-op on new ones).
+    `docker update --restart=no ${n} >/dev/null 2>&1 || true`,
     ...probe,
+    ...mountProbe,
     `echo "$outcome"`,
   ].join('\n');
 }
@@ -398,10 +434,10 @@ export class SshDockerDriver implements SandboxDriver {
         `ensureSandbox ${name} failed (exit ${r.code}): ${r.stdout.slice(0, 500)}${errTail(r)}`,
       );
     }
-    // A revive means the host wedged the container under us — worth a WARN (it reaches
-    // Sentry), not a silent heal.
+    // A revive means the host wedged the container under us (exec refused, or a bind
+    // mount that attached to nothing) — worth a WARN (it reaches Sentry), not a silent heal.
     if (outcome === 'revived') {
-      log.warn(`sandbox '${name}' was up but refused exec — recycled it (ssh-docker):${errTail(r)}`);
+      log.warn(`sandbox '${name}' was up but unhealthy — recycled it (ssh-docker):${errTail(r)}`);
     } else if (outcome !== 'ready') {
       log.info(`sandbox '${name}' ${outcome} (ssh-docker)`);
     }
