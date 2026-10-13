@@ -33,8 +33,19 @@ export const DEFAULT_DURATION_MS = 30 * 60_000;
 /** "Same call" = the windows overlap by more than this share of the SHORTER recording. */
 export const OVERLAP_SHARE = 0.5;
 
-// Which copy speaks for the call when transcripts tie: the richest summaries first.
-const SOURCE_PRIORITY: Record<string, number> = { granola: 0, wispr: 1, gmeet: 2 };
+// Which recorder speaks for a call. Granola labels turns Me/Them from the microphone-vs-speaker
+// channels (attribution-grade); Wispr and Gemini diarize names or "Speaker N" and get turns
+// wrong — so a Granola transcript beats a longer Wispr one (the 2026-10-11 intro call: Wispr was
+// 80k chars to Granola's 74k and misattributed Owen's lines). Among recorders of the same rank the
+// longer transcript wins; `sources` on a call is listed in this order too.
+export const SOURCE_PRIORITY: Record<string, number> = { granola: 0, wispr: 1, gmeet: 2 };
+/**
+ * A copy "has a transcript" only above this length. The store feeds lengths, not text, and a
+ * transcript withheld by the scrubber is its 60-char `[BODY WITHHELD: … see vault …]` marker
+ * (scrub.ts withheldMarker) — it must never make that copy primary (the Dmitry call on 10-12 was
+ * read from Wispr for exactly that reason). No real recording is this short.
+ */
+export const MIN_TRANSCRIPT_CHARS = 200;
 
 interface Win {
   m: MeetingForCall;
@@ -71,12 +82,18 @@ export function similarity(a: MeetingForCall, b: MeetingForCall): number {
   return shared * 10 + tw;
 }
 
-function primaryOf(ms: MeetingForCall[]): MeetingForCall {
+const hasTranscript = (m: MeetingForCall) => m.transcriptChars >= MIN_TRANSCRIPT_CHARS;
+const rank = (m: MeetingForCall) => SOURCE_PRIORITY[m.source] ?? 9;
+
+/**
+ * Copies with a transcript come first, ordered by recorder priority, then transcript length;
+ * copies without one (none, or withheld) fall back to the richest summary, then priority.
+ */
+export function primaryOf(ms: readonly MeetingForCall[]): MeetingForCall {
   return [...ms].sort(
     (a, b) =>
-      b.transcriptChars - a.transcriptChars ||
-      b.summaryChars - a.summaryChars ||
-      (SOURCE_PRIORITY[a.source] ?? 9) - (SOURCE_PRIORITY[b.source] ?? 9) ||
+      Number(hasTranscript(b)) - Number(hasTranscript(a)) ||
+      (hasTranscript(a) ? rank(a) - rank(b) || b.transcriptChars - a.transcriptChars : b.summaryChars - a.summaryChars || rank(a) - rank(b)) ||
       a.ref.localeCompare(b.ref),
   )[0]!;
 }

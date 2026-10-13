@@ -10,8 +10,21 @@ export const TRACKER_SOURCES: string[];
 export const MEETING_SOURCES: string[];
 export function initiativeClause(refExpr: string, initiative: string, meetingShorthand?: string): { sql: string; params: unknown[] };
 
+export const LOCAL_TZ: string;
+export const SUMMARY_PREVIEW_CHARS: number;
+export const DEFAULT_MEETINGS_WINDOW_DAYS: number;
+export const SPEAKER_SAMPLE_CHARS: number;
+export const TRANSCRIPT_PAGE_CHARS: number;
+export const TRANSCRIPT_MAX_CHARS: number;
+
 export function sanitizeFtsQuery(input: unknown): string;
-export function normalizeTime(v: unknown, edge: 'since' | 'until'): string | undefined;
+export function zonedToUtcMs(fields: number[], tz: string): number;
+export function normalizeTime(v: unknown, edge: 'since' | 'until', tz?: string): string | undefined;
+export type SpeakerQuality = 'me-them' | 'names-diarized' | 'anonymous' | null;
+export function speakerQuality(transcript: unknown): SpeakerQuality;
+export function previewSummary(head: unknown, max?: number): { summary: string; summary_truncated: boolean };
+export function commentActivity(commentsJson: unknown, since?: string): { lastComment: { by: string; at: string } | null; commentsSince?: { n: number; authors: string[] } };
+export function pulledMeta(meta: Record<string, string> | undefined, now?: Date): { pulled?: Record<string, { at?: string; age_minutes?: number; raw?: string }> };
 export function buildSearchSql(f: {
   match?: string;
   since?: string;
@@ -69,6 +82,7 @@ export const TOOLS: ToolDef[];
 
 export function runSearch(db: DatabaseSync, args: Record<string, unknown>): { mode: string; note?: string; hits: Record<string, unknown>[] };
 export function runGet(db: DatabaseSync, args: Record<string, unknown>): Record<string, unknown>;
+export function runTranscript(db: DatabaseSync, args: Record<string, unknown>): Record<string, unknown>;
 export function runPeople(db: DatabaseSync, args: Record<string, unknown>): { people: Record<string, unknown>[] };
 export function runStats(db: DatabaseSync): Record<string, unknown>;
 export function runMeetings(db: DatabaseSync, args: Record<string, unknown>): { note?: string; meetings: Record<string, unknown>[] };
