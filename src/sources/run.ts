@@ -100,7 +100,11 @@ export function pullContext(slug: string, kind: SourceKind, verbose: boolean, si
   };
 }
 
-export function runBuild(p: ProjectConfig, verbose: boolean, sink: (line: string) => void = log.info.bind(log), projectsConfigPath?: string): BuildSummary {
+/**
+ * `pulled` = the kinds that completed ok in the pass this build closes (their finishedAt lands in
+ * sync_state as `pulled:<kind>`, the per-source data age `stats.meta` shows); the CLI `build` passes none.
+ */
+export function runBuild(p: ProjectConfig, verbose: boolean, sink: (line: string) => void = log.info.bind(log), projectsConfigPath?: string, pulled?: ReadonlyArray<{ kind: SourceKind; finishedAt: string }>): BuildSummary {
   const prefix = `[sources:${p.slug}/store]`;
   const s = buildStore({
     slug: p.slug,
@@ -109,11 +113,12 @@ export function runBuild(p: ProjectConfig, verbose: boolean, sink: (line: string
     replicaDir: replicaDir(p.slug),
     peoplePath: peoplePath(p, projectsConfigPath),
     ...(fragmentsPath(p) ? { fragmentsPath: fragmentsPath(p)! } : {}),
+    ...(pulled ? { pulled } : {}),
     log: (line) => (verbose || !line.startsWith('  ') ? sink(`${prefix} ${line}`) : undefined),
   });
   sink(
     `${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tasks ${s.tasks}, meetings ${s.meetings} → ${s.calls} calls, activity ${s.activity}, tombstones ${s.tombstones}` +
-      `${s.replayed ? `, replayed ${s.replayed}` : ''}${s.malformed ? `, malformed ${s.malformed}` : ''}; people ${s.people}; fragments ${s.fragments}, attributions ${s.attributions}` +
+      `${s.replayed ? `, replayed ${s.replayed}` : ''}${s.malformed ? `, malformed ${s.malformed}` : ''}${s.legacyEvents ? `, ${s.legacyEvents} untagged Outlook event lines skipped` : ''}; people ${s.people}; fragments ${s.fragments}, attributions ${s.attributions}` +
       `${s.recomputed ? ' (recomputed)' : ''}${s.malformedFragments ? `, ${s.malformedFragments} bad fragment lines` : ''}; replica ${s.replica ?? '(none)'}`,
   );
   for (const f of s.truncatedFiles) log.warn(`${prefix} ${f} shrank below its consumed offset — re-read from 0`);
@@ -170,6 +175,7 @@ export async function pullProject(p: ProjectConfig, o: PullProjectOptions = {}, 
         accounts: m.accounts.map((a) => (a.includes(':') ? a : `${m.tenant}:${a}`)),
         ...(m.only ? { only: m.only as MsgraphKind[] } : {}),
         ...(o.since ?? m.since ? { since: o.since ?? m.since } : {}),
+        ...(m.calendars ? { calendars: m.calendars } : {}),
         chatsFull: o.chatsFull ?? false,
         verbose,
       });
@@ -180,7 +186,8 @@ export async function pullProject(p: ProjectConfig, o: PullProjectOptions = {}, 
   }
   // Build even after a partial failure: whatever landed in raw/ should reach the replica.
   if (o.build ?? true) await refreshTenant(p, sink);
-  const build = (o.build ?? true) ? runBuild(p, verbose, sink, projectsConfigPath) : undefined;
+  const pulled = summaries.filter((s) => s.ok).map((s) => ({ kind: s.kind, finishedAt: s.finishedAt }));
+  const build = (o.build ?? true) ? runBuild(p, verbose, sink, projectsConfigPath, pulled) : undefined;
   return {
     summaries,
     ...(build ? { build } : {}),

@@ -20,8 +20,11 @@
  *    messages/folder by Graph — a horizon, not a bug). Junk/Deleted/Drafts/Outbox are skipped.
  *  - Calendar: `/me/calendarView/delta` exists only for the PRIMARY calendar
  *    (https://learn.microsoft.com/en-us/graph/api/event-delta) and is bound to its window,
- *    so the window is re-issued when its end comes within 60 days. Other calendars are
- *    window-polled and filtered by lastModifiedDateTime.
+ *    so the window is re-issued when its end comes within 60 days. Other calendars are read
+ *    only when opted in (`calendars[]`, same rule as the Google puller): window-polled and
+ *    filtered by lastModifiedDateTime. Every record names the calendar it came from, because
+ *    Graph reports organizer = the mailbox owner for everything in a calendar shared INTO the
+ *    mailbox — ownership is a property of the calendar, not of the event.
  *  - Chats: no delegated delta or bulk route exists (those are app-only). Teams ToS allow
  *    change polling once a day UNLESS a date range is given
  *    (https://learn.microsoft.com/en-us/graph/api/resources/teams-api-overview), so every
@@ -45,6 +48,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { scrubForWrite, type SinkOptions } from '../common/sink.js';
+import { selectCalendars } from '../google/normalise.js';
 import type { MsgraphKind, PullContext, PullSummary } from '../types.js';
 import { CHANNEL_SCOPE, GraphClient, GraphError, MsTokenStore, TokenError, sleep } from './client.js';
 import {
@@ -60,6 +64,7 @@ import {
   normaliseEvent,
   normaliseMailMessage,
   type AccountContext,
+  type CalendarInfo,
   type CalendarRecord,
   type DriveContext,
   type FileRecord,
@@ -76,8 +81,8 @@ import {
   type Tombstone,
 } from './normalise.js';
 
-/** Per-run settings; replaces the former module-level argv globals so several projects can run in one process. */
-interface Run {
+/** Per-run settings; replaces the former module-level argv globals so several projects can run in one process. Exported for pull.test.ts. */
+export interface Run {
   out: string;
   only: Set<MsgraphKind>;
   /** ISO instant: horizon for first syncs. */
@@ -85,12 +90,25 @@ interface Run {
   maxText: number;
   chatsFull: boolean;
   filesFromNow: boolean;
+  /** Calendar ids read on top of the default calendar (sources.msgraph.calendars). */
+  calendars: string[];
+  /** Accounts whose skipped-calendar line was printed this run (once per run, like the Google puller). */
+  skippedLogged: Set<string>;
   log: (m: string) => void;
   vlog: (m: string) => void;
   sink: SinkOptions;
 }
 
 const DAY = 86_400_000;
+
+/**
+ * Meaning of `cursor.calendar`. v2 (2026-10): every record carries its calendar {id, name,
+ * is_default} and only the default calendar plus `calendars[]` are read. An older or absent
+ * marker drops the primary delta link and the secondary watermarks ONCE, so the account's own
+ * events are re-emitted tagged in the same pass; the store (schema v6) skips untagged legacy
+ * lines, so a shared calendar's events vanish on the rebuild instead of lingering untagged.
+ */
+export const CALENDAR_CURSOR_VERSION = 2;
 
 // ---------------------------------------------------------------------------------------
 // Cursor + output
@@ -100,7 +118,7 @@ interface Cursor {
   version: 1;
   account: string;
   mail: { folders: Record<string, { path: string; deltaLink?: string; synced_at?: string }>; skip_ids?: string[]; skip_resolved_at?: string };
-  calendar: { primary?: { deltaLink?: string; window_start: string; window_end: string }; others: Record<string, { name: string; watermark?: string }> };
+  calendar: { version?: number; primary?: { deltaLink?: string; window_start: string; window_end: string }; others: Record<string, { name: string; watermark?: string }> };
   chats: { per_chat: Record<string, { name: string; watermark?: string; members?: RawConversationMember[]; members_at?: string }> };
   channels: { blocked_until?: string; blocked_reason?: string; per_channel: Record<string, { name: string; watermark?: string }> };
   files: { drives: Record<string, { label: string; deltaLink?: string; synced_at?: string; error?: string }>; sites_scanned_at?: string };
@@ -109,10 +127,11 @@ interface Cursor {
 }
 
 function emptyCursor(account: string): Cursor {
-  return { version: 1, account, mail: { folders: {} }, calendar: { others: {} }, chats: { per_chat: {} }, channels: { per_channel: {} }, files: { drives: {} }, runs: [] };
+  return { version: 1, account, mail: { folders: {} }, calendar: { version: CALENDAR_CURSOR_VERSION, others: {} }, chats: { per_chat: {} }, channels: { per_channel: {} }, files: { drives: {} }, runs: [] };
 }
 
-class Store {
+/** Per-account output directory + cursor. Exported for pull.test.ts. */
+export class Store {
   readonly dir: string;
   readonly cursor: Cursor;
   readonly counts: Record<string, number> = {};
@@ -247,53 +266,93 @@ async function pullMail(run: Run, g: GraphClient, st: Store, ctx: AccountContext
 const CAL_PREFER = { prefer: 'outlook.timezone="UTC", outlook.body-content-type="text", odata.maxpagesize=50' };
 const EVENT_SELECT = 'id,subject,start,end,isAllDay,isCancelled,organizer,attendees,webLink,onlineMeeting,location,lastModifiedDateTime,type,seriesMasterId,responseStatus';
 
-async function pullCalendar(run: Run, g: GraphClient, st: Store, ctx: AccountContext): Promise<void> {
+/** The slice of GraphClient the calendar pull uses — structural, so pull.test.ts can fake it. */
+export type CalendarGraph = Pick<GraphClient, 'pages' | 'all'>;
+
+interface GraphCalendar {
+  id: string;
+  name?: string;
+  isDefaultCalendar?: boolean;
+}
+
+export async function pullCalendar(run: Run, g: CalendarGraph, st: Store, ctx: AccountContext): Promise<void> {
   const c = st.cursor.calendar;
-  const now = Date.now();
-  // Primary calendar: delta over a window; re-issue when the window end approaches.
-  if (!c.primary?.deltaLink || Date.parse(c.primary.window_end) - now < 60 * DAY) {
-    c.primary = { window_start: new Date(Math.min(now - 365 * DAY, Date.parse(run.since))).toISOString(), window_end: new Date(now + 180 * DAY).toISOString() };
-    run.log(`calendar: new delta window ${c.primary.window_start.slice(0, 10)} → ${c.primary.window_end.slice(0, 10)}`);
+  if (c.version !== CALENDAR_CURSOR_VERSION) {
+    run.log(`calendar: cursor v${c.version ?? 1} → v${CALENDAR_CURSOR_VERSION}: re-reading the default calendar so every event carries its calendar`);
+    delete c.primary;
+    c.others = {};
+    c.version = CALENDAR_CURSOR_VERSION;
   }
-  const p = c.primary;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const it = g.pages<RawEvent>(p.deltaLink ?? `/me/calendarView/delta?startDateTime=${p.window_start}&endDateTime=${p.window_end}`, CAL_PREFER);
-      for (;;) {
-        const r = await it.next();
-        if (r.done) {
-          if (r.value) p.deltaLink = r.value;
-          break;
-        }
-        const recs: CalendarRecord[] = [];
-        const tombs: Tombstone[] = [];
-        for (const ev of r.value.value) {
-          if (ev['@removed']) tombs.push(eventTombstone(ev, ctx));
-          else {
-            const rec = normaliseEvent(ev, ctx);
-            if (rec) recs.push(rec);
+  // Which calendars exist and which we read: the default one always, the rest only when opted
+  // in. selectCalendars is the Google puller's rule (primary || allow-list); /me/calendars rows
+  // are adapted to its shape. Skipped ones are named once per run so an operator can opt in;
+  // their ids are in the verbose log (150-char Graph ids would drown the journal).
+  let cals: GraphCalendar[];
+  try {
+    cals = await g.all<GraphCalendar>('/me/calendars?$select=id,name,isDefaultCalendar');
+  } catch (e) {
+    // Cursor untouched: the next pass retries. One pass of staleness beats rows without a calendar.
+    st.fail('calendar list', e);
+    return;
+  }
+  const { selected, skipped } = selectCalendars(cals.map((x) => ({ id: x.id, summary: x.name ?? x.id, primary: x.isDefaultCalendar === true })), run.calendars);
+  if (skipped.length && !run.skippedLogged.has(ctx.upn)) {
+    run.skippedLogged.add(ctx.upn);
+    run.log(`calendar: skipping ${skipped.length} calendar(s) not in sources.msgraph.calendars: ${skipped.map((x) => JSON.stringify(x.summary)).join(', ')}`);
+    for (const x of skipped) run.vlog(`calendar: skipped ${JSON.stringify(x.summary)} id=${x.id}`);
+  }
+  const primary = selected.find((x) => x.primary);
+  if (!primary) st.fail('calendar primary', new Error('no default calendar in /me/calendars'));
+  else {
+    const tag: CalendarInfo = { id: primary.id, name: primary.summary, is_default: true };
+    const now = Date.now();
+    // Primary calendar: delta over a window; re-issue when the window end approaches. No $select
+    // on purpose: calendarView/delta ignores it and returns the full event shape anyway.
+    if (!c.primary?.deltaLink || Date.parse(c.primary.window_end) - now < 60 * DAY) {
+      c.primary = { window_start: new Date(Math.min(now - 365 * DAY, Date.parse(run.since))).toISOString(), window_end: new Date(now + 180 * DAY).toISOString() };
+      run.log(`calendar: new delta window ${c.primary.window_start.slice(0, 10)} → ${c.primary.window_end.slice(0, 10)}`);
+    }
+    const p = c.primary;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const it = g.pages<RawEvent>(p.deltaLink ?? `/me/calendarView/delta?startDateTime=${p.window_start}&endDateTime=${p.window_end}`, CAL_PREFER);
+        for (;;) {
+          const r = await it.next();
+          if (r.done) {
+            if (r.value) p.deltaLink = r.value;
+            break;
           }
+          const recs: CalendarRecord[] = [];
+          const tombs: Tombstone[] = [];
+          for (const ev of r.value.value) {
+            if (ev['@removed']) tombs.push(eventTombstone(ev, ctx));
+            else {
+              const rec = normaliseEvent(ev, ctx, tag);
+              if (rec) recs.push(rec);
+            }
+          }
+          st.append('calendar', recs);
+          st.append('tombstones', tombs);
         }
-        st.append('calendar', recs);
-        st.append('tombstones', tombs);
+        break;
+      } catch (e) {
+        if (e instanceof GraphError && (e.status === 410 || /SyncState/.test(e.code)) && p.deltaLink) {
+          delete p.deltaLink;
+          continue;
+        }
+        st.fail('calendar primary', e);
+        break;
       }
-      break;
-    } catch (e) {
-      if (e instanceof GraphError && (e.status === 410 || /SyncState/.test(e.code)) && p.deltaLink) {
-        delete p.deltaLink;
-        continue;
-      }
-      st.fail('calendar primary', e);
-      break;
     }
   }
   st.save();
-  // Secondary calendars (shared/added ones appear in /me/calendars): window poll, modified-since filter.
+  // Opted-in secondary calendars (shared/added ones appear in /me/calendars): window poll, modified-since filter.
   try {
-    const cals = await g.all<{ id: string; name?: string; isDefaultCalendar?: boolean }>('/me/calendars?$select=id,name,isDefaultCalendar');
-    for (const cal of cals.filter((x) => !x.isDefaultCalendar)) {
-      const oc = (c.others[cal.id] ??= { name: cal.name ?? cal.id });
-      oc.name = cal.name ?? cal.id;
+    const now = Date.now();
+    for (const cal of selected.filter((x) => !x.primary)) {
+      const oc = (c.others[cal.id] ??= { name: cal.summary });
+      oc.name = cal.summary;
+      const tag: CalendarInfo = { id: cal.id, name: cal.summary, is_default: false };
       const start = new Date(now - 90 * DAY).toISOString();
       const end = new Date(now + 180 * DAY).toISOString();
       let wm = oc.watermark;
@@ -301,7 +360,7 @@ async function pullCalendar(run: Run, g: GraphClient, st: Store, ctx: AccountCon
       for await (const page of g.pages<RawEvent>(`/me/calendars/${cal.id}/calendarView?startDateTime=${start}&endDateTime=${end}&$top=100&$select=${EVENT_SELECT}`, CAL_PREFER)) {
         for (const ev of page.value) {
           if (oc.watermark && (ev.lastModifiedDateTime ?? '') <= oc.watermark) continue;
-          const rec = normaliseEvent(ev, ctx);
+          const rec = normaliseEvent(ev, ctx, tag);
           if (rec) recs.push(rec);
           wm = maxIso(wm, ev.lastModifiedDateTime);
         }
@@ -548,6 +607,8 @@ export interface MsgraphPullOptions {
   only?: MsgraphKind[];
   /** YYYY-MM-DD horizon for first syncs (default 180 days back). */
   since?: string;
+  /** Calendar ids read on top of each account's default calendar (default: none). */
+  calendars?: string[];
   maxText?: number;
   filesFromNow?: boolean;
   chatsFull?: boolean;
@@ -594,6 +655,8 @@ export async function pullMsgraph(pctx: PullContext, opts: MsgraphPullOptions = 
     maxText: opts.maxText ?? 20_000,
     chatsFull: opts.chatsFull ?? false,
     filesFromNow: opts.filesFromNow ?? false,
+    calendars: opts.calendars ?? [],
+    skippedLogged: new Set(),
     log: pctx.log,
     vlog: opts.verbose ? pctx.log : () => undefined,
     sink: { log: pctx.log, warned: { vault: false }, ...(pctx.vault ? { vault: pctx.vault } : {}) },

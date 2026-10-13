@@ -73,6 +73,7 @@ export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesC
       accounts: strings(`${where}.msgraph`, m.accounts, 'accounts').map((a) => a.toLowerCase()),
       ...(date(`${where}.msgraph`, m.since, 'since') ? { since: m.since as string } : {}),
       ...(subset(`${where}.msgraph`, m.only, 'only', MSGRAPH_KINDS) ? { only: m.only as MsgraphKind[] } : {}),
+      ...(m.calendars !== undefined ? { calendars: strings(`${where}.msgraph`, m.calendars, 'calendars', { nonEmpty: false }) } : {}),
     };
   }
   const obj = (k: string): Record<string, unknown> => (typeof r[k] === 'object' && r[k] && !Array.isArray(r[k]) ? r[k] : fail(`${where}.${k}`, 'must be an object')) as Record<string, unknown>;

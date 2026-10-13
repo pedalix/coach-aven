@@ -6,13 +6,15 @@ test('sources config: full valid block is normalised (lower-cased e-mails, trimm
   const out = validateSourcesConfig({
     google: { accounts: ['Owen@example.com ', 'owen@example.com'], since: '2026-09-01', calendars: [], kinds: ['gmail', 'calendar'] },
     slack: { workspaces: ['T0000FAKE01'], since: '2026-10-06', threadWindowDays: 30, editWindowHours: 48 },
-    msgraph: { tenant: '00000000-0000-4000-8000-000000000000', accounts: ['owen.hale@example.com'], only: ['mail', 'chats'] },
+    msgraph: { tenant: '00000000-0000-4000-8000-000000000000', accounts: ['owen.hale@example.com'], only: ['mail', 'chats'], calendars: [' AQMkShared '] },
     intervalMinutes: 15,
     people: 'projects.d/owen-ops.people.json',
   });
   assert.deepEqual(out.google?.accounts, ['owen@example.com', 'owen@example.com']);
   assert.equal(out.msgraph?.tenant, '00000000-0000-4000-8000-000000000000');
   assert.deepEqual(out.msgraph?.only, ['mail', 'chats']);
+  assert.deepEqual(out.msgraph?.calendars, ['AQMkShared']);
+  assert.equal(validateSourcesConfig({ msgraph: { tenant: '00000000-0000-4000-8000-000000000000', accounts: ['a@b.co'] } }).msgraph?.calendars, undefined, 'absent stays absent (default: the default calendar only)');
   assert.equal(out.intervalMinutes, 15);
 });
 
@@ -25,6 +27,7 @@ test('sources config: rejects unknown keys, bad dates, bad kinds, non-GUID tenan
     [{ google: { accounts: [] } }, /at least one/],
     [{ msgraph: { tenant: 'contoso', accounts: ['a@b.co'] } }, /tenant.*GUID/],
     [{ msgraph: { tenant: '00000000-0000-4000-8000-000000000000', accounts: ['a@b.co'], only: ['teams'] } }, /only.*unknown/],
+    [{ msgraph: { tenant: '00000000-0000-4000-8000-000000000000', accounts: ['a@b.co'], calendars: [''] } }, /calendars.*non-empty strings/],
     [{ slack: { workspaces: [], editWindowHours: -1 } }, /editWindowHours/],
     [{ slack: { workspaces: 'T1' } }, /workspaces.*array/],
     [{ intervalMinutes: 15 }, /declares no source/],

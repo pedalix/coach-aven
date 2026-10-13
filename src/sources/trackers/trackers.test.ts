@@ -127,6 +127,46 @@ test('runTrackerPull writes scrubbed JSONL and advances the cursor only on succe
   assert.equal(readCursor(dir).updated, '2026-10-06T09:00:00.000Z');
 });
 
+test('runTrackerPull: rows unchanged since the last pass are not re-appended; a change is; a failed pass leaves the cursor + map alone', async () => {
+  const out = mkdtempSync(join(tmpdir(), 'trk-'));
+  const ctx = { slug: 't', outDir: out, tokenPath: '/nope', log: () => undefined };
+  const dir = join(out, 'jira', 'acme.atlassian.net');
+  const linesOf = () => readFileSync(join(dir, 'tasks.jsonl'), 'utf8').trim().split('\n');
+  const second: TaskRecord = { ...base, id: '10002', key: 'P1-2', updated: '2026-10-06T09:00:00.000Z' };
+  async function* pass(rows: TaskRecord[]): AsyncIterable<TaskRecord> {
+    for (const r of rows) yield r;
+  }
+  const pull = (rows: TaskRecord[]) => runTrackerPull(ctx, { kind: 'jira', account: 'acme.atlassian.net', since: '2026-09-15', fetchUpdated: () => pass(rows) });
+  // Pass 1: everything is new.
+  assert.equal((await pull([base, second])).counts['acme.atlassian.net/tasks'], 2);
+  assert.deepEqual(Object.keys(readCursor(dir).hashes ?? {}).sort(), ['10001', '10002']);
+  // Pass 2: the inclusive cursor hands back the same two rows — nothing is appended; the pass still succeeds.
+  const s2 = await pull([base, second]);
+  assert.equal(s2.ok, true);
+  assert.equal(s2.counts['acme.atlassian.net/tasks'], 0);
+  assert.equal(linesOf().length, 2);
+  assert.equal(readCursor(dir).updated, '2026-10-06T09:00:00.000Z');
+  // Pass 3: a new comment on one of them → one line; the other stays deduped; the cursor moves.
+  const commented: TaskRecord = { ...base, updated: '2026-10-07T08:00:00.000Z', comments: [{ id: 'c1', author: 'a@x.com', ts: '2026-10-07T08:00:00.000Z', text: 'ping' }] };
+  assert.equal((await pull([commented, second])).counts['acme.atlassian.net/tasks'], 1);
+  assert.equal(linesOf().length, 3);
+  assert.equal(readCursor(dir).updated, '2026-10-07T08:00:00.000Z');
+  // Pass 4: only the ids of the last pass stay in the map (bounded), so a row that leaves the window and comes back is appended once more.
+  assert.equal((await pull([commented])).counts['acme.atlassian.net/tasks'], 0);
+  assert.deepEqual(Object.keys(readCursor(dir).hashes ?? {}), ['10001']);
+  assert.equal((await pull([commented, second])).counts['acme.atlassian.net/tasks'], 1);
+  // Pass 5: a failure after a changed row — the row is on disk (the store dedupes the re-append), cursor and map untouched.
+  const before = readFileSync(join(dir, 'cursor.json'), 'utf8');
+  async function* boom(): AsyncIterable<TaskRecord> {
+    yield { ...commented, title: 'Rotate keys NOW', updated: '2026-10-08T00:00:00.000Z' };
+    throw new TrackerHttpError(500, 'https://x', 'boom');
+  }
+  const f = await runTrackerPull(ctx, { kind: 'jira', account: 'acme.atlassian.net', fetchUpdated: () => boom() });
+  assert.equal(f.ok, false);
+  assert.equal(readFileSync(join(dir, 'cursor.json'), 'utf8'), before);
+  assert.equal(linesOf().length, 5);
+});
+
 test('parseFlags: positionals and --k v pairs', () => {
   assert.deepEqual(parseFlags(['add', '--token-env', 'X', '--email', 'a@b.c']), { pos: ['add'], flags: { 'token-env': 'X', email: 'a@b.c' } });
   assert.deepEqual(parseFlags(['check', '--verbose']), { pos: ['check'], flags: { verbose: 'true' } });

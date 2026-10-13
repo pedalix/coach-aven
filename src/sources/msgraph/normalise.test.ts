@@ -373,11 +373,14 @@ test('normaliseChannelMessage: replies get "re:" subject, reply raw_ref and a sy
 // Calendar
 // ---------------------------------------------------------------------------------------
 
-test('normaliseEvent maps an occurrence with UTC times, attendees and organizer', () => {
-  assert.deepEqual(normaliseEvent(event, ctx), {
+const ownCalendar = { id: 'AAMkAGI2CalAAA=', name: 'Calendar', is_default: true };
+
+test('normaliseEvent maps an occurrence with UTC times, attendees, organizer and the calendar it was read from', () => {
+  assert.deepEqual(normaliseEvent(event, ctx, ownCalendar), {
     source: 'msgraph',
     account: ctx.upn,
     id: 'AAMkAGI2EventAAA=',
+    calendar: { id: 'AAMkAGI2CalAAA=', name: 'Calendar', is_default: true },
     start: '2026-10-07T09:00:00Z',
     end: '2026-10-07T09:30:00Z',
     title: 'P5 weekly sync',
@@ -385,14 +388,19 @@ test('normaliseEvent maps an occurrence with UTC times, attendees and organizer'
     organizer: 'Tess North <Tess North@example.com>',
     link: event.webLink,
   });
+  // An item from a calendar shared INTO the mailbox: Graph reports the mailbox owner as organizer,
+  // so only the calendar tag tells it apart from an own event.
+  const shared = normaliseEvent({ ...event, organizer: { emailAddress: { name: 'Owen Hale', address: ctx.upn } }, attendees: [] }, ctx, { id: 'AAMkShared', name: 'Vera Lindqvist | HCG', is_default: false });
+  assert.equal(shared?.organizer, 'Owen Hale <owen.hale@example.com>');
+  assert.deepEqual(shared?.calendar, { id: 'AAMkShared', name: 'Vera Lindqvist | HCG', is_default: false });
 });
 
 test('normaliseEvent: cancelled is prefixed, series masters and @removed are skipped, join URL is the fallback link', () => {
-  assert.equal(normaliseEvent({ ...event, isCancelled: true }, ctx)?.title, '[cancelled] P5 weekly sync');
-  assert.equal(normaliseEvent({ ...event, type: 'seriesMaster' }, ctx), null);
-  assert.equal(normaliseEvent({ id: 'gone', '@removed': { reason: 'deleted' } }, ctx), null);
-  assert.equal(normaliseEvent({ ...event, webLink: undefined }, ctx)?.link, event.onlineMeeting!.joinUrl);
-  assert.equal(normaliseEvent({ ...event, subject: '' }, ctx)?.title, '(no subject)');
+  assert.equal(normaliseEvent({ ...event, isCancelled: true }, ctx, ownCalendar)?.title, '[cancelled] P5 weekly sync');
+  assert.equal(normaliseEvent({ ...event, type: 'seriesMaster' }, ctx, ownCalendar), null);
+  assert.equal(normaliseEvent({ id: 'gone', '@removed': { reason: 'deleted' } }, ctx, ownCalendar), null);
+  assert.equal(normaliseEvent({ ...event, webLink: undefined }, ctx, ownCalendar)?.link, event.onlineMeeting!.joinUrl);
+  assert.equal(normaliseEvent({ ...event, subject: '' }, ctx, ownCalendar)?.title, '(no subject)');
 });
 
 // ---------------------------------------------------------------------------------------
