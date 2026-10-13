@@ -34,7 +34,7 @@ const usage = (over: Partial<UsageRecord> = {}): UsageRecord => ({
   status: 'ok',
   elapsedMs: 60_000,
   turnId: 'tabc123-1',
-  usage: { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 0, costUsd: 1 },
+  usage: { inputTokens: 1000, outputTokens: 100, cacheReadTokens: 0, costUsd: 1, costUsdCumulative: 1 },
   ...over,
 });
 
@@ -126,9 +126,9 @@ test('joinUsage — cost comes from the usage side, per project, costliest cover
       fb({ turnId: 'tabc123-3', slug: 'lumora', verdict: 'good' }),
     ],
     [
-      usage({ turnId: 'tabc123-1', usage: { costUsd: 2 } }),
-      usage({ turnId: 'tabc123-2', usage: { costUsd: 3 } }),
-      usage({ turnId: 'tabc123-3', slug: 'lumora', usage: { costUsd: 5 } }),
+      usage({ turnId: 'tabc123-1', usage: { costUsd: 2, costUsdCumulative: 2 } }),
+      usage({ turnId: 'tabc123-2', usage: { costUsd: 3, costUsdCumulative: 5 } }),
+      usage({ turnId: 'tabc123-3', slug: 'lumora', usage: { costUsd: 5, costUsdCumulative: 5 } }),
     ],
   );
   assert.deepEqual(rows.map((r) => r.group), ['caldora', 'lumora']); // 2 rated beats 1
@@ -152,7 +152,7 @@ test('feedbackSummaryText — empty state names the buttons', () => {
 test('feedbackSummaryText — coverage first, then cost per helped answer', () => {
   const rows = joinUsage(
     [fb({ turnId: 'tabc123-1' }), fb({ turnId: 'tabc123-2', verdict: 'bad', reason: 'tone' })],
-    [usage({ turnId: 'tabc123-1', usage: { costUsd: 1 } }), usage({ turnId: 'tabc123-2', usage: { costUsd: 3 } })],
+    [usage({ turnId: 'tabc123-1', usage: { costUsd: 1, costUsdCumulative: 1 } }), usage({ turnId: 'tabc123-2', usage: { costUsd: 3, costUsdCumulative: 4 } })],
   );
   const t = feedbackSummaryText(rows, 10, 7);
   assert.match(t, /2 of 10 turns rated \(20%\)/);
@@ -201,4 +201,47 @@ test('FeedbackLog.forTurn — collects one turn across the current and previous 
 test('FeedbackLog — reading before anything was written is empty, not an error', () => {
   const dir = join(mkdtempSync(join(tmpdir(), 'aven-fb-')), 'never-created');
   assert.deepEqual(new FeedbackLog(dir).read(60_000), []);
+});
+
+test('joinUsage — a turn metered before the per-turn cost fix is counted, but its dollars stay apart', () => {
+  const rows = joinUsage(
+    [
+      fb({ turnId: 'tabc123-1', verdict: 'good' }),
+      fb({ turnId: 'tabc123-2', verdict: 'good' }),
+      fb({ turnId: 'tabc123-3', verdict: 'bad', reason: 'wrong' }),
+    ],
+    [
+      usage({ turnId: 'tabc123-1', usage: { costUsd: 2, costUsdCumulative: 2 } }),
+      usage({ turnId: 'tabc123-2', usage: { costUsd: 5 } }), // pre-fix: the session's running total, not the turn's cost
+      usage({ turnId: 'tabc123-3', usage: { costUsd: 3 } }),
+    ],
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].rated, 3); // verdicts are verdicts, whatever the cost record looks like
+  assert.equal(rows[0].good, 2);
+  assert.equal(rows[0].ratedCostUsd, 2); // per-turn dollars only
+  assert.equal(rows[0].goodCostUsd, 2);
+  assert.equal(rows[0].legacyRated, 2);
+  assert.equal(rows[0].legacyGood, 1);
+  assert.equal(rows[0].legacyCostUsd, 8);
+});
+
+test('feedbackSummaryText — cost per helped answer divides by the helped turns it has per-turn dollars for', () => {
+  const rows = joinUsage(
+    [fb({ turnId: 'tabc123-1', verdict: 'good' }), fb({ turnId: 'tabc123-2', verdict: 'good' }), fb({ turnId: 'tabc123-3', slug: 'lumora', verdict: 'good' })],
+    [
+      usage({ turnId: 'tabc123-1', usage: { costUsd: 2, costUsdCumulative: 2 } }),
+      usage({ turnId: 'tabc123-2', usage: { costUsd: 5 } }), // legacy
+      usage({ turnId: 'tabc123-3', slug: 'lumora', usage: { costUsd: 4, costUsdCumulative: 4 } }),
+    ],
+  );
+  const text = feedbackSummaryText(rows, 3, 7);
+  assert.match(text, /3 helped, 0 missed · ~\$3\.00 per answer that helped/); // (2 + 4) / 2 priced helped turns — not / 3
+  assert.match(text, /^1 of the rated turns predate the per-turn cost fix \(~\$5\.00 recorded, overstated\) — left out of the \$ figures$/m);
+  assert.match(text, /• \*caldora\* — 2\/2 helped · ~\$2\.00 rated \(\+ ~\$5\.00 legacy\)/);
+  assert.match(text, /• \*lumora\* — 1\/1 helped · ~\$4\.00 rated$/m); // no legacy → no suffix
+  // Without legacy records the section reads exactly as before.
+  const clean = feedbackSummaryText(joinUsage([fb()], [usage()]), 1, 7);
+  assert.ok(!/legacy|predate/.test(clean));
+  assert.match(clean, /1 helped, 0 missed · ~\$1\.00 per answer that helped/);
 });

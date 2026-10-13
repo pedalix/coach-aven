@@ -1,6 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { commentsFromStories, normaliseAsanaTask } from './normalise.js';
+import { commentsFromStories, involvesMe, normaliseAsanaTask } from './normalise.js';
+
+test('involvesMe: assigned to me, or me among the followers (what an @mention makes), by gid or e-mail', () => {
+  const me = { gid: '1167899671459952', email: 'owen@example.com' };
+  assert.equal(involvesMe({ assignee: { gid: '1167899671459952', name: 'Owen Hale' } }, me), true);
+  assert.equal(involvesMe({ assignee: { gid: '7520977444547', name: 'Rowan Mills' }, followers: [{ gid: '7520977444547' }, { gid: '1167899671459952' }] }, me), true);
+  assert.equal(involvesMe({ assignee: null, followers: [{ gid: '1', email: 'OWEN@example.com' }] }, { email: 'owen@example.com' }), true);
+  assert.equal(involvesMe({ assignee: { gid: '7520977444547' }, followers: [{ gid: '7520977444547' }] }, me), false);
+  assert.equal(involvesMe({ assignee: null }, me), false);
+  assert.equal(involvesMe({ assignee: { gid: '1167899671459952' } }, {}), false, 'an unresolved me matches nothing');
+});
 
 test('Asana task + stories → task', () => {
   const comments = commentsFromStories([

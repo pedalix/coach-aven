@@ -44,7 +44,10 @@ import type { Logger } from './types.js';
 
 // v4: messages.is_bot, meetings.call_id + calls (recorder copies grouped), Slack ids → names.
 // v5: activity (+activity_fts) — local git / Claude Code work blocks (local/pull.ts).
-export const SCHEMA_VERSION = 5;
+// v6: msgraph events carry `calendar` {id, name, is_default}; lines without it (written by the
+//     pre-v6 puller, which read every shared calendar untagged) are skipped, so the rebuild drops
+//     a colleague's shared calendar / holidays / birthdays while the puller re-emits the own ones.
+export const SCHEMA_VERSION = 6;
 /** Bumped when bots.ts rules change, so every row's is_bot / Slack labels get recomputed. */
 export const LABEL_RULES_VERSION = 1;
 /** Where the sandbox sees the replica directory (the file inside is always `store.sqlite`). */
@@ -327,6 +330,18 @@ export function refOf(r: Rec): string | undefined {
   return `${source}:${account}:${id}`;
 }
 
+/**
+ * `events.calendar` as stored: gcal writes the calendar id (a string, kept as is); msgraph
+ * writes {id, name, is_default}, stored as JSON text with that key order so the `calendar`
+ * tool returns it verbatim and a reader can `JSON.parse` a value that starts with `{`.
+ */
+export function calendarOf(v: unknown): string {
+  if (typeof v === 'string') return v;
+  if (!v || typeof v !== 'object') return '';
+  const o = v as Rec;
+  return JSON.stringify({ id: str(o.id), name: str(o.name), is_default: o.is_default === true });
+}
+
 /** Thread identity across sources — the unit `get()` expands around a hit. */
 export function threadIdOf(r: Rec, ref: string): string {
   const rawRef = str(r.raw_ref);
@@ -357,6 +372,8 @@ export interface BuildSummary {
   /** Distinct calls after grouping recorder copies (calls.ts). */
   calls: number;
   tombstones: number;
+  /** msgraph calendar lines without `calendar` (pre-v6 puller), skipped. */
+  legacyEvents: number;
   /** Tenant files changed → person resolution + attributions recomputed for every stored row. */
   recomputed: boolean;
   fragments: number;
@@ -378,6 +395,13 @@ export interface BuildContext {
   peoplePath?: string;
   /** The tenant's fragments.jsonl; undefined or missing = no attributions. */
   fragmentsPath?: string;
+  /**
+   * Kinds whose pull completed ok in the pass this build closes, with the puller's finishedAt.
+   * Written as `pulled:<kind>` scalars into sync_state (→ the replica → `stats.meta`), so a reader
+   * can state the age of each source. A failing kind keeps its previous value: data age, not
+   * attempt age. Omitted (CLI `build`) = leave them as they are.
+   */
+  pulled?: ReadonlyArray<{ kind: string; finishedAt: string }>;
   log: Logger;
   now?: () => Date;
   /** Lines per transaction. */
@@ -514,7 +538,7 @@ function labelled(source: string, r: Rec, dir: SlackDirectory): { container: str
   };
 }
 
-function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<string, string>, touched: { refs: Set<string>; threads: Set<string> }, dir: SlackDirectory = new Map()): 'message' | 'event' | 'file' | 'task' | 'meeting' | 'activity' | 'tombstone' | 'skip' {
+function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<string, string>, touched: { refs: Set<string>; threads: Set<string> }, dir: SlackDirectory = new Map()): 'message' | 'event' | 'file' | 'task' | 'meeting' | 'activity' | 'tombstone' | 'legacy' | 'skip' {
   const ref = refOf(r);
   if (!ref) return 'skip';
   const source = str(r.source);
@@ -596,7 +620,10 @@ function applyRecord(st: Statements, kind: RawKind, r: Rec, index: ReadonlyMap<s
       st.evTomb.run(ref, source, account);
       return 'tombstone';
     }
-    st.evUpsert.run(ref, source, account, str(r.calendar), str(r.start), str(r.end), str(r.title), JSON.stringify(strs(r.attendees)), str(r.organizer), str(r.link));
+    // Pre-v6 msgraph lines carry no calendar — and those from a shared calendar are not this
+    // account's time. The v2 cursor re-emits the own calendar tagged, so nothing of value is lost.
+    if (source === 'msgraph' && !r.calendar) return 'legacy';
+    st.evUpsert.run(ref, source, account, calendarOf(r.calendar), str(r.start), str(r.end), str(r.title), JSON.stringify(strs(r.attendees)), str(r.organizer), str(r.link));
     return 'event';
   }
   if (deleted) {
@@ -744,7 +771,7 @@ export function buildStore(ctx: BuildContext): BuildSummary {
   resetIfOldSchema(ctx.storePath, ctx.log);
   const db = openStore(ctx.storePath);
   const sum: BuildSummary = {
-    files: 0, lines: 0, malformed: 0, replayed: 0, messages: 0, events: 0, fileRecords: 0, tasks: 0, meetings: 0, activity: 0, calls: 0, tombstones: 0,
+    files: 0, lines: 0, malformed: 0, replayed: 0, messages: 0, events: 0, fileRecords: 0, tasks: 0, meetings: 0, activity: 0, calls: 0, tombstones: 0, legacyEvents: 0,
     recomputed: false, fragments: 0, attributions: 0, malformedFragments: 0, truncatedFiles: [], skippedFiles: [], people: 0,
   };
   try {
@@ -818,6 +845,7 @@ export function buildStore(ctx: BuildContext): BuildSummary {
             else if (what === 'meeting') sum.meetings++;
             else if (what === 'activity') sum.activity++;
             else if (what === 'tombstone') sum.tombstones++;
+            else if (what === 'legacy') sum.legacyEvents++;
           }
           for (const t of touched.threads) {
             st.threadUp.run(t);
@@ -846,6 +874,7 @@ export function buildStore(ctx: BuildContext): BuildSummary {
     }
     sum.calls = recomputeCalls(db);
     st.syncSet.run('last_build_at', now().toISOString());
+    for (const p of ctx.pulled ?? []) st.syncSet.run(`pulled:${p.kind}`, p.finishedAt);
     if (ctx.replicaDir) sum.replica = writeReplica(db, ctx.replicaDir);
   } finally {
     db.close();

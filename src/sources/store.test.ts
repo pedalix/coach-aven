@@ -166,6 +166,64 @@ test('build: events/files upsert, msgraph tombstones.jsonl routes by kind, threa
   db.close();
 });
 
+test('build v6: Outlook events carry their calendar as JSON; untagged pre-v6 lines are skipped; gcal keeps its string', () => {
+  const { raw, ctx } = scaffold();
+  const ev = (id: string, title: string, extra: object = {}) =>
+    line({ source: 'msgraph', account: 'upn', id, start: '2026-10-14T09:00:00Z', end: '2026-10-14T09:30:00Z', title, attendees: [], organizer: 'Owen Hale <upn>', link: 'l', ...extra });
+  writeFileSync(
+    join(raw, 'msgraph', 'upn', 'calendar.jsonl'),
+    // The pre-v6 puller read every shared calendar and tagged nothing — such lines are not this account's time.
+    ev('legacy1', 'Group Management Meeting') +
+      ev('own1', 'P5 weekly sync', { calendar: { id: 'AQMkPri', name: 'Calendar', is_default: true } }) +
+      ev('legacy1', 'Group Management Meeting (edited)'),
+  );
+  writeFileSync(join(raw, 'google', 'acc@x.com', 'events.jsonl'), line({ source: 'gcal', account: 'acc@x.com', id: 'g1', calendar: 'acc@x.com', start: '2026-10-08', end: '2026-10-09', title: 'Steering', attendees: [], organizer: 'acc@x.com', link: 'l' }));
+  const s = buildStore(ctx);
+  assert.equal(s.events, 2);
+  assert.equal(s.legacyEvents, 2);
+  const db = openReadOnly(ctx.storePath);
+  assert.deepEqual(plain(db.prepare('SELECT ref, calendar FROM events ORDER BY ref').all()), [
+    { ref: 'gcal:acc@x.com:g1', calendar: 'acc@x.com' },
+    { ref: 'msgraph:upn:own1', calendar: '{"id":"AQMkPri","name":"Calendar","is_default":true}' },
+  ]);
+  db.close();
+  // A tombstone for an untagged id is still honoured (deleted is information) …
+  appendFileSync(join(raw, 'msgraph', 'upn', 'tombstones.jsonl'), line({ source: 'msgraph', account: 'upn', id: 'legacy1', deleted: true, kind: 'calendar' }));
+  const s2 = buildStore(ctx);
+  assert.equal(s2.tombstones, 1);
+  let db2 = openReadOnly(ctx.storePath);
+  assert.deepEqual(plain(db2.prepare('SELECT calendar, deleted FROM events WHERE ref = ?').all('msgraph:upn:legacy1')), [{ calendar: '', deleted: 1 }]);
+  db2.close();
+  // … and a later tagged line (the calendar opted in) resurrects the row with its calendar.
+  appendFileSync(join(raw, 'msgraph', 'upn', 'calendar.jsonl'), ev('legacy1', 'Group Management Meeting', { calendar: { id: 'AQMkVal', name: 'Vincent | HCG', is_default: false } }));
+  const s3 = buildStore(ctx);
+  assert.equal(s3.events, 1);
+  assert.equal(s3.legacyEvents, 0);
+  db2 = openReadOnly(ctx.storePath);
+  assert.deepEqual(plain(db2.prepare('SELECT calendar, deleted FROM events WHERE ref = ?').all('msgraph:upn:legacy1')), [{ calendar: '{"id":"AQMkVal","name":"Vincent | HCG","is_default":false}', deleted: 0 }]);
+  db2.close();
+});
+
+test('build: pulled:<kind> scalars record per-source freshness in sync_state (and the replica); a build without them keeps the old values', () => {
+  const { raw, ctx } = scaffold();
+  writeFileSync(join(raw, 'google', 'acc@x.com', 'messages.jsonl'), gmail('f1', 'fresh'));
+  const pulledOf = (path: string) => {
+    const db = openReadOnly(path);
+    try {
+      return Object.fromEntries((db.prepare("SELECT key, value FROM sync_state WHERE key LIKE 'pulled:%' ORDER BY key").all() as { key: string; value: string }[]).map((r) => [r.key, r.value]));
+    } finally {
+      db.close();
+    }
+  };
+  buildStore({ ...ctx, pulled: [{ kind: 'google', finishedAt: '2026-10-13T20:00:00.000Z' }, { kind: 'msgraph', finishedAt: '2026-10-13T20:01:00.000Z' }] });
+  assert.deepEqual(pulledOf(ctx.storePath), { 'pulled:google': '2026-10-13T20:00:00.000Z', 'pulled:msgraph': '2026-10-13T20:01:00.000Z' });
+  assert.deepEqual(pulledOf(join(ctx.replicaDir!, 'store.sqlite')), pulledOf(ctx.storePath), 'the replica carries them → stats.meta');
+  // Next pass: msgraph failed (not in `pulled`) → keeps its last good value; then a CLI build (no `pulled`) touches nothing.
+  buildStore({ ...ctx, pulled: [{ kind: 'google', finishedAt: '2026-10-13T20:15:00.000Z' }] });
+  buildStore(ctx);
+  assert.deepEqual(pulledOf(ctx.storePath), { 'pulled:google': '2026-10-13T20:15:00.000Z', 'pulled:msgraph': '2026-10-13T20:01:00.000Z' });
+});
+
 test('build: replica is a renamed VACUUM INTO copy that opens immutable and matches the store', () => {
   const { raw, ctx } = scaffold();
   writeFileSync(join(raw, 'google', 'acc@x.com', 'messages.jsonl'), gmail('r1', 'replica me'));

@@ -47,23 +47,57 @@ export interface TurnUsage {
   outputTokens?: number;
   cacheCreationTokens?: number;
   cacheReadTokens?: number;
+  // This turn's own cost: the CHANGE in the CLI's running total since the previous
+  // `result` of the same process (CostDelta). The token fields above are per turn on the
+  // wire; the dollar figure is not — see costUsdCumulative.
   costUsd?: number;
+  // The CLI's `total_cost_usd` as received: everything this process has spent so far, not
+  // this turn. Kept raw so a record can always be re-derived — and because its presence is
+  // what tells metering.ts the record was written with per-turn cost (records from before
+  // the fix carry the running total in costUsd and nothing here).
+  costUsdCumulative?: number;
+}
+
+// Claude Code's `result.total_cost_usd` is the PROCESS's running total — every turn of a
+// persistent session reports all the money the process has spent so far. From v0.22.0 it
+// was recorded verbatim and summed per turn, which overstated ~2× (a canceled zero-token
+// turn carried the previous turn's exact figure). This turns the running total into a
+// per-turn delta. One instance per ClaudeSession = per CLI process: a fresh spawn starts
+// at 0 (a `--resume`d process starts its own counter at 0 too — in the home bot's usage
+// log the first turn after a restart reads below the previous process's total), a reattach
+// seeds it from the replayed log (parseSnapshot), and it restarts when the counter runs
+// backwards (a reset we did not see coming) or when the conversation id changes.
+export class CostDelta {
+  private last = 0;
+  private sessionId?: string;
+
+  // Per-turn cost for a `result` whose total_cost_usd is `cumulative`.
+  next(cumulative: number, sessionId?: string): number {
+    if (sessionId && this.sessionId && sessionId !== this.sessionId) this.last = 0; // another conversation → another counter
+    if (sessionId) this.sessionId = sessionId;
+    const delta = cumulative < this.last ? cumulative : cumulative - this.last;
+    this.last = cumulative;
+    return delta;
+  }
 }
 
 // Pull the token counters out of a `result` event, defensively — every field is
-// optional on the wire and shapes have drifted across CLI versions.
+// optional on the wire and shapes have drifted across CLI versions. `costs` is the
+// process's running-total tracker (CostDelta): it must see every `result` of the process,
+// in order, or the next delta is wrong.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function usageOf(ev: any): TurnUsage | undefined {
+function usageOf(ev: any, costs: CostDelta): TurnUsage | undefined {
   const u = ev?.usage;
-  const cost = typeof ev?.total_cost_usd === 'number' ? ev.total_cost_usd : undefined;
-  if (!u && cost === undefined) return undefined;
+  const cumulative = typeof ev?.total_cost_usd === 'number' ? ev.total_cost_usd : undefined;
+  if (!u && cumulative === undefined) return undefined;
   const num = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
   return {
     inputTokens: num(u?.input_tokens),
     outputTokens: num(u?.output_tokens),
     cacheCreationTokens: num(u?.cache_creation_input_tokens),
     cacheReadTokens: num(u?.cache_read_input_tokens),
-    costUsd: cost,
+    costUsd: cumulative === undefined ? undefined : costs.next(cumulative, typeof ev.session_id === 'string' ? ev.session_id : undefined),
+    costUsdCumulative: cumulative,
   };
 }
 
@@ -119,6 +153,8 @@ export class ClaudeSession {
   // to the runtime watchdog (whose kill also retires the whole session).
   private snapshotPendingTool?: { requestId: string; input: unknown };
   private attached = false; // opened by reattaching to a running command (vs fresh spawn)
+  // Running total → per-turn cost for THIS process; fed every `result` we see, in order.
+  private readonly costs = new CostDelta();
 
   // Fires when a `result` event arrives with NO turn pending — i.e. the CLI process,
   // otherwise idle, spontaneously completed a fresh turn on its own. This happens when a
@@ -339,6 +375,7 @@ export class ClaudeSession {
     let lastEvent: any;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let lastResult: any;
+    let lastUsage: TurnUsage | undefined;
     for (const ln of stdout.split('\n')) {
       const t = ln.trim();
       if (!t) continue;
@@ -346,7 +383,13 @@ export class ClaudeSession {
         const ev = JSON.parse(t);
         lastEvent = ev;
         if (ev.session_id) this.claudeSessionId = ev.session_id;
-        if (ev.type === 'result') lastResult = ev;
+        // Every replayed result goes through the cost tracker, in order, so it ends on the
+        // process's current running total — the next live turn is then metered as a delta
+        // against that, not as the whole total the old bot already recorded turn by turn.
+        if (ev.type === 'result') {
+          lastResult = ev;
+          lastUsage = usageOf(ev, this.costs);
+        }
       } catch {
         /* skip non-JSON noise */
       }
@@ -357,7 +400,7 @@ export class ClaudeSession {
         resultText: typeof lastResult.result === 'string' ? lastResult.result : '',
         isError: !!lastResult.is_error,
         started: true,
-        usage: usageOf(lastResult),
+        usage: lastUsage,
       };
     } else if (lastEvent?.type === 'control_request' && lastEvent.request?.subtype === 'can_use_tool') {
       // The snapshot ends on an unanswered question. Heuristic: we can't see our own
@@ -514,11 +557,11 @@ export class ClaudeSession {
       const resultText = typeof ev.result === 'string' ? ev.result : '';
       if (this.pending) {
         const status: TurnResult['status'] = this.pending.canceled ? 'canceled' : 'ok';
-        this.settle({ status, resultText, isError: !!ev.is_error, usage: usageOf(ev) });
+        this.settle({ status, resultText, isError: !!ev.is_error, usage: usageOf(ev, this.costs) });
       } else {
         // No turn was waiting on this — a background task finished on its own.
         this.onIdleUsage?.({
-          usage: usageOf(ev),
+          usage: usageOf(ev, this.costs),
           isError: !!ev.is_error,
           durationMs: typeof ev.duration_ms === 'number' ? ev.duration_ms : 0,
         });

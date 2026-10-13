@@ -42,7 +42,8 @@ src/
   pollers.ts        # scheduler + auto-review / autofix / YouTrack pollers
   blocks.ts         # every Block Kit renderer + user-facing text helpers
   channels.ts       # channel ↔ project resolution
-  tasks.ts          # chat session over a sandbox; the 3-layer system prompt
+  tasks.ts          # chat session over a sandbox
+  prompt.ts         # the 3-layer system prompt (base → project prompt → repo CLAUDE.md), golden-tested
   scrub.ts          # secrets redaction: model boundary (claudeSession send) + ingest (sources)
   sandboxopts.ts    # per-project container options: privileged / dind / mounts
   sources/          # per-project ingestion of mail/chat/calendar/files + task trackers (youtrack/jira/asana) (docs/sources.md):
