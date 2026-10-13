@@ -21,7 +21,7 @@ poller and the sandbox-side search tool are the next slices (see *What comes nex
                  "calendars": [], "kinds": ["gmail", "drive", "calendar"] },
     "slack":   { "workspaces": ["T0000FAKE01"], "since": "2026-10-01", "threadWindowDays": 30, "editWindowHours": 48 },
     "msgraph": { "tenant": "00000000-0000-4000-8000-000000000000", "accounts": ["owen.hale@example.com"],
-                 "only": ["mail", "calendar", "chats", "channels", "files"] },
+                 "only": ["mail", "calendar", "chats", "channels", "files"], "calendars": [] },
     "intervalMinutes": 15,
     "people": "projects.d/owen-ops.people.json"
   }
@@ -33,6 +33,7 @@ poller and the sandbox-side search tool are the next slices (see *What comes nex
 | `google.accounts` | e-mails bootstrapped with `orch sources auth <slug> google login`; `since` bounds the first Gmail/Drive backfill; `calendars` are ids read **in addition to each account's primary calendar** (a colleague's shared calendar once yielded 200k title-less events, so nothing else is read by default); `kinds` ⊆ gmail, drive, calendar |
 | `slack.workspaces` | team ids (or names) stored by `auth slack add`; empty = every stored workspace. `since` bounds first contact with a conversation, else the workspace's `backfill_days`. `editWindowHours` is how far history is re-read each run to turn deletions into tombstones and edits into replacements |
 | `msgraph.tenant` | the Entra tenant GUID — the authority is always the tenant, never `/common`; `accounts` are UPNs; `only` ⊆ mail, calendar, chats, channels, files |
+| `msgraph.calendars` | Outlook calendar ids read **in addition to each account's default calendar** (default: the default calendar only — the same rule as `google.calendars`). A colleague's calendar shared into the mailbox, holidays and birthdays all appear in `/me/calendars`; Graph reports the mailbox owner as *organizer* for everything in them, so ownership is a property of the calendar, not of the event. Skipped calendars are named in the log every pass (ids with `--verbose`) so one can be opted in. Every Outlook event record carries `calendar: {id, name, is_default}` |
 | `intervalMinutes` | poller interval (PR-C); validated now |
 | `people` | identities file for the store build (PR-B); validated as a relative path now |
 
@@ -117,11 +118,11 @@ on Node's built-in `node:sqlite`, no native dependency):
 | `messages` | compacted mail + chat: `ref` = `source:account:id`, `thread_id`, `ts`, `author_person`/`author_raw`, `subject`, `text`, `permalink`, `raw_ref`, `scrub_withheld`/`scrub_kinds`, `deleted` |
 | `messages_fts` | FTS5 over `subject`+`text` (`porter unicode61 remove_diacritics 2`: *läuft* ↔ *lauft*, *running* ↔ *run*); triggers keep it in step and **drop deleted rows from the index** |
 | `threads` | per-thread rollup (first/last ts, count), recomputed for the threads a build touched |
-| `events`, `files` | calendar items and file metadata, same compaction and tombstones |
+| `events`, `files` | calendar items and file metadata, same compaction and tombstones. `events.calendar` is the Google calendar id for `gcal` rows and, for `msgraph` rows, the JSON text `{"id","name","is_default"}` of the Outlook calendar the event was read from (`is_default: true` = the account's own). Outlook lines without `calendar` — written by the puller before schema v6, which read every shared calendar untagged — are skipped at build, so the v6 rebuild drops them while the puller re-emits the own calendar tagged (its cursor marker `calendar.version` resets the delta link once) |
 | `people`, `identities`, `message_people` | who is who — from the tenant's people file (markers included), then `from`/`to` rows per message |
 | `meetings`, `meetings_fts`, `meeting_people` | recorded calls (see *Meetings*): title, start/end, attendees, summary, next steps, transcript; FTS over title+summary+transcript |
 | `fragments`, `attributions` | the tenant's decisions (see *Tenant annotations*): which refs belong to which initiative, with shares and who decided |
-| `sync_state` | `schema_version`, `derived_fingerprint`, `last_build_at` + the byte offset consumed per raw file |
+| `sync_state` | `schema_version`, `derived_fingerprint`, `last_build_at`, one `pulled:<kind>` per source (ISO `finishedAt` of the last pull of that kind that reported **ok** — a failing kind keeps its previous value, so this is the age of the data, not of the attempt; the `stats` tool shows them under `meta`) + the byte offset consumed per raw file |
 
 Why this shape: GB-scale personal mail and chat are an FTS problem first (the research behind
 the design is in the owen-ops repo, `docs/research-landscape.md` §2); embeddings would be an
@@ -263,7 +264,7 @@ restart. The agent sees `mcp__sources__search`, `get`, `people`, `stats`:
 | --- | --- |
 | `search({query, since, until, source, person, initiative, includeBots, limit})` | FTS5 (`bm25`) over subject+text; every word is quoted so user text cannot reach the MATCH grammar. Exposed on purpose: `"quoted phrases"`, `word*` prefix, and upper-case `OR` / `AND` / `NOT` between two terms (lower-case `or` is a word; dangling operators drop). Bot/integration messages (`messages.is_bot`) are excluded unless `includeBots`. A call recorded by several recorders comes back once, with the other copies in `also`. `person` is an identity (email, slack id) or a name fragment; `initiative` filters by the people whose default initiative it is. No query → newest first. Hits carry `ref`, `permalink`, a highlighted snippet and `withheld` when the body was removed. |
 | `get({ref})` | The full row, up to five thread neighbours each way, the people on it and the scrub metadata. A withheld body returns its `[BODY WITHHELD…]` marker verbatim — that *is* the answer. |
-| `calendar({since, until, person, q, source, limit})` | Calendar events (Google, Outlook) ordered by start — the source for "meetings today". `person` matches attendees/organizer via the person's identities (or the raw text); `q` matches the title. |
+| `calendar({since, until, person, q, source, limit})` | Calendar events (Google, Outlook) ordered by start — the source for "meetings today". `person` matches attendees/organizer via the person's identities (or the raw text); `q` matches the title. Every row carries `calendar` (see *Store*): for Outlook the JSON `{id, name, is_default}` — the only way to tell an own event from one in a calendar shared into the mailbox, since Graph names the mailbox owner as organizer for both. |
 | `people({q})` | Known people with their identities (from `projects.d/<slug>.people.json`). |
 | `stats()` | Per-source counts and time range, events, files, withheld count, build meta — what the replica covers, before the agent concludes something is missing. |
 
@@ -287,12 +288,19 @@ to join them. Raw files are `raw/<kind>/<account>/tasks.jsonl` + `cursor.json`; 
 `tasks` table and `tasks_fts` (title, description, comments) with the same tokenizer and the same
 "deleted means gone from the index" triggers.
 
+The cursor is **inclusive** (`updated >= max(updated)`, minute-granular in Jira), so the rows at the
+cursor come back on every pass for ever — with overlap 0 just the same. `cursor.json` therefore keeps,
+beside `updated`, `hashes`: id → sha256 of the scrubbed line last appended, for the ids the last
+successful pass returned (bounded by construction). A byte-identical row is not appended again; cursor
+and map move together, only on success. Raw tracker files used to grow ~5 MB/day on the home bot from
+7 Jira + 2 Asana rows re-appended every 16 minutes.
+
 ```jsonc
 "sources": {
   "youtrack": { "url": "https://acme.youtrack.cloud", "tokenEnv": "YOUTRACK_TOKEN",
                 "projects": ["CG", "CAR"], "assignee": "Owen", "since": "2026-09-15" },
   "jira":     { "site": "acme.atlassian.net", "fromNetrc": true, "since": "2026-09-15" },
-  "asana":    { "workspace": "7520977444554", "projects": ["1208573315693393"] }
+  "asana":    { "workspace": "7520977444554", "projects": ["1208573315693393"] }   // projects: tasks there assigned to me OR following me
 }
 ```
 
@@ -300,7 +308,7 @@ to join them. Raw files are `raw/<kind>/<account>/tasks.jsonl` + `cursor.json`; 
 | --- | --- | --- | --- |
 | YouTrack | permanent token: `tokenEnv` (reuse the bot's `YOUTRACK_TOKEN`) or `youtrack.json {token}` via `auth … youtrack add` | per project, `updated` since the cursor; with `assignee`, only issues that person is assigned to, reported or commented on. Query verified on Cloud: a parenthesised OR group needs explicit `and`, the keyword is `reporter:` (not `by:`), and no `sort by:` after a group | paced 5 req/s |
 | Jira Cloud | e-mail + API token: `fromNetrc` (the host's `machine <site>` entry) or `jira.json {email, token}` via `auth … jira add --email …` | `POST /rest/api/3/search/jql` (the enhanced search; `nextPageToken` paging); default JQL "involves me" (assignee/reporter/watcher/comment), a configured `jql` replaces it, `updated >=` is always ANDed. ADF → plain text | paced 4 req/s, `Retry-After` honoured |
-| Asana | PAT: `asana.json {token}` via `auth … asana add` | `GET /tasks?assignee=me&workspace=…&modified_since=…` (search is premium-only) plus every configured project; comment stories per changed task. Status = board section, `completed` → done | 150 rpm free tier → paced at 450 ms |
+| Asana | PAT: `asana.json {token}` via `auth … asana add` | `GET /tasks?assignee=me&workspace=…&modified_since=…` (search is premium-only) plus, per `projects` gid, `GET /tasks?project=…&modified_since=…` **kept only when the task is assigned to me or lists me as a follower** (Asana adds every @mentioned user as a follower, so a colleague's task that mentions me arrives, the rest of the board does not); `me` is resolved once per pull via `/users/me` (or the configured gid / e-mail). Comment stories per kept task. Status = board section, `completed` → done | 150 rpm free tier → paced at 450 ms |
 
 Scrubbing: description and every comment go through `scrubForWrite` separately, so one comment
 with a DSN withholds that comment (filed in the vault), not the whole ticket; titles are redacted
