@@ -42,7 +42,7 @@ export function withSourcesMcp(mcp: McpServerSpec[] | undefined, sourcesEnabled:
   return [...base, sourcesMcpSpec()];
 }
 
-/** Layer-1 system-prompt paragraph for projects with sources (tasks.ts buildSystemPrompt). */
+/** Layer-1 system-prompt paragraph for projects with sources (prompt.ts buildSystemPrompt). */
 export const SOURCES_PROMPT_PARAGRAPH =
   `Connected sources: the \`sources\` MCP tools (search, get, tasks, meetings, fragments, people, stats) query a READ-ONLY, ` +
   `scrubbed replica of this project's connected mail, chat, calendar, trackers and recorded calls at ${SOURCES_DB_PATH}. ` +

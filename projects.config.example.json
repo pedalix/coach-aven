@@ -80,6 +80,7 @@
         "REPLACE-you/REPLACE-ops-ledger"
       ],
       "driver": "ssh-docker",
+      "gitFlow": "direct",
       "sandbox": {
         "privileged": false,
         "dind": false,
@@ -88,7 +89,7 @@
         ]
       },
       "scrubSecrets": true,
-      "systemPrompt": "Example of a docker-less project on the `plain` image variant (snapshot/plain/Dockerfile): an ordinary unprivileged container with a read-only data mount. See docs/sandbox-drivers.md.",
+      "systemPrompt": "Example of a docker-less project on the `plain` image variant (snapshot/plain/Dockerfile): an ordinary unprivileged container with a read-only data mount, whose agent commits straight to the checkout's branch (gitFlow direct — no worktree, no PR). See docs/sandbox-drivers.md and docs/runtime-config.md.",
       "env": {},
       "mcp": []
     }

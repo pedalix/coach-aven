@@ -359,6 +359,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       repos: project.repos,
       resumeSessionId: prior?.sessionId,
       systemPrompt: project.systemPrompt,
+      gitFlow: project.gitFlow,
       slackUrl,
       mcp: project.mcp,
       avenSession: avenSessionValue(key),

@@ -71,7 +71,7 @@ most of "tenancy" under a different name:
 | GitHub token | `getGitHubToken` mints a token **scoped to only that project's repos**; installation **auto-discovered from the repo owner** (`github.ts:discoverInstallationId`) | ✅ per project, multi-org-ready |
 | Claude session | one Claude conversation per thread/DM (`state.ts` chats) | ✅ per conversation |
 | MCP servers | `project.mcp[]` materialized per sandbox (`project.ts:seedMcpConfig`) | ✅ per project |
-| System prompt | `project.systemPrompt` layered onto the base (`tasks.ts:buildSystemPrompt`) | ✅ per project |
+| System prompt | `project.systemPrompt` layered onto the base (`prompt.ts:buildSystemPrompt`) | ✅ per project |
 | Channel binding | explicit `slackChannel` id **or** `bluefin-aven-<slug>` name wildcard (`slack.ts:pickProject`) | ✅ per channel, **channel-id is workspace-agnostic** |
 
 **What is *global* (single-tenant) today:**

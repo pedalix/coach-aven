@@ -34,6 +34,9 @@ export interface McpServerSpec {
   auth?: 'gateway-m2m';
 }
 
+export const GIT_FLOWS = ['pr', 'direct'] as const;
+export type GitFlow = (typeof GIT_FLOWS)[number];
+
 export interface ProjectConfig {
   slug: string; // short id + sandbox suffix (proj-<slug>); channel = bluefin-aven-<slug>
   repos: string[]; // ["Org/name", ...]; repos[0] is primary (v1 clones/uses it)
@@ -43,6 +46,12 @@ export interface ProjectConfig {
   // repo is + how they relate, merge/deploy-order rules, docs links. Repo CODING
   // conventions belong in each repo's own CLAUDE.md, not here.
   systemPrompt?: string;
+  // How the agent gets changes OUT of the sandbox — told in the base system prompt (prompt.ts).
+  // `pr` (default): a dedicated worktree off the remote default branch and a pull request —
+  // code under review. `direct`: `git pull --rebase --autostash`, commit on the checkout's
+  // current branch, push — a repo with no review flow (an ops ledger the agent itself keeps).
+  // Explicit on purpose: never inferred from repo names or `sources`. Applies to new sessions.
+  gitFlow?: GitFlow;
   env?: Record<string, string>; // per-project env/secrets seeded into the sandbox (reserved)
   mcp?: McpServerSpec[]; // per-project MCP servers → materialized into --mcp-config in the sandbox
   // Which sandbox provider hosts this project's sandbox (see driver.ts). Omitted → the
@@ -124,6 +133,12 @@ export function loadProjects(path: string): ProjectsRegistry {
   for (const p of reg.projects) {
     if (!p.slug || !Array.isArray(p.repos) || p.repos.length === 0) {
       throw new Error(`${path}: each project needs a "slug" and at least one repo in "repos"`);
+    }
+    // A typo here would silently fall back to the PR flow — fail the boot (and `/aven reload`).
+    if (p.gitFlow !== undefined && !(GIT_FLOWS as readonly string[]).includes(p.gitFlow)) {
+      throw new Error(
+        `${path}: project "${p.slug}" gitFlow must be one of ${GIT_FLOWS.map((f) => `"${f}"`).join(', ')}, got ${JSON.stringify(p.gitFlow)}`,
+      );
     }
     // Validate at boot: a bad mount or a privileged:false/dind:true contradiction must fail
     // here, not at the first turn of that project.
