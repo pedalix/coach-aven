@@ -44,8 +44,31 @@ export function teamOf(key: string): string {
   return splitTeam(key).tenantId ?? 'home';
 }
 
+// A record's dollars, split by how they were metered. `usd` is per-turn cost (the delta of
+// the CLI's running total — claudeSession.ts CostDelta); `legacyUsd` is a figure written
+// before that fix: Claude Code's `total_cost_usd` is the PROCESS's running total, so each
+// of those records carries everything the session had spent by then, and summing them
+// overstates ~2× (home bot, Oct 2026: Σ $47.77 recorded vs ≈ $25 reconstructed). The two
+// never mix — a legacy record is one without costUsdCumulative, because the fix always
+// writes the raw total next to the delta.
+export function costOf(r: UsageRecord): { usd: number; legacyUsd: number } {
+  const u = r.usage;
+  if (u?.costUsd === undefined) return { usd: 0, legacyUsd: 0 };
+  return u.costUsdCumulative === undefined ? { usd: 0, legacyUsd: u.costUsd } : { usd: u.costUsd, legacyUsd: 0 };
+}
+
+// The stamp the scheduler puts on a routine turn's record (optional: live turns, and every
+// record from before the stamp existed, carry none). Read structurally so this cut neither
+// depends on nor conflicts with the fields' declaration on UsageRecord.
+type RoutineStamp = { routineId?: string; routineLabel?: string };
+function routineOf(r: UsageRecord): string | undefined {
+  const { routineId, routineLabel } = r as UsageRecord & RoutineStamp;
+  if (typeof routineId !== 'string' || !routineId) return undefined;
+  return typeof routineLabel === 'string' && routineLabel ? `${routineLabel} (${routineId})` : routineId;
+}
+
 export interface UsageRow {
-  group: string; // slug or team, per the aggregation dimension
+  group: string; // slug, team or routine, per the aggregation dimension
   turns: number; // prompts in (live turns + asks)
   background: number; // self-started CLI turns — their cost is in the totals, not in `turns`
   errors: number;
@@ -54,18 +77,27 @@ export interface UsageRow {
   outputTokens: number;
   cacheReadTokens: number;
   cacheCreationTokens: number;
-  costUsd: number;
+  costUsd: number; // per-turn metered records only
+  // Records from before per-turn cost metering (costOf): their dollars, kept apart because
+  // they overstate, and how many turns carry them.
+  legacyCostUsd: number;
+  legacyTurns: number;
 }
 
-// Pure: records → per-group totals, biggest cost first. Canceled turns still count as
-// turns (they may have burned tokens before the interrupt).
-export function aggregateUsage(records: UsageRecord[], by: 'slug' | 'team'): UsageRow[] {
+// Pure: records → per-group totals, biggest cost first (legacy dollars count for the
+// ranking, so the order holds through the transition). Canceled turns still count as
+// turns (they may have burned tokens before the interrupt). The 'routine' dimension keys
+// on the scheduler's stamp — label + id, so a renamed routine shows as what it was called
+// at the time — and skips every record without one: a cut of the routine turns, not a
+// partition of all turns.
+export function aggregateUsage(records: UsageRecord[], by: 'slug' | 'team' | 'routine'): UsageRow[] {
   const rows = new Map<string, UsageRow>();
   for (const r of records) {
-    const group = by === 'team' ? teamOf(r.key) : r.slug;
+    const group = by === 'team' ? teamOf(r.key) : by === 'routine' ? routineOf(r) : r.slug;
+    if (!group) continue;
     const row =
       rows.get(group) ??
-      { group, turns: 0, background: 0, errors: 0, wallMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0 };
+      { group, turns: 0, background: 0, errors: 0, wallMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0, legacyCostUsd: 0, legacyTurns: 0 };
     if (r.kind === 'background') row.background++;
     else row.turns++;
     if (r.status === 'error') row.errors++;
@@ -74,10 +106,15 @@ export function aggregateUsage(records: UsageRecord[], by: 'slug' | 'team'): Usa
     row.outputTokens += r.usage?.outputTokens ?? 0;
     row.cacheReadTokens += r.usage?.cacheReadTokens ?? 0;
     row.cacheCreationTokens += r.usage?.cacheCreationTokens ?? 0;
-    row.costUsd += r.usage?.costUsd ?? 0;
+    const { usd, legacyUsd } = costOf(r);
+    row.costUsd += usd;
+    if (legacyUsd) {
+      row.legacyCostUsd += legacyUsd;
+      row.legacyTurns++;
+    }
     rows.set(group, row);
   }
-  return [...rows.values()].sort((a, b) => b.costUsd - a.costUsd || b.turns - a.turns);
+  return [...rows.values()].sort((a, b) => b.costUsd + b.legacyCostUsd - (a.costUsd + a.legacyCostUsd) || b.turns - a.turns);
 }
 
 // Pure: JSONL text → records, tolerant of torn lines (crash mid-append) and foreign junk.
@@ -107,33 +144,47 @@ const fmtH = (ms: number): string => `${(ms / 3_600_000).toFixed(1)}h`;
 // context on every tool call, so cache reads are routinely ~95% of a turn's tokens and most
 // of its cost (a real caldora turn: 7k in / 18k out / 1.85M cache read → $1.40). Showing
 // only in/out made "690k tokens for $171" look like a bug when it was the hidden 98%.
-export function usageSummaryText(bySlug: UsageRow[], byTeam: UsageRow[], days: number): string {
+//
+// Dollars are per turn. Records from before that fix (costOf) carry the CLI's running total
+// and overstate ~2×, so they get their own "Legacy" line and a per-row suffix instead of
+// being added to the figures — both vanish once the window holds only per-turn records,
+// and the rest of the layout is exactly what operators have been reading.
+export function usageSummaryText(bySlug: UsageRow[], byTeam: UsageRow[], days: number, byRoutine: UsageRow[] = []): string {
   if (bySlug.length === 0) return `No agent turns recorded in the last ${days}d.`;
   const line = (r: UsageRow) =>
     `• *${r.group}* — ${r.turns} turns${r.background ? ` + ${r.background} background` : ''}${r.errors ? ` (${r.errors} errors)` : ''} · ` +
     `${fmtK(r.cacheReadTokens)} cache read / ${fmtK(r.cacheCreationTokens)} cache write / ` +
-    `${fmtK(r.inputTokens)} in / ${fmtK(r.outputTokens)} out tok · ~$${r.costUsd.toFixed(2)} · ${fmtH(r.wallMs)} active`;
+    `${fmtK(r.inputTokens)} in / ${fmtK(r.outputTokens)} out tok · ~$${r.costUsd.toFixed(2)}` +
+    `${r.legacyCostUsd ? ` (+ ~$${r.legacyCostUsd.toFixed(2)} legacy)` : ''} · ${fmtH(r.wallMs)} active`;
   const sum = bySlug.reduce(
     (a, r) => ({
       turns: a.turns + r.turns,
       background: a.background + r.background,
       cost: a.cost + r.costUsd,
+      legacy: a.legacy + r.legacyCostUsd,
+      legacyTurns: a.legacyTurns + r.legacyTurns,
       wall: a.wall + r.wallMs,
       cache: a.cache + r.cacheReadTokens,
       tok: a.tok + r.cacheReadTokens + r.cacheCreationTokens + r.inputTokens + r.outputTokens,
     }),
-    { turns: 0, background: 0, cost: 0, wall: 0, cache: 0, tok: 0 },
+    { turns: 0, background: 0, cost: 0, legacy: 0, legacyTurns: 0, wall: 0, cache: 0, tok: 0 },
   );
   const cachePct = sum.tok ? Math.round((sum.cache / sum.tok) * 100) : 0;
   const parts = [
     `*Usage — last ${days}d*  (~$ = API-list-price equivalent computed by the CLI, not a bill — we run on a Max subscription)`,
     `Total: ${sum.turns} turns${sum.background ? ` + ${sum.background} background` : ''} · ~$${sum.cost.toFixed(2)} · ${fmtK(sum.tok)} tok, ${cachePct}% of them cache reads · ${fmtH(sum.wall)} agent-active time`,
-    '',
-    '*By project*',
-    ...bySlug.map(line),
   ];
+  if (sum.legacy) {
+    parts.push(
+      `Legacy: ~$${sum.legacy.toFixed(2)} across ${sum.legacyTurns} turns recorded before the per-turn cost fix — session running totals, overstated roughly 2×; not in the figures above`,
+    );
+  }
+  parts.push('', '*By project*', ...bySlug.map(line));
   // Only show the team cut once there IS more than the home team (post slice-2/3).
   if (byTeam.length > 1) parts.push('', '*By workspace*', ...byTeam.map(line));
+  // Routine turns are a cut of the project totals (the scheduler stamps them) — shown only
+  // once there are any, so a bot with no stamped records sees the layout it always had.
+  if (byRoutine.length > 0) parts.push('', '*By routine*', ...byRoutine.map(line));
   return parts.join('\n');
 }
 

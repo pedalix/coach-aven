@@ -3,8 +3,11 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { teamOf, aggregateUsage, parseUsageLines, usageSummaryText, UsageLog, type UsageRecord } from './metering.js';
+import { teamOf, aggregateUsage, costOf, parseUsageLines, usageSummaryText, UsageLog, type UsageRecord } from './metering.js';
 
+// A record as written since the per-turn cost fix: costUsd is the turn's own cost and
+// costUsdCumulative the CLI's running total it was derived from. A record without the
+// latter is pre-fix ("legacy") — see the legacy tests below.
 const rec = (over: Partial<UsageRecord> = {}): UsageRecord => ({
   at: '2026-07-12T10:00:00Z',
   key: 'thread:1.2',
@@ -12,7 +15,7 @@ const rec = (over: Partial<UsageRecord> = {}): UsageRecord => ({
   kind: 'turn',
   status: 'ok',
   elapsedMs: 120_000,
-  usage: { inputTokens: 500_000, outputTokens: 20_000, cacheReadTokens: 400_000, costUsd: 1.25 },
+  usage: { inputTokens: 500_000, outputTokens: 20_000, cacheReadTokens: 400_000, costUsd: 1.25, costUsdCumulative: 1.25 },
   ...over,
 });
 
@@ -27,8 +30,8 @@ test('aggregateUsage — per-slug totals, errors counted, costliest first', () =
   const rows = aggregateUsage(
     [
       rec(),
-      rec({ status: 'error', usage: { costUsd: 0.1, inputTokens: 1000, outputTokens: 50 } }),
-      rec({ slug: 'bluefin-infra', usage: { costUsd: 9.99, inputTokens: 1, outputTokens: 1 } }),
+      rec({ status: 'error', usage: { costUsd: 0.1, costUsdCumulative: 1.35, inputTokens: 1000, outputTokens: 50 } }),
+      rec({ slug: 'bluefin-infra', usage: { costUsd: 9.99, costUsdCumulative: 9.99, inputTokens: 1, outputTokens: 1 } }),
       rec({ slug: 'bluefin-infra', usage: undefined }), // usage-less record still counts the turn
     ],
     'slug',
@@ -57,9 +60,9 @@ test('parseUsageLines — tolerant of torn lines and junk', () => {
 test('aggregateUsage — cache write tokens are summed too (they used to vanish)', () => {
   const rows = aggregateUsage(
     [
-      rec({ usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 100, cacheCreationTokens: 10, costUsd: 0 } }),
-      rec({ usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 200, cacheCreationTokens: 20, costUsd: 0 } }),
-      rec({ usage: { inputTokens: 1, outputTokens: 1, costUsd: 0 } }), // older CLI shape, no cache fields
+      rec({ usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 100, cacheCreationTokens: 10, costUsd: 0, costUsdCumulative: 0 } }),
+      rec({ usage: { inputTokens: 1, outputTokens: 1, cacheReadTokens: 200, cacheCreationTokens: 20, costUsd: 0, costUsdCumulative: 0 } }),
+      rec({ usage: { inputTokens: 1, outputTokens: 1, costUsd: 0, costUsdCumulative: 0 } }), // older CLI shape, no cache fields
     ],
     'slug',
   );
@@ -70,7 +73,7 @@ test('aggregateUsage — cache write tokens are summed too (they used to vanish)
 test('usageSummaryText — cache traffic is printed, first, and its share of all tokens is stated', () => {
   // A real caldora turn: cache reads were 98% of tokens and two thirds of the cost.
   const real = rec({
-    usage: { inputTokens: 7_075, outputTokens: 17_534, cacheReadTokens: 1_849_796, cacheCreationTokens: 92_869, costUsd: 1.397 },
+    usage: { inputTokens: 7_075, outputTokens: 17_534, cacheReadTokens: 1_849_796, cacheCreationTokens: 92_869, costUsd: 1.397, costUsdCumulative: 1.397 },
   });
   const text = usageSummaryText(aggregateUsage([real], 'slug'), aggregateUsage([real], 'team'), 1);
   assert.match(text, /1\.8M cache read \/ 93k cache write \/ 7k in \/ 18k out tok/); // cache before in/out
@@ -93,7 +96,7 @@ test('usageSummaryText — totals + per-project lines; team cut only when multi-
 
 test('aggregateUsage — background turns add cost but not prompt turns', () => {
   const rows = aggregateUsage(
-    [rec(), rec({ kind: 'background', usage: { costUsd: 0.75, outputTokens: 10 } })],
+    [rec(), rec({ kind: 'background', usage: { costUsd: 0.75, costUsdCumulative: 2.0, outputTokens: 10 } })],
     'slug',
   );
   assert.equal(rows[0].turns, 1); // turns = prompts in; a self-started CLI turn isn't one
@@ -122,4 +125,89 @@ test('UsageLog — appends month files, read() honors the window across months',
 
 test('UsageLog — read on a missing dir is empty, not an error', () => {
   assert.deepEqual(new UsageLog(join(tmpdir(), 'aven-usage-nope')).read(1000), []);
+});
+
+test('costOf — a record without costUsdCumulative is pre-fix: its dollars are legacy, never per-turn', () => {
+  assert.deepEqual(costOf(rec({ usage: { costUsd: 0.12, costUsdCumulative: 0.31 } })), { usd: 0.12, legacyUsd: 0 });
+  assert.deepEqual(costOf(rec({ usage: { costUsd: 0.31 } })), { usd: 0, legacyUsd: 0.31 }); // the running total, recorded verbatim
+  assert.deepEqual(costOf(rec({ usage: { costUsd: 0, costUsdCumulative: 0.31 } })), { usd: 0, legacyUsd: 0 }); // a canceled zero-token turn, post-fix
+  assert.deepEqual(costOf(rec({ usage: { inputTokens: 5 } })), { usd: 0, legacyUsd: 0 }); // no cost on the wire at all
+  assert.deepEqual(costOf(rec({ usage: undefined })), { usd: 0, legacyUsd: 0 });
+});
+
+test('aggregateUsage — pre-fix records are a separate legacy figure, never added to costUsd', () => {
+  // One home-bot thread as it was recorded (running totals 0.19 → 0.31 → 0.334) followed by
+  // the same thread as the fix records it (deltas, with the totals kept beside them).
+  const rows = aggregateUsage(
+    [
+      rec({ usage: { costUsd: 0.19 } }),
+      rec({ usage: { costUsd: 0.31 } }),
+      rec({ usage: { costUsd: 0.334 } }),
+      rec({ usage: { costUsd: 0.19, costUsdCumulative: 0.19 } }),
+      rec({ usage: { costUsd: 0.12, costUsdCumulative: 0.31 } }),
+      rec({ usage: { costUsd: 0.024, costUsdCumulative: 0.334 } }),
+    ],
+    'slug',
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].turns, 6); // turn counts were never wrong — every record is still a turn
+  assert.ok(Math.abs(rows[0].costUsd - 0.334) < 1e-9); // the corrected thread costs what its last total says
+  assert.ok(Math.abs(rows[0].legacyCostUsd - 0.834) < 1e-9); // the pre-fix sum, 2.5× that, kept apart
+  assert.equal(rows[0].legacyTurns, 3);
+});
+
+test('usageSummaryText — legacy dollars get their own line and suffix; neither exists without legacy records', () => {
+  const mixed = aggregateUsage(
+    [rec({ usage: { costUsd: 0.5, costUsdCumulative: 0.5 } }), rec({ usage: { costUsd: 0.9 } }), rec({ slug: 'art', usage: { costUsd: 0.2, costUsdCumulative: 0.2 } })],
+    'slug',
+  );
+  const text = usageSummaryText(mixed, aggregateUsage([rec()], 'team'), 7);
+  assert.match(text, /^Total: 3 turns · ~\$0\.70 · /m); // per-turn dollars only
+  assert.match(text, /^Legacy: ~\$0\.90 across 1 turns recorded before the per-turn cost fix — session running totals, overstated roughly 2×; not in the figures above$/m);
+  assert.match(text, /• \*caldora\* — 2 turns · .* ~\$0\.50 \(\+ ~\$0\.90 legacy\) · /); // the row that has some
+  assert.match(text, /• \*art\* — 1 turns · .* ~\$0\.20 · /); // the row that has none: unchanged
+  assert.deepEqual(mixed.map((r) => r.group), ['caldora', 'art']); // legacy still ranks (1.40 > 0.20)
+  // The layout operators know, byte for byte, once the window holds only per-turn records.
+  const clean = usageSummaryText(aggregateUsage([rec()], 'slug'), aggregateUsage([rec()], 'team'), 7);
+  assert.ok(!/legacy/i.test(clean));
+  assert.ok(clean.includes('Total: 1 turns · ~$1.25 · '));
+});
+
+// The scheduler's stamp is optional on UsageRecord (another change declares it); the cut
+// reads it structurally, so build stamped records through a cast here.
+const routine = (routineId: string, routineLabel: string | undefined, over: Partial<UsageRecord> = {}): UsageRecord =>
+  ({ ...rec(over), routineId, routineLabel }) as UsageRecord;
+
+test('aggregateUsage — by routine keys on the stamp (label + id) and skips unstamped records', () => {
+  const records = [
+    routine('r1', 'Morning brief', { usage: { costUsd: 0.5, costUsdCumulative: 0.5 } }),
+    routine('r1', 'Morning brief', { usage: { costUsd: 0.25, costUsdCumulative: 0.75 } }),
+    routine('r2', 'Evening close', { usage: { costUsd: 0.1, costUsdCumulative: 0.1 } }),
+    routine('r3', undefined, { usage: { costUsd: 0.1, costUsdCumulative: 0.1 } }), // no label → the id alone
+    routine('r1', 'Morning brief (renamed)', { usage: { costUsd: 0.05, costUsdCumulative: 0.05 } }), // a rename is a new line, by design
+    rec(), // a live turn: no stamp → not a routine row
+  ];
+  const rows = aggregateUsage(records, 'routine');
+  assert.deepEqual(
+    rows.map((r) => [r.group, r.turns]),
+    [
+      ['Morning brief (r1)', 2],
+      ['Evening close (r2)', 1],
+      ['r3', 1],
+      ['Morning brief (renamed) (r1)', 1],
+    ],
+  );
+  assert.ok(Math.abs(rows[0].costUsd - 0.75) < 1e-9);
+  // The slug cut still counts every record — the routine cut is a view, not a partition.
+  assert.equal(aggregateUsage(records, 'slug')[0].turns, 6);
+});
+
+test('usageSummaryText — the routine section appears only when there are routine rows', () => {
+  const records = [routine('r1', 'Morning brief'), rec({ slug: 'art' })];
+  const withRoutines = usageSummaryText(aggregateUsage(records, 'slug'), aggregateUsage(records, 'team'), 7, aggregateUsage(records, 'routine'));
+  assert.match(withRoutines, /\n\*By routine\*\n• \*Morning brief \(r1\)\* — 1 turns · /);
+  assert.ok(withRoutines.indexOf('*By project*') < withRoutines.indexOf('*By routine*')); // after the cuts operators know
+  const live = [rec()];
+  assert.ok(!usageSummaryText(aggregateUsage(live, 'slug'), aggregateUsage(live, 'team'), 7, aggregateUsage(live, 'routine')).includes('By routine'));
+  assert.ok(!usageSummaryText(aggregateUsage(live, 'slug'), aggregateUsage(live, 'team'), 7).includes('By routine')); // the pre-existing call shape
 });

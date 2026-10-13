@@ -1132,7 +1132,12 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     usageReport: (days) => {
       const window = days * 24 * 3600_000;
       const records = usageLog.read(window);
-      const cost = usageSummaryText(aggregateUsage(records, 'slug'), aggregateUsage(records, 'team'), days);
+      const cost = usageSummaryText(
+        aggregateUsage(records, 'slug'),
+        aggregateUsage(records, 'team'),
+        days,
+        aggregateUsage(records, 'routine'), // empty until the scheduler stamps routine turns
+      );
       // Only live turns can be rated (dreams and /aven asks post no message), so they are
       // the honest denominator for coverage.
       const rateable = records.filter((r) => r.kind === 'turn').length;
