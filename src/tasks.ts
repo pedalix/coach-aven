@@ -172,7 +172,7 @@ async function prepareChat(
 // identity, repo layout, branch/PR convention, AskUserQuestion. `projectPrompt` (layer 2,
 // from the project config) is APPENDED after it, never overrides. (Layer 3 = each repo's
 // own CLAUDE.md, auto-loaded by Claude Code when working in that repo.)
-function buildSystemPrompt(
+export function buildSystemPrompt(
   slug: string,
   cwd: string,
   repos: string[],
