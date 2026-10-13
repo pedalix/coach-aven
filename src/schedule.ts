@@ -62,18 +62,25 @@ export function cronFieldMatch(field: string, value: number): boolean {
   });
 }
 
-// Current wall-clock parts in an IANA tz, via Intl — no tz library needed.
+// Current wall-clock parts in an IANA tz, via Intl — no tz library needed. The formatter is
+// cached per tz: the catch-up walk below (lastOccurrence) calls this hundreds of times a tick.
 const WEEKDAY_NUM: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+const PARTS_FMT = new Map<string, Intl.DateTimeFormat>();
 export function nowParts(tz: string, now: Date): TimeParts {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
-    hour12: false,
-    weekday: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    day: '2-digit',
-    month: '2-digit',
-  }).formatToParts(now);
+  let fmt = PARTS_FMT.get(tz);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      hour12: false,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      day: '2-digit',
+      month: '2-digit',
+    });
+    PARTS_FMT.set(tz, fmt);
+  }
+  const parts = fmt.formatToParts(now);
   const get = (t: string): string => parts.find((p) => p.type === t)?.value ?? '';
   let ho = Number(get('hour'));
   if (ho === 24) ho = 0; // some runtimes render midnight as "24"
@@ -124,6 +131,56 @@ export function dueRoutines<T extends SchedulableRoutine>(
     const key = minuteKey(p);
     if (firedThisMinute.get(r.id) === key) continue;
     out.push({ routine: r, key });
+  }
+  return out;
+}
+
+// The start of the wall-clock minute `at` falls in (the instant a cron slot is identified by).
+export function minuteStart(at: Date): Date {
+  return new Date(Math.floor(at.getTime() / 60_000) * 60_000);
+}
+
+// The most recent instant at or before `now` whose wall-clock minute (in `tz`) matches `cron`,
+// looking back at most `maxBackMinutes` — undefined when there is none in that span. A plain
+// minute-by-minute walk: the routines here fire a few times a day and callers bound the walk by
+// their grace window, so it is a few hundred cheap steps — and it is right across DST shifts by
+// construction (instants step, the wall-clock is re-derived per step).
+export function lastOccurrence(cron: string, tz: string, now: Date, maxBackMinutes: number): Date | undefined {
+  let t = minuteStart(now);
+  for (let i = 0; i <= maxBackMinutes; i++, t = new Date(t.getTime() - 60_000)) {
+    if (cronMatches(cron, nowParts(tz, t))) return t;
+  }
+  return undefined;
+}
+
+// What the missed-fire catch-up needs on top of the scheduler fields.
+export interface CatchupRoutine extends SchedulableRoutine {
+  lastRunAt?: string; // ISO of the last fire — stamped at FIRE, not at success (pollers.ts)
+  createdAt?: string; // ISO — a slot older than the routine itself was never owed
+}
+
+// Pure: routines whose most recent cron occurrence — strictly before the current minute (that one
+// is dueRoutines' job) and no older than `graceHours` — is later than their last fire. That is a
+// slot the process never observed: the host was asleep or the bot was down/restarting at that
+// minute, or the fire was skipped because the previous run was still in flight. Because
+// `lastRunAt` is stamped at fire, a run that fired and FAILED is not "missed" (the retry in
+// routineguard.ts owns that case), and a routine that has never fired is owed only slots after
+// its creation. Disabled routines are skipped, as in dueRoutines. Each hit carries its slot.
+export function missedRoutines<T extends CatchupRoutine>(
+  routines: T[],
+  now: Date,
+  graceHours: number,
+): { routine: T; slot: Date }[] {
+  const out: { routine: T; slot: Date }[] = [];
+  const before = new Date(minuteStart(now).getTime() - 60_000);
+  const maxBack = Math.max(0, Math.round(graceHours * 60) - 1);
+  for (const r of routines) {
+    if (!r.enabled) continue;
+    const slot = lastOccurrence(r.cron, r.tz, before, maxBack);
+    if (!slot) continue;
+    const stamps = [r.lastRunAt, r.createdAt].map((s) => Date.parse(s ?? '')).filter(Number.isFinite);
+    if (!stamps.length) continue; // nothing to measure against — never owed
+    if (slot.getTime() > Math.max(...stamps)) out.push({ routine: r, slot });
   }
   return out;
 }

@@ -7,9 +7,13 @@ import {
   nowParts,
   dueRoutines,
   minuteKey,
+  minuteStart,
+  lastOccurrence,
+  missedRoutines,
   groupRoutinesBySlug,
   type TimeParts,
   type SchedulableRoutine,
+  type CatchupRoutine,
 } from './schedule.js';
 import { parseScheduleCommand } from './schedule.js';
 
@@ -154,4 +158,47 @@ test('parseScheduleCommand: "taskforce" is not the task keyword; missing bar/whe
   assert.deepEqual(parseScheduleCommand('task weekdays 9:00'), { error: 'usage' });
   assert.deepEqual(parseScheduleCommand('task | x'), { error: 'usage' });
   assert.deepEqual(parseScheduleCommand('daily 9:00 |  '), { error: 'usage' });
+});
+
+// ── missed-fire catch-up (routine delivery guard) ────────────────────────────────────────────
+// 2026-10-12 is a Monday; Europe/Moscow is UTC+3 year-round, so 08:30 MSK = 05:30Z.
+
+test('minuteStart / lastOccurrence — the most recent matching minute at or before now, in the routine tz', () => {
+  assert.equal(minuteStart(new Date('2026-10-13T05:30:45.500Z')).toISOString(), '2026-10-13T05:30:00.000Z');
+  const brief = '30 8 * * 1-5';
+  assert.equal(lastOccurrence(brief, 'Europe/Moscow', new Date('2026-10-13T07:00:00Z'), 24 * 60)?.toISOString(), '2026-10-13T05:30:00.000Z');
+  assert.equal(lastOccurrence(brief, 'Europe/Moscow', new Date('2026-10-13T05:30:45Z'), 24 * 60)?.toISOString(), '2026-10-13T05:30:00.000Z'); // "at" counts
+  assert.equal(lastOccurrence(brief, 'Europe/Moscow', new Date('2026-10-13T07:00:00Z'), 60), undefined); // outside the walk
+  assert.equal(lastOccurrence(brief, 'Europe/Moscow', new Date('2026-10-10T12:00:00Z'), 3 * 24 * 60)?.toISOString(), '2026-10-09T05:30:00.000Z'); // Sat → Friday's
+  assert.equal(lastOccurrence('30 8 * * *', 'UTC', new Date('2026-10-13T07:00:00Z'), 24 * 60)?.toISOString(), '2026-10-12T08:30:00.000Z');
+});
+
+const owed = (over: Partial<CatchupRoutine>): CatchupRoutine => ({
+  id: 'r1',
+  enabled: true,
+  cron: '30 8 * * 1-5',
+  tz: 'Europe/Moscow',
+  createdAt: '2026-10-01T00:00:00.000Z',
+  ...over,
+});
+const slots = (rs: CatchupRoutine[], now: string, grace = 6) => missedRoutines(rs, new Date(now), grace).map((m) => [m.routine.id, m.slot.toISOString()]);
+
+test('missedRoutines — a slot the process did not observe is owed, inside the grace window only', () => {
+  const r = owed({ lastRunAt: '2026-10-12T05:30:05.000Z' }); // last fire: Monday's
+  assert.deepEqual(slots([r], '2026-10-13T07:00:00Z'), [['r1', '2026-10-13T05:30:00.000Z']]); // 10:00 MSK, 1.5 h late
+  assert.deepEqual(slots([r], '2026-10-13T11:30:00Z'), [['r1', '2026-10-13T05:30:00.000Z']]); // exactly 6 h: still owed
+  assert.deepEqual(slots([r], '2026-10-13T12:00:00Z'), []); // 6.5 h: the window has closed
+  assert.deepEqual(slots([r], '2026-10-13T12:00:00Z', 8), [['r1', '2026-10-13T05:30:00.000Z']]); // a wider window
+});
+
+test('missedRoutines — fired (even if it failed), running now, disabled, or not yet created → not owed', () => {
+  assert.deepEqual(slots([owed({ lastRunAt: '2026-10-13T05:30:05.000Z' })], '2026-10-13T07:00:00Z'), []); // fired on time
+  assert.deepEqual(slots([owed({ lastRunAt: '2026-10-13T05:30:05.000Z' })], '2026-10-13T07:00:00Z'), []); // a failed fire is still a fire (the retry's job)
+  assert.deepEqual(slots([owed({ lastRunAt: '2026-10-12T05:30:05.000Z' })], '2026-10-13T05:30:20Z'), []); // the current minute is dueRoutines' job
+  assert.deepEqual(slots([owed({ lastRunAt: '2026-10-12T05:30:05.000Z', enabled: false })], '2026-10-13T07:00:00Z'), []);
+  assert.deepEqual(slots([owed({ createdAt: '2026-10-13T06:00:00.000Z' })], '2026-10-13T07:00:00Z'), []); // created after the slot
+  assert.deepEqual(slots([owed({ createdAt: '2026-10-13T04:00:00.000Z' })], '2026-10-13T07:00:00Z'), [['r1', '2026-10-13T05:30:00.000Z']]); // created before it, never ran
+  assert.deepEqual(slots([owed({ createdAt: undefined })], '2026-10-13T07:00:00Z'), []); // nothing to measure against
+  // A fire skipped because the previous run was still in flight (lastRunAt not stamped) is owed too.
+  assert.deepEqual(slots([owed({ lastRunAt: '2026-10-13T05:29:50.000Z' })], '2026-10-13T05:31:00Z'), [['r1', '2026-10-13T05:30:00.000Z']]);
 });

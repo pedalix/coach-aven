@@ -117,12 +117,23 @@ export interface TurnEngine {
 // "post immediately" checkbox) delivers the answer straight to its destination — supplied as
 // a callback by events.ts so the turn engine stays ignorant of YouTrack; when it throws, the
 // answer degrades to the reviewable draft with the error attached (never silently lost).
+export type TurnOutcome = 'ok' | 'error' | 'canceled';
+
 export interface TurnOpts {
   ytDraftFor?: string;
   autoPost?: (text: string) => Promise<{ url: string; group: string }>;
   // Called with the final answer after it is delivered (routine runs rewrite their top-level
   // parent to the answer's headline — routinerun.ts). Errors are swallowed.
   onAnswer?: (text: string) => Promise<void>;
+  // Called exactly once when the turn settles — after onAnswer on success, with the error's
+  // message on failure, bare on cancel. doTurn never rejects on a turn error (it renders errText
+  // in the thread), so without this a caller cannot tell a failed run from a delivered one; the
+  // routine delivery guard records the outcome and rewrites a failed run's parent (routinerun.ts).
+  // Errors are swallowed.
+  onSettle?: (outcome: TurnOutcome, reason?: string) => Promise<void>;
+  // The scheduled routine this turn runs for (pollers.ts), stamped on its usage record so usage
+  // and answer feedback can be cut per routine. Absent for every other turn.
+  routine?: { id: string; label: string };
 }
 
 // What the "🧭 Show steps" click renders: every step line the turn streamed (growing while
@@ -582,6 +593,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         journal.done(turnId);
         void client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] }).catch(() => {});
         if (msgTs) void react(client, channel, msgTs, 'eyes', 'remove');
+        if (opts?.onSettle) void opts.onSettle('canceled').catch(() => {});
       },
       { once: true },
     );
@@ -626,6 +638,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       journal.done(turnId);
       await client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] });
       await clearEyes();
+      if (opts?.onSettle) await opts.onSettle('canceled').catch(() => {});
     };
     if (ac.signal.aborted) {
       await settleCanceled(); // canceled between liveTurn posting and doTurn claiming it
@@ -764,7 +777,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       }
     }
     let chat: ChatSession | undefined; // hoisted so the finally can read lastUsage()
-    let outcome: 'ok' | 'error' | 'canceled' = 'ok';
+    let outcome: TurnOutcome = 'ok';
+    let failure: string | undefined; // the error's message, for onSettle
     try {
       const live = await sessionFor(key, project, slackUrl); // prepare (warm sandbox + clone) here
       chat = live; // `live` keeps the non-undefined narrowing inside the closures below
@@ -891,6 +905,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         await client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] });
         await clearEyes();
       } else {
+        failure = err instanceof Error ? err.message : String(err);
         // A failure after the turn went background needs the same ping the answer gets —
         // an hour-old message rewriting itself to an error notifies nobody.
         await deliver(errText(err), [], '⚠️ Failed — details below');
@@ -912,6 +927,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         status: outcome,
         elapsedMs: Date.now() - start,
         usage: chat?.lastUsage(),
+        ...(opts?.routine ? { routineId: opts.routine.id, routineLabel: opts.routine.label } : {}),
       });
       // Settled either way (answer/cancel/error) — freeze the trail's clock and stop the
       // modal saying "still running". The steps stay: the answer rewrite would otherwise
@@ -931,6 +947,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
             .catch(() => {});
         }
       }
+      // Last: the caller's settle hook, once the answer/error is delivered and the state is
+      // consistent (a routine records its outcome and may schedule its retry from here).
+      if (opts?.onSettle) await opts.onSettle(outcome, failure).catch(() => {});
     }
   }
 

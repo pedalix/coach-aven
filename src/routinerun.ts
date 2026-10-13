@@ -15,12 +15,27 @@
 //
 // The legacy stable key `cron:<id>:<slug>` is still restarted once per fire: it clears the one
 // binding older builds kept per routine (and its sandbox process) so nothing lingers.
+//
+// The optional settle hook (routine delivery guard, routineguard.ts) is the only way a caller
+// learns how the run ENDED: the engine renders a turn error inside the thread and resolves, so
+// without it a failed run leaves the parent at "running…" forever (2026-10-12). With it, a failed
+// run's parent is rewritten to "⚠️ <label> — failed: <reason>", a canceled one says so, and the
+// caller gets the outcome to record. Not wired → the engine call is exactly the historical one.
 import type { ProjectConfig } from './projects.js';
-import type { TurnEngine } from './turn.js';
+import type { TurnEngine, TurnOutcome } from './turn.js';
+
+export type RoutineOutcome = TurnOutcome;
 
 export type RoutineEngine = Pick<TurnEngine, 'restartSession'> & {
-  /** Run the turn in `threadTs` under `key`; `onAnswer` gets the final answer text. */
-  liveTurn(key: string, threadTs: string, project: ProjectConfig, prompt: string, onAnswer: (text: string) => Promise<void>): Promise<void>;
+  /** Run the turn in `threadTs` under `key`; `onAnswer` gets the final answer text, `onSettle` (if given) the outcome once, after it. */
+  liveTurn(
+    key: string,
+    threadTs: string,
+    project: ProjectConfig,
+    prompt: string,
+    onAnswer: (text: string) => Promise<void>,
+    onSettle?: (outcome: RoutineOutcome, reason?: string) => Promise<void>,
+  ): Promise<void>;
 };
 
 export interface RoutineSlack {
@@ -53,13 +68,50 @@ export function headline(answer: string): string {
   return line.length > 160 ? `${line.slice(0, 159)}…` : line;
 }
 
-export async function startRoutineTurn(engine: RoutineEngine, slack: RoutineSlack, run: RoutineRun, project: ProjectConfig, prompt: string): Promise<string> {
+export interface RoutineSettle {
+  headline?: string; // ok: the delivered answer's headline
+  reason?: string; // error: the failure, one line
+}
+export interface RoutineRunOpts {
+  onSettle?: (outcome: RoutineOutcome, info: RoutineSettle) => Promise<void>;
+}
+
+/** Pure: a turn error's message → one line for the parent (first non-empty line, separators
+ * dropped; a bare "…failed (exit 1):" head borrows the next line so it says what broke). */
+export function failureReason(message: string | undefined, max = 140): string {
+  const lines = (message ?? '')
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !/^---.*---$/.test(l));
+  let head = lines[0] ?? 'unknown error';
+  if (/:\s*$/.test(head) && lines[1]) head = `${head} ${lines[1]}`;
+  return head.length > max ? `${head.slice(0, max - 1)}…` : head;
+}
+
+export async function startRoutineTurn(
+  engine: RoutineEngine,
+  slack: RoutineSlack,
+  run: RoutineRun,
+  project: ProjectConfig,
+  prompt: string,
+  opts?: RoutineRunOpts,
+): Promise<string> {
   // A failed cleanup must not cost the run.
   await engine.restartSession(run.legacyKey, project).catch(() => {});
   const parentTs = await slack.postParent(`${run.label} · running…`);
-  await engine.liveTurn(run.threadKey(parentTs), parentTs, project, prompt, async (text) => {
-    const h = headline(text);
-    await slack.updateParent(parentTs, h ? `${run.label} — ${h}` : `${run.label} — done`).catch(() => {});
-  });
+  let head = '';
+  const onAnswer = async (text: string): Promise<void> => {
+    head = headline(text);
+    await slack.updateParent(parentTs, head ? `${run.label} — ${head}` : `${run.label} — done`).catch(() => {});
+  };
+  const settle = opts?.onSettle;
+  const onSettle = settle
+    ? async (outcome: RoutineOutcome, reason?: string): Promise<void> => {
+        if (outcome === 'error') await slack.updateParent(parentTs, `⚠️ ${run.label} — failed: ${failureReason(reason)}`).catch(() => {});
+        else if (outcome === 'canceled') await slack.updateParent(parentTs, `${run.label} — canceled`).catch(() => {});
+        await settle(outcome, { headline: head || undefined, reason: outcome === 'error' ? failureReason(reason, 200) : undefined });
+      }
+    : undefined;
+  await engine.liveTurn(run.threadKey(parentTs), parentTs, project, prompt, onAnswer, onSettle);
   return parentTs;
 }

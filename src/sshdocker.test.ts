@@ -139,9 +139,10 @@ test('ensureSandboxScript — a bind mount that came up empty is recycled, not s
   assert.ok(s.includes(`docker stop -t 10 'proj-owen-ops'`));
   assert.ok(s.includes(`docker start 'proj-owen-ops' >/dev/null 2>&1`));
   assert.ok(s.includes('outcome=revived'));
-  // Degraded, not useless: a still-empty mount is reported, the turn goes on.
-  assert.ok(s.includes('still empty after recycle'));
-  assert.equal(s.split('exit 1').length - 1, 2); // only the wake and create failures exit
+  // Still empty after the recycle → a FAILED ensure (the turn fails and says why on stderr), not a
+  // note: a run against a missing replica reports empty data as fact (2026-10-13).
+  assert.ok(s.includes(`echo "mount /data/sources still empty after recycle" >&2; exit 1; fi`));
+  assert.equal(s.split('exit 1').length - 1, 3); // the wake and create failures, and the dead mount
   // The sysbox exec dance stays off for a plain project even with the mount probe on.
   assert.equal(s.includes('exec probe failed'), false);
   assert.ok(s.trim().endsWith('echo "$outcome"'));

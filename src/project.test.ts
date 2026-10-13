@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composerAuthScript, seedGatewayAuth } from './project.js';
+import { composerAuthScript, seedGatewayAuth, seedGitHubAuth } from './project.js';
 import type { SandboxHandle } from './driver.js';
 
 test('composerAuthScript — http-basic + x-access-token (the only form GitHub accepts for ghs_ tokens), token read from file, per-checkout guard', () => {
@@ -61,4 +61,46 @@ test('seedGatewayAuth: no gateway entry → touches nothing', async () => {
   } as unknown as SandboxHandle;
   await seedGatewayAuth(sandbox, 'lumora', [{ name: 'grafana', url: 'https://<grafana-host>/mcp' }]);
   assert.equal(touched, false);
+});
+
+// A sandbox whose `gh auth login` answers per call (exit codes in order; the last repeats);
+// every other exec succeeds. `check: true` throws like the real drivers do.
+function ghSandbox(codes: number[], output = 'error validating token: Get "https://api.github.com/": EOF') {
+  const execs: { cmd: string; check?: boolean }[] = [];
+  let n = 0;
+  const sandbox = {
+    uploadFile: async () => {},
+    exec: async (cmd: string, opts: { check?: boolean } = {}) => {
+      execs.push({ cmd, check: opts.check });
+      if (!cmd.startsWith('gh auth login')) return { exitCode: 0, result: '' };
+      const code = codes[Math.min(n++, codes.length - 1)]!;
+      if (code !== 0 && opts.check) throw new Error(`command failed (exit ${code}): ${cmd}\n--- output ---\n${output}`);
+      return { exitCode: code, result: code === 0 ? '' : output };
+    },
+  } as unknown as SandboxHandle;
+  return { sandbox, execs, ghCalls: () => execs.filter((e) => e.cmd.startsWith('gh auth login')) };
+}
+
+test('seedGitHubAuth strict (prod default): the gh login runs once with check:true and a failure is fatal, as before', async () => {
+  const good = ghSandbox([0]);
+  await seedGitHubAuth(good.sandbox, 'ghs_x', 'strict');
+  assert.deepEqual(good.ghCalls(), [{ cmd: 'gh auth login --with-token < /root/.gh-token', check: true }]);
+  const bad = ghSandbox([1]);
+  await assert.rejects(seedGitHubAuth(bad.sandbox, 'ghs_x', 'strict'), /error validating token/);
+  assert.equal(bad.ghCalls().length, 1);
+});
+
+test('seedGitHubAuth tolerant (ROUTINE_GUARD): a transient gh failure is retried, a persistent one is a warning, the git side is seeded either way', async () => {
+  const quiet = { sleep: async () => {} };
+  const flaky = ghSandbox([1, 1, 0]);
+  await seedGitHubAuth(flaky.sandbox, 'ghs_x', 'tolerant', quiet);
+  assert.equal(flaky.ghCalls().length, 3);
+  assert.ok(flaky.ghCalls().every((c) => c.check === false)); // never fatal by itself
+  const dead = ghSandbox([1]);
+  await seedGitHubAuth(dead.sandbox, 'ghs_x', 'tolerant', quiet); // resolves: warn + continue
+  assert.equal(dead.ghCalls().length, 3); // two retries, then gave up
+  assert.ok(dead.execs.some((e) => e.cmd.includes('credential.helper'))); // git auth untouched by the gh outcome
+  const timeout = ghSandbox([124], '');
+  await seedGitHubAuth(timeout.sandbox, 'ghs_x', 'tolerant', quiet);
+  assert.equal(timeout.ghCalls().length, 1); // not transient → no retry, still not fatal
 });
