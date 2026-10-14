@@ -115,6 +115,13 @@ A project can reach all its MCP sources through the gateway (bluefin-infra `engi
 to `mcp` (caldora keeps its pre-gateway list there), `prod:export`, `/aven reload`; running
 conversations keep the old config until their claude process ends (or restart the bot to recycle).
 
+### A `sources` entry with a `url`
+
+A project whose `mcp` list declares `{ "name": "sources", "url": …, "auth": "gateway-m2m" }` reaches its
+store through the gateway (`orch sources serve`, docs/sources.md → *Remote access*) and gets **no**
+replica mount — the sandbox may live on another host. Everything else about the project (pullers,
+builds, the prompt paragraph) stays as for a mounted project.
+
 ## Repo mirrors
 
 Some repos a project needs live outside the App's installations (the HSX studio in the old
