@@ -31,9 +31,20 @@ export interface GoogleSourcesConfig {
   kinds?: GoogleKind[];
 }
 
+/** Slack's conversation kinds: public channel, private channel (group), DM, group DM. */
+export type SlackConversationKind = 'channel' | 'group' | 'im' | 'mpim';
+export const SLACK_CONVERSATION_KINDS: readonly SlackConversationKind[] = ['channel', 'group', 'im', 'mpim'];
+
 export interface SlackSourcesConfig {
   /** Team ids (T…) or workspace names as stored by `auth slack add`; every stored workspace when empty. */
   workspaces: string[];
+  /**
+   * Allow-list: channel names (with or without `#`) or conversation ids. Set → ONLY these are pulled,
+   * every other conversation the user is in (DMs included) is skipped. Unset → everything, as before.
+   */
+  channels?: string[];
+  /** Subset of channel, group, im, mpim; unset → every kind. Applied on top of `channels`. */
+  kinds?: SlackConversationKind[];
   /** YYYY-MM-DD lower bound for the first contact with a conversation (else the workspace's backfill_days). */
   since?: string;
   /** How long a thread stays polled for replies (default 30). */

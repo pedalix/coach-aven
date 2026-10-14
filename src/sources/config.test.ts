@@ -42,6 +42,19 @@ test('sources config: slack with no workspaces means "every stored workspace"', 
   assert.deepEqual(validateSourcesConfig({ slack: { workspaces: [] } }).slack, { workspaces: [] });
 });
 
+test('sources config: slack.channels / slack.kinds — names lose their #, kinds are a subset, empty or hash-only lists are rejected, absent stays absent', () => {
+  const s = validateSourcesConfig({ slack: { workspaces: ['T0000FAKE01'], channels: ['#bluefin-aven-caldora', ' C0BBX082QNQ'], kinds: ['channel', 'group'] } }).slack!;
+  assert.deepEqual(s.channels, ['bluefin-aven-caldora', 'C0BBX082QNQ']);
+  assert.deepEqual(s.kinds, ['channel', 'group']);
+  assert.equal(validateSourcesConfig({ slack: { workspaces: [] } }).slack!.channels, undefined, 'no allow-list = every conversation, as before');
+  for (const [input, re] of [
+    [{ slack: { workspaces: [], channels: [] } }, /channels.*at least one/],
+    [{ slack: { workspaces: [], channels: ['#'] } }, /channels.*names or conversation ids/],
+    [{ slack: { workspaces: [], kinds: ['dm'] } }, /kinds.*unknown entries/],
+    [{ slack: { workspaces: [], kinds: [] } }, /kinds.*at least one/],
+  ] as Array<[unknown, RegExp]>) assert.throws(() => validateSourcesConfig(input), re, JSON.stringify(input));
+});
+
 test('tracker blocks validate and normalise', () => {
   const c = validateSourcesConfig({
     youtrack: { url: 'https://bluefin-example.youtrack.cloud/', tokenEnv: 'YOUTRACK_TOKEN', projects: ['CG', 'CAR'], assignee: 'owen' },

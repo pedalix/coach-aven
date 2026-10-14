@@ -2,7 +2,7 @@
 // loadProjects() at boot so a typo fails there, and from `orch sources` so the CLI explains
 // the same way. Permissive where the data is: e-mails and ids are checked for shape, not
 // existence (that is what `orch sources auth … check` is for).
-import { SOURCE_KINDS, type GoogleKind, type MeetingsSourcesConfig, type MsgraphKind, type SourcesConfig } from './types.js';
+import { SLACK_CONVERSATION_KINDS, SOURCE_KINDS, type GoogleKind, type MeetingsSourcesConfig, type MsgraphKind, type SlackConversationKind, type SourcesConfig } from './types.js';
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const GOOGLE_KINDS: readonly GoogleKind[] = ['gmail', 'drive', 'calendar'];
@@ -39,6 +39,13 @@ function int(where: string, v: unknown, field: string, min: number, max: number)
   return v;
 }
 
+/** `slack.channels`: names lose their `#`; an entry that is only a hash is as empty as "". Empty list rejected — "nothing" is not a scope. */
+function slackChannels(where: string, v: unknown): string[] {
+  const out = strings(where, v, 'channels').map((c) => c.replace(/^#/, '').trim());
+  if (out.some((c) => !c)) fail(where, '"channels" entries must be channel names or conversation ids');
+  return out;
+}
+
 /** Returns a normalised copy (trimmed, lower-cased e-mails); throws with a path-prefixed message. */
 export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesConfig {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) fail(where, 'must be an object');
@@ -63,6 +70,8 @@ export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesC
       ...(date(`${where}.slack`, s.since, 'since') ? { since: s.since as string } : {}),
       ...(int(`${where}.slack`, s.threadWindowDays, 'threadWindowDays', 0, 3650) !== undefined ? { threadWindowDays: s.threadWindowDays as number } : {}),
       ...(int(`${where}.slack`, s.editWindowHours, 'editWindowHours', 0, 24 * 30) !== undefined ? { editWindowHours: s.editWindowHours as number } : {}),
+      ...(s.channels !== undefined ? { channels: slackChannels(`${where}.slack`, s.channels) } : {}),
+      ...(subset(`${where}.slack`, s.kinds, 'kinds', SLACK_CONVERSATION_KINDS) ? { kinds: s.kinds as SlackConversationKind[] } : {}),
     };
   }
   if (r.msgraph !== undefined) {

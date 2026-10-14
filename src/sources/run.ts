@@ -161,6 +161,8 @@ export async function pullProject(p: ProjectConfig, o: PullProjectOptions = {}, 
         ...(o.since ?? sl.since ? { since: o.since ?? sl.since } : {}),
         ...(sl.threadWindowDays !== undefined ? { threadWindowDays: sl.threadWindowDays } : {}),
         ...(sl.editWindowHours !== undefined ? { editWindowHours: sl.editWindowHours } : {}),
+        ...(sl.channels ? { channels: sl.channels } : {}),
+        ...(sl.kinds ? { kinds: sl.kinds } : {}),
       });
     } else if (kind === 'local') {
       s = await pullLocal(ctx, p.sources.local!, { full: o.full ?? false, ...(o.since ? { since: o.since } : {}) });
