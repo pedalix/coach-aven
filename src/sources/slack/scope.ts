@@ -48,3 +48,38 @@ export function selectConversations(convs: readonly RawConversation[], scope: Sl
   }
   return { kept, skipped, scoped: true };
 }
+
+// ── bot tokens: what to join before reading ─────────────────────────────────────────────
+// A bot sees only the channels it is a member of. With `channels` configured, listed PUBLIC
+// channels it is not in are joined (conversations.join, scope channels:join); listed private
+// ones it was not invited to are unreadable and named in the log; `joinPublic` joins every
+// public channel of the workspace. A user token never joins anything.
+export interface JoinPlan {
+  join: RawConversation[];
+  /** Listed entries the bot cannot read: private without an invite, or not found at all. */
+  unreadable: string[];
+}
+
+const isPublicChannel = (c: RawConversation): boolean => !c.is_private && !c.is_im && !c.is_mpim && !c.is_archived;
+
+export function joinPlan(input: { kind?: 'user' | 'bot'; memberships: readonly RawConversation[]; publicChannels: readonly RawConversation[]; channels?: readonly string[]; joinPublic?: boolean }): JoinPlan {
+  if (input.kind !== 'bot') return { join: [], unreadable: [] };
+  const member = new Set(input.memberships.map((c) => c.id));
+  const join = new Map<string, RawConversation>();
+  const unreadable: string[] = [];
+  if (input.joinPublic) for (const c of input.publicChannels) if (!member.has(c.id)) join.set(c.id, c);
+  for (const entry of input.channels ?? []) {
+    const key = channelKey(entry);
+    if (!key) continue;
+    const known = [...input.memberships, ...input.publicChannels].find((c) => c.id.toLowerCase() === key || c.name?.toLowerCase() === key);
+    if (!known) {
+      unreadable.push(`${entry} (not found or private without an invite)`);
+      continue;
+    }
+    if (member.has(known.id)) continue;
+    if (isPublicChannel(known)) join.set(known.id, known);
+    else unreadable.push(`${entry} (${known.is_archived ? 'archived' : 'private, not invited'})`);
+  }
+  return { join: [...join.values()], unreadable };
+}
+

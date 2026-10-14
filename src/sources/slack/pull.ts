@@ -52,7 +52,7 @@ import {
 } from './normalise.js';
 import { scrubForWrite, type SinkOptions } from '../common/sink.js';
 import type { PullContext, PullSummary, SlackConversationKind } from '../types.js';
-import { selectConversations } from './scope.js';
+import { joinPlan, selectConversations } from './scope.js';
 
 // ---------------------------------------------------------------------------------------
 // Cursor + caches on disk
@@ -139,6 +139,8 @@ export interface SlackPullOptions {
   channels?: string[];
   /** Conversation kinds to read; unset = every kind. */
   kinds?: SlackConversationKind[];
+  /** Bot token: join every public channel first (scope.ts joinPlan). */
+  joinPublic?: boolean;
 }
 
 interface Options {
@@ -151,6 +153,7 @@ interface Options {
   editWindowHours: number;
   channels?: string[];
   kinds?: SlackConversationKind[];
+  joinPublic?: boolean;
 }
 
 /** Slack ts for "now minus N days" — the `oldest` of a first backfill. */
@@ -211,6 +214,8 @@ class WorkspaceSync {
   async run(): Promise<Stats> {
     await this.client.ensureFresh();
     await this.loadUsers(this.opts.refreshUsers);
+    // Bot token: join what the scope lists (public only) before listing memberships.
+    if (this.ws.kind === 'bot' && (this.opts.channels?.length || this.opts.joinPublic)) await this.joinStep();
     const all = await this.listConversations();
     // The project's scope (slack.channels / slack.kinds): a tenant store must not hold the user's
     // other conversations. Skips are named once per run (indented = `--verbose` lines).
@@ -316,6 +321,27 @@ class WorkspaceSync {
     await writeJsonAtomic(this.files.users, this.usersCache);
     this.setUsers(cache.users);
     this.log(`  [${this.ws.team}] users.info: resolved ${found.length} of ${todo.length} unknown user(s)`);
+  }
+
+  /** conversations.join for every listed public channel the bot is not in (and all of them with joinPublic); never for a user token. */
+  private async joinStep(): Promise<void> {
+    const memberships = await this.listConversations();
+    const publicChannels: RawConversation[] = [];
+    for await (const page of this.client.paginate('conversations.list', { types: 'public_channel', exclude_archived: true, limit: 999 })) {
+      this.stats.calls++;
+      publicChannels.push(...((page.channels as RawConversation[]) ?? []));
+    }
+    const plan = joinPlan({ kind: this.ws.kind, memberships, publicChannels, channels: this.opts.channels, joinPublic: this.opts.joinPublic });
+    for (const c of plan.join) {
+      try {
+        await this.client.call('conversations.join', { channel: c.id }, { post: true });
+        this.stats.calls++;
+        this.log(`[${this.ws.team}] joined ${label(c)}`);
+      } catch (err) {
+        this.log(`[${this.ws.team}] could not join ${label(c)}: ${err instanceof SlackApiError ? err.code : String(err)}`);
+      }
+    }
+    for (const u of plan.unreadable) this.log(`[${this.ws.team}] unreadable: ${u}`);
   }
 
   private async listConversations(): Promise<RawConversation[]> {
@@ -487,6 +513,7 @@ export async function pullSlack(pctx: PullContext, o: SlackPullOptions = {}): Pr
     editWindowHours: o.editWindowHours ?? 48,
     ...(o.channels ? { channels: o.channels } : {}),
     ...(o.kinds ? { kinds: o.kinds } : {}),
+    ...(o.joinPublic ? { joinPublic: true } : {}),
   };
   const log = pctx.log;
   const dir = path.join(pctx.outDir, 'slack');
@@ -512,7 +539,7 @@ export async function pullSlack(pctx: PullContext, o: SlackPullOptions = {}): Pr
     return summary;
   }
   for (const ws of targets) {
-    log(`[${ws.team}] ${ws.team_id} as ${ws.user}`);
+    log(`[${ws.team}] ${ws.team_id} as ${ws.user}${ws.kind === 'bot' ? ' (bot)' : ''}`);
     const client = new SlackClient(ws, async (updated) => {
       // Rotation only: the new single-use refresh token must hit disk before any further call.
       store.workspaces[updated.team_id] = updated;

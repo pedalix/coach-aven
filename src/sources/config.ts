@@ -72,6 +72,7 @@ export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesC
       ...(int(`${where}.slack`, s.editWindowHours, 'editWindowHours', 0, 24 * 30) !== undefined ? { editWindowHours: s.editWindowHours as number } : {}),
       ...(s.channels !== undefined ? { channels: slackChannels(`${where}.slack`, s.channels) } : {}),
       ...(subset(`${where}.slack`, s.kinds, 'kinds', SLACK_CONVERSATION_KINDS) ? { kinds: s.kinds as SlackConversationKind[] } : {}),
+      ...(s.joinPublic !== undefined ? { joinPublic: typeof s.joinPublic === 'boolean' ? s.joinPublic : fail(`${where}.slack`, '"joinPublic" must be true or false') } : {}),
     };
   }
   if (r.msgraph !== undefined) {

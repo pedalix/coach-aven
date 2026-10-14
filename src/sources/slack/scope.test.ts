@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { channelKey, conversationKind, selectConversations } from './scope.js';
+import { channelKey, conversationKind, joinPlan, selectConversations } from './scope.js';
 import type { RawConversation } from './normalise.js';
 
 const CONVS: RawConversation[] = [
@@ -41,3 +41,18 @@ test('channelKey strips the hash and case', () => {
   assert.equal(channelKey('#Bluefin-Aven-Caldora '), 'bluefin-aven-caldora');
   assert.equal(channelKey('C0BBTB2RYM8'), 'c0bbtb2rym8');
 });
+
+test('joinPlan — a bot joins listed public channels it is not in (and all of them with joinPublic); private ones need an invite; a user token joins nothing', () => {
+  const member = CONVS.slice(0, 1); // in #bluefin-aven-caldora only
+  const pub = [CONVS[0]!, CONVS[1]!, { id: 'C0GENERAL1', name: 'general', is_channel: true }];
+  const u = joinPlan({ kind: 'user', memberships: member, publicChannels: pub, channels: ['bluefin-aven-bluefin-infra'] });
+  assert.deepEqual(u, { join: [], unreadable: [] });
+  const b = joinPlan({ kind: 'bot', memberships: member, publicChannels: pub, channels: ['#Bluefin-Aven-Bluefin-Infra', 'bluefin-aven-caldora', 'pedalix-internal', 'ghost-channel', 'C0OLDARCHV'] });
+  assert.deepEqual(b.join.map((c) => c.id), ['C0BBX082QNQ'], 'listed, public, not a member → join; already a member → nothing');
+  assert.deepEqual(b.unreadable, ['pedalix-internal (not found or private without an invite)', 'ghost-channel (not found or private without an invite)', 'C0OLDARCHV (not found or private without an invite)']);
+  const priv = joinPlan({ kind: 'bot', memberships: member, publicChannels: [...pub, CONVS[2]!], channels: ['pedalix-internal'] });
+  assert.deepEqual(priv.unreadable, ['pedalix-internal (private, not invited)']);
+  const all = joinPlan({ kind: 'bot', memberships: member, publicChannels: pub, joinPublic: true, channels: ['bluefin-aven-bluefin-infra'] });
+  assert.deepEqual(all.join.map((c) => c.id).sort(), ['C0BBX082QNQ', 'C0GENERAL1'], 'joinPublic adds every public channel once');
+});
+

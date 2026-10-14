@@ -45,6 +45,8 @@ export interface SlackSourcesConfig {
   channels?: string[];
   /** Subset of channel, group, im, mpim; unset → every kind. Applied on top of `channels`. */
   kinds?: SlackConversationKind[];
+  /** Bot token only: join EVERY public channel of the workspace before pulling (default false — the allow-list decides what is joined). */
+  joinPublic?: boolean;
   /** YYYY-MM-DD lower bound for the first contact with a conversation (else the workspace's backfill_days). */
   since?: string;
   /** How long a thread stays polled for replies (default 30). */

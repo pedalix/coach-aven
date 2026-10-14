@@ -46,6 +46,8 @@ test('sources config: slack.channels / slack.kinds — names lose their #, kinds
   const s = validateSourcesConfig({ slack: { workspaces: ['T0000FAKE01'], channels: ['#bluefin-aven-caldora', ' C0BBX082QNQ'], kinds: ['channel', 'group'] } }).slack!;
   assert.deepEqual(s.channels, ['bluefin-aven-caldora', 'C0BBX082QNQ']);
   assert.deepEqual(s.kinds, ['channel', 'group']);
+  assert.equal(validateSourcesConfig({ slack: { workspaces: [], joinPublic: true } }).slack!.joinPublic, true);
+  assert.throws(() => validateSourcesConfig({ slack: { workspaces: [], joinPublic: 'yes' } }), /joinPublic/);
   assert.equal(validateSourcesConfig({ slack: { workspaces: [] } }).slack!.channels, undefined, 'no allow-list = every conversation, as before');
   for (const [input, re] of [
     [{ slack: { workspaces: [], channels: [] } }, /channels.*at least one/],

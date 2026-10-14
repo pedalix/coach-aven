@@ -38,8 +38,11 @@ export interface WorkspaceRecord {
   url: string;
   user_id: string;
   user: string;
-  /** User OAuth token. Never logged, never leaves this file except in the Authorization header. */
+  /** The OAuth token — a user token (xoxp) or, since the bot-token change, the app's bot token (xoxb). Never logged, never leaves this file except in the Authorization header. */
   xoxp: string;
+  /** Which identity the token is (auth.test: a bot answers with `bot_id`). Absent = user (records from before the field). */
+  kind?: 'user' | 'bot';
+  bot_id?: string;
   /** App-level token for Socket Mode (optional in v1: polling is the source of truth). */
   xapp?: string;
   /** How far back the first pull goes. Keep SHORT for third-party workspaces (API ToS: no long-term archive of others' data). */

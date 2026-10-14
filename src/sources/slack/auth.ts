@@ -3,6 +3,8 @@
  * Entry point `runSlackAuth(ctx, argv)`, exposed as `orch sources auth <slug> slack <action> …`:
  *
  *   add [--xapp] [--backfill-days 365] [--probe]   # paste xoxp (+xapp) → verify → store
+ *   add --bot | --from-install <team_id>            # a BOT token (pasted, or the CoachAven installation's) → the puller
+ *                                                   # reads what the bot is a member of and joins listed public channels
  *   check [--probe]                                 # auth.test every workspace (+ throttle probe)
  *   list
  *   remove <team_id> [--revoke]
@@ -87,11 +89,16 @@ function clientFor(store: TokenStore, ws: WorkspaceRecord): SlackClient {
   }, log);
 }
 
+/** Pure: which identity a token is — a bot's auth.test carries `bot_id`. */
+export function tokenKind(me: { bot_id?: string }): 'user' | 'bot' {
+  return me.bot_id ? 'bot' : 'user';
+}
+
 /** auth.test proves the token and tells us team/user/url — everything the puller needs to label records. */
 async function identify(ws: WorkspaceRecord, store: TokenStore): Promise<WorkspaceRecord> {
   const client = clientFor(store, ws);
-  const me = await client.call<AuthTest>('auth.test');
-  return { ...ws, team_id: me.team_id, team: me.team, url: me.url, user_id: me.user_id, user: me.user };
+  const me = await client.call<AuthTest & { bot_id?: string }>('auth.test');
+  return { ...ws, team_id: me.team_id, team: me.team, url: me.url, user_id: me.user_id, user: me.user, kind: tokenKind(me), ...(me.bot_id ? { bot_id: me.bot_id } : {}) };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -100,8 +107,22 @@ async function identify(ws: WorkspaceRecord, store: TokenStore): Promise<Workspa
 
 async function cmdAdd(flags: Record<string, string | true>): Promise<void> {
   const store = await loadStore(ctx.tokenPath);
-  const xoxp = await promptSecret('User OAuth Token (xoxp-…)', 'SLACK_XOXP');
-  if (!xoxp.startsWith('xoxp-')) throw new Error('expected a user token starting with xoxp- (the "User OAuth Token" on OAuth & Permissions, not the Bot token)');
+  let xoxp: string;
+  if (flags['from-install']) {
+    // The CoachAven installation of that workspace already holds a bot token (state.json): one
+    // install serves chat and ingest — the tenant decides the scope by inviting the bot.
+    const teamId = String(flags['from-install']);
+    const { Store } = await import('../../state.js');
+    const install = new Store().getInstallation(teamId) as { bot?: { token?: string } } | undefined;
+    if (!install?.bot?.token) throw new Error(`no CoachAven installation with a bot token for team ${teamId} — install the app there first (bot.aven.guru/slack/install)`);
+    xoxp = install.bot.token;
+  } else if (flags.bot) {
+    xoxp = await promptSecret('Bot User OAuth Token (xoxb-…)', 'SLACK_XOXB');
+    if (!xoxp.startsWith('xoxb-')) throw new Error('expected a bot token starting with xoxb- (the "Bot User OAuth Token" on OAuth & Permissions)');
+  } else {
+    xoxp = await promptSecret('User OAuth Token (xoxp-…)', 'SLACK_XOXP');
+    if (!xoxp.startsWith('xoxp-')) throw new Error('expected a user token starting with xoxp- (the "User OAuth Token" on OAuth & Permissions, not the Bot token; use --bot for a bot token)');
+  }
   let xapp: string | undefined;
   if (flags.xapp) {
     xapp = await promptSecret('App-Level Token (xapp-…)', 'SLACK_XAPP');
@@ -117,7 +138,7 @@ async function cmdAdd(flags: Record<string, string | true>): Promise<void> {
   if (store.workspaces[ws.team_id]) log(`replacing existing record for ${ws.team} (${ws.team_id})`);
   store.workspaces[ws.team_id] = ws;
   await saveStore(store, ctx.tokenPath);
-  log(`stored ${ws.team} (${ws.team_id}) as ${ws.user} (${ws.user_id}) in ${ctx.tokenPath}`);
+  log(`stored ${ws.team} (${ws.team_id}) as ${ws.user} (${ws.user_id}, ${ws.kind ?? 'user'} token) in ${ctx.tokenPath}`);
   await verify(clientFor(store, ws), Boolean(flags.probe));
 }
 
@@ -164,7 +185,8 @@ async function cmdCheck(flags: Record<string, string | true>): Promise<number> {
     const ws = store.workspaces[id]!;
     try {
       const fresh = await identify(ws, store);
-      log(`OK  ${fresh.team} (${fresh.team_id}) as ${fresh.user} — xoxp ${redact(ws.xoxp)}${ws.xapp ? `, xapp ${redact(ws.xapp)}` : ''}${ws.rotation ? `, rotation on (expires ${ws.rotation.expires_at})` : ''}`);
+      log(`OK  ${fresh.team} (${fresh.team_id}) as ${fresh.user} (${fresh.kind ?? 'user'} token) — token ${redact(ws.xoxp)}${ws.xapp ? `, xapp ${redact(ws.xapp)}` : ''}${ws.rotation ? `, rotation on (expires ${ws.rotation.expires_at})` : ''}`);
+      if (fresh.kind !== (ws.kind ?? 'user')) { store.workspaces[id] = fresh; await saveStore(store, ctx.tokenPath); }
       await verify(clientFor(store, fresh), Boolean(flags.probe));
     } catch (err) {
       failures++;
@@ -177,7 +199,7 @@ async function cmdCheck(flags: Record<string, string | true>): Promise<number> {
 async function cmdList(): Promise<void> {
   const store = await loadStore(ctx.tokenPath);
   for (const ws of Object.values(store.workspaces)) {
-    log(`${ws.team_id}  ${ws.team.padEnd(20)} ${ws.user.padEnd(12)} backfill ${ws.backfill_days}d  xoxp ${redact(ws.xoxp)}  xapp ${ws.xapp ? 'yes' : 'no'}  rotation ${ws.rotation ? 'yes' : 'no'}  added ${ws.added_at}`);
+    log(`${ws.team_id}  ${ws.team.padEnd(20)} ${ws.user.padEnd(12)} ${(ws.kind ?? 'user').padEnd(4)} backfill ${ws.backfill_days}d  token ${redact(ws.xoxp)}  xapp ${ws.xapp ? 'yes' : 'no'}  rotation ${ws.rotation ? 'yes' : 'no'}  added ${ws.added_at}`);
   }
   log(`(${ctx.tokenPath})`);
 }
@@ -245,6 +267,6 @@ export async function runSlackAuth(context: AuthContext, argv: string[]): Promis
     case 'remove': await cmdRemove(pos, flags); return 0;
     case 'exchange': await cmdExchange(flags); return 0;
     default:
-      throw new UsageError('usage: slack add [--xapp] [--backfill-days N] [--probe] | check [--probe] | list | remove <team_id> [--revoke] | exchange --client-id … --redirect-uri … [--code …]');
+      throw new UsageError('usage: slack add [--bot | --from-install <team_id>] [--xapp] [--backfill-days N] [--probe] | check [--probe] | list | remove <team_id> [--revoke] | exchange --client-id … --redirect-uri … [--code …]');
   }
 }
