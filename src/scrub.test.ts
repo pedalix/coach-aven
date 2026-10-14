@@ -219,6 +219,38 @@ test('classifyMessage: carriers by strong exact kind, two findings, password+log
   assert.equal(classifyMessage({ text: 'logo.png attached', attachments: [{ name: 'logo.png' }] }).carrier, false);
 });
 
+test('classifyMessage: mail ABOUT credentials and link-token pairs stay inline (2026-10-14 false positives)', () => {
+  // Owen → Tobin, security findings: "credentials" in the subject, zero secrets in the body, one
+  // prose "pass (" that the kv layer still trips on — inline at most, never withheld.
+  const foc = {
+    subject: 'FOC Cloud: 18 credentials to rotate (list attached)',
+    text: 'FOC Cloud: 19 distinct credentials in 41 places. The Azure SQL admin password sits in 13 places. History needs a proper scanner pass (gitleaks / trufflehog), which I\'d leave for the security guy.',
+  };
+  assert.equal(classifyMessage(foc).carrier, false, classifyMessage(foc).reasons.join(','));
+  // GitHub notification mail: "credential" in a branch name, "token is required" in the PR body.
+  const gh = {
+    subject: 'Re: [monto/CartFlow] feat/surface-tax-and-webflow-credential-failures (PR #2802)',
+    text: 'with it on, a token is required. A request that carries a token is refused when the flag is active.',
+  };
+  assert.equal(classifyMessage(gh).carrier, false, classifyMessage(gh).reasons.join(','));
+  // Two tracking tokens inside URLs (newsletter / unfurl shape) are not a bundle.
+  assert.equal(classifyMessage({ text: 'see https://x.example/a?link_token=abcdef123456 and https://x.example/b?msg_token=zyxwvu987654' }).carrier, false);
+  // Prose "token" twice with symbol-bearing values is not a bundle either.
+  assert.equal(classifyMessage({ text: 'a 1.05M-token context-window; better token (90%) efficiency' }).carrier, false);
+  // Delivery subjects still withhold.
+  assert.ok(classifyMessage({ subject: 'Your credentials for the portal', text: 'see below' }).reasons.includes('subject'));
+  assert.ok(classifyMessage({ subject: 'New credentials attached', text: 'siehe anhang' }).reasons.includes('subject'));
+  // Login + password bundle still withholds, even with a URL token beside it.
+  assert.ok(classifyMessage({ text: 'Login: owen\nPassword: K/9988776655ab\nhttps://x.example/?token=abcdef123456' }).reasons.includes('exact:kv+login'));
+});
+
+test('scrubText: "token is required" / "password is changed" are prose, not values', () => {
+  assert.equal(scrubText('with it on, a token is required').findings.length, 0);
+  assert.equal(scrubText('the password is changed').findings.length, 0);
+  assert.equal(scrubText('the password is Tr0ub4dor&3xyz').findings.length, 1);
+  assert.equal(scrubText('password: changed').findings.length, 1, 'an explicit colon is taken at its word');
+});
+
 test('classifyMessage: the subjects the first live pull wrongly withheld are not carriers', () => {
   const real = [
     '[Action required] Migrate your legacy user API keys',

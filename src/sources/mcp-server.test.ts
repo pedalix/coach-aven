@@ -312,6 +312,9 @@ test('search ranks FTS hits, honours diacritics/porter, filters by person and in
     const recent = runSearch(db, { source: 'gmail', limit: 2 });
     assert.equal(recent.mode, 'recent');
     assert.deepEqual(recent.hits.map((h) => h.ref), ['gmail:me@x.com:m4', 'gmail:me@x.com:m3']);
+    // Direction is readable: author + the other side (participants minus author, addresses stripped).
+    assert.equal(recent.hits[0].author, 'tobin'); // resolved person id
+    assert.deepEqual(recent.hits[0].to, ['me@x.com']);
     assert.equal(recent.hits[1].withheld, true);
     // time window
     assert.equal(runSearch(db, { query: 'access', since: '2026-10-02', until: '2026-10-02' }).hits.length, 1);

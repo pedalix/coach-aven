@@ -49,6 +49,8 @@ Canary = the home bot runs it. Prod = tagged and deployed. Default = flag no lon
 | Base prompt: `gitFlow` pr\|direct, toolchain paragraph only with `dind` | #136 | config `gitFlow`, default `pr` | 2026-10-14 | n/a | `pr` | Golden fixture pins the prod text byte-exact. |
 | Base prompt: ScheduleWakeup result is a background update | ad8cab5 | none (prompt text) | 2026-10-14 | – | – | Deliberate re-snapshot; watch for odd "I scheduled…" answers in prod threads. |
 | Routine delivery guard: catch-up, outcome + one retry, "previous run" preamble, `gh` seeding non-fatal | #138 | `ROUTINE_GUARD=1` | 2026-10-14 | – | – | Prod effect when flipped: a restart within `ROUTINE_GUARD_CATCHUP_HOURS` of a slot fires the missed routine into the client channel — intended. Flip after the canary shows `fired — scheduled … delivered` for a week. |
+| Scrubber precision: bare "credentials" subject, URL/prose `kv` pairs no longer withhold a body; `token is required` no longer a kv hit; `sources rescrub` | #141 | none (bug fix; the kv `is`-separator change also applies to prod user-turn redaction — strictly fewer false redactions) | 2026-10-14 | – | – | Canary: withheld count in `stats()` drops after rescrub + build; no new secret in `sources audit`. |
+| Sources MCP: `to` on message hits/get, direction sentence in `search` | #141 | `sources` config | 2026-10-14 | n/a | – | Brief must say "Owen → Tobin" for a Sent Items hit. |
 | Sources: Outlook calendar tag + own-calendar allow-list (schema v6), tracker raw dedupe, Asana followers, meeting tools, transcript pass-through | #133, #137, #139 | `sources` config | 2026-10-14 | n/a | – | No prod project has `sources`. |
 
 ### Retired

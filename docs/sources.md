@@ -179,11 +179,21 @@ Every message body passes `scrubForWrite` (`src/sources/common/sink.ts`) before 
   hash is `sha256(value)[0..6]`, so the same secret yields the same tag — the agent can say
   "same password as last week" without knowing it.
 - **Carrier messages** — a strong kind present (DSN, PEM, `.env` line, JWT, Bearer, vendor
-  token), two or more non-financial findings, a `Password:` line beside a login line, a strong
-  subject (*Zugangsdaten*, *credentials*, *your login details* …) or a credential-looking
-  attachment name — lose their whole body: `[BODY WITHHELD: credential carrier — see vault <id>]`.
-  Generic words (access, account, keys) are **not** carrier signals; the first live pull showed
-  they withhold Dependabot digests and "you have 1 overdue task".
+  token), two or more *bundle* findings, a `Password:` line beside a login line, a delivery
+  subject (*Zugangsdaten*, *your credentials*, *credentials for/attached*, *your login details* …)
+  or a credential-looking attachment name — lose their whole body:
+  `[BODY WITHHELD: credential carrier — see vault <id>]`. A *bundle* finding is an explicit
+  `key: value` / `key=value` outside a URL: `?link_token=…` tracking parameters, prose
+  ("1.05M-token context", "scanner pass (gitleaks") and card/IBAN numbers are redacted inline
+  but never cost the body — in the first 230 withheld bodies they were the majority (newsletters,
+  GitHub notification mail, Slack unfurls). Generic words (access, account, keys, the bare noun
+  *credentials*) are **not** carrier signals either; the first live pulls showed they withhold
+  Dependabot digests, "you have 1 overdue task" and Owen's own "18 credentials to rotate".
+- **Re-scrubbing after a rule change**: `orch sources rescrub <slug> --identity <age key>
+  [--write]` replays the current rules over every withheld body (decrypted from the vault with
+  the operator's private key), and appends the ones that are no longer carriers to their raw
+  file inline-scrubbed; the next build replaces the withheld row by `ref`. Dry run by default;
+  the summary names what still withholds and why.
 - **Attachments** are never ingested; name + size survive.
 - **The vault**: a carrier's raw secrets and body are encrypted with `age` to the project's
   recipient and filed under `data/<slug>/vault/<id>.json.age`. Without `age` or a recipient the
@@ -262,7 +272,7 @@ restart. The agent sees `mcp__sources__search`, `get`, `people`, `stats`:
 
 | Tool | Does |
 | --- | --- |
-| `search({query, since, until, source, person, initiative, includeBots, limit})` | FTS5 (`bm25`) over subject+text; every word is quoted so user text cannot reach the MATCH grammar. Exposed on purpose: `"quoted phrases"`, `word*` prefix, and upper-case `OR` / `AND` / `NOT` between two terms (lower-case `or` is a word; dangling operators drop). Bot/integration messages (`messages.is_bot`) are excluded unless `includeBots`. A call recorded by several recorders comes back once, with the other copies in `also`. `person` is an identity (email, slack id) or a name fragment; `initiative` filters by the people whose default initiative it is. No query → newest first. Hits carry `ref`, `permalink`, a highlighted snippet and `withheld` when the body was removed. |
+| `search({query, since, until, source, person, initiative, includeBots, limit})` | FTS5 (`bm25`) over subject+text; every word is quoted so user text cannot reach the MATCH grammar. Exposed on purpose: `"quoted phrases"`, `word*` prefix, and upper-case `OR` / `AND` / `NOT` between two terms (lower-case `or` is a word; dangling operators drop). Bot/integration messages (`messages.is_bot`) are excluded unless `includeBots`. A call recorded by several recorders comes back once, with the other copies in `also`. `person` is an identity (email, slack id) or a name fragment; `initiative` filters by the people whose default initiative it is. No query → newest first. Hits carry `ref`, `permalink`, `author` (who wrote it) and `to` (the other side — participants minus author, addresses stripped; omitted for channel posts), a highlighted snippet and `withheld` when the body was removed. A hit from `…/Sent Items` has the mailbox owner as author: sent, not received. |
 | `get({ref})` | The full row, up to five thread neighbours each way, the people on it and the scrub metadata. A withheld body returns its `[BODY WITHHELD…]` marker verbatim — that *is* the answer. A task comes with its comments; a meeting comes *compact* (see *Meetings*): full summary, next steps, `transcript_chars`, `speakers`, every recorder copy — never the transcript. |
 | `transcript({ref, q, offset, limit})` | One copy's transcript (a `meetings` ref, or a `call:` id → its primary copy), paged by characters on whole lines: default 30k, max 50k, `next_offset` until null. With `q` (all words must occur in a line, case-insensitive) only the matching lines ±1 line of context, numbered `L<n>:`. A withheld transcript returns its marker. |
 | `calendar({since, until, person, q, source, limit})` | Calendar events (Google, Outlook) ordered by start — the source for "meetings today". `person` matches attendees/organizer via the person's identities (or the raw text); `q` matches the title. Every row carries `calendar` (see *Store*): for Outlook the JSON `{id, name, is_default}` — the only way to tell an own event from one in a calendar shared into the mailbox, since Graph names the mailbox owner as organizer for both. |
