@@ -1,0 +1,43 @@
+schema: spec-driven
+
+context: |
+  Language: en
+  All artifacts must be written in en.
+  Keep OpenSpec structural headings and SHALL/MUST keywords in English.
+  CoachAven: a Slack Socket-Mode bot driving one sandbox per project, each running Claude Code.
+  Two bots run this code: the home bot (canary, follows main, one tenant with `sources`) and prod
+  (Bluefin's six projects, runs the last tag). Read CLAUDE.md and docs/rollout.md first: nothing may
+  change for prod users as a side effect of a merge; every behaviour change is bucket 1 (bug fix),
+  2 (default-preserving with a test proving today's prod shape) or 3 (flag off by default, canary
+  first). The host runs deterministic code only — no model calls in the bot process; models run in
+  sandboxes. Pure logic lives in its own module with a *.test.ts beside it.
+
+rules:
+  proposal:
+    - State the rollout bucket (1/2/3 per docs/rollout.md) and the flag or config gate in Impact
+    - Say what is out of scope
+  tasks:
+    - Include the docs/rollout.md ledger row and the Home tab update (if a Slack surface changes) as tasks
+    - Name the test or command that verifies each task
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always state what is out of scope
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
