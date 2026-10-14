@@ -163,6 +163,7 @@ export async function pullProject(p: ProjectConfig, o: PullProjectOptions = {}, 
         ...(sl.editWindowHours !== undefined ? { editWindowHours: sl.editWindowHours } : {}),
         ...(sl.channels ? { channels: sl.channels } : {}),
         ...(sl.kinds ? { kinds: sl.kinds } : {}),
+        ...(sl.joinPublic ? { joinPublic: true } : {}),
       });
     } else if (kind === 'local') {
       s = await pullLocal(ctx, p.sources.local!, { full: o.full ?? false, ...(o.since ? { since: o.since } : {}) });
