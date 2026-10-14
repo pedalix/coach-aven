@@ -11,9 +11,16 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 - `npm run orch -- slack` — run the bot locally (needs a dev Slack app + `.env`; see `README.md`).
 - Release — merge PRs to `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag
   triggers CI (typecheck + test → GitHub Release → deploy). No changelog or version edits.
+  **`main` is the canary**: the home bot runs it; prod runs the last tag. Tag only after ~2 days
+  on the canary, and start every work session by checking `docs/rollout.md` (the flag ledger)
+  and `git log $(git describe --tags --abbrev=0)..main` for what is due to ship, flip or retire.
 
 ## Conventions
 
+- **Prod must not change as a side effect of a merge.** Shared-code behaviour changes are
+  bug fixes (ungated), default-preserving (test proves today's prod shape), or behind a flag
+  that is off by default and canaried first — and the PR says which. Flags are rollout
+  stages, not permanent switches: add the ledger row in the same PR. See `docs/rollout.md`.
 - **Changing Slack UI/UX → update the App Home tab.** The Home tab (`homeBlocks` in
   `src/blocks.ts`) is the user-facing cheat-sheet. Any new command, button, or changed
   interaction MUST be reflected there in the same change, or it silently goes stale.
