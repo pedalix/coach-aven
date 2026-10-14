@@ -1,0 +1,16 @@
+# aven-prod nginx: expose `orch sources serve <slug>` (loopback) at https://aven.guru/sources/<slug>/mcp
+# for agentgateway (bluefin-infra engine/config.yaml target `sources`). Paste the location into the
+# aven.guru server block (sites-available/aven.guru.conf); one location per served project.
+# The bearer is checked by the serve process itself (SOURCES_SERVE_TOKEN) — nginx only proxies.
+location = /sources/bluefin-ops/mcp {
+    proxy_pass http://127.0.0.1:3415/mcp;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 60s;
+    client_max_body_size 1m;
+}
+location = /sources/bluefin-ops/health {
+    proxy_pass http://127.0.0.1:3415/health;
+}

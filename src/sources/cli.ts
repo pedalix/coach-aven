@@ -4,6 +4,7 @@
 //   orch sources pull  <slug> [--only …] [--since …] [--full] [--calendars …] [--no-build] [--verbose]
 //   orch sources build <slug>                                     rebuild store.sqlite + replica from raw/
 //   orch sources audit <slug> [--no-gitleaks] [--gold FILE] [--dir EXTRA…]
+//   orch sources serve <slug> [--listen host:port]               the sources tools over MCP streamable HTTP (SOURCES_SERVE_TOKEN)
 //
 // Everything here runs on the BOT HOST as the bot's own user: it reads the same projects
 // config the bot does, holds the tokens the sandbox must never see, and writes data/<slug>/.
@@ -17,6 +18,7 @@ import { ageDecrypt, rescrubDir } from './common/rescrub.js';
 import { dataDir, rawDir, vaultDir } from './paths.js';
 import { configuredKinds, pullProject, refreshTenant, runAuth, runBuild } from './run.js';
 import { tokenPath } from './tokens.js';
+import { DEFAULT_LISTEN, replicaPathFor, SERVE_TOKEN_ENV, startServe } from './serve.js';
 import { SOURCE_KINDS, type SourceKind } from './types.js';
 
 function project(slug: string): ProjectConfig {
@@ -107,6 +109,22 @@ export function registerSourcesCommands(program: Command): void {
         `${o.write ? 'restored' : 'would restore'} ${c.restored} of ${c.withheld} withheld records in ${c.files} files ` +
           `(still carriers ${c.stillWithheld}${why ? `: ${why}` : ''}; no vault entry ${c.noVault}; not message-shaped ${c.skipped})\n`,
       );
+    });
+
+  sources
+    .command('serve <slug>')
+    .description(`Serve the project's sources tools over MCP streamable HTTP from its replica (bearer from ${SERVE_TOKEN_ENV}; put nginx/agentgateway in front — docs/sources.md → Remote access)`)
+    .option('--listen <hostport>', 'bind address', DEFAULT_LISTEN)
+    .option('--db <path>', 'replica file (default data/<slug>/replica/store.sqlite)')
+    .action(async (slug: string, o: { listen: string; db?: string }) => {
+      const p = project(slug);
+      if (!p.sources) throw new UsageError(`project "${slug}" has no "sources" block in projects.config.json`);
+      const token = process.env[SERVE_TOKEN_ENV] ?? '';
+      if (!token) throw new UsageError(`${SERVE_TOKEN_ENV} is not set — refusing to serve a tenant store unauthenticated`);
+      const server = await startServe(o.listen, { dbPath: o.db ?? replicaPathFor(p.slug), token, slug: p.slug });
+      const stop = () => server.close(() => process.exit(0));
+      process.on('SIGINT', stop);
+      process.on('SIGTERM', stop);
     });
 
   sources

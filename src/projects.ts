@@ -158,8 +158,11 @@ export function loadProjects(path: string): ProjectsRegistry {
         // The store replica rides into the sandbox automatically (docs/sources.md → "Replica").
         // Merged here, once, so every ensureSandbox caller — turns, /aven memory, pollers —
         // sees the same options without each knowing about sources. Re-validated so a
-        // hand-written mount on the same target fails the boot as a duplicate.
-        p.sandbox = withSourcesMount(p.sandbox, replicaDir(p.slug));
+        // hand-written mount on the same target fails the boot as a duplicate. A project that
+        // declares its own `sources` MCP entry with a `url` reaches the store over the network
+        // (`orch sources serve` behind the gateway) and mounts nothing — the sandbox may live on
+        // another host (docs/sources.md → "Remote access").
+        if (!(p.mcp ?? []).some((s) => s.name === 'sources' && !!s.url)) p.sandbox = withSourcesMount(p.sandbox, replicaDir(p.slug));
         resolveSandboxOptions(p.sandbox);
       } catch (e) {
         throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);

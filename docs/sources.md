@@ -361,6 +361,44 @@ The close quotes both lists with their permalinks and says which subject the rea
 Bluefin's own agent the same call is `unanswered({side: "bluefin"})` over a store scoped to the client
 channels, and `stuck({days: 5, project: "CG"})` per initiative.
 
+## Remote access
+
+The replica bind mount reaches only sandboxes on the bot host's own docker engine (the home bot,
+`SSHDOCKER_HOST=local`). Prod sandboxes run on the Bluefin VM (Daytona) and on the sandbox box — nothing
+on the bot host — so a tenant store there is reached over the network instead: **ingest is a tool**.
+
+```
+orch sources serve <slug> [--listen 127.0.0.1:3415] [--db <replica>]     # SOURCES_SERVE_TOKEN required
+```
+
+`src/sources/serve.ts` serves the SAME tool table as the stdio server — `snapshot/plain/sources-mcp.mjs`
+is imported and its `handleMessage` answers every POSTed JSON-RPC message — over MCP streamable HTTP,
+stateless: `POST /mcp` with a message (or a batch) → `application/json`, a notification → `202`, no
+SSE stream (`GET /mcp` → 405), no session id, no server-initiated messages. The DB is opened per call,
+so a replica swapped by a build is picked up at once; `stats.meta` is the live `sync_state`.
+`GET /health` (no token) says whether the replica is present. A static bearer (`SOURCES_SERVE_TOKEN`)
+is checked constant-time on every call; without the variable the command refuses to start.
+
+**Who reaches it.** The sandbox never talks to it directly. The project declares its sources server
+as a remote entry — then the bot mounts nothing for it:
+
+```jsonc
+"mcp": [{ "name": "sources", "url": "https://<gateway-host>/gw/bluefin-ops/mcp", "auth": "gateway-m2m" }]
+```
+
+and agentgateway's route for the project (bluefin-infra `engine/config.yaml`) gets one more target, the
+same shape as the analytics servers: `mcp: { host: https://aven.guru/sources/bluefin-ops/mcp }` with
+`Authorization: Bearer ${SOURCES_TOKEN_BLUEFIN_OPS}` from the gateway's `.env`. The sandbox keeps its Auth0
+M2M token; the serve bearer never enters a sandbox. On the bot host the listener stays on loopback and
+nginx (already the TLS edge for `aven.guru`) proxies `location /sources/<slug>/mcp` to it —
+`infra/prod/nginx-sources.conf.example` and the systemd unit `infra/prod/coach-aven-sources.service.tmpl`
+hold the two snippets. A machine without a public name (a laptop ingesting local sources) uses a
+`cloudflared` tunnel to the same nginx/gateway pattern; the home bot keeps the mount.
+
+Prod wiring order: tag the release that carries `serve` → unit + nginx location on aven-prod → gateway
+target + token → `initialize` answers 200 through `<gateway-host>/gw/<slug>/mcp` with an M2M token →
+only then the project's `mcp` entry (and its `sources` block on prod).
+
 ## Task trackers
 
 YouTrack, Jira and Asana are one family: same contract (`auth check|add`, `pull` with a cursor on
