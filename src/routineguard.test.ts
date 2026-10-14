@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  emptySkipDecision,
+  skipPatch,
+  staleSources,
   GUARD_OFF,
   readRoutineGuard,
   plannedFires,
@@ -19,7 +22,8 @@ import { dueRoutines } from './schedule.js';
 import { REPORT_FRAMING } from './prompts.js';
 
 // 2026-10-12 is a Monday. Europe/Moscow is UTC+3 all year, so 08:30 MSK = 05:30Z.
-const ON: RoutineGuard = { enabled: true, catchupHours: 6, retryMinutes: 15 };
+const ON: RoutineGuard = { enabled: true, catchupHours: 6, retryMinutes: 15, skipEmpty: false };
+const ON_SKIP: RoutineGuard = { ...ON, skipEmpty: true };
 const MSK = 'Europe/Moscow';
 const brief = (over: Partial<GuardedRoutine> = {}): GuardedRoutine & { slug: string } => ({
   id: 'r1',
@@ -36,15 +40,16 @@ const d = (iso: string): Date => new Date(iso);
 test('readRoutineGuard — off unless ROUTINE_GUARD=1; tuning falls back to defaults', () => {
   assert.deepEqual(readRoutineGuard({}), GUARD_OFF);
   assert.deepEqual(readRoutineGuard({ ROUTINE_GUARD: '0' }), GUARD_OFF);
-  assert.deepEqual(readRoutineGuard({ ROUTINE_GUARD: '1' }), { enabled: true, catchupHours: 6, retryMinutes: 15 });
+  assert.deepEqual(readRoutineGuard({ ROUTINE_GUARD: '1' }), { enabled: true, catchupHours: 6, retryMinutes: 15, skipEmpty: false });
   assert.equal(readRoutineGuard({ ROUTINE_GUARD: 'true' }).enabled, true);
   assert.deepEqual(readRoutineGuard({ ROUTINE_GUARD: '1', ROUTINE_GUARD_CATCHUP_HOURS: '3', ROUTINE_GUARD_RETRY_MINUTES: '30' }), {
     enabled: true,
     catchupHours: 3,
     retryMinutes: 30,
+    skipEmpty: false,
   });
   const junk = readRoutineGuard({ ROUTINE_GUARD: '1', ROUTINE_GUARD_CATCHUP_HOURS: 'abc', ROUTINE_GUARD_RETRY_MINUTES: '0' });
-  assert.deepEqual(junk, { enabled: true, catchupHours: 6, retryMinutes: 15 });
+  assert.deepEqual(junk, { enabled: true, catchupHours: 6, retryMinutes: 15, skipEmpty: false });
 });
 
 // ── the production guarantee: guard off == today's scheduler, prompt, label and stamp ────────
@@ -227,3 +232,61 @@ test('settlePatch — ok records delivery + headline; canceled records; error sc
   assert.equal(settlePatch(sched, 'error', {}, d('2026-10-13T05:32:00Z'), ON).patch.lastReason, 'unknown error');
   assert.equal(settlePatch(sched, 'error', { reason: 'y'.repeat(500) }, d('2026-10-13T05:32:00Z'), ON).patch.lastReason!.length, 200);
 });
+
+// ── empty-slot skip ──────────────────────────────────────────────────────────────────────
+const delivered = (over: Partial<GuardedRoutine> = {}): GuardedRoutine & { slug: string } =>
+  brief({ lastRunAt: '2026-10-14T05:30:05Z', lastOutcome: 'ok', lastDeliveredAt: '2026-10-14T05:31:40Z', lastDeliveredRawCount: 1000, ...over });
+const SCHEDULED = { mode: 'scheduled' as const, slot: d('2026-10-14T15:30:00Z') };
+const FRESH = [{ kind: 'slack', ok: true, ageMinutes: 3 }, { kind: 'youtrack', ok: true, ageMinutes: 12 }];
+const quiet = (over: Partial<Parameters<typeof emptySkipDecision>[0]> = {}) => ({
+  fire: SCHEDULED, routine: delivered(), hasSources: true, rawCount: 1000, due: { escalationsOpen: 0, commitmentsDue: 0 }, sources: FRESH, intervalMinutes: 15, ...over,
+});
+
+test('readRoutineGuard — ROUTINE_SKIP_EMPTY needs the guard; off otherwise', () => {
+  assert.equal(readRoutineGuard({ ROUTINE_GUARD: '1', ROUTINE_SKIP_EMPTY: '1' }).skipEmpty, true);
+  assert.equal(readRoutineGuard({ ROUTINE_GUARD: '1' }).skipEmpty, false);
+  assert.equal(readRoutineGuard({ ROUTINE_SKIP_EMPTY: '1' }).skipEmpty, false, 'the skip rides on the guard: no guard, no skip');
+  assert.equal(readRoutineGuard({}).skipEmpty, false);
+});
+
+test('emptySkipDecision — skips only a scheduled/late slot with the guard+flag on, a delivered baseline, zero delta, nothing due and fresh sources', () => {
+  const now = d('2026-10-14T15:30:02Z');
+  const yes = emptySkipDecision(quiet(), ON_SKIP, now, MSK);
+  assert.equal(yes.skip, true);
+  assert.equal((yes as { message: string }).message, '⏭ nothing new since 2026-10-14T05:31:40Z (08:31 Europe/Moscow) (sources: slack 3 min, youtrack 12 min)');
+  assert.equal(emptySkipDecision(quiet({ fire: { mode: 'late', slot: d('2026-10-14T15:30:00Z') } }), ON_SKIP, now, MSK).skip, true, 'a late catch-up of an empty slot is skipped too');
+  const no = (over: Parameters<typeof quiet>[0], guard = ON_SKIP) => (emptySkipDecision(quiet(over), guard, now, MSK) as { skip: false; reason: string });
+  assert.match(no({}, ON).reason, /empty-skip off/);
+  assert.match(no({}, { ...ON_SKIP, enabled: false }).reason, /empty-skip off/, 'flag without the guard is off');
+  assert.match(no({ fire: { mode: 'manual' } }).reason, /manual/);
+  assert.match(no({ fire: { mode: 'retry', slot: d('2026-10-14T15:30:00Z') } }).reason, /retry/);
+  assert.match(no({ routine: delivered({ kind: 'dream' }) }).reason, /not a turn routine/);
+  assert.match(no({ routine: delivered({ skipEmpty: false }) }).reason, /opted out/);
+  assert.match(no({ hasSources: false }).reason, /no sources/);
+  assert.match(no({ routine: delivered({ lastDeliveredRawCount: undefined }) }).reason, /no delivered run/);
+  assert.match(no({ routine: delivered({ lastDeliveredAt: undefined }) }).reason, /no delivered run/);
+  assert.match(no({ rawCount: undefined }).reason, /replica unreadable/);
+  assert.match(no({ rawCount: 900 }).reason, /store rebuilt/);
+  assert.match(no({ rawCount: 1007 }).reason, /7 new raw record/);
+  assert.match(no({ due: undefined }).reason, /tenant checkout unreadable/);
+  assert.match(no({ due: { escalationsOpen: 1, commitmentsDue: 0 } }).reason, /1 open escalation/);
+  assert.match(no({ due: { escalationsOpen: 0, commitmentsDue: 2 } }).reason, /2 commitment/);
+  assert.match(no({ sources: [{ kind: 'slack', ok: true, ageMinutes: 31 }] }).reason, /stale source\(s\): slack 31 min/);
+  assert.match(no({ sources: [{ kind: 'gmail', ok: false, ageMinutes: 2 }] }).reason, /gmail last pass failed/);
+  assert.match(no({ sources: [{ kind: 'jira', ok: true }] }).reason, /jira never pulled/);
+  assert.deepEqual(staleSources(FRESH, 15), []);
+});
+
+test('skipPatch — the slot counts as served with outcome skipped; the delivered run\'s fields are not in the patch', () => {
+  const patch = skipPatch(d('2026-10-14T15:30:02Z'), SCHEDULED);
+  assert.deepEqual(patch, { lastRunAt: '2026-10-14T15:30:02.000Z', lastFire: 'scheduled', lastOutcome: 'skipped', lastReason: undefined, retry: undefined });
+  assert.ok(!('lastDeliveredAt' in patch) && !('lastDeliveredRawCount' in patch) && !('lastSummary' in patch));
+});
+
+test('previousRunLine — after a skip the next run names the skip AND the last delivered run; the skipped slot is not "missed"', () => {
+  const r = delivered({ lastRunAt: '2026-10-14T15:30:02Z', lastOutcome: 'skipped', lastFire: 'scheduled' });
+  const line = previousRunLine(r, { mode: 'scheduled', slot: d('2026-10-14T16:30:00Z') }, d('2026-10-14T16:30:01Z'));
+  assert.match(line, /skipped at 2026-10-14T15:30:02Z \(18:30 Europe\/Moscow\) — nothing new in the sources and nothing due, so no run \(last delivered: 2026-10-14T05:31:40Z \(08:31 Europe\/Moscow\)\)/);
+  assert.doesNotMatch(line, /missed/);
+});
+

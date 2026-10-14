@@ -70,13 +70,18 @@ export interface RoutineRecord {
   // Written only while the guard is on (routineguard.ts); prod records never carry them. All
   // cleared at every fire and set when the run settles, so an absent lastOutcome with a
   // lastRunAt means "the bot restarted mid-run — outcome not recorded".
-  lastOutcome?: 'ok' | 'error' | 'canceled'; // how the last fire's turn settled
+  lastOutcome?: 'ok' | 'error' | 'canceled' | 'skipped'; // how the last fire settled ('skipped' = empty-slot skip, no turn)
   lastReason?: string; // error: one line of the failure (≤ 200 chars)
   lastDeliveredAt?: string; // ok: ISO, when the answer landed in Slack
   lastFire?: 'scheduled' | 'late' | 'retry' | 'manual'; // what kind of fire the last run was
   // A pending one-shot retry of a failed scheduled run: fired by the scheduler at the first tick
   // ≥ `at` while `slot` is still inside the grace window; consumed by any fire of the routine.
   retry?: { at: string; slot: string };
+  // Empty-slot skip (ROUTINE_SKIP_EMPTY=1): `skipEmpty: false` opts a routine out; the raw-record
+  // count of the project's replica when the last run was delivered is the fingerprint a slot is
+  // compared with (routineguard.ts emptySkipDecision).
+  skipEmpty?: boolean;
+  lastDeliveredRawCount?: number;
 }
 
 // Per-project runtime settings (mutable, unlike the read-once projects.config.json).

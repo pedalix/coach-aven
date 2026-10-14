@@ -153,6 +153,7 @@ home bot. Everything is `src/routineguard.ts` (pure decisions, tested) wired by 
 | `ROUTINE_GUARD` | unset (off) | `1` turns the four behaviours below on |
 | `ROUTINE_GUARD_CATCHUP_HOURS` | `6` | how long after its cron slot a missed run is still fired, and a retry still allowed |
 | `ROUTINE_GUARD_RETRY_MINUTES` | `15` | minimum delay before the one automatic retry of a failed run |
+| `ROUTINE_SKIP_EMPTY` | unset (off) | `1` (with the guard on) adds the **empty-slot skip** below |
 
 What it does (report/task routines only — dreams and housekeeping keep their silent paths):
 
@@ -190,10 +191,41 @@ Not gated (no-ops in prod by construction): the `ssh-docker` mount probe now **f
 when a bind mount is still empty after the recycle (prod projects mount nothing), and every usage
 record of a routine turn carries `routineId` / `routineLabel` (additive).
 
+### Empty-slot skip (`ROUTINE_SKIP_EMPTY`)
+
+A scheduled run costs a full model turn even when the world did not move (the 2026-10-14 09:04
+brief spent one to say "almost nothing new since 08:31"). With `ROUTINE_SKIP_EMPTY=1` (needs
+`ROUTINE_GUARD=1`; read at boot) a **scheduled or late** fire of a report/task routine whose project
+has `sources` first asks the host, deterministically (`routineguard.ts emptySkipDecision`, tested):
+
+- **delta** — the raw-record count of the project's replica (`data/<slug>/replica/store.sqlite`,
+  `raw_records`: one row per pulled line, inserts only) minus the count recorded when this routine
+  was last delivered (`lastDeliveredRawCount` on the record, written at settle). A lower count
+  means the store was rebuilt → fire;
+- **due** — the tenant checkout's ledgers (`annotations/escalations.jsonl` with status `open`,
+  `ledger/commitments.jsonl` still `proposed`/`confirmed` with `due` on or before today in the
+  routine's tz; last line per id wins, `src/sources/tenant.ts readDueNow`). No tenant → nothing due;
+  a checkout that is not there yet → fire;
+- **freshness** — every configured source's last pass must be ok and younger than two
+  `intervalMinutes` (`sources_sync` facts); a stale or failed source turns the skip into a normal
+  fire, the same rule the prompt gives the agent.
+
+When delta is 0, nothing is due and every source is fresh, the host posts one parent line —
+`📋 Morning brief — ⏭ nothing new since 2026-10-14T05:31:40Z (08:31 Europe/Moscow) (sources: slack 3 min,
+youtrack 12 min)` — stamps the routine `lastRunAt` + `lastOutcome: skipped` (the slot counts as served:
+no minute re-fire, no catch-up), keeps the last *delivered* run's fields, and runs no turn: no
+sandbox call, no usage record. Everything else fires as before and the log says why (`not skipped —
+7 new raw record(s) …` / `due: 1 open escalation(s) …` / `stale source(s): slack 31 min`). A manual
+`/aven routines run`, a retry, dreams and housekeeping never skip; a routine opts out with
+`skipEmpty: false` on its record (`state.json`). `/aven routines` shows `⏭ skipped (nothing new)`
+and the next real run's preamble reads `skipped at … (last delivered: …)`. Nothing is judged by
+content — "nothing interesting" stays the agent's call.
+
 **State fields added** to `RoutineRecord` (`state.json`, written only while the guard is on; absent
 on prod records): `lastOutcome`, `lastReason`, `lastDeliveredAt`, `lastFire`
 (`scheduled|late|retry|manual`), `retry: { at, slot }`; `lastSummary` is reused for the delivered
-headline. All are cleared at every fire and set at settle. Nothing to migrate: old records simply
+headline; with the empty-slot skip also `lastOutcome: 'skipped'`, `lastDeliveredRawCount` and the opt-out
+`skipEmpty`. All are cleared at every fire and set at settle. Nothing to migrate: old records simply
 have none of them, and the first guarded fire renders `none recorded` / `outcome not recorded`.
 
 **Restarting the home bot.** The code is read at boot, so a change needs

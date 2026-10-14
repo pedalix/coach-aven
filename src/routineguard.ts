@@ -19,9 +19,12 @@ export interface RoutineGuard {
   enabled: boolean;
   catchupHours: number; // how long after its slot a missed run is still fired (and a retry still allowed)
   retryMinutes: number; // minimum delay before the one retry of a failed run
+  // ROUTINE_SKIP_EMPTY=1 (needs the guard): a scheduled/late slot with nothing new in the
+  // project's sources and nothing due in its tenant ledgers posts one line instead of a turn.
+  skipEmpty: boolean;
 }
 
-export const GUARD_OFF: RoutineGuard = { enabled: false, catchupHours: 6, retryMinutes: 15 };
+export const GUARD_OFF: RoutineGuard = { enabled: false, catchupHours: 6, retryMinutes: 15, skipEmpty: false };
 
 // Pure: env → switch. Only "1"/"true" turns it on; malformed tuning falls back to the defaults
 // rather than disabling anything.
@@ -30,17 +33,20 @@ export function readRoutineGuard(env: Record<string, string | undefined>): Routi
     const n = Number(v);
     return v !== undefined && v.trim() !== '' && Number.isFinite(n) && n > 0 ? n : dflt;
   };
+  const enabled = env.ROUTINE_GUARD === '1' || env.ROUTINE_GUARD === 'true';
   return {
-    enabled: env.ROUTINE_GUARD === '1' || env.ROUTINE_GUARD === 'true',
+    enabled,
     catchupHours: num(env.ROUTINE_GUARD_CATCHUP_HOURS, GUARD_OFF.catchupHours),
     retryMinutes: num(env.ROUTINE_GUARD_RETRY_MINUTES, GUARD_OFF.retryMinutes),
+    skipEmpty: enabled && (env.ROUTINE_SKIP_EMPTY === '1' || env.ROUTINE_SKIP_EMPTY === 'true'),
   };
 }
 
 // Read once at boot — a restart applies a change, like every other env switch of the bot.
 export const routineGuard: RoutineGuard = readRoutineGuard(process.env);
 
-export type RoutineOutcome = 'ok' | 'error' | 'canceled';
+// 'skipped' = the empty-slot skip (no turn ran; the last DELIVERED run's fields stay as they were).
+export type RoutineOutcome = 'ok' | 'error' | 'canceled' | 'skipped';
 export type FireMode = 'scheduled' | 'late' | 'retry' | 'manual';
 
 // The routine fields the guard reads and writes (state.ts' RoutineRecord satisfies it).
@@ -53,10 +59,13 @@ export interface GuardedRoutine extends CatchupRoutine {
   lastSummary?: string;
   lastFire?: FireMode;
   retry?: { at: string; slot: string };
+  // Empty-slot skip: opt-out, and the raw-record count of the replica when the last run was delivered.
+  skipEmpty?: boolean;
+  lastDeliveredRawCount?: number;
 }
 
 // The fields the guard writes (what firePatch/settlePatch return — assignable to a RoutineRecord patch).
-export type GuardPatch = Partial<Pick<GuardedRoutine, 'lastRunAt' | 'lastOutcome' | 'lastReason' | 'lastDeliveredAt' | 'lastSummary' | 'lastFire' | 'retry'>>;
+export type GuardPatch = Partial<Pick<GuardedRoutine, 'lastRunAt' | 'lastOutcome' | 'lastReason' | 'lastDeliveredAt' | 'lastSummary' | 'lastFire' | 'retry' | 'lastDeliveredRawCount'>>;
 
 // One fire: WHY it fires and, unless manual, the cron slot it serves.
 export interface Fire {
@@ -202,6 +211,8 @@ export function previousRunLine(r: GuardedRoutine, fire: Fire, now: Date): strin
     state = `ok at ${at} (delivered: ${r.lastDeliveredAt ? stamp(r.lastDeliveredAt, r.tz) : 'unknown'})`;
   } else if (r.lastOutcome === 'error') {
     state = `error at ${at} (not delivered: ${r.lastReason ?? 'unknown error'}${r.lastFire === 'retry' ? '; that was already the automatic retry' : ''})`;
+  } else if (r.lastOutcome === 'skipped') {
+    state = `skipped at ${at} — nothing new in the sources and nothing due, so no run (last delivered: ${r.lastDeliveredAt ? stamp(r.lastDeliveredAt, r.tz) : 'unknown'})`;
   } else if (r.lastOutcome === 'canceled') {
     state = `canceled at ${at} (not delivered)`;
   } else if (r.lastRunAt) {
@@ -265,3 +276,76 @@ export function settlePatch(
   patch.retry = { at: new Date(retryAt).toISOString(), slot: fire.slot.toISOString() };
   return { patch, note: `failed — one retry at ${patch.retry.at}: ${reason}` };
 }
+
+// ── empty-slot skip (ROUTINE_SKIP_EMPTY=1, docs/runtime-config.md) ──────────────────────
+// A scheduled run costs a full model turn even when the world did not move (the 2026-10-14
+// 09:04 brief: "almost nothing new since 08:31"). The fingerprint is exact and host-side: the
+// replica's raw-record count since the routine's last delivered run (every pulled line is one
+// row, inserts only, so the count is monotonic between rebuilds) plus what the tenant ledgers
+// say is due. Nothing is judged by content — that stays with the agent, which is why a manual
+// fire, a retry, a stale source, an unreadable replica/tenant, or a routine that opted out all
+// fire normally. The channel still gets one line, so silence is never ambiguous.
+
+export interface SourceFreshness {
+  kind: string;
+  ok: boolean;
+  ageMinutes?: number; // undefined = never pulled
+}
+
+export interface EmptySkipInputs {
+  fire: Fire;
+  routine: GuardedRoutine;
+  hasSources: boolean;
+  /** Raw-record count of the replica now; undefined = replica missing/unreadable. */
+  rawCount?: number;
+  /** Open escalations and commitments due on/before today; undefined = tenant checkout unreadable. */
+  due?: { escalationsOpen: number; commitmentsDue: number };
+  sources: SourceFreshness[];
+  intervalMinutes: number;
+}
+
+export type EmptySkip = { skip: true; message: string } | { skip: false; reason: string };
+
+/** Today's date in `tz` as YYYY-MM-DD — the "due on or before today" boundary of the tenant ledgers. */
+export function localDate(tz: string, now: Date): string {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now).map((x) => [x.type, x.value]));
+  return `${p.year}-${p.month}-${p.day}`;
+}
+
+/** A source is fresh when its last pass was ok and finished within two intervals (one tick of slack). */
+export function staleSources(sources: readonly SourceFreshness[], intervalMinutes: number): string[] {
+  return sources
+    .filter((s) => !s.ok || s.ageMinutes === undefined || s.ageMinutes > 2 * intervalMinutes)
+    .map((s) => (s.ageMinutes === undefined ? `${s.kind} never pulled` : !s.ok ? `${s.kind} last pass failed` : `${s.kind} ${Math.round(s.ageMinutes)} min`));
+}
+
+export function emptySkipDecision(inp: EmptySkipInputs, guard: RoutineGuard, now: Date, tz: string): EmptySkip {
+  const r = inp.routine;
+  if (!guard.enabled || !guard.skipEmpty) return { skip: false, reason: 'empty-skip off' };
+  if (inp.fire.mode === 'manual') return { skip: false, reason: 'manual fire' };
+  if (inp.fire.mode === 'retry') return { skip: false, reason: 'retry of a failed run' };
+  if (!turnKind(r.kind)) return { skip: false, reason: 'not a turn routine' };
+  if (r.skipEmpty === false) return { skip: false, reason: 'routine opted out (skipEmpty: false)' };
+  if (!inp.hasSources) return { skip: false, reason: 'project has no sources' };
+  if (!r.lastDeliveredAt || r.lastDeliveredRawCount === undefined) return { skip: false, reason: 'no delivered run on record to compare with' };
+  if (inp.rawCount === undefined) return { skip: false, reason: 'replica unreadable' };
+  if (inp.rawCount < r.lastDeliveredRawCount) return { skip: false, reason: `store rebuilt (${inp.rawCount} < ${r.lastDeliveredRawCount} raw records)` };
+  const delta = inp.rawCount - r.lastDeliveredRawCount;
+  if (delta > 0) return { skip: false, reason: `${delta} new raw record(s) since the last delivered run` };
+  if (!inp.due) return { skip: false, reason: 'tenant checkout unreadable' };
+  if (inp.due.escalationsOpen > 0 || inp.due.commitmentsDue > 0) {
+    return { skip: false, reason: `due: ${inp.due.escalationsOpen} open escalation(s), ${inp.due.commitmentsDue} commitment(s) due` };
+  }
+  const stale = staleSources(inp.sources, inp.intervalMinutes);
+  if (stale.length) return { skip: false, reason: `stale source(s): ${stale.join(', ')}` };
+  const fresh = inp.sources.map((s) => `${s.kind} ${Math.round(s.ageMinutes ?? 0)} min`).join(', ');
+  return { skip: true, message: `⏭ nothing new since ${stamp(r.lastDeliveredAt, tz)}${fresh ? ` (sources: ${fresh})` : ''}` };
+}
+
+// The routine patch for a skipped slot: the slot counts as served (lastRunAt, so neither the
+// minute dedupe nor the catch-up fires it again) with outcome 'skipped'; the last DELIVERED
+// run's fields are kept so the next real run's preamble still names it.
+export function skipPatch(now: Date, fire: Fire): GuardPatch & { lastRunAt: string } {
+  return { lastRunAt: now.toISOString(), lastFire: fire.mode, lastOutcome: 'skipped', lastReason: undefined, retry: undefined };
+}
+

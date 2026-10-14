@@ -17,9 +17,13 @@ import {
   routineGuard,
   plannedFires,
   routinePrompt,
+  emptySkipDecision,
   fireLabel,
   fireNote,
   firePatch,
+  localDate,
+  skipPatch,
+  type SourceFreshness,
   settlePatch,
   MANUAL_FIRE,
   type Fire,
@@ -51,9 +55,13 @@ import { routineLabel, startRoutineTurn } from './routinerun.js';
 import { autofixNotifyBlocks, shortRepo, alertOps } from './blocks.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
+import path from 'node:path';
 import { FactStore } from './facts.js';
 import { authCheck, configuredKinds, pullProject } from './sources/run.js';
-import { authCheckDue, createSourcesTicker } from './sources/sync.js';
+import { authCheckDue, createSourcesTicker, readSyncState } from './sources/sync.js';
+import { rawRecordCount, REPLICA_FILE as REPLICA_STORE_FILE } from './sources/store.js';
+import { readDueNow } from './sources/tenant.js';
+import { replicaDir } from './sources/paths.js';
 
 // Timezone the cron schedules are evaluated in. Set AVEN_TZ (IANA, e.g. Europe/Zurich)
 // in the runtime .env for local times; defaults to UTC.
@@ -168,6 +176,35 @@ export function createPollers(
     routinesInFlight.add(r.id);
     const now = new Date();
     const base = routineLabel(r.kind, r.prompt);
+    // Empty-slot skip (ROUTINE_SKIP_EMPTY=1, routineguard.ts): nothing new in the sources since
+    // the last delivered run and nothing due in the tenant ledgers → one line, no turn, no cost.
+    // Every input is read here, deterministically; the decision itself is pure and tested.
+    if (routineGuard.skipEmpty && fire.mode !== 'manual' && project.sources) {
+      const decision = emptySkipDecision(
+        {
+          fire,
+          routine: r,
+          hasSources: true,
+          rawCount: rawRecordCount(path.join(replicaDir(r.slug), REPLICA_STORE_FILE)),
+          due: project.sources.tenant ? readDueNow(r.slug, project.sources.tenant, localDate(r.tz, now)) : { escalationsOpen: 0, commitmentsDue: 0 },
+          sources: sourceFreshness(r.slug, project, now),
+          intervalMinutes: project.sources.intervalMinutes ?? 15,
+        },
+        routineGuard,
+        now,
+        r.tz,
+      );
+      if (decision.skip) {
+        store.patchRoutine(r.id, skipPatch(now, fire));
+        log.info(`routine ${r.id} (${r.slug}): skipped-empty — ${decision.message}`);
+        c.chat
+          .postMessage({ channel: r.channel, text: `${base} — ${decision.message}` })
+          .catch((e: unknown) => log.warn(`routine ${r.id} (${r.slug}): skip line not posted: ${e instanceof Error ? e.message : String(e)}`))
+          .finally(() => routinesInFlight.delete(r.id));
+        return true;
+      }
+      log.info(`routine ${r.id} (${r.slug}): not skipped — ${decision.reason}`);
+    }
     // Derived from the record BEFORE the fire stamp below clears the previous run's fields.
     const prompt = routinePrompt(routineFraming(r.kind), r, fire, routineGuard, now);
     const label = fireLabel(base, fire, r.tz, now);
@@ -181,6 +218,8 @@ export function createPollers(
           if (settled) return;
           settled = true;
           const { patch, note } = settlePatch(fire, outcome, info, new Date(), routineGuard);
+          // The delivered run's fingerprint for the empty-slot skip: the replica's raw-record count now.
+          if (outcome === 'ok' && routineGuard.skipEmpty && project.sources) patch.lastDeliveredRawCount = rawRecordCount(path.join(replicaDir(r.slug), REPLICA_STORE_FILE));
           store.patchRoutine(r.id, patch);
           log.info(`routine ${r.id} (${r.slug}): ${note}`);
         }
@@ -214,6 +253,16 @@ export function createPollers(
       })
       .finally(() => routinesInFlight.delete(r.id));
     return true;
+  }
+
+  // Per configured source kind: did its last pass succeed and how old is it (sources_sync facts).
+  function sourceFreshness(slug: string, project: ProjectConfig, now: Date): SourceFreshness[] {
+    const state = readSyncState(facts, slug);
+    return configuredKinds(project).map((kind) => {
+      const s = state.lastSummary[kind];
+      const at = s ? Date.parse(s.finishedAt) : NaN;
+      return { kind, ok: s?.ok ?? false, ...(Number.isFinite(at) ? { ageMinutes: (now.getTime() - at) / 60_000 } : {}) };
+    });
   }
 
   // A dream runs silently (no channel post): consolidate the project's auto memory, then log

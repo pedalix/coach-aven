@@ -16,7 +16,7 @@ The routine guard (`src/routineguard.ts`, `ROUTINE_GUARD=1`) already decides fir
 
 ## Decisions
 
-- **Fingerprint = `max(raw_records.rowid)` at last delivery vs now.** Stored on the routine's guard record (`lastDeliveredRowid`). Alternative: `pulled:<kind>` scalars from facts — those are per pass, not per routine, and miss builds triggered by rescrub; rejected.
+- **Fingerprint = `count(*)` of `raw_records` at last delivery vs now** (the table is `WITHOUT ROWID`, found at implementation; rows are only ever inserted, so the count is monotonic between rebuilds). Stored on the routine's guard record as `lastDeliveredRawCount`; a lower count = rebuilt store → fire. Read from the replica (swapped atomically after each build), not the live WAL store. Alternative: `pulled:<kind>` scalars from facts — those are per pass, not per routine, and miss builds triggered by rescrub; rejected.
 - **Due = deterministic read of tenant files by the host, no CLI.** The host already parses tenant annotations for the store build (`src/sources/tenant.ts`); reuse those readers for `escalations.jsonl` (status open) and `ledger/commitments.jsonl` (`due <= today`, status open). Alternative: run the tenant CLI in the sandbox — that is a turn, which is what we are avoiding.
 - **Skip is an outcome, not a fire mode.** The guard records `skipped-empty` with the timestamp and keeps `lastDelivered` untouched; `missedRoutines` treats a skipped slot as served (no catch-up for it).
 - **Message text is fixed, not templated by the agent:** `⏭ nothing new since 08:31 MSK (sources: slack 09:58, gmail 09:57, …)`.
@@ -25,7 +25,7 @@ The routine guard (`src/routineguard.ts`, `ROUTINE_GUARD=1`) already decides fir
 
 - [A pull failed silently so delta is 0 while the world moved] → the freshness line in the skip message names each source's last pull; a source older than its interval turns the skip into a normal fire (same rule the prompt gives the agent).
 - [Tenant file formats change] → readers are shared with the store build and tested there.
-- [Rowid is not monotonic after a store rebuild from scratch] → store rebuild resets `lastDeliveredRowid` to 0 (fires once more, never skips wrongly).
+- [The count drops after a store rebuild from scratch] → `rawCount < lastDeliveredRawCount` fires normally and the settle records the new baseline (never skips wrongly).
 
 ## Migration Plan
 

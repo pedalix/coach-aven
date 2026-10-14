@@ -1079,7 +1079,9 @@ export function routineListBlocks(rs: RoutineRecord[]): any[] {
     }
     const p = r.prompt.length > 90 ? `${r.prompt.slice(0, 87)}…` : r.prompt;
     const tag = r.kind === 'task' ? ' 🛠 task' : '';
-    return `${dot} *${r.id}*${tag} — \`${r.spec}\` (${r.tz})${last}\n   ${p}`;
+    // Empty-slot skip (ROUTINE_SKIP_EMPTY): the last slot posted one line instead of a run.
+    const skipped = r.lastOutcome === 'skipped' ? ' ⏭ skipped (nothing new)' : '';
+    return `${dot} *${r.id}*${tag} — \`${r.spec}\` (${r.tz})${last}${skipped}\n   ${p}`;
   });
   return [
     {
