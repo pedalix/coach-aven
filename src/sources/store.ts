@@ -242,6 +242,25 @@ export function openReadOnly(path: string): DatabaseSync {
   return new DatabaseSync(`file:${path}?immutable=1`, { readOnly: true });
 }
 
+/**
+ * Rows in `raw_records` — one per raw line ever ingested, inserts only, so between rebuilds the
+ * count is monotonic: the empty-slot skip's fingerprint (routineguard.ts). undefined when the
+ * file is missing or not a store, never a throw (the caller then fires normally).
+ */
+export function rawRecordCount(path: string): number | undefined {
+  if (!existsSync(path)) return undefined;
+  try {
+    const db = openReadOnly(path);
+    try {
+      return Number((db.prepare('SELECT count(*) AS n FROM raw_records').get() as { n: number }).n);
+    } finally {
+      db.close();
+    }
+  } catch {
+    return undefined;
+  }
+}
+
 // ---------------------------------------------------------------------------------------
 // Raw file discovery + classification. The pullers' output names are the contract
 // (google/pull.ts, slack/pull.ts, msgraph/pull.ts headers) — anything else is skipped once.
