@@ -1,3 +1,4 @@
+import { DISPATCH_PROMPT_PARAGRAPH } from './hostmcp.js';
 import { repoName } from './project.js';
 import { SOURCES_PROMPT_PARAGRAPH } from './sources/mcp.js';
 import type { GitFlow } from './projects.js';
@@ -28,6 +29,8 @@ export interface SystemPromptInputs {
   packageRepos?: string[];
   // ProjectConfig.sources set → the `sources` MCP server is injected; tell the agent how to use it.
   sourcesEnabled?: boolean;
+  // DISPATCH=1 → the `host` MCP server (propose) is injected; absent by default, so the prod goldens hold.
+  dispatchEnabled?: boolean;
   // ProjectConfig.gitFlow; absent → "pr".
   gitFlow?: GitFlow;
   // The project's container options as resolved at boot (sandboxopts.ts) — `dind` gates the
@@ -158,6 +161,9 @@ export function buildSystemPrompt(inp: SystemPromptInputs): string {
   }
   if (sourcesEnabled) {
     lines.push('', SOURCES_PROMPT_PARAGRAPH);
+  }
+  if (inp.dispatchEnabled) {
+    lines.push('', DISPATCH_PROMPT_PARAGRAPH);
   }
   if (slackUrl) {
     lines.push(

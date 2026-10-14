@@ -7,6 +7,7 @@
 //   commands.ts — the /aven router and subcommand handlers
 //   events.ts   — @mentions, thread replies, DMs, buttons, App Home
 //   pollers.ts  — scheduler + auto-review / autofix / YouTrack pollers
+import { createDispatcher } from './dispatchrun.js';
 import bolt from '@slack/bolt';
 import type { Installation } from '@slack/bolt';
 import type { Config } from './config.js';
@@ -18,7 +19,7 @@ import { eventLog, eventLogRaw, envelopeMeta } from './eventlog.js';
 import { loadProjects, entrySlugs, type RegistryRef } from './projects.js';
 import { createTurnEngine } from './turn.js';
 import { createChannels } from './channels.js';
-import { createPollers } from './pollers.js';
+import { createPollers, ROUTINE_TZ } from './pollers.js';
 import { registerCommands } from './commands.js';
 import { registerEvents } from './events.js';
 import { setAlertSink, summary, notConfiguredText, type AlertLevel } from './blocks.js';
@@ -244,9 +245,11 @@ export async function runSlack(cfg: Config): Promise<void> {
   // Late-bound home getter: channels is built here, but homeTeamId was resolved above and
   // a future re-auth could in principle refresh it.
   const channels = createChannels(reg, () => homeTeamId);
-  const pollers = createPollers(cfg, store, reg, clientForTeam, engine, channels, () => homeTeamId);
+  // Dispatch primitive (DISPATCH=1): proposals from the sandboxes' outboxes → buttons → side effects.
+  const dispatcher = createDispatcher({ store, reg, engine, channels, clientFor: clientForTeam, home: () => homeTeamId, tz: ROUTINE_TZ });
+  const pollers = createPollers(cfg, store, reg, clientForTeam, engine, channels, () => homeTeamId, dispatcher);
 
-  registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant });
+  registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, dispatcher });
   registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId });
 
   // Recovery order matters: reattach the turns that were RUNNING first, then replay the

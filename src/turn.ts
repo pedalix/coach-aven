@@ -134,6 +134,9 @@ export interface TurnOpts {
   // The scheduled routine this turn runs for (pollers.ts), stamped on its usage record so usage
   // and answer feedback can be cut per routine. Absent for every other turn.
   routine?: { id: string; label: string };
+  // A dispatched turn's provenance (dispatchrun.ts): the proposing project and proposal id —
+  // journaled with the queued turn and stamped on its usage record.
+  origin?: { slug: string; proposalId: string };
 }
 
 // What the "🧭 Show steps" click renders: every step line the turn streamed (growing while
@@ -583,6 +586,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       question,
       // onAnswer alone keeps a turn replayable (a replay just skips the parent's headline update).
       plain: !attachments?.refs.length && (!opts || (!opts.ytDraftFor && !opts.autoPost)),
+      ...(opts?.origin ? { origin: opts.origin } : {}),
     });
 
     // Cancel while still queued (doTurn hasn't claimed this turnId yet) — settle right
@@ -929,6 +933,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         elapsedMs: Date.now() - start,
         usage: chat?.lastUsage(),
         ...(opts?.routine ? { routineId: opts.routine.id, routineLabel: opts.routine.label } : {}),
+        ...(opts?.origin ? { originSlug: opts.origin.slug, proposalId: opts.origin.proposalId } : {}),
       });
       // Settled either way (answer/cancel/error) — freeze the trail's clock and stop the
       // modal saying "still running". The steps stay: the answer rewrite would otherwise

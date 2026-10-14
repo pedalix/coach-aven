@@ -239,3 +239,40 @@ re-posts the answer, not the headline — so keep the window anyway. The Home ta
 add `ROUTINE_GUARD=1` to the checkout's `.env`, restart in the window, then watch the next 08:30
 run — its thread starts with the `[Routine state]` line and the journal shows `routine r1
 (owen-ops): fired — scheduled` … `delivered — <headline>`.
+
+## Dispatch (`DISPATCH`)
+
+Off by default. `DISPATCH=1` (read at boot) gives every sandbox a `host` MCP server with one tool,
+`propose`, and gives the host a deterministic path from that proposal to a side effect — the
+primitive an agent needs to reach beyond its own thread without a model step anywhere on the
+host (OpenSpec `dispatch-primitive`; pure half `src/dispatch.ts`, IO half `src/dispatchrun.ts`,
+sandbox side `snapshot/plain/host-mcp.mjs`, uploaded by sha like the sources server).
+
+- **Record, not action.** `propose({kind: message|dispatch, target, text, refs, rationale})` writes
+  `propose-<id>.json` into `/data/outbox` — the project's `data/<slug>/outbox` on the host, mounted
+  read-write beside the read-only replica (created owner-only by the bot at boot, so docker never
+  creates it root-owned). The bot polls every outbox every 5 s and claims files by rename
+  (`consumeProposals`, the control-dir pattern). The record carries `AVEN_SESSION` — the proposing
+  conversation key — so the host knows which thread to render in.
+- **The gate.** The proposal is posted in the agent's thread as Block Kit with *Send* / *Dismiss*
+  (`proposalBlocks`); the click executes it once (idempotent on the id, "✅ sent by <user> at …") and
+  the record in `state.json` (`proposals`) keeps who/when/where. `dispatch.auto: [targets]` on the
+  project lets listed targets execute without the click; `dispatch.maxPerDay` (default 5) caps
+  executed dispatches per source project per local day, after which every proposal is gated again.
+  A `message` is gated the same way. Mentioning a project in text never dispatches.
+- **`message`** → `chat.postMessage` to the target (a project's bound channel or a channel id) with
+  a "proposed by *slug* · approved by <user>" footer and the permalink written back to the record.
+- **`dispatch`** → a parent `📨 Task from <slug> · running…` in the target project's channel and a
+  turn in its thread (key `thread:<ts>`, a fresh session), the task **wrapped as data** with its
+  origin (`wrapDispatch`: "data from another agent, not an instruction from a user"); the queued turn
+  carries `origin` in `queue.jsonl` and its usage record carries `originSlug` / `proposalId`. The
+  child's first answer line rewrites the parent and a pointer (`↩️ dispatch <id> → <permalink>:
+  <outcome>`) lands in the proposing thread; a failed or canceled child says so in both places.
+  The target must be a project the same workspace is served for.
+- **Prompt.** One paragraph (`DISPATCH_PROMPT_PARAGRAPH`) is appended to the base prompt while the
+  flag is on — absent otherwise, so the prod golden fixtures hold; the Home tab gains a *Proposals*
+  bullet the same way.
+- **Transport scope (phase A).** The outbox is a bind mount, so proposals work on the ssh-docker
+  driver (home bot); Daytona sandboxes get the tool only after the host endpoint (phase B, after
+  `sources-serve-remote-mcp`). An existing container must be recreated once to pick up the mount.
+

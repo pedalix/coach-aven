@@ -17,11 +17,11 @@ Host-side deterministic paths already exist for every piece: control-dir file dr
 
 ## Decisions
 
-- **Phase A transport = control dir.** The sandbox writes `propose-<slug>-<id>.json` into the mounted control dir (local driver); the bot's existing control watcher claims it atomically. Remote sandboxes (phase B) post the same record to a host endpoint behind the gateway once `sources-serve` gives the host an HTTP listener pattern. Alternative: Slack message with a magic prefix — rejected (mentions must not dispatch; text is untrusted).
+- **Phase A transport = a per-project OUTBOX, not the shared control dir** (changed at implementation): `data/<slug>/outbox` is bind-mounted read-write at `/data/outbox`; the sandbox writes `propose-<id>.json` there (tmp + rename) and the bot polls every outbox with the control-dir claim-by-rename. Mounting the shared control dir would have let any sandbox fire any routine (`run-<id>.json`); the outbox keeps a sandbox's reach to its own proposals. The record carries `AVEN_SESSION` (the conversation key already exported into the claude process for the gateway audit), which is how the host finds the thread to render in. Remote sandboxes (phase B) post the same record to a host endpoint behind the gateway once `sources-serve` gives the host an HTTP listener pattern. Alternative: Slack message with a magic prefix — rejected (mentions must not dispatch; text is untrusted).
 - **Sandbox-side tool = `propose` in a tiny host-control MCP** (stdio, same upload path as the sources server) rather than teaching the agent a file format; the tool validates the record and writes the file.
-- **Gate rendering reuses the ask-once escalation blocks** (numbered items, buttons) so the UX is one pattern.
+- **Gate rendering = one section + Send/Dismiss actions + a status context line** (`proposalBlocks`), the same shape as the ask-once question blocks; after the click the buttons disappear and the line says who/when/where.
 - **Dispatch = `queueTurn` with `origin`**; the child runs as an ordinary turn in its channel thread; the parent pointer is written by the turn's settle hook (`onSettle`), the same hook routines use for outcomes.
-- **Budget record** per source agent per local day in `state.json` routines-style namespace; cap default 5.
+- **Budget record** per source project per local day in `state.json` (`dispatches["<slug>|<day>"]`), cap default 5; proposals themselves live in `state.json` `proposals` (status pending/sent/dismissed/failed, approver, message ts, result).
 
 ## Risks / Trade-offs
 
