@@ -51,7 +51,8 @@ import {
   type WorkspaceContext,
 } from './normalise.js';
 import { scrubForWrite, type SinkOptions } from '../common/sink.js';
-import type { PullContext, PullSummary } from '../types.js';
+import type { PullContext, PullSummary, SlackConversationKind } from '../types.js';
+import { selectConversations } from './scope.js';
 
 // ---------------------------------------------------------------------------------------
 // Cursor + caches on disk
@@ -134,6 +135,10 @@ export interface SlackPullOptions {
   refreshUsers?: boolean;
   /** Hours of history re-read each run to catch edits and deletions. 0 disables. Default 48. */
   editWindowHours?: number;
+  /** Allow-list of channel names / conversation ids (scope.ts); unset = every conversation. */
+  channels?: string[];
+  /** Conversation kinds to read; unset = every kind. */
+  kinds?: SlackConversationKind[];
 }
 
 interface Options {
@@ -144,6 +149,8 @@ interface Options {
   list: boolean;
   refreshUsers: boolean;
   editWindowHours: number;
+  channels?: string[];
+  kinds?: SlackConversationKind[];
 }
 
 /** Slack ts for "now minus N days" — the `oldest` of a first backfill. */
@@ -204,11 +211,21 @@ class WorkspaceSync {
   async run(): Promise<Stats> {
     await this.client.ensureFresh();
     await this.loadUsers(this.opts.refreshUsers);
-    const convs = await this.listConversations();
+    const all = await this.listConversations();
+    // The project's scope (slack.channels / slack.kinds): a tenant store must not hold the user's
+    // other conversations. Skips are named once per run (indented = `--verbose` lines).
+    const scope = selectConversations(all, { ...(this.opts.channels ? { channels: this.opts.channels } : {}), ...(this.opts.kinds ? { kinds: this.opts.kinds } : {}) });
+    const convs = scope.kept;
+    if (scope.scoped) {
+      const how = [this.opts.channels ? `${this.opts.channels.length} listed` : 'any', this.opts.kinds ? `kinds ${this.opts.kinds.join('/')}` : ''].filter(Boolean).join(', ');
+      this.log(`[${this.ws.team}] scope: ${convs.length} of ${all.length} conversations (${how}), ${scope.skipped.length} out of scope`);
+      for (const c of scope.skipped) this.log(`  [${this.ws.team}] ${label(c)}: out of scope`);
+    }
     // DM counterparts users.list does not know (Slack Connect, deactivated): name them up front.
     await this.lookupUsers([...new Set(convs.filter((c) => c.is_im && c.user).map((c) => c.user as string))]);
     if (this.opts.list) {
-      for (const c of convs) this.log(`  ${c.id}  ${kind(c).padEnd(8)} ${c.is_archived ? '[archived] ' : ''}${label(c)}`);
+      const out = new Set(scope.skipped.map((c) => c.id));
+      for (const c of all) this.log(`  ${c.id}  ${kind(c).padEnd(8)} ${c.is_archived ? '[archived] ' : ''}${out.has(c.id) ? '[out of scope] ' : ''}${label(c)}`);
       return this.stats;
     }
     for (const conv of convs) {
@@ -468,6 +485,8 @@ export async function pullSlack(pctx: PullContext, o: SlackPullOptions = {}): Pr
     list: o.list ?? false,
     refreshUsers: o.refreshUsers ?? false,
     editWindowHours: o.editWindowHours ?? 48,
+    ...(o.channels ? { channels: o.channels } : {}),
+    ...(o.kinds ? { kinds: o.kinds } : {}),
   };
   const log = pctx.log;
   const dir = path.join(pctx.outDir, 'slack');
