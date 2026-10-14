@@ -32,6 +32,11 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   (parsing, matching, formatting) goes in a standalone file (e.g. `src/schedule.ts`) with a
   `*.test.ts` beside it — don't bury it inside `src/slack.ts`.
 - Match the surrounding style: dense, explanatory comments on the *why*; concise code.
+- **Plan before code — OpenSpec.** Shared-code work starts as a change in `openspec/changes/<name>/`
+  (`/opsx:propose`: proposal → spec delta → design → tasks), is implemented with `/opsx:apply` in a
+  worktree, ships as a PR that names its rollout bucket and ledger row, and is archived into
+  `openspec/specs/` with `/opsx:archive` after the merge. `openspec list` shows what is in flight;
+  the tenant plan (owen-ops `docs/PLAN.md`) records decisions, this repo records behaviour.
 
 ## Architecture pointers
 
