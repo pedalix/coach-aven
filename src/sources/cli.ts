@@ -13,7 +13,8 @@ import { loadConfig } from '../config.js';
 import { loadProjects, type ProjectConfig } from '../projects.js';
 import { runAudit } from './audit.js';
 import { UsageError } from './errors.js';
-import { dataDir, rawDir } from './paths.js';
+import { ageDecrypt, rescrubDir } from './common/rescrub.js';
+import { dataDir, rawDir, vaultDir } from './paths.js';
 import { configuredKinds, pullProject, refreshTenant, runAuth, runBuild } from './run.js';
 import { tokenPath } from './tokens.js';
 import { SOURCE_KINDS, type SourceKind } from './types.js';
@@ -85,6 +86,27 @@ export function registerSourcesCommands(program: Command): void {
       if (!p.sources) throw new UsageError(`project "${slug}" has no "sources" block in projects.config.json`);
       await refreshTenant(p);
       runBuild(p, o.verbose);
+    });
+
+  sources
+    .command('rescrub <slug>')
+    .description('Replay the current scrubber rules over withheld bodies in data/<slug>/raw: bodies that are no longer carriers are appended inline-scrubbed (the next build picks them up)')
+    .requiredOption('--identity <file>', 'age identity (private key) matching the project\'s vault.recipient — the bot host holds only the public half')
+    .option('--write', 'append the restored records (default: dry run, counts only)', false)
+    .option('--verbose', 'one line per restored record', false)
+    .action((slug: string, o: { identity: string; write: boolean; verbose: boolean }) => {
+      const p = project(slug);
+      if (!p.sources) throw new UsageError(`project "${slug}" has no "sources" block in projects.config.json`);
+      const c = rescrubDir(rawDir(p.slug), {
+        decrypt: ageDecrypt(vaultDir(p.slug), o.identity),
+        write: o.write,
+        ...(o.verbose ? { log: (line: string) => process.stderr.write(`${line}\n`) } : {}),
+      });
+      const why = Object.entries(c.reasons).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ');
+      process.stderr.write(
+        `${o.write ? 'restored' : 'would restore'} ${c.restored} of ${c.withheld} withheld records in ${c.files} files ` +
+          `(still carriers ${c.stillWithheld}${why ? `: ${why}` : ''}; no vault entry ${c.noVault}; not message-shaped ${c.skipped})\n`,
+      );
     });
 
   sources

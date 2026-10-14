@@ -168,7 +168,7 @@ export function buildSearchSql(f) {
   if (f.excludeBots) where.push('m.is_bot = 0');
   const limit = Math.max(1, Math.min(100, Number(f.limit) || 20));
   const cols =
-    'm.ref, m.source, m.account, m.container, m.thread_id, m.ts, m.author_person, m.author_raw, m.subject, m.permalink, m.scrub_withheld, m.scrub_kinds';
+    'm.ref, m.source, m.account, m.container, m.thread_id, m.ts, m.author_person, m.author_raw, m.subject, m.permalink, m.scrub_withheld, m.scrub_kinds, m.participants';
   if (f.match) {
     return {
       mode: 'fts',
@@ -468,7 +468,9 @@ export const TOOLS = [
       'source (gmail|slack|msgraph|youtrack|jira|asana|granola|gmeet|wispr|…), person (email, slack id, or a name fragment), ' +
       'initiative (only what the tenant has attributed). Tracker tickets carry `kind: "task"`, recorded calls `kind: "meeting"`. ' +
       'With an empty query it lists the newest messages matching the filters. Bot/integration messages are excluded unless includeBots. ' +
-      'A call recorded by several recorders comes back once (`also` lists the other copies). Cite the `permalink` of anything you quote.',
+      'A call recorded by several recorders comes back once (`also` lists the other copies). Cite the `permalink` of anything you quote. ' +
+      '`author` is who WROTE the message and `to` the other side: a hit whose author is the mailbox owner (e.g. from …/Sent Items) is ' +
+      'a message they sent, never one they received.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -718,6 +720,7 @@ export function runSearch(db, args) {
       source: r.source,
       ts: r.ts,
       author: r.author_person || r.author_raw,
+      ...(r.kind ? {} : toField(r)),
       container: r.container,
       subject: r.subject,
       snippet: r.snippet,
@@ -725,6 +728,26 @@ export function runSearch(db, args) {
       ...(r.scrub_withheld ? { withheld: true } : {}),
     })),
   };
+}
+
+/**
+ * The other side of a message: participants minus its author, as short labels ("Tess North | Contoso",
+ * no address). `author` alone cannot tell direction — a mail Owen SENT has Owen as author and sits in
+ * …/Sent Items; the 2026-10-14 brief read exactly such a hit as "Tobin wrote". Empty (omitted) for a
+ * channel post, whose participants are just the author.
+ */
+function toField(r) {
+  let p = [];
+  try {
+    p = JSON.parse(r.participants || '[]');
+  } catch {
+    p = [];
+  }
+  const me = String(r.author_raw || '');
+  const short = (x) => String(x).replace(/\s*<[^>]*>\s*$/, '').trim() || String(x);
+  const to = p.filter((x) => x !== me).map(short);
+  if (!to.length) return {};
+  return { to: to.length > 6 ? [...to.slice(0, 6), `+${to.length - 6}`] : to };
 }
 
 function taskRow(t) {
@@ -1091,6 +1114,7 @@ export function runGet(db, args) {
     thread_id: m.thread_id,
     ts: m.ts,
     author: m.author_person || m.author_raw,
+    ...toField(m),
     subject: m.subject,
     text: m.text, // withheld bodies carry the marker verbatim — that IS the answer
     permalink: m.permalink,

@@ -250,7 +250,10 @@ const detectKv: Detector = (text, out) =>
   pushAll(text, KV, 'kv', out, (m) => {
     const sepExplicit = m[2] !== undefined; // groups: 1 keyword, 2 explicit sep, 3 whitespace sep, 4 quote, 5 value
     const value = m[5]!;
-    if (!sepExplicit && !/[\d^\p{P}\p{S}]/u.test(value)) return null; // whitespace-only: needs a digit/symbol
+    // Whitespace and the verb forms ("token is required", "password is changed") are prose unless
+    // the value carries a digit or symbol; `:`/`=` are taken at their word.
+    const weakSep = !sepExplicit || /^(?:is|ist)$/i.test(m[2]!);
+    if (weakSep && !/[\d^\p{P}\p{S}]/u.test(value)) return null;
     if (/^https?:\/\/[^@]+$/i.test(value)) return null; // plain URL, no userinfo
     if (/^\[REDACTED:/.test(value)) return null;
     // Values ending in sentence punctuation: trim it (the regex is greedy up to whitespace).
@@ -415,9 +418,13 @@ export function scrubSummary(findings: Finding[]): { kinds: string[]; count: num
  * they withhold Dependabot digests, "[Action required] Migrate your legacy user API keys" and
  * Asana's "You have 1 overdue task" — 75 of 605 bodies — while contributing nothing: a body with a
  * real secret is caught by the exact detectors anyway.
+ * The bare noun "credential(s)" is not here either (2026-10-14): it withheld Owen's own security
+ * mail ("18 credentials to rotate") and GitHub notifications for a `…-credential-failures` branch.
+ * Only DELIVERY forms count — "your credentials", "credentials for/attached/below".
  */
 const CARRIER_SUBJECT = new RegExp(
-  '(?<![\\p{L}\\p{N}])(?:credentials?|zugangsdaten|anmeldedaten|access\\s+data|login\\s+(?:details|data|information)|' +
+  '(?<![\\p{L}\\p{N}])(?:(?:your|new|temporary|initial)\\s+credentials|credentials\\s+(?:for|attached|below|enclosed)|' +
+    'zugangsdaten|anmeldedaten|access\\s+data|login\\s+(?:details|data|information)|' +
     'your\\s+(?:new\\s+|temporary\\s+|initial\\s+)?password|password\\s+for\\b|' +
     'vpn\\s+(?:config(?:uration)?|zugang|access|credentials|profile|login)|' +
     'учетные\\s+данные|учётные\\s+данные|данные\\s+для\\s+(?:входа|доступа)|логин\\s+и\\s+пароль|пароль\\s+(?:от|для|к)\\b)(?![\\p{L}\\p{N}])',
@@ -440,21 +447,30 @@ export interface Classification {
   reasons: string[];
 }
 
+/** The kv value sits inside a URL — a `?link_token=…` tracking parameter, not a credential handed over. */
+const kvInUrl = (text: string, h: Hit): boolean => /https?:\/\/\S*$/i.test(text.slice(Math.max(0, h.start - 400), h.start));
+/** `key: value` / `key=value` — not the whitespace or "is" forms, which also match prose. */
+const kvExplicitSep = (text: string, h: Hit): boolean => /(?::=|->|:|=)\s*["'`]?$/.test(text.slice(Math.max(0, h.start - 8), h.start));
+
 export function classifyMessage(msg: { subject?: string; text: string; attachments?: AttachmentLike[] }, opts: ScrubOptions = {}): Classification {
   const reasons: string[] = [];
   const text = msg.text ?? '';
   const exact = collectHits(text, { ...opts, exactOnly: true });
   const kinds = [...new Set(exact.map((h) => h.kind))].sort();
   const strong = kinds.filter((k) => STRONG_KINDS.has(k));
-  // Two findings make a carrier only when they are not just card/IBAN numbers: Luhn-valid task
-  // ids and invoice references appear in pairs in perfectly ordinary notification mail.
-  const nonFinancial = exact.filter((h) => h.kind !== 'card' && h.kind !== 'iban');
+  // Which hits are evidence of a credential BUNDLE (two of them withhold the body) rather than one
+  // inline value: never card/IBAN (Luhn-valid task ids and invoice references pair up in ordinary
+  // notification mail); never a kv inside a URL (`?link_token=…` came in pairs in 120 of the first
+  // 230 withheld bodies — newsletters, GitHub notification mail, Slack unfurls); never a kv without
+  // an explicit separator ("1.05M-token context", "scanner pass (gitleaks"). Every such hit is still
+  // redacted inline by scrubText — it just no longer costs the whole body.
+  const bundle = exact.filter((h) => h.kind !== 'card' && h.kind !== 'iban' && !(h.kind === 'kv' && (kvInUrl(text, h) || !kvExplicitSep(text, h))));
+  const passwordKv = exact.filter((h) => h.kind === 'kv' && PASSWORD_KEY.test(text.slice(Math.max(0, h.start - 40), h.start)));
   if (strong.length) reasons.push(`exact:${strong.join(',')}`);
-  else if (nonFinancial.length >= 2) reasons.push(`exact:${kinds.join(',')}`);
-  else if (exact.length === 1 && exact[0]!.kind === 'kv') {
-    const before = text.slice(Math.max(0, exact[0]!.start - 40), exact[0]!.start);
-    if (PASSWORD_KEY.test(before) && LOGIN_WORD.test(text)) reasons.push('exact:kv+login');
-  }
+  else if (bundle.length >= 2) reasons.push(`exact:${[...new Set(bundle.map((h) => h.kind))].sort().join(',')}`);
+  // A `Password: …` line next to a login/username line is a credential bundle whatever else the
+  // body carries (a URL token beside it must not hide the bundle).
+  else if (passwordKv.length && LOGIN_WORD.test(text)) reasons.push('exact:kv+login');
   if (msg.subject && CARRIER_SUBJECT.test(msg.subject)) reasons.push('subject');
   for (const a of msg.attachments ?? []) {
     if (CARRIER_ATTACHMENT.test(a.name)) {
