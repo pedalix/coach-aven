@@ -1,3 +1,4 @@
+import type { StoredProposal } from './dispatch.js';
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { splitTeam } from './teamkeys.js';
 import type { TeamAccess } from './access.js';
@@ -133,6 +134,10 @@ export interface TicketInvestigation {
 
 interface StateShape {
   projects: Record<string, ProjectRecord>;
+  // Dispatch primitive (dispatch.ts, DISPATCH=1): proposals by id, and executed dispatches per
+  // "<slug>|<local day>" for the daily cap. Absent on prod records (the flag is off there).
+  proposals?: Record<string, StoredProposal>;
+  dispatches?: Record<string, number>;
   chats?: Record<string, ChatRecord>;
   // Slack OAuth installations, keyed by enterpriseId ?? teamId (see installations.ts).
   // Stored opaquely (@slack/oauth Installation objects) — state.ts doesn't interpret them.
@@ -477,6 +482,38 @@ export class Store {
   // Drop chat records idle for longer than maxAgeMs. Skips records with a turn in flight
   // (recovery needs them). Losing an old record only loses `--resume` of a long-dead
   // thread — whose transcript has usually been rebuilt away with its sandbox anyway.
+  // ── dispatch primitive ──────────────────────────────────────────────────────────────
+  getProposal(id: string): StoredProposal | undefined {
+    return this.data.proposals?.[id];
+  }
+  setProposal(rec: StoredProposal): void {
+    (this.data.proposals ??= {})[rec.id] = rec;
+    this.save();
+  }
+  patchProposal(id: string, patch: Partial<StoredProposal>): StoredProposal | undefined {
+    const cur = this.data.proposals?.[id];
+    if (!cur) return undefined;
+    const next = { ...cur, ...patch };
+    (this.data.proposals ??= {})[id] = next;
+    this.save();
+    return next;
+  }
+  listProposals(filter?: { slug?: string; status?: StoredProposal['status'] }): StoredProposal[] {
+    return Object.values(this.data.proposals ?? {}).filter((p) => (!filter?.slug || p.slug === filter.slug) && (!filter?.status || p.status === filter.status));
+  }
+  dispatchCount(slug: string, day: string): number {
+    return this.data.dispatches?.[`${slug}|${day}`] ?? 0;
+  }
+  bumpDispatch(slug: string, day: string): number {
+    const k = `${slug}|${day}`;
+    const n = ((this.data.dispatches ??= {})[k] ?? 0) + 1;
+    this.data.dispatches[k] = n;
+    // Keep the map small: only today's and yesterday's keys matter.
+    for (const key of Object.keys(this.data.dispatches)) if (key.split('|')[1]! < day.slice(0, 8)) delete this.data.dispatches[key];
+    this.save();
+    return n;
+  }
+
   pruneChats(maxAgeMs: number, now = Date.now()): number {
     const chats = this.data.chats ?? {};
     let dropped = 0;

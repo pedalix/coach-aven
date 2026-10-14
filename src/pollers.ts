@@ -57,6 +57,8 @@ import { log } from './log.js';
 import { captureError } from './sentry.js';
 import path from 'node:path';
 import { FactStore } from './facts.js';
+import { dispatch } from './dispatch.js';
+import type { Dispatcher } from './dispatchrun.js';
 import { authCheck, configuredKinds, pullProject } from './sources/run.js';
 import { authCheckDue, createSourcesTicker, readSyncState } from './sources/sync.js';
 import { rawRecordCount, REPLICA_FILE as REPLICA_STORE_FILE } from './sources/store.js';
@@ -106,6 +108,7 @@ export function createPollers(
   engine: TurnEngine,
   channels: Channels,
   home: () => string | undefined,
+  dispatcher?: Dispatcher,
 ): Pollers {
   // Resolve a tenant's client, or undefined with a log line (the per-record skip rule).
   const clientOrSkip = (tenantId: string | undefined, what: string): bolt.webApi.WebClient | undefined => {
@@ -658,6 +661,9 @@ export function createPollers(
     startAll: () => {
       startScheduler();
       startControlWatcher();
+      // Dispatch primitive (DISPATCH=1): every few seconds claim the proposals the sandboxes
+      // dropped in their outboxes — the same cadence as the control dir.
+      if (dispatcher && dispatch.enabled) setInterval(() => dispatcher.pollOutboxes(), 5_000);
       startAutoReviewPoller();
       startAutofixPoller();
       startYouTrackPoller();

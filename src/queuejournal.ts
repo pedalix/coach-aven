@@ -27,6 +27,9 @@ export interface QueuedTurn {
   // Replayable as-is? false when the turn carried attachments or engine-side callbacks
   // (a YT draft's autoPost) that can't be serialized — recovery then asks for a resend.
   plain: boolean;
+  // Provenance of a DISPATCHED turn (dispatch.ts): which project proposed it and under which
+  // proposal id. Informational on replay (the pointer-back callbacks are not serializable).
+  origin?: { slug: string; proposalId: string };
 }
 
 type JournalOp = ({ op: 'add' } & QueuedTurn) | { op: 'done'; turnId: string };

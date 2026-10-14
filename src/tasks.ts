@@ -16,6 +16,8 @@ import {
   projectCwd,
 } from './project.js';
 import { withSourcesMcp } from './sources/mcp.js';
+import { withHostMcp } from './hostmcp.js';
+import { dispatch } from './dispatch.js';
 import { buildSystemPrompt } from './prompt.js';
 import type { GitFlow, McpServerSpec } from './projects.js';
 import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
@@ -134,7 +136,7 @@ async function prepareChat(
 
   const proj = store.upsertProject(slug, repos[0], cfg.sandbox.namePrefix);
   const sandbox = await driver.ensureSandbox(proj.sandboxName, slug, sandboxOpts);
-  await provisionTooling(sandbox, { cliVersion, upgradeCli, where: proj.sandboxName, sourcesMcp: sourcesEnabled });
+  await provisionTooling(sandbox, { cliVersion, upgradeCli, where: proj.sandboxName, sourcesMcp: sourcesEnabled, hostMcp: dispatch.enabled });
   // dockerd liveness guard: a dead daemon breaks Sail (php/composer/artisan shims) for
   // every turn until revived — catch it here rather than mid-conversation. A plain project
   // (sandbox.dind === false) has no dockerd to guard — the probe would only ever "fail".
@@ -229,7 +231,7 @@ export async function openChat(
 ): Promise<ChatSession> {
   const sourcesEnabled = opts.sources === true;
   // One merged list for every seeding site below: the project's own servers plus `sources`.
-  const mcp = withSourcesMcp(opts.mcp, sourcesEnabled);
+  const mcp = withHostMcp(withSourcesMcp(opts.mcp, sourcesEnabled), dispatch.enabled);
   const prep = await withSandboxLock(opts.slug, () =>
     prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox, sourcesEnabled),
   );
@@ -251,6 +253,7 @@ export async function openChat(
     slackUrl: opts.slackUrl,
     packageRepos: reachableDependencyRepos(opts.repos, facts.dependsOnRepos(opts.slug)),
     sourcesEnabled,
+    dispatchEnabled: dispatch.enabled,
     gitFlow: opts.gitFlow,
     // Resolved again here (loadProjects already validated it) so the prompt sees the same
     // dind answer as the dockerd guard in prepareChat.

@@ -2,6 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SandboxDriverKind } from './config.js';
 import { resolveSandboxOptions, withSourcesMount, type SandboxOptions } from './sandboxopts.js';
+import { dispatch, outboxDir, withOutboxMount, type DispatchConfig } from './dispatch.js';
+import { ensureDir } from './sources/paths.js';
 import { validateSourcesConfig } from './sources/config.js';
 import { replicaDir } from './sources/paths.js';
 import type { SourcesConfig } from './sources/types.js';
@@ -74,6 +76,9 @@ export interface ProjectConfig {
   // reaches the Claude process (scrub.ts). Default TRUE for every project — the API boundary
   // is the one place a pasted secret can't be recalled from. `false` opts a project out.
   scrubSecrets?: boolean;
+  // Dispatch primitive tuning (dispatch.ts, DISPATCH=1): targets that execute without the Send
+  // click and the per-day cap. Absent = every proposal is gated, cap 5.
+  dispatch?: DispatchConfig;
   // External systems the BOT reads on this project's behalf (mail, chat, calendar, files) into
   // a scrubbed archive under data/<slug>/ that the sandbox will later get read-only. Tokens live
   // in ~/.config/coach-aven/sources/<slug>/ and are bootstrapped with `orch sources auth`. See
@@ -155,6 +160,27 @@ export function loadProjects(path: string): ProjectsRegistry {
         // sees the same options without each knowing about sources. Re-validated so a
         // hand-written mount on the same target fails the boot as a duplicate.
         p.sandbox = withSourcesMount(p.sandbox, replicaDir(p.slug));
+        resolveSandboxOptions(p.sandbox);
+      } catch (e) {
+        throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (p.dispatch !== undefined) {
+      const dc = p.dispatch;
+      if (!dc || typeof dc !== 'object' || Array.isArray(dc)) throw new Error(`${path}: project "${p.slug}" dispatch must be an object`);
+      if (dc.auto !== undefined && (!Array.isArray(dc.auto) || dc.auto.some((x) => typeof x !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(x)))) {
+        throw new Error(`${path}: project "${p.slug}" dispatch.auto must be an array of project slugs or channel ids`);
+      }
+      if (dc.maxPerDay !== undefined && (!Number.isInteger(dc.maxPerDay) || dc.maxPerDay < 0 || dc.maxPerDay > 100)) {
+        throw new Error(`${path}: project "${p.slug}" dispatch.maxPerDay must be an integer in [0, 100]`);
+      }
+    }
+    // While dispatch is on, every project gets a read-write outbox beside the read-only replica
+    // (the `host` MCP tool writes proposals there). Created here, owner-only, BEFORE a container
+    // can mount it — docker would otherwise create it root-owned and the bot could not claim files.
+    if (dispatch.enabled) {
+      try {
+        p.sandbox = withOutboxMount(p.sandbox, ensureDir(outboxDir(p.slug)));
         resolveSandboxOptions(p.sandbox);
       } catch (e) {
         throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
