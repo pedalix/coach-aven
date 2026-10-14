@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.3.0';
+export const SERVER_VERSION = '1.4.0';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -459,6 +459,261 @@ export function buildCalendarSql(f) {
   };
 }
 
+// ── readouts: what waits for a reply, what stopped moving (docs/sources.md → "Readouts") ──
+// Plain SQL over stored rows — no model, no text heuristics — so a routine quotes the rows as
+// facts and the same store always yields the same list. Both take `now` so tests pin the clock.
+
+/** `unanswered` without since/until looks this far back: older silence is history, not a wait. */
+export const DEFAULT_UNANSWERED_WINDOW_DAYS = 14;
+/** Direct conversations — Slack DMs / group DMs, Teams chats: the whole container is one thread. */
+const DIRECT_CONTAINER_SQL = "(m.container LIKE 'dm:%' OR m.container LIKE 'mpim:%' OR m.container LIKE 'chat:%')";
+const isDirectContainer = (c) => /^(dm|mpim|chat):/.test(String(c ?? ''));
+/** A numeric argument with a default; junk falls back to the default rather than to 0. */
+function numArg(v, dflt, min = 0) {
+  if (v === undefined || v === null || v === '') return dflt;
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(min, n) : dflt;
+}
+
+/**
+ * Who "we" are for a readout. `side` = company names and/or person ids from the people file
+ * (comma-separated; everyone of a listed company is us), `person` = one person as `search.person`
+ * resolves it, neither = the account owner(s): the people whose identities are the mail accounts
+ * the store was pulled for (Slack accounts are team ids and never resolve — the mailbox decides).
+ */
+export function resolveSubject(db, args) {
+  if (args.side) {
+    const wanted = String(args.side).split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+    const ids = new Set();
+    const q = db.prepare('SELECT person_id FROM people WHERE lower(company) = ? OR lower(person_id) = ?');
+    for (const w of wanted) for (const r of q.all(w, w)) ids.add(r.person_id);
+    if (!ids.size) return { mode: 'side', ids: ['__nobody__'], note: `side ${JSON.stringify(args.side)} matches no company or person id in the people file` };
+    return { mode: 'side', ids: [...ids] };
+  }
+  if (args.person) {
+    const r = resolvePersonIds(db, args.person);
+    return { mode: 'person', ids: r.ids, ...(r.note ? { note: r.note } : {}) };
+  }
+  const owners = db
+    .prepare('SELECT DISTINCT person_id FROM identities WHERE identity IN (SELECT DISTINCT lower(account) FROM messages)')
+    .all()
+    .map((r) => r.person_id);
+  if (!owners.length) return { mode: 'person', ids: ['__nobody__'], note: 'no account owner in the people file — pass `person` or `side`' };
+  return { mode: 'person', ids: owners };
+}
+
+/**
+ * Candidates: human messages not by the subject, at least `cutoff` old and, in person mode,
+ * addressed to them — listed in `to` (mail recipients, Slack @mentions, DM/group members; the
+ * pullers put the DM counterpart there). In side mode every message in scope counts: the store (or
+ * `container`) IS the client scope. Unanswered: no later message by the subject in the same
+ * thread, in the same direct conversation, or addressed to the author within the same source — a
+ * mail reply (any folder), an @mention in the same channel: how people answer outside the thread.
+ * A mention of the author in ANOTHER channel is not an answer. Oldest first; the caller folds
+ * rows per conversation. A reply posted in a channel without thread or mention is NOT seen.
+ */
+export function buildUnansweredSql(f) {
+  const ids = f.subjectIds && f.subjectIds.length ? f.subjectIds : ['__nobody__'];
+  const ph = ids.map(() => '?').join(',');
+  const where = ['m.deleted = 0', `(m.author_person IS NULL OR m.author_person NOT IN (${ph}))`, 'm.ts <= ?'];
+  const params = [...ids, f.cutoff];
+  if (f.hasBots !== false) where.push('m.is_bot = 0');
+  if (f.mode !== 'side') {
+    where.push(`EXISTS (SELECT 1 FROM message_people mp WHERE mp.ref = m.ref AND mp.role = 'to' AND mp.person_id IN (${ph}))`);
+    params.push(...ids);
+  }
+  if (f.since) {
+    where.push('m.ts >= ?');
+    params.push(f.since);
+  }
+  if (f.until) {
+    where.push('m.ts <= ?');
+    params.push(f.until);
+  }
+  if (f.source) {
+    where.push('m.source = ?');
+    params.push(String(f.source));
+  }
+  if (f.container) {
+    where.push('m.container LIKE ?');
+    params.push(`%${String(f.container)}%`);
+  }
+  where.push(
+    `NOT EXISTS (SELECT 1 FROM messages r WHERE r.deleted = 0 AND r.ts > m.ts AND r.author_person IN (${ph}) AND (` +
+      'r.thread_id = m.thread_id' +
+      ` OR (${DIRECT_CONTAINER_SQL} AND r.source = m.source AND r.container = m.container)` +
+      // addressed to the author, in the same source: a mail reply (any folder), an @mention or DM in the same conversation
+      " OR (r.source = m.source AND (m.source = 'gmail' OR m.container LIKE 'mailbox:%' OR r.container = m.container) AND (" +
+      "(m.author_person IS NOT NULL AND EXISTS (SELECT 1 FROM message_people rp WHERE rp.ref = r.ref AND rp.role = 'to' AND rp.person_id = m.author_person))" +
+      " OR (m.author_person IS NULL AND m.author_raw <> '' AND instr(lower(r.participants), lower(m.author_raw)) > 0)))))",
+  );
+  params.push(...ids);
+  const limit = Math.max(1, Math.min(2000, Number(f.limit) || 1000));
+  return {
+    sql:
+      'SELECT m.ref, m.source, m.container, m.thread_id, m.ts, m.author_person, m.author_raw, m.subject, m.permalink, m.scrub_withheld, m.participants, ' +
+      'substr(m.text, 1, 200) AS snippet, th.first_ts, th.last_ts, th.n ' +
+      `FROM messages m LEFT JOIN threads th ON th.thread_id = m.thread_id WHERE ${where.join(' AND ')} ORDER BY m.ts ASC LIMIT ?`,
+    params: [...params, limit],
+  };
+}
+
+export function runUnanswered(db, args, now = new Date()) {
+  const subject = resolveSubject(db, args);
+  const hours = numArg(args.hours, 24);
+  const notes = subject.note ? [subject.note] : [];
+  if (subject.ids[0] === '__nobody__') {
+    return { subject: { mode: subject.mode, people: [] }, hours, now: now.toISOString(), note: notes.join('; '), conversations: 0, unanswered: [] };
+  }
+  let since = normalizeTime(args.since, 'since');
+  const until = normalizeTime(args.until, 'until');
+  if (!since && !until) {
+    since = new Date(now.getTime() - DEFAULT_UNANSWERED_WINDOW_DAYS * 86_400_000).toISOString();
+    notes.push(`no since/until given — looking back ${DEFAULT_UNANSWERED_WINDOW_DAYS} days (since ${since})`);
+  }
+  const cutoff = new Date(now.getTime() - hours * 3_600_000).toISOString();
+  const q = buildUnansweredSql({
+    mode: subject.mode, subjectIds: subject.ids, cutoff, since, until, source: args.source, container: args.container, hasBots: hasColumn(db, 'messages', 'is_bot'),
+  });
+  // One row per conversation — a direct container, else the thread — carrying the OLDEST waiting
+  // message (when the wait began) and how many more piled up behind it.
+  const byConv = new Map();
+  for (const r of db.prepare(q.sql).all(...q.params)) {
+    const key = isDirectContainer(r.container) ? `${r.source}:${r.container}` : r.thread_id;
+    const first = byConv.get(key);
+    if (first) {
+      first.pending += 1;
+      first.lastInboundTs = r.ts;
+      continue;
+    }
+    byConv.set(key, { ...r, pending: 1, lastInboundTs: r.ts });
+  }
+  const limit = Math.max(1, Math.min(200, Number(args.limit) || 50));
+  return {
+    subject: { mode: subject.mode, people: subject.ids[0] === '__nobody__' ? [] : subject.ids },
+    hours,
+    since,
+    ...(until ? { until } : {}),
+    now: now.toISOString(),
+    ...(notes.length ? { note: notes.join('; ') } : {}),
+    conversations: byConv.size,
+    unanswered: [...byConv.values()].slice(0, limit).map((r) => ({
+      ref: r.ref,
+      source: r.source,
+      container: r.container,
+      author: r.author_person || r.author_raw,
+      ...toField(r),
+      ts: r.ts,
+      ageHours: Math.max(0, Math.round((now.getTime() - Date.parse(r.ts)) / 3_600_000)),
+      pending: r.pending,
+      ...(r.pending > 1 ? { lastInboundTs: r.lastInboundTs } : {}),
+      thread: { id: r.thread_id, first_ts: r.first_ts, last_ts: r.last_ts, n: r.n },
+      subject: r.subject,
+      snippet: r.snippet,
+      permalink: r.permalink,
+      ...(r.scrub_withheld ? { withheld: true } : {}),
+    })),
+  };
+}
+
+/**
+ * `stuck`: open tracker tasks (todo/doing) whose last activity — `updated`, or a later comment —
+ * is at least `days` old. SQL pre-filters on `updated` (a comment can only make a task NEWER);
+ * the JS pass applies the comment timestamps and groups project → status, stalest first.
+ */
+export function buildStuckSql(f) {
+  const where = ['t.deleted = 0', "t.status_category IN ('todo', 'doing')", 't.updated <= ?'];
+  const params = [f.cutoff];
+  const st = f.status ? String(f.status).toLowerCase() : '';
+  if (st === 'todo' || st === 'doing') {
+    where.push('t.status_category = ?');
+    params.push(st);
+  } else if (st) {
+    where.push('lower(t.status) = ?');
+    params.push(st);
+  }
+  if (f.personIds && f.personIds.length) {
+    where.push(`t.assignee_person IN (${f.personIds.map(() => '?').join(',')})`);
+    params.push(...f.personIds);
+  } else if (f.assigneeRaw) {
+    where.push('lower(t.assignee_raw) LIKE ?');
+    params.push(`%${String(f.assigneeRaw).toLowerCase()}%`);
+  }
+  if (f.project) {
+    where.push('(lower(t.project) = lower(?) OR lower(t.key) LIKE lower(?))');
+    params.push(String(f.project), `${String(f.project)}-%`);
+  }
+  if (f.source) {
+    where.push('t.source = ?');
+    params.push(String(f.source));
+  }
+  return {
+    sql:
+      'SELECT t.ref, t.source, t.key, t.title, t.status, t.status_category, t.assignee_person, t.assignee_raw, t.due, t.updated, t.project, t.url, t.comments ' +
+      `FROM tasks t WHERE ${where.join(' AND ')} ORDER BY t.project, t.status, t.updated ASC`,
+    params,
+  };
+}
+
+export function runStuck(db, args, now = new Date()) {
+  if (!hasTable(db, 'tasks')) return { groups: [], note: 'no tracker sources in this replica' };
+  const days = numArg(args.days, 5);
+  let personIds;
+  let note;
+  if (args.assignee) {
+    const r = resolvePersonIds(db, args.assignee);
+    if (r.ids[0] !== '__nobody__') personIds = r.ids;
+    else note = `${r.note}; matching assignee text instead`;
+  }
+  const cutoffMs = now.getTime() - days * 86_400_000;
+  const q = buildStuckSql({
+    cutoff: new Date(cutoffMs).toISOString(), status: args.status, personIds, assigneeRaw: personIds ? undefined : args.assignee, project: args.project, source: args.source,
+  });
+  const limit = Math.max(1, Math.min(500, Number(args.limit) || 100));
+  const groups = new Map();
+  let total = 0;
+  let truncated = false;
+  for (const t of db.prepare(q.sql).all(...q.params)) {
+    const { lastComment } = commentActivity(t.comments);
+    const lastMs = Math.max(Date.parse(t.updated) || 0, lastComment ? Date.parse(lastComment.at) || 0 : 0);
+    if (!lastMs || lastMs > cutoffMs) continue; // a comment inside the window: it moved
+    if (total >= limit) {
+      truncated = true;
+      break;
+    }
+    total += 1;
+    const key = `${t.project}\u0000${t.status}`;
+    let g = groups.get(key);
+    if (!g) {
+      g = { project: t.project, status: t.status, statusCategory: t.status_category, n: 0, tasks: [] };
+      groups.set(key, g);
+    }
+    g.n += 1;
+    g.tasks.push({
+      ref: t.ref,
+      source: t.source,
+      key: t.key,
+      title: t.title,
+      status: t.status,
+      assignee: t.assignee_person || t.assignee_raw,
+      updated: t.updated,
+      lastActivity: new Date(lastMs).toISOString(),
+      daysSinceUpdate: Math.floor((now.getTime() - lastMs) / 86_400_000),
+      due: t.due,
+      url: t.url,
+    });
+  }
+  for (const g of groups.values()) g.tasks.sort((a, b) => b.daysSinceUpdate - a.daysSinceUpdate);
+  return {
+    days,
+    now: now.toISOString(),
+    ...(note ? { note } : {}),
+    ...(truncated ? { truncated: true } : {}),
+    total,
+    groups: [...groups.values()],
+  };
+}
+
 export const TOOLS = [
   {
     name: 'search',
@@ -598,6 +853,52 @@ export const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: { since: { type: 'string' }, until: { type: 'string' }, initiative: { type: 'string' }, status: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 } },
+    },
+  },
+  {
+    name: 'unanswered',
+    description:
+      'What WAITS for a reply: inbound human messages addressed to the subject with no later reply from them. Subject = the account ' +
+      'owner by default, `person` (as in search), or `side` (company names and/or person ids from the people file, comma-separated — ' +
+      'everyone of that company is "us"; list an agent there to count its replies). Addressed = in `to` (mail recipients, Slack @mentions, ' +
+      'DM/group members); with `side` EVERY message in scope counts — scope the store (Slack allow-list) or ' +
+      'pass `container`. Answered = the subject wrote later in the same thread, in the same direct conversation, or a message addressed ' +
+      'to the author in the same source (mail reply, @mention in the same channel). One row per conversation: the OLDEST waiting message (`ts`, `ageHours`), `pending` = ' +
+      'messages piled up since, the thread summary, `permalink` — cite it. Bot/integration messages are never inbound. Filters: hours ' +
+      `(minimum age, default 24), ${WINDOW_DOC} (default: the last ${DEFAULT_UNANSWERED_WINDOW_DAYS} days), container (name fragment), ` +
+      'source, limit. Known limits: a reply posted in a channel without thread or @mention, and reactions, are not seen as answers.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        person: { type: 'string', description: 'Subject as one person: email, slack id, or a name fragment' },
+        side: { type: 'string', description: 'Subject as a side: company names and/or person ids from the people file, comma-separated' },
+        hours: { type: 'number', minimum: 0, default: 24, description: 'Minimum age of the waiting message in hours' },
+        since: { type: 'string' },
+        until: { type: 'string' },
+        container: { type: 'string', description: 'Channel / mailbox / conversation name fragment' },
+        source: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 200, default: 50 },
+      },
+    },
+  },
+  {
+    name: 'stuck',
+    description:
+      'What STOPPED moving: open tracker tasks (status category todo/doing) whose last activity — `updated` or a later comment — is at ' +
+      'least `days` old (default 5), grouped by project then status, stalest first. Rows carry ref, key, title, status, assignee, updated, ' +
+      'lastActivity, daysSinceUpdate, due, url; `get` a ref for the text and comments. Filters: days, project (key prefix or project name), ' +
+      'status (todo|doing|<exact status name>), assignee (resolved via people), source, limit. Known limit: age is from the last update of ' +
+      'ANY kind, not time in the current status — trackers do not record transitions here.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        days: { type: 'number', minimum: 0, default: 5 },
+        project: { type: 'string' },
+        status: { type: 'string' },
+        assignee: { type: 'string' },
+        source: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
+      },
     },
   },
   {
@@ -1283,6 +1584,10 @@ export function callTool(dbPath, name, args) {
         return runCalendar(db, args ?? {});
       case 'activity':
         return runActivity(db, args ?? {});
+      case 'unanswered':
+        return runUnanswered(db, args ?? {});
+      case 'stuck':
+        return runStuck(db, args ?? {});
       case 'stats':
         return runStats(db);
       default:
@@ -1315,7 +1620,8 @@ export function handleMessage(msg, dbPath) {
           instructions:
             'Read-only, scrubbed replica of this project\'s connected sources. Search first, then `get` the refs you ' +
             `need; cite permalinks. Redaction markers are final. An ISO date is a whole day in ${LOCAL_TZ}. ` +
-            'Call transcripts are never inlined: `transcript` pages them.',
+            'Call transcripts are never inlined: `transcript` pages them. `unanswered` and `stuck` are the readouts for ' +
+            'what waits for a reply and what stopped moving — quote their rows instead of rebuilding the lists.',
         });
       }
       case 'notifications/initialized':

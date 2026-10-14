@@ -56,9 +56,11 @@ export function withSourcesMcp(mcp: McpServerSpec[] | undefined, sourcesEnabled:
 
 /** Layer-1 system-prompt paragraph for projects with sources (prompt.ts buildSystemPrompt). */
 export const SOURCES_PROMPT_PARAGRAPH =
-  `Connected sources: the \`sources\` MCP tools (search, get, transcript, tasks, meetings, calendar, activity, fragments, people, stats) ` +
+  `Connected sources: the \`sources\` MCP tools (search, get, transcript, tasks, meetings, calendar, activity, fragments, unanswered, stuck, people, stats) ` +
   `query a READ-ONLY, scrubbed replica of this project's connected mail, chat, calendar, trackers and recorded calls at ${SOURCES_DB_PATH}. ` +
   `\`initiative\` filters and \`fragments\` reflect only what the project's own review has attributed — absence there is not evidence. ` +
+  `\`unanswered\` (what waits for a reply) and \`stuck\` (open tickets that stopped moving) are THE source for those two lists — ` +
+  `quote their rows and permalinks instead of rebuilding them from \`search\`/\`tasks\`. ` +
   `Search first, then \`get\` the refs you need, and cite the \`permalink\` of anything you quote or ` +
   `rely on. \`[REDACTED:…]\` tags and \`[BODY WITHHELD…]\` markers are deliberate — a secret was ` +
   `removed before it reached you; never ask anyone for the value, never try to reconstruct it, and ` +

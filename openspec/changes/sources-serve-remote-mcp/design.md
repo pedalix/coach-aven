@@ -18,11 +18,11 @@
 ## Decisions
 
 - **Export the tool table from the `.mjs`.** Split `sources-mcp.mjs` into `sources-tools.mjs` (pure: `tools`, `call(name, args, db)`) and the thin stdio loop; both ship in the snapshot, the host imports `sources-tools.mjs` by path. Alternative: duplicate the queries in TypeScript — rejected, two implementations drift.
-- **Host transport = `@modelcontextprotocol/sdk` StreamableHTTPServerTransport.** Host-side dependency only; the sandbox image stays dependency-free. Alternative: hand-roll streamable HTTP — more code, less compatible with Claude Code's MCP client.
+- **Host transport = hand-rolled streamable HTTP, stateless.** `POST /mcp` with a JSON-RPC body → `application/json` response (the spec allows a server to answer without an SSE stream); `GET` → 405; `Mcp-Session-Id` accepted and echoed, never required. The only client is agentgateway (then Claude Code behind it), and `handleMessage()` already exists — ~120 lines in `src/sources/serve.ts`, no dependency, same style as the stdio server. Alternative: `@modelcontextprotocol/sdk` StreamableHTTPServerTransport — kept as the fallback if the gateway insists on SSE (the parity test runs first against the gateway image locally).
 - **Live store, read-only connection, `PRAGMA query_only`,** one connection per request from a small pool; builds already run in a transaction, so WAL readers see a consistent snapshot.
 - **Auth: bearer from env for direct use; gateway-m2m for sandboxes.** The gateway holds the long-lived token (Cloudflare Access service token or a static bearer); sandboxes keep minting short-lived M2M tokens as for every other route.
 - **Daemon = the existing `createSourcesTicker` loop lifted into a CLI command** with the same `sources_sync` facts; the bot's own ticker is disabled when `SOURCES_DAEMON=1` (bucket 3) so both never pull the same slug.
-- **Tunnel is documentation, not code:** `cloudflared tunnel run` on the ingest machine → `sources-<slug>.<domain>` → agentgateway route. Local-mode home bot keeps using the replica; the tunnel is for hosted/remote sandboxes.
+- **Exposure is documentation, not code.** Prod: nginx on aven-prod (already the TLS edge for `aven.guru`, `bot.aven.guru`) gets `location /sources/<slug>/mcp → 127.0.0.1:<port>`; `infra/prod/` carries the snippet. agentgateway: one more target on the project's existing backend (`mcp: { host: https://aven.guru/sources/<slug>/mcp }`, `Authorization: Bearer ${SOURCES_TOKEN_<SLUG>}`) — same shape as the caldora analytics targets. A laptop without a public name: `cloudflared tunnel` to the same route. The home bot keeps the replica mount (local driver).
 
 ## Risks / Trade-offs
 
@@ -37,4 +37,5 @@
 
 ## Open Questions
 
-- Whether prod sandboxes run on the bot host (then the replica path also works for bluefin-ops on prod) — decides whether step 4 is needed before bluefin-ops goes to prod.
+- (resolved 2026-10-14) Prod sandboxes never run on the bot host: seven projects on Daytona (Bluefin VM <sandbox-vm>, 16 CPU/30 GB), the `coach-aven` project on the aven sandbox box (<sandbox-host>, ssh-docker + sysbox). `serve` is therefore on the critical path of bluefin-ops on prod. Fallback if `serve` slips: run bluefin-ops on the sandbox box with `driver: ssh-docker` and push the replica there after each build over the existing SSH (≈80 lines) — a second mechanism, so only if needed.
+- Memory on aven-prod is the real constraint (7.6 GB, ~1.8 GB free): `aven-prod-archestra-1` (2.1 GB, a full CPU core) and `archestra-mcp-control-plane` (kind, 1.4 GB) are leftovers of the engine that moved to agentgateway on 2026-09-25 — stopping them (Owen's call) frees what the ingest needs.

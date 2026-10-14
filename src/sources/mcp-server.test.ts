@@ -25,8 +25,10 @@ import {
   runPeople,
   runSearch,
   runStats,
+  runStuck,
   runTasks,
   runTranscript,
+  runUnanswered,
   sanitizeFtsQuery,
   speakerQuality,
 } from '../../snapshot/plain/sources-mcp.mjs';
@@ -384,7 +386,7 @@ test('handleMessage speaks the JSON-RPC subset the MCP client needs and never th
     (list.result as { tools: { name: string }[] }).tools.map((t) => t.name),
     TOOLS.map((t) => t.name),
   );
-  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'transcript', 'tasks', 'meetings', 'calendar', 'activity', 'fragments', 'people', 'stats']);
+  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'transcript', 'tasks', 'meetings', 'calendar', 'activity', 'fragments', 'unanswered', 'stuck', 'people', 'stats']);
   // the subagent pattern and the attribution rule live in the tool descriptions, not in a tenant prompt
   assert.match(TOOLS.find((t) => t.name === 'transcript')!.description, /spawn one Agent with the question \+ ref/);
   assert.match(TOOLS.find((t) => t.name === 'get')!.description, /me-them is attribution-grade/);
@@ -642,4 +644,197 @@ test('tasks: lastComment on every row; commentsSince counts the window given by 
   } finally {
     db.close();
   }
+});
+
+// ── readouts fixture: a store built for `unanswered` / `stuck` alone, with a pinned clock ─
+// Subject = Owen (owner of the me@x.com mailbox); side "bluefin" = Carla + the CoachAven agent.
+const READOUTS_NOW = new Date('2026-10-13T00:00:00.000Z');
+function fixtureReadouts(): { dbPath: string } {
+  const root = mkdtempSync(join(tmpdir(), 'mcp-readouts-'));
+  const raw = join(root, 'raw');
+  mkdirSync(join(raw, 'google', 'me@x.com'), { recursive: true });
+  mkdirSync(join(raw, 'slack'), { recursive: true });
+  mkdirSync(join(raw, 'asana', 'ws1'), { recursive: true });
+  const people = join(root, 'people.json');
+  writeFileSync(
+    people,
+    JSON.stringify([
+      { person_id: 'owen', name: 'Owen', company: 'self', identities: ['me@x.com', 'slack:Owen'] },
+      { person_id: 'Carla', name: 'Carla Bowman', company: 'bluefin', identities: ['slack:Carla Bowman'] },
+      // the project's agent, listed on Bluefin's side so its replies count as the side's
+      { person_id: 'aven', name: 'CoachAven', company: 'bluefin', identities: ['slack:CoachAven'] },
+      { person_id: 'tobin', name: 'Tess North', company: 'contoso', identities: ['Tess North@example.com'] },
+    ]),
+  );
+  const line = (o: object) => JSON.stringify(o) + '\n';
+  const mail = (id: string, ts: string, thread: string, author: string, to: string, subject: string, text: string, container = 'inbox') =>
+    line({
+      source: 'gmail', account: 'me@x.com', container, id, ts, author, participants: [author, to], subject, text, permalink: `https://mail/${id}`,
+      raw_ref: `gmail:me@x.com/${thread}/${id}`, scrub: { withheld: false, kinds: [], redactions: 0 },
+    });
+  writeFileSync(
+    join(raw, 'google', 'me@x.com', 'messages.jsonl'),
+    // thr1: Tobin writes twice, Owen replies in the thread → answered, however late the reply.
+    mail('m1', '2026-10-01T09:00:00.000Z', 'thr1', 'Tess North@example.com', 'me@x.com', 'Report', 'Tobin sends the report.') +
+      mail('m2', '2026-10-02T09:00:00.000Z', 'thr1', 'Tess North@example.com', 'me@x.com', 'Re: Report', 'Any thoughts?') +
+      mail('m5', '2026-10-05T09:00:00.000Z', 'thr1', 'me@x.com', 'Tess North@example.com', 'Re: Report', 'Agreed, see you Monday.', 'sent') +
+      // thr2/thr3: Konrad (not in the people file) asks; Owen answers in a NEW thread addressed to him.
+      mail('m6', '2026-10-07T09:00:00.000Z', 'thr2', 'konrad@example.com', 'me@x.com', 'Access list', 'Konrad asks for the access list.') +
+      mail('m7', '2026-10-08T09:00:00.000Z', 'thr3', 'me@x.com', 'konrad@example.com', 'Access list', 'Here it is.', 'sent') +
+      // thr4: Anna (unknown) waits.
+      mail('m8', '2026-10-09T08:00:00.000Z', 'thr4', 'anna@acme.com', 'me@x.com', 'Invoice question', 'Anna asks about the invoice.'),
+  );
+  const slack = (ch: string, container: string, ts: string, seq: string, author: string, participants: string[], text: string, extra: object = {}) =>
+    line({
+      source: 'slack', account: 'T1', container, id: `T1:${ch}:1700000000.${seq}`, ts, author, participants, text,
+      permalink: `https://slack/${seq}`, raw_ref: `slack:T1/${ch}/1700000000.${seq}`, scrub: { withheld: false, kinds: [], redactions: 0 }, ...extra,
+    });
+  writeFileSync(
+    join(raw, 'slack', 'slack.messages.jsonl'),
+    // channel post without a mention: not addressed to Owen; by the side in side mode
+    slack('C1', '#lumora', '2026-10-05T12:00:00.000Z', '000200', 'Carla Bowman', ['Carla Bowman'], 'Variants release goes live after staging sign-off.') +
+      // an integration: never inbound, in either mode
+      slack('C1', '#lumora', '2026-10-05T12:10:00.000Z', '000300', 'Intercom Convert', ['Intercom Convert'], 'New conversation about the sign-off.', { is_bot: true }) +
+      // Owen asks the agent, the agent answers in the thread a minute later
+      slack('C1', '#lumora', '2026-10-06T08:00:00.000Z', '000900', 'Owen', ['Owen', 'CoachAven'], '@CoachAven how many orders?') +
+      slack('C1', '#lumora', '2026-10-06T08:01:00.000Z', '000901', 'CoachAven', ['CoachAven', 'Owen'], '12 orders', { is_bot: true, raw_ref: 'slack:T1/C1/1700000000.000901#1700000000.000900' }) +
+      // Carla asks Owen in a thread, Owen replies in the thread within the hour
+      slack('C1', '#lumora', '2026-10-06T10:00:00.000Z', '000400', 'Carla Bowman', ['Carla Bowman', 'Owen'], '@Owen when do we ship variants?') +
+      slack('C1', '#lumora', '2026-10-06T10:30:00.000Z', '000401', 'Owen', ['Owen', 'Carla Bowman'], 'Thursday', { raw_ref: 'slack:T1/C1/1700000000.000401#1700000000.000400' }) +
+      // Carla asks Owen, pings again in the thread three days later, no reply
+      slack('C1', '#lumora', '2026-10-07T09:00:00.000Z', '000500', 'Carla Bowman', ['Carla Bowman', 'Owen'], '@Owen can you check the staging logs?') +
+      slack('C1', '#lumora', '2026-10-10T09:00:00.000Z', '001000', 'Carla Bowman', ['Carla Bowman', 'Owen'], '@Owen ping on the logs?', { raw_ref: 'slack:T1/C1/1700000000.001000#1700000000.000500' }) +
+      // Owen asks Carla in another client channel, nobody on Bluefin's side answers there
+      slack('C2', '#bluefin-aven-caldora', '2026-10-08T08:00:00.000Z', '000600', 'Owen', ['Owen', 'Carla Bowman'], '@Carla Bowman can you confirm the release date?') +
+      // DMs: Noel (unknown person) waits; Vincent (unknown) got a reply in the same conversation
+      slack('D1', 'dm:@noel', '2026-10-09T09:00:00.000Z', '000700', 'Noel', ['Noel', 'Owen'], 'are the checks done?') +
+      slack('D2', 'dm:@vincent', '2026-10-08T09:00:00.000Z', '000800', 'Vincent', ['Vincent', 'Owen'], 'did you see the deck?') +
+      slack('D2', 'dm:@vincent', '2026-10-08T09:30:00.000Z', '000801', 'Owen', ['Owen', 'Vincent'], 'yes, looks good'),
+  );
+  const task = (id: string, extra: object) =>
+    line({
+      source: 'asana', account: 'ws1', id, key: id, status: 'Ready to Code', statusCategory: 'todo', assignee: 'me@x.com', reporter: 'rowan@example.com',
+      due: '', created: '2026-09-01T00:00:00.000Z', project: 'CartGenie', url: `https://asana/${id}`, labels: [], text: 'Expand the alerts.', comments: [],
+      scrub: { withheld: false, kinds: [], redactions: 0 }, ...extra,
+    });
+  writeFileSync(
+    join(raw, 'asana', 'ws1', 'tasks.jsonl'),
+    task('t1', { title: 'AWS billing alerts', updated: '2026-10-12T14:51:58.000Z', comments: [{ id: 'c1', author: 'rowan@example.com', ts: '2026-10-12T14:51:58.000Z', text: 'ok' }] }) +
+      task('t2', { title: 'Old task', status: 'Done', statusCategory: 'done', updated: '2026-09-01T00:00:00.000Z' }) +
+      task('t3', { title: 'Stale ticket', updated: '2026-09-20T00:00:00.000Z' }) +
+      // `updated` is old, but a comment inside the window moved it
+      task('t4', { title: 'Quiet but commented', status: 'In Progress', statusCategory: 'doing', project: 'Infra', updated: '2026-09-25T00:00:00.000Z', comments: [{ id: 'c2', author: 'rowan@example.com', ts: '2026-10-10T00:00:00.000Z', text: 'still on it' }] }),
+  );
+  const ctx: BuildContext = { slug: 'r', rawDir: raw, storePath: join(root, 'store.sqlite'), replicaDir: join(root, 'replica'), peoplePath: people, log: () => undefined };
+  buildStore(ctx);
+  return { dbPath: join(root, 'replica', 'store.sqlite') };
+}
+
+test('unanswered: owner by default; answered = later reply in thread, in the DM, or addressed to the author; bots and own messages never inbound', () => {
+  const { dbPath } = fixtureReadouts();
+  const db = openReadOnly(dbPath);
+  try {
+    type Row = { ref: string; container: string; author: string; ts: string; ageHours: number; pending: number; lastInboundTs?: string; thread: { n: number }; permalink: string; to?: string[] };
+    const r = runUnanswered(db, {}, READOUTS_NOW);
+    assert.deepEqual(r.subject, { mode: 'person', people: ['owen'] }, 'the mailbox owner is the default subject');
+    assert.equal(r.hours, 24);
+    assert.equal(r.since, '2026-09-29T00:00:00.000Z', 'no window → 14 days back from the pinned clock');
+    assert.match(r.note ?? '', /looking back 14 days/);
+    const rows = r.unanswered as Row[];
+    assert.deepEqual(
+      rows.map((x) => [x.container, x.author, x.ts, x.pending, x.ageHours]),
+      [
+        ['#lumora', 'Carla', '2026-10-07T09:00:00.000Z', 2, 135], // asked 10-07, pinged 10-10 in the thread: one row, pending 2
+        ['inbox', 'anna@acme.com', '2026-10-09T08:00:00.000Z', 1, 88],
+        ['dm:@noel', 'Noel', '2026-10-09T09:00:00.000Z', 1, 87],
+      ],
+      'oldest wait first; Tobin (replied in thread), Konrad (replied by address), Vincent (replied in the DM), the thread Owen answered within the hour and the agent thread are all closed',
+    );
+    assert.equal(r.conversations, 3);
+    assert.equal(rows[0]!.lastInboundTs, '2026-10-10T09:00:00.000Z');
+    assert.equal(rows[0]!.thread.n, 2);
+    assert.deepEqual(rows[0]!.to, ['Owen'], 'the other side of the message, as search reports it');
+    assert.equal(rows[1]!.permalink, 'https://mail/m8');
+    // minimum age: a week → nothing in the fixture is that old and still waiting
+    assert.deepEqual(runUnanswered(db, { hours: 24 * 7 }, READOUTS_NOW).unanswered, []);
+    // explicit window + container narrow the same list
+    assert.deepEqual((runUnanswered(db, { since: '2026-10-09', container: 'dm:' }, READOUTS_NOW).unanswered as Row[]).map((x) => x.container), ['dm:@noel']);
+    assert.deepEqual((runUnanswered(db, { source: 'gmail' }, READOUTS_NOW).unanswered as Row[]).map((x) => x.ref), ['gmail:me@x.com:m8']);
+    // `person` picks another subject: Carla waits for Owen's 10-08 question (addressed to her by mention); her
+    // own 10-10 ping to Owen is in #lumora, not that channel, so it does not close it
+    const cil = runUnanswered(db, { person: 'Carla', since: '2026-10-01' }, READOUTS_NOW);
+    assert.deepEqual(cil.subject, { mode: 'person', people: ['Carla'] });
+    assert.deepEqual((cil.unanswered as Row[]).map((x) => [x.author, x.ts]), [['owen', '2026-10-08T08:00:00.000Z']]);
+    // nobody matches → empty subject, a note, no rows
+    const nobody = runUnanswered(db, { person: 'zzz' }, READOUTS_NOW);
+    assert.deepEqual(nobody.subject.people, []);
+    assert.match(nobody.note ?? '', /no person matches/);
+    assert.deepEqual(nobody.unanswered, []);
+  } finally {
+    db.close();
+  }
+});
+
+test('unanswered in side mode: every non-side human message in scope counts; the agent listed on the side closes a thread', () => {
+  const { dbPath } = fixtureReadouts();
+  const db = openReadOnly(dbPath);
+  try {
+    type Row = { ref: string; author: string; ts: string; pending: number };
+    const r = runUnanswered(db, { side: 'bluefin', container: '#' }, READOUTS_NOW);
+    assert.deepEqual(r.subject, { mode: 'side', people: ['Carla', 'aven'] }, 'everyone whose company is bluefin');
+    assert.deepEqual(
+      (r.unanswered as Row[]).map((x) => [x.author, x.ts, x.pending]),
+      [['owen', '2026-10-08T08:00:00.000Z', 1]],
+      'Owen\'s 10-06 question was answered by the agent in-thread, his 10-06 reply by Carla\'s later mention of him in the same channel; the integration post is not inbound; DMs are outside the `#` scope',
+    );
+    // a side that matches nothing says so and returns nothing — never "everything"
+    const none = runUnanswered(db, { side: 'acme' }, READOUTS_NOW);
+    assert.deepEqual(none.subject.people, []);
+    assert.match(none.note ?? '', /matches no company or person id/);
+    assert.deepEqual(none.unanswered, []);
+    // person ids mix with company names
+    assert.deepEqual(runUnanswered(db, { side: 'tobin, BLUEFIN' }, READOUTS_NOW).subject.people, ['tobin', 'Carla', 'aven']);
+  } finally {
+    db.close();
+  }
+});
+
+test('stuck: open tasks by last activity (updated or a later comment), grouped project → status, stalest first; done tasks never', () => {
+  const { dbPath } = fixtureReadouts();
+  const db = openReadOnly(dbPath);
+  try {
+    type Group = { project: string; status: string; statusCategory: string; n: number; tasks: { key: string; daysSinceUpdate: number; lastActivity: string; assignee: string }[] };
+    const five = runStuck(db, {}, READOUTS_NOW);
+    assert.equal(five.days, 5);
+    assert.equal(five.total, 1);
+    assert.deepEqual(
+      (five.groups as Group[]).map((g) => [g.project, g.status, g.statusCategory, g.n, g.tasks.map((t) => [t.key, t.daysSinceUpdate, t.assignee])]),
+      [['CartGenie', 'Ready to Code', 'todo', 1, [['t3', 23, 'owen']]]],
+      't1 was updated yesterday, t4 got a comment three days ago, t2 is done',
+    );
+    const two = runStuck(db, { days: 2 }, READOUTS_NOW);
+    assert.equal(two.total, 2);
+    assert.deepEqual(
+      (two.groups as Group[]).map((g) => [g.project, g.status, g.tasks.map((t) => [t.key, t.daysSinceUpdate, t.lastActivity])]),
+      [
+        ['CartGenie', 'Ready to Code', [['t3', 23, '2026-09-20T00:00:00.000Z']]],
+        ['Infra', 'In Progress', [['t4', 3, '2026-10-10T00:00:00.000Z']]],
+      ],
+      'the comment, not `updated`, is t4\'s last activity',
+    );
+    assert.deepEqual((runStuck(db, { days: 2, status: 'doing' }, READOUTS_NOW).groups as Group[]).map((g) => g.tasks.map((t) => t.key)), [['t4']]);
+    assert.deepEqual((runStuck(db, { days: 2, project: 'infra' }, READOUTS_NOW).groups as Group[]).map((g) => g.project), ['Infra']);
+    assert.equal(runStuck(db, { days: 2, assignee: 'me@x.com' }, READOUTS_NOW).total, 2, 'assignee resolved through the people file');
+    assert.equal(runStuck(db, { days: 2, limit: 1 }, READOUTS_NOW).truncated, true);
+    assert.equal(runStuck(db, { days: 'junk' }, READOUTS_NOW).days, 5, 'junk falls back to the default, not to 0');
+  } finally {
+    db.close();
+  }
+});
+
+test('tools/list carries both readouts with their limits stated', () => {
+  const byName = Object.fromEntries(TOOLS.map((t) => [t.name, t.description]));
+  assert.match(byName.unanswered!, /not seen as answers/);
+  assert.match(byName.unanswered!, /whole day in /, 'windowed tools name the zone (the round-trip test pins Europe/Moscow)');
+  assert.match(byName.stuck!, /not time in the current status/);
 });

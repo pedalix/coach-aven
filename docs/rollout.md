@@ -44,7 +44,7 @@ Canary = the home bot runs it. Prod = tagged and deployed. Default = flag no lon
 
 | Change | PR | Gate | Canary since | Prod since | Default since | What to watch / notes |
 |---|---|---|---|---|---|---|
-| ssh-docker: no `--restart unless-stopped`, mount probe → recycle, empty mount after recycle is fatal | #134, #138 | none (driver behaviour) | 2026-10-14 | – | – | Prod sandboxes use ssh-docker: after a dockerd restart on the sandbox host, containers stay down until the next turn recreates them (before: auto-restart with a possibly empty mount). Canary check: restart Docker Desktop, next turn must recycle cleanly. |
+| ssh-docker: no `--restart unless-stopped`, mount probe → recycle, empty mount after recycle is fatal | #134, #138 | none (driver behaviour) | 2026-10-14 | – | – | In prod only the `coach-aven` project runs on ssh-docker (the aven sandbox box, `SSHDOCKER_HOST=aven-sandboxes`); the other seven run on Daytona (Bluefin VM) and are untouched. After a dockerd restart on the sandbox box its container stays down until the next turn recreates it (before: auto-restart with a possibly empty mount). Canary check: restart Docker Desktop, next turn must recycle cleanly. |
 | Metering: per-turn cost = delta of the CLI's running total | #135 | none (bug fix) | 2026-10-14 | – | – | `/aven usage` drops ~2× from the tag onward; earlier months stay inflated. Say so when the number is quoted. |
 | Base prompt: `gitFlow` pr\|direct, toolchain paragraph only with `dind` | #136 | config `gitFlow`, default `pr` | 2026-10-14 | n/a | `pr` | Golden fixture pins the prod text byte-exact. |
 | Base prompt: ScheduleWakeup result is a background update | ad8cab5 | none (prompt text) | 2026-10-14 | – | – | Deliberate re-snapshot; watch for odd "I scheduled…" answers in prod threads. |
@@ -52,6 +52,7 @@ Canary = the home bot runs it. Prod = tagged and deployed. Default = flag no lon
 | Scrubber precision: bare "credentials" subject, URL/prose `kv` pairs no longer withhold a body; `token is required` no longer a kv hit; `sources rescrub` | #141 | none (bug fix; the kv `is`-separator change also applies to prod user-turn redaction — strictly fewer false redactions) | 2026-10-14 | – | – | Canary: withheld count in `stats()` drops after rescrub + build; no new secret in `sources audit`. |
 | Sources MCP: `to` on message hits/get, direction sentence in `search` | #141 | `sources` config | 2026-10-14 | n/a | – | Brief must say "Owen → Tobin" for a Sent Items hit. |
 | Sources: Outlook calendar tag + own-calendar allow-list (schema v6), tracker raw dedupe, Asana followers, meeting tools, transcript pass-through | #133, #137, #139 | `sources` config | 2026-10-14 | n/a | – | No prod project has `sources`. |
+| Sources MCP 1.4.0: `unanswered` / `stuck` readouts, prompt paragraph names them (OpenSpec `sources-field-readouts`) | #143 | `sources` config | 2026-10-14 | n/a | – | Bucket 2: the server and the paragraph only exist for projects with a `sources` block; `multi-repo-sources.txt` re-snapshotted on purpose, the two prod fixtures are byte-identical. Canary: the 18:30 close quotes `unanswered` permalinks and says which subject it used. |
 
 ### Retired
 
