@@ -277,6 +277,7 @@ restart. The agent sees `mcp__sources__search`, `get`, `people`, `stats`:
 | `transcript({ref, q, offset, limit})` | One copy's transcript (a `meetings` ref, or a `call:` id → its primary copy), paged by characters on whole lines: default 30k, max 50k, `next_offset` until null. With `q` (all words must occur in a line, case-insensitive) only the matching lines ±1 line of context, numbered `L<n>:`. A withheld transcript returns its marker. |
 | `calendar({since, until, person, q, source, limit})` | Calendar events (Google, Outlook) ordered by start — the source for "meetings today". `person` matches attendees/organizer via the person's identities (or the raw text); `q` matches the title. Every row carries `calendar` (see *Store*): for Outlook the JSON `{id, name, is_default}` — the only way to tell an own event from one in a calendar shared into the mailbox, since Graph names the mailbox owner as organizer for both. |
 | `people({q})` | Known people with their identities (from `projects.d/<slug>.people.json`). |
+| `unanswered(…)`, `stuck(…)` | The readouts — what waits for a reply, what stopped moving; see *Readouts* below. |
 | `stats()` | Per-source counts and time range, events, files, withheld count, `tz`, `now` and build meta — what the replica covers, before the agent concludes something is missing. `meta.pulled.<source> {at, age_minutes}` is derived from the `pulled:<kind>` scalars in `sync_state` (the last **ok** pull per kind, see *Store*); a source older than its interval is named with its last pull, never read as "quiet". |
 
 **Dates are local days.** The sandbox runs in UTC without tzdata, so the server — not the model —
@@ -294,6 +295,68 @@ enabled: search first, cite permalinks, redaction markers are final, transcripts
 `transcript` (in a subagent when a question needs the whole call), and an unavailable replica is
 reported in one line — never polled or waited for, the orchestrator re-runs failed scheduled turns.
 A project may declare its own `sources` MCP entry to override the built-in one.
+
+## Readouts
+
+Two tools answer the questions a brief or an evening close used to reconstruct from `search` and
+`tasks` on every run — *what waits for a reply* and *what stopped moving*. Both are plain SQL over
+stored rows (no model, no text heuristics), so the same store always yields the same list and a
+routine can quote the rows as facts. They are the latency and threshold readouts of the attention
+field (`ideas/local-mode-positioning-2026-10-14.md` §8); the first tenant agent for Bluefin runs on them.
+
+| Tool | Does |
+| --- | --- |
+| `unanswered({person, side, hours, since, until, container, source, limit})` | Inbound human messages addressed to the **subject** with no later reply from them. One row per conversation: the *oldest* waiting message (`ts`, `ageHours`), `pending` (messages piled up since, with `lastInboundTs`), `author`/`to`, the thread summary, `snippet`, `permalink`. `hours` is the minimum age (default 24); no `since`/`until` → the last 14 days (the result's `note` says so). |
+| `stuck({days, project, status, assignee, source, limit})` | Open tracker tasks (status category `todo`/`doing`) whose **last activity** — `updated`, or a later comment — is at least `days` old (default 5), grouped by project then status, stalest first; rows carry `key`, `title`, `status`, `assignee`, `updated`, `lastActivity`, `daysSinceUpdate`, `due`, `url`, `ref` (for `get`). `truncated: true` when `limit` cut the list. |
+
+**The subject.** Who "we" are decides what is inbound and what counts as an answer:
+
+- default — the **account owner**: the people whose identities are the mail accounts the store was
+  pulled for (`identities` ∩ `messages.account`; Slack accounts are team ids and never resolve, so
+  the mailbox decides). The result's `subject` names them;
+- `person` — one person, resolved like `search.person` (email, Slack id, name fragment);
+- `side` — a **side**: company names and/or person ids from the people file, comma-separated;
+  everyone whose `company` matches is "us". List the project's agent in `people.json` with the
+  side's company and its replies count as the side's.
+
+**Inbound** = a human message (`is_bot = 0`) not authored by the subject. In person mode it must
+also be *addressed*: the subject is in `message_people` with role `to` — mail recipients, Slack
+@mentions, DM/group-DM members (what the pullers write into `participants`; the account owner's
+Slack identity must be in the people file for their DMs to resolve). A channel post that does not
+mention the person is not addressed to them. In side mode **every** message in scope is inbound: the store
+(a Slack allow-list, see *Tenant annotations*) or `container` IS the client scope — pass one, or the
+list is the whole store.
+
+**Answered** = the subject (any member of the side) wrote a later message that is *in the same
+thread*, *in the same direct conversation* (DMs have no threads; the conversation is the thread),
+or *addressed to the author within the same source* — a mail reply in a new thread (any folder), an
+@mention in the same channel: how people answer outside the thread. A mention of the author in another
+channel is not an answer. For an author the people file does not know, "addressed" is
+matched on the raw address/label in the reply's `participants`. A reply posted in a channel without
+a thread or a mention is **not** seen as an answer, and reactions are not stored — the tool says
+so in its description, and the brief should treat such rows as "no written reply", not "ignored".
+The window (`since`/`until`) applies to the waiting message, so a reply after `until` still closes it.
+
+**Stuck** measures silence since the *last update of any kind* — `updated` as the tracker reports
+it, or the newest comment timestamp if later — not time in the current status: the pullers do not
+record status transitions. The SQL pre-filters on `updated` (a comment can only make a task newer),
+the comment pass runs in JS. `status` takes a category (`todo`, `doing`) or an exact status name;
+`project` a key prefix or project name; `assignee` resolves through the people file.
+
+Worked example — the 18:30 close for owen-ops asks `unanswered({hours: 24})` and gets
+
+```jsonc
+{ "subject": {"mode": "person", "people": ["owen-hale"]}, "hours": 24, "since": "2026-09-30T…", "conversations": 2,
+  "unanswered": [
+    { "ref": "slack:T02J…", "container": "#bluefin-aven-caldora", "author": "florin", "to": ["Owen Hale"], "ts": "2026-10-13T08:12:00.000Z",
+      "ageHours": 31, "pending": 2, "lastInboundTs": "2026-10-14T07:40:00.000Z", "thread": {"n": 3}, "snippet": "@Owen Hale …", "permalink": "https://pedalix.slack.com/archives/…" },
+    { "ref": "gmail:owen@example.com:1a13…", "container": "inbox", "author": "konrad@…", "ts": "2026-10-12T15:02:00.000Z", "ageHours": 48, "pending": 1, … } ] }
+```
+
+and `stuck({days: 5})` returns `groups: [{project: "CG", status: "In Progress", n: 2, tasks: [{key: "CG-61", daysSinceUpdate: 9, …}]}]`.
+The close quotes both lists with their permalinks and says which subject the readout used. For
+Bluefin's own agent the same call is `unanswered({side: "bluefin"})` over a store scoped to the client
+channels, and `stuck({days: 5, project: "CG"})` per initiative.
 
 ## Task trackers
 

@@ -6,16 +6,17 @@
 
 ## 2. Serve
 
-- [ ] 2.1 Add `@modelcontextprotocol/sdk` (host only) and `src/sources/serve.ts`: streamable HTTP server over the live store (read-only, `query_only`), bearer auth from `SOURCES_SERVE_TOKEN`, `--listen`; verify with a parity test calling `search`/`get`/`stats` over HTTP and over stdio against one fixture store.
+- [ ] 2.1 `src/sources/serve.ts`: stateless streamable HTTP (POST JSON-RPC → JSON) over the live store (read-only, `query_only`), bearer auth from `SOURCES_SERVE_TOKEN`, `--listen 127.0.0.1:<port>`; no new dependency; verify with a parity test calling `search`/`get`/`stats`/`unanswered` over HTTP and over stdio against one fixture store, and once against a local agentgateway container (the only real client) — switch to the SDK transport only if that fails.
 - [ ] 2.2 `stats.meta` from live `sync_state`; verify a test with a stale source.
 - [ ] 2.3 CLI `orch sources serve <slug>` in `src/sources/cli.ts`; verify `--help` and a smoke run against the owen-ops store on the home machine.
 
-## 3. Daemon and project wiring
+## 3. Project wiring (daemon deferred)
 
-- [ ] 3.1 `orch sources daemon` running the pull → build ticker for configured projects, lock file per slug, `SOURCES_DAEMON=1` disables the bot's ticker; verify by a sync test and by running both and observing a single pull per interval.
+- [ ] 3.1 (deferred — not needed while the bot host ingests) `orch sources daemon` running the pull → build ticker for configured projects, lock file per slug, `SOURCES_DAEMON=1` disables the bot's ticker; verify by a sync test and by running both and observing a single pull per interval.
 - [ ] 3.2 `withSourcesMount` skipped when the project's `mcp` declares `sources` with a `url` (`src/projects.ts`); verify with a projects test (replica by default, none when declared).
 
 ## 4. Docs and canary
 
-- [ ] 4.1 `docs/sources.md` *Remote access* (serve, daemon, tunnel + gateway route), `docs/runtime-config.md` `mcp` example, `docs/rollout.md` rows (bucket 3: `SOURCES_DAEMON`, config-gated `mcp` entry); verify typecheck + tests.
+- [ ] 4.1 `docs/sources.md` *Remote access* (serve; nginx snippet in `infra/prod/`; the gateway target shape; cloudflared for a laptop), `docs/runtime-config.md` `mcp` example, `docs/rollout.md` row (bucket 3: config-gated `mcp` entry); verify typecheck + tests.
+- [ ] 4.3 Prod: `serve` as a second systemd unit on aven-prod (`infra/prod/coach-aven-sources.service.tmpl`, port on loopback), nginx location, `SOURCES_TOKEN_BLUEFIN_OPS` in the gateway `.env` + target in `bluefin-infra/engine/config.yaml`; verify `initialize` 200 through `<gateway-host>/gw/bluefin-ops/mcp` with an M2M token before the project is enabled.
 - [ ] 4.2 Home bot: `bluefin-ops` pointed at a local `serve`; verify a brief turn uses the remote tools (session log shows the HTTP server name) and `/aven usage` shows no change in cost.

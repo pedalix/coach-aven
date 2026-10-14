@@ -73,6 +73,27 @@ export function buildTasksListSql(f: {
   limit?: number | string;
 }): { sql: string; params: unknown[] };
 
+export const DEFAULT_UNANSWERED_WINDOW_DAYS: number;
+export function resolveSubject(db: DatabaseSync, args: Record<string, unknown>): { mode: 'person' | 'side'; ids: string[]; note?: string };
+export function buildUnansweredSql(f: {
+  mode: 'person' | 'side';
+  subjectIds: string[];
+  cutoff: string;
+  since?: string;
+  until?: string;
+  source?: unknown;
+  container?: unknown;
+  hasBots?: boolean;
+  limit?: number | string;
+}): { sql: string; params: unknown[] };
+export function runUnanswered(
+  db: DatabaseSync,
+  args: Record<string, unknown>,
+  now?: Date,
+): { subject: { mode: string; people: string[] }; hours: number; since?: string; until?: string; now: string; note?: string; conversations: number; unanswered: Record<string, unknown>[] };
+export function buildStuckSql(f: { cutoff: string; status?: unknown; personIds?: string[]; assigneeRaw?: unknown; project?: unknown; source?: unknown }): { sql: string; params: unknown[] };
+export function runStuck(db: DatabaseSync, args: Record<string, unknown>, now?: Date): { days?: number; now?: string; note?: string; truncated?: boolean; total?: number; groups: Record<string, unknown>[] };
+
 export interface ToolDef {
   name: string;
   description: string;
