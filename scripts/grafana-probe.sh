@@ -6,7 +6,7 @@
 #   e.g.  scripts/grafana-probe.sh 'app="holidayshop-dorfberg"' 'holidayshop_'
 #
 # Token + URL come from infra/prod/runtime/.env (GRAFANA_SERVICE_ACCOUNT_TOKEN);
-# base URL defaults to <grafana-host> (override with GRAFANA_URL).
+# GRAFANA_URL is required (your Grafana base URL, e.g. https://<grafana-host>).
 set -uo pipefail
 
 SEL="${1:?usage: grafana-probe.sh '<loki-selector e.g. app=\"slug\">' '<prom-prefix e.g. slug_>'}"
@@ -14,7 +14,7 @@ PREFIX="${2:-}"
 ENV_FILE="${ENV_FILE:-infra/prod/runtime/.env}"
 [[ -f "$ENV_FILE" ]] || { echo "no $ENV_FILE (run: npm run prod:import)" >&2; exit 1; }
 set -a; source "$ENV_FILE"; set +a
-G="${GRAFANA_URL:-https://<grafana-host>}"
+G="${GRAFANA_URL:?set GRAFANA_URL=https://<grafana-host>}"
 H="Authorization: Bearer ${GRAFANA_SERVICE_ACCOUNT_TOKEN:?missing in $ENV_FILE}"
 S=$(( ($(date +%s) - 7*86400) * 1000000000 )); E=$(( $(date +%s) * 1000000000 ))
 

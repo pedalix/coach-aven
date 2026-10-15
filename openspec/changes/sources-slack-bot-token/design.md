@@ -29,4 +29,4 @@
 
 ## Migration Plan
 
-Bucket 2. Home bot: add the Bluefin installation's bot token to the bluefin-ops token store once Noel installs the app; the allow-list then lists Bluefin-internal channel ids beside the pedalix ones (`workspaces: [T0000FAKE01, <Bluefin team>]`). Ledger row; no flag needed.
+Bucket 2. Home bot: add the Bluefin installation's bot token to the bluefin-ops token store once Bluefin's Slack admin installs the app; the allow-list then lists Bluefin-internal channel ids beside the pedalix ones (`workspaces: [T0000FAKE01, <Bluefin team>]`). Ledger row; no flag needed.

@@ -1032,7 +1032,7 @@ export function runSearch(db, args) {
 }
 
 /**
- * The other side of a message: participants minus its author, as short labels ("Tess North | Contoso",
+ * The other side of a message: participants minus its author, as short labels ("Tess North | Partner",
  * no address). `author` alone cannot tell direction — a mail Owen SENT has Owen as author and sits in
  * …/Sent Items; the 2026-10-14 brief read exactly such a hit as "Tobin wrote". Empty (omitted) for a
  * channel post, whose participants are just the author.

@@ -6,11 +6,15 @@ Keeps an installation (project list, prompts, topology, operator notes) in its o
 ## ADDED Requirements
 
 ### Requirement: Runtime directory is an ops repository
-`infra/prod/runtime/` SHALL be a git checkout of the operator's private ops repo; `deploy.sh export` SHALL push it and upload only the secret files by scp, `deploy.sh import` SHALL pull it and download the secret files; both SHALL refuse to run when the directory is not a git checkout and print the clone command.
+`infra/prod/runtime/` SHALL be a git checkout of the operator's private ops repo; `deploy.sh export` SHALL push it and upload only the secret files by scp, ; both SHALL refuse to run when the directory is not a git checkout and print the clone command.
 
 #### Scenario: Export with unpushed config
 - **WHEN** `projects.config.json` is edited and committed but not pushed and `export` runs
-- **THEN** the overlay is pushed, the two secret files are uploaded, and the script prints `restart` as the next step
+- **THEN** the overlay is pushed, the runtime files are uploaded, and the script prints `restart` as the next step
+
+#### Scenario: Export with uncommitted config
+- **WHEN** the checkout has uncommitted changes and `export` runs
+- **THEN** nothing is pushed or uploaded; the script lists the dirty files and exits non-zero
 
 #### Scenario: Runtime dir is a plain folder
 - **WHEN** `infra/prod/runtime/` exists without `.git`
