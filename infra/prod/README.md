@@ -115,34 +115,41 @@ new sessions only).
 
 ## Releases (CI/CD)
 
-Deploys also run automatically from GitHub Actions
-([`.github/workflows/release.yml`](../../.github/workflows/release.yml)) — the manual
-`npm run prod:deploy` above still works and is unchanged. The pipeline is
-**tag-triggered**: pushing a `vX.Y.Z` tag typechecks and tests the code, publishes a GitHub
-Release whose notes are generated from the merged PR titles, then SSHes into the box and
-runs `deploy.sh deploy` (upload → `npm ci` → restart → health-check). It uses only the
-**deployer** key — never root — so `deploy.sh`'s preflight is split accordingly.
+Two repositories, two jobs:
+
+- **This repo releases.** Pushing a `vX.Y.Z` tag runs
+  [`.github/workflows/release.yml`](../../.github/workflows/release.yml): typecheck, tests and
+  the two guards, then a GitHub Release whose notes are generated from the merged PR titles.
+  Then, if the operator configured it, one `repository_dispatch` (`coach-aven-release`,
+  payload `{tag}`) to the operator's ops repo. This repo holds **no deploy key, no deploy
+  target, no environment** — a fork cuts releases just the same, the dispatch is skipped.
+- **Your ops repo deploys.** [`runtime.example/workflows/deploy.yml`](runtime.example/workflows/deploy.yml)
+  is the whole deploy workflow: on that dispatch, or by hand with a tag
+  (`workflow_dispatch`), it checks out this repo at the tag, writes `infra/prod/.env` from
+  its own secret, installs its own deployer key and runs `deploy.sh deploy` (upload →
+  `npm ci` → restart → health-check). Tags only — a branch or a sha is refused. Deploys
+  are queued, never overlapped. Rollback = deploy the previous tag.
 
 Cut a release (no changelog or version edits — the tag is the version of record):
 
 ```bash
-git tag vX.Y.Z && git push origin vX.Y.Z      # tag push → release + deploy
+git tag vX.Y.Z && git push origin vX.Y.Z      # tag push → release → dispatch → your ops repo deploys
 ```
 
-`workflow_dispatch` can also deploy by hand (no release is cut) — run it from a `v*` tag; the environment policy refuses branch refs.
+The manual path, `npm run prod:deploy` from a machine with the ops checkout, is unchanged
+and always available.
 
-**One-time setup** (GitHub → Settings → Environments → **production**). Protect the
-environment: a required reviewer and a deployment branch policy that allows **tags `v*`
-only**, so no branch or fork can reach these secrets.
+**Secrets** (none in this repo for a plain fork):
 
-| Secret | Value |
-| --- | --- |
-| `DEPLOY_SSH_KEY` | Passphrase-less private key for `deployer@<host>` |
-| `DEPLOY_ENV` | The full contents of `infra/prod/.env` (host, users, remote dir, service name) |
+| Where | Secret | Value |
+| --- | --- | --- |
+| ops repo | `DEPLOY_SSH_KEY` | passphrase-less private key for `deployer@<host>` |
+| ops repo | `DEPLOY_ENV` | the full contents of `infra/prod/.env` |
+| ops repo | `APP_ID`, `APP_PRIVATE_KEY` | optional — a GitHub App that can read the product repo; only while it is private to you |
+| product repo | `OPS_APP_ID`, `OPS_APP_PRIVATE_KEY` | optional — a GitHub App installed on your ops repo; enables the automatic hand-off. A token scoped to that one repo and `contents: write` is minted per run |
 
-CI deploys **code only**, exactly like the manual path — it never touches the box's
-runtime secrets, `projects.config.json`, or `state.json`. Changing the project list or a
-secret is still `export` → `restart`.
+Why a GitHub App and not a personal token: it is scoped at mint time, lives an hour, and
+is revoked by rotating one key — nobody's account, nothing that expires in a year.
 
 ## Runtime token note
 
