@@ -9,7 +9,7 @@
 
 ## 2. PR 2 — actions, dialogs, Home (bucket 1)
 
-- [ ] 2.1 Recorder scenarios for every `app.action` / `app.view` / `app_home_opened` / uninstall handler; snapshot first. Verify: green on unchanged code.
+- [x] 2.1 Recorder scenarios for every `app.action` / `app.view` / `app_home_opened` / uninstall handler; snapshot first. Verify: green on unchanged code.
 - [ ] 2.2 Inbound `ChatAction` / `DialogSubmit` / `HomeOpened` / `Installed`/`Removed`; outbound `openDialog` / `updateDialog` / `postPrivate` / `publishHome`; handler logic to `src/chat/core/`; Slack wiring and `blocks.ts` to `src/chat/slack/`. Verify: snapshots identical; `blocks.test.ts` unchanged.
 - [ ] 2.3 Ledger row; PR. Verify: CI green.
 
