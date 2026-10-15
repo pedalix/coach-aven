@@ -87,7 +87,7 @@ test('sources config: `daemon` — an http(s) origin and the NAME of the token v
     [{ url: 'ftp://x:1', tokenEnv: 'SOURCES_DAEMON_TOKEN' }, /"url" must be http/],
     [{ url: 'http://x:1/mcp', tokenEnv: 'SOURCES_DAEMON_TOKEN' }, /no path/],
     [{ url: 'http://user:pw@x:1', tokenEnv: 'SOURCES_DAEMON_TOKEN' }, /credentials/],
-    [{ url: 'http://x:1', tokenEnv: 'sk-live-0123456789' }, /NAME of an environment variable/],
+    [{ url: 'http://x:1', tokenEnv: 'the token itself' }, /NAME of an environment variable/],
     [{ url: 'http://x:1', tokenEnv: 'SOURCES_DAEMON_TOKEN', extra: 1 }, /unknown key "extra"/],
     ['http://x:1', /must be an object/],
   ] as Array<[unknown, RegExp]>) assert.throws(() => validateSourcesConfig({ ...base, daemon }), re, JSON.stringify(daemon));
