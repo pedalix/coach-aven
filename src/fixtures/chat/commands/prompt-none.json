@@ -1,0 +1,22 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_BETA"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*System prompt — beta*\n\n_No project-specific prompt set — the orchestrator base prompt and each repo's CLAUDE.md still apply._"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

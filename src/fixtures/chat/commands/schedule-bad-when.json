@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":x: schedule must be `daily HH:MM`, `weekdays HH:MM`, `weekly <mon..sun> HH:MM`, or `cron <5 fields>`"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

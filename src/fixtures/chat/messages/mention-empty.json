@@ -1,0 +1,24 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "thread_ts": "1.4",
+        "text": ":information_source: Ask me something — `@CoachAven <task>`. I work in a thread and open a PR for review."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

@@ -1,0 +1,22 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":information_source: No housekeeping here yet — `/aven housekeeping on` first."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

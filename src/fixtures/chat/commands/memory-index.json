@@ -1,0 +1,55 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_MEM"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "replace_original": true,
+        "text": "Memory — cmdrec-mem",
+        "blocks": [
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "*Memory*\n\n- Deploys (`deploys.md`) — how we ship\n- People (`people.md`) — who owns what\n\n\n_(last dream snapshot — `/aven memory live` for the sandbox's current state)_"
+            }
+          },
+          {
+            "type": "actions",
+            "elements": [
+              {
+                "type": "button",
+                "text": {
+                  "type": "plain_text",
+                  "text": "Deploys"
+                },
+                "action_id": "mem_open:0",
+                "value": "{\"s\":\"cmdrec-mem\",\"f\":\"deploys.md\"}"
+              },
+              {
+                "type": "button",
+                "text": {
+                  "type": "plain_text",
+                  "text": "People"
+                },
+                "action_id": "mem_open:1",
+                "value": "{\"s\":\"cmdrec-mem\",\"f\":\"people.md\"}"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

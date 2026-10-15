@@ -15,7 +15,7 @@
 
 ## 3. PR 3 — messages and commands (bucket 1)
 
-- [ ] 3.1 Recorder scenarios for mentions, thread replies, DMs with picker, files, every `/aven` verb including denials; snapshot first. Verify: green on unchanged code.
+- [x] 3.1 Recorder scenarios for mentions, thread replies, DMs with picker, files, every `/aven` verb including denials; snapshot first. Verify: green on unchanged code.
 - [ ] 3.2 `ChatMessage` / `ChatCommand` normalization; platform-neutral `/aven` router; `slackfiles.ts` as the Slack `fetchFile`; `access.ts` on opaque platform user ids. Verify: snapshots identical; `access.test.ts`, `attachments.test.ts` unchanged.
 - [ ] 3.3 Ledger row; PR. Verify: CI green.
 

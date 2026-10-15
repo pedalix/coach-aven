@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "Usage: `/aven users` · `allow @user` · `deny @user` · `open` · `restrict`"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

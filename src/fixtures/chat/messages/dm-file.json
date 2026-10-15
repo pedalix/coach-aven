@@ -1,0 +1,45 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-TCLIENT222",
+      "payload": {
+        "team_id": "TCLIENT222",
+        "channel": "D2"
+      }
+    },
+    {
+      "method": "files.info",
+      "token": "xoxb-TCLIENT222",
+      "payload": {
+        "team_id": "TCLIENT222",
+        "file": "F_HIDDEN"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-TCLIENT222",
+        "channel": "D2",
+        "msgTs": "2.6",
+        "key": "TCLIENT222:dm:D2:beta",
+        "slug": "beta",
+        "question": "Please take a look at the attached file(s).",
+        "attachments": {
+          "refs": [
+            {
+              "id": "F_HIDDEN",
+              "name": "secret.pdf",
+              "url": "https://files/secret.pdf",
+              "mime": "application/pdf",
+              "size": 9
+            }
+          ],
+          "bearer": "xoxb-TCLIENT222"
+        }
+      }
+    }
+  ],
+  "pollers": []
+}

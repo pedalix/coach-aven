@@ -1,0 +1,26 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-THOME1111",
+        "channel": "C_HOME",
+        "msgTs": "1.1",
+        "threadTs": "1.1",
+        "key": "thread:1.1",
+        "slug": "alpha",
+        "question": "fix the build"
+      }
+    }
+  ],
+  "pollers": []
+}

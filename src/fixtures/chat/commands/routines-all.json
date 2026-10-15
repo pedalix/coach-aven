@@ -1,0 +1,30 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "All scheduled jobs",
+        "blocks": [
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "*All scheduled jobs* · 1 job across 1 project"
+            }
+          },
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "*alpha*\n   🟢 *r1* digest — `daily 9:00` in <#C_HOME>"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

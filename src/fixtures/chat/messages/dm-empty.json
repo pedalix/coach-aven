@@ -1,0 +1,23 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-TCLIENT222",
+      "payload": {
+        "team_id": "TCLIENT222",
+        "channel": "D2"
+      }
+    },
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-TCLIENT222",
+      "payload": {
+        "team_id": "TCLIENT222",
+        "channel": "D2",
+        "text": ":information_source: I didn't catch a question — just type what you'd like me to do."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

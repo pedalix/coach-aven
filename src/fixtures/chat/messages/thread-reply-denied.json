@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-TCLIENT222",
+      "payload": {
+        "team_id": "TCLIENT222",
+        "channel": "C_CLIENT"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

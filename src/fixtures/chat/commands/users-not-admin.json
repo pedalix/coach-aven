@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "🔒 Only this workspace’s admins can change agent access."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

@@ -1,0 +1,22 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-TCLIENT222",
+      "payload": {
+        "team_id": "TCLIENT222",
+        "channel": "C_CLIENT"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":lock: Auto-review for *beta* is managed by the project's owner workspace."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

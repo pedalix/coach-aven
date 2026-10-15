@@ -1,0 +1,23 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "Scheduled jobs",
+        "blocks": [
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": "*Scheduled jobs*\n🟢 *r1* — `daily 9:00` (Europe/Zurich)\n   digest\n\n_Manage:_ `/aven routines run|off|on|rm <id>` (`run` = fire now) · `/aven routines all` for every project"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

@@ -1,0 +1,22 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_RANDOM"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":x: Schedule a job from a project channel (e.g. `bluefin-aven-alpha`)."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

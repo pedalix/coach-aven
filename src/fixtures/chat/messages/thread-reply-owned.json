@@ -1,0 +1,26 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-THOME1111",
+        "channel": "C_HOME",
+        "msgTs": "3.1",
+        "threadTs": "3.0",
+        "key": "thread:3.0",
+        "slug": "alpha",
+        "question": "and also this"
+      }
+    }
+  ],
+  "pollers": []
+}

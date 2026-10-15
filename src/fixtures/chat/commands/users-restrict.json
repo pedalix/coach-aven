@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "🔐 Mode: *allowlist* — only listed users (and admins) may drive."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

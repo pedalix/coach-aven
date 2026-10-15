@@ -1,0 +1,37 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":broom: Housekeeping on for *alpha* — `daily 4:30` (UTC). Nightly janitor: dockerd guard, docker prune past 80% disk, stale-worktree reap. `/aven housekeeping` shows the last run."
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":broom: Housekeeping running… (silent — check `/aven housekeeping` for the digest)"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": [
+    {
+      "fireRoutine": {
+        "token": "xoxb-THOME1111",
+        "id": "r1"
+      }
+    }
+  ]
+}

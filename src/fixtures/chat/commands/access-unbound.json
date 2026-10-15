@@ -1,0 +1,22 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_RANDOM"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":information_source: This channel isn't bound to a project. Use a `bluefin-aven-<slug>` channel, or ask in one of: alpha, beta, cmdrec-mem."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

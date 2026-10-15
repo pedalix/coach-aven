@@ -1,0 +1,22 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":white_check_mark: Scheduled *r1* — `weekdays 9:00` (UTC) for *alpha*. I'll post the digest here. Read-only — I won't change code or open PRs.\n_Manage:_ `/aven routines`"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

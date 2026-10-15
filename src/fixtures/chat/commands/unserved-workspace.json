@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "ℹ️ CoachAven is installed but no projects are configured for this workspace yet. Contact the CoachAven team to get set up."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

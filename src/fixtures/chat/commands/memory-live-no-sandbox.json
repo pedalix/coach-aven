@@ -1,0 +1,31 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_MEM"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":brain: Reading memory…"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "replace_original": true,
+        "text": ":x: DAYTONA_API_URL/_API_KEY/_ORGANIZATION_ID are not set — required for the daytona sandbox driver"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

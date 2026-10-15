@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":white_check_mark: Paused *r1*."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}
