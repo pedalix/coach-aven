@@ -37,7 +37,7 @@ export interface RunOpts {
   memory: MemoryPolicy;
   questionsPerDay?: number; // replay: the person's daily budget in questions (10); a question covers a Prediction.group
   auditShare?: number; // replay: share of that budget spent on random checks of auto-decided units (0)
-  threshold?: number; // auto-decided = label !== null && conf >= threshold (0: every label)
+  threshold?: number; // auto-decided = label !== null && conf >= threshold (default: .95 in replay, 0 in static)
   population?: Population; // 'gold' (default): units with a gold row for the task; t2-dedup is always 'all'
   tiers?: GoldTier[]; // which gold tiers define the population and answer questions (default: all, most trusted wins)
   llm: LlmLike | null;
@@ -142,7 +142,8 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
   if (!variant.tasks.includes(task)) throw new Error(`variant ${variant.name} does not do ${task} (it does ${variant.tasks.join(', ')})`);
   const t0 = Date.now();
   const budget = opts.questionsPerDay ?? 10;
-  const thr = opts.threshold ?? 0;
+  // τ, the decide/ask cut: a replay asks below .95 by default (design §0); a static run counts every label.
+  const thr = opts.threshold ?? (opts.mode === 'replay' ? 0.95 : 0);
   const population: Population = task === 't2-dedup' ? 'all' : (opts.population ?? 'gold');
   const gold = goldFor(ds, task, opts.tiers);
   const all = unitsFor(ds, task);

@@ -82,7 +82,7 @@ async function cmdRun(argv: string[]): Promise<void> {
       mode: { type: 'string', default: 'static' },
       memory: { type: 'string', default: 'none' },
       q: { type: 'string', default: '10' },
-      threshold: { type: 'string', default: '0' },
+      threshold: { type: 'string' },
       audit: { type: 'string', default: '0' },
       opt: { type: 'string', multiple: true },
       population: { type: 'string', default: 'gold' },
@@ -100,7 +100,7 @@ async function cmdRun(argv: string[]): Promise<void> {
   const level = oneOf<Level>('level', v.level!, ['initiative', 'umbrella']);
   const tiers = tiersOf(v.tiers);
   const questionsPerDay = number('q', v.q!);
-  const threshold = number('threshold', v.threshold!);
+  const threshold = v.threshold === undefined ? undefined : number('threshold', v.threshold);
   const auditShare = number('audit', v.audit!);
   // --opt key=value (repeatable): variant parameters for ablations (e.g. machineWeight=1), read via LAB_OPT_<KEY>
   for (const kv of (v.opt as string[] | undefined) ?? []) {
@@ -200,7 +200,7 @@ function cmdList(): void {
 
 const USAGE = `usage: npm run lab -- <run|report|list|export|label|synth> [options]
   run     --dataset <name|dir> [--variant a,b] [--task <t>|all] [--mode static|replay] [--memory none|oracle|loop]
-          [--q 10] [--audit 0.15] [--threshold 0] [--population gold|all] [--tiers human,opus] [--level initiative|umbrella] [--opt key=value]
+          [--q 10] [--audit 0.15] [--threshold .95 replay | 0 static] [--population gold|all] [--tiers human,opus] [--level initiative|umbrella] [--opt key=value]
           [--floor 0.95] [--no-llm] [--run <name>]
   report  --run <name> [--out file] [--tiers ...] [--level umbrella] [--floor 0.95]
   list

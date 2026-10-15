@@ -6,6 +6,7 @@ import type { Variant } from '../types.js';
 
 export const VARIANTS: Record<string, () => Promise<Variant>> = {
   baseline: () => import('./baseline.js').then((m) => m.baseline),
+  'prod-today': () => import('./prodtoday.js').then((m) => m.prodToday),
   stage0: () => import('./stage0.js').then((m) => m.stage0Variant),
   keys: () => import('./keys.js').then((m) => m.keys),
   'keys+g': () => import('./keys.js').then((m) => m.keysG),

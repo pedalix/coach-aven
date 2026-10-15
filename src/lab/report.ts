@@ -158,10 +158,32 @@ function header(group: ReportEntry[]): string {
   return `## ${group[0].result.dataset} · ${group[0].result.task}\n\nGold: ${tiers}${umbrella ? ' · umbrella level' : ''} · floor ${pct(s.floor)}`;
 }
 
+// The loop over a replay: what τ let through, what stayed wrong (frozen), what the audits would report, the
+// person's effort, and the weekly curve — the questions Owen asked ("do answers reach the daemon?") in numbers.
+function loopTable(group: ReportEntry[]): string {
+  const rows = group.filter((e) => e.score.loop);
+  if (!rows.length) return '';
+  return table(
+    ['variant', 'run', 'auto at τ (precision)', 'frozen errors (min)', 'audits: est. precision [95% CI] (n)', 'effort/day', 'weekly auto share (precision)'],
+    rows.map(({ result: r, score: s }) => {
+      const l = s.loop!;
+      return [
+        r.variant,
+        runLabel(r),
+        `${l.autoDecided} (${pct(l.precision)})`,
+        `${l.frozenErrors}${l.frozenMinutes ? ` (${Math.round(l.frozenMinutes)})` : ''}`,
+        l.audited ? `${pct(l.auditPrecision.p)} [${pct(l.auditPrecision.lo)}–${pct(l.auditPrecision.hi)}] (${l.audited})` : '—',
+        num(l.effortPerDay),
+        l.weeks.map((w) => `${pct(w.autoShare)} (${pct(w.precision)})`).join(' → '),
+      ];
+    }),
+  );
+}
+
 // The compact view the CLI prints after a run: the main table per dataset × task.
 export function renderSummary(entries: ReportEntry[]): string {
   return groupsOf(entries)
-    .map((g) => `${header(g)}\n\n${mainTable(g)}`)
+    .map((g) => [header(g), mainTable(g), loopTable(g)].filter(Boolean).join('\n\n'))
     .join('\n\n');
 }
 
@@ -174,6 +196,8 @@ export function renderReport(entries: ReportEntry[], opts: ReportOpts = {}): str
   ];
   for (const g of groupsOf(entries)) {
     parts.push('', header(g), '', mainTable(g));
+    const loop = loopTable(g);
+    if (loop) parts.push('', '### The loop (replay)', '', loop);
     const boot = bootstrapLines(g, iters);
     if (boot.length) parts.push('', ...boot);
     const rungs = rungLines(g);

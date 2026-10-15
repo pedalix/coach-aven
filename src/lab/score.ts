@@ -14,10 +14,10 @@
 // away — no human message may land in a family with a different item.
 
 import { join } from 'node:path';
-import { goldFor, readJsonl, unitsFor, type Dataset } from './dataset.js';
-import { autoShare, bcubed, jaccard, macroF1, pairwise, perClass, setKey, type AutoShare, type ClassRow, type PairScores, type Scored } from './metrics.js';
+import { dayOf, goldFor, readJsonl, unitsFor, type Dataset } from './dataset.js';
+import { autoShare, bcubed, jaccard, macroF1, pairwise, perClass, setKey, wilson, type AutoShare, type ClassRow, type PairScores, type Scored } from './metrics.js';
 import { splitOfUnit } from './cases.js';
-import { NONE, type FragmentUnit, type GoldRow, type GoldTier, type ItemUnit, type Prediction, type TaskId } from './types.js';
+import { NONE, type FragmentUnit, type GoldRow, type GoldTier, type ItemUnit, type Prediction, type TaskId, type Unit } from './types.js';
 import type { RunResult } from './run.js';
 
 export type Level = 'initiative' | 'umbrella';
@@ -53,6 +53,21 @@ export interface ClusterScore {
   pairs?: { n: number; predSame: number; goldSame: number; precision: number; recall: number }; // gold/t2-pairs.jsonl
 }
 
+// Replay only: what the loop did over the window (design §6.3). 'auto' here is the RUN's cut (τ), not the dev
+// operating point — it is what the pipeline actually let through day by day.
+export interface LoopScore {
+  autoDecided: number; // auto-decided units with gold (not answered by a person)
+  autoCorrect: number;
+  precision: number;
+  frozenErrors: number; // wrong auto-decided units no audit caught — pinned after a day in production
+  frozenMinutes: number; // their minutes (t1-fragment)
+  audited: number; // auto-decided units checked at random
+  auditCorrect: number;
+  auditPrecision: { p: number; lo: number; hi: number }; // what the audits would tell Owen about precision
+  effortPerDay: number; // the person's effort in question units per day (audits included)
+  weeks: { week: string; n: number; auto: number; autoShare: number; precision: number; effort: number }[];
+}
+
 export interface TaskScore {
   dataset: string;
   variant: string;
@@ -84,6 +99,7 @@ export interface TaskScore {
   days: number;
   questionsPerDay: number;
   answeredPerDay: number;
+  loop?: LoopScore;
   units: Scored[]; // per-unit rows for the report's paired bootstrap: ids and labels only, never text
 }
 
@@ -295,6 +311,70 @@ export function scoreTask(ds: Dataset, result: RunResult, opts: ScoreOpts = {}):
     days,
     questionsPerDay: days ? questions / days : 0,
     answeredPerDay: days ? answeredN / days : 0,
+    ...(result.opts.mode === 'replay' ? { loop: loopScore(result, gold, map, units, thr, t2?.exact) } : {}),
     units: scored,
+  };
+}
+
+// The loop's own ledger over the replay: what was let through at τ, what was wrong and stayed wrong (frozen),
+// and what the random audits would have reported — the only precision estimate production can actually have.
+function loopScore(
+  result: RunResult,
+  gold: ReadonlyMap<string, GoldRow>,
+  map: (label: string) => string,
+  units: ReadonlyMap<string, Unit>,
+  thr: number,
+  exact?: ReadonlyMap<string, boolean>,
+): LoopScore {
+  const answered = new Set(result.answered);
+  const audited = new Set(result.audited ?? []);
+  const dayOfId = new Map<string, string>();
+  for (const u of units.values()) dayOfId.set(u.id, dayOf(u));
+  const ok = (p: Prediction): boolean => {
+    const g = gold.get(p.id);
+    if (!g || p.label === null) return false;
+    return exact ? !!exact.get(p.id) : isCorrect(p.label, g, map);
+  };
+  const auto = result.predictions.filter((p) => gold.has(p.id) && !answered.has(p.id) && decidedAt(p, thr));
+  const right = auto.filter(ok);
+  const wrong = auto.filter((p) => !ok(p) && !audited.has(p.id));
+  const aud = auto.filter((p) => audited.has(p.id));
+  const audRight = aud.filter(ok).length;
+  const mins = (id: string) => (units.get(id) as FragmentUnit | undefined)?.minutes ?? 0;
+  // ISO-ish week buckets by the Monday of each day (UTC arithmetic on local day strings).
+  const weekOf = (day: string): string => {
+    const t = Date.parse(`${day}T00:00:00Z`);
+    if (!Number.isFinite(t)) return day; // not a calendar day (hand-made fixtures): its own bucket
+    const dow = (new Date(t).getUTCDay() + 6) % 7;
+    return new Date(t - dow * 86_400_000).toISOString().slice(0, 10);
+  };
+  const weeks = new Map<string, { n: number; auto: number; right: number; effort: number }>();
+  for (const p of result.predictions) {
+    if (!gold.has(p.id)) continue;
+    const w = weekOf(dayOfId.get(p.id) ?? '1970-01-01');
+    const row = weeks.get(w) ?? { n: 0, auto: 0, right: 0, effort: 0 };
+    row.n++;
+    if (!answered.has(p.id) && decidedAt(p, thr)) {
+      row.auto++;
+      if (ok(p)) row.right++;
+    }
+    weeks.set(w, row);
+  }
+  for (const d of result.perDay) {
+    const row = weeks.get(weekOf(d.day));
+    if (row) row.effort += d.effort ?? 0;
+  }
+  const days = result.perDay.length || 1;
+  return {
+    autoDecided: auto.length,
+    autoCorrect: right.length,
+    precision: auto.length ? right.length / auto.length : 1,
+    frozenErrors: wrong.length,
+    frozenMinutes: wrong.reduce((a, p) => a + mins(p.id), 0),
+    audited: aud.length,
+    auditCorrect: audRight,
+    auditPrecision: wilson(audRight, aud.length),
+    effortPerDay: result.perDay.reduce((a, d) => a + (d.effort ?? 0), 0) / days,
+    weeks: [...weeks.entries()].sort().map(([week, r]) => ({ week, n: r.n, auto: r.auto, autoShare: r.n ? r.auto / r.n : 0, precision: r.auto ? r.right / r.auto : 1, effort: r.effort })),
   };
 }
