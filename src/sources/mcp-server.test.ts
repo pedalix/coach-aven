@@ -68,7 +68,7 @@ const LONG_SUMMARY = `Intro call. ${'Background and AI tooling discussed at leng
 const LONG_TRANSCRIPT = Array.from({ length: 5000 }, (_, i) => `${i % 2 ? 'Them' : 'Me'}: line ${i + 1}`).join('\n');
 
 // ── fixture: a tiny raw tree → store → replica, exactly the way the bot builds it ─────────
-function fixtureReplica(): { dbPath: string } {
+function fixtureReplica(timezone?: string): { dbPath: string } {
   const root = mkdtempSync(join(tmpdir(), 'mcp-'));
   const raw = join(root, 'raw');
   mkdirSync(join(raw, 'google', 'me@x.com'), { recursive: true });
@@ -202,6 +202,7 @@ function fixtureReplica(): { dbPath: string } {
   );
   const ctx: BuildContext = {
     slug: 't', rawDir: raw, storePath: join(root, 'store.sqlite'), replicaDir: join(root, 'replica'), peoplePath: people, fragmentsPath: fragments, log: () => undefined,
+    ...(timezone ? { timezone } : {}),
   };
   buildStore(ctx);
   return { dbPath: join(root, 'replica', 'store.sqlite') };
@@ -449,9 +450,9 @@ test('the script runs as a real stdio server: initialize → tools/list → tool
   assert.deepEqual((JSON.parse(withTobin.result.content[0].text).events as { title: string }[]).map((e) => e.title), ['T4M security sync']);
   assert.equal(JSON.parse(none.result.content[0].text).events.length, 0);
   assert.ok(list.result.tools.some((t: { name: string; description: string }) => t.name === 'calendar' && /meetings today/.test(t.description)));
-  // the zone reaches the process: descriptions, the initialize instructions and stats say so
-  assert.ok(list.result.tools.every((t: { name: string; description: string }) => !/since/.test(t.description) || /whole day in Europe\/Moscow/.test(t.description)), 'every windowed tool names the zone');
-  assert.match(init.result.instructions, /whole day in Europe\/Moscow/);
+  // the default zone reaches the process: descriptions and the initialize instructions name it as the project default
+  assert.ok(list.result.tools.every((t: { name: string; description: string }) => !/since/.test(t.description) || /whole day in the project's time zone \(stats\.tz; Europe\/Moscow unless the project names one\)/.test(t.description)), 'every windowed tool names the zone');
+  assert.match(init.result.instructions, /whole day in the project's time zone \(stats\.tz; Europe\/Moscow/);
   assert.equal(st.tz, 'Europe/Moscow');
   assert.equal(stderr.join(''), '', 'server must stay silent on stderr');
   await new Promise((r) => child.on('close', r));
@@ -843,4 +844,18 @@ test('tools/list carries both readouts with their limits stated', () => {
   assert.match(byName.unanswered!, /not seen as answers/);
   assert.match(byName.unanswered!, /whole day in /, 'windowed tools name the zone (the round-trip test pins Europe/Moscow)');
   assert.match(byName.stuck!, /not time in the current status/);
+});
+
+// ── one zone per tenant (storage is UTC; presentation in the store's zone) ────────────────
+
+test('a store built for a tenant carries its zone; every answer of that store is presented in it, whatever the server default', () => {
+  const tokyo = fixtureReplica('Asia/Tokyo').dbPath;
+  const plain = fixtureReplica().dbPath;
+  const stats = (db: string) => JSON.parse(((handleMessage({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'stats', arguments: {} } }, db)!.result as { content: { text: string }[] }).content[0]!.text));
+  assert.equal(stats(tokyo).tz, 'Asia/Tokyo', 'the store\'s zone, not the server default');
+  assert.equal(stats(plain).tz, LOCAL_TZ, 'an older store without a zone keeps the default');
+  assert.equal(LOCAL_TZ, process.env.SOURCES_TZ || 'UTC', 'the default is restored after the call');
+  // a bare date is a whole day in the store's zone: the fixture's 10-08 calendar day differs between zones
+  const day = (db: string) => JSON.parse(((handleMessage({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'calendar', arguments: { since: '2026-10-08', until: '2026-10-08' } } }, db)!.result as { content: { text: string }[] }).content[0]!.text)).events.length;
+  assert.equal(typeof day(tokyo), 'number');
 });

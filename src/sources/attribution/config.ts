@@ -2,14 +2,12 @@
 // only; the presence of the file turns the layer on for the project):
 //   { "subject": "<person_id>",          whose days are fragmented (a person in annotations/people.json)
 //     "since": "YYYY-MM-DD",             horizon start (default: 30 days back)
-//     "timezone": "Area/City",           the zone days are cut in (default: the bot's AVEN_TZ)
 //     "threadGapMinutes": 45,            a gap longer than this ends a run of messages
 //     "substance": true,                 drop or attach greeting-only runs
 //     "admin": { "<umbrella>": "<initiative>" } }   each umbrella's non-billable admin bucket (optional)
 export interface AttributionConfig {
   subject: string;
   since?: string;
-  timezone?: string;
   threadGapMinutes: number;
   substance: boolean;
   admin?: Record<string, string>;
@@ -27,14 +25,8 @@ export function parseAttributionConfig(raw: unknown, where = 'annotations/attrib
     if (typeof r.since !== 'string' || !DAY_RE.test(r.since) || Number.isNaN(Date.parse(r.since))) throw new Error(`${where}: "since" must be YYYY-MM-DD`);
     out.since = r.since;
   }
-  if (r.timezone !== undefined) {
-    try {
-      new Intl.DateTimeFormat('en-US', { timeZone: String(r.timezone) });
-    } catch {
-      throw new Error(`${where}: "timezone" ${JSON.stringify(r.timezone)} is not an IANA zone`);
-    }
-    out.timezone = String(r.timezone);
-  }
+  // One zone per tenant, presentation only: `sources.timezone` in the project config (storage is UTC).
+  if (r.timezone !== undefined) throw new Error(`${where}: "timezone" moved to the project's sources.timezone — one zone per tenant`);
   if (r.threadGapMinutes !== undefined) {
     if (!Number.isInteger(r.threadGapMinutes) || (r.threadGapMinutes as number) < 1 || (r.threadGapMinutes as number) > 1440) throw new Error(`${where}: "threadGapMinutes" must be an integer in [1, 1440]`);
     out.threadGapMinutes = r.threadGapMinutes as number;

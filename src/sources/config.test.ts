@@ -71,3 +71,11 @@ test('tracker blocks validate and normalise', () => {
   assert.throws(() => validateSourcesConfig({ asana: { workspace: 'abc' } }), /numeric/);
   assert.throws(() => validateSourcesConfig({ jira: { site: 'not a host' } }), /host name/);
 });
+
+test('sources config: timezone is an IANA zone (presentation only; storage stays UTC)', () => {
+  const base = { youtrack: { url: 'https://acme.youtrack.cloud', projects: ['AB'] } };
+  assert.equal(validateSourcesConfig({ ...base, timezone: 'Europe/Zurich' }).timezone, 'Europe/Zurich');
+  assert.equal(validateSourcesConfig(base).timezone, undefined, 'absent stays absent (the bot zone applies)');
+  assert.throws(() => validateSourcesConfig({ ...base, timezone: 'Mars/Base' }), /"timezone" must be an IANA zone name/);
+  assert.throws(() => validateSourcesConfig({ ...base, timezone: 3 }), /"timezone" must be an IANA zone name/);
+});

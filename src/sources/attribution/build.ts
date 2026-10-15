@@ -20,7 +20,7 @@ export interface AttributionFiles {
   tenantRoot: string;
   /** Its annotations directory (attribution.json, rules.json). */
   annotationsDir: string;
-  /** The zone days are cut in when the tenant names none (the bot's AVEN_TZ). */
+  /** The tenant's zone (sources.timezone, else the bot's AVEN_TZ): where days are cut. Storage stays UTC. */
   timezone?: string;
 }
 
@@ -28,6 +28,8 @@ export interface AttributionInputs {
   config: AttributionConfig;
   registry: RegistryData;
   rules: RuleRecord[];
+  /** The tenant's zone: the horizon's days are cut here; nothing local is stored. */
+  timezone: string;
 }
 
 export interface AttributionSummary {
@@ -57,10 +59,9 @@ export function readAttributionInputs(f: AttributionFiles): { inputs: Attributio
   const regText = read(join(f.tenantRoot, 'initiatives.json'), '[]');
   const rulesText = read(join(f.annotationsDir, 'rules.json'), '[]');
   const config = parseAttributionConfig(JSON.parse(cfgText));
-  if (!config.timezone && f.timezone) config.timezone = f.timezone;
   return {
-    inputs: { config, registry: parseRegistry(JSON.parse(regText)), rules: parseRules(JSON.parse(rulesText)) },
-    text: [cfgText, regText, rulesText, config.timezone ?? ''].join('\0'),
+    inputs: { config, registry: parseRegistry(JSON.parse(regText)), rules: parseRules(JSON.parse(rulesText)), timezone: f.timezone ?? 'UTC' },
+    text: [cfgText, regText, rulesText, f.timezone ?? 'UTC'].join('\0'),
   };
 }
 
@@ -91,7 +92,7 @@ function parseList(v: unknown): string[] {
 export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs, people: readonly Person[], ledgerRecords: readonly Fragment[], now: Date = new Date()): AttributionSummary {
   const { config, rules } = inputs;
   const reg = new Registry(inputs.registry);
-  const tz = config.timezone ?? 'UTC';
+  const tz = inputs.timezone;
   const until = localDay(now.toISOString(), tz);
   const since = config.since ?? plusDays(until, -30);
   const lo = plusDays(since, -1);
@@ -156,12 +157,12 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
   try {
     db.exec('DELETE FROM att_fragments; DELETE FROM att_proposals;');
     const ins = db.prepare(
-      'INSERT OR REPLACE INTO att_fragments(id, kind, day, start, "end", title, source, container, refs, participants, project_keys, weight, state, decided_by, attributions, rule_id, rationale, candidates, hint, ledger_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT OR REPLACE INTO att_fragments(id, kind, start, "end", title, source, container, refs, participants, project_keys, weight, state, decided_by, attributions, rule_id, rationale, candidates, hint, ledger_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     );
     for (const p of planned) {
       const d = p.draft;
       states[p.state]++;
-      ins.run(d.id, d.kind, localDay(d.start, tz), d.start, d.end, d.title, d.source, d.container, JSON.stringify(d.refs), JSON.stringify(d.participants), JSON.stringify(d.projectKeys), d.weight, p.state, p.decided_by, JSON.stringify(p.attributions), p.rule_id, p.rationale, JSON.stringify(p.candidates), p.hint, p.ledger_id);
+      ins.run(d.id, d.kind, d.start, d.end, d.title, d.source, d.container, JSON.stringify(d.refs), JSON.stringify(d.participants), JSON.stringify(d.projectKeys), d.weight, p.state, p.decided_by, JSON.stringify(p.attributions), p.rule_id, p.rationale, JSON.stringify(p.candidates), p.hint, p.ledger_id);
     }
     const pins = db.prepare('INSERT OR REPLACE INTO att_proposals(id, question, options, refs) VALUES (?, ?, ?, ?)');
     for (const x of proposals) pins.run(x.id, x.question, JSON.stringify(x.options), JSON.stringify(x.refs));
@@ -169,7 +170,6 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
     meta.run('att:subject', config.subject);
     meta.run('att:since', since);
     meta.run('att:until', until);
-    meta.run('att:timezone', tz);
     meta.run('att:computed_at', now.toISOString());
     db.exec('COMMIT');
   } catch (e) {

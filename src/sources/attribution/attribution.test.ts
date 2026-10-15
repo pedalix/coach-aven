@@ -202,9 +202,9 @@ test('containers and meeting dedupe', () => {
 
 test('config: subject required; defaults; bad values fail with the file named', () => {
   assert.deepEqual(parseAttributionConfig({ subject: 'owner' }), { subject: 'owner', threadGapMinutes: 45, substance: true });
-  assert.deepEqual(parseAttributionConfig({ subject: 'owner', since: '2026-10-01', timezone: 'Europe/Zurich', threadGapMinutes: 30, substance: false, admin: { acme: 'acme/admin' } }), { subject: 'owner', since: '2026-10-01', timezone: 'Europe/Zurich', threadGapMinutes: 30, substance: false, admin: { acme: 'acme/admin' } });
+  assert.deepEqual(parseAttributionConfig({ subject: 'owner', since: '2026-10-01', threadGapMinutes: 30, substance: false, admin: { acme: 'acme/admin' } }), { subject: 'owner', since: '2026-10-01', threadGapMinutes: 30, substance: false, admin: { acme: 'acme/admin' } });
   assert.throws(() => parseAttributionConfig({}), /"subject" must be a person id/);
-  assert.throws(() => parseAttributionConfig({ subject: 'owner', timezone: 'Mars/Base' }), /not an IANA zone/);
+  assert.throws(() => parseAttributionConfig({ subject: 'owner', timezone: 'Europe/Zurich' }), /moved to the project's sources\.timezone/, 'one zone per tenant');
   assert.throws(() => parseAttributionConfig({ subject: 'owner', since: '15.10.2026' }), /YYYY-MM-DD/);
   assert.throws(() => parseAttributionConfig({ subject: 'owner', admin: { acme: 1 } }), /"admin" must map/);
 });

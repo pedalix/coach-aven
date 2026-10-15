@@ -74,7 +74,7 @@ test('readAttributionInputs: off without the config; tenant files parsed; the bo
   assert.equal(readAttributionInputs({ tenantRoot: none.root, annotationsDir: none.ann }), undefined);
   const t = tenant({ 'initiatives.json': registry, 'annotations/attribution.json': { subject: 'owner' }, 'annotations/rules.json': [{ id: 'r1', when: { container: '#ops' }, then: { initiative: 'globex/shop' } }, { bogus: true }] });
   const read = readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow' })!;
-  assert.equal(read.inputs.config.timezone, 'Europe/Moscow');
+  assert.equal(read.inputs.timezone, 'Europe/Moscow', 'the tenant zone comes from the project, not the attribution file');
   assert.deepEqual(read.inputs.rules.map((r) => r.id), ['r1'], 'malformed rules are skipped, not fatal');
   assert.equal(read.inputs.registry.initiatives.length, 4);
   writeFileSync(join(t.ann, 'attribution.json'), '{ not json');
@@ -85,8 +85,8 @@ test('readAttributionInputs: off without the config; tenant files parsed; the bo
 test('recomputeAttribution: the subject\'s fragments with ledger precedence, ladder decisions and open ones; the tool serves them', () => {
   const db = store();
   try {
-    const t = tenant({ 'initiatives.json': registry, 'annotations/attribution.json': { subject: 'owner', since: '2026-10-14', timezone: 'Europe/Moscow' } });
-    const { inputs } = readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann })!;
+    const t = tenant({ 'initiatives.json': registry, 'annotations/attribution.json': { subject: 'owner', since: '2026-10-14' } });
+    const { inputs } = readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow' })!;
     const judgedId = `frag-2026-10-15-thread-${hash('#general|slack:T/C2/4')}`;
     const ledger: Fragment[] = [{ id: judgedId, kind: 'thread', start: '2026-10-15T09:00:00.000Z', end: '2026-10-15T09:00:00.000Z', refs: ['slack:T/C2/4'], attributions: [{ initiative: 'initech/b', share: 1 }], decided_by: 'model', rule_id: null, rationale: 'release notes are initech work', decided_at: '2026-10-15T10:00:00.000Z', status: 'decided' }];
     const sum = recomputeAttribution(db, inputs, people, ledger, NOW);

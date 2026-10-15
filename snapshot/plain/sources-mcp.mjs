@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.5.0';
+export const SERVER_VERSION = '1.6.0';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -94,8 +94,9 @@ function resolveTz(name) {
     return 'UTC';
   }
 }
-// Settable: the stdio server reads SOURCES_TZ at load; the bot, which serves this same tool table over
-// the session control channel (src/hosttools.ts), sets its AVEN_TZ here after import.
+// The DEFAULT presentation zone (SOURCES_TZ: the bot's AVEN_TZ). Storage is UTC everywhere; a store
+// built for a tenant carries that tenant's zone as `tz` in sync_state, and callTool presents every
+// answer of that store in it for the duration of the call (one zone per tenant, not per bot).
 export let LOCAL_TZ = resolveTz(process.env.SOURCES_TZ);
 export function setLocalTz(name) {
   LOCAL_TZ = resolveTz(name);
@@ -138,7 +139,9 @@ export function normalizeTime(v, edge, tz = LOCAL_TZ) {
   return new Date(utc).toISOString();
 }
 // Shared wording for every tool that takes a window.
-const WINDOW_DOC = `since/until: ISO date = whole day in ${LOCAL_TZ}, or a datetime (zone-less = ${LOCAL_TZ} wall time; Z/offset as given)`;
+// The project's zone is the store's (`stats.tz`); the name here is only the default for a store that names none.
+const ZONE_DOC = `the project's time zone (stats.tz; ${LOCAL_TZ} unless the project names one)`;
+const WINDOW_DOC = `since/until: ISO date = whole day in ${ZONE_DOC}, or a datetime (zone-less = wall time there; Z/offset as given)`;
 
 // Build the SELECT for `search`. Returns { sql, params, mode } where mode is 'fts' (ranked by
 // bm25) or 'recent' (no query → newest first with the same filters). Person/initiative filters
@@ -789,7 +792,7 @@ export const TOOLS = [
       'Defaults to OPEN tasks (status category todo/doing), soonest due first. Every row carries `lastComment {by, at}`; with ' +
       '`updatedSince` also `commentsSince {n, authors}` — comment activity without a `get` per task. Filters: assignee ' +
       '(email, login, or name — resolved via people), status (open|todo|doing|done|any|<exact status name>), dueBefore ' +
-      `(ISO date), project (key prefix or project name), source, updatedSince (ISO date = whole day in ${LOCAL_TZ}, or ` +
+      `(ISO date), project (key prefix or project name), source, updatedSince (ISO date = whole day in ${ZONE_DOC}, or ` +
       'datetime). Use `get` with a ref for description and comment texts.',
     inputSchema: {
       type: 'object',
@@ -919,7 +922,7 @@ export const TOOLS = [
     description:
       'The tenant\'s attribution plan, computed in the store build from its own data (rules, people markers, initiatives.json): the ' +
       'subject\'s fragments — calls (one per summary topic), runs of their messages, work blocks — for local days since..until ' +
-      `(YYYY-MM-DD, each a whole day in ${LOCAL_TZ} unless the tenant names another zone; default: today), each with its state: ` +
+      `(YYYY-MM-DD, each a whole day in ${ZONE_DOC}; default: today), each with its state: ` +
       '`decided` (the ledger has a decision, with who decided), `escalated` (an open question), ' +
       '`rule` (the ledger has nothing; the ladder decides it now — record it), `open` (needs a judgment: candidates + hint). Plus rule ' +
       'proposals from recorded judgments. Filter by `state`. Refs are store refs (`get` them for content); titles carry no message text.',
@@ -1374,18 +1377,22 @@ export function runAttribution(db, args, now = new Date()) {
   if (!hasTable(db, 'att_fragments') || !meta.subject) {
     return { configured: false, note: 'no attribution layer for this project: the tenant repo has no annotations/attribution.json (or the store predates it)' };
   }
-  const tz = meta.timezone || LOCAL_TZ;
-  const today = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const tz = LOCAL_TZ; // the store's zone for this call (callTool)
+  const dayOf = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+  const today = dayOf(now.toISOString());
   const since = DAY_ARG.test(String(args.since ?? '')) ? String(args.since) : today;
   const until = DAY_ARG.test(String(args.until ?? '')) ? String(args.until) : since;
   const states = ['decided', 'escalated', 'rule', 'open'];
   const state = states.includes(args.state) ? args.state : undefined;
   const limit = Math.max(1, Math.min(1000, Number(args.limit) || 300));
   const counts = Object.fromEntries(states.map((s) => [s, 0]));
-  for (const r of db.prepare('SELECT state, count(*) AS n FROM att_fragments WHERE day >= ? AND day <= ? GROUP BY state').all(since, until)) counts[r.state] = r.n;
+  // Stored instants are UTC; the requested local days become UTC bounds here, at presentation.
+  const lo = normalizeTime(since, 'since', tz);
+  const hi = normalizeTime(until, 'until', tz);
+  for (const r of db.prepare('SELECT state, count(*) AS n FROM att_fragments WHERE start >= ? AND start <= ? GROUP BY state').all(lo, hi)) counts[r.state] = r.n;
   const rows = db
-    .prepare(`SELECT * FROM att_fragments WHERE day >= ? AND day <= ?${state ? ' AND state = ?' : ''} ORDER BY start LIMIT ?`)
-    .all(...[since, until, ...(state ? [state] : []), limit + 1]);
+    .prepare(`SELECT * FROM att_fragments WHERE start >= ? AND start <= ?${state ? ' AND state = ?' : ''} ORDER BY start LIMIT ?`)
+    .all(...[lo, hi, ...(state ? [state] : []), limit + 1]);
   const truncated = rows.length > limit;
   const refsOf = (f) => parseJson(f.refs || '[]', []);
   return {
@@ -1402,7 +1409,7 @@ export function runAttribution(db, args, now = new Date()) {
       return {
         id: f.id,
         kind: f.kind,
-        day: f.day,
+        day: dayOf(f.start),
         start: f.start,
         end: f.end,
         title: f.title,
@@ -1651,8 +1658,19 @@ export function runStats(db) {
   };
 }
 
+/** The zone a store was built for (`tz` in sync_state), or undefined for an older store. */
+function storeZone(db) {
+  if (!hasTable(db, 'sync_state')) return undefined;
+  const r = db.prepare("SELECT value FROM sync_state WHERE key = 'tz'").get();
+  return r && r.value ? String(r.value) : undefined;
+}
+
 export function callTool(dbPath, name, args) {
   const db = openDb(dbPath);
+  // Present this store's answers in its tenant's zone; restore the default after (calls are synchronous).
+  const defaultTz = LOCAL_TZ;
+  const zone = storeZone(db);
+  if (zone) LOCAL_TZ = resolveTz(zone);
   try {
     switch (name) {
       case 'search':
@@ -1685,6 +1703,7 @@ export function callTool(dbPath, name, args) {
         throw Object.assign(new Error(`unknown tool ${name}`), { code: -32602 });
     }
   } finally {
+    LOCAL_TZ = defaultTz;
     db.close();
   }
 }
@@ -1710,7 +1729,7 @@ export function handleMessage(msg, dbPath) {
           serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
           instructions:
             'Read-only, scrubbed replica of this project\'s connected sources. Search first, then `get` the refs you ' +
-            `need; cite permalinks. Redaction markers are final. An ISO date is a whole day in ${LOCAL_TZ}. ` +
+            `need; cite permalinks. Redaction markers are final. An ISO date is a whole day in ${ZONE_DOC}. ` +
             'Call transcripts are never inlined: `transcript` pages them. `unanswered` and `stuck` are the readouts for ' +
             'what waits for a reply and what stopped moving — quote their rows instead of rebuilding the lists.',
         });
