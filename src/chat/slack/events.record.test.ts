@@ -22,7 +22,7 @@ import type { PendingQuestion, TurnEngine, TurnOpts, TurnTrail } from '../../tur
 import type { Dispatcher } from '../../dispatchrun.js';
 import type { SlackChatDriver } from './driver.js';
 import { FB_CALLBACK, FB_NOTE, FB_REASON, YT_PROMPT_CALLBACK, YT_PROMPT_INPUT, YT_PROMPT_NOW, YT_SEND_CALLBACK, YT_SEND_INPUT } from './blocks.js';
-import { createTwinApp, messageEnvelope, homeOpenedEnvelope, blockActionEnvelope } from '../../twin.js';
+import { createTwinApp, messageEnvelope, homeOpenedEnvelope, blockActionEnvelope } from './twin.js';
 
 const SNAP_DIR = new URL('../../fixtures/chat/interactions/', import.meta.url).pathname;
 const UPDATE = process.env.UPDATE_SNAPSHOTS === '1';

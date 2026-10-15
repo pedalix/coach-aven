@@ -6,13 +6,12 @@
 
 import { mkdirSync, watch } from 'node:fs';
 import { consumeRunRequests, controlDir } from './control.js';
-import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
 import type { Store, RoutineRecord } from './state.js';
 import { resolveBySlug, projectOwnerTeam, teamProjects, type ProjectConfig, type RegistryRef } from './projects.js';
 import { withTeam, normalizeTenant } from './teamkeys.js';
 import type { TurnEngine } from './turn.js';
-import { slackDriver, type ClientForTeam } from './chat/slack/driver.js';
+import type { ChatDriver, DriverForTenant } from './chat/driver.js';
 import type { Channels } from './channels.js';
 import {
   routineGuard,
@@ -44,7 +43,6 @@ import {
   applierName,
   type YouTrackIssue,
 } from './youtrack.js';
-import { ticketCardBlocks } from './chat/slack/blocks.js';
 import { listOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js';
 import { createDriver } from './driver.js';
 import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
@@ -53,7 +51,7 @@ import { cliUpgradeNotice, cliPinDrift, fetchCliDistTags } from './cliversion.js
 import { dreamPrompt, dreamDigest } from './dream.js';
 import { snapshotMemory } from './memjournal.js';
 import { routineLabel, startRoutineTurn } from './routinerun.js';
-import { autofixNotifyBlocks, shortRepo, alertOps } from './chat/slack/blocks.js';
+import { shortRepo, alertOps } from './chat/slack/blocks.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
 import path from 'node:path';
@@ -84,9 +82,9 @@ export interface Pollers {
   startAll(): void;
   // `fire` says why this fire happens (scheduled/late/retry — the scheduler's business); the
   // command and CLI paths leave it out and get a manual run.
-  fireRoutine(client: bolt.webApi.WebClient, r: RoutineRecord, fire?: Fire): boolean;
+  fireRoutine(chat: ChatDriver, r: RoutineRecord, fire?: Fire): boolean;
   fireReview(
-    client: bolt.webApi.WebClient,
+    chat: ChatDriver,
     project: ProjectConfig,
     repo: string,
     number: number,
@@ -97,24 +95,24 @@ export interface Pollers {
 }
 
 // Pollers are per-tenant since slice 2: every stored record (routine, watch, settings,
-// investigation) carries its owning tenant, and each fire resolves THAT workspace's
-// client via `clientFor` — a tenant with no live installation is logged and skipped,
-// never silently posted to with the home token. `home()` late-binds the home tenant id
+// investigation) carries its owning tenant, and each fire resolves THAT tenant's chat
+// driver via `driverFor` — a tenant with no live installation is logged and skipped,
+// never silently posted to with the home credentials. `home()` late-binds the home tenant id
 // (needed for the owner-team rule on shared projects).
 export function createPollers(
   cfg: Config,
   store: Store,
   reg: RegistryRef,
-  clientFor: ClientForTeam,
+  driverFor: DriverForTenant,
   engine: TurnEngine,
   channels: Channels,
   home: () => string | undefined,
   dispatcher?: Dispatcher,
 ): Pollers {
-  // Resolve a tenant's client, or undefined with a log line (the per-record skip rule).
-  const clientOrSkip = (tenantId: string | undefined, what: string): bolt.webApi.WebClient | undefined => {
+  // Resolve a tenant's driver, or undefined with a log line (the per-record skip rule).
+  const driverOrSkip = (tenantId: string | undefined, what: string): ChatDriver | undefined => {
     try {
-      return clientFor(tenantId);
+      return driverFor(tenantId);
     } catch (e) {
       log.warn(`${what}: ${e instanceof Error ? e.message : String(e)} — skipped`);
       return undefined;
@@ -152,7 +150,7 @@ export function createPollers(
   // commit, per the project's instructions) via the normal turn
   // machinery; a dream runs a silent memory-only pass (see fireDream). Shared by the
   // scheduler and the manual run triggers. Returns false if it can't run right now — every
-  // skip is logged with its reason (the "no client" one by clientOrSkip at the call sites).
+  // skip is logged with its reason (the "no driver" one by driverOrSkip at the call sites).
   //
   // Routine delivery guard (ROUTINE_GUARD=1, routineguard.ts): the prompt gets the bot-rendered
   // "previous run" line, a late run / retry is labelled as such, and the run's outcome lands on
@@ -160,7 +158,7 @@ export function createPollers(
   // may schedule the one retry the scheduler fires later. With the guard off, prompt, label,
   // stamp and engine call are the historical ones.
   const routinesInFlight = new Set<string>();
-  function fireRoutine(c: bolt.webApi.WebClient, r: RoutineRecord, fire: Fire = MANUAL_FIRE): boolean {
+  function fireRoutine(c: ChatDriver, r: RoutineRecord, fire: Fire = MANUAL_FIRE): boolean {
     const project = resolveBySlug(reg.current, r.slug);
     if (!project) {
       log.warn(`routine ${r.id}: project ${r.slug} is no longer in the registry — skipped`);
@@ -201,8 +199,7 @@ export function createPollers(
       if (decision.skip) {
         store.patchRoutine(r.id, skipPatch(now, fire));
         log.info(`routine ${r.id} (${r.slug}): skipped-empty — ${decision.message}`);
-        c.chat
-          .postMessage({ channel: r.channel, text: `${base} — ${decision.message}` })
+        c.post({ conv: r.channel }, { kind: 'text', text: `${base} — ${decision.message}` })
           .catch((e: unknown) => log.warn(`routine ${r.id} (${r.slug}): skip line not posted: ${e instanceof Error ? e.message : String(e)}`))
           .finally(() => routinesInFlight.delete(r.id));
         return true;
@@ -234,16 +231,16 @@ export function createPollers(
       {
         restartSession: engine.restartSession,
         liveTurn: (k, threadTs, p, prompt, onAnswer, onTurnSettle) =>
-          engine.liveTurn(slackDriver(c), r.channel, undefined, threadTs, k, p, prompt, undefined, {
+          engine.liveTurn(c, r.channel, undefined, threadTs, k, p, prompt, undefined, {
             onAnswer,
             routine: { id: r.id, label: base },
             ...(onTurnSettle ? { onSettle: onTurnSettle } : {}),
           }),
       },
       {
-        postParent: async (text) => (await c.chat.postMessage({ channel: r.channel, text })).ts as string,
+        postParent: async (text) => (await c.post({ conv: r.channel }, { kind: 'text', text })).id,
         updateParent: async (ts, text) => {
-          await c.chat.update({ channel: r.channel, ts, text });
+          await c.update({ conv: r.channel, id: ts }, { kind: 'line', text });
         },
       },
       { legacyKey, threadKey: (ts) => withTeam(r.teamId, home(), `thread:${ts}`), label },
@@ -335,7 +332,7 @@ export function createPollers(
   // Fire a PR review (on-demand or auto): a read-only review turn keyed per PR (standing →
   // re-review keeps context). Returns false if a review for this PR is already in flight.
   function fireReview(
-    c: bolt.webApi.WebClient,
+    c: ChatDriver,
     project: ProjectConfig,
     repo: string,
     number: number,
@@ -345,7 +342,7 @@ export function createPollers(
   ): boolean {
     const key = withTeam(tenant, home(), `review:${repo}:${number}:${project.slug}`);
     if (engine.hasKey(key)) return false;
-    void engine.liveTurn(slackDriver(c), channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort)).catch(
+    void engine.liveTurn(c, channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort)).catch(
       turnFail(`review ${repo}#${number}`),
     );
     return true;
@@ -367,7 +364,7 @@ export function createPollers(
             log.warn(`control: run requested for unknown routine ${id} — ignored`);
             return;
           }
-          const c = clientOrSkip(r.teamId, `routine ${r.id}`);
+          const c = driverOrSkip(r.teamId, `routine ${r.id}`);
           const ok = c ? fireRoutine(c, r) : false;
           log.info(`control: routine ${id} run requested from the CLI → ${ok ? 'fired' : 'not fired (busy, disabled tenant or no client)'}`);
         });
@@ -397,7 +394,7 @@ export function createPollers(
       }
       for (const f of fires) {
         if (f.key) firedThisMinute.set(f.routine.id, f.key);
-        const c = clientOrSkip(f.routine.teamId, `routine ${f.routine.id}`);
+        const c = driverOrSkip(f.routine.teamId, `routine ${f.routine.id}`);
         if (c) fireRoutine(c, f.routine, f);
       }
     };
@@ -417,7 +414,7 @@ export function createPollers(
         // Settings are slug-keyed (one auto-review per project fleet-wide) — the enabling
         // tenant's token posts. Old records carry no team → home. A dead installation
         // skips the project rather than leaking home-token posts into a foreign channel.
-        const c = clientOrSkip(s.autoReviewTeam, `auto-review ${project.slug}`);
+        const c = driverOrSkip(s.autoReviewTeam, `auto-review ${project.slug}`);
         if (!c) continue;
         const reviewed = store.reviewedPrKeys();
         for (const repo of project.repos) {
@@ -450,14 +447,14 @@ export function createPollers(
         // the subscribe path did, so patch/delete hit the right record.
         const key = withTeam(w.teamId, home(), `${w.repo}#${w.number}`);
         if (!tenantHasProject(w.teamId, w.slug)) continue; // revoked tenant — stay silent
-        const c = clientOrSkip(w.teamId, `autofix ${w.repo}#${w.number}`);
+        const c = driverOrSkip(w.teamId, `autofix ${w.repo}#${w.number}`);
         if (!c) continue;
         const meta = await getPrMeta(cfg, w.repo, w.number);
         if (!meta) continue; // transient read failure — try again next tick
         if (meta.state === 'closed') {
           store.deletePrWatch(key);
-          await c.chat
-            .postMessage({ channel: w.channel, text: `:checkered_flag: ${shortRepo(w.repo)}#${w.number} ${meta.merged ? 'merged' : 'closed'} — stopped watching.` })
+          await c
+            .post({ conv: w.channel }, { kind: 'text', text: `:checkered_flag: ${shortRepo(w.repo)}#${w.number} ${meta.merged ? 'merged' : 'closed'} — stopped watching.` })
             .catch(() => {});
           continue;
         }
@@ -466,9 +463,7 @@ export function createPollers(
         const { notes, next } = autofixEvents(w, { sha: meta.headSha, conclusion: ci }, reviews, BOT_LOGIN);
         store.patchPrWatch(key, next);
         if (notes.length) {
-          await c.chat
-            .postMessage({ channel: w.channel, text: `${shortRepo(w.repo)}#${w.number}: ${notes.join('; ')}`, blocks: autofixNotifyBlocks(w, notes) })
-            .catch(() => {});
+          await c.post({ conv: w.channel }, { kind: 'autofixNotice', watch: w, notes }).catch(() => {});
         }
       }
     };
@@ -496,9 +491,9 @@ export function createPollers(
       // undefined for home (the store convention).
       const owner = projectOwnerTeam(reg.current, project.slug, home());
       const teamId = normalizeTenant(owner, home());
-      const client = clientOrSkip(teamId, `youtrack ${ticket.id}`);
-      if (!client) return false;
-      const channel = await channels.channelIdForSlug(client, project, teamId);
+      const chat = driverOrSkip(teamId, `youtrack ${ticket.id}`);
+      if (!chat) return false;
+      const channel = await channels.channelIdForSlug(chat, project, teamId);
       if (!channel) {
         log.error(`youtrack ${ticket.id}: channel ${channels.prefixFor(teamId)}${project.slug} not found — create it and invite the bot`);
         return false;
@@ -529,11 +524,8 @@ export function createPollers(
       const extras = headerExtras(ticket, Date.now());
       let rootTs: string | undefined;
       try {
-        const root = await client.chat.postMessage({
-          channel,
-          text: `:ticket: <${ticketUrl}|${ticket.id}> — ${ticket.summary}${extras ? `  ·  ${extras}` : ''}`,
-        });
-        rootTs = root.ts as string | undefined;
+        const root = await chat.post({ conv: channel }, { kind: 'ticketHeader', ticket, url: ticketUrl, extras });
+        rootTs = root.id;
       } catch (e) {
         log.error(`youtrack ${ticket.id}: header post failed: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -541,12 +533,10 @@ export function createPollers(
       // thread is self-contained. Best-effort: a card failure must not sink the investigation.
       if (rootTs) {
         try {
-          await client.chat.postMessage({
-            channel,
-            thread_ts: rootTs,
-            text: `${ticket.id}: ${ticket.summary}`,
-            blocks: ticketCardBlocks(ticket, ticketUrl, attachRefs.map((a) => a.name), flaggedBy),
-          });
+          await chat.post(
+            { conv: channel, thread: rootTs },
+            { kind: 'ticketCard', ticket, url: ticketUrl, attachmentNames: attachRefs.map((a) => a.name), flaggedBy },
+          );
         } catch (e) {
           log.error(`youtrack ${ticket.id}: card post failed: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -561,7 +551,7 @@ export function createPollers(
       // survive an immediate crash; stamp finishedAt when the turn settles. `rootTs` ties the
       // ticket to `thread:<rootTs>` → chats → the Claude session.
       store.recordInvestigation(ticket.id, { slug: project.slug, teamId, channel, rootTs, startedAt: new Date().toISOString() });
-      void engine.liveTurn(slackDriver(client), channel, undefined, rootTs, key, project, prompt, attachments)
+      void engine.liveTurn(chat, channel, undefined, rootTs, key, project, prompt, attachments)
         .catch(turnFail(`youtrack ${ticket.id}`))
         .finally(() => store.finishInvestigation(ticket.id));
       return true;

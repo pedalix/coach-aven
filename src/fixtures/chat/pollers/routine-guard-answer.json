@@ -1,0 +1,57 @@
+{
+  "calls": [
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "C_HOME",
+        "text": "📋 what shipped · running…"
+      }
+    },
+    {
+      "method": "chat.update",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "C_HOME",
+        "ts": "1000.0001",
+        "text": "📋 what shipped — Shipped 3 PRs yesterday."
+      }
+    }
+  ],
+  "engine": [
+    {
+      "restartSession": {
+        "key": "cron:r1:alpha",
+        "slug": "alpha"
+      }
+    },
+    {
+      "liveTurn": {
+        "token": "xoxb-home",
+        "channel": "C_HOME",
+        "threadTs": "1000.0001",
+        "key": "thread:1000.0001",
+        "slug": "alpha",
+        "question": "[Routine state] Previous run of this routine: none recorded.\n\n[Scheduled read-only digest] Do NOT modify code, create branches, commit, or open PRs. Read-only: gather the requested information and post one concise summary. If nothing is noteworthy, say so briefly.\n\nwhat shipped",
+        "attachments": false,
+        "routine": {
+          "id": "r1",
+          "label": "📋 what shipped"
+        }
+      }
+    }
+  ],
+  "result": true,
+  "routines": [
+    {
+      "id": "r1",
+      "lastRunAt": "2026-10-15T07:00:00.000Z",
+      "lastOutcome": "ok"
+    }
+  ],
+  "proposals": [
+    null,
+    null,
+    null
+  ]
+}

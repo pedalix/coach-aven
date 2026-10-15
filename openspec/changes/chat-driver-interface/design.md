@@ -38,7 +38,10 @@ A test-only recording fake Bolt (`WebClient` + registered handlers) drives scrip
 4. pollers, routines (with and without `ROUTINE_GUARD`), dispatch, alerts.
 
 ### D4. Directory layout and import rule
-`src/chat/driver.ts`, `src/chat/views.ts`, `src/chat/core/*`, `src/chat/slack/*`. A test fails when any file outside `src/chat/slack/` imports `@slack/bolt`; later drivers add the same rule for their SDKs.
+`src/chat/driver.ts`, `src/chat/views.ts`, `src/chat/drivers.ts` (the run modes), `src/chat/core/*`, `src/chat/slack/*` (including the Slack composition root `app.ts`). A test fails when any file outside `src/chat/slack/` imports a `@slack/*` package; later drivers add the same rule for their SDKs.
+
+### D5. What stays text-shaped for now
+User-facing strings composed in the core still carry Slack conventions: mrkdwn emphasis, `:emoji:` shortcodes, `<@user>` mentions in a few texts, and the `/aven` command name in help texts (`CMD`). They render correctly on Slack, which is the only driver. A second driver either post-processes them or the core moves them into view models; that is decided by the second driver's change, not here.
 
 ## Risks / Trade-offs
 

@@ -13,6 +13,9 @@ import {
   MAX_SLACK_TEXT,
   accessBlocks,
   allRoutinesBlocks,
+  autofixNotifyBlocks,
+  shortRepo,
+  ticketCardBlocks,
   answerBlocks,
   backgroundBlocks,
   dmPickerBlocks,
@@ -37,6 +40,7 @@ import {
   withRatingTally,
 } from './blocks.js';
 import { fallbackText, mdToMrkdwn } from '../../format.js';
+import { proposalBlocks, proposalText } from '../../dispatch.js';
 import { log } from '../../log.js';
 
 // Reaction a skipped "!" note gets (configurable — some workspaces lack the default emoji).
@@ -50,7 +54,7 @@ const REACTION: Record<Mark, string> = {
 
 // Pure: a view → the text + blocks Slack gets. `blocks` undefined = a text-only message.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-export function renderTurnView(v: MessageView): { text: string; blocks?: any[] } {
+export function renderMessageView(v: MessageView): { text: string; blocks?: any[] } {
   switch (v.kind) {
     case 'status':
       return { text: v.notify, blocks: statusBlocks(v.line, v.turnId) };
@@ -69,6 +73,30 @@ export function renderTurnView(v: MessageView): { text: string; blocks?: any[] }
       return { text: `✅ Reported to ${v.ticket}`, blocks: reportPostedBlocks(v.markdown, v.ticket, v.url, v.group) };
     case 'projectPicker':
       return { text: 'Which project?', blocks: dmPickerBlocks(v.pid, v.projects) };
+    case 'line':
+      return { text: v.text };
+    case 'proposal':
+      return { text: proposalText(v.proposal), blocks: proposalBlocks(v.proposal) };
+    case 'relayed':
+      return {
+        text: v.text,
+        blocks: [
+          { type: 'section', text: { type: 'mrkdwn', text: v.text.slice(0, 2900) } },
+          { type: 'context', elements: [{ type: 'mrkdwn', text: `proposed by *${v.from}* · ${v.by}` }] },
+        ],
+      };
+    case 'autofixNotice':
+      return {
+        text: `${shortRepo(v.watch.repo)}#${v.watch.number}: ${v.notes.join('; ')}`,
+        blocks: autofixNotifyBlocks(v.watch, v.notes),
+      };
+    case 'ticketHeader':
+      return { text: `:ticket: <${v.url}|${v.ticket.id}> — ${v.ticket.summary}${v.extras ? `  ·  ${v.extras}` : ''}` };
+    case 'ticketCard':
+      return {
+        text: `${v.ticket.id}: ${v.ticket.summary}`,
+        blocks: ticketCardBlocks(v.ticket, v.url, v.attachmentNames, v.flaggedBy),
+      };
     case 'question':
       return {
         text: v.done ? '✅ Answered' : '❓ The agent has a question',
@@ -161,14 +189,16 @@ export function slackDriver(client: bolt.webApi.WebClient): SlackChatDriver {
     client,
     capabilities: { reactions: true, privateReplies: 'native', threadRepliesNeedMention: false },
     async post(to: ConvTarget, view: MessageView): Promise<MsgRef> {
-      const { text, blocks } = renderTurnView(view);
+      const { text, blocks } = renderMessageView(view);
       const posted = await client.chat.postMessage({ channel: to.conv, thread_ts: to.thread, text, blocks });
       return { conv: to.conv, id: posted.ts as string };
     },
     async update(msg: MsgRef, view: MessageView): Promise<void> {
-      const { text, blocks } = renderTurnView(view);
-      // An update with no blocks must clear the old ones (buttons included) — [] does that.
-      await client.chat.update({ channel: msg.conv, ts: msg.id, text, blocks: blocks ?? [] });
+      const { text, blocks } = renderMessageView(view);
+      // A text-only headline ('line') never had blocks: change the text alone. Any other update
+      // without blocks must clear the old ones (buttons included) — [] does that.
+      if (view.kind === 'line') await client.chat.update({ channel: msg.conv, ts: msg.id, text });
+      else await client.chat.update({ channel: msg.conv, ts: msg.id, text, blocks: blocks ?? [] });
     },
     async mark(msg: MsgRef, mark: Mark, op: 'add' | 'remove'): Promise<void> {
       const args = { channel: msg.conv, timestamp: msg.id, name: REACTION[mark] };
@@ -205,6 +235,21 @@ export function slackDriver(client: bolt.webApi.WebClient): SlackChatDriver {
       } catch {
         return undefined; // DM / no access
       }
+    },
+    async findConversation(name: string): Promise<string | undefined> {
+      let cursor: string | undefined;
+      do {
+        const r = await client.conversations.list({
+          types: 'public_channel,private_channel',
+          exclude_archived: true,
+          limit: 200,
+          cursor,
+        });
+        const hit = (r.channels as Array<{ id?: string; name?: string }> | undefined)?.find((c) => c.name === name);
+        if (hit?.id) return hit.id;
+        cursor = (r.response_metadata as { next_cursor?: string } | undefined)?.next_cursor || undefined;
+      } while (cursor);
+      return undefined;
     },
     async openDirect(user: string): Promise<string | undefined> {
       try {

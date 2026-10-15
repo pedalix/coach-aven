@@ -10,7 +10,7 @@
 // no Slack imports beyond types — so it's unit-testable without a workspace.
 
 import type { Installation, InstallationQuery, InstallationStore } from '@slack/bolt';
-import type { Store } from './state.js';
+import type { Store } from '../../state.js';
 
 // Derive the storage key for a completed installation. Org-wide installs key by the
 // enterprise id (one token serves every workspace in the org); everything else keys by

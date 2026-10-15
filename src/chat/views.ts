@@ -8,7 +8,8 @@
 
 import type { AskQuestion } from '../claudeSession.js';
 import type { ProjectConfig } from '../projects.js';
-import type { RoutineRecord } from '../state.js';
+import type { PrWatch, RoutineRecord } from '../state.js';
+import type { StoredProposal } from '../dispatch.js';
 import type { YouTrackComment, YouTrackIssue } from '../youtrack.js';
 
 // Context a completed answer needs for its follow-up buttons (Report to YouTrack, session
@@ -65,6 +66,19 @@ export type MessageView =
   // A plain message with no controls: cancel/error/recovery notices, skip notices. As an
   // update it replaces whatever the message showed before, controls included.
   | { kind: 'text'; text: string }
+  // A one-line headline the bot keeps rewriting (a routine's or a dispatched task's parent).
+  // As an update it changes only the text — the message never had any layout to clear.
+  | { kind: 'line'; text: string }
+  // A dispatch proposal, with Send/Dismiss while pending and its outcome once decided.
+  | { kind: 'proposal'; proposal: StoredProposal }
+  // A message relayed on another project's behalf (an approved dispatch `message`), with its
+  // provenance line (`by`: who approved it).
+  | { kind: 'relayed'; text: string; from: string; by: string }
+  // PR feedback on a watched PR (CI, reviews) with the 🔧 Fix control.
+  | { kind: 'autofixNotice'; watch: PrWatch; notes: string[] }
+  // A support ticket's one-line thread header, and the card that opens its thread.
+  | { kind: 'ticketHeader'; ticket: YouTrackIssue; url: string; extras: string }
+  | { kind: 'ticketCard'; ticket: YouTrackIssue; url: string; attachmentNames: string[]; flaggedBy?: string }
   // The soft deadline passed: the status freezes into a static card (controls stay).
   | { kind: 'background'; turnId: string; elapsedMs: number }
   // The background card's epitaph once the outcome was posted as a new message.

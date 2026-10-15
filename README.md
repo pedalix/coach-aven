@@ -89,12 +89,11 @@ Rule of thumb: a **secret or endpoint** → `.env`; a **description of a project
 ```
 src/
   cli.ts            # commander CLI (`slack`, `sources …`, `routines list|run`)
-  slack.ts          # composition root: engine + resolvers + handlers + pollers
   turn.ts           # turn engine: queues, live status, agent questions, restart recovery
   pollers.ts        # scheduler + auto-review / autofix / ticket pollers
   chat/             # chat driver interface + view models
     core/           #   platform-neutral: messages, the /aven router, buttons/dialogs/home, gates
-    slack/          #   the Slack driver: rendering, Bolt wiring (events, commands), blocks.ts
+    slack/          #   the Slack driver: app.ts (composition root), rendering, Bolt wiring, blocks.ts
   tasks.ts          # chat session over a sandbox
   prompt.ts         # the 3-layer system prompt, golden-tested (src/fixtures/prompt/)
   scrub.ts          # secrets redaction at the model boundary and at ingest

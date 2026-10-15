@@ -1,0 +1,56 @@
+{
+  "calls": [
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "C_HOME",
+        "text": "🛠 tidy up · running…"
+      }
+    },
+    {
+      "method": "chat.update",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "C_HOME",
+        "ts": "1000.0001",
+        "text": "🛠 tidy up — Shipped 3 PRs yesterday."
+      }
+    }
+  ],
+  "engine": [
+    {
+      "restartSession": {
+        "key": "cron:r1:alpha",
+        "slug": "alpha"
+      }
+    },
+    {
+      "liveTurn": {
+        "token": "xoxb-home",
+        "channel": "C_HOME",
+        "threadTs": "1000.0001",
+        "key": "thread:1000.0001",
+        "slug": "alpha",
+        "question": "[Scheduled task] Run the task below as the project's instructions describe — you MAY edit and commit files when the instructions say so (follow the project's system prompt for where and how), never open PRs against other repositories, never post more than one summary message plus any escalation messages the instructions call for. If nothing needed doing, say so in one line.\n\ntidy up",
+        "attachments": false,
+        "routine": {
+          "id": "r1",
+          "label": "🛠 tidy up"
+        }
+      }
+    }
+  ],
+  "result": true,
+  "routines": [
+    {
+      "id": "r1",
+      "lastRunAt": "2026-10-15T07:00:00.000Z"
+    }
+  ],
+  "proposals": [
+    null,
+    null,
+    null
+  ]
+}

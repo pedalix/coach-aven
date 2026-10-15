@@ -1,0 +1,79 @@
+{
+  "calls": [
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "C0TARGET1",
+        "text": "Heads-up: the deploy moved to Friday.",
+        "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Heads-up: the deploy moved to Friday.\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"proposed by *alpha* · approved by <@U_HUMAN>\"}]}]"
+      }
+    },
+    {
+      "method": "chat.getPermalink",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "C0TARGET1",
+        "message_ts": "1000.0001"
+      }
+    },
+    {
+      "method": "chat.update",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "C_HOME",
+        "ts": "9.5",
+        "text": "📨 Proposal: message to `C0TARGET1`\nHeads-up: the deploy moved to Friday.\n_refs:_ https://x/pull/1\n_why:_ they asked",
+        "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"📨 Proposal: message to `C0TARGET1`\\nHeads-up: the deploy moved to Friday.\\n_refs:_ https://x/pull/1\\n_why:_ they asked\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"✅ sent by <@U_HUMAN> at 2026-10-15T07:00:00Z — <https://slack/p/1|posted in <#C0TARGET1>>\"}]}]"
+      }
+    }
+  ],
+  "engine": [],
+  "result": {
+    "id": "p-1",
+    "kind": "message",
+    "target": "C0TARGET1",
+    "text": "Heads-up: the deploy moved to Friday.",
+    "refs": [
+      "https://x/pull/1"
+    ],
+    "rationale": "they asked",
+    "session": "thread:9.1",
+    "createdAt": "2026-10-15T07:00:00.000Z",
+    "slug": "alpha",
+    "status": "sent",
+    "receivedAt": "2026-10-15T07:00:00.000Z",
+    "channel": "C_HOME",
+    "threadTs": "9.1",
+    "messageTs": "9.5",
+    "approvedBy": "U_HUMAN",
+    "approvedAt": "2026-10-15T07:00:00.000Z",
+    "result": "<https://slack/p/1|posted in <#C0TARGET1>>"
+  },
+  "routines": [],
+  "proposals": [
+    {
+      "id": "p-1",
+      "kind": "message",
+      "target": "C0TARGET1",
+      "text": "Heads-up: the deploy moved to Friday.",
+      "refs": [
+        "https://x/pull/1"
+      ],
+      "rationale": "they asked",
+      "session": "thread:9.1",
+      "createdAt": "2026-10-15T07:00:00.000Z",
+      "slug": "alpha",
+      "status": "sent",
+      "receivedAt": "2026-10-15T07:00:00.000Z",
+      "channel": "C_HOME",
+      "threadTs": "9.1",
+      "messageTs": "9.5",
+      "approvedBy": "U_HUMAN",
+      "approvedAt": "2026-10-15T07:00:00.000Z",
+      "result": "<https://slack/p/1|posted in <#C0TARGET1>>"
+    },
+    null,
+    null
+  ]
+}

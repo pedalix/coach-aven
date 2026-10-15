@@ -20,7 +20,7 @@ import { memoryRepoDir } from '../../memjournal.js';
 import type { TurnEngine } from '../../turn.js';
 import type { Pollers } from '../../pollers.js';
 import type { SlackChatDriver } from './driver.js';
-import { createTwinApp, mentionEnvelope, messageEnvelope } from '../../twin.js';
+import { createTwinApp, mentionEnvelope, messageEnvelope } from './twin.js';
 import { CMD } from './blocks.js';
 
 const UPDATE = process.env.UPDATE_SNAPSHOTS === '1';
@@ -78,9 +78,9 @@ async function twin() {
   const rec = recordingEngine(store);
   const pollerLog: unknown[] = [];
   const pollers = {
-    fireRoutine: (c: { token?: string }, r: { id: string }) => (pollerLog.push({ fireRoutine: { token: c.token, id: r.id } }), true),
-    fireReview: (c: { token?: string }, project: { slug: string }, repo: string, number: number, channel: string, effort: string, tid?: string) =>
-      (pollerLog.push({ fireReview: { token: c.token, slug: project.slug, repo, number, channel, effort, tid } }), true),
+    fireRoutine: (d: SlackChatDriver, r: { id: string }) => (pollerLog.push({ fireRoutine: { token: (d.client as { token?: string }).token, id: r.id } }), true),
+    fireReview: (d: SlackChatDriver, project: { slug: string }, repo: string, number: number, channel: string, effort: string, tid?: string) =>
+      (pollerLog.push({ fireReview: { token: (d.client as { token?: string }).token, slug: project.slug, repo, number, channel, effort, tid } }), true),
   } as unknown as Pollers;
   const channels = createChannels(reg as never, () => HOME);
   const servedTenant = (t: string | undefined) =>

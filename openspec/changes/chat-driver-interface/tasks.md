@@ -21,6 +21,6 @@
 
 ## 4. PR 4 — pollers, routines, dispatch, alerts (bucket 1)
 
-- [ ] 4.1 Recorder scenarios: routine fire (with and without `ROUTINE_GUARD`), dream, housekeeping, auto-review, autofix, YouTrack investigation, dispatch Send/Dismiss, ops alert; snapshot first. Verify: green on unchanged code.
-- [ ] 4.2 Deliveries through `projectChannel` + `post`; dispatch Send/Dismiss buttons move into the core with `dispatchrun`; `channels.ts` as the Slack implementation; `pollers.ts`, `routinerun.ts`, `dispatchrun.ts` lose Bolt imports; driver selection seam in `cli.ts` with the unknown-driver error. Verify: snapshots identical; import-rule test; unknown-driver test.
-- [ ] 4.3 CLAUDE.md architecture pointers for `src/chat/`; ledger row; PR. Verify: CI green.
+- [x] 4.1 Recorder scenarios: routine fire (with and without `ROUTINE_GUARD`), dream, housekeeping, auto-review, autofix, YouTrack investigation, dispatch Send/Dismiss, ops alert; snapshot first. Verify: green on unchanged code.
+- [x] 4.2 Deliveries through the tenant's driver (`DriverForTenant`) + `post`/`update` with views (`line`, `proposal`, `relayed`, `autofixNotice`, `ticketHeader`, `ticketCard`); `channels.ts` became platform-neutral (names via `conversationName`, slug → channel via the driver's `findConversation`); dispatch Send/Dismiss buttons move into the core with `dispatchrun`; `pollers.ts`, `routinerun.ts`, `dispatchrun.ts` lose Bolt imports; the composition root, OAuth store and twin harness move to `src/chat/slack/` (`app.ts`, `installations.ts`, `twin.ts`); `src/chat/drivers.ts` lists the run modes and an unknown command names them. Verify: snapshots identical; golden payloads for the network-gated poller posts (`src/chat/slack/driver.test.ts`); import-rule test (`src/chat/imports.test.ts`); unknown-driver test (`src/chat/drivers.test.ts`).
+- [x] 4.3 CLAUDE.md architecture pointers for `src/chat/`; ledger row; PR. Verify: CI green.

@@ -1,7 +1,7 @@
 # Replay fixtures
 
 Real Slack envelopes, captured on prod by the [event journal](../src/eventlog.ts), scrubbed,
-and committed under `src/fixtures/`. The twin harness (`src/twin.ts`) replays them through
+and committed under `src/fixtures/`. The twin harness (`src/chat/slack/twin.ts`) replays them through
 `app.processEvent` — so the tests drive the app with what Slack actually sent, not with
 envelopes composed from memory.
 

@@ -8,14 +8,14 @@
 import { FactStore } from '../../facts.js';
 import { DEFAULT_INTERVAL_MIN, readSyncState, statusLine } from '../../sources/sync.js';
 import type { Config } from '../../config.js';
-import type { Store, RoutineRecord } from '../../state.js';
+import type { Store } from '../../state.js';
 import { loadProjects, resolveBySlug, teamProjects, projectOwnerTeam, type ProjectConfig, type RegistryRef } from '../../projects.js';
 import { withTeam, splitTeam, normalizeTenant } from '../../teamkeys.js';
 import { rateLimitStatusLine } from '../../ratelimit.js';
 import { effectiveAccess, mayDrive, isAdmin, deniedText, parseUsersCmd, applyUsersCmd, usersListText } from '../../access.js';
 import type { TurnEngine } from '../../turn.js';
 import type { Channels } from '../../channels.js';
-import { ROUTINE_TZ } from '../../pollers.js';
+import { ROUTINE_TZ, type Pollers } from '../../pollers.js';
 import { parseSchedule, parseScheduleCommand, groupRoutinesBySlug } from '../../schedule.js';
 import { parseTopics } from '../../format.js';
 import { resolvePr } from '../../pr.js';
@@ -39,6 +39,7 @@ export interface CommandDeps {
   reg: RegistryRef;
   engine: TurnEngine;
   channels: Channels;
+  pollers: Pick<Pollers, 'fireRoutine' | 'fireReview'>;
   // The home tenant id (resolved at boot). Every subcommand scopes to the CALLING
   // workspace's project subset; operator commands (reload, usage) are home-only.
   homeTeamId?: string;
@@ -90,15 +91,8 @@ export async function readMemory(
 // Facts are a file-backed derived cache (facts.ts); a second reader beside tasks.ts is fine.
 const facts = new FactStore();
 
-// The pollers' fire paths, bound by the driver's adapter to the calling workspace (they still
-// post to Slack themselves until the pollers move behind the chat driver).
-export interface FirePort {
-  fireRoutine(r: RoutineRecord): boolean;
-  fireReview(project: ProjectConfig, repo: string, number: number, channel: string, effort: ReviewEffort, tid?: string): boolean;
-}
-
 export function createCommands(deps: CommandDeps) {
-  const { cfg, store, reg, engine, channels, homeTeamId } = deps;
+  const { cfg, store, reg, engine, channels, pollers, homeTeamId } = deps;
 
   // Gather a live snapshot for `/aven status`, scoped to ONE tenant (tid: undefined =
   // home): its projects, its sessions/turns (a shared slug must not reveal the other
@@ -278,7 +272,7 @@ export function createCommands(deps: CommandDeps) {
   }
 
   // ── /aven dream [on|off] → enable/disable nightly memory consolidation for this project ──
-  // 'now' is handled in the command handler (it fires through the port). Bare = status.
+  // 'now' is handled in the command handler (it fires through the pollers). Bare = status.
   // One dream routine per project channel (kind: 'dream'); reuses the routine scheduler.
   const DREAM_DEFAULT_CRON = '0 3 * * *'; // 03:00 daily, in ROUTINE_TZ
   function handleDream(channelId: string, userId: string, slug: string | undefined, cmdText: string, tid?: string): PrivateView {
@@ -326,7 +320,7 @@ export function createCommands(deps: CommandDeps) {
   }
 
   // ── /aven housekeeping [on|off] → nightly sandbox janitor for this project ──
-  // Mirrors handleDream ('now' fires in the command handler, through the port). One
+  // Mirrors handleDream ('now' fires in the command handler, through the pollers). One
   // housekeeping routine per project channel (kind: 'housekeeping'), on the same scheduler.
   function handleHousekeeping(channelId: string, userId: string, slug: string | undefined, cmdText: string, tid?: string): PrivateView {
     if (!slug) return { kind: 'text', text: `:x: Use \`${CMD} housekeeping\` from a project channel.` };
@@ -373,7 +367,7 @@ export function createCommands(deps: CommandDeps) {
   }
 
   // ── /aven → private answer in the user's DM (per project) ───────────────────
-  async function run(cmd: ChatCommand, d: ChatDriver, port: FirePort): Promise<void> {
+  async function run(cmd: ChatCommand, d: ChatDriver): Promise<void> {
     // Every reply is private to the caller; `replace` rewrites the previous private reply.
     const say = (v: PrivateView | string, replace?: boolean) =>
       d.reply(cmd, typeof v === 'string' ? { kind: 'text', text: v } : v, replace === undefined ? undefined : { replace });
@@ -525,7 +519,7 @@ export function createCommands(deps: CommandDeps) {
     if (verb === 'routines') {
       const rargs = cmdText.split(/\s+/).slice(1);
       if (rargs[0]?.toLowerCase() === 'run') {
-        // Fire a job on demand (testing / "run the digest now") — goes through the port,
+        // Fire a job on demand (testing / "run the digest now") — goes through the pollers,
         // so it's handled here rather than in the pure handleRoutines.
         const id = rargs[1];
         const r = id ? store.getRoutine(id) : undefined;
@@ -535,7 +529,7 @@ export function createCommands(deps: CommandDeps) {
           await say(`:x: No job \`${id ?? ''}\` in this channel.`);
           return;
         }
-        const ok = port.fireRoutine(r);
+        const ok = pollers.fireRoutine(d, r);
         await say(ok ? `:rocket: Running *${r.id}* now…` : `:hourglass_flowing_sand: *${r.id}* is already running.`);
         return;
       }
@@ -552,7 +546,7 @@ export function createCommands(deps: CommandDeps) {
           await say(`:information_source: No dream here yet — \`${CMD} dream on\` first.`);
           return;
         }
-        const ok = port.fireRoutine(r);
+        const ok = pollers.fireRoutine(d, r);
         await say(ok
             ? ':crescent_moon: Dreaming now… (silent — check `' + CMD + ' dream` for the digest)'
             : ':hourglass_flowing_sand: A turn is in flight for this project — try again shortly.');
@@ -571,7 +565,7 @@ export function createCommands(deps: CommandDeps) {
           await say(`:information_source: No housekeeping here yet — \`${CMD} housekeeping on\` first.`);
           return;
         }
-        const ok = port.fireRoutine(r);
+        const ok = pollers.fireRoutine(d, r);
         await say(ok
             ? ':broom: Housekeeping running… (silent — check `' + CMD + ' housekeeping` for the digest)'
             : ':hourglass_flowing_sand: A turn is in flight for this project — try again shortly.');
@@ -722,7 +716,7 @@ export function createCommands(deps: CommandDeps) {
         await say(`:x: Unknown project ${t.slug}.`);
         return;
       }
-      const fired = port.fireReview(project, t.repo, t.number, cmd.conv, effort, tid);
+      const fired = pollers.fireReview(d, project, t.repo, t.number, cmd.conv, effort, tid);
       await say(fired
           ? `:eyes: Reviewing ${shortRepo(t.repo)}#${t.number} (${effort})…`
           : `:hourglass_flowing_sand: Already reviewing ${shortRepo(t.repo)}#${t.number}.`);

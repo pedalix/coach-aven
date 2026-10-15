@@ -1,0 +1,22 @@
+{
+  "calls": [],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-home",
+        "channel": "C_BETA",
+        "key": "review:Org/beta:12:beta",
+        "slug": "beta",
+        "question": "[Read-only PR review — high effort] Review pull request #12 in Org/beta. Post a Slack summary only — do NOT push code, comment on GitHub, or approve/request changes.\n\nScope: read the change with `gh pr diff 12 -R Org/beta` (and `gh pr view 12 -R Org/beta`). Review the changed hunks and their enclosing functions — a bug in an unchanged line of a TOUCHED function is in scope (the PR re-exposes or fails to fix it). Ignore style, naming, missing tests, and anything outside the diff. For each changed function also read its enclosing function, and check its callers/callees for broken contracts (a new precondition, a changed return shape or exception, an ordering dependency). After listing findings, do ONE fresh sweep of the diff for anything missed — don't re-confirm what's already listed, don't pad.\n\nFind: correctness bugs (inverted condition, off-by-one, null/undefined deref, missing await, swallowed error; a removed guard / validation / error-path the new code doesn't re-establish; a broken caller/callee contract; language-specific traps; a wrapper/cache/proxy method that doesn't delegate to the wrapped instance) AND clear quality issues (duplicates an existing helper, needless complexity, wasted work on a hot path).\n\nVerify EACH candidate before reporting it: either name the concrete inputs/state that trigger it and the resulting wrong output or crash, OR quote the exact line that proves it's already handled or impossible — and drop it. No finding without a concrete failure scenario. Bias toward RECALL — a missed bug ships. Keep a candidate unless you can refute it from the code; treat realistic-but-uncertain triggers (races, nil on a rare/error path, falsy-zero treated as missing, off-by-one at a boundary, a regex/allowlist that lost an anchor) as real.\n\nOutput: post ONE concise review — a one-line verdict, then findings ranked most-severe first (cap 10), each as `file:line — what's wrong (concrete failure scenario)`. If nothing survives verification, say it looks clean in one line.",
+        "attachments": false
+      }
+    }
+  ],
+  "result": true,
+  "routines": [],
+  "proposals": [
+    null,
+    null,
+    null
+  ]
+}
