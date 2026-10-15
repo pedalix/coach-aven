@@ -1,0 +1,18 @@
+# git filter-repo --replace-text input, derived from public-guard.txt (one rewrite before the flip).
+<replacement>; (?i) = case-insensitive.==><replacement>; (?i) = case-insensitive.
+regex:(?i)@(contoso|vixa|adfire|pedalix|bluefin|bluefinagency|caldora|hcg)\.(com|ch|eu|dev|io|guru)==>@example.com
+regex:(?i)tobin[ ._]alder==>Tess North
+regex:(?i)North, Tess==>North, Tess
+regex:(?i)Carla==>Carla
+regex:(?i)vincent[ ._]Lindqvist==>Vera Lindqvist
+regex:(?i)Lindqvist==>Lindqvist
+regex:(?i)Ganz==>Ganz
+regex:(?i)00000000-0000-4000-8000-000000000000==>00000000-0000-4000-8000-000000000000
+T0000FAKE01==>T0000FAKE01
+T0000FAKE02==>T0000FAKE02
+<bot-host>==><bot-host>
+<sandbox-vm>==><sandbox-vm>
+<sandbox-host>==><sandbox-host>
+<gateway-host>==><gateway-host>
+<grafana-host>==><grafana-host>
+<daytona-host>==><daytona-host>
