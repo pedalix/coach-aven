@@ -1,0 +1,89 @@
+# Design
+
+## Context
+
+- Built on `chat-driver-interface`: the core emits view models and receives normalized events; a driver renders and transports. Slack and Teams render to someone else's UI and get history for free. The web driver owns the UI, the transport, the login and the history.
+- Agent output is untrusted (prompt injection can shape it), and the web driver is the first place we render it as HTML. Slack and Teams sanitize for us; here we must.
+- The repo is public (`go-public`): the mechanism lives here, instance values (hostname, identity provider issuer, client id, allow-list) live in the installation's ops overlay.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Parity with Slack on every row where the concept exists, with no "≈ mapped" rows: private replies, dialogs and commands are native.
+- Small surface: server-rendered fragments, a few hundred lines of client script, no framework, no bundler.
+- Safe by construction against hostile answer content.
+
+**Non-Goals:**
+- A general team chat. Humans can talk in threads, but the product is talking to the agent.
+- Offline notifications, mobile apps, search.
+
+## Parity matrix
+
+| Slack today | Web driver |
+|---|---|
+| Project channel | Project room |
+| @mention starts a thread | Any top-level post starts a thread (no mention needed; `!` for a human-only note) |
+| Thread replies continue the session | Same |
+| DM with project picker | Private conversation per project, chosen in the sidebar (no picker needed) |
+| 👀 reaction | "Seen" marker on the post + the status entry |
+| Live status, Cancel, Show steps, Restart, background cards | Same, live over the stream |
+| Answer, PR buttons, 👍/👎 with tally, reason modal, Session panel | Same; modals are dialogs |
+| AskUserQuestion | Same |
+| Files | Upload in the composer |
+| `/aven <verb>` | `/<verb>` in the composer, with suggestions |
+| Ephemeral replies | Messages stored with `visibleTo` = caller |
+| `/aven <question>` private answer | Answer in the caller's private conversation |
+| Routines, dreams, housekeeping, reviews, autofix, YouTrack, dispatch, alerts | Same, into the project room |
+| Users allow/deny, admins | Allow-list in config (e-mails / groups), operators as admins; `/users` edits it |
+| App Home tab | Home page |
+| Slack Connect, multi-workspace | n/a: anyone with a login on the allow-list |
+| Notifications | In-tab only (title badge, unread counts, browser notification while open); offline later |
+
+## Decisions
+
+### D1. Server-rendered fragments over a live stream
+The server renders view models to HTML fragments (`webviews.ts`, pure, golden-tested) exactly as the Slack driver renders them to Block Kit. Each fragment has a stable element id (`msg-<id>`). One Server-Sent Events stream per open page delivers `{ id, html }` replacements and appends; the client script swaps them in. Forms and buttons POST to action endpoints and get 204; the effect arrives over the stream for every viewer alike.
+*Alternatives*: a React/Vite SPA with a JSON API (a build pipeline and a second rendering of every view, in another language of components); WebSockets (bidirectional is not needed; SSE reconnects and resumes with `Last-Event-ID` for free).
+
+### D2. History store
+Append-only JSONL per conversation under the installation's data dir: `web/<slug>/<conversationId>.jsonl`, one event per line (`post`, `update`, `visibleTo`), compacted on read into the current state of each message. A small index per room lists threads with last activity. The SSE event id is the line offset, so a reconnect replays exactly what was missed.
+*Alternative*: SQLite (`node:sqlite` is already used by `src/sources/`). Kept as the fallback if room listings get slow; JSONL matches `queue.jsonl` / `usage/*.jsonl` and is trivially inspectable.
+
+### D3. Login: OIDC authorization code flow with PKCE
+Any OIDC provider; our instance uses the identity provider we already run (values in the overlay). The session is a signed HttpOnly, Secure, SameSite=Lax cookie; every POST carries a CSRF token bound to the session. Allow-list by verified e-mail or by a groups claim. For local development only: `WEB_AUTH=none` is accepted when the listener is bound to 127.0.0.1, with a fixed local user.
+
+### D4. Rendering untrusted content
+Markdown is rendered with raw HTML disabled and links restricted to `http`, `https`, `mailto`. Every response carries a CSP with no inline script, no `eval`, scripts and styles only from self. Fragments are produced by escaping templates, never string concatenation of user or agent text. A test suite of hostile inputs runs against `webformat.ts` and `webviews.ts`.
+
+### D5. Keys and identities
+Keys keep the shapes from `chat-driver-interface`: `thread:<threadId>` for room threads, `dm:<userId>:<slug>` for private conversations. Thread and user ids are generated ids without `:`. User ids are the OIDC `sub`, mapped to name and e-mail at login and kept in `state.json`.
+
+### D6. Commands and private replies
+The composer treats a leading `/` as a command: the verb grammar is the shared `/aven` router. Ephemeral replies are stored with `visibleTo: [userId]` and streamed only to that user's pages. Dialogs are rendered server-side into a `<dialog>` element.
+
+### D7. Files
+Multipart upload with a per-file and per-post limit (`WEB_MAX_FILE_MB`, default 20). Files are stored next to the conversation and handed to the existing `attachments.ts` pipeline. Downloads of stored files require the session and are served with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`.
+
+### D8. Hosting and what is public
+`orch web` listens on `WEB_PORT` (default 8787). Prod-style: behind nginx with TLS on a dedicated hostname; SSE needs proxy buffering off for that location. Home canary: localhost first (one user, no tunnel), then a hostname when colleagues join.
+Public repo: driver code, `docs/web.md` with placeholders, `.env.example` keys. Ops overlay: hostname, issuer, client id and secret, allow-list, nginx site file.
+
+## Risks / Trade-offs
+
+- [XSS through agent output] → D4: no raw HTML, link allow-list, CSP, escaping templates, hostile-input tests; a security review (`/security-review`) before the first shared deployment.
+- [We own history and its retention] → Stored under the installation's data dir with the same backups as `state.json`; deletion policy is a follow-up, stated in `docs/web.md`.
+- [People miss answers without notifications] → Unread counts and in-tab notifications in MVP; e-mail digest as the first follow-up if the canary shows it is needed.
+- [UI work is open-ended] → Fixed scope: Home, room list, thread view, private conversation, dialogs. No theming beyond light/dark.
+- [Public endpoint] → Login on everything, CSRF, body limits, rate limit per session on posting.
+
+## Migration Plan
+
+1. Prerequisite: `chat-driver-interface` merged and tagged.
+2. PR 1: server, login, rooms, threads, private conversations, turn lifecycle, history, recovery.
+3. PR 2: commands, dialogs, feedback, files, background deliveries, Home page, access commands.
+4. Canary on localhost on the home host, then on a hostname with colleagues.
+Rollback: stop the web installation's service.
+
+## Open Questions
+
+- Visual design details (layout, colours) are settled during PR 1 against a screenshot review; they do not change the spec.
