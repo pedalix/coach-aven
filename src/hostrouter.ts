@@ -3,7 +3,7 @@
 // handed to the turn engine (TurnDeps.hostRoutes); `routesFor` runs when a session opens and returns
 // what that session registers with the CLI:
 //   • `host`    — while DISPATCH=1: propose + registry (the dispatch primitive's own server; it
-//                 replaced the stdio host-mcp.mjs and its outbox mount).
+//                 replaced a stdio server in the sandbox and its outbox mount).
 //   • `sources` — a project with a `sources` block: the sources tool table over the replica on this
 //                 disk, answered on a worker thread (sources/worker.mjs). Bucket 2: only sources
 //                 projects are affected, and no prod project has one.

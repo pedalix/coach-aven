@@ -73,9 +73,8 @@ Laravel Sail keeps working.
      `[A-Za-z0-9._/-]`, no `..`. Read-only is the point: the agent reads the archive, it
      never edits it.
    - The bot adds no mounts of its own: the sources tools and the dispatch tool reach the agent
-     over the session control channel (`docs/runtime-config.md` → *Host tools*). A tenant whose
-     own code reads the store replica inside the sandbox may mount it explicitly
-     (`docs/sources.md` → "Replica").
+     over the session control channel (`docs/runtime-config.md` → *Host tools*). The store replica
+     is never mounted (`docs/sources.md` → "Replica").
 
    The image itself stays deployment-wide (`SNAPSHOT_IMAGE`), so a plain project lives on
    an instance whose fleet image is the plain variant. Options shape CREATION only: an
