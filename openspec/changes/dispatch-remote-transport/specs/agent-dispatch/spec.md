@@ -3,10 +3,10 @@
 ## Purpose
 Extends the dispatch primitive's transport so a sandbox on another host reaches the bot with the same proposal record.
 
-## MODIFIED Requirements
+## ADDED Requirements
 
-### Requirement: Proposals are records, not messages
-An agent SHALL propose a side effect by writing a proposal record (`kind`, `target`, `text`, `refs`, `rationale`) either into its outbox mount or, when the sandbox is given a proposals url, by POSTing the same record to the host's per-project endpoint; the host SHALL treat both identically: render in the agent's thread with Send and Dismiss, never execute until approved unless the target is auto-listed.
+### Requirement: Proposal transport over HTTP
+When a sandbox is given a proposals url, `propose` SHALL POST the same proposal record to the host's per-project endpoint instead of writing the outbox file, and the host SHALL treat both transports identically: validate, store, render in the agent's thread with Send and Dismiss, never execute until approved unless the target is auto-listed.
 
 #### Scenario: Remote sandbox proposes
 - **WHEN** a sandbox with `HOST_PROPOSALS_URL` set calls `propose` while `DISPATCH=1`
