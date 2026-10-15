@@ -14,6 +14,8 @@ export const VARIANTS: Record<string, () => Promise<Variant>> = {
   // iteration 2: two variants of K (notes/20-iter2.md)
   k2a: () => import('./keys2a.js').then((m) => m.k2a),
   k2b: () => import('./keys2b.js').then((m) => m.k2b),
+  // iteration 3: the hybrid — K2a spine, J residue (notes/30-iter3.md)
+  hybrid: () => import('./hybrid.js').then((m) => m.hybrid),
 };
 
 // Variant parameters for ablations come from the CLI's repeatable --opt key=value (as LAB_OPT_<key>), so a
