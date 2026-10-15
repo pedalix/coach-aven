@@ -2,10 +2,13 @@
 // renders them to its own platform (the Slack driver to Block Kit via blocks.ts). Text is
 // GitHub markdown as the agent wrote it; converting it is the driver's job.
 //
-// This file grows one PR at a time (OpenSpec chat-driver-interface): PR 1 carries the turn
-// path's views; actions/dialogs/Home, commands and pollers add theirs later.
+// This file grows one PR at a time (OpenSpec chat-driver-interface): the turn path's
+// messages, then the interaction surface's dialogs/private replies/Home; commands and
+// pollers add theirs later.
 
 import type { AskQuestion } from '../claudeSession.js';
+import type { ProjectConfig } from '../projects.js';
+import type { YouTrackComment, YouTrackIssue } from '../youtrack.js';
 
 // Context a completed answer needs for its follow-up buttons (Report to YouTrack, session
 // panel): which conversation to enqueue a turn under, and where to post it.
@@ -51,9 +54,9 @@ export interface RateMeta {
   key: string;
 }
 
-// Everything the turn engine shows. One closed union, so a driver that forgets a kind fails
-// to typecheck instead of rendering nothing.
-export type TurnView =
+// Every message the core posts or rewrites in a conversation. One closed union, so a driver
+// that forgets a kind fails to typecheck instead of rendering nothing.
+export type MessageView =
   // The live working message: one status line (phase, clock, recent steps) with the turn's
   // controls (🧭 Show steps, ✖ Cancel). `notify` is the short text platforms use for
   // notifications/fallbacks ("Working…", "In queue…", or the line itself).
@@ -70,7 +73,8 @@ export type TurnView =
   | { kind: 'answer'; markdown: string; opts?: AnswerOpts; notice?: string }
   // A report the turn already posted to YouTrack on its own.
   | { kind: 'reported'; markdown: string; ticket: string; url: string; group: string }
-  // An agent question with its options; `picks` = chosen option indices per question.
+  // An agent question with its options; `picks` = chosen option indices per question;
+  // `done` renders the answered summary without controls.
   | {
       kind: 'question';
       questions: AskQuestion[];
@@ -79,3 +83,47 @@ export type TurnView =
       qid: string;
       done: boolean;
     };
+
+// The "⚙️ Session" status card for one conversation.
+export interface SessionPanelInfo {
+  slug: string;
+  repos: string[];
+  mcp?: string[]; // MCP tool names
+  hasSession: boolean;
+  sessionSince?: string; // ChatRecord.updatedAt, ISO
+  turnInFlight: boolean;
+  prCreated: boolean;
+}
+
+// Replies only the acting person sees (Slack: ephemeral).
+export type PrivateView =
+  | { kind: 'text'; text: string }
+  // `value` is the panel's own control payload (the conversation it describes), echoed by
+  // its 🔄 Restart session button.
+  | { kind: 'sessionPanel'; info: SessionPanelInfo; value: string }
+  // One memory topic file, as the agent wrote it.
+  | { kind: 'memoryTopic'; file: string; markdown: string };
+
+// Pop-up dialogs (Slack: modals). Opened from a click; some are swapped in place once data
+// arrives (ticket: loading → ticket | unavailable).
+export type DialogView =
+  | { kind: 'trail'; trail: { steps: string[]; elapsedMs: number; done: boolean } | undefined }
+  | { kind: 'feedback'; meta: { turnId: string; slug: string; key: string; channel?: string; ts?: string } }
+  | { kind: 'ticketLoading'; id: string }
+  | { kind: 'ticket'; issue: YouTrackIssue; url: string; comments: YouTrackComment[]; attachmentNames: string[] }
+  | { kind: 'ticketUnavailable'; id: string; url: string }
+  // The report prompt the user may edit before the draft turn runs.
+  | {
+      kind: 'reportPrompt';
+      ticket: string;
+      prompt: string;
+      contract: string;
+      meta: { key: string; channel: string; threadTs?: string };
+    }
+  // A report draft, editable before it is posted to the ticket.
+  | { kind: 'report'; ticket: string; draft: string; meta: { channel: string; ts: string; threadTs?: string } }
+  | { kind: 'reportExpired'; ticket: string };
+
+// The per-person home surface (Slack: the App Home tab). `projects` are the viewer tenant's;
+// `prefix` is that tenant's channel-name wildcard. No projects → the onboarding view.
+export type HomeView = { kind: 'home'; projects: ProjectConfig[]; prefix: string } | { kind: 'onboarding' };
