@@ -24,7 +24,7 @@ import type { ProjectConfig, RegistryRef } from '../../projects.js';
 import type { ChatSession, openChat } from '../../tasks.js';
 import type { OnQuestion } from '../../claudeSession.js';
 import { createTurnEngine, type TurnEngine, type TurnOpts } from '../../turn.js';
-import { RecordingApi } from '../../twin.js';
+import { RecordingApi } from './twin.js';
 import type { ChatDriver } from '../driver.js';
 import { slackDriver } from './driver.js';
 
@@ -125,10 +125,13 @@ function harness(fake: FakeOpts, seed?: (store: Store, journal: QueueJournal) =>
 }
 
 // Fire-and-forget Slack calls (cancel-while-queued, question cleanup) land after the turn's
-// promise settles; wait until the recording has been quiet for a moment.
+// promise settles; wait until the recording has been quiet for five 30 ms windows in a row
+// (one window was enough alone, but not always under a loaded full-suite run).
 async function quiesce(): Promise<void> {
+  let quiet = 0;
   let n = -1;
-  while (n !== api.calls.length) {
+  while (quiet < 5) {
+    quiet = n === api.calls.length ? quiet + 1 : 0;
     n = api.calls.length;
     await new Promise((r) => setImmediate(r));
     await new Promise((r) => setTimeout(r, 30));

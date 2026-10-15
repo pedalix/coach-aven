@@ -9,15 +9,15 @@ import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type bolt from '@slack/bolt';
-import type { Config } from './config.js';
-import { Store } from './state.js';
-import type { FeedbackRecord } from './feedback.js';
-import { loadFixture, rehome } from './fixtures.js';
-import { createChannels } from './channels.js';
-import { registerEvents } from './chat/slack/events.js';
-import { slugOfBase, isThreadKey } from './teamkeys.js';
-import type { TurnEngine } from './turn.js';
-import type { SlackChatDriver } from './chat/slack/driver.js';
+import type { Config } from '../../config.js';
+import { Store } from '../../state.js';
+import type { FeedbackRecord } from '../../feedback.js';
+import { loadFixture, rehome } from '../../fixtures.js';
+import { createChannels } from '../../channels.js';
+import { registerEvents } from './events.js';
+import { slugOfBase, isThreadKey } from '../../teamkeys.js';
+import type { TurnEngine } from '../../turn.js';
+import type { SlackChatDriver } from './driver.js';
 import {
   createTwinApp,
   mentionEnvelope,

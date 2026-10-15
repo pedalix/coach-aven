@@ -89,7 +89,7 @@ The soft/instructional needs are largely already covered by [project memory](mem
 ## Related
 
 - [Project memory](memory.md) — read-only `/aven prompt` lands there; soft instructions via memory.
-- Config loading: `loadProjects` / `registry` in `src/projects.ts`, `src/slack.ts`.
+- Config loading: `loadProjects` / `registry` in `src/projects.ts`, `src/chat/slack/app.ts`.
 - Server-owned state that survives deploy: `state.json` (`src/state.ts`).
 
 ## MCP gateway (per project)

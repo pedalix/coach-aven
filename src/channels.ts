@@ -6,7 +6,6 @@
 // (teamProjects) — a client workspace can neither resolve nor even enumerate another
 // tenant's slugs. `tenantId` undefined = home context (pollers, static mode).
 
-import type bolt from '@slack/bolt';
 import { resolveByChannel, resolveBySlug, teamProjects, workspacePrefix, type ProjectConfig, type RegistryRef } from './projects.js';
 import { log } from './log.js';
 
@@ -15,6 +14,10 @@ import { log } from './log.js';
 // ChatDriver provides it.
 export interface ConversationNames {
   conversationName(conv: string): Promise<string | undefined>;
+}
+// …and the reverse, for a poller that has only a slug: the conversation with this name.
+export interface ConversationDirectory {
+  findConversation(name: string): Promise<string | undefined>;
 }
 
 export interface Channels {
@@ -25,7 +28,7 @@ export interface Channels {
   prefixFor(tenantId: string | undefined): string;
   channelName(names: ConversationNames, channelId: string): Promise<string | undefined>;
   channelIdForSlug(
-    client: bolt.webApi.WebClient,
+    dir: ConversationDirectory,
     project: ProjectConfig,
     tenantId?: string,
   ): Promise<string | undefined>;
@@ -57,14 +60,14 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
 
   // Reverse of channelName: resolve a project → the id of its `bluefin-aven-<slug>` channel, so
   // a poller with only a slug (no prior message) can post there. An explicit `slackChannel`
-  // override wins; otherwise we page conversations.list and match by name. Only HITS are
+  // override wins; otherwise the driver looks the name up (Slack: pages conversations.list). Only HITS are
   // cached — a miss re-lists next call so a channel created after boot self-heals (the bot
   // must be a member to see a private channel / to post). Used by the investigation poller.
   // Cache is TENANT-keyed: a shared slug resolves to a different channel id in each
   // workspace, and the id only makes sense to that workspace's token.
   const slugChannelCache = new Map<string, string>();
   async function channelIdForSlug(
-    client: bolt.webApi.WebClient,
+    dir: ConversationDirectory,
     project: ProjectConfig,
     tenantId?: string,
   ): Promise<string | undefined> {
@@ -75,23 +78,7 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
     const want = `${prefixFor(tenantId)}${project.slug}`;
     let found: string | undefined;
     try {
-      let cursor: string | undefined;
-      do {
-        const r = await client.conversations.list({
-          types: 'public_channel,private_channel',
-          exclude_archived: true,
-          limit: 200,
-          cursor,
-        });
-        const hit = (r.channels as Array<{ id?: string; name?: string }> | undefined)?.find(
-          (c) => c.name === want,
-        );
-        if (hit?.id) {
-          found = hit.id;
-          break;
-        }
-        cursor = (r.response_metadata as { next_cursor?: string } | undefined)?.next_cursor || undefined;
-      } while (cursor);
+      found = await dir.findConversation(want);
     } catch (e) {
       log.error(`channelIdForSlug ${project.slug}: ${e instanceof Error ? e.message : String(e)}`);
     }

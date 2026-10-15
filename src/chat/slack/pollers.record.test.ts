@@ -20,8 +20,8 @@ import { createDispatcher, type Dispatcher } from '../../dispatchrun.js';
 import { dispatch, outboxDir, type StoredProposal } from '../../dispatch.js';
 import { routineGuard } from '../../routineguard.js';
 import type { TurnEngine, TurnOpts } from '../../turn.js';
-import { RecordingApi } from '../../twin.js';
-import type { SlackChatDriver } from './driver.js';
+import { RecordingApi } from './twin.js';
+import { slackDriver, type SlackChatDriver } from './driver.js';
 
 const UPDATE = process.env.UPDATE_SNAPSHOTS === '1';
 const SNAP = (name: string) => new URL(`../../fixtures/chat/pollers/${name}.json`, import.meta.url).pathname;
@@ -43,21 +43,37 @@ type Outcome = 'answer' | 'error' | 'canceled' | 'hang';
 function recordingEngine(outcome: Outcome) {
   const log: unknown[] = [];
   const busy = new Set<string>();
+  const turns: Promise<void>[] = []; // every non-hanging turn, so a recording can wait them out
   const engine = {
-    liveTurn: async (d: SlackChatDriver, channel: string, msgTs: string | undefined, threadTs: string | undefined, key: string, project: { slug: string }, question: string, attachments?: unknown, opts?: TurnOpts) => {
-      log.push({ liveTurn: { token: (d.client as { token?: string }).token, channel, msgTs, threadTs, key, slug: project.slug, question, attachments: !!attachments, routine: opts?.routine, origin: opts?.origin } });
-      if (outcome === 'hang') return new Promise<void>(() => {});
-      if (outcome === 'answer') {
-        await opts?.onAnswer?.('Shipped 3 PRs yesterday.\nDetails follow.');
-        await opts?.onSettle?.('ok');
-      } else {
-        await opts?.onSettle?.(outcome, outcome === 'error' ? 'sandbox exploded\nstack…' : undefined);
-      }
+    liveTurn: (...args: Parameters<typeof play>) => {
+      const p = play(...args);
+      if (outcome !== 'hang') turns.push(p);
+      return p;
     },
     restartSession: async (key: string, project: { slug: string }) => log.push({ restartSession: { key, slug: project.slug } }),
     hasKey: (key: string) => busy.has(key),
   } as unknown as TurnEngine;
-  return { engine, log, busy };
+  async function play(
+    d: SlackChatDriver,
+    channel: string,
+    msgTs: string | undefined,
+    threadTs: string | undefined,
+    key: string,
+    project: { slug: string },
+    question: string,
+    attachments?: unknown,
+    opts?: TurnOpts,
+  ): Promise<void> {
+    log.push({ liveTurn: { token: (d.client as { token?: string }).token, channel, msgTs, threadTs, key, slug: project.slug, question, attachments: !!attachments, routine: opts?.routine, origin: opts?.origin } });
+    if (outcome === 'hang') return new Promise<void>(() => {});
+    if (outcome === 'answer') {
+      await opts?.onAnswer?.('Shipped 3 PRs yesterday.\nDetails follow.');
+      await opts?.onSettle?.('ok');
+    } else {
+      await opts?.onSettle?.(outcome, outcome === 'error' ? 'sandbox exploded\nstack…' : undefined);
+    }
+  }
+  return { engine, log, busy, turns };
 }
 
 function harness(outcome: Outcome = 'answer') {
@@ -75,22 +91,29 @@ function harness(outcome: Outcome = 'answer') {
   };
   const rec = recordingEngine(outcome);
   const channels = createChannels(reg as never, () => HOME);
-  const client = new bolt.webApi.WebClient('xoxb-home', { slackApiUrl: url, retryConfig: { retries: 0 } });
-  const clientFor = (t?: string) => {
+  const client = slackDriver(new bolt.webApi.WebClient('xoxb-home', { slackApiUrl: url, retryConfig: { retries: 0 } }));
+  const driverFor = (t?: string) => {
     if (t && t !== HOME) throw new Error(`no installation for tenant ${t}`);
     return client;
   };
   const cfg = { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 } } as unknown as Config;
-  const dispatcher = createDispatcher({ store, reg: reg as never, engine: rec.engine, channels, clientFor, home: () => HOME, tz: 'Europe/Zurich' });
-  const pollers = createPollers(cfg, store, reg as never, clientFor, rec.engine, channels, () => HOME, dispatcher);
-  return { store, reg, client, clientFor, pollers, dispatcher, ...rec };
+  const dispatcher = createDispatcher({ store, reg: reg as never, engine: rec.engine, channels, driverFor, home: () => HOME, tz: 'Europe/Zurich' });
+  const pollers = createPollers(cfg, store, reg as never, driverFor, rec.engine, channels, () => HOME, dispatcher);
+  return { store, reg, client, driverFor, pollers, dispatcher, ...rec };
 }
 type H = ReturnType<typeof harness>;
 
-async function quiesce(): Promise<void> {
-  let n = -1;
-  while (n !== api.calls.length) {
-    n = api.calls.length;
+// Fire-and-forget paths (fireRoutine, dispatch) land after the call returns: wait until every
+// non-hanging turn settled and neither the API nor the engine log moved for 150 ms. Without
+// the settle wait, a slow full-suite run once leaked one scenario's posts into the next.
+async function quiesce(h?: { log: unknown[]; turns: Promise<void>[] }): Promise<void> {
+  let quiet = 0;
+  let last = '';
+  while (quiet < 5) {
+    if (h) await Promise.all(h.turns);
+    const now = `${api.calls.length}/${h?.log.length ?? 0}/${h?.turns.length ?? 0}`;
+    quiet = now === last ? quiet + 1 : 0;
+    last = now;
     await new Promise((r) => setTimeout(r, 30));
   }
 }
@@ -101,7 +124,7 @@ async function record(name: string, outcome: Outcome, run: (h: H) => Promise<unk
   api.responses['chat.getPermalink'] = { permalink: 'https://slack/p/1' };
   const h = harness(outcome);
   const result = await run(h);
-  await quiesce();
+  await quiesce(h);
   const got = {
     calls: api.calls.map((c) => ({ method: c.method, token: c.token, payload: c.payload })),
     engine: h.log,
@@ -151,7 +174,7 @@ test('pollers record: a routine still in flight is not stacked', () =>
     record('routine-stacked', 'hang', async (h) => {
       const r = routine(h);
       const first = h.pollers.fireRoutine(h.client, r);
-      await quiesce();
+      await quiesce(h);
       return [first, h.pollers.fireRoutine(h.client, r)];
     }),
   ));
@@ -220,7 +243,7 @@ const proposalFile = (over: Record<string, unknown>) => ({
 });
 async function poll(h: H): Promise<void> {
   h.dispatcher.pollOutboxes();
-  await quiesce();
+  await quiesce(h);
 }
 test('pollers record: outbox — gated proposal rendered in its thread', () =>
   withDispatch(() =>

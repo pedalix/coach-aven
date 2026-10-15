@@ -7,24 +7,24 @@
 //   commands.ts — the /aven router and subcommand handlers
 //   chat/slack/events.ts — @mentions, thread replies, DMs, buttons, App Home
 //   pollers.ts  — scheduler + auto-review / autofix / YouTrack pollers
-import { createDispatcher } from './dispatchrun.js';
-import { slackDriver } from './chat/slack/driver.js';
+import { createDispatcher } from '../../dispatchrun.js';
+import { slackDriver } from './driver.js';
 import bolt from '@slack/bolt';
 import type { Installation } from '@slack/bolt';
-import type { Config } from './config.js';
-import { Store } from './state.js';
+import type { Config } from '../../config.js';
+import { Store } from '../../state.js';
 import { createInstallationStore } from './installations.js';
-import { tenantOf } from './teamkeys.js';
-import { RecentSet } from './recent.js';
-import { eventLog, eventLogRaw, envelopeMeta } from './eventlog.js';
-import { loadProjects, entrySlugs, type RegistryRef } from './projects.js';
-import { createTurnEngine } from './turn.js';
-import { createChannels } from './channels.js';
-import { createPollers, ROUTINE_TZ } from './pollers.js';
-import { registerCommands } from './chat/slack/commands.js';
-import { registerEvents } from './chat/slack/events.js';
-import { setAlertSink, summary, notConfiguredText, type AlertLevel } from './chat/slack/blocks.js';
-import { log } from './log.js';
+import { tenantOf } from '../../teamkeys.js';
+import { RecentSet } from '../../recent.js';
+import { eventLog, eventLogRaw, envelopeMeta } from '../../eventlog.js';
+import { loadProjects, entrySlugs, type RegistryRef } from '../../projects.js';
+import { createTurnEngine } from '../../turn.js';
+import { createChannels } from '../../channels.js';
+import { createPollers, ROUTINE_TZ } from '../../pollers.js';
+import { registerCommands } from './commands.js';
+import { registerEvents } from './events.js';
+import { setAlertSink, summary, notConfiguredText, type AlertLevel } from './blocks.js';
+import { log } from '../../log.js';
 
 const { App } = bolt;
 
@@ -217,7 +217,7 @@ export async function runSlack(cfg: Config): Promise<void> {
   const ALERT_DEDUPE_MS = 60_000;
   const recentAlerts = new Map<string, number>();
   if (ALERT_CHANNEL && homeClient) {
-    const alertClient = homeClient; // alerts go to OUR workspace (the alert channel lives there)
+    const alerts = slackDriver(homeClient); // alerts go to OUR workspace (the alert channel lives there)
     const PREFIX: Record<AlertLevel, string> = {
       error: ':rotating_light: CoachAven error:',
       warning: ':warning: CoachAven:',
@@ -229,8 +229,8 @@ export async function runSlack(cfg: Config): Promise<void> {
       if (last && now - last < ALERT_DEDUPE_MS) return; // same error just posted — skip
       recentAlerts.set(text, now);
       if (recentAlerts.size > 200) recentAlerts.clear(); // bound the map
-      void alertClient.chat
-        .postMessage({ channel: ALERT_CHANNEL, text: `${PREFIX[level]} ${text}`.slice(0, 2000) })
+      void alerts
+        .post({ conv: ALERT_CHANNEL }, { kind: 'text', text: `${PREFIX[level]} ${text}`.slice(0, 2000) })
         .catch(() => {}); // never let an alert failure cascade (no log.error here → no loop)
     });
   }
@@ -247,8 +247,10 @@ export async function runSlack(cfg: Config): Promise<void> {
   // a future re-auth could in principle refresh it.
   const channels = createChannels(reg, () => homeTeamId);
   // Dispatch primitive (DISPATCH=1): proposals from the sandboxes' outboxes → buttons → side effects.
-  const dispatcher = createDispatcher({ store, reg, engine, channels, clientFor: clientForTeam, home: () => homeTeamId, tz: ROUTINE_TZ });
-  const pollers = createPollers(cfg, store, reg, clientForTeam, engine, channels, () => homeTeamId, dispatcher);
+  // Every non-event path (pollers, dispatch, recovery) posts through a tenant's chat driver.
+  const driverFor = (t?: string) => slackDriver(clientForTeam(t));
+  const dispatcher = createDispatcher({ store, reg, engine, channels, driverFor, home: () => homeTeamId, tz: ROUTINE_TZ });
+  const pollers = createPollers(cfg, store, reg, driverFor, engine, channels, () => homeTeamId, dispatcher);
 
   registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, dispatcher });
   registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId });
@@ -262,7 +264,6 @@ export async function runSlack(cfg: Config): Promise<void> {
   // finalizes with that team's token; an uninstalled team's record is cleared, not retried
   // forever. Guarded on homeClient: with no home install there are no records to recover.
   if (homeClient) {
-    const driverFor = (t?: string) => slackDriver(clientForTeam(t));
     const recovering = engine.resumeInflightTurns(driverFor);
     engine.resumeQueuedTurns(driverFor, recovering);
   }

@@ -4,7 +4,7 @@ import { mkdtempSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import type { Installation, InstallationQuery } from '@slack/bolt';
-import { Store } from './state.js';
+import { Store } from '../../state.js';
 import { createInstallationStore, installKey, queryKey } from './installations.js';
 
 // A Store backed by a throwaway temp file (path injection keeps the real state.json safe).

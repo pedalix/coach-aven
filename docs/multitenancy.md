@@ -9,7 +9,7 @@
 > **full multi-tenant SaaS as the target, built in slices.** Slice 1 is in: the OAuth
 > install flow over Socket Mode (`SLACK_CLIENT_ID/SECRET/STATE_SECRET`), an
 > `InstallationStore` persisting per-workspace bot tokens in `state.json`
-> (`src/installations.ts`), per-event team tokens in the handlers, and a **tenant gate**
+> (`src/chat/slack/installations.ts`), per-event team tokens in the handlers, and a **tenant gate**
 > (home team + `SLACK_ALLOWED_TEAMS`) so an unexpected install can't reach our global
 > registry. Option A's shared-channel model remains possible in parallel — the two
 > aren't exclusive.
@@ -33,7 +33,7 @@
 > the HOST side regardless of which bot user is @mentioned — keep ONE bot per shared
 > channel. Envelope journaling: `AVEN_EVENT_LOG=1|full` (events/<day>.jsonl; `full` adds
 > raw bodies — trusted phase only); captured shapes are replay fixtures for the
-> **digital-twin tests** (`src/twin.ts` + `src/twin.test.ts`, zero network).
+> **digital-twin tests** (`src/chat/slack/twin.ts` + `twin.test.ts`, zero network).
 > Still ahead (see §3): uninstall/tokens_revoked handling, SQLite, self-serve onboarding.
 
 ---

@@ -31,7 +31,6 @@ import {
   YT_PROMPT_INPUT,
   YT_PROMPT_NOW,
 } from './blocks.js';
-import { dispatch, proposalBlocks, proposalText } from '../../dispatch.js';
 import type { Dispatcher } from '../../dispatchrun.js';
 import { log } from '../../log.js';
 
@@ -85,6 +84,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     servedTenant,
     actor,
     prefixFor: (t: string | undefined) => channels.prefixFor(t),
+    dispatcher: deps.dispatcher,
   });
   const messages = createMessages({ store, reg, engine, channels, homeTeamId, actor, parkDmPick: core.parkDmPick });
 
@@ -173,27 +173,6 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       slackDriver(client),
     );
   });
-
-  // ── Dispatch proposals: Send executes once, Dismiss records; both idempotent on the id ──
-  for (const which of ['dispatch_send', 'dispatch_dismiss'] as const) {
-    app.action(which, async ({ ack, action, body, client, context, respond }) => {
-      await ack();
-      if (!servedTenant(tenantOf(context))) return;
-      const gate = actor(tenantOf(context), (body as { user?: { id?: string } }).user?.id);
-      if (!gate.ok) {
-        await respond({ response_type: 'ephemeral', replace_original: false, text: gate.denial }).catch(() => {});
-        return;
-      }
-      const id = (action as { value?: string }).value;
-      const user = (body as { user?: { id?: string } }).user?.id;
-      if (!id || !user || !deps.dispatcher || !dispatch.enabled) return;
-      const p = which === 'dispatch_send' ? await deps.dispatcher.approve(client, id, user) : deps.dispatcher.dismiss(id, user);
-      const b = body as { channel?: { id?: string }; message?: { ts?: string } };
-      if (p && b.channel?.id && b.message?.ts) {
-        await client.chat.update({ channel: b.channel.id, ts: b.message.ts, text: proposalText(p), blocks: proposalBlocks(p) }).catch((e) => log.error(`dispatch ${id}: message update: ${e instanceof Error ? e.message : String(e)}`));
-      }
-    });
-  }
 
   // ── "🔗 View PR" link button → opens the URL itself; just ack the interaction ──
   app.action(/^pr_link:/, async ({ ack }) => {

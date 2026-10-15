@@ -118,6 +118,9 @@ export interface ChatDriver {
   // The direct conversation with one person, opened if needed; undefined when the platform
   // won't (missing permission). Never throws.
   openDirect(user: string): Promise<string | undefined>;
+  // The id of the conversation with this exact name that the bot can see; undefined when
+  // there is none. Throws on platform failure (callers log it).
+  findConversation(name: string): Promise<string | undefined>;
   // Post privately to one person inside a conversation/thread. Throws on platform failure.
   postPrivate(to: ConvTarget, user: string, view: PrivateView): Promise<void>;
   // Open a dialog for the person who clicked. Throws on platform failure (the click's dialog

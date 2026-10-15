@@ -36,6 +36,7 @@ function fakeDriver() {
     publishHome: rec('publishHome') as ChatDriver['publishHome'],
     conversationName: rec('conversationName') as ChatDriver['conversationName'],
     openDirect: rec('openDirect') as ChatDriver['openDirect'],
+    findConversation: rec('findConversation') as ChatDriver['findConversation'],
   };
   return { d, calls };
 }

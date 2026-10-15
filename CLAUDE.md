@@ -30,7 +30,7 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   version of record; `package.json`'s `version` is not maintained.
 - **Pure logic lives in its own module with tests.** Anything testable without Slack/Daytona
   (parsing, matching, formatting) goes in a standalone file (e.g. `src/schedule.ts`) with a
-  `*.test.ts` beside it — don't bury it inside `src/slack.ts`.
+  `*.test.ts` beside it — don't bury it inside a chat driver (`src/chat/slack/`).
 - Match the surrounding style: dense, explanatory comments on the *why*; concise code.
 - **Plan before code — OpenSpec.** Shared-code work starts as a change in `openspec/changes/<name>/`
   (`/opsx:propose`: proposal → spec delta → design → tasks), is implemented with `/opsx:apply` in a
@@ -40,19 +40,22 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 
 ## Architecture pointers
 
-- `src/slack.ts` — the composition root: builds the turn engine + channel resolver,
-  registers the Slack surfaces, starts the pollers. The parts live beside it:
-  `src/turn.ts` (turn lifecycle: `liveTurn`/`doTurn`, queues, agent questions, restart
-  recovery), `src/pollers.ts` (scheduler + auto-review/autofix/YouTrack pollers),
-  `src/channels.ts` (channel↔project).
-- `src/chat/` — the **chat driver** layer (OpenSpec `chat-driver-interface`, in progress): the
+- `src/chat/` — the **chat driver** layer (OpenSpec `chat-driver-interface`). One installation
+  runs ONE chat driver, chosen by the run command (`orch slack`; `src/chat/drivers.ts`). The
   platform-neutral core (`src/chat/core/`: `messages.ts` mentions/DMs/thread replies,
   `commands.ts` the `/aven` router, `interactions.ts` buttons/dialogs/home, `gates.ts` who may
-  drive) talks to `ChatDriver` (`src/chat/driver.ts`) with view models (`src/chat/views.ts`).
-  `src/chat/slack/` is the Slack implementation: `driver.ts` (rendering + Web API), `events.ts`
-  / `commands.ts` (Bolt wiring, payload normalization), `blocks.ts` (all Block Kit). Slack
-  output is pinned by recorded call snapshots (`src/fixtures/chat/`, re-snapshot on purpose
-  with `UPDATE_SNAPSHOTS=1`).
+  drive) and the engine-side code (`src/turn.ts`, `src/pollers.ts`, `src/dispatchrun.ts`) talk
+  to `ChatDriver` (`src/chat/driver.ts`) with view models (`src/chat/views.ts`) — never to a
+  platform SDK (`src/chat/imports.test.ts` enforces it).
+- `src/chat/slack/` — the Slack driver: `app.ts` is the **composition root** (builds the turn
+  engine + channel resolver, registers the Slack surfaces, starts the pollers), `driver.ts`
+  (rendering + Web API), `events.ts` / `commands.ts` (Bolt wiring, payload normalization),
+  `blocks.ts` (all Block Kit), `installations.ts` (OAuth store), `twin.ts` (the test harness).
+  Slack output is pinned by recorded call snapshots (`src/fixtures/chat/`, re-snapshot on
+  purpose with `UPDATE_SNAPSHOTS=1`).
+- `src/turn.ts` (turn lifecycle: `liveTurn`/`doTurn`, queues, agent questions, restart
+  recovery), `src/pollers.ts` (scheduler + auto-review/autofix/YouTrack pollers),
+  `src/channels.ts` (channel↔project).
 - `src/tasks.ts` — chat session over a sandbox. `src/prompt.ts` — the **3-layer system prompt**
   (orchestrator base → project prompt → repo `CLAUDE.md`), pure and golden-tested: the base text
   reaches every production session, so `src/fixtures/prompt/*.txt` pins it byte-exact — change it
