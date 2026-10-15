@@ -1,0 +1,35 @@
+{
+  "calls": [
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "D0DM",
+        "text": "📨 Proposal: message to `C0TARGET1`\nFYI the release is out.",
+        "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"📨 Proposal: message to `C0TARGET1`\\nFYI the release is out.\"}},{\"type\":\"actions\",\"block_id\":\"dispatch:p-2\",\"elements\":[{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Send\"},\"style\":\"primary\",\"action_id\":\"dispatch_send\",\"value\":\"p-2\"},{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Dismiss\"},\"action_id\":\"dispatch_dismiss\",\"value\":\"p-2\"}]},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"⏳ waiting for approval · proposal p-2\"}]}]"
+      }
+    }
+  ],
+  "engine": [],
+  "result": null,
+  "routines": [],
+  "proposals": [
+    null,
+    {
+      "id": "p-2",
+      "kind": "message",
+      "target": "C0TARGET1",
+      "text": "FYI the release is out.",
+      "refs": [],
+      "rationale": "",
+      "session": "dm:D0DM:alpha",
+      "createdAt": "2026-10-15T07:00:00.000Z",
+      "slug": "alpha",
+      "status": "pending",
+      "receivedAt": "2026-10-15T07:00:00.000Z",
+      "channel": "D0DM",
+      "messageTs": "1000.0001"
+    },
+    null
+  ]
+}

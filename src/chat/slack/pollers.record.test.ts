@@ -261,6 +261,24 @@ test('pollers record: outbox — auto-approved task executes and renders', () =>
       await poll(h);
     }),
   ));
+// The proposing conversation is found by its full key, so a thread outside the project's own channel
+// and a DM render where the turn runs — not in the bound channel (the fallback the bare-ts lookup hit).
+test('pollers record: outbox — a proposal from a thread outside the project channel renders in that thread', () =>
+  withDispatch(() =>
+    record('outbox-thread-elsewhere', 'answer', async (h) => {
+      h.store.patchChat('thread:9.1', 'alpha', { inflight: { channel: 'C_OTHER', statusTs: '9.2', msgThreadTs: '9.1', startedAt: '2026-10-15T07:00:00.000Z' } });
+      drop('alpha', 'propose-p-2.json', proposalFile({}));
+      await poll(h);
+    }),
+  ));
+test('pollers record: outbox — a proposal from a DM renders in the DM', () =>
+  withDispatch(() =>
+    record('outbox-dm', 'answer', async (h) => {
+      h.store.patchChat('dm:D0DM:alpha', 'alpha', { inflight: { channel: 'D0DM', statusTs: '9.3', startedAt: '2026-10-15T07:00:00.000Z' } });
+      drop('alpha', 'propose-p-2.json', proposalFile({ session: 'dm:D0DM:alpha' }));
+      await poll(h);
+    }),
+  ));
 test('pollers record: outbox — rejected and duplicate files', () =>
   withDispatch(() =>
     record('outbox-rejected', 'answer', async (h) => {
