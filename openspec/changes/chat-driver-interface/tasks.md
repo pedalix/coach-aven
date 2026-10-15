@@ -11,7 +11,7 @@
 
 - [x] 2.1 Recorder scenarios for every `app.action` / `app.view` / `app_home_opened` / uninstall handler; snapshot first. Verify: green on unchanged code.
 - [x] 2.2 Inbound `ChatAction` / `DialogSubmit` (+ home opened as an `Actor`); outbound `reply` / `postPrivate` / `openDialog` / `updateDialog` / `refreshRating` / `publishHome`; handler logic to `src/chat/core/interactions.ts` (+ the actor gate in `core/gates.ts`); Slack wiring, `events.ts` and `blocks.ts` to `src/chat/slack/`. Install lifecycle (`app_uninstalled`, `tokens_revoked`) stays in the Slack adapter — it only drops the Slack installation record, there is no core logic. Dispatch Send/Dismiss moves with `dispatchrun` in 4.2. Verify: snapshots identical; `blocks.test.ts` unchanged; `src/chat/core/interactions.test.ts` drives the core with a fake driver.
-- [ ] 2.3 Ledger row; PR. Verify: CI green.
+- [x] 2.3 Ledger row; PR. Verify: CI green.
 
 ## 3. PR 3 — messages and commands (bucket 1)
 
