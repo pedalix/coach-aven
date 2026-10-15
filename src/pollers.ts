@@ -11,7 +11,8 @@ import type { Config } from './config.js';
 import type { Store, RoutineRecord } from './state.js';
 import { resolveBySlug, projectOwnerTeam, teamProjects, type ProjectConfig, type RegistryRef } from './projects.js';
 import { withTeam, normalizeTenant } from './teamkeys.js';
-import type { TurnEngine, ClientForTeam } from './turn.js';
+import type { TurnEngine } from './turn.js';
+import { slackDriver, type ClientForTeam } from './chat/slack/driver.js';
 import type { Channels } from './channels.js';
 import {
   routineGuard,
@@ -233,7 +234,7 @@ export function createPollers(
       {
         restartSession: engine.restartSession,
         liveTurn: (k, threadTs, p, prompt, onAnswer, onTurnSettle) =>
-          engine.liveTurn(c, r.channel, undefined, threadTs, k, p, prompt, undefined, {
+          engine.liveTurn(slackDriver(c), r.channel, undefined, threadTs, k, p, prompt, undefined, {
             onAnswer,
             routine: { id: r.id, label: base },
             ...(onTurnSettle ? { onSettle: onTurnSettle } : {}),
@@ -344,7 +345,7 @@ export function createPollers(
   ): boolean {
     const key = withTeam(tenant, home(), `review:${repo}:${number}:${project.slug}`);
     if (engine.hasKey(key)) return false;
-    void engine.liveTurn(c, channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort)).catch(
+    void engine.liveTurn(slackDriver(c), channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort)).catch(
       turnFail(`review ${repo}#${number}`),
     );
     return true;
@@ -560,7 +561,7 @@ export function createPollers(
       // survive an immediate crash; stamp finishedAt when the turn settles. `rootTs` ties the
       // ticket to `thread:<rootTs>` → chats → the Claude session.
       store.recordInvestigation(ticket.id, { slug: project.slug, teamId, channel, rootTs, startedAt: new Date().toISOString() });
-      void engine.liveTurn(client, channel, undefined, rootTs, key, project, prompt, attachments)
+      void engine.liveTurn(slackDriver(client), channel, undefined, rootTs, key, project, prompt, attachments)
         .catch(turnFail(`youtrack ${ticket.id}`))
         .finally(() => store.finishInvestigation(ticket.id));
       return true;

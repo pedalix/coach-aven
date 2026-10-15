@@ -4,7 +4,7 @@
 
 - [x] 1.1 Recording fake Bolt (`src/chat/slack/recorder.ts`, test-only) and turn scenarios (queued → running → answer, cancel, background, question, note, in-flight + queued recovery); snapshot on unchanged code. Verify: `npm test` green before any move.
 - [x] 1.2 `src/chat/driver.ts` (interface, capabilities) and `src/chat/views.ts` (turn-path view models). Verify: `npm run typecheck`.
-- [ ] 1.3 Slack driver part 1: post/update/markSeen/permalink/question rendering via `blocks.ts`; turn engine and recovery talk only to the driver. Verify: 1.1 snapshots byte-identical; `npm run typecheck && npm test`.
+- [x] 1.3 Slack driver part 1: post/update/markSeen/permalink/question rendering via `blocks.ts`; turn engine and recovery talk only to the driver. Verify: 1.1 snapshots byte-identical; `npm run typecheck && npm test`.
 - [ ] 1.4 Ledger row "chat driver: turn path", bucket 1; PR labelled `feature`. Verify: CI green.
 
 ## 2. PR 2 — actions, dialogs, Home (bucket 1)

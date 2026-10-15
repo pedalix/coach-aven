@@ -25,6 +25,8 @@ import type { ChatSession, openChat } from '../../tasks.js';
 import type { OnQuestion } from '../../claudeSession.js';
 import { createTurnEngine, type TurnEngine, type TurnOpts } from '../../turn.js';
 import { RecordingApi } from '../../twin.js';
+import type { ChatDriver } from '../driver.js';
+import { slackDriver } from './driver.js';
 
 const SNAP_DIR = new URL('../../fixtures/chat/turn/', import.meta.url).pathname;
 const UPDATE = process.env.UPDATE_SNAPSHOTS === '1';
@@ -118,7 +120,7 @@ function harness(fake: FakeOpts, seed?: (store: Store, journal: QueueJournal) =>
     feedbackLog: new FeedbackLog(join(dir, 'feedback')),
     drafts: new DraftStore(join(dir, 'drafts')),
   });
-  const client = new bolt.webApi.WebClient('xoxb-home', { slackApiUrl: url, retryConfig: { retries: 0 } });
+  const client = slackDriver(new bolt.webApi.WebClient('xoxb-home', { slackApiUrl: url, retryConfig: { retries: 0 } }));
   return { engine, store, client };
 }
 
@@ -144,7 +146,7 @@ async function record(name: string, run: () => Promise<void>): Promise<void> {
   assert.deepEqual(got, JSON.parse(readFileSync(file, 'utf8')));
 }
 
-const mention = (engine: TurnEngine, client: bolt.webApi.WebClient, q: string, opts?: TurnOpts) =>
+const mention = (engine: TurnEngine, client: ChatDriver, q: string, opts?: TurnOpts) =>
   engine.liveTurn(client, 'C1', '100.1', '100.1', 'thread:100.1', PROJECT, q, undefined, opts);
 
 test('turn record: mention → steps → answer with a PR link', async () => {

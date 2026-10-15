@@ -4,6 +4,7 @@
 // fire* helpers, and the memory/journal modules.
 
 import { FactStore } from './facts.js';
+import { slackDriver } from './chat/slack/driver.js';
 import { DEFAULT_INTERVAL_MIN, readSyncState, statusLine } from './sources/sync.js';
 import type bolt from '@slack/bolt';
 import type { Config } from './config.js';
@@ -867,7 +868,7 @@ export function registerCommands(app: bolt.App, deps: CommandDeps): void {
 
     if (dm) {
       await respond({ response_type: 'ephemeral', text: ':envelope_with_arrow: Answering you in DM…' });
-      await engine.liveTurn(client, dm, undefined, undefined, key, project!, question);
+      await engine.liveTurn(slackDriver(client), dm, undefined, undefined, key, project!, question);
       return;
     }
     // Fallback: private (ephemeral) answer right here in the channel. Sent as text (mrkdwn),
