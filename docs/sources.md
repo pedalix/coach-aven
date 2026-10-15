@@ -624,9 +624,21 @@ subject's own messages per container (a gap over `threadGapMinutes` ends a run),
 only on the records, so decisions recorded against an id stay attached across rebuilds.
 
 **The ladder**, strong to weak, stops at the first rung that decides: tenant rules (a `candidates` rule
-stops it with exactly that choice set), the admin bucket (money, contracts, visas → the counterpart
-umbrella's `admin` initiative), exclusive markers, registry routing (repo/path, channel, tracker key,
-calendar title), narrow markers, broad markers. It never guesses: several registry hits are candidates.
+stops it with exactly that choice set), exclusive markers, registry routing (repo/path, channel, tracker key,
+calendar title), the admin bucket (money, contracts, visas → the counterpart umbrella's `admin` initiative),
+narrow markers (broad people only add hints), broad markers. It never guesses: several registry hits are
+candidates, and so is a channel two initiatives list. Admin keywords match whole words with explicit
+inflections (`vat` no longer fires on "private", `договор` not on "договорились"); calendar title patterns of
+five characters or fewer match whole words; channel entries may be `{id, name}` objects and match by id first.
+Each decision carries its rung's graded confidence (repo/path .99, tracker key and tenant rule .97, exclusive
+and channel .95, a single title hit .80, admin .75) — the ladder decides exactly as the rung says; the
+learning loop reads the confidence (OpenSpec `ingest-learning-loop`).
+
+**Call participants** (`participants.ts`): every recorder copy of a call — the copies the store's call
+clustering joins (`meetings.call_id`) are one call — contributes its attendees by name as well as by address
+(a person's own name counts as an identity unless two people share it), glued Gemini invitee strings are split
+against the roster, the linked calendar event (start ±15 min, equal title) adds its attendee addresses and the
+transcript adds its speakers. A run of messages adds the recipients the store recorded (`role = 'to'`).
 
 **States**: `decided` (the ledger has a decision — it always wins, matched by id or, for message runs,
 by overlapping refs), `escalated` (the ledger has an open question), `rule` (the ladder decides it now),
@@ -680,6 +692,25 @@ under half a second on the home store. A broken tenant file keeps the previous t
 **Parity** with the owen-ops CLI it was ported from (2026-10-15, four days of the real store): the same
 ids, the same `decided` / `rule` / `open` sets and the same initiatives; the one difference — a work block
 just after local midnight that the CLI's UTC-day load window never saw — is the platform being right.
+
+### Item mode
+
+`"items": {"days": 30}` in attribution.json turns on the **item floor**: every message, task, comment and
+meeting of the last N local days gets a row in `att_items` (`items.ts`), read with
+`attribution({unit: 'item', since, until})` — the call without `unit` answers exactly as before. Per item:
+
+- **sender class** — human, bot, bulk (one-way mail from an unresolved sender the subject never wrote to) or
+  system (role mailboxes), one merged list instead of `bots.ts` and the identities collector disagreeing;
+- **repeat cluster** with its weakest-edge confidence — exact repeats, alert episodes (a firing, its repeats
+  and its resolve), companion bot posts, cross-posts, forwards, tracker mail ↔ ticket — and a **family** (sender
+  + text template + host/app token), the key a label can be reused under. A human item never joins a bot
+  cluster; a scrub placeholder alone never makes two items equal;
+- **initiative** with its rung and confidence, or candidates: the item's own tracker key, a reply inheriting
+  its decided root, a host or app listed in the registry (`sources.hosts`, `sources.apps`), an unknown host in
+  a channel with a closed host list → `unregistered`, keys in the text, tenant rules, registry channels, a
+  bulk sender → `none`;
+- **kind** when structure decides it (bot, bulk and system senders, small talk → `noise`) and the
+  **addressee** (explicit, a vocative first name, the parent's author for a reply, `none` for integrations).
 
 ## Learning loop (shadow)
 
