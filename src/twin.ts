@@ -61,9 +61,14 @@ export class RecordingApi {
   // stage one — the show_trail modal died in prod exactly this way and nobody saw it.
   readonly failures: Record<string, string> = {};
   private server?: Server;
+  private posted = 0;
+  // seqTs: answer every chat.postMessage with a fresh ts (1000.0001, 1000.0002, …) so a
+  // recording can tell WHICH message a later chat.update targets. Off by default — the
+  // tenant twin tests were written against the constant ts.
   constructor(
     private readonly channelNames: Record<string, string> = {},
     private readonly files: Record<string, Record<string, unknown>> = {},
+    private readonly seqTs = false,
   ) {}
 
   async start(): Promise<string> {
@@ -88,7 +93,8 @@ export class RecordingApi {
           res.end(JSON.stringify({ ok: false, error: this.failures[method] }));
           return;
         }
-        const body: Record<string, unknown> = { ok: true, ts: '9999.0001' };
+        const ts = this.seqTs && method === 'chat.postMessage' ? `1000.${String(++this.posted).padStart(4, '0')}` : '9999.0001';
+        const body: Record<string, unknown> = { ok: true, ts };
         if (method === 'conversations.info') {
           const id = String(payload.channel ?? '');
           body.channel = { id, name: this.channelNames[id] };
@@ -106,6 +112,12 @@ export class RecordingApi {
 
   async stop(): Promise<void> {
     await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()));
+  }
+
+  // Forget recorded calls and restart the seqTs counter — one recording per scenario.
+  reset(): void {
+    this.calls.length = 0;
+    this.posted = 0;
   }
 
   of(method: string): ApiCall[] {

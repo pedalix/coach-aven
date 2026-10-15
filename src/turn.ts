@@ -4,26 +4,17 @@
 // surfaces (events.ts, commands.ts, pollers.ts) call in; rendering comes from blocks.ts.
 
 import { avenSessionValue } from './gwtoken.js';
-import type bolt from '@slack/bolt';
+import type { ChatDriver, DriverForTenant } from './chat/driver.js';
+import type { TurnView } from './chat/views.js';
 import type { Config } from './config.js';
 import type { Store } from './state.js';
 import { resolveBySlug, type ProjectConfig, type RegistryRef } from './projects.js';
 import { openChat, type ChatSession } from './tasks.js';
 import { createDriver } from './driver.js';
-import { fallbackText, fmtElapsed, prUrls } from './format.js';
+import { fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
-import {
-  MAX_SLACK_TEXT,
-  answerBlocks,
-  backgroundBlocks,
-  backgroundDoneBlocks,
-  reportPostedBlocks,
-  statusBlocks,
-  questionBlocks,
-  errText,
-  alertOps,
-} from './blocks.js';
+import { MAX_SLACK_TEXT, errText, alertOps } from './blocks.js';
 import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase } from './teamkeys.js';
 import { DraftStore } from './drafts.js';
@@ -55,15 +46,11 @@ export interface QuestionRegistry {
   finalize(entry: PendingQuestion, qid: string): void;
 }
 
-// Resolves the Slack client for a tenant (undefined = home). Throws for a tenant with
-// no live installation — recovery treats that per record, never letting one uninstalled
-// workspace abort the whole resume loop.
-export type ClientForTeam = (tenantId?: string) => bolt.webApi.WebClient;
 
 export interface TurnEngine {
   // Enqueue a live-status turn (the normal path for mentions, DMs, buttons, pollers).
   liveTurn(
-    client: bolt.webApi.WebClient,
+    chat: ChatDriver,
     channel: string,
     msgTs: string | undefined,
     threadTs: string | undefined,
@@ -92,8 +79,8 @@ export interface TurnEngine {
   // Startup recovery, in order: reattach + finalize turns that were RUNNING at the last
   // stop (returns per-key promises so queued replays can wait their turn), then replay the
   // journaled turns that were still QUEUED (their user messages would otherwise be lost).
-  resumeInflightTurns(clientFor: ClientForTeam): Map<string, Promise<void>>;
-  resumeQueuedTurns(clientFor: ClientForTeam, recovering: Map<string, Promise<void>>): void;
+  resumeInflightTurns(driverFor: DriverForTenant): Map<string, Promise<void>>;
+  resumeQueuedTurns(driverFor: DriverForTenant, recovering: Map<string, Promise<void>>): void;
   questions: QuestionRegistry;
   // A turn's tool-call trail (for the "🧭 Show steps" button) — live from the moment the
   // turn is queued, kept after it settles; undefined once evicted or after a restart.
@@ -154,7 +141,19 @@ export interface TurnTrail {
 const ETA_HINT = 'usually 1–3 min';
 const ETA_HINT_MS = 3 * 60_000;
 
-export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): TurnEngine {
+// Injection seam for the recorded-call tests (src/chat/slack/turn.record.test.ts): a fake
+// session factory instead of a real sandbox, and throwaway journal/usage/feedback/draft
+// locations instead of the checkout's. Production passes nothing — every default is today's.
+export interface TurnDeps {
+  openChat?: typeof openChat;
+  journal?: QueueJournal;
+  usageLog?: UsageLog;
+  feedbackLog?: FeedbackLog;
+  drafts?: DraftStore;
+}
+
+export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, deps: TurnDeps = {}): TurnEngine {
+  const openSession = deps.openChat ?? openChat;
   // Live in-memory sessions keyed by conversation, to avoid re-preparing the sandbox
   // every turn. On a cache miss (e.g. after a restart) we rebuild, resuming the
   // persisted Claude conversation id. LRU-capped: entries otherwise accumulate one per
@@ -226,13 +225,13 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
 
   // Per-turn token/cost accounting → usage/<month>.jsonl (multi-tenancy slice 4,
   // "whose tokens are we burning"). Best-effort by construction — see metering.ts.
-  const usageLog = new UsageLog();
+  const usageLog = deps.usageLog ?? new UsageLog();
   // Subscription-quota state — ONE tracker for the whole engine (every project runs on the
   // same plan), fed by each session's rate_limit_event; warns the alert channel on the
   // allowed → warning → rejected transitions and once on recovery (ratelimit.ts).
   const rateLimits = new RateLimitTracker();
   // The value half of the same story: what an answer was worth, joined to what it cost.
-  const feedbackLog = new FeedbackLog();
+  const feedbackLog = deps.feedbackLog ?? new FeedbackLog();
 
   // turnIds carry a per-boot prefix: they used to be `t<seq>` and reset every restart,
   // which was fine while everything keyed by them was in-memory — but drafts now live on
@@ -243,7 +242,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // Journal of queued-but-not-yet-started turns (its own file, not state.json — see
   // queuejournal.ts). Entries: added in liveTurn, retired in doTurn once the chat
   // record's `inflight` marker takes over recovery duty. Drained by resumeQueuedTurns.
-  const journal = new QueueJournal();
+  const journal = deps.journal ?? new QueueJournal();
 
   const pendingQuestions = new Map<string, PendingQuestion>();
   // qids that reached a terminal state normally (answered/submitted/canceled). A late
@@ -271,7 +270,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   const MAX_TRAILS = 200;
   // Report drafts by turnId, for "✏️ Edit & send" — on disk (drafts/<slug>/<turnId>.md,
   // see drafts.ts) so a deploy no longer kills every pending draft's button.
-  const drafts = new DraftStore();
+  const drafts = deps.drafts ?? new DraftStore();
   function startTrail(turnId: string): TurnTrail {
     const trail: TurnTrail = { steps: [], elapsedMs: 0, done: false };
     trails.set(turnId, trail);
@@ -309,7 +308,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // Aborting the turn rejects it (the interrupt then tears the turn down). `track`
   // records the questionId so the turn can purge a still-open question when it settles.
   function makeOnQuestion(
-    client: bolt.webApi.WebClient,
+    driver: ChatDriver,
     channel: string,
     threadTs: string | undefined,
     signal: AbortSignal,
@@ -321,19 +320,17 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         track(qid);
         const multi = questions.some((q) => q.multiSelect);
         void (async () => {
-          const posted = await client.chat.postMessage({
-            channel,
-            thread_ts: threadTs,
-            text: '❓ The agent has a question',
-            blocks: questionBlocks(questions, new Map(), multi, qid, false),
-          });
+          const posted = await driver.post(
+            { conv: channel, thread: threadTs },
+            { kind: 'question', questions, picks: new Map(), multi, qid, done: false },
+          );
           const entry: PendingQuestion = {
             questions,
             picks: new Map(),
             multi,
             resolve,
             channel,
-            ts: posted.ts as string,
+            ts: posted.id,
             done: false,
           };
           pendingQuestions.set(qid, entry);
@@ -343,8 +340,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
             if (entry.done || !pendingQuestions.delete(qid)) return;
             entry.done = true;
             markCompleted(qid);
-            void client.chat
-              .update({ channel, ts: entry.ts, text: '🚫 Canceled', blocks: [] })
+            void driver
+              .update({ conv: channel, id: entry.ts }, { kind: 'text', text: '🚫 Canceled' })
               .catch(() => {});
             reject(new Error('canceled'));
           };
@@ -368,7 +365,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       return existing;
     }
     const prior = store.getChat(key);
-    const chat = await openChat(cfg, store, {
+    const chat = await openSession(cfg, store, {
       slug: project.slug,
       repos: project.repos,
       resumeSessionId: prior?.sessionId,
@@ -504,28 +501,12 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     store.patchChat(key, project.slug, { sessionId: undefined, sessionKey: undefined, cmdId: undefined });
   }
 
-  // Add/remove a reaction; non-fatal (already_reacted / no_reaction / missing scope).
-  async function react(
-    client: bolt.webApi.WebClient,
-    channel: string,
-    ts: string,
-    name: string,
-    op: 'add' | 'remove',
-  ): Promise<void> {
-    try {
-      if (op === 'add') await client.reactions.add({ channel, timestamp: ts, name });
-      else await client.reactions.remove({ channel, timestamp: ts, name });
-    } catch {
-      /* non-fatal */
-    }
-  }
-
   // A message starting with this prefix is a human-only NOTE: the bot stays out entirely
   // (no turn, no agent run), just a quiet reaction to confirm it saw and skipped it. Lets
   // you jot something for yourself or a colleague mid-thread without triggering Claude.
   // `!`, not `/`-anything: a leading `/` collides with Slack's slash-command UI.
+  // (The acknowledgement itself is the chat driver's — a reaction on Slack.)
   const NOTE_PREFIX = process.env.SLACK_NOTE_PREFIX || '!';
-  const NOTE_REACTION = process.env.SLACK_NOTE_REACTION || 'shushing_face';
   const isNote = (text: string): boolean => text.trim().startsWith(NOTE_PREFIX);
 
   // Enqueue a turn for `key` and post its status message immediately (so a queued turn
@@ -533,7 +514,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // canceling the running one lets the next start. msgTs is the user's message to react
   // to (undefined for /aven).
   async function liveTurn(
-    client: bolt.webApi.WebClient,
+    chat: ChatDriver,
     channel: string,
     msgTs: string | undefined,
     threadTs: string | undefined,
@@ -547,10 +528,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   ): Promise<void> {
     if (isNote(question)) {
       // Human-only note — leave the agent out entirely; just acknowledge we skipped it.
-      if (msgTs) await react(client, channel, msgTs, NOTE_REACTION, 'add');
+      if (msgTs) await chat.mark({ conv: channel, id: msgTs }, 'note', 'add');
       return;
     }
-    if (msgTs) await react(client, channel, msgTs, 'eyes', 'add');
+    if (msgTs) await chat.mark({ conv: channel, id: msgTs }, 'working', 'add');
     const turnId = `t${bootId}-${++turnSeq}`;
     const ac = new AbortController();
     running.set(turnId, ac);
@@ -561,16 +542,16 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     startTrail(turnId);
 
     const busy = queues.has(key);
-    const posted = await client.chat.postMessage({
-      channel,
-      thread_ts: threadTs,
-      text: busy ? 'In queue…' : 'Working…',
-      blocks: statusBlocks(
-        busy ? '⏳ In queue — waiting for the previous message…' : `🛠 Preparing…  ·  ${ETA_HINT}`,
+    const posted = await chat.post(
+      { conv: channel, thread: threadTs },
+      {
+        kind: 'status',
+        line: busy ? '⏳ In queue — waiting for the previous message…' : `🛠 Preparing…  ·  ${ETA_HINT}`,
         turnId,
-      ),
-    });
-    const ts = posted.ts as string;
+        notify: busy ? 'In queue…' : 'Working…',
+      },
+    );
+    const ts = posted.id;
 
     // Journal the accepted turn so a restart can't silently swallow it while it waits in
     // the queue. Retired in doTurn once the `inflight` marker takes over. plain=false when
@@ -596,8 +577,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       () => {
         if (!queued.delete(turnId)) return; // doTurn already claimed it — it owns the settle now
         journal.done(turnId);
-        void client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] }).catch(() => {});
-        if (msgTs) void react(client, channel, msgTs, 'eyes', 'remove');
+        void chat.update({ conv: channel, id: ts }, { kind: 'text', text: '🚫 Canceled' }).catch(() => {});
+        if (msgTs) void chat.mark({ conv: channel, id: msgTs }, 'working', 'remove');
         if (opts?.onSettle) void opts.onSettle('canceled').catch(() => {});
       },
       { once: true },
@@ -606,7 +587,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     const prev = queues.get(key) ?? Promise.resolve();
     const mine = prev
       .catch(() => {})
-      .then(() => doTurn(client, channel, msgTs, threadTs, ts, key, project, question, turnId, ac, attachments, opts));
+      .then(() => doTurn(chat, channel, msgTs, threadTs, ts, key, project, question, turnId, ac, attachments, opts));
     queues.set(key, mine);
     void mine.finally(() => {
       running.delete(turnId);
@@ -618,7 +599,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // The actual work for one turn, run after any earlier turn for the same key. Streams
   // live status into the message `ts` and rewrites it into the answer (or cancel/error).
   async function doTurn(
-    client: bolt.webApi.WebClient,
+    chat: ChatDriver,
     channel: string,
     msgTs: string | undefined,
     threadTs: string | undefined,
@@ -634,14 +615,17 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     // Claim this turnId from `queued` — from here on, a cancel is OUR job to settle (via
     // the checks below or the live interrupt path), not liveTurn's abort listener.
     queued.delete(turnId);
+    const status = { conv: channel, id: ts }; // this turn's working message
+    const where = { conv: channel, thread: threadTs }; // its thread, for new messages
+    const userMsg = msgTs ? { conv: channel, id: msgTs } : undefined;
     const clearEyes = async () => {
-      if (msgTs) await react(client, channel, msgTs, 'eyes', 'remove');
+      if (userMsg) await chat.mark(userMsg, 'working', 'remove');
     };
     // Shared by every "this turn never got to run" exit below — same settle, same journal
     // retirement, whether it was canceled before doTurn started or while waiting for a slot.
     const settleCanceled = async (): Promise<void> => {
       journal.done(turnId);
-      await client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] });
+      await chat.update(status, { kind: 'text', text: '🚫 Canceled' });
       await clearEyes();
       if (opts?.onSettle) await opts.onSettle('canceled').catch(() => {});
     };
@@ -655,8 +639,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     // acquireSlot is abort-aware, so a cancel here rejects immediately rather than waiting
     // on some UNRELATED turn elsewhere to free a slot.
     if (turnSlots <= 0) {
-      await client.chat
-        .update({ channel, ts, text: 'In queue…', blocks: statusBlocks('⏳ Waiting for a free agent slot…', turnId) })
+      await chat
+        .update(status, { kind: 'status', line: '⏳ Waiting for a free agent slot…', turnId, notify: 'In queue…' })
         .catch(() => {});
     }
     try {
@@ -703,7 +687,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       lastRendered = text;
       lastUpdateAt = now;
       try {
-        await client.chat.update({ channel, ts, text, blocks: statusBlocks(text, turnId) });
+        await chat.update(status, { kind: 'status', line: text, turnId, notify: text });
       } catch {
         /* rate limit / transient — next tick retries */
       }
@@ -729,10 +713,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       if (background || finished) return;
       background = true;
       clearInterval(heartbeat);
-      const blocks = backgroundBlocks(turnId, Date.now() - start);
+      const card = { kind: 'background', turnId, elapsedMs: Date.now() - start } as const;
       pendingFlush = pendingFlush.then(() =>
-        client.chat
-          .update({ channel, ts, text: 'Working in the background…', blocks })
+        chat
+          .update(status, card)
           .then(
             () => {},
             () => {}, // transient Slack failure — the card is cosmetic, the turn runs on
@@ -742,21 +726,14 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     // Where the turn's outcome goes. While the message is still live it rewrites itself, as
     // always. Once backgrounded, we promised a new message in the thread — so post one (it
     // pings; chat.update does not) and collapse the card to a pointer at it.
-    const deliver = async (text: string, blocks: ReturnType<typeof answerBlocks>, label: string): Promise<void> => {
+    const deliver = async (view: TurnView, label: string): Promise<void> => {
       if (!background) {
-        await client.chat.update({ channel, ts, text, blocks });
+        await chat.update(status, view);
         return;
       }
-      // Empty blocks → omit the field entirely; postMessage with blocks:[] renders a blank
-      // message instead of falling back to `text` (the error paths pass no blocks).
-      await client.chat.postMessage({ channel, thread_ts: threadTs, text, blocks: blocks.length ? blocks : undefined });
-      await client.chat
-        .update({
-          channel,
-          ts,
-          text: label,
-          blocks: backgroundDoneBlocks(label, { steps: steps.length, elapsedMs: Date.now() - start }),
-        })
+      await chat.post(where, view);
+      await chat
+        .update(status, { kind: 'backgroundDone', label, steps: steps.length, elapsedMs: Date.now() - start })
         .catch(() => {});
     };
     const turnQs = new Set<string>(); // questionIds this turn opened (for cleanup on settle)
@@ -772,33 +749,25 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
     journal.done(turnId);
     // Best-effort permalink to this thread so the agent can link a PR back to the Slack
     // discussion. Only meaningful for channel threads (threadTs set); DMs have none.
-    let slackUrl: string | undefined;
-    if (threadTs) {
-      try {
-        const pl = await client.chat.getPermalink({ channel, message_ts: threadTs });
-        slackUrl = pl.permalink as string | undefined;
-      } catch {
-        /* no permalink (DM / missing scope) — traceability line is simply omitted */
-      }
-    }
-    let chat: ChatSession | undefined; // hoisted so the finally can read lastUsage()
+    const slackUrl = threadTs ? await chat.permalink({ conv: channel, id: threadTs }) : undefined;
+    let session: ChatSession | undefined; // hoisted so the finally can read lastUsage()
     let outcome: TurnOutcome = 'ok';
     let failure: string | undefined; // the error's message, for onSettle
     try {
       const live = await sessionFor(key, project, slackUrl); // prepare (warm sandbox + clone) here
-      chat = live; // `live` keeps the non-undefined narrowing inside the closures below
+      session = live; // `live` keeps the non-undefined narrowing inside the closures below
       // A background Task/Agent this turn launches may finish AFTER this turn's own
       // answer is already posted — see ClaudeSession.onIdleResult. Re-registered on every
       // live turn so it always targets the CURRENT channel/thread.
       live.setIdleNotify((text) => {
         const capped = text.slice(0, MAX_SLACK_TEXT) || '(no output)';
         const msg = `🔔 *Background update*\n${capped}`;
-        void client.chat
+        void chat
           // No rating buttons here on purpose: this callback is re-registered per live turn,
           // so a background result that lands during a LATER turn would be attributed to that
           // later turn — a rating on it would land on the wrong turnId. Ratings come back
           // once onIdleResult carries the turn that actually launched the work.
-          .postMessage({ channel, thread_ts: threadTs, text: fallbackText(msg), blocks: answerBlocks(msg) })
+          .post(where, { kind: 'answer', markdown: msg })
           .catch((e) => log.error(`idle-notify ${key}: ${e instanceof Error ? e.message : String(e)}`));
       });
       // Download any inbound files into the sandbox first, then prepend a preamble naming their
@@ -814,8 +783,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           // the agent, and whether the model relays a skip is up to it. Best-effort: a failed
           // notice must not sink the turn.
           if (skipped.length) {
-            await client.chat
-              .postMessage({ channel, thread_ts: threadTs, text: skippedNotice(skipped) })
+            await chat
+              .post(where, { kind: 'text', text: skippedNotice(skipped) })
               .catch((e) => log.error(`skip notice ${turnId}: ${e instanceof Error ? e.message : String(e)}`));
           }
         } catch (e) {
@@ -836,19 +805,18 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
               void scheduleFlush();
             },
             ac.signal,
-            makeOnQuestion(client, channel, threadTs, ac.signal, (qid) => turnQs.add(qid)),
+            makeOnQuestion(chat, channel, threadTs, ac.signal, (qid) => turnQs.add(qid)),
             // Soft deadline reached: the turn continues to the hard cap — flip the working
             // message to the background card instead of erroring out. No extra thread
             // notice: the card says it, and the answer itself will arrive as a new message.
             goBackground,
           ),
       );
-      persist(key, project.slug, chat);
+      persist(key, project.slug, live);
       if (live.contextLost()) {
-        await client.chat
-          .postMessage({
-            channel,
-            thread_ts: threadTs,
+        await chat
+          .post(where, {
+            kind: 'text',
             text: '⚠️ Lost the previous session context (the sandbox was rebuilt) — starting fresh.',
           })
           .catch(() => {});
@@ -865,40 +833,43 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       const elapsedMs = Date.now() - start;
       // Skip-preview draft: deliver the answer directly (the autoPost hook), and only fall
       // back to the reviewable draft — error attached — when delivery fails.
-      let blocks: ReturnType<typeof answerBlocks> | undefined;
-      let text = fallbackText(capped);
+      let view: TurnView | undefined;
       if (opts?.ytDraftFor && opts.autoPost) {
         try {
           const posted = await opts.autoPost(capped);
-          blocks = reportPostedBlocks(capped, opts.ytDraftFor, posted.url, posted.group);
-          text = `✅ Reported to ${opts.ytDraftFor}`;
+          view = { kind: 'reported', markdown: capped, ticket: opts.ytDraftFor, url: posted.url, group: posted.group };
         } catch (e) {
           const why = e instanceof Error ? e.message : String(e);
           drafts.put(project.slug, turnId, capped); // manual retry needs the text
-          blocks = answerBlocks(capped, { ytDraft: { ticket: opts.ytDraftFor, draftId: turnId } });
-          blocks.push({
-            type: 'context',
-            elements: [{ type: 'mrkdwn', text: `⚠️ Auto-post failed: ${why.slice(0, 300)} — review and send manually.` }],
-          });
+          view = {
+            kind: 'answer',
+            markdown: capped,
+            opts: { ytDraft: { ticket: opts.ytDraftFor, draftId: turnId } },
+            notice: `⚠️ Auto-post failed: ${why.slice(0, 300)} — review and send manually.`,
+          };
         }
       }
-      if (opts?.ytDraftFor && !blocks) drafts.put(project.slug, turnId, capped);
-      blocks ??= answerBlocks(capped, {
-        followUp,
-        trail: { turnId, steps: steps.length, elapsedMs },
-        ytReport: inv?.id,
-        ytDraft: opts?.ytDraftFor ? { ticket: opts.ytDraftFor, draftId: turnId } : undefined,
-        rate: { turnId, slug: project.slug, key },
-      });
-      await deliver(text, blocks, '✅ Done — answer posted below');
+      if (opts?.ytDraftFor && !view) drafts.put(project.slug, turnId, capped);
+      view ??= {
+        kind: 'answer',
+        markdown: capped,
+        opts: {
+          followUp,
+          trail: { turnId, steps: steps.length, elapsedMs },
+          ytReport: inv?.id,
+          ytDraft: opts?.ytDraftFor ? { ticket: opts.ytDraftFor, draftId: turnId } : undefined,
+          rate: { turnId, slug: project.slug, key },
+        },
+      };
+      await deliver(view, '✅ Done — answer posted below');
       if (opts?.onAnswer) await opts.onAnswer(capped).catch(() => {});
       // Latch the flag the first turn whose answer carries a PR URL — the session panel
       // shows whether this thread has produced a PR.
       if (!store.getChat(key)?.prCreated && prUrls(capped).length)
         store.patchChat(key, project.slug, { prCreated: true });
-      if (msgTs) {
-        await react(client, channel, msgTs, 'eyes', 'remove');
-        await react(client, channel, msgTs, 'white_check_mark', 'add');
+      if (userMsg) {
+        await chat.mark(userMsg, 'working', 'remove');
+        await chat.mark(userMsg, 'done', 'add');
       }
     } catch (err) {
       clearInterval(heartbeat);
@@ -907,16 +878,16 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       outcome = ac.signal.aborted ? 'canceled' : 'error';
       if (ac.signal.aborted) {
         // Cancel always lands in place: the user just clicked ✖ on this very message.
-        await client.chat.update({ channel, ts, text: '🚫 Canceled', blocks: [] });
+        await chat.update(status, { kind: 'text', text: '🚫 Canceled' });
         await clearEyes();
       } else {
         failure = err instanceof Error ? err.message : String(err);
         // A failure after the turn went background needs the same ping the answer gets —
         // an hour-old message rewriting itself to an error notifies nobody.
-        await deliver(errText(err), [], '⚠️ Failed — details below');
-        if (msgTs) {
-          await react(client, channel, msgTs, 'eyes', 'remove');
-          await react(client, channel, msgTs, 'x', 'add');
+        await deliver({ kind: 'text', text: errText(err) }, '⚠️ Failed — details below');
+        if (userMsg) {
+          await chat.mark(userMsg, 'working', 'remove');
+          await chat.mark(userMsg, 'failed', 'add');
         }
       }
     } finally {
@@ -931,7 +902,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         kind: 'turn',
         status: outcome,
         elapsedMs: Date.now() - start,
-        usage: chat?.lastUsage(),
+        usage: session?.lastUsage(),
         ...(opts?.routine ? { routineId: opts.routine.id, routineLabel: opts.routine.label } : {}),
         ...(opts?.origin ? { originSlug: opts.origin.slug, proposalId: opts.origin.proposalId } : {}),
       });
@@ -948,8 +919,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
         if (entry && !entry.done) {
           entry.done = true;
           pendingQuestions.delete(qid);
-          await client.chat
-            .update({ channel: entry.channel, ts: entry.ts, text: '⌛ Question closed', blocks: [] })
+          await chat
+            .update({ conv: entry.channel, id: entry.ts }, { kind: 'text', text: '⌛ Question closed' })
             .catch(() => {});
         }
       }
@@ -965,7 +936,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // Returns each chat's recovery promise keyed by conversation key, so resumeQueuedTurns
   // can hold a key's replays until its running turn has been recovered (else the replay
   // hits the still-busy session and errors).
-  function resumeInflightTurns(clientFor: ClientForTeam): Map<string, Promise<void>> {
+  function resumeInflightTurns(driverFor: DriverForTenant): Map<string, Promise<void>> {
     const recovering = new Map<string, Promise<void>>();
     for (const chat of store.allChats()) {
       const inf = chat.inflight;
@@ -978,23 +949,19 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       // The record's own workspace token finalizes its status message. A tenant with no
       // installation (uninstalled since) clears the marker — leaving it would make every
       // future boot retry forever (pruneChats skips inflight records).
-      let client: bolt.webApi.WebClient;
+      let driver: ChatDriver;
       try {
-        client = clientFor(chat.teamId);
+        driver = driverFor(chat.teamId);
       } catch (e) {
         log.error(`resume ${chat.threadTs}: ${e instanceof Error ? e.message : String(e)}`);
         store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
         continue;
       }
+      const status = { conv: inf.channel, id: inf.statusTs };
       const recovery = (async () => {
         try {
-          await client.chat
-            .update({
-              channel: inf.channel,
-              ts: inf.statusTs,
-              text: '🔄 Reconnected after a restart — recovering this turn…',
-              blocks: [],
-            })
+          await driver
+            .update(status, { kind: 'text', text: '🔄 Reconnected after a restart — recovering this turn…' })
             .catch(() => {});
           const cs = await sessionFor(chat.threadTs, project);
           // Recovered turns get the live path's treatment at the soft deadline: the status
@@ -1004,14 +971,12 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           let background = false;
           const r = await cs.adoptInflight(undefined, () => {
             background = true;
-            void client.chat
-              .update({
-                channel: inf.channel,
-                ts: inf.statusTs,
+            void driver
+              .update(status, {
+                kind: 'text',
                 text:
                   '🌙 *Working in the background* — the recovered turn is taking longer than usual. ' +
                   "I'll post the result in this thread as a new message when it's done.",
-                blocks: [],
               })
               .catch(() => {});
           });
@@ -1019,32 +984,18 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           if (r.ok) {
             const capped = r.text.slice(0, MAX_SLACK_TEXT) || '(no output)';
             if (background) {
-              await client.chat.postMessage({
-                channel: inf.channel,
-                thread_ts: inf.msgThreadTs,
-                text: fallbackText(capped),
-                blocks: answerBlocks(capped),
-              });
-              await client.chat
-                .update({ channel: inf.channel, ts: inf.statusTs, text: '✅ Done — answer posted below', blocks: [] })
-                .catch(() => {});
+              await driver.post({ conv: inf.channel, thread: inf.msgThreadTs }, { kind: 'answer', markdown: capped });
+              await driver.update(status, { kind: 'text', text: '✅ Done — answer posted below' }).catch(() => {});
             } else {
-              await client.chat.update({
-                channel: inf.channel,
-                ts: inf.statusTs,
-                text: fallbackText(capped),
-                blocks: answerBlocks(capped),
-              });
+              await driver.update(status, { kind: 'answer', markdown: capped });
             }
             // A recovered turn may have opened the PR — latch so the session panel reflects it.
             if (!chat.prCreated && prUrls(capped).length)
               store.patchChat(chat.threadTs, project.slug, { prCreated: true });
           } else {
-            await client.chat.update({
-              channel: inf.channel,
-              ts: inf.statusTs,
+            await driver.update(status, {
+              kind: 'text',
               text: `⚠️ The bot restarted mid-turn and couldn't recover the live result (${r.status}). The work may have finished in the thread or a PR — send a new message to continue.`,
-              blocks: [],
             });
           }
         } catch (e) {
@@ -1052,12 +1003,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           // nothing). Raise an issue so lost turns are visible in ops.
           log.error(`resume ${chat.threadTs}: ${e instanceof Error ? e.message : String(e)}`);
           captureError(e, { subsystem: 'resume', thread: chat.threadTs, slug: chat.slug });
-          await client.chat
-            .update({
-              channel: inf.channel,
-              ts: inf.statusTs,
+          await driver
+            .update(status, {
+              kind: 'text',
               text: "⚠️ The bot restarted mid-turn; couldn't recover this status. Send a new message to continue.",
-              blocks: [],
             })
             .catch(() => {});
         } finally {
@@ -1076,7 +1025,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // so their status message quotes the question and asks for a resend — visibly lost
   // beats silently lost. Keys are processed sequentially (preserving enqueue order),
   // after any inflight recovery on the same key has settled.
-  function resumeQueuedTurns(clientFor: ClientForTeam, recovering: Map<string, Promise<void>>): void {
+  function resumeQueuedTurns(driverFor: DriverForTenant, recovering: Map<string, Promise<void>>): void {
     const pending = journal.drain();
     const byKey = new Map<string, typeof pending>();
     for (const e of pending) {
@@ -1094,36 +1043,30 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
           const project = resolveBySlug(reg.current, e.slug);
           // Pre-liveTurn tenant check (skip, not throw): a replay for an uninstalled
           // workspace has no token to even rewrite its status message with.
-          let client: bolt.webApi.WebClient;
+          let driver: ChatDriver;
           try {
-            client = clientFor(e.teamId);
+            driver = driverFor(e.teamId);
           } catch (err) {
             log.error(`replay ${e.turnId}: ${err instanceof Error ? err.message : String(err)}`);
             continue;
           }
           try {
+            const status = { conv: e.channel, id: e.statusTs };
             if (project && e.plain) {
-              await client.chat
-                .update({
-                  channel: e.channel,
-                  ts: e.statusTs,
-                  text: '🔄 The bot restarted before this turn could start — rerunning it below.',
-                  blocks: [],
-                })
+              await driver
+                .update(status, { kind: 'text', text: '🔄 The bot restarted before this turn could start — rerunning it below.' })
                 .catch(() => {});
               // Awaiting completion serializes this key's replays — the same order the
               // queue would have run them in.
-              await liveTurn(client, e.channel, e.msgTs, e.threadTs, e.key, project, e.question);
+              await liveTurn(driver, e.channel, e.msgTs, e.threadTs, e.key, project, e.question);
             } else {
               const why = project
                 ? "its attachments/context can't be replayed"
                 : 'its project is no longer configured';
-              await client.chat
-                .update({
-                  channel: e.channel,
-                  ts: e.statusTs,
+              await driver
+                .update(status, {
+                  kind: 'text',
                   text: `⚠️ The bot restarted before this message was processed and ${why} — please resend it:\n> ${e.question.slice(0, 500)}`,
-                  blocks: [],
                 })
                 .catch(() => {});
             }

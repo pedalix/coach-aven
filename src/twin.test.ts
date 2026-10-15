@@ -17,6 +17,7 @@ import { createChannels } from './channels.js';
 import { registerEvents } from './events.js';
 import { slugOfBase, isThreadKey } from './teamkeys.js';
 import type { TurnEngine } from './turn.js';
+import type { SlackChatDriver } from './chat/slack/driver.js';
 import {
   createTwinApp,
   mentionEnvelope,
@@ -46,7 +47,7 @@ function fakeEngine(store: Store) {
   const busyKeys = new Set<string>();
   const engine = {
     liveTurn: async (
-      client: bolt.webApi.WebClient,
+      driver: SlackChatDriver,
       channel: string,
       _m: unknown,
       _t: unknown,
@@ -55,7 +56,7 @@ function fakeEngine(store: Store) {
       question: string,
       attachments?: RecordedAttachments,
     ) => {
-      turns.push({ key, channel, question, slug: project.slug, token: (client as { token?: string }).token, attachments });
+      turns.push({ key, channel, question, slug: project.slug, token: (driver.client as { token?: string }).token, attachments });
     },
     runAsk: async () => 'ok',
     persist: () => {},

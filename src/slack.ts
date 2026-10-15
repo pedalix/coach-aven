@@ -8,6 +8,7 @@
 //   events.ts   — @mentions, thread replies, DMs, buttons, App Home
 //   pollers.ts  — scheduler + auto-review / autofix / YouTrack pollers
 import { createDispatcher } from './dispatchrun.js';
+import { slackDriver } from './chat/slack/driver.js';
 import bolt from '@slack/bolt';
 import type { Installation } from '@slack/bolt';
 import type { Config } from './config.js';
@@ -261,8 +262,9 @@ export async function runSlack(cfg: Config): Promise<void> {
   // finalizes with that team's token; an uninstalled team's record is cleared, not retried
   // forever. Guarded on homeClient: with no home install there are no records to recover.
   if (homeClient) {
-    const recovering = engine.resumeInflightTurns(clientForTeam);
-    engine.resumeQueuedTurns(clientForTeam, recovering);
+    const driverFor = (t?: string) => slackDriver(clientForTeam(t));
+    const recovering = engine.resumeInflightTurns(driverFor);
+    engine.resumeQueuedTurns(driverFor, recovering);
   }
 
   await app.start();

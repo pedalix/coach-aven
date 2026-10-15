@@ -3,6 +3,7 @@
 // and payload normalization here, the actual work in the turn engine.
 
 import type bolt from '@slack/bolt';
+import { slackDriver } from './chat/slack/driver.js';
 import type { Config } from './config.js';
 import type { Store } from './state.js';
 import { resolveBySlug, teamProjects, type RegistryRef } from './projects.js';
@@ -175,7 +176,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       : undefined;
     const mentionQ = question || 'Please take a look at the attached file(s).';
     const key = withTeam(tenant, homeTeamId, `thread:${threadTs}`);
-    await engine.liveTurn(client, e.channel, e.ts, threadTs, key, project!, mentionQ, attachments);
+    await engine.liveTurn(slackDriver(client), e.channel, e.ts, threadTs, key, project!, mentionQ, attachments);
   });
 
   // ── thread reply (owned) → continue;  DM → private conversation ─────────────
@@ -256,7 +257,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       }
       const dmQ = question || 'Please take a look at the attached file(s).';
       const dmKey = withTeam(tenant, homeTeamId, `dm:${m.channel}:${project!.slug}`);
-      await engine.liveTurn(client, m.channel, m.ts, undefined, dmKey, project!, dmQ, await hydrate());
+      await engine.liveTurn(slackDriver(client), m.channel, m.ts, undefined, dmKey, project!, dmQ, await hydrate());
       return;
     }
 
@@ -282,7 +283,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
       return;
     }
     const threadQ = question || 'Please take a look at the attached file(s).';
-    await engine.liveTurn(client, m.channel, m.ts, m.thread_ts, key, project, threadQ, await hydrate());
+    await engine.liveTurn(slackDriver(client), m.channel, m.ts, m.thread_ts, key, project, threadQ, await hydrate());
   });
 
   // ── "✖ Cancel" button → abort that turn (the queued next one then starts) ───
@@ -544,7 +545,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
         .catch(() => {});
     }
     const pickKey = withTeam(tenant, homeTeamId, `dm:${pending.channel}:${slug}`);
-    await engine.liveTurn(client, pending.channel, undefined, undefined, pickKey, project, pending.question);
+    await engine.liveTurn(slackDriver(client), pending.channel, undefined, undefined, pickKey, project, pending.question);
   });
 
   // (The "🔀 Open a PR" button + make_pr handler were removed on purpose: always-visible
@@ -686,7 +687,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     const slug = engine.slugForKey(meta.key);
     const project = slug ? resolveBySlug(reg.current, slug) : undefined;
     if (!project) return;
-    await engine.liveTurn(client, meta.channel, undefined, meta.threadTs, meta.key, project, prompt, undefined, {
+    await engine.liveTurn(slackDriver(client), meta.channel, undefined, meta.threadTs, meta.key, project, prompt, undefined, {
       ytDraftFor: meta.t,
       autoPost: now
         ? async (text) => {
@@ -788,7 +789,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     // restart recovery all resolve the clicking workspace's own token.
     const key = withTeam(tenant, homeTeamId, `autofix:${v.repo}:${v.number}:${v.slug}`);
     if (engine.hasKey(key)) return; // a fix is already running for this PR
-    await engine.liveTurn(client, v.channel, undefined, undefined, key, project, autofixPrompt(v.repo, v.number));
+    await engine.liveTurn(slackDriver(client), v.channel, undefined, undefined, key, project, autofixPrompt(v.repo, v.number));
   });
 
   // ── memory topic button → open that section file (journal copy first, no sandbox wake) ──

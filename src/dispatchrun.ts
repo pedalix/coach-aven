@@ -4,7 +4,8 @@
 // poll, auto mode) and events.ts (the buttons). Nothing here runs unless DISPATCH=1.
 import type bolt from '@slack/bolt';
 import type { Store } from './state.js';
-import type { TurnEngine, ClientForTeam } from './turn.js';
+import type { TurnEngine } from './turn.js';
+import { slackDriver, type ClientForTeam } from './chat/slack/driver.js';
 import type { Channels } from './channels.js';
 import { resolveBySlug, teamProjects, type ProjectConfig, type RegistryRef } from './projects.js';
 import { withTeam } from './teamkeys.js';
@@ -99,7 +100,7 @@ export function createDispatcher(d: DispatcherDeps): Dispatcher {
     d.store.bumpDispatch(p.slug, localDate(d.tz, now()));
     const stored = d.store.patchProposal(p.id, { status: 'sent', result: link ? `<${link}|thread in <#${t.channel}>>` : `thread in <#${t.channel}>` }) ?? p;
     void d.engine
-      .liveTurn(client, t.channel, undefined, parentTs, key, target, wrapDispatch(stored), undefined, {
+      .liveTurn(slackDriver(client), t.channel, undefined, parentTs, key, target, wrapDispatch(stored), undefined, {
         origin: { slug: p.slug, proposalId: p.id },
         onAnswer: async (text) => {
           const head = headline(text);

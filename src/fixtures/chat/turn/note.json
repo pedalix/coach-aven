@@ -1,0 +1,10 @@
+[
+  {
+    "method": "reactions.add",
+    "payload": {
+      "channel": "C1",
+      "timestamp": "100.1",
+      "name": "shushing_face"
+    }
+  }
+]
