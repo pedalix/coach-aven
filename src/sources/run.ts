@@ -104,6 +104,11 @@ export function pullContext(slug: string, kind: SourceKind, verbose: boolean, si
  * `pulled` = the kinds that completed ok in the pass this build closes (their finishedAt lands in
  * sync_state as `pulled:<kind>`, the per-source data age `stats.meta` shows); the CLI `build` passes none.
  */
+/** The tenant's zone: `sources.timezone`, else the bot's AVEN_TZ, else UTC. */
+export function tenantZone(p: ProjectConfig): string {
+  return p.sources?.timezone ?? process.env.AVEN_TZ ?? 'UTC';
+}
+
 export function runBuild(p: ProjectConfig, verbose: boolean, sink: (line: string) => void = log.info.bind(log), projectsConfigPath?: string, pulled?: ReadonlyArray<{ kind: SourceKind; finishedAt: string }>): BuildSummary {
   const prefix = `[sources:${p.slug}/store]`;
   const s = buildStore({
@@ -114,8 +119,10 @@ export function runBuild(p: ProjectConfig, verbose: boolean, sink: (line: string
     peoplePath: peoplePath(p, projectsConfigPath),
     ...(fragmentsPath(p) ? { fragmentsPath: fragmentsPath(p)! } : {}),
     ...(pulled ? { pulled } : {}),
+    // The tenant's zone: presentation only (storage is UTC) — every sources tool and the attribution days use it.
+    timezone: tenantZone(p),
     // The attribution layer reads the tenant checkout (data only); it is on when the tenant ships annotations/attribution.json.
-    ...(p.sources?.tenant ? { attribution: { tenantRoot: tenantDir(p.slug), annotationsDir: annotationsDir(p.slug, p.sources.tenant), ...(process.env.AVEN_TZ ? { timezone: process.env.AVEN_TZ } : {}) } } : {}),
+    ...(p.sources?.tenant ? { attribution: { tenantRoot: tenantDir(p.slug), annotationsDir: annotationsDir(p.slug, p.sources.tenant), timezone: tenantZone(p) } } : {}),
     log: (line) => (verbose || !line.startsWith('  ') ? sink(`${prefix} ${line}`) : undefined),
   });
   sink(

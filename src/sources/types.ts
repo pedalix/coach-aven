@@ -161,6 +161,12 @@ export interface SourcesConfig {
   tenant?: TenantConfig;
   /** Poller interval (PR-C); default 15. Validated now so a typo fails at boot, not later. */
   intervalMinutes?: number;
+  /**
+   * The tenant's time zone (IANA). Storage is UTC everywhere; this zone is presentation only: what a
+   * bare date means in every sources tool ("2026-10-15" = that whole day here), `today`, the days the
+   * attribution layer cuts. Default: the bot's AVEN_TZ.
+   */
+  timezone?: string;
   /** Path (relative to projects.config.json) of the people/identities JSON used by the store build (PR-B). */
   people?: string;
 }

@@ -48,7 +48,7 @@ import type { Logger } from './types.js';
 // v6: msgraph events carry `calendar` {id, name, is_default}; lines without it (written by the
 //     pre-v6 puller, which read every shared calendar untagged) are skipped, so the rebuild drops
 //     a colleague's shared calendar / holidays / birthdays while the puller re-emits the own ones.
-export const SCHEMA_VERSION = 7;
+export const SCHEMA_VERSION = 8;
 /** Bumped when bots.ts rules change, so every row's is_bot / Slack labels get recomputed. */
 export const LABEL_RULES_VERSION = 1;
 /** Where the sandbox sees the replica directory (the file inside is always `store.sqlite`). */
@@ -177,13 +177,13 @@ CREATE TABLE IF NOT EXISTS attributions (
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS attributions_initiative ON attributions(initiative);
 CREATE TABLE IF NOT EXISTS att_fragments (
-  id TEXT PRIMARY KEY, kind TEXT NOT NULL, day TEXT NOT NULL, start TEXT NOT NULL, "end" TEXT NOT NULL,
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, start TEXT NOT NULL, "end" TEXT NOT NULL,
   title TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', container TEXT,
   refs TEXT NOT NULL DEFAULT '[]', participants TEXT NOT NULL DEFAULT '[]', project_keys TEXT NOT NULL DEFAULT '[]',
   weight REAL NOT NULL DEFAULT 1, state TEXT NOT NULL, decided_by TEXT, attributions TEXT NOT NULL DEFAULT '[]',
   rule_id TEXT, rationale TEXT NOT NULL DEFAULT '', candidates TEXT NOT NULL DEFAULT '[]', hint TEXT NOT NULL DEFAULT '', ledger_id TEXT
 );
-CREATE INDEX IF NOT EXISTS att_fragments_day ON att_fragments(day, state);
+CREATE INDEX IF NOT EXISTS att_fragments_start ON att_fragments(start, state);
 CREATE TABLE IF NOT EXISTS att_proposals (id TEXT PRIMARY KEY, question TEXT NOT NULL, options TEXT NOT NULL DEFAULT '[]', refs TEXT NOT NULL DEFAULT '[]');
 -- Task trackers (youtrack/jira/asana) share one shape (trackers/task.ts). comments is a JSON
 -- array; comments_text is its flattened text, kept only so FTS can index it.
@@ -435,6 +435,11 @@ export interface BuildContext {
   pulled?: ReadonlyArray<{ kind: string; finishedAt: string }>;
   /** The tenant's checkout for the attribution layer; undefined = the project has no tenant (layer off). */
   attribution?: AttributionFiles;
+  /**
+   * The tenant's zone (sources.timezone, else the bot's AVEN_TZ), written as `tz` into sync_state so every
+   * reader of this store — the sources tools in any face — presents bare dates in it. Storage stays UTC.
+   */
+  timezone?: string;
   log: Logger;
   now?: () => Date;
   /** Lines per transaction. */
@@ -930,6 +935,7 @@ export function buildStore(ctx: BuildContext): BuildSummary {
       }
     }
     st.syncSet.run('last_build_at', now().toISOString());
+    if (ctx.timezone) st.syncSet.run('tz', ctx.timezone);
     for (const p of ctx.pulled ?? []) st.syncSet.run(`pulled:${p.kind}`, p.finishedAt);
     if (ctx.replicaDir) sum.replica = writeReplica(db, ctx.replicaDir);
   } finally {

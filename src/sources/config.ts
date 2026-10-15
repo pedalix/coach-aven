@@ -50,7 +50,7 @@ function slackChannels(where: string, v: unknown): string[] {
 export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesConfig {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) fail(where, 'must be an object');
   const r = raw as Record<string, unknown>;
-  const known = new Set<string>([...SOURCE_KINDS, 'intervalMinutes', 'people', 'tenant']);
+  const known = new Set<string>([...SOURCE_KINDS, 'intervalMinutes', 'people', 'tenant', 'timezone']);
   for (const k of Object.keys(r)) if (!known.has(k)) fail(where, `unknown key "${k}" (allowed: ${[...known].join(', ')})`);
   const out: SourcesConfig = {};
   if (r.google !== undefined) {
@@ -179,6 +179,18 @@ export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesC
   }
   const interval = int(where, r.intervalMinutes, 'intervalMinutes', 1, 24 * 60);
   if (interval !== undefined) out.intervalMinutes = interval;
+  if (r.timezone !== undefined) {
+    let ok = typeof r.timezone === 'string' && !!r.timezone;
+    if (ok) {
+      try {
+        new Intl.DateTimeFormat('en-US', { timeZone: r.timezone as string });
+      } catch {
+        ok = false;
+      }
+    }
+    if (!ok) fail(where, `"timezone" must be an IANA zone name, got ${JSON.stringify(r.timezone)}`);
+    out.timezone = r.timezone as string;
+  }
   if (r.people !== undefined) {
     if (typeof r.people !== 'string' || !r.people.trim() || r.people.includes('..')) fail(where, '"people" must be a relative file path without ".."');
     out.people = r.people;

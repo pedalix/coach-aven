@@ -38,6 +38,7 @@ poller and the sandbox-side search tool are the next slices (see *What comes nex
 | `msgraph.tenant` | the Entra tenant GUID — the authority is always the tenant, never `/common`; `accounts` are UPNs; `only` ⊆ mail, calendar, chats, channels, files |
 | `msgraph.calendars` | Outlook calendar ids read **in addition to each account's default calendar** (default: the default calendar only — the same rule as `google.calendars`). A colleague's calendar shared into the mailbox, holidays and birthdays all appear in `/me/calendars`; Graph reports the mailbox owner as *organizer* for everything in them, so ownership is a property of the calendar, not of the event. Skipped calendars are named in the log every pass (ids with `--verbose`) so one can be opted in. Every Outlook event record carries `calendar: {id, name, is_default}` |
 | `intervalMinutes` | poller interval (PR-C); validated now |
+| `timezone` | the tenant's IANA zone — presentation only (storage is UTC): what a bare date means in every sources tool, `today`, the attribution layer's days. Default: the bot's `AVEN_TZ` |
 | `people` | identities file for the store build (PR-B); validated as a relative path now |
 
 `loadProjects` validates the block at boot (`src/sources/config.ts`), so a typo fails the start,
@@ -288,12 +289,16 @@ channel, answered on a worker thread from the replica on the bot host (`src/host
 | `unanswered(…)`, `stuck(…)` | The readouts — what waits for a reply, what stopped moving; see *Readouts* below. |
 | `stats()` | Per-source counts and time range, events, files, withheld count, `tz`, `now` and build meta — what the replica covers, before the agent concludes something is missing. `meta.pulled.<source> {at, age_minutes}` is derived from the `pulled:<kind>` scalars in `sync_state` (the last **ok** pull per kind, see *Store*); a source older than its interval is named with its last pull, never read as "quiet". |
 
-**Dates are local days.** The sandbox runs in UTC without tzdata, so the server — not the model —
-decides what "today" is: `sourcesMcpSpec()` passes the bot's `AVEN_TZ` as `SOURCES_TZ` into the
-server's env, and every `since`/`until`/`dueBefore`/`updatedSince` is read in that zone. A bare
-`YYYY-MM-DD` is that whole local day (`until: 2026-10-07` ends at 23:59:59.999 local), a zone-less
-datetime is local wall time, and anything with `Z` or an offset is taken as given. Tool descriptions
-and `stats.tz` name the zone. An unknown zone name falls back to UTC rather than killing the server.
+**UTC in storage, the tenant's zone in presentation.** Every stored instant is UTC — raw records,
+store rows, the attribution tables, the ledger; nothing local is persisted. One zone per tenant,
+`sources.timezone` in the project config (default: the bot's `AVEN_TZ`), decides what a date MEANS:
+the build writes it into the store as `tz`, and every tool call against that store reads its windows
+in it — so bluefin-ops and owen-ops on the same bot each get their own "today". The server, not the
+model, decides: a bare `YYYY-MM-DD` is that whole day in the tenant's zone (`until: 2026-10-07` ends at
+23:59:59.999 there), a zone-less datetime is wall time there, anything with `Z` or an offset is taken as
+given. `stats.tz` names the zone; descriptions say "the project's time zone" with the server default for
+a store built before zones were stored. An unknown zone name falls back to UTC rather than killing the
+server.
 
 Shipping: the bot imports the table, so a change reaches every session with the bot's next
 restart — nothing is uploaded into sandboxes any more. The layer-1 system prompt gains one paragraph when sources are
@@ -576,7 +581,7 @@ and what is left for a judgment. No tenant code runs on the host and no file rea
 **On** when the tenant ships `annotations/attribution.json`:
 
 ```json
-{ "subject": "<person_id>", "since": "2026-10-01", "timezone": "Europe/Zurich",
+{ "subject": "<person_id>", "since": "2026-10-01",
   "threadGapMinutes": 45, "substance": true, "admin": { "<umbrella>": "<umbrella>/<umbrella>/admin" } }
 ```
 
@@ -602,7 +607,8 @@ by overlapping refs), `escalated` (the ledger has an open question), `rule` (the
 broad marker) or a container whose judged fragments are at least 90 % one initiative, three or more.
 
 **Recompute**: at every build that consumed new lines or saw a tenant file change (and at least hourly,
-since the horizon ends today), over `since` to today in the tenant's zone — 389 fragments of 15 days in
+since the horizon ends today), over `since` to today in the tenant's zone (`sources.timezone`; the table stores
+UTC instants only, the tool turns the asked days into UTC bounds and labels each row with its local day) — 389 fragments of 15 days in
 under half a second on the home store. A broken tenant file keeps the previous tables and is logged.
 
 **Parity** with the owen-ops CLI it was ported from (2026-10-15, four days of the real store): the same
