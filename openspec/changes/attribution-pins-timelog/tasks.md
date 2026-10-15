@@ -7,4 +7,5 @@
 - [x] 2.1 `timelog` in the `.mjs` (1.7.0): the CLI's merge rules over att_fragments, days at query time; verify with ported timelog cases.
 - [x] 2.2 Docs (`docs/sources.md` → Attribution: pins, timelog), ledger row.
 - [x] 2.3 `budgets` in attribution.json and `reconciliation` in the `timelog` answer (1.8.0); verify with the CLI's summarize cases and an end-to-end month test.
+- [x] 2.4 The initiative index follows the plan (search/get/fragments `initiative`); the layer off restores the ledger-only index; verify with build and store tests.
 - [ ] 3.1 Home: compare `timelog` with `owen-ops timelog` for October; explain differences; the reconciliation equals the CLI's `status --month`.

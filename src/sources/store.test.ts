@@ -382,3 +382,30 @@ test('build v4: a better users map relabels rows already in the store', () => {
   assert.deepEqual([row.container, row.author_raw], ['dm:@guest', 'Guest Person']);
   db.close();
 });
+
+test('build: with the attribution layer the initiative index follows the plan — a live rule decision is searchable, a later judgment takes over', () => {
+  const { root, raw, ctx } = scaffold();
+  const tenantRoot = join(root, 'tenant');
+  const ann = join(tenantRoot, 'annotations');
+  mkdirSync(ann, { recursive: true });
+  writeFileSync(join(tenantRoot, 'initiatives.json'), JSON.stringify({ initiatives: [{ id: 'acme/shop', umbrella: 'acme', sources: { slack_channels: ['#shop'] } }, { id: 'acme/ops', umbrella: 'acme', sources: {} }] }));
+  writeFileSync(join(ann, 'attribution.json'), JSON.stringify({ subject: 'owen', since: '2026-10-01' }));
+  const fragmentsPath = join(ann, 'fragments.jsonl');
+  const c: BuildContext = { ...ctx, fragmentsPath, attribution: { tenantRoot, annotationsDir: ann, timezone: 'UTC' } };
+  writeFileSync(join(raw, 'slack', 'slack.messages.jsonl'), line({ source: 'slack', account: 'T1', container: '#shop', id: 'C1:1.0', ts: '2026-10-06T09:00:00.000Z', author: 'Owen Hale', participants: ['Owen Hale'], text: 'The SH-12 import failed on staging again, looking into it', permalink: 'p', raw_ref: 'slack:T1/C1/1.0' }));
+  buildStore(c);
+  const read = () => {
+    const db = openReadOnly(c.storePath);
+    const rows = plain(db.prepare('SELECT a.ref, a.initiative, a.decided_by, a.fragment_id FROM attributions a ORDER BY a.ref').all()) as { ref: string; initiative: string; decided_by: string; fragment_id: string }[];
+    const hits = (db.prepare("SELECT count(*) AS n FROM messages m WHERE EXISTS (SELECT 1 FROM attributions a WHERE a.ref = m.ref AND a.initiative LIKE 'acme/%')").get() as { n: number }).n;
+    db.close();
+    return { rows, hits };
+  };
+  const first = read();
+  assert.deepEqual(first.rows.map((r) => [r.initiative, r.decided_by]), [['acme/shop', 'rule']], 'the channel decides it; nothing is in the ledger yet');
+  assert.equal(first.hits, 1, 'the message is found by its initiative');
+  // a judgment by id only (no refs): the plan carries it over the platform's refs
+  writeFileSync(fragmentsPath, JSON.stringify({ id: first.rows[0]!.fragment_id, kind: 'thread', start: '2026-10-06', end: '2026-10-06', refs: [], attributions: [{ initiative: 'acme/ops', share: 1 }], decided_by: 'model', rationale: 'ops work', status: 'decided' }) + '\n');
+  buildStore(c);
+  assert.deepEqual(read().rows.map((r) => [r.ref, r.initiative, r.decided_by]), [[first.rows[0]!.ref, 'acme/ops', 'model']]);
+});

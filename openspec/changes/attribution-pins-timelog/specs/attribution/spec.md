@@ -43,3 +43,10 @@ Each budget SHALL report the units used (half-days to 0.5 per breakdown key then
 #### Scenario: Half-days per billing code
 - **WHEN** a month holds 300 minutes on one billing code and 59 on another, with 240 minutes per half-day
 - **THEN** the first counts 1.5 half-days, the second none, and the budget has used 1.5
+
+### Requirement: The initiative index follows the plan
+With the attribution layer on, the store's initiative index SHALL hold the plan's decided and rule fragments over the platform's own refs, plus the rows of ledger lines the plan does not hold; with the layer off it SHALL hold the ledger's rows alone.
+
+#### Scenario: A judgment without refs
+- **WHEN** the tenant ledger records a judgment by fragment id only
+- **THEN** a search filtered by that initiative finds the fragment's messages

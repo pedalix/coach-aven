@@ -919,14 +919,17 @@ export function buildStore(ctx: BuildContext): BuildSummary {
         const read = readAttributionInputs(ctx.attribution);
         if (!read) {
           if ((st.syncGet.get('att:fingerprint') as { value?: string } | undefined)?.value) {
-            clearAttribution(db);
+            clearAttribution(db, fragments);
             sum.attribution = 'off';
           }
         } else {
           const day = now().toISOString().slice(0, 13); // an hourly tick at most moves the horizon
           const afp = createHash('sha256').update([read.text, peopleText, fragmentsText, day].join('\0')).digest('hex');
-          if (sum.files > 0 || afp !== (st.syncGet.get('att:fingerprint') as { value?: string } | undefined)?.value) {
+          // A derived recompute (ledger, people or the Slack directory moved) rewrote the initiative index from the
+          // ledger alone: the plan must lay its rows over it again in the same build.
+          if (sum.files > 0 || sum.recomputed || afp !== (st.syncGet.get('att:fingerprint') as { value?: string } | undefined)?.value) {
             sum.attribution = recomputeAttribution(db, read.inputs, people, fragments, now());
+            sum.attributions = Number((db.prepare('SELECT count(*) AS n FROM attributions').get() as { n: number }).n);
             st.syncSet.run('att:fingerprint', afp);
           } else sum.attribution = 'unchanged';
         }
