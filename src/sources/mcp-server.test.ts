@@ -4,7 +4,8 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { buildStore, openReadOnly, SCHEMA_VERSION, type BuildContext } from './store.js';
+import { buildStore, openReadOnly, openStore, SCHEMA_VERSION, type BuildContext } from './store.js';
+import { writeItems, type ItemRow } from './attribution/items.js';
 // The stdio face of the server (what `node sources-mcp.mjs` runs); the bot itself calls handleMessage in-process.
 const SOURCES_MCP_SOURCE = new URL('../../snapshot/plain/sources-mcp.mjs', import.meta.url).pathname;
 // The server script IS the implementation under test (see its header): import it directly.
@@ -23,6 +24,7 @@ import {
   runFragments,
   runGet,
   runMeetings,
+  runAttribution,
   runPeople,
   runSearch,
   runStats,
@@ -858,4 +860,67 @@ test('a store built for a tenant carries its zone; every answer of that store is
   // a bare date is a whole day in the store's zone: the fixture's 10-08 calendar day differs between zones
   const day = (db: string) => JSON.parse(((handleMessage({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'calendar', arguments: { since: '2026-10-08', until: '2026-10-08' } } }, db)!.result as { content: { text: string }[] }).content[0]!.text)).events.length;
   assert.equal(typeof day(tokyo), 'number');
+});
+
+// ── item mode: attribution({unit: 'item'}) (attribution/items.ts writes att_items) ─────────
+
+test('attribution unit "item": the floor per item with counts, filters, collapse and the window; off and unconfigured say so; no unit = fragments as before', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'items-readout-'));
+  const db = openStore(join(dir, 'store.sqlite'));
+  const NOW = new Date('2026-10-15T16:00:00.000Z');
+  try {
+    assert.equal(runAttribution(db, { unit: 'item' }, NOW).configured, false, 'no attribution layer at all');
+    // the fragment pass ran (its meta) but the tenant has no "items" key
+    const meta = db.prepare('INSERT OR REPLACE INTO sync_state(key, value) VALUES (?, ?)');
+    for (const [k, v] of [['att:subject', 'me'], ['att:since', '2026-10-01'], ['att:until', '2026-10-15'], ['att:computed_at', NOW.toISOString()]]) meta.run(k, v);
+    const off = runAttribution(db, { unit: 'item' }, NOW);
+    assert.deepEqual([off.items_mode, off.items], ['off', []]);
+    assert.match(String(off.note), /"items"/);
+    const before = runAttribution(db, { since: '2026-10-14', until: '2026-10-15' }, NOW);
+
+    const row = (o: Partial<ItemRow> & Pick<ItemRow, 'ref' | 'ts'>): ItemRow => ({
+      day: o.ts.slice(0, 10), type: 'message', source: 'slack', container: '#ops', sender_class: 'bot', family: 'fam-000000000001', cluster: o.ref, cluster_conf: 0.97, cluster_via: 'single',
+      initiative: null, conf: 0, rung: 'abstain', candidates: [], hint: '', kind: null, kind_conf: 0, kind_rung: 'abstain', addressee: [], addressee_conf: 0.95, addressee_rung: 'auto:none', case_key: `family:fam-000000000001:${o.ts.slice(0, 10)}`, ...o,
+    });
+    const rows: ItemRow[] = [
+      row({ ref: 'gmail:a:n1', ts: '2026-10-13T07:00:00.000Z', source: 'gmail', container: 'inbox', sender_class: 'bulk', family: 'fam-000000000002', initiative: 'none', conf: 0.9, rung: 'sender:bulk', kind: 'noise', kind_conf: 0.95, kind_rung: 'sender:bulk' }),
+      row({ ref: 'slack:T1:C0OPS00001:1.1', ts: '2026-10-14T08:00:00.000Z', initiative: 'acme/shop', conf: 0.95, rung: 'host:shop.acme.example', candidates: ['acme/shop'], hint: 'host shop.acme.example', kind_rung: 'auto:firing' }),
+      row({ ref: 'slack:T1:C0OPS00001:1.2', ts: '2026-10-14T08:10:00.000Z', cluster: 'slack:T1:C0OPS00001:1.1', cluster_conf: 0.95, cluster_via: 'flap', initiative: 'acme/shop', conf: 0.95, rung: 'host:shop.acme.example', kind: 'noise', kind_conf: 0.95, kind_rung: 'auto:resolved' }),
+      row({
+        ref: 'slack:T1:D0DM000001:2.1', ts: '2026-10-14T11:00:00.000Z', container: 'dm:@Ana Berg', sender_class: 'human', family: 'fam-000000000003', candidates: ['acme/retainer', 'acme/shop'], hint: 'narrow via ana',
+        addressee: ['me'], addressee_conf: 0.9, addressee_rung: 'explicit:dm', case_key: 'thread:slack:T1/D0DM000001/2.1',
+      }),
+    ];
+    writeItems(db, rows, { since: '2026-10-09', until: '2026-10-15', days: 7 });
+
+    const out = runAttribution(db, { unit: 'item', since: '2026-10-14', until: '2026-10-15' }, NOW);
+    assert.deepEqual([out.unit, out.window, out.note], ['item', { since: '2026-10-09', until: '2026-10-15', days: 7 }, undefined]);
+    assert.deepEqual(out.counts, { items: 3, human: 1, bot: 2, bulk: 0, system: 0, decided: 2, open: 1, repeats: 1, noise: 1 }, 'the requested days only');
+    const [firing, resolved, dm] = out.items!;
+    assert.deepEqual(out.items!.map((i) => i.ref), ['slack:T1:C0OPS00001:1.1', 'slack:T1:C0OPS00001:1.2', 'slack:T1:D0DM000001:2.1'], 'in time order');
+    assert.deepEqual([firing!.repeats, firing!.cluster, firing!.initiative, firing!.conf, firing!.rung, firing!.kind, firing!.kind_rung], [1, undefined, 'acme/shop', 0.95, 'host:shop.acme.example', null, 'auto:firing']);
+    assert.deepEqual([resolved!.cluster, resolved!.cluster_via, resolved!.kind, resolved!.kind_conf], ['slack:T1:C0OPS00001:1.1', 'flap', 'noise', 0.95], 'a repeat names what it repeats');
+    assert.deepEqual([dm!.sender, dm!.initiative, dm!.candidates, dm!.addressee, dm!.addressee_conf, dm!.case, dm!.container], ['human', null, ['acme/retainer', 'acme/shop'], ['me'], 0.9, 'thread:slack:T1/D0DM000001/2.1', 'dm:@Ana Berg']);
+    assert.deepEqual(runAttribution(db, { unit: 'item', since: '2026-10-14', sender: 'bot' }, NOW).items!.map((i) => i.ref), ['slack:T1:C0OPS00001:1.1', 'slack:T1:C0OPS00001:1.2']);
+    assert.deepEqual(runAttribution(db, { unit: 'item', since: '2026-10-14', state: 'open' }, NOW).items!.map((i) => i.ref), ['slack:T1:D0DM000001:2.1']);
+    assert.deepEqual(runAttribution(db, { unit: 'item', since: '2026-10-13', until: '2026-10-14', collapse: true }, NOW).items!.map((i) => i.ref), ['gmail:a:n1', 'slack:T1:C0OPS00001:1.1', 'slack:T1:D0DM000001:2.1'], 'one per cluster');
+    const capped = runAttribution(db, { unit: 'item', since: '2026-10-13', until: '2026-10-14', limit: 2 }, NOW);
+    assert.deepEqual([capped.items!.length, capped.truncated], [2, true]);
+    assert.match(String(runAttribution(db, { unit: 'item', since: '2026-09-01', until: '2026-09-02' }, NOW).note), /outside the item window 2026-10-09\.\.2026-10-15/);
+    assert.throws(() => runAttribution(db, { unit: 'item', state: 'rule' }, NOW), /decided or open/);
+    assert.throws(() => runAttribution(db, { unit: 'item', sender: 'robot' }, NOW), /sender must be/);
+    assert.throws(() => runAttribution(db, { unit: 'items' }, NOW), /unit must be/);
+    // without `unit` (or with the default) the fragment readout is what it was, item rows or not
+    assert.deepEqual(runAttribution(db, { since: '2026-10-14', until: '2026-10-15' }, NOW), before);
+    assert.deepEqual(runAttribution(db, { since: '2026-10-14', until: '2026-10-15', unit: 'fragment' }, NOW), before);
+    assert.equal('items' in before || 'unit' in before, false);
+    // the same through the protocol
+    const call = handleMessage({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'attribution', arguments: { unit: 'item', since: '2026-10-14', collapse: true } } }, join(dir, 'store.sqlite'))!;
+    const text = (call.result as { content: { text: string }[]; isError: boolean }).content[0]!.text;
+    assert.deepEqual(JSON.parse(text).items.map((i: { ref: string }) => i.ref), ['slack:T1:C0OPS00001:1.1', 'slack:T1:D0DM000001:2.1']);
+    const schema = TOOLS.find((t) => t.name === 'attribution')!.inputSchema as { properties: Record<string, { enum?: string[] }> };
+    assert.deepEqual(schema.properties.unit!.enum, ['fragment', 'item']);
+  } finally {
+    db.close();
+  }
 });

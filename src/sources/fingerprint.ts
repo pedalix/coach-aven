@@ -7,7 +7,7 @@
 //   familyKey(item)   source + sender + the template of the head (a mail's subject without Re:/Fwd:, else the text)
 //   fold(items)       the families of a batch, each with its canonical (first) item and why every member is in it
 // No content dedup exists today: the store dedups raw lines, identical tracker rows and recorder copies only. Pure,
-// deterministic, no model; not wired yet (the store or a whole-store pass adopts it behind a rollout flag).
+// deterministic, no model; used by the attribution layer's item mode (attribution.json `items`), not by the store.
 
 import { isMailItem } from './sender.js';
 

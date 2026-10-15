@@ -14,7 +14,8 @@
 // parseAttendee() returns every address and the remaining name runs (a run = the words between two addresses), and
 // says whether the entry holds more than one person (`glued`). A glued run is split against the people we know with
 // splitGlued() — never by guessing: what matches nobody stays in `rest`, is used for co-occurrence only, never asked.
-// Pure, no I/O. Not wired yet: the store and the collector adopt it behind a rollout flag.
+// Pure, no I/O. Used by the attribution layer (call participants), the identities collector and commitments — the
+// tenant-gated paths; the store's own meeting_people/calls resolution (which prod reads) keeps its old parser for now.
 
 export interface ParsedAttendee {
   /** Every address in the entry, lowercased, in order, deduplicated. */

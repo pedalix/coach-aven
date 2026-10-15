@@ -38,7 +38,7 @@ test('parseAttendee: structured pairs (Granola, Graph) are one person; a company
 
 test('parseAttendee: name-only entries (Gemini, Wispr) are kept — today `email ?? name` drops them', () => {
   const gemini = { email: '', name: 'Ana Berg' };
-  assert.deepEqual(parseAttendees([gemini]), [], 'the current observation parser loses the name');
+  assert.deepEqual(parseAttendees([gemini]), ['Ana Berg'], 'the observation parser keeps the name now (it used to drop it)');
   assert.deepEqual(parseAttendee(gemini), { emails: [], names: ['Ana Berg'], glued: false, raw: 'Ana Berg' });
   assert.deepEqual(parseAttendee({ name: 'Ana Berg | Acme' }).names, ['Ana Berg'], 'Wispr "<First Last> | <Company>"');
   assert.equal(parseAttendee({ email: '', name: 'Ana Maria Berg' }).glued, false, 'three words stay one person');

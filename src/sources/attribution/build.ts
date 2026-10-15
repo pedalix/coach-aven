@@ -3,21 +3,28 @@
 // tenant DATA only, no tenant code, no model. Mirrors how the owen-ops CLI planned a daily review window
 // (src/review/load.ts + cli.ts draftsSettled), so its ledger attaches: the subject's messages (calendar
 // replies dropped), participants of a container as seen in a window around the message's day plus the
-// names a DM/chat container id encodes, meetings deduped by overlap, activity blocks routed by repo/path.
+// names a DM/chat container id encodes plus whom each message was addressed to, recorder copies of one call
+// merged by the store's call id, activity blocks routed by repo/path. People resolve through participants.ts
+// (store-exact first, then folded, a person's name as an implicit identity); a call's people come from its
+// attendees, its calendar event and its transcript's speakers.
 import type { DatabaseSync } from 'node:sqlite';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseAttributionConfig, type AttributionConfig } from './config.js';
 import { parseRegistry, Registry, type RegistryData } from './registry.js';
 import { containerPeople, dedupeMeetings, meetingFragments, messageFragments, settleLowSubstance, workFragments, type FragmentDraft, type MeetingIn, type MsgIn, type WorkBlock } from './fragment.js';
+import { buildResolver, callParticipants, indexEvents, linkedEvent, loadEvents, recipientsOf, speakerLabels } from './participants.js';
 import { planFragments, proposeRules, STATES, type LedgerRecord, type Planned, type State } from './plan.js';
 import { appendPinLines, pinsToAdd, readPins, rulesVersion } from './pins.js';
 import type { LadderCtx, MarkedPerson, RuleRecord } from './ladder.js';
-import { resolveIdentity, type Person } from '../people.js';
+import type { Person } from '../people.js';
+import { SOURCE_PRIORITY } from '../calls.js';
 import { attributionRows, type Fragment } from '../annotations.js';
+import { parseAttendee } from '../identities/attendees.js';
 import { collectIdentities } from '../identities/collect.js';
 import { loadObservations } from '../identities/observations.js';
 import { attendeeNames, extractCommitments, subjectNames, type CallIn } from '../commitments.js';
+import { recomputeItems, type ItemsSummary } from './items.js';
 
 export interface AttributionFiles {
   /** The tenant checkout's root (initiatives.json lives here). */
@@ -49,6 +56,8 @@ export interface AttributionSummary {
   proposals: number;
   identities: { merges: number; questions: number };
   commitments: number;
+  // Item mode (attribution.json `items`): null when off; an error never costs the fragments their tables.
+  items?: ItemsSummary | { error: string } | null;
 }
 
 function parseRules(raw: unknown, where = 'annotations/rules.json'): RuleRecord[] {
@@ -86,16 +95,22 @@ export function plusDays(day: string, n: number): string {
   return new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 }
 
+/**
+ * Recorder copies in copy order — start, recorder priority (calls.ts SOURCE_PRIORITY: granola < wispr < gmeet), id —
+ * as dedupeMeetings orders them: the first copy names a call, and rowid order flipped that between builds.
+ */
+const COPY_ORDER = `start, CASE source ${Object.entries(SOURCE_PRIORITY).map(([s, n]) => `WHEN '${s}' THEN ${n}`).join(' ')} ELSE 9 END, id`;
+
 /** Calendar replies in Sent Items are not conversation. */
 const CALENDAR_REPLY = /^(accepted|declined|tentative|akzeptiert|abgelehnt|mit vorbehalt|angenommen)\s*:/i;
 type Row = Record<string, unknown>;
 const str = (v: unknown) => (v == null ? '' : String(v));
 
-function parseList(v: unknown): string[] {
-  if (Array.isArray(v)) return v.map((x) => (typeof x === 'string' ? x : ((x as { email?: string }).email ?? (x as { name?: string }).name ?? ''))).filter(Boolean);
+/** A JSON array column (attendees, next_steps) → its entries; anything else → none. */
+function entries(v: unknown): unknown[] {
   try {
-    const j = JSON.parse(str(v));
-    return Array.isArray(j) ? parseList(j) : [];
+    const j = JSON.parse(str(v) || '[]') as unknown;
+    return Array.isArray(j) ? j : [];
   } catch {
     return [];
   }
@@ -133,10 +148,16 @@ export function loadAttributionDrafts(db: DatabaseSync, inputs: AttributionInput
   const marked = new Map<string, MarkedPerson>(people.map((p) => [p.person_id, { person_id: p.person_id, name: p.name, marker: p.marker ? { type: p.marker.type, initiatives: [...p.marker.initiatives] } : { type: 'broad', initiatives: [] } }]));
   const names = new Map(people.map((p) => [p.person_id, p.name]));
   const index = new Map((db.prepare('SELECT identity, person_id FROM identities').all() as { identity: string; person_id: string }[]).map((r) => [r.identity, r.person_id]));
-  const who = (raw: string): string | null => (raw ? (resolveIdentity(raw, index) ?? null) : null);
+  // One resolver for every form below: the store's exact index first (nothing it resolves moves), then folded forms
+  // and each person's name as an implicit identity (participants.ts).
+  const resolver = buildResolver(people, index);
+  const who = (raw: string): string | null => resolver.resolve(raw);
+  const recipients = recipientsOf(db);
 
   // The subject's own messages; participants of each container in a window around the message's day
-  // (the CLI looked one day back and two ahead of its daily window), plus names encoded in DM/chat ids.
+  // (the CLI looked one day back and two ahead of its daily window), plus names encoded in DM/chat ids,
+  // plus whom the message itself was addressed to (message_people 'to': DM members, mentions, mail To/Cc) —
+  // the container's authors alone miss a recipient who never wrote back.
   const partStmt = db.prepare('SELECT DISTINCT author_raw, author_person FROM messages WHERE container = ? AND ts >= ? AND ts < ?');
   const partCache = new Map<string, string[]>();
   const participants = (container: string, day: string): string[] => {
@@ -159,17 +180,37 @@ export function loadAttributionDrafts(db: DatabaseSync, inputs: AttributionInput
   };
   const msgs: MsgIn[] = (db.prepare('SELECT ref, source, container, thread_id, ts, subject, text FROM messages WHERE author_person = ? AND deleted = 0 AND ts >= ? AND ts < ? ORDER BY ts').all(config.subject, lo, hi) as Row[])
     .filter((r) => !CALENDAR_REPLY.test(str(r.subject)))
-    .map((r) => ({ ref: str(r.ref), source: str(r.source), container: str(r.container), thread_id: str(r.thread_id), ts: str(r.ts), subject: str(r.subject), text: str(r.text), participants: participants(str(r.container), localDay(str(r.ts), tz)) }));
+    .map((r) => ({ ref: str(r.ref), source: str(r.source), container: str(r.container), thread_id: str(r.thread_id), ts: str(r.ts), subject: str(r.subject), text: str(r.text), participants: [...new Set([...participants(str(r.container), localDay(str(r.ts), tz)), ...recipients(str(r.ref))])] }));
 
-  const meetings: MeetingIn[] = (db.prepare('SELECT source, id, ref, title, start, "end", attendees, summary, transcript FROM meetings WHERE deleted = 0 AND start >= ? AND start < ?').all(lo, hi) as Row[]).map((r) => {
-    const attendees = parseList(r.attendees);
-    return { source: str(r.source) || 'meeting', id: str(r.id ?? r.ref), title: str(r.title), start: str(r.start), end: str(r.end), attendees, summary: str(r.summary), transcriptChars: str(r.transcript).length, participants: [...new Set(attendees.map(who).filter((x): x is string => !!x))] };
-  });
+  // Recorder copies, each with its people: attendee entries read by the one parser, its calendar event (same title,
+  // ±15 min), its transcript's speakers. Which copy names a call is dedupeMeetings' copy order (start, recorder
+  // priority, id) — never the rows' insertion order.
+  const calendar = indexEvents(loadEvents(db, lo, hi));
+  const meetings: MeetingIn[] = (db.prepare(`SELECT source, id, ref, title, start, "end", attendees, summary, transcript, call_id FROM meetings WHERE deleted = 0 AND start >= ? AND start < ? ORDER BY ${COPY_ORDER}`).all(lo, hi) as Row[])
+    .map((r) => {
+      const stored = entries(r.attendees);
+      const transcript = str(r.transcript);
+      const event = linkedEvent({ title: str(r.title), start: str(r.start) }, calendar);
+      return {
+        source: str(r.source) || 'meeting',
+        id: str(r.id ?? r.ref),
+        title: str(r.title),
+        start: str(r.start),
+        end: str(r.end),
+        attendees: stored.map((a) => parseAttendee(a).raw).filter(Boolean),
+        summary: str(r.summary),
+        transcriptChars: transcript.length,
+        participants: callParticipants({ attendees: stored, speakers: speakerLabels(transcript) }, event, resolver),
+        ...(str(r.call_id) ? { callId: str(r.call_id) } : {}),
+      };
+    });
 
-  const blocks: WorkBlock[] = (db.prepare('SELECT source, id, container, start, "end", title FROM activity WHERE deleted = 0 AND start >= ? AND start < ?').all(lo, hi) as Row[]).map((r) => {
+  const blocks: WorkBlock[] = (db.prepare('SELECT source, id, container, start, "end", title, items_text FROM activity WHERE deleted = 0 AND start >= ? AND start < ?').all(lo, hi) as Row[]).map((r) => {
     const container = str(r.container);
     const byRepo = reg.routeRepo(container);
-    return { start: str(r.start), end: str(r.end) || str(r.start), title: str(r.title) || container, ref: `activity:${str(r.source)}:${str(r.id)}`, workKey: container || null, route: byRepo.confidence !== 'none' ? byRepo : reg.routePath(container) };
+    // Tracker keys in the block's commit/session texts (F6): a block outside every registered repo can still route by
+    // the ticket it names; a repo route still wins (the registry rung tries repo/path first).
+    return { start: str(r.start), end: str(r.end) || str(r.start), title: str(r.title) || container, ref: `activity:${str(r.source)}:${str(r.id)}`, workKey: container || null, route: byRepo.confidence !== 'none' ? byRepo : reg.routePath(container), text: str(r.items_text) };
   });
 
   const inHorizon = (d: FragmentDraft) => {
@@ -179,6 +220,11 @@ export function loadAttributionDrafts(db: DatabaseSync, inputs: AttributionInput
   const calls = dedupeMeetings(meetings);
   let drafts = [...calls.flatMap(meetingFragments), ...messageFragments(msgs, config.threadGapMinutes), ...workFragments(blocks)].filter(inHorizon);
   if (config.substance) drafts = settleLowSubstance(drafts, config.subject, names).kept;
+  // A greeting run attached to a call ("joining in 2 min"): whom it was addressed to was at the call.
+  for (const d of drafts) {
+    const attached = d.kind === 'call' ? d.refs.filter((r) => !r.startsWith('meeting:')) : [];
+    if (attached.length) d.participants = [...new Set([...d.participants, ...attached.flatMap(recipients)])];
+  }
   const ctx: LadderCtx = { rules, people: marked, reg, self: config.subject, ...(config.admin ? { admin: config.admin } : {}) };
   return { since, until, lo, hi, drafts, meetings: calls, ctx };
 }
@@ -204,18 +250,13 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
   }
   const proposals = proposeRules(drafts, ledger, ctx);
   // Identities and the subject's promised steps: the review's other two inputs, from the same store and people file.
-  const identities = collectIdentities(people, loadObservations(db, config.subject), config.subject);
+  const identities = collectIdentities(people, loadObservations(db, config.subject, people), config.subject);
   const calls = new Map<string, CallIn>();
-  for (const r of db.prepare('SELECT ref, source, title, start, attendees, next_steps, call_id FROM meetings WHERE deleted = 0 AND start >= ? AND start < ? ORDER BY start').all(lo, hi) as Row[]) {
+  // In copy order: the first copy gives the call its start and title, and wins a step two copies share.
+  for (const r of db.prepare(`SELECT ref, source, title, start, attendees, next_steps, call_id FROM meetings WHERE deleted = 0 AND start >= ? AND start < ? ORDER BY ${COPY_ORDER}`).all(lo, hi) as Row[]) {
     const id = str(r.call_id) || str(r.ref);
     const cur = calls.get(id) ?? { call_id: id, start: str(r.start), title: str(r.title), copies: [] };
-    let steps: string[] = [];
-    try {
-      const j = JSON.parse(str(r.next_steps) || '[]') as unknown;
-      steps = Array.isArray(j) ? j.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))) : [];
-    } catch {
-      steps = [];
-    }
+    const steps = entries(r.next_steps).map((x) => (typeof x === 'string' ? x : JSON.stringify(x)));
     cur.copies.push({ source: str(r.source), ref: str(r.ref), next_steps: steps, attendees: attendeeNames(r.attendees) });
     if (!cur.title && str(r.title)) cur.title = str(r.title);
     calls.set(id, cur);
@@ -268,7 +309,15 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
     db.exec('ROLLBACK');
     throw e;
   }
-  return { since, until, fragments: planned.length, states, proposals: proposals.length, identities: { merges: identities.merges.length, questions: identities.questions.length }, commitments: commitments.length };
+  // The item floor runs in its own transaction after the fragments are safe: a failure there is reported in the
+  // summary (the build logs it) and leaves the fragment tables of this build intact.
+  let items: ItemsSummary | { error: string } | null;
+  try {
+    items = recomputeItems(db, inputs, people, now);
+  } catch (e) {
+    items = { error: e instanceof Error ? e.message : String(e) };
+  }
+  return { since, until, fragments: planned.length, states, proposals: proposals.length, identities: { merges: identities.merges.length, questions: identities.questions.length }, commitments: commitments.length, items };
 }
 
 /**
@@ -278,7 +327,7 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
 export function clearAttribution(db: DatabaseSync, ledgerRecords: readonly Fragment[] = []): void {
   db.exec('BEGIN');
   try {
-    db.exec("DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins; DELETE FROM att_commitments; DELETE FROM sync_state WHERE key LIKE 'att:%'; DELETE FROM attributions;");
+    db.exec("DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins; DELETE FROM att_commitments; DELETE FROM att_items; DELETE FROM sync_state WHERE key LIKE 'att:%'; DELETE FROM attributions;");
     const aIns = db.prepare('INSERT OR REPLACE INTO attributions(ref, initiative, share, fragment_id, decided_by) VALUES (?, ?, ?, ?, ?)');
     for (const r of attributionRows(ledgerRecords)) aIns.run(r.ref, r.initiative, r.share, r.fragment_id, r.decided_by);
     db.exec('COMMIT');

@@ -121,7 +121,7 @@ export interface JsonRpcMessage {
 }
 export function runAttribution(
   db: unknown,
-  args: { since?: string; until?: string; state?: string; limit?: number | string },
+  args: { since?: string; until?: string; state?: string; limit?: number | string; unit?: 'fragment' | 'item' | string; sender?: string; collapse?: boolean },
   now?: Date,
 ): {
   configured?: false;
@@ -136,6 +136,11 @@ export function runAttribution(
   fragments?: Array<Record<string, unknown> & { id: string; state: string }>;
   truncated?: boolean;
   proposals?: Array<{ id: string; question: string; options: string[]; refs: string[] }>;
+  /** unit "item": item mode's rows (att_items) for the requested days, or `items_mode: 'off'` when the tenant has not turned it on. */
+  unit?: 'item';
+  items_mode?: 'off';
+  window?: { since: string; until: string; days: number };
+  items?: Array<Record<string, unknown> & { ref: string; day: string; sender: string; family: string; initiative: string | null; rung: string; kind: string | null; addressee: string[] | null; case: string }>;
 };
 export interface TlRoute { initiative: string | null; confidence: string; candidates: string[]; split?: Record<string, number> }
 export interface TlEvidence { kind: 'meeting' | 'session'; start: string; end: string; minutes: number; title: string; ref: string; route: TlRoute; workKey?: string }

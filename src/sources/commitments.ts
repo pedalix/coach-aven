@@ -4,6 +4,7 @@
 // from the tenant's people file (their full and first name, every identity, and "me"), not from code. `due` and the
 // initiative stay with the tenant: they are interpretation, confirmed by a human.
 import { hash } from './attribution/fragment.js';
+import { parseAttendee } from './identities/attendees.js';
 import { normaliseName } from './identities/normalise.js';
 
 export interface Step {
@@ -51,7 +52,11 @@ export interface CallIn {
   copies: CallCopy[];
 }
 
-/** Attendee names for `to` (names win over addresses here: the ledger wants a person, not a mailbox). */
+/**
+ * Attendee names for `to` (names win over addresses here: the ledger wants a person, not a mailbox). Entries are read by
+ * the one attendee parser (identities/attendees.ts): a `| Company` suffix is no part of a name, and a Gemini line that
+ * lands in the email field ("ana berg rui@x.example") gives its name runs and its addresses, not one string.
+ */
 export function attendeeNames(v: unknown): string[] {
   let list: unknown[] = [];
   try {
@@ -60,9 +65,10 @@ export function attendeeNames(v: unknown): string[] {
   } catch {
     list = [];
   }
-  const names = list.map((x) => (typeof x === 'string' ? x : String((x as { name?: unknown })?.name ?? ''))).filter(Boolean);
+  const parsed = list.map(parseAttendee);
+  const names = parsed.flatMap((p) => p.names);
   if (names.length) return [...new Set(names)];
-  return [...new Set(list.map((x) => (typeof x === 'string' ? x : String((x as { email?: unknown })?.email ?? ''))).filter(Boolean))];
+  return [...new Set(parsed.flatMap((p) => p.emails))];
 }
 
 export interface CommitmentRow {

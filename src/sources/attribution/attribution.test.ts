@@ -3,7 +3,7 @@
 // additions (ledger coverage by overlapping refs, the tenant config, admin buckets as data).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { containerPeople, dedupeMeetings, hash, meetingFragments, messageFragments, settleLowSubstance, topics, workFragments, type FragmentDraft, type MsgIn, type WorkBlock } from './fragment.js';
+import { containerPeople, dedupeMeetings, hash, meetingFragments, messageFragments, settleLowSubstance, topics, workFragments, type FragmentDraft, type MeetingIn, type MsgIn, type WorkBlock } from './fragment.js';
 import { attribute, isAdminText, type LadderCtx, type MarkedPerson } from './ladder.js';
 import { planFragments, proposeRules, type LedgerRecord } from './plan.js';
 import { parseRegistry, Registry, normaliseRepo, repoMatches } from './registry.js';
@@ -124,7 +124,8 @@ test('ladder: a candidates rule narrows and stops; the admin rung exists only wi
   assert.equal(isAdminText('Please send the invoice for September'), true);
   const invoice = draft({ participants: ['owner', 'theo'], text: 'Please send the invoice for September' });
   assert.equal(attribute(invoice, ctx()).decided, null, 'no admin map → no admin decision');
-  assert.deepEqual(attribute(invoice, ctx([], { acme: 'acme/admin' })).decided, { attributions: [{ initiative: 'acme/admin', share: 1 }], rule_id: 'admin', rationale: 'admin chatter with Theo Brandt' });
+  // the rationale names the word that fired (an admin decision is a guess worth auditing); conf = the rung's grade (F12)
+  assert.deepEqual(attribute(invoice, ctx([], { acme: 'acme/admin' })).decided, { attributions: [{ initiative: 'acme/admin', share: 1 }], rule_id: 'admin', rationale: 'admin chatter ("invoice") with Theo Brandt', conf: 0.75 });
 });
 
 test('plan: the ledger wins by id and, for runs, by overlapping refs; the ladder decides or leaves open the rest', () => {
@@ -197,8 +198,31 @@ test('registry: repos with or without host and globs; longest path wins; titles;
 test('containers and meeting dedupe', () => {
   assert.deepEqual(containerPeople('chat:group:A B | X+C D | Y'), ['A B | X', 'slack:A B | X', 'C D | Y', 'slack:C D | Y']);
   assert.deepEqual(containerPeople('dm:U02HT0SDRB4'), []);
+  assert.deepEqual(containerPeople('mpim:@ana.berg+@rui'), ['ana.berg', 'slack:ana.berg', 'rui', 'slack:rui'], 'a Slack group DM names its members');
   const m = (start: string, end: string, summary = '') => ({ source: 's', id: start, title: 't', start, end, attendees: [], summary, participants: [] as string[] });
   assert.equal(dedupeMeetings([m('2026-10-08T10:00:00Z', '2026-10-08T11:00:00Z'), m('2026-10-08T10:05:00Z', '2026-10-08T10:55:00Z', 'x')]).length, 1);
+});
+
+test('F3: recorder copies of one call (the store\'s call id) are one call, named by the first copy in copy order', () => {
+  const copy = (source: string, id: string, start: string, end: string, callId?: string, participants: string[] = []): MeetingIn => ({ source, id, title: 'Sync', start, end, attendees: [], summary: 'plain text '.repeat(20), participants, ...(callId ? { callId } : {}) });
+  // A Gemini doc has no end (zero-length window): overlap alone never merged it with the Granola copy of the same call.
+  const gmeet = copy('gmeet', 'doc1', '2026-10-08T10:00:00Z', '2026-10-08T10:00:00Z', 'call:a', ['rui']);
+  const granola = copy('granola', 'n1', '2026-10-08T10:02:00Z', '2026-10-08T10:40:00Z', 'call:a', ['owner']);
+  assert.equal(dedupeMeetings([{ ...gmeet, callId: undefined }, { ...granola, callId: undefined }]).length, 2, 'without call ids: two calls, as before');
+  const [call, ...rest] = dedupeMeetings([granola, gmeet]);
+  assert.equal(rest.length, 0);
+  assert.deepEqual([call!.source, call!.id, call!.start, call!.end], ['gmeet', 'doc1', '2026-10-08T10:00:00Z', '2026-10-08T10:40:00Z'], 'the earliest copy names it; it lasts until the last copy ends');
+  assert.deepEqual([call!.participants, call!.twins], [['rui', 'owner'], ['meeting:granola:n1']]);
+  assert.deepEqual(dedupeMeetings([gmeet, granola]), dedupeMeetings([granola, gmeet]), 'input order (rowid) does not matter');
+  assert.deepEqual(gmeet.twins, undefined, 'the inputs are not mutated');
+  const frag = meetingFragments(call!)[0]!;
+  assert.equal(frag.id, `frag-2026-10-08-call-gmeet-${hash('doc1')}`);
+  assert.deepEqual(frag.refs, ['meeting:gmeet:doc1', 'meeting:granola:n1'], 'refs[0] is the call; its twin is indexed with it');
+  // the same start: recorder priority (granola < wispr < gmeet), then id
+  const same = dedupeMeetings([copy('gmeet', 'g', '2026-10-08T10:00:00Z', '2026-10-08T10:00:00Z', 'call:b'), copy('wispr', 'w', '2026-10-08T10:00:00Z', '2026-10-08T10:30:00Z', 'call:b'), copy('granola', 'z', '2026-10-08T10:00:00Z', '2026-10-08T10:30:00Z', 'call:b')]);
+  assert.deepEqual(same.map((x) => [x.source, x.twins]), [['granola', ['meeting:wispr:w', 'meeting:gmeet:g']]]);
+  // copies the store put in different calls stay apart, however much they overlap
+  assert.equal(dedupeMeetings([copy('granola', 'n1', '2026-10-08T10:00:00Z', '2026-10-08T11:00:00Z', 'call:c'), copy('granola', 'n2', '2026-10-08T10:05:00Z', '2026-10-08T10:55:00Z', 'call:d')]).length, 2);
 });
 
 test('config: subject required; defaults; bad values fail with the file named', () => {

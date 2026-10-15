@@ -30,7 +30,7 @@
 //   5. mail carrying a bot flag we could not explain above                 → bot
 //   6. everything else                                                     → human
 // A resolved author is never bulk or system, but it can still be a bot: some tenants map their own bot to a
-// pseudo-person. Pure; no I/O. Not wired yet: bots.ts and normalise.ts adopt it behind a rollout flag.
+// pseudo-person. Pure; no I/O. Used by the attribution layer's item mode; the store's is_bot (bots.ts) is unchanged.
 
 export type SenderClass = 'human' | 'bot' | 'bulk' | 'system';
 

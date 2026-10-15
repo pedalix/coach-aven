@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.9.0';
+export const SERVER_VERSION = '1.10.0';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -926,7 +926,12 @@ export const TOOLS = [
       '`decided` (a judgment in the tenant ledger, or a rule decision the platform pinned once its day closed — `pinned`), ' +
       '`escalated` (an open question), `rule` (the ladder decides it while its day is open; the platform pins it — nothing to record), ' +
       '`open` (needs a judgment: candidates + hint). Plus rule proposals from recorded judgments. Filter by `state`. Refs are store ' +
-      'refs (`get` them for content); `container` is what a question about it is about; titles carry no message text.',
+      'refs (`get` them for content); `container` is what a question about it is about; titles carry no message text. ' +
+      '`unit: "item"` (when the tenant turned item mode on: attribution.json `items`): every stream item of those days — messages, ' +
+      'tickets, comments, recordings — with the deterministic floor\'s sender class (human|bot|bulk|system), family (a reuse key), ' +
+      'duplicate cluster (`cluster` = the earliest ref it repeats; `collapse` lists one item per cluster with its `repeats`), initiative ' +
+      '(`none` = nothing to attribute, `unregistered` = work the registry lacks), kind (`noise`, else undecided) and addressee, each with ' +
+      'its rung and graded confidence — below .95 a guess, not a decision. `state`: decided|open; `sender` filters the class.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -934,6 +939,9 @@ export const TOOLS = [
         until: { type: 'string', description: 'YYYY-MM-DD, a local day' },
         state: { type: 'string', enum: ['decided', 'escalated', 'rule', 'open'] },
         limit: { type: 'integer', minimum: 1, maximum: 1000, default: 300 },
+        unit: { type: 'string', enum: ['fragment', 'item'], default: 'fragment' },
+        sender: { type: 'string', enum: ['human', 'bot', 'bulk', 'system'], description: 'unit item: only this sender class' },
+        collapse: { type: 'boolean', description: 'unit item: one item per duplicate cluster (its earliest), with `repeats`' },
       },
     },
   },
@@ -1416,6 +1424,10 @@ export function runFragments(db, args) {
 // tables — no attribution logic here, so every face of the server (stdio, HTTP, the bot's channel) agrees.
 const DAY_ARG = /^\d{4}-\d{2}-\d{2}$/;
 export function runAttribution(db, args, now = new Date()) {
+  if (args.unit != null && args.unit !== 'fragment') {
+    if (args.unit === 'item') return runAttributionItems(db, args, now);
+    throw new Error('unit must be "fragment" or "item"');
+  }
   const meta = Object.fromEntries(
     hasTable(db, 'sync_state') ? db.prepare("SELECT key, value FROM sync_state WHERE key LIKE 'att:%'").all().map((r) => [r.key.slice(4), r.value]) : [],
   );
@@ -1478,6 +1490,83 @@ export function runAttribution(db, args, now = new Date()) {
     }),
     ...(truncated ? { truncated: true } : {}),
     proposals: hasTable(db, 'att_proposals') ? db.prepare('SELECT * FROM att_proposals ORDER BY id').all().map((p) => ({ id: p.id, question: p.question, options: parseJson(p.options || '[]', []), refs: parseJson(p.refs || '[]', []) })) : [],
+  };
+}
+
+// Item mode's readout (attribution/items.ts): the floor per stream item as the build wrote it into att_items, for the
+// window the build covers (attribution.json `items.days` up to its day). Counts cover the requested days whatever the
+// filters; `repeats` (how many later items repeat this one) rides on a cluster's earliest item.
+const ITEM_STATES = ['decided', 'open'];
+const SENDER_CLASSES = ['human', 'bot', 'bulk', 'system'];
+function runAttributionItems(db, args, now) {
+  const meta = attMeta(db);
+  const window = parseJson(meta.items || 'null', null);
+  if (!window || !hasTable(db, 'att_items')) {
+    if (!meta.subject) return NOT_CONFIGURED;
+    return { unit: 'item', items_mode: 'off', note: 'item mode is off for this project: annotations/attribution.json has no "items" key (e.g. "items": {"days": 30})', items: [] };
+  }
+  if (args.state !== undefined && !ITEM_STATES.includes(args.state)) throw new Error('state for unit "item" is decided or open');
+  if (args.sender !== undefined && !SENDER_CLASSES.includes(args.sender)) throw new Error(`sender must be one of ${SENDER_CLASSES.join(', ')}`);
+  const tz = LOCAL_TZ;
+  const dayOf = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+  const since = DAY_ARG.test(String(args.since ?? '')) ? String(args.since) : dayOf(now.toISOString());
+  const until = DAY_ARG.test(String(args.until ?? '')) ? String(args.until) : since;
+  const limit = Math.max(1, Math.min(1000, Number(args.limit) || 300));
+  const counts = db
+    .prepare(
+      "SELECT count(*) AS items, coalesce(sum(sender_class = 'human'), 0) AS human, coalesce(sum(sender_class = 'bot'), 0) AS bot, coalesce(sum(sender_class = 'bulk'), 0) AS bulk, " +
+        "coalesce(sum(sender_class = 'system'), 0) AS system, coalesce(sum(initiative IS NOT NULL), 0) AS decided, coalesce(sum(initiative IS NULL), 0) AS open, " +
+        "coalesce(sum(cluster != ref), 0) AS repeats, coalesce(sum(kind = 'noise'), 0) AS noise FROM att_items WHERE day >= ? AND day <= ?",
+    )
+    .get(since, until);
+  const where = ['i.day >= ?', 'i.day <= ?'];
+  const params = [since, until];
+  if (args.sender) {
+    where.push('i.sender_class = ?');
+    params.push(args.sender);
+  }
+  if (args.state === 'decided') where.push('i.initiative IS NOT NULL');
+  if (args.state === 'open') where.push('i.initiative IS NULL');
+  if (args.collapse === true) where.push('i.cluster = i.ref');
+  const rows = db
+    .prepare(`SELECT i.*, (SELECT count(*) FROM att_items c WHERE c.cluster = i.ref AND c.ref != i.ref) AS repeats FROM att_items i WHERE ${where.join(' AND ')} ORDER BY i.ts, i.ref LIMIT ?`)
+    .all(...params, limit + 1);
+  const conf = (x) => Math.round(x * 1e4) / 1e4;
+  return {
+    unit: 'item',
+    since,
+    until,
+    tz,
+    ...(meta.computed_at ? { computed_at: meta.computed_at } : {}),
+    window: { since: window.since, until: window.until, days: window.days },
+    ...(since < window.since || until > window.until ? { note: `outside the item window ${window.since}..${window.until}: days there have no items` } : {}),
+    counts: { ...counts },
+    // Compact rows (a day of a team tenant runs to hundreds): a bot's family rides in its case key, and the hint
+    // only says more than the rung when nothing was decided.
+    items: rows.slice(0, limit).map((r) => ({
+      ref: r.ref,
+      day: r.day,
+      type: r.type,
+      source: r.source,
+      ...(r.container ? { container: r.container } : {}),
+      sender: r.sender_class,
+      ...(r.case_key.startsWith('family:') ? {} : { family: r.family }),
+      ...(r.cluster !== r.ref ? { cluster: r.cluster } : {}),
+      ...(r.repeats ? { repeats: r.repeats } : {}),
+      cluster_conf: conf(r.cluster_conf),
+      ...(r.cluster_via !== 'single' ? { cluster_via: r.cluster_via } : {}),
+      initiative: r.initiative,
+      ...(r.initiative ? { conf: conf(r.conf) } : { candidates: parseJson(r.candidates || '[]', []), ...(r.hint ? { hint: r.hint } : {}) }),
+      rung: r.rung,
+      kind: r.kind,
+      ...(r.kind ? { kind_conf: conf(r.kind_conf) } : {}),
+      kind_rung: r.kind_rung,
+      addressee: r.addressee === null ? null : parseJson(r.addressee, []),
+      ...(r.addressee !== null ? { addressee_conf: conf(r.addressee_conf) } : {}),
+      addressee_rung: r.addressee_rung,
+      case: r.case_key,
+    })),
+    ...(rows.length > limit ? { truncated: true } : {}),
   };
 }
 

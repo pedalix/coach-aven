@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { openStore } from '../store.js';
+import { openStore, recomputeCalls } from '../store.js';
 import { clearAttribution, localDay, plusDays, readAttributionInputs, recomputeAttribution } from './build.js';
 import { hash } from './fragment.js';
 import { runAttribution, runCommitments, runIdentities, runTimelog } from '../../../snapshot/plain/sources-mcp.mjs';
@@ -202,6 +202,58 @@ test('budgets: the timelog reconciles the month of `until` from its first day, w
     recomputeAttribution(plain, readAttributionInputs({ tenantRoot: t2.root, annotationsDir: t2.ann, timezone: 'Europe/Moscow' })!.inputs, people, [], NOW);
     assert.equal(runTimelog(plain, {}, NOW).reconciliation, undefined);
     plain.close();
+  } finally {
+    db.close();
+  }
+});
+
+test('calls and runs get their people: copies of one call are one fragment; name-only and glued invitees, the calendar event, the speakers and a run\'s recipients count', () => {
+  const db = store();
+  try {
+    const mt = db.prepare('INSERT INTO meetings(ref, source, account, id, title, start, "end", attendees, summary, transcript) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const notes = 'Walked through the release checklist, the open risks and who owns which follow-up. '.repeat(3);
+    // One call, two recorders: Gemini (no end, its invitees glued into one name) and Granola (only the subject listed).
+    // Overlap alone kept them apart — two calls, and nobody but the subject at either.
+    mt.run('gmeet:me:doc1', 'gmeet', 'me', 'doc1', 'Platform review', '2026-10-15T13:00:00.000Z', '2026-10-15T13:00:00.000Z', JSON.stringify([{ email: '', name: 'Olga Owner Hana Hill' }]), notes, '');
+    mt.run('granola:me:n3', 'granola', 'me', 'n3', 'Platform review', '2026-10-15T13:02:00.000Z', '2026-10-15T13:40:00.000Z', JSON.stringify([{ email: 'olga@example.com', name: 'Olga Owner' }]), notes, 'Me: so\nThem: yes\n'.repeat(50));
+    // Granola lists only the subject; the calendar event (same title, 5 minutes off) has Rui's address.
+    mt.run('granola:me:n4', 'granola', 'me', 'n4', 'Reconciliation', '2026-10-15T14:00:00.000Z', '2026-10-15T14:30:00.000Z', JSON.stringify([{ email: 'olga@example.com', name: 'Olga Owner' }]), notes, 'x'.repeat(800));
+    db.prepare('INSERT INTO events(ref, source, account, start, title, attendees, organizer) VALUES (?, ?, ?, ?, ?, ?, ?)').run('gcal:me:e1', 'gcal', 'me', '2026-10-15T17:05:00+03:00', 'Reconciliation', JSON.stringify(['rui@example.com', 'olga@example.com']), 'olga@example.com');
+    // Wispr writes no attendees here; the transcript's speaker labels name Hana.
+    mt.run('wispr:me:w1', 'wispr', 'me', 'w1', 'Quick check', '2026-10-15T15:00:00.000Z', '2026-10-15T15:20:00.000Z', '[]', notes, 'Hana Hill: the release is ready\nOlga Owner: great\n'.repeat(20));
+    recomputeCalls(db);
+    // A DM in a channel whose id names nobody: Rui never wrote back, but the message was addressed to him.
+    db.prepare('INSERT INTO messages(ref, source, account, container, thread_id, ts, author_person, author_raw, subject, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run('slack:T/D9/1', 'slack', 'T', 'dm:U0ABCDEFGH1', 'd9', '2026-10-15T11:30:00.000Z', 'owner', 'Olga Owner', '', 'Could you check the reconciliation numbers for last week by Friday?');
+    db.prepare('INSERT INTO message_people(ref, person_id, role) VALUES (?, ?, ?)').run('slack:T/D9/1', 'rui', 'to');
+
+    const t = tenant({ 'initiatives.json': registry, 'annotations/attribution.json': { subject: 'owner', since: '2026-10-15' } });
+    recomputeAttribution(db, readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow' })!.inputs, people, [], NOW);
+    const frags = db.prepare('SELECT id, kind, start, "end", refs, participants, state, attributions, candidates, rule_id FROM att_fragments').all() as Record<string, string>[];
+    const of = (ref: string) => frags.filter((f) => (JSON.parse(f.refs!) as string[]).includes(ref));
+
+    const review = of('meeting:granola:n3');
+    assert.equal(review.length, 1, 'one call, not two');
+    assert.deepEqual(of('meeting:gmeet:doc1'), review);
+    const call = review[0]!;
+    assert.equal(call.id, `frag-2026-10-15-call-gmeet-${hash('doc1')}`, 'named by its first copy (start, then recorder priority)');
+    assert.deepEqual(JSON.parse(call.refs!), ['meeting:gmeet:doc1', 'meeting:granola:n3']);
+    assert.deepEqual([call.start, call.end], ['2026-10-15T13:00:00.000Z', '2026-10-15T13:40:00.000Z'], 'it lasts until the last copy ends');
+    assert.deepEqual(JSON.parse(call.participants!).sort(), ['hana', 'owner'], 'the glued Gemini invitees, split against the people file');
+    assert.deepEqual([call.state, call.rule_id], ['rule', 'marker:hana']);
+    const indexed = db.prepare("SELECT ref, initiative FROM attributions WHERE fragment_id = ? ORDER BY ref").all(call.id!) as { ref: string; initiative: string }[];
+    assert.deepEqual(indexed.map((r) => [r.ref, r.initiative]), [['meeting:gmeet:doc1', 'acme/p5'], ['meeting:granola:n3', 'acme/p5']], 'the decision indexes both copies');
+
+    const recon = of('meeting:granola:n4')[0]!;
+    assert.deepEqual(JSON.parse(recon.participants!).sort(), ['owner', 'rui'], 'the linked calendar event names Rui');
+    assert.deepEqual([recon.state, JSON.parse(recon.candidates!)], ['open', ['initech/a', 'initech/b']]);
+
+    const quick = of('meeting:wispr:w1')[0]!;
+    assert.deepEqual(JSON.parse(quick.participants!).sort(), ['hana', 'owner'], 'the transcript\'s speakers');
+    assert.equal(quick.rule_id, 'marker:hana');
+
+    const dm = of('slack:T/D9/1')[0]!;
+    assert.deepEqual(JSON.parse(dm.participants!).sort(), ['owner', 'rui'], 'the recipient, though he never wrote back');
+    assert.deepEqual([dm.state, JSON.parse(dm.candidates!)], ['open', ['initech/a', 'initech/b']]);
   } finally {
     db.close();
   }

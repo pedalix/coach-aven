@@ -3,14 +3,16 @@
 // everything else stays searchable but unattributed. Deterministic: same inputs → same fragment ids,
 // so a decision recorded against an id stays attached across rebuilds.
 //
-//   call   — one per meeting; when the summary has several topic headings (H1/H2), one sub-fragment per
-//            topic with `weight` = that section's share of the summary text (decisions carry it as share).
+//   call   — one per call (its recorder copies merged: dedupeMeetings); when the summary has several topic
+//            headings (H1/H2), one sub-fragment per topic with `weight` = that section's share of the summary
+//            text (decisions carry it as share).
 //   thread — a run of the subject's messages in one container with gaps ≤ the configured minutes.
 //   work   — a commit/session block from the store's `activity` table, routed by repo or path.
 //
 // Ported from the owen-ops CLI (src/review/fragment.ts) with the same ids, so its ledger attaches.
 import type { Route } from './registry.js';
 import { isGarbledMeeting, isLowSubstance } from './substance.js';
+import { SOURCE_PRIORITY } from '../calls.js';
 
 export interface MeetingIn {
   source: string;
@@ -21,8 +23,12 @@ export interface MeetingIn {
   attendees: string[];
   summary: string;
   transcriptChars?: number;
-  /** Resolved person ids of the attendees. */
+  /** Resolved person ids of the call's people (participants.ts: attendees, the linked event, the speakers). */
   participants: string[];
+  /** The store's call cluster (meetings.call_id, calls.ts) — every recorder copy of one call carries the same one. */
+  callId?: string;
+  /** The other recorder copies merged into this call (dedupeMeetings), as `meeting:<source>:<id>` refs. */
+  twins?: string[];
 }
 
 export interface MsgIn {
@@ -46,6 +52,8 @@ export interface WorkBlock {
   /** The repo or working directory the block ran in. */
   workKey: string | null;
   route: Route;
+  /** The block's commit/session texts — only read for tracker keys. */
+  text?: string;
 }
 
 export type FragmentKind = 'call' | 'thread' | 'work';
@@ -109,7 +117,8 @@ export function meetingFragments(m: MeetingIn): FragmentDraft[] {
   // A recorder that caught nothing (garbled one-liner, empty transcript) is not a call.
   if (isGarbledMeeting(m.summary, m.transcriptChars ?? 0)) return [];
   const base = `frag-${day(m.start)}-call-${m.source}-${hash(m.id)}`;
-  const refs = [`meeting:${m.source}:${m.id}`];
+  // refs[0] is the call (the copy that names it); its merged twins follow, so a decision indexes every copy.
+  const refs = [`meeting:${m.source}:${m.id}`, ...(m.twins ?? [])];
   const common = { kind: 'call' as const, start: m.start, end: m.end, refs, source: m.source, container: null, participants: m.participants, projectKeys: keys(`${m.title}\n${m.summary}`), repo: null, text: m.title };
   const ts = topics(m.summary);
   if (ts.length <= 1) return [{ ...common, id: base, title: m.title, weight: 1 }];
@@ -172,7 +181,7 @@ export function workFragments(blocks: WorkBlock[]): FragmentDraft[] {
       source: 'activity',
       container: e.workKey,
       participants: [],
-      projectKeys: [],
+      projectKeys: keys(`${e.title}\n${e.text ?? ''}`),
       repo: e.workKey,
       weight: 1,
       route: e.route,
@@ -220,34 +229,55 @@ export function settleLowSubstance(drafts: FragmentDraft[], self: string, names:
   return out;
 }
 
-/** Names encoded in DM/chat container ids: `chat:@A | Co`, `chat:group:A | Co+B | Co`, `dm:@name`. */
+/** Names encoded in DM/chat container ids: `chat:@A | Co`, `chat:group:A | Co+B | Co`, `dm:@name`, `mpim:@a+@b` (Slack group DMs). */
 export function containerPeople(c: string): string[] {
-  const m = c.match(/^(?:chat:(?:group:)?|dm:)@?(.+)$/i);
+  const m = c.match(/^(?:chat:(?:group:)?|dm:|mpim:)@?(.+)$/i);
   if (!m) return [];
   return m[1]!
     .split('+')
-    .map((x) => x.trim())
+    .map((x) => x.trim().replace(/^@/, ''))
     .filter((x) => x && !/^[UBW][A-Z0-9]{8,}$/.test(x))
     .flatMap((x) => [x, `slack:${x}`]);
 }
 
-/** The same call recorded twice (two recorders): windows overlapping more than half of the shorter one. */
+/**
+ * Copy order: start, recorder priority (granola < wispr < gmeet, calls.ts), then id — the first copy of a call names its
+ * fragments, so the order must not depend on how the store happened to insert the rows (rowid order flipped call ids
+ * between builds).
+ */
+export function copyOrder(a: Pick<MeetingIn, 'start' | 'source' | 'id'>, b: Pick<MeetingIn, 'start' | 'source' | 'id'>): number {
+  const ta = Date.parse(a.start);
+  const tb = Date.parse(b.start);
+  return (Number.isFinite(ta) && Number.isFinite(tb) ? ta - tb : a.start.localeCompare(b.start)) || (SOURCE_PRIORITY[a.source] ?? 9) - (SOURCE_PRIORITY[b.source] ?? 9) || a.id.localeCompare(b.id) || a.source.localeCompare(b.source);
+}
+
+/**
+ * The same call recorded twice (two recorders) is one call, kept as its first copy in copy order: that copy names the
+ * call's fragments, the others become its twins, and the call lasts until the last copy ends (a Gemini doc has no end
+ * of its own). Copies the store clustered (meetings.call_id, calls.ts) are one call whatever their windows — a
+ * zero-length window overlaps nothing, so overlap alone left those as two calls. Copies the store put in different calls
+ * stay apart; without a call id on both sides, windows overlapping more than half of the shorter one are the same call
+ * (the ported rule).
+ */
 export function dedupeMeetings(ms: MeetingIn[]): MeetingIn[] {
   const kept: MeetingIn[] = [];
-  for (const m of ms) {
+  for (const m of [...ms].sort(copyOrder)) {
     const a0 = Date.parse(m.start);
     const a1 = Date.parse(m.end);
     const dup = kept.find((k) => {
+      if (k.callId && m.callId) return k.callId === m.callId;
       const b0 = Date.parse(k.start);
       const b1 = Date.parse(k.end);
       const ov = Math.min(a1, b1) - Math.max(a0, b0);
       return ov > 0.5 * Math.min(a1 - a0, b1 - b0);
     });
-    if (!dup) kept.push(m);
+    if (!dup) kept.push({ ...m });
     else {
-      if (!dup.summary && m.summary) Object.assign(dup, { summary: m.summary });
+      if (!dup.summary && m.summary) dup.summary = m.summary;
+      if (a1 > (Date.parse(dup.end) || -Infinity)) dup.end = m.end;
       dup.transcriptChars = Math.max(dup.transcriptChars ?? 0, m.transcriptChars ?? 0);
       dup.participants = [...new Set([...dup.participants, ...m.participants])];
+      dup.twins = [...(dup.twins ?? []), `meeting:${m.source}:${m.id}`];
     }
   }
   return kept;

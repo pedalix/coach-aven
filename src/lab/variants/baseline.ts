@@ -19,8 +19,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readAttributionInputs } from '../../sources/attribution/build.js';
 import { keys as trackerPrefixes, type FragmentDraft } from '../../sources/attribution/fragment.js';
-import { attribute, type LadderCtx, type MarkedPerson, type RuleRecord } from '../../sources/attribution/ladder.js';
-import { parseRegistry, Registry, type RegistryData } from '../../sources/attribution/registry.js';
+// The ladder and registry as on main before this branch (frozen/): the baseline is TODAY's production.
+import { attribute, type LadderCtx, type MarkedPerson, type RuleRecord } from './frozen/ladder.js';
+import { parseRegistry, Registry, type RegistryData } from './frozen/registry.js';
 import { loadPeople } from '../../sources/people.js';
 import { setKey } from '../metrics.js';
 import type { DayCtx, FragmentUnit, ItemUnit, MentionUnit, Prediction, TaskId, Unit, Variant } from '../types.js';
@@ -49,12 +50,13 @@ export function tenantLadder(tenantDir: string, tz: string, subject?: string): L
   let rules: RuleRecord[];
   let self = subject ?? '';
   let admin: Record<string, string> | undefined;
+  // The registry is parsed by the FROZEN parser (object channel entries were dropped then); rules and config as read.
+  registry = parseRegistry(readJson(join(tenantDir, 'initiatives.json'), []));
   if (read) {
-    ({ registry, rules } = read.inputs);
+    rules = read.inputs.rules;
     self = read.inputs.config.subject;
     admin = read.inputs.config.admin;
   } else {
-    registry = parseRegistry(readJson(join(tenantDir, 'initiatives.json'), []));
     rules = parseRules(readJson(join(annotationsDir, 'rules.json'), []));
   }
   const marked = new Map<string, MarkedPerson>(

@@ -10,7 +10,10 @@
 //     "budgets": [                       what the timelog is reconciled against, per umbrella (optional):
 //       { "umbrella": "x", "unit": "hour" | "half_day", "unitMinutes": 240, "perMonth": 24,
 //         "overrides": { "YYYY-MM": 20 }, "by": "initiative" | "billing_code" } ]
-//     "admin": { "<umbrella>": "<initiative>" } }   each umbrella's non-billable admin bucket (optional)
+//     "admin": { "<umbrella>": "<initiative>" },   each umbrella's non-billable admin bucket (optional)
+//     "items": { "days": 30 } }          item mode (attribution/items.ts): the stage-0 floor per stream item — every
+//                                        message, ticket, comment, recording — of the last `days` local days (1–90,
+//                                        default 30); absent = off
 export interface AttributionConfig {
   subject: string;
   since?: string;
@@ -20,6 +23,7 @@ export interface AttributionConfig {
   parallelSessions: 'sum' | 'wallclock';
   admin?: Record<string, string>;
   budgets?: Budget[];
+  items?: { days: number };
 }
 
 /** A billing frame the timelog is reconciled against — never used to bend the minutes. */
@@ -92,6 +96,13 @@ export function parseAttributionConfig(raw: unknown, where = 'annotations/attrib
     const a = r.admin;
     if (!a || typeof a !== 'object' || Array.isArray(a) || Object.values(a).some((v) => typeof v !== 'string' || !v)) throw new Error(`${where}: "admin" must map umbrellas to initiative ids`);
     out.admin = { ...(a as Record<string, string>) };
+  }
+  if (r.items !== undefined) {
+    const it = r.items;
+    if (!it || typeof it !== 'object' || Array.isArray(it)) throw new Error(`${where}: "items" must be an object like {"days": 30}`);
+    const days = (it as Record<string, unknown>).days;
+    if (days !== undefined && (!Number.isInteger(days) || (days as number) < 1 || (days as number) > 90)) throw new Error(`${where}: "items.days" must be an integer in [1, 90]`);
+    out.items = { days: (days as number | undefined) ?? 30 };
   }
   return out;
 }
