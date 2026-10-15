@@ -6,7 +6,7 @@ name: CI
 # before it deploys. Fork pull requests run this without any secret.
 on:
   push:
-    branches: ['**']
+    branches: [main]      # PR branches are covered by the pull_request event — one run, not two
   pull_request:
 
 permissions:
