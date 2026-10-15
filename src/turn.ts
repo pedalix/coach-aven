@@ -154,7 +154,19 @@ export interface TurnTrail {
 const ETA_HINT = 'usually 1–3 min';
 const ETA_HINT_MS = 3 * 60_000;
 
-export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): TurnEngine {
+// Injection seam for the recorded-call tests (src/chat/slack/turn.record.test.ts): a fake
+// session factory instead of a real sandbox, and throwaway journal/usage/feedback/draft
+// locations instead of the checkout's. Production passes nothing — every default is today's.
+export interface TurnDeps {
+  openChat?: typeof openChat;
+  journal?: QueueJournal;
+  usageLog?: UsageLog;
+  feedbackLog?: FeedbackLog;
+  drafts?: DraftStore;
+}
+
+export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, deps: TurnDeps = {}): TurnEngine {
+  const openSession = deps.openChat ?? openChat;
   // Live in-memory sessions keyed by conversation, to avoid re-preparing the sandbox
   // every turn. On a cache miss (e.g. after a restart) we rebuild, resuming the
   // persisted Claude conversation id. LRU-capped: entries otherwise accumulate one per
@@ -226,13 +238,13 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
 
   // Per-turn token/cost accounting → usage/<month>.jsonl (multi-tenancy slice 4,
   // "whose tokens are we burning"). Best-effort by construction — see metering.ts.
-  const usageLog = new UsageLog();
+  const usageLog = deps.usageLog ?? new UsageLog();
   // Subscription-quota state — ONE tracker for the whole engine (every project runs on the
   // same plan), fed by each session's rate_limit_event; warns the alert channel on the
   // allowed → warning → rejected transitions and once on recovery (ratelimit.ts).
   const rateLimits = new RateLimitTracker();
   // The value half of the same story: what an answer was worth, joined to what it cost.
-  const feedbackLog = new FeedbackLog();
+  const feedbackLog = deps.feedbackLog ?? new FeedbackLog();
 
   // turnIds carry a per-boot prefix: they used to be `t<seq>` and reset every restart,
   // which was fine while everything keyed by them was in-memory — but drafts now live on
@@ -243,7 +255,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   // Journal of queued-but-not-yet-started turns (its own file, not state.json — see
   // queuejournal.ts). Entries: added in liveTurn, retired in doTurn once the chat
   // record's `inflight` marker takes over recovery duty. Drained by resumeQueuedTurns.
-  const journal = new QueueJournal();
+  const journal = deps.journal ?? new QueueJournal();
 
   const pendingQuestions = new Map<string, PendingQuestion>();
   // qids that reached a terminal state normally (answered/submitted/canceled). A late
@@ -271,7 +283,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
   const MAX_TRAILS = 200;
   // Report drafts by turnId, for "✏️ Edit & send" — on disk (drafts/<slug>/<turnId>.md,
   // see drafts.ts) so a deploy no longer kills every pending draft's button.
-  const drafts = new DraftStore();
+  const drafts = deps.drafts ?? new DraftStore();
   function startTrail(turnId: string): TurnTrail {
     const trail: TurnTrail = { steps: [], elapsedMs: 0, done: false };
     trails.set(turnId, trail);
@@ -368,7 +380,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef): T
       return existing;
     }
     const prior = store.getChat(key);
-    const chat = await openChat(cfg, store, {
+    const chat = await openSession(cfg, store, {
       slug: project.slug,
       repos: project.repos,
       resumeSessionId: prior?.sessionId,

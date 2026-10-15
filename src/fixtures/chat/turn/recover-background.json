@@ -1,0 +1,38 @@
+[
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "100.5",
+      "text": "🔄 Reconnected after a restart — recovering this turn…",
+      "blocks": "[]"
+    }
+  },
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "100.5",
+      "text": "🌙 *Working in the background* — the recovered turn is taking longer than usual. I'll post the result in this thread as a new message when it's done.",
+      "blocks": "[]"
+    }
+  },
+  {
+    "method": "chat.postMessage",
+    "payload": {
+      "channel": "C1",
+      "thread_ts": "100.1",
+      "text": "Recovered late.",
+      "blocks": "[{\"type\":\"markdown\",\"text\":\"Recovered late.\"}]"
+    }
+  },
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "100.5",
+      "text": "✅ Done — answer posted below",
+      "blocks": "[]"
+    }
+  }
+]

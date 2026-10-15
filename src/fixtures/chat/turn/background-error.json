@@ -1,0 +1,77 @@
+[
+  {
+    "method": "reactions.add",
+    "payload": {
+      "channel": "C1",
+      "timestamp": "100.1",
+      "name": "eyes"
+    }
+  },
+  {
+    "method": "chat.postMessage",
+    "payload": {
+      "channel": "C1",
+      "thread_ts": "100.1",
+      "text": "Working…",
+      "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"🛠 Preparing…  ·  usually 1–3 min\"}},{\"type\":\"actions\",\"elements\":[{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"🧭 Show steps\"},\"action_id\":\"show_trail\",\"value\":\"t0-1\"},{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"✖ Cancel\"},\"action_id\":\"cancel_turn\",\"value\":\"t0-1\"}]}]"
+    }
+  },
+  {
+    "method": "chat.getPermalink",
+    "payload": {
+      "channel": "C1",
+      "message_ts": "100.1"
+    }
+  },
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "1000.0001",
+      "text": "🔎 Working…  ⏱ 0s  ·  usually 1–3 min",
+      "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"🔎 Working…  ⏱ 0s  ·  usually 1–3 min\"}},{\"type\":\"actions\",\"elements\":[{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"🧭 Show steps\"},\"action_id\":\"show_trail\",\"value\":\"t0-1\"},{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"✖ Cancel\"},\"action_id\":\"cancel_turn\",\"value\":\"t0-1\"}]}]"
+    }
+  },
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "1000.0001",
+      "text": "Working in the background…",
+      "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"🌙 *Working in the background* — running for 0s, longer than usual.\\nI'll post the answer here as a new message when it's done. *🧭 Show steps* stays live; *✖ Cancel* stops me.\"}},{\"type\":\"actions\",\"elements\":[{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"🧭 Show steps\"},\"action_id\":\"show_trail\",\"value\":\"t0-1\"},{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"✖ Cancel\"},\"action_id\":\"cancel_turn\",\"value\":\"t0-1\"}]}]"
+    }
+  },
+  {
+    "method": "chat.postMessage",
+    "payload": {
+      "channel": "C1",
+      "thread_ts": "100.1",
+      "text": ":x: timed out"
+    }
+  },
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "1000.0001",
+      "text": "⚠️ Failed — details below",
+      "blocks": "[{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"⚠️ Failed — details below · 0s\"}]}]"
+    }
+  },
+  {
+    "method": "reactions.remove",
+    "payload": {
+      "channel": "C1",
+      "timestamp": "100.1",
+      "name": "eyes"
+    }
+  },
+  {
+    "method": "reactions.add",
+    "payload": {
+      "channel": "C1",
+      "timestamp": "100.1",
+      "name": "x"
+    }
+  }
+]

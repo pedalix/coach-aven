@@ -1,0 +1,20 @@
+[
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "100.5",
+      "text": "🔄 Reconnected after a restart — recovering this turn…",
+      "blocks": "[]"
+    }
+  },
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "100.5",
+      "text": "⚠️ The bot restarted mid-turn and couldn't recover the live result (timeout). The work may have finished in the thread or a PR — send a new message to continue.",
+      "blocks": "[]"
+    }
+  }
+]
