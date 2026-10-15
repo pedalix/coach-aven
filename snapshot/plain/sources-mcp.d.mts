@@ -119,5 +119,23 @@ export interface JsonRpcMessage {
   method?: string;
   params?: Record<string, unknown>;
 }
+export function runAttribution(
+  db: unknown,
+  args: { since?: string; until?: string; state?: string; limit?: number | string },
+  now?: Date,
+): {
+  configured?: false;
+  note?: string;
+  subject?: string;
+  since?: string;
+  until?: string;
+  tz?: string;
+  computed_at?: string;
+  horizon?: { since: string; until: string };
+  counts?: Record<string, number>;
+  fragments?: Array<Record<string, unknown> & { id: string; state: string }>;
+  truncated?: boolean;
+  proposals?: Array<{ id: string; question: string; options: string[]; refs: string[] }>;
+};
 export function handleMessage(msg: unknown, dbPath: string): Record<string, unknown> | undefined;
 export function serve(dbPath?: string, input?: NodeJS.ReadableStream, output?: NodeJS.WritableStream): void;

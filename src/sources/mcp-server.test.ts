@@ -387,7 +387,7 @@ test('handleMessage speaks the JSON-RPC subset the MCP client needs and never th
     (list.result as { tools: { name: string }[] }).tools.map((t) => t.name),
     TOOLS.map((t) => t.name),
   );
-  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'transcript', 'tasks', 'meetings', 'calendar', 'activity', 'fragments', 'unanswered', 'stuck', 'people', 'stats']);
+  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'transcript', 'tasks', 'meetings', 'calendar', 'activity', 'fragments', 'unanswered', 'stuck', 'attribution', 'people', 'stats']);
   // the subagent pattern and the attribution rule live in the tool descriptions, not in a tenant prompt
   assert.match(TOOLS.find((t) => t.name === 'transcript')!.description, /spawn one Agent with the question \+ ref/);
   assert.match(TOOLS.find((t) => t.name === 'get')!.description, /me-them is attribution-grade/);

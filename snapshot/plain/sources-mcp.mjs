@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.4.2';
+export const SERVER_VERSION = '1.5.0';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -915,6 +915,25 @@ export const TOOLS = [
     },
   },
   {
+    name: 'attribution',
+    description:
+      'The tenant\'s attribution plan, computed in the store build from its own data (rules, people markers, initiatives.json): the ' +
+      'subject\'s fragments — calls (one per summary topic), runs of their messages, work blocks — for local days since..until ' +
+      `(YYYY-MM-DD, each a whole day in ${LOCAL_TZ} unless the tenant names another zone; default: today), each with its state: ` +
+      '`decided` (the ledger has a decision, with who decided), `escalated` (an open question), ' +
+      '`rule` (the ledger has nothing; the ladder decides it now — record it), `open` (needs a judgment: candidates + hint). Plus rule ' +
+      'proposals from recorded judgments. Filter by `state`. Refs are store refs (`get` them for content); titles carry no message text.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: { type: 'string', description: 'YYYY-MM-DD, a local day' },
+        until: { type: 'string', description: 'YYYY-MM-DD, a local day' },
+        state: { type: 'string', enum: ['decided', 'escalated', 'rule', 'open'] },
+        limit: { type: 'integer', minimum: 1, maximum: 1000, default: 300 },
+      },
+    },
+  },
+  {
     name: 'people',
     description: 'Look up known people by name or identity (email / slack id); returns person_id, company, marker {type: exclusive|narrow|broad, initiatives}, identities.',
     inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
@@ -1345,6 +1364,63 @@ export function runFragments(db, args) {
   };
 }
 
+// The attribution layer's readout (OpenSpec attribution-layer): rows the store build wrote into att_*
+// tables — no attribution logic here, so every face of the server (stdio, HTTP, the bot's channel) agrees.
+const DAY_ARG = /^\d{4}-\d{2}-\d{2}$/;
+export function runAttribution(db, args, now = new Date()) {
+  const meta = Object.fromEntries(
+    hasTable(db, 'sync_state') ? db.prepare("SELECT key, value FROM sync_state WHERE key LIKE 'att:%'").all().map((r) => [r.key.slice(4), r.value]) : [],
+  );
+  if (!hasTable(db, 'att_fragments') || !meta.subject) {
+    return { configured: false, note: 'no attribution layer for this project: the tenant repo has no annotations/attribution.json (or the store predates it)' };
+  }
+  const tz = meta.timezone || LOCAL_TZ;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const since = DAY_ARG.test(String(args.since ?? '')) ? String(args.since) : today;
+  const until = DAY_ARG.test(String(args.until ?? '')) ? String(args.until) : since;
+  const states = ['decided', 'escalated', 'rule', 'open'];
+  const state = states.includes(args.state) ? args.state : undefined;
+  const limit = Math.max(1, Math.min(1000, Number(args.limit) || 300));
+  const counts = Object.fromEntries(states.map((s) => [s, 0]));
+  for (const r of db.prepare('SELECT state, count(*) AS n FROM att_fragments WHERE day >= ? AND day <= ? GROUP BY state').all(since, until)) counts[r.state] = r.n;
+  const rows = db
+    .prepare(`SELECT * FROM att_fragments WHERE day >= ? AND day <= ?${state ? ' AND state = ?' : ''} ORDER BY start LIMIT ?`)
+    .all(...[since, until, ...(state ? [state] : []), limit + 1]);
+  const truncated = rows.length > limit;
+  const refsOf = (f) => parseJson(f.refs || '[]', []);
+  return {
+    subject: meta.subject,
+    since,
+    until,
+    tz,
+    computed_at: meta.computed_at,
+    horizon: { since: meta.since, until: meta.until },
+    ...(since < meta.since || until > meta.until ? { note: `outside the computed horizon ${meta.since}..${meta.until}: days there have no fragments` } : {}),
+    counts,
+    fragments: rows.slice(0, limit).map((f) => {
+      const refs = refsOf(f);
+      return {
+        id: f.id,
+        kind: f.kind,
+        day: f.day,
+        start: f.start,
+        end: f.end,
+        title: f.title,
+        state: f.state,
+        ...(f.weight !== 1 ? { weight: f.weight } : {}),
+        ...(f.state === 'open' || f.state === 'rule' ? { candidates: parseJson(f.candidates || '[]', []), hint: f.hint } : {}),
+        ...(f.state !== 'open' ? { decided_by: f.decided_by, attributions: parseJson(f.attributions || '[]', []), ...(f.rule_id ? { rule_id: f.rule_id } : {}), ...(f.rationale ? { rationale: f.rationale } : {}) } : {}),
+        ...(f.ledger_id && f.ledger_id !== f.id ? { ledger_id: f.ledger_id } : {}),
+        participants: parseJson(f.participants || '[]', []),
+        refs: refs.slice(0, 5),
+        ...(refs.length > 5 ? { more_refs: refs.length - 5 } : {}),
+      };
+    }),
+    ...(truncated ? { truncated: true } : {}),
+    proposals: hasTable(db, 'att_proposals') ? db.prepare('SELECT * FROM att_proposals ORDER BY id').all().map((p) => ({ id: p.id, question: p.question, options: parseJson(p.options || '[]', []), refs: parseJson(p.refs || '[]', []) })) : [],
+  };
+}
+
 export function runTasks(db, args) {
   if (!hasTable(db, 'tasks')) return { tasks: [], note: 'no tracker sources in this replica' };
   let personIds;
@@ -1601,6 +1677,8 @@ export function callTool(dbPath, name, args) {
         return runUnanswered(db, args ?? {});
       case 'stuck':
         return runStuck(db, args ?? {});
+      case 'attribution':
+        return runAttribution(db, args ?? {});
       case 'stats':
         return runStats(db);
       default:

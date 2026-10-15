@@ -25,7 +25,7 @@ import { UsageError } from './errors.js';
 import { runMeetingsAuth } from './meetings/auth.js';
 import { pullMeetings } from './meetings/pull.js';
 import { pullLocal } from './local/pull.js';
-import { annotationsDir, syncTenant, type TenantSync } from './tenant.js';
+import { annotationsDir, syncTenant, tenantDir, type TenantSync } from './tenant.js';
 import { buildStore, type BuildSummary } from './store.js';
 import { tokenPath, vaultPathsFor } from './tokens.js';
 import type { AuthContext } from './types.js';
@@ -114,12 +114,16 @@ export function runBuild(p: ProjectConfig, verbose: boolean, sink: (line: string
     peoplePath: peoplePath(p, projectsConfigPath),
     ...(fragmentsPath(p) ? { fragmentsPath: fragmentsPath(p)! } : {}),
     ...(pulled ? { pulled } : {}),
+    // The attribution layer reads the tenant checkout (data only); it is on when the tenant ships annotations/attribution.json.
+    ...(p.sources?.tenant ? { attribution: { tenantRoot: tenantDir(p.slug), annotationsDir: annotationsDir(p.slug, p.sources.tenant), ...(process.env.AVEN_TZ ? { timezone: process.env.AVEN_TZ } : {}) } } : {}),
     log: (line) => (verbose || !line.startsWith('  ') ? sink(`${prefix} ${line}`) : undefined),
   });
   sink(
     `${prefix} ${s.lines} new lines from ${s.files} files → messages ${s.messages}, events ${s.events}, files ${s.fileRecords}, tasks ${s.tasks}, meetings ${s.meetings} → ${s.calls} calls, activity ${s.activity}, tombstones ${s.tombstones}` +
       `${s.replayed ? `, replayed ${s.replayed}` : ''}${s.malformed ? `, malformed ${s.malformed}` : ''}${s.legacyEvents ? `, ${s.legacyEvents} untagged Outlook event lines skipped` : ''}; people ${s.people}; fragments ${s.fragments}, attributions ${s.attributions}` +
-      `${s.recomputed ? ' (recomputed)' : ''}${s.malformedFragments ? `, ${s.malformedFragments} bad fragment lines` : ''}; replica ${s.replica ?? '(none)'}`,
+      `${s.recomputed ? ' (recomputed)' : ''}${s.malformedFragments ? `, ${s.malformedFragments} bad fragment lines` : ''}` +
+      `${s.attribution && typeof s.attribution === 'object' && 'states' in s.attribution ? `; attribution ${s.attribution.since}..${s.attribution.until}: ${s.attribution.fragments} fragments (${Object.entries(s.attribution.states).map(([k, v]) => `${k} ${v}`).join(', ')}), ${s.attribution.proposals} proposals` : s.attribution === 'off' ? '; attribution off' : ''}` +
+      `; replica ${s.replica ?? '(none)'}`,
   );
   for (const f of s.truncatedFiles) log.warn(`${prefix} ${f} shrank below its consumed offset — re-read from 0`);
   for (const f of s.skippedFiles) log.warn(`${prefix} ${f}: unknown raw file name, skipped`);

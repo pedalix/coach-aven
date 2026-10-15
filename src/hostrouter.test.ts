@@ -57,6 +57,7 @@ test('sourcesWorker — the real tool table answers on a worker thread, in the g
   assert.ok(list.result.tools.some((t) => t.name === 'unanswered') && list.result.tools.some((t) => t.name === 'search'), 'the same twelve tools');
   const init = (await call({ jsonrpc: '2.0', id: 2, method: 'initialize', params: {} }, db)) as JsonRpc & { result: { serverInfo: { name: string } } };
   assert.equal(init.result.serverInfo.name, 'sources');
+  assert.ok(list.result.tools.some((t) => t.name === 'attribution' && /whole day in Europe\/Zurich/.test((t as { description?: string }).description ?? '')), 'descriptions name the worker\'s zone (set before the table is imported)');
   assert.equal(await call({ jsonrpc: '2.0', method: 'notifications/initialized' }, db), undefined);
   // a copy of an empty db is still a db: two calls in flight are answered in order, each with its own id
   copyFileSync(db, join(dir, 'b.sqlite'));

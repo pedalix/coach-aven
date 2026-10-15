@@ -40,6 +40,7 @@ import { isBotAuthor, parseSlackDirectory, resolveSlackContainer, resolveSlackNa
 import { clusterMeetings, type MeetingForCall } from './calls.js';
 import { identitiesOf, identityIndex, loadPeople, resolveIdentity, type Person } from './people.js';
 import { ensureDir } from './paths.js';
+import { clearAttribution, readAttributionInputs, recomputeAttribution, type AttributionFiles, type AttributionSummary } from './attribution/build.js';
 import type { Logger } from './types.js';
 
 // v4: messages.is_bot, meetings.call_id + calls (recorder copies grouped), Slack ids → names.
@@ -47,7 +48,7 @@ import type { Logger } from './types.js';
 // v6: msgraph events carry `calendar` {id, name, is_default}; lines without it (written by the
 //     pre-v6 puller, which read every shared calendar untagged) are skipped, so the rebuild drops
 //     a colleague's shared calendar / holidays / birthdays while the puller re-emits the own ones.
-export const SCHEMA_VERSION = 6;
+export const SCHEMA_VERSION = 7;
 /** Bumped when bots.ts rules change, so every row's is_bot / Slack labels get recomputed. */
 export const LABEL_RULES_VERSION = 1;
 /** Where the sandbox sees the replica directory (the file inside is always `store.sqlite`). */
@@ -175,6 +176,15 @@ CREATE TABLE IF NOT EXISTS attributions (
   PRIMARY KEY (ref, initiative, fragment_id)
 ) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS attributions_initiative ON attributions(initiative);
+CREATE TABLE IF NOT EXISTS att_fragments (
+  id TEXT PRIMARY KEY, kind TEXT NOT NULL, day TEXT NOT NULL, start TEXT NOT NULL, "end" TEXT NOT NULL,
+  title TEXT NOT NULL DEFAULT '', source TEXT NOT NULL DEFAULT '', container TEXT,
+  refs TEXT NOT NULL DEFAULT '[]', participants TEXT NOT NULL DEFAULT '[]', project_keys TEXT NOT NULL DEFAULT '[]',
+  weight REAL NOT NULL DEFAULT 1, state TEXT NOT NULL, decided_by TEXT, attributions TEXT NOT NULL DEFAULT '[]',
+  rule_id TEXT, rationale TEXT NOT NULL DEFAULT '', candidates TEXT NOT NULL DEFAULT '[]', hint TEXT NOT NULL DEFAULT '', ledger_id TEXT
+);
+CREATE INDEX IF NOT EXISTS att_fragments_day ON att_fragments(day, state);
+CREATE TABLE IF NOT EXISTS att_proposals (id TEXT PRIMARY KEY, question TEXT NOT NULL, options TEXT NOT NULL DEFAULT '[]', refs TEXT NOT NULL DEFAULT '[]');
 -- Task trackers (youtrack/jira/asana) share one shape (trackers/task.ts). comments is a JSON
 -- array; comments_text is its flattened text, kept only so FTS can index it.
 CREATE TABLE IF NOT EXISTS tasks (
@@ -402,6 +412,8 @@ export interface BuildSummary {
   skippedFiles: string[];
   people: number;
   replica?: string;
+  /** The attribution layer (OpenSpec attribution-layer): recomputed this build, off, or failed (previous tables kept). */
+  attribution?: AttributionSummary | 'unchanged' | 'off' | { error: string };
 }
 
 export interface BuildContext {
@@ -421,6 +433,8 @@ export interface BuildContext {
    * attempt age. Omitted (CLI `build`) = leave them as they are.
    */
   pulled?: ReadonlyArray<{ kind: string; finishedAt: string }>;
+  /** The tenant's checkout for the attribution layer; undefined = the project has no tenant (layer off). */
+  attribution?: AttributionFiles;
   log: Logger;
   now?: () => Date;
   /** Lines per transaction. */
@@ -892,6 +906,29 @@ export function buildStore(ctx: BuildContext): BuildSummary {
       sum.attributions = Number((db.prepare('SELECT count(*) AS n FROM attributions').get() as { n: number }).n);
     }
     sum.calls = recomputeCalls(db);
+    // The attribution layer depends on the store AND the tenant files AND today's date (the horizon
+    // ends today): recomputed when any of them moved. A broken tenant file keeps the previous tables.
+    if (ctx.attribution) {
+      try {
+        const read = readAttributionInputs(ctx.attribution);
+        if (!read) {
+          if ((st.syncGet.get('att:fingerprint') as { value?: string } | undefined)?.value) {
+            clearAttribution(db);
+            sum.attribution = 'off';
+          }
+        } else {
+          const day = now().toISOString().slice(0, 13); // an hourly tick at most moves the horizon
+          const afp = createHash('sha256').update([read.text, peopleText, fragmentsText, day].join('\0')).digest('hex');
+          if (sum.files > 0 || afp !== (st.syncGet.get('att:fingerprint') as { value?: string } | undefined)?.value) {
+            sum.attribution = recomputeAttribution(db, read.inputs, people, fragments, now());
+            st.syncSet.run('att:fingerprint', afp);
+          } else sum.attribution = 'unchanged';
+        }
+      } catch (e) {
+        sum.attribution = { error: e instanceof Error ? e.message : String(e) };
+        ctx.log(`attribution: ${sum.attribution.error} — previous tables kept`);
+      }
+    }
     st.syncSet.run('last_build_at', now().toISOString());
     for (const p of ctx.pulled ?? []) st.syncSet.run(`pulled:${p.kind}`, p.finishedAt);
     if (ctx.replicaDir) sum.replica = writeReplica(db, ctx.replicaDir);
