@@ -15,6 +15,7 @@ export interface Scored {
   conf: number; // [0,1]; only the ORDER matters for thresholds, so rungs need not be calibrated
   gold: string;
   weight?: number; // minutes for timelog fragments; 1 by default
+  split?: 'dev' | 'test'; // set by the scorer (by case, see cases.ts); consumers fall back to splitOf(id)
 }
 
 const w = (s: Scored): number => s.weight ?? 1;

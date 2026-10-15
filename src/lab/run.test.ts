@@ -197,7 +197,8 @@ test('replay — answers within the budget, least sure first; memory only from e
     ],
   );
   assert.deepEqual(v.seen[0].memory, []);
-  assert.deepEqual(v.seen[1].memory, [{ id: 'i3', task: 't4-kind', day: D1, label: 'question', source: 'human' }]);
+  // the row also keeps what the pipeline said before the answer (here: it abstained)
+  assert.deepEqual(v.seen[1].memory, [{ id: 'i3', task: 't4-kind', day: D1, label: 'question', source: 'human', predicted: null, conf: 0, rung: 'abstain' }]);
   for (const s of v.seen) assert.ok(s.memory.every((m) => m.day < s.day), `memory on ${s.day} must come from earlier days`);
   assert.deepEqual(
     v.seen[2].memory.map((m) => m.id),
@@ -235,9 +236,10 @@ test('replay loop — the pipeline remembers its own decisions, wrong ones inclu
     ],
   );
   const last = v.nights.at(-1)!.memory;
+  const i9 = last.find((m) => m.id === 'i9')!;
   assert.deepEqual(
-    last.find((m) => m.id === 'i9'),
-    { id: 'i9', task: 't4-kind', day: D3, label: 'request', source: 'machine' },
+    { id: i9.id, task: i9.task, day: i9.day, label: i9.label, source: i9.source, predicted: i9.predicted },
+    { id: 'i9', task: 't4-kind', day: D3, label: 'request', source: 'machine', predicted: 'request' },
     'i9 is wrong (gold noise) and is remembered as the pipeline said it',
   );
 });

@@ -15,7 +15,8 @@
 
 import { join } from 'node:path';
 import { goldFor, readJsonl, unitsFor, type Dataset } from './dataset.js';
-import { autoShare, bcubed, jaccard, macroF1, pairwise, perClass, setKey, splitOf, type AutoShare, type ClassRow, type PairScores, type Scored } from './metrics.js';
+import { autoShare, bcubed, jaccard, macroF1, pairwise, perClass, setKey, type AutoShare, type ClassRow, type PairScores, type Scored } from './metrics.js';
+import { splitOfUnit } from './cases.js';
 import { NONE, type FragmentUnit, type GoldRow, type GoldTier, type ItemUnit, type Prediction, type TaskId } from './types.js';
 import type { RunResult } from './run.js';
 
@@ -195,7 +196,7 @@ export function scoreTask(ds: Dataset, result: RunResult, opts: ScoreOpts = {}):
   const units = new Map(unitsFor(ds, task).map((u) => [u.id, u]));
   const t2 = task === 't2-dedup' ? clusterScore(ds, result, gold, answered, opts.tiers) : undefined;
 
-  const rows: (Scored & { rung: string; minutes: number; correct: boolean })[] = [];
+  const rows: (Scored & { rung: string; minutes: number; correct: boolean; split: 'dev' | 'test' })[] = [];
   let withGold = 0;
   for (const p of result.predictions) {
     const g = gold.get(p.id);
@@ -210,20 +211,22 @@ export function scoreTask(ds: Dataset, result: RunResult, opts: ScoreOpts = {}):
     // and a wrong family that happens to share the gold family's id must not pass as right.
     const scoredGold = correct ? pred! : goldLabel === pred ? `≠${goldLabel}` : goldLabel;
     const minutes = (units.get(p.id) as FragmentUnit | undefined)?.minutes ?? 0;
-    rows.push({ id: p.id, pred, conf: p.conf, gold: scoredGold, weight: 1, rung: p.rung || 'abstain', minutes, correct });
+    // The split goes by case (cases.ts): the topics of one call never straddle dev and test.
+    const split = splitOfUnit(task, units.get(p.id), p.id);
+    rows.push({ id: p.id, pred, conf: p.conf, gold: scoredGold, weight: 1, rung: p.rung || 'abstain', minutes, correct, split });
   }
 
-  const scored: Scored[] = rows.map(({ id, pred, conf, gold: g }) => ({ id, pred, conf, gold: g, weight: 1 }));
-  const dev = scored.filter((u) => splitOf(u.id) === 'dev');
-  const test = scored.filter((u) => splitOf(u.id) === 'test');
+  const scored: Scored[] = rows.map(({ id, pred, conf, gold: g, split }) => ({ id, pred, conf, gold: g, weight: 1, split }));
+  const dev = scored.filter((u) => u.split === 'dev');
+  const test = scored.filter((u) => u.split === 'test');
   const auto = autoShare(dev, test, floor);
   const autoConservative = autoShare(dev, test, floor, { lowerBound: true });
   let autoMinutes: AutoShare | undefined;
   if (task === 't1-fragment') {
-    const byMinutes = rows.map(({ id, pred, conf, gold: g, minutes }) => ({ id, pred, conf, gold: g, weight: minutes }));
+    const byMinutes = rows.map(({ id, pred, conf, gold: g, minutes, split }) => ({ id, pred, conf, gold: g, weight: minutes, split }));
     autoMinutes = autoShare(
-      byMinutes.filter((u) => splitOf(u.id) === 'dev'),
-      byMinutes.filter((u) => splitOf(u.id) === 'test'),
+      byMinutes.filter((u) => u.split === 'dev'),
+      byMinutes.filter((u) => u.split === 'test'),
       floor,
     );
   }

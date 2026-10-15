@@ -25,6 +25,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { join } from 'node:path';
 import { dayOf, goldFor, readJsonl, unitsFor, writeJsonl, type Dataset } from './dataset.js';
 import { decidedAt, familyExact, familyMaps, isCorrect, labelMap } from './score.js';
+import { fnv1a } from './metrics.js';
 import { TASKS, type DayCtx, type FragmentUnit, type GoldTier, type LlmLike, type MemoryRow, type Prediction, type TaskId, type Unit, type Variant } from './types.js';
 
 export type Mode = 'static' | 'replay';
@@ -34,7 +35,8 @@ export type Population = 'gold' | 'all';
 export interface RunOpts {
   mode: Mode;
   memory: MemoryPolicy;
-  questionsPerDay?: number; // replay: the person's daily budget (10)
+  questionsPerDay?: number; // replay: the person's daily budget in questions (10); a question covers a Prediction.group
+  auditShare?: number; // replay: share of that budget spent on random checks of auto-decided units (0)
   threshold?: number; // auto-decided = label !== null && conf >= threshold (0: every label)
   population?: Population; // 'gold' (default): units with a gold row for the task; t2-dedup is always 'all'
   tiers?: GoldTier[]; // which gold tiers define the population and answer questions (default: all, most trusted wins)
@@ -49,6 +51,7 @@ export interface SavedOpts {
   mode: Mode;
   memory: MemoryPolicy;
   questionsPerDay: number;
+  auditShare: number;
   threshold: number;
   population: Population;
   tiers: GoldTier[] | null;
@@ -62,7 +65,9 @@ export interface DayStat {
   decided: number; // auto-decided (label at/above the threshold, not answered)
   correctDecided: number; // of those, right against gold (units without gold count as not right)
   questions: number; // sent to a person (abstained or under the threshold)
-  answered: number; // of those, answered within the budget (replay only)
+  answered: number; // of those, answered within the budget (replay only) — units, not questions
+  asked: number; // questions put to the person (groups answered)
+  audited: number; // auto-decided units checked at random (replay with auditShare)
   costUsd: number;
 }
 
@@ -74,6 +79,7 @@ export interface RunResult {
   opts: SavedOpts;
   predictions: Prediction[]; // one per population unit, in day order (a unit the variant skipped = an abstention)
   answered: string[]; // unit ids a person resolved
+  audited?: string[]; // auto-decided unit ids a person checked (they stay auto-decided in the score)
   perDay: DayStat[];
   costUsd: number;
   startedAt: string;
@@ -150,6 +156,7 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
   const meter = metered(opts.llm);
   const predictions: Prediction[] = [];
   const answered: string[] = [];
+  const audited: string[] = [];
   const perDay: DayStat[] = [];
   const dayIds = new Map<string, string[]>();
 
@@ -160,12 +167,32 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
     const auto = got.filter((p) => decidedAt(p, thr));
     const questions = got.filter((p) => !decidedAt(p, thr));
     let answeredToday: Prediction[] = [];
+    let askedToday = 0;
+    let auditedToday: Prediction[] = [];
     if (opts.mode === 'replay') {
-      // A person's time goes to what is worth most: the longest fragments first (minutes are what gets
-      // billed), then the least sure; the id makes ties reproducible.
-      const ranked = [...questions].sort((a, b) => minutes(b.id) - minutes(a.id) || weight(b.id) - weight(a.id) || a.conf - b.conf || a.id.localeCompare(b.id));
-      answeredToday = ranked.slice(0, Math.max(0, budget));
+      // A question is a group (Prediction.group, else the unit): one answer resolves all of it. A person's
+      // time goes to what is worth most: the longest fragments first (minutes are what gets billed), then the
+      // least sure; the key makes ties reproducible. Part of the budget may go to random audits of auto-decided
+      // units — the only unbiased sample of the machine's own precision.
+      const groups = new Map<string, Prediction[]>();
+      for (const p of questions) {
+        const k = p.group ?? p.id;
+        const g = groups.get(k);
+        if (g) g.push(p);
+        else groups.set(k, [p]);
+      }
+      const sum = (ps: Prediction[], f: (id: string) => number) => ps.reduce((a, p) => a + f(p.id), 0);
+      const minConf = (ps: Prediction[]) => Math.min(...ps.map((p) => p.conf));
+      const ranked = [...groups.entries()].sort(
+        ([ka, a], [kb, b]) => sum(b, minutes) - sum(a, minutes) || sum(b, weight) - sum(a, weight) || minConf(a) - minConf(b) || ka.localeCompare(kb),
+      );
+      const audits = Math.min(auto.length, Math.floor(Math.max(0, budget) * (opts.auditShare ?? 0)));
+      const asks = ranked.slice(0, Math.max(0, budget - audits));
+      askedToday = asks.length;
+      answeredToday = asks.flatMap(([, ps]) => ps);
+      auditedToday = [...auto].sort((a, b) => fnv1a(`${day}|${a.id}`) - fnv1a(`${day}|${b.id}`)).slice(0, audits);
       const rows: MemoryRow[] = [];
+      const said = (p: Prediction) => ({ predicted: p.label, conf: p.conf, rung: p.rung });
       if (opts.memory === 'oracle') {
         for (const u of pool.get(day) ?? units) {
           const g = gold.get(u.id);
@@ -176,19 +203,24 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
         // answer: it leaves no memory row rather than an invented one.
         for (const p of answeredToday) {
           const g = gold.get(p.id);
-          if (g) rows.push({ id: p.id, task, day, label: g.label, source: 'human' });
+          if (g) rows.push({ id: p.id, task, day, label: g.label, source: 'human', ...said(p) });
         }
-        if (opts.memory === 'loop') for (const p of auto) rows.push({ id: p.id, task, day, label: p.label!, source: 'machine' });
+        for (const p of auditedToday) {
+          const g = gold.get(p.id);
+          if (g) rows.push({ id: p.id, task, day, label: g.label, source: 'human', audit: true, ...said(p) });
+        }
+        if (opts.memory === 'loop') for (const p of auto) rows.push({ id: p.id, task, day, label: p.label!, source: 'machine', ...said(p) });
       }
       memory.push(...rows);
       answered.push(...answeredToday.map((p) => p.id));
+      audited.push(...auditedToday.map((p) => p.id));
       if (variant.nightly) await variant.nightly(task, { ...ctx, memory: memory.slice() });
     }
     const spent = meter.take();
     const attributed = got.reduce((a, p) => a + (p.costUsd ?? 0), 0);
     predictions.push(...got);
     dayIds.set(day, got.map((p) => p.id));
-    perDay.push({ day, n: units.length, decided: auto.length, correctDecided: 0, questions: questions.length, answered: answeredToday.length, costUsd: Math.max(spent, attributed) });
+    perDay.push({ day, n: units.length, decided: auto.length, correctDecided: 0, questions: questions.length, answered: answeredToday.length, asked: askedToday, audited: auditedToday.length, costUsd: Math.max(spent, attributed) });
     opts.log(`${variant.name} ${task} ${day}: ${units.length} units, ${auto.length} auto, ${questions.length} questions${opts.mode === 'replay' ? ` (${answeredToday.length} answered)` : ''}${perDay.at(-1)!.costUsd ? `, $${perDay.at(-1)!.costUsd.toFixed(4)}` : ''}`);
   }
 
@@ -213,9 +245,10 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
     datasetDir: ds.dir,
     variant: variant.name,
     task,
-    opts: { mode: opts.mode, memory: opts.memory, questionsPerDay: budget, threshold: thr, population, tiers: opts.tiers ?? null, runName: opts.runName, llm: !!opts.llm },
+    opts: { mode: opts.mode, memory: opts.memory, questionsPerDay: budget, auditShare: opts.auditShare ?? 0, threshold: thr, population, tiers: opts.tiers ?? null, runName: opts.runName, llm: !!opts.llm },
     predictions,
     answered,
+    audited,
     perDay,
     costUsd: perDay.reduce((a, d) => a + d.costUsd, 0),
     startedAt: new Date(t0).toISOString(),

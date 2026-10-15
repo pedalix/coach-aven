@@ -102,7 +102,7 @@ const atOwnThreshold = (units: Scored[], thr: number): Scored[] => units.map((u)
 function bootstrapLines(group: ReportEntry[], iters: number): string[] {
   const [ref, ...rest] = group;
   if (!rest.length) return [];
-  const test = (s: TaskScore) => s.units.filter((u) => splitOf(u.id) === 'test');
+  const test = (s: TaskScore) => s.units.filter((u) => (u.split ?? splitOf(u.id)) === 'test');
   const a = test(ref.score);
   const ids = new Set(a.map((u) => u.id));
   const what = ref.result.task === 't2-dedup' ? 'exact-family share' : 'accuracy';

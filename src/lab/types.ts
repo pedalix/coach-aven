@@ -152,6 +152,7 @@ export interface Prediction {
   rung: string; // which stage decided ('rule:<id>', 'knn', 'llm:haiku', 'case', 'abstain', …)
   costUsd?: number; // model spend attributed to this unit
   why?: string; // short rationale (never shown to a model as truth)
+  group?: string; // the question unit: one answer resolves every unit of the group (a call, a family, a name form)
 }
 
 // What the loop knows about earlier days. 'human' rows are answers to questions (= gold), 'machine'
@@ -162,6 +163,11 @@ export interface MemoryRow {
   day: string;
   label: string;
   source: 'human' | 'machine' | 'seed'; // seed = the tenant's ledger as given at the start of the window
+  // What the pipeline said BEFORE the person answered — without that pair nothing can be calibrated.
+  predicted?: string | null;
+  conf?: number;
+  rung?: string;
+  audit?: boolean; // a random check of an auto-decided unit (the only unbiased sample of the machine's precision)
 }
 
 export interface DayCtx {
