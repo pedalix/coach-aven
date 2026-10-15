@@ -14,7 +14,7 @@
 ## 3. Surface, docs, rollout
 
 - [x] 3.1 Home tab *Proposals* bullet (while the flag is on); `docs/runtime-config.md` → *Dispatch*; `docs/rollout.md` row (bucket 3).
-- [ ] 3.2 Home bot canary: bluefin-ops proposes a dispatch to owen-ops; verify the thread in `dev-bluefin-aven-owen-ops`, the pointer back in `dev-bluefin-aven`, and one usage record per child turn.
+- [x] 3.2 Home bot canary: bluefin-ops proposes a dispatch to owen-ops; verify the thread in `dev-bluefin-aven-owen-ops`, the pointer back in `dev-bluefin-aven`, and one usage record per child turn. — done 2026-10-15: bluefin-ops proposal p-20261015113644 sent by Owen, child thread in the owen-ops channel, pointer back in the brief thread, one usage record. The outbox transport is superseded by `host-tools` (same record as a host tool call).
 
 ## Workflow follow-up
 - Phase B (host endpoint behind the gateway for remote sandboxes) is a separate change after `sources-serve-remote-mcp` lands.

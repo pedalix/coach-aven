@@ -13,4 +13,4 @@
 
 ## 3. Canary
 
-- [ ] 3.1 On the home bot, call both tools from a thread turn (`@dev-coach-aven unanswered since yesterday`) and confirm rows match a manual check of two threads; verify the next 18:30 close quotes `unanswered` permalinks.
+- [x] 3.1 On the home bot, call both tools from a thread turn (`@dev-coach-aven unanswered since yesterday`) and confirm rows match a manual check of two threads; verify the next 18:30 close quotes `unanswered` permalinks. — done 2026-10-15: both briefs quote the rows; the first bluefin-ops brief exposed the side-mode flaw, fixed in 1.4.1 (#164) and re-verified the same day.

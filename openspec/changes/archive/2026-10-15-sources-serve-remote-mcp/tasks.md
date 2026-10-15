@@ -12,11 +12,11 @@
 
 ## 3. Project wiring (daemon deferred)
 
-- [ ] 3.1 (deferred — not needed while the bot host ingests) `orch sources daemon` running the pull → build ticker for configured projects, lock file per slug, `SOURCES_DAEMON=1` disables the bot's ticker; verify by a sync test and by running both and observing a single pull per interval.
+- [ ] 3.1 (deferred — not needed while the bot host ingests) `orch sources daemon` running the pull → build ticker for configured projects, lock file per slug, `SOURCES_DAEMON=1` disables the bot's ticker; verify by a sync test and by running both and observing a single pull per interval. — moved to the `sources-daemon` change (daemon = ticker + serve in one process, bot forwards).
 - [x] 3.2 `withSourcesMount` skipped when the project's `mcp` declares `sources` with a `url` (`src/projects.ts`); tested in `serve.test.ts` (replica by default, none when declared).
 
 ## 4. Docs and canary
 
 - [x] 4.1 `docs/sources.md` *Remote access*, `infra/prod/nginx-sources.conf.example` + `coach-aven-sources.service.tmpl`, `docs/runtime-config.md` note, `docs/rollout.md` row.
-- [ ] 4.3 Prod: `serve` as a second systemd unit on aven-prod (`infra/prod/coach-aven-sources.service.tmpl`, port on loopback), nginx location, `SOURCES_TOKEN_BLUEFIN_OPS` in the gateway `.env` + target in `bluefin-infra/engine/config.yaml`; verify `initialize` 200 through `<gateway-host>/gw/bluefin-ops/mcp` with an M2M token before the project is enabled.
-- [ ] 4.2 Home bot: `bluefin-ops` pointed at a local `serve`; verify a brief turn uses the remote tools (session log shows the HTTP server name) and `/aven usage` shows no change in cost.
+- [ ] 4.3 Prod: `serve` as a second systemd unit on aven-prod (`infra/prod/coach-aven-sources.service.tmpl`, port on loopback), nginx location, `SOURCES_TOKEN_BLUEFIN_OPS` in the gateway `.env` + target in `bluefin-infra/engine/config.yaml`; verify `initialize` 200 through `<gateway-host>/gw/bluefin-ops/mcp` with an M2M token before the project is enabled. — superseded by `host-tools`: sources reach the sandbox over the session control channel, so no nginx location and no gateway target are needed for them; `serve` stays as the daemon's HTTP face.
+- [ ] 4.2 Home bot: `bluefin-ops` pointed at a local `serve`; verify a brief turn uses the remote tools (session log shows the HTTP server name) and `/aven usage` shows no change in cost. — superseded by `host-tools` (home goes mount-free through the control channel, not through a local serve).
