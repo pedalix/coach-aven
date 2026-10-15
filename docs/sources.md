@@ -327,7 +327,9 @@ field (`ideas/local-mode-positioning-2026-10-14.md` §8); the first tenant agent
 also be *addressed*: the subject is in `message_people` with role `to` — mail recipients, Slack
 @mentions, DM/group-DM members (what the pullers write into `participants`; the account owner's
 Slack identity must be in the people file for their DMs to resolve). A channel post that does not
-mention the person is not addressed to them. In side mode **every** message in scope is inbound: the store
+mention the person is not addressed to them. A side is addressed when **any member** is — a message between two
+people outside the side, or one addressed to someone else (Bluefin ↔ Bluefin in a shared channel, a question to a project's
+own agent), is never inbound. `all: true` makes **every** message in scope inbound instead: the store
 (a Slack allow-list, see *Tenant annotations*) or `container` IS the client scope — pass one, or the
 list is the whole store.
 

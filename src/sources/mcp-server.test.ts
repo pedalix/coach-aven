@@ -704,6 +704,8 @@ function fixtureReadouts(): { dbPath: string } {
       // Carla asks Owen, pings again in the thread three days later, no reply
       slack('C1', '#lumora', '2026-10-07T09:00:00.000Z', '000500', 'Carla Bowman', ['Carla Bowman', 'Owen'], '@Owen can you check the staging logs?') +
       slack('C1', '#lumora', '2026-10-10T09:00:00.000Z', '001000', 'Carla Bowman', ['Carla Bowman', 'Owen'], '@Owen ping on the logs?', { raw_ref: 'slack:T1/C1/1700000000.001000#1700000000.000500' }) +
+      // an outsider posts in the channel without addressing anyone: inbound for nobody (only with `all`)
+      slack('C1', '#lumora', '2026-10-07T12:00:00.000Z', '000550', 'Noel', ['Noel'], 'hello all, back from leave') +
       // Owen asks Carla in another client channel, nobody on Bluefin's side answers there
       slack('C2', '#bluefin-aven-caldora', '2026-10-08T08:00:00.000Z', '000600', 'Owen', ['Owen', 'Carla Bowman'], '@Carla Bowman can you confirm the release date?') +
       // DMs: Noel (unknown person) waits; Vincent (unknown) got a reply in the same conversation
@@ -775,7 +777,7 @@ test('unanswered: owner by default; answered = later reply in thread, in the DM,
   }
 });
 
-test('unanswered in side mode: every non-side human message in scope counts; the agent listed on the side closes a thread', () => {
+test('unanswered in side mode: only messages addressed to a side member count (every message only with `all`); the agent listed on the side closes a thread', () => {
   const { dbPath } = fixtureReadouts();
   const db = openReadOnly(dbPath);
   try {
@@ -785,8 +787,11 @@ test('unanswered in side mode: every non-side human message in scope counts; the
     assert.deepEqual(
       (r.unanswered as Row[]).map((x) => [x.author, x.ts, x.pending]),
       [['owen', '2026-10-08T08:00:00.000Z', 1]],
-      'Owen\'s 10-06 question was answered by the agent in-thread, his 10-06 reply by Carla\'s later mention of him in the same channel; the integration post is not inbound; DMs are outside the `#` scope',
+      'Owen\'s 10-06 question was answered by the agent in-thread, his 10-06 reply by Carla\'s later mention of him in the same channel; the integration post and Noel\'s unaddressed post are not inbound; DMs are outside the `#` scope',
     );
+    const all = runUnanswered(db, { side: 'bluefin', container: '#', all: true }, READOUTS_NOW);
+    assert.equal(all.all, true);
+    assert.deepEqual((all.unanswered as Row[]).map((x) => [x.author, x.ts]), [['Noel', '2026-10-07T12:00:00.000Z'], ['owen', '2026-10-08T08:00:00.000Z']], '`all` is the old semantics: every message in scope');
     // a side that matches nothing says so and returns nothing — never "everything"
     const none = runUnanswered(db, { side: 'acme' }, READOUTS_NOW);
     assert.deepEqual(none.subject.people, []);

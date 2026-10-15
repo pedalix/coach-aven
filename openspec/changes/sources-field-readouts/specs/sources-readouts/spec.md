@@ -9,7 +9,7 @@ Deterministic readouts of the attention field over a project's sources store: wh
 The sources MCP SHALL provide an `unanswered` tool that lists inbound messages addressed to a subject that have no later reply from the subject in the same thread within a window.
 
 - The subject is one person (`person`, resolved like `search.person`), a side (`side`: company names and/or person ids from the tenant people file, comma-separated — everyone whose company matches), or by default the account owner(s): the people whose identities are the mail accounts the store was pulled for. The result names the subject it used.
-- A message is inbound when it is human (not a bot/integration) and its author is not the subject (for a side: not any member). In person mode it must also be addressed: the subject is a `to` participant (mail recipients, Slack mentions, DM/group members as the pullers record them). In side mode every message in scope counts: the store (allow-listed channels) or the `container` filter is the client scope.
+- A message is inbound when it is human (not a bot/integration) and its author is not the subject (for a side: not any member). In person mode it must also be addressed: the subject is a `to` participant (mail recipients, Slack mentions, DM/group members as the pullers record them). For a side, addressed means addressed to any member; a message between two people outside the side, or addressed to someone else, is never inbound. `all: true` counts every message in scope instead (a store that is exactly one client channel).
 - A message is answered when the subject (any side member) wrote a later message in the same thread, in the same direct conversation, or addressed to the message's author within the same source (a mail reply in any folder, an @mention in the same channel); otherwise it is unanswered. A channel post without thread or mention does not count as an answer; reactions are not stored. The tool description states both limits.
 - Filters: `since`/`until` (window on the waiting message, as in `search`; default the last 14 days), `hours` (minimum age, default 24), `container` (name fragment), `source`, `limit` (default 50).
 - One row per conversation (a direct container, else the thread): the oldest waiting message with `ref`, `source`, `container`, `author`, `to`, `ts`, `ageHours`, `pending` (waiting messages in that conversation, with `lastInboundTs`), `thread` (id, first/last ts, n), `subject`, `snippet`, `permalink`.
@@ -25,6 +25,10 @@ The sources MCP SHALL provide an `unanswered` tool that lists inbound messages a
 #### Scenario: Sent Items are never inbound
 - **WHEN** the message's author is the subject
 - **THEN** the message is not returned
+
+#### Scenario: Side mode ignores what is not addressed to the side
+- **WHEN** two people outside the side talk to each other in a shared channel, or an outsider asks the project's own agent (listed on the other side)
+- **THEN** nothing of it is returned for that side
 
 #### Scenario: Side mode counts the agent's reply
 - **WHEN** `side` names a company and the people file lists the project's agent under that company

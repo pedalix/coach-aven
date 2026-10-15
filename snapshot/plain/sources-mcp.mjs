@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.4.0';
+export const SERVER_VERSION = '1.4.1';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -505,7 +505,7 @@ export function resolveSubject(db, args) {
 /**
  * Candidates: human messages not by the subject, at least `cutoff` old and, in person mode,
  * addressed to them — listed in `to` (mail recipients, Slack @mentions, DM/group members; the
- * pullers put the DM counterpart there). In side mode every message in scope counts: the store (or
+ * pullers put the DM counterpart there); a side is addressed when any member is. With `all` every message in scope counts: the store (or
  * `container`) IS the client scope. Unanswered: no later message by the subject in the same
  * thread, in the same direct conversation, or addressed to the author within the same source — a
  * mail reply (any folder), an @mention in the same channel: how people answer outside the thread.
@@ -518,7 +518,11 @@ export function buildUnansweredSql(f) {
   const where = ['m.deleted = 0', `(m.author_person IS NULL OR m.author_person NOT IN (${ph}))`, 'm.ts <= ?'];
   const params = [...ids, f.cutoff];
   if (f.hasBots !== false) where.push('m.is_bot = 0');
-  if (f.mode !== 'side') {
+  // Addressed to the subject (any side member) — mail recipients, @mentions, DM members — unless `all`
+  // asks for every message in scope (a store that IS one client channel). The 2026-10-15 brief showed
+  // why the default must be addressed: in a shared channel Bluefin ↔ Bluefin exchanges and questions to the
+  // project's own agent came out as "waiting on us" / "waiting on Bluefin".
+  if (!f.all) {
     where.push(`EXISTS (SELECT 1 FROM message_people mp WHERE mp.ref = m.ref AND mp.role = 'to' AND mp.person_id IN (${ph}))`);
     params.push(...ids);
   }
@@ -573,7 +577,7 @@ export function runUnanswered(db, args, now = new Date()) {
   }
   const cutoff = new Date(now.getTime() - hours * 3_600_000).toISOString();
   const q = buildUnansweredSql({
-    mode: subject.mode, subjectIds: subject.ids, cutoff, since, until, source: args.source, container: args.container, hasBots: hasColumn(db, 'messages', 'is_bot'),
+    mode: subject.mode, subjectIds: subject.ids, cutoff, since, until, source: args.source, container: args.container, hasBots: hasColumn(db, 'messages', 'is_bot'), all: args.all === true,
   });
   // One row per conversation — a direct container, else the thread — carrying the OLDEST waiting
   // message (when the wait began) and how many more piled up behind it.
@@ -592,6 +596,7 @@ export function runUnanswered(db, args, now = new Date()) {
   return {
     subject: { mode: subject.mode, people: subject.ids[0] === '__nobody__' ? [] : subject.ids },
     hours,
+    ...(args.all === true ? { all: true } : {}),
     since,
     ...(until ? { until } : {}),
     now: now.toISOString(),
@@ -669,7 +674,7 @@ export function runStuck(db, args, now = new Date()) {
   const q = buildStuckSql({
     cutoff: new Date(cutoffMs).toISOString(), status: args.status, personIds, assigneeRaw: personIds ? undefined : args.assignee, project: args.project, source: args.source,
   });
-  const limit = Math.max(1, Math.min(500, Number(args.limit) || 100));
+  const limit = Math.max(1, Math.min(500, Number(args.limit) || 200));
   const groups = new Map();
   let total = 0;
   let truncated = false;
@@ -861,8 +866,9 @@ export const TOOLS = [
       'What WAITS for a reply: inbound human messages addressed to the subject with no later reply from them. Subject = the account ' +
       'owner by default, `person` (as in search), or `side` (company names and/or person ids from the people file, comma-separated — ' +
       'everyone of that company is "us"; list an agent there to count its replies). Addressed = in `to` (mail recipients, Slack @mentions, ' +
-      'DM/group members); with `side` EVERY message in scope counts — scope the store (Slack allow-list) or ' +
-      'pass `container`. Answered = the subject wrote later in the same thread, in the same direct conversation, or a message addressed ' +
+      'DM/group members) — for a side, addressed to ANY member; a message between two people outside the side, or one addressed to ' +
+      'someone else, is never inbound. `all: true` counts every message in scope instead (only for a store that is exactly one client channel). ' +
+      'Answered = the subject wrote later in the same thread, in the same direct conversation, or a message addressed ' +
       'to the author in the same source (mail reply, @mention in the same channel). One row per conversation: the OLDEST waiting message (`ts`, `ageHours`), `pending` = ' +
       'messages piled up since, the thread summary, `permalink` — cite it. Bot/integration messages are never inbound. Filters: hours ' +
       `(minimum age, default 24), ${WINDOW_DOC} (default: the last ${DEFAULT_UNANSWERED_WINDOW_DAYS} days), container (name fragment), ` +
@@ -872,6 +878,7 @@ export const TOOLS = [
       properties: {
         person: { type: 'string', description: 'Subject as one person: email, slack id, or a name fragment' },
         side: { type: 'string', description: 'Subject as a side: company names and/or person ids from the people file, comma-separated' },
+        all: { type: 'boolean', default: false, description: 'Every message in scope counts as inbound, not only those addressed to the subject' },
         hours: { type: 'number', minimum: 0, default: 24, description: 'Minimum age of the waiting message in hours' },
         since: { type: 'string' },
         until: { type: 'string' },
@@ -897,7 +904,7 @@ export const TOOLS = [
         status: { type: 'string' },
         assignee: { type: 'string' },
         source: { type: 'string' },
-        limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 },
+        limit: { type: 'integer', minimum: 1, maximum: 500, default: 200 },
       },
     },
   },
