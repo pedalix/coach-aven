@@ -239,7 +239,8 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
       memory.push(...rows);
       answered.push(...answeredToday.map((p) => p.id));
       audited.push(...auditedToday.map((p) => p.id));
-      if (variant.nightly) await variant.nightly(task, { ...ctx, memory: memory.slice() });
+      // --opt nightly=off: the ablation without the nightly pass (design R6b).
+      if (variant.nightly && process.env.LAB_OPT_nightly !== 'off') await variant.nightly(task, { ...ctx, memory: memory.slice() });
     }
     const spent = meter.take();
     const attributed = got.reduce((a, p) => a + (p.costUsd ?? 0), 0);
