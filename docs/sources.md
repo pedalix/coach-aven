@@ -622,6 +622,21 @@ and unattributed time is its own row (`confidence: open | escalated`, with candi
 in attribution.json: `sum` (default) or `wallclock` (parallel work scaled so a day never exceeds
 wall-clock; calls untouched). Default window: this month so far.
 
+**Identities**: `identities()` — who is who for the tenant's people file, recomputed by every build with the
+plan: `merges` (unmapped identities that deterministically belong to a known person: the same full name in any
+order, a mailbox that is the glued full name, a unique first name seen together with the person or under their
+domain/company), `questions` (yes/no with the best guesses once the identity talked with the subject at least twice
+or in a direct chat; "who is" for an unknown seen at least five times with them; most-seen first, capped at 50,
+stable ids) and `counts`. System senders and opaque ids are counted, never asked. The tenant applies merges to its
+people file and asks a few questions per run, deduped by id — the platform writes nothing into the tenant repo.
+
+**Commitments**: `commitments({since, until, owner?})` — the next steps of the recorded calls of those local days:
+every recorder copy's steps parsed per recorder (Granola "step (Owner)", Wispr "(Owner) step", Gemini "[Owner] step"
+until "Details"), unioned per call and deduped by text, as rows `{id: c-<hash(call|text)>, owner, to, what, call,
+provenance}`. `owner` is the subject's person id when the step names one of their names or addresses (the people
+file, plus "me"); `to` is the single other attendee of the subject's steps. `owner: "subject"` filters to them.
+Proposals only: due dates and initiatives are a human's.
+
 **Budgets**: `budgets` in attribution.json — the billing frames the timelog is reconciled against, one per
 umbrella: `{umbrella, unit: hour | half_day, unitMinutes?, perMonth?, overrides?: {YYYY-MM: n}, by?: initiative |
 billing_code}`. With budgets, every `timelog` answer carries `reconciliation` for the month of `until` from its

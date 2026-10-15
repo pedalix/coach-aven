@@ -15,6 +15,9 @@ import { appendPinLines, pinsToAdd, readPins, rulesVersion } from './pins.js';
 import type { MarkedPerson, RuleRecord } from './ladder.js';
 import { resolveIdentity, type Person } from '../people.js';
 import { attributionRows, type Fragment } from '../annotations.js';
+import { collectIdentities } from '../identities/collect.js';
+import { loadObservations } from '../identities/observations.js';
+import { attendeeNames, extractCommitments, subjectNames, type CallIn } from '../commitments.js';
 
 export interface AttributionFiles {
   /** The tenant checkout's root (initiatives.json lives here). */
@@ -44,6 +47,8 @@ export interface AttributionSummary {
   fragments: number;
   states: Record<State, number>;
   proposals: number;
+  identities: { merges: number; questions: number };
+  commitments: number;
 }
 
 function parseRules(raw: unknown, where = 'annotations/rules.json'): RuleRecord[] {
@@ -171,11 +176,29 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
     }
   }
   const proposals = proposeRules(drafts, ledger, ctx);
+  // Identities and the subject's promised steps: the review's other two inputs, from the same store and people file.
+  const identities = collectIdentities(people, loadObservations(db, config.subject), config.subject);
+  const calls = new Map<string, CallIn>();
+  for (const r of db.prepare('SELECT ref, source, title, start, attendees, next_steps, call_id FROM meetings WHERE deleted = 0 AND start >= ? AND start < ? ORDER BY start').all(lo, hi) as Row[]) {
+    const id = str(r.call_id) || str(r.ref);
+    const cur = calls.get(id) ?? { call_id: id, start: str(r.start), title: str(r.title), copies: [] };
+    let steps: string[] = [];
+    try {
+      const j = JSON.parse(str(r.next_steps) || '[]') as unknown;
+      steps = Array.isArray(j) ? j.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))) : [];
+    } catch {
+      steps = [];
+    }
+    cur.copies.push({ source: str(r.source), ref: str(r.ref), next_steps: steps, attendees: attendeeNames(r.attendees) });
+    if (!cur.title && str(r.title)) cur.title = str(r.title);
+    calls.set(id, cur);
+  }
+  const commitments = extractCommitments([...calls.values()], subjectNames(people.find((p) => p.person_id === config.subject)), config.subject);
 
   const states = Object.fromEntries(STATES.map((s) => [s, 0])) as Record<State, number>;
   db.exec('BEGIN');
   try {
-    db.exec('DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins;');
+    db.exec('DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins; DELETE FROM att_commitments;');
     const ins = db.prepare(
       'INSERT OR REPLACE INTO att_fragments(id, kind, start, "end", title, source, container, refs, participants, project_keys, weight, state, decided_by, attributions, rule_id, rationale, candidates, hint, ledger_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     );
@@ -199,6 +222,8 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
       for (const ref of p.draft.refs) for (const a of p.attributions) aIns.run(ref, a.initiative, a.share, p.ledger_id ?? p.draft.id, p.decided_by ?? 'rule');
     }
     for (const r of attributionRows(ledgerRecords.filter((f) => !held.has(f.id)))) aIns.run(r.ref, r.initiative, r.share, r.fragment_id, r.decided_by);
+    const cIns = db.prepare('INSERT OR REPLACE INTO att_commitments(id, call, call_title, call_start, owner, to_person, what, source, provenance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const c of commitments) cIns.run(c.id, c.call, c.call_title, c.call_start, c.owner, c.to, c.what, c.source, JSON.stringify(c.provenance));
     const pinIns = db.prepare('INSERT OR REPLACE INTO att_pins(id, pinned_at, rules_version) VALUES (?, ?, ?)');
     for (const p of planned) if (p.pinned_at) pinIns.run(p.draft.id, p.pinned_at, p.rules_version ?? '');
     const meta = db.prepare('INSERT OR REPLACE INTO sync_state(key, value) VALUES (?, ?)');
@@ -209,13 +234,14 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
     meta.run('att:registry', JSON.stringify(Object.fromEntries(inputs.registry.initiatives.map((i) => [i.id, { ...(i.umbrella ? { umbrella: i.umbrella } : {}), ...(typeof i.billing_code === 'string' ? { billing_code: i.billing_code } : {}), ...(i.alias_of ? { alias_of: i.alias_of } : {}), ...(i.split_into ? { split_into: i.split_into } : {}) }]))));
     meta.run('att:policy', config.parallelSessions);
     meta.run('att:budgets', JSON.stringify(config.budgets ?? []));
+    meta.run('att:identities', JSON.stringify(identities));
     meta.run('att:computed_at', now.toISOString());
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');
     throw e;
   }
-  return { since, until, fragments: planned.length, states, proposals: proposals.length };
+  return { since, until, fragments: planned.length, states, proposals: proposals.length, identities: { merges: identities.merges.length, questions: identities.questions.length }, commitments: commitments.length };
 }
 
 /**
@@ -225,7 +251,7 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
 export function clearAttribution(db: DatabaseSync, ledgerRecords: readonly Fragment[] = []): void {
   db.exec('BEGIN');
   try {
-    db.exec("DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins; DELETE FROM sync_state WHERE key LIKE 'att:%'; DELETE FROM attributions;");
+    db.exec("DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins; DELETE FROM att_commitments; DELETE FROM sync_state WHERE key LIKE 'att:%'; DELETE FROM attributions;");
     const aIns = db.prepare('INSERT OR REPLACE INTO attributions(ref, initiative, share, fragment_id, decided_by) VALUES (?, ?, ?, ?, ?)');
     for (const r of attributionRows(ledgerRecords)) aIns.run(r.ref, r.initiative, r.share, r.fragment_id, r.decided_by);
     db.exec('COMMIT');

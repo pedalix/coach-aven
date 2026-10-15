@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { openStore } from '../store.js';
 import { clearAttribution, localDay, plusDays, readAttributionInputs, recomputeAttribution } from './build.js';
 import { hash } from './fragment.js';
-import { runAttribution, runTimelog } from '../../../snapshot/plain/sources-mcp.mjs';
+import { runAttribution, runCommitments, runIdentities, runTimelog } from '../../../snapshot/plain/sources-mcp.mjs';
 import { appendPinLines, readPins, unpinLines } from './pins.js';
 import type { Person } from '../people.js';
 import type { Fragment } from '../annotations.js';
@@ -202,6 +202,37 @@ test('budgets: the timelog reconciles the month of `until` from its first day, w
     recomputeAttribution(plain, readAttributionInputs({ tenantRoot: t2.root, annotationsDir: t2.ann, timezone: 'Europe/Moscow' })!.inputs, people, [], NOW);
     assert.equal(runTimelog(plain, {}, NOW).reconciliation, undefined);
     plain.close();
+  } finally {
+    db.close();
+  }
+});
+
+test('identities and commitments: computed with the plan, served by their tools; not configured without the config', () => {
+  const db = store();
+  try {
+    // a known person under an address the people file does not list (their glued full name), and a call with next steps
+    db.prepare('INSERT INTO messages(ref, source, account, container, thread_id, ts, author_person, author_raw, subject, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      'gmail:me:m9', 'gmail', 'me', 'inbox', 'gmail:me/t9', '2026-10-15T06:00:00.000Z', null, 'hanahill@mail.example', 'Re: plan', 'Sounds good, see you at the sync',
+    );
+    db.prepare('INSERT INTO meetings(ref, source, account, id, title, start, "end", attendees, summary, next_steps) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      'granola:me:n2', 'granola', 'me', 'n2', 'Planning', '2026-10-15T13:00:00.000Z', '2026-10-15T13:30:00.000Z',
+      JSON.stringify([{ name: 'Olga Owner', email: 'olga@example.com' }, { name: 'Rui Rosa', email: 'rui@example.com' }]), 'Plan.',
+      JSON.stringify(['Send the invoices list to Rui (Olga)', 'Details for the list.', 'Check the export (Rui)']),
+    );
+    const t = tenant({ 'initiatives.json': registry, 'annotations/attribution.json': { subject: 'owner', since: '2026-10-14' } });
+    assert.deepEqual(runIdentities(db), { configured: false, note: 'no attribution layer for this project: the tenant repo has no annotations/attribution.json (or the store predates it)' });
+    const sum = recomputeAttribution(db, readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow' })!.inputs, people, [], NOW);
+    assert.deepEqual([sum.identities, sum.commitments], [{ merges: 1, questions: 0 }, 2]);
+    const ids = runIdentities(db);
+    assert.deepEqual(ids.merges, [{ person_id: 'hana', identity: 'hanahill@mail.example', reason: 'mailbox is the glued full name' }]);
+    assert.equal(ids.subject, 'owner');
+    const all = runCommitments(db, { since: '2026-10-15' }, NOW).commitments!;
+    assert.deepEqual(all.map((r) => [r.owner, r.to, r.what, r.day]), [['owner', 'rui-rosa', 'Send the invoices list to Rui', '2026-10-15'], ['rui', null, 'Check the export', '2026-10-15']]);
+    assert.deepEqual(all[0]!.provenance, [{ kind: 'meeting', ref: 'granola:me:n2' }]);
+    assert.deepEqual(runCommitments(db, { since: '2026-10-15', owner: 'subject' }, NOW).commitments!.map((r) => r.owner), ['owner']);
+    assert.equal(runCommitments(db, { since: '2026-10-14', until: '2026-10-14' }, NOW).commitments!.length, 0);
+    clearAttribution(db);
+    assert.equal(runCommitments(db, {}, NOW).configured, false);
   } finally {
     db.close();
   }

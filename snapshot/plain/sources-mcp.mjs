@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.8.0';
+export const SERVER_VERSION = '1.9.0';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -956,6 +956,32 @@ export const TOOLS = [
     },
   },
   {
+    name: 'identities',
+    description:
+      'Who is who, for the tenant\'s people file: `merges` — unmapped identities that deterministically belong to a known person ' +
+      '(the same full name, a mailbox that is the glued full name, a unique first name seen together with them); `questions` — ' +
+      'the open identity questions, most-seen first (a yes/no with the best guesses once the identity talked with the subject; ' +
+      '"who is" for an unknown seen ≥5× with them), each with a stable id; `counts`. Recomputed by every store build.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'commitments',
+    description:
+      'Next steps from the recorded calls of since..until (YYYY-MM-DD, each a whole day in ' +
+      `${ZONE_DOC}; default: today): every recorder copy's steps parsed per recorder, unioned per call and deduped by text, ` +
+      'each `{id (stable), owner (a person id; the subject\'s own when it names them), to (the single other attendee, for the ' +
+      'subject\'s steps), what, call, call_title, call_start, provenance}`. `owner: "subject"` filters to the subject\'s steps. ' +
+      'Proposals only: due dates and initiatives are a human\'s.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: { type: 'string', description: 'YYYY-MM-DD, a local day' },
+        until: { type: 'string', description: 'YYYY-MM-DD, a local day' },
+        owner: { type: 'string', description: '"subject" or a person id' },
+      },
+    },
+  },
+  {
     name: 'people',
     description: 'Look up known people by name or identity (email / slack id); returns person_id, company, marker {type: exclusive|narrow|broad, initiatives}, identities.',
     inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
@@ -1760,6 +1786,58 @@ export function runTimelog(db, args, now = new Date()) {
   };
 }
 
+function attMeta(db) {
+  return Object.fromEntries(
+    hasTable(db, 'sync_state') ? db.prepare("SELECT key, value FROM sync_state WHERE key LIKE 'att:%'").all().map((r) => [r.key.slice(4), r.value]) : [],
+  );
+}
+
+const NOT_CONFIGURED = { configured: false, note: 'no attribution layer for this project: the tenant repo has no annotations/attribution.json (or the store predates it)' };
+
+/** The identity readout the build computed: deterministic merges, open questions (most-seen first), counts. */
+export function runIdentities(db) {
+  const meta = attMeta(db);
+  if (!meta.subject) return NOT_CONFIGURED;
+  const r = parseJson(meta.identities || 'null', null);
+  if (!r) return { subject: meta.subject, note: 'not computed yet: the store predates the identities readout — the next build fills it' };
+  return { subject: meta.subject, computed_at: meta.computed_at, counts: r.counts, merges: r.merges, questions: r.questions };
+}
+
+/** The subject's (and everyone's) next steps from the calls of local days since..until, as the build extracted them. */
+export function runCommitments(db, args, now = new Date()) {
+  const meta = attMeta(db);
+  if (!meta.subject || !hasTable(db, 'att_commitments')) return NOT_CONFIGURED;
+  const tz = LOCAL_TZ;
+  const dayOf = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+  const today = dayOf(now.toISOString());
+  const since = DAY_ARG.test(String(args.since ?? '')) ? String(args.since) : today;
+  const until = DAY_ARG.test(String(args.until ?? '')) ? String(args.until) : since;
+  const owner = args.owner === 'subject' ? meta.subject : typeof args.owner === 'string' && args.owner ? args.owner : undefined;
+  const rows = db
+    .prepare(`SELECT * FROM att_commitments WHERE call_start >= ? AND call_start <= ?${owner ? ' AND owner = ?' : ''} ORDER BY call_start, id`)
+    .all(...[normalizeTime(since, 'since', tz), normalizeTime(until, 'until', tz), ...(owner ? [owner] : [])]);
+  return {
+    subject: meta.subject,
+    since,
+    until,
+    tz,
+    computed_at: meta.computed_at,
+    ...(since < meta.since || until > meta.until ? { note: `outside the computed horizon ${meta.since}..${meta.until}: days there have no rows` } : {}),
+    commitments: rows.map((r) => ({
+      id: r.id,
+      owner: r.owner,
+      to: r.to_person,
+      what: r.what,
+      source: r.source,
+      call: r.call,
+      call_title: r.call_title,
+      call_start: r.call_start,
+      day: dayOf(r.call_start),
+      provenance: parseJson(r.provenance || '[]', []),
+    })),
+  };
+}
+
 export function runTasks(db, args) {
   if (!hasTable(db, 'tasks')) return { tasks: [], note: 'no tracker sources in this replica' };
   let personIds;
@@ -2031,6 +2109,10 @@ export function callTool(dbPath, name, args) {
         return runAttribution(db, args ?? {});
       case 'timelog':
         return runTimelog(db, args ?? {});
+      case 'identities':
+        return runIdentities(db);
+      case 'commitments':
+        return runCommitments(db, args ?? {});
       case 'stats':
         return runStats(db);
       default:
