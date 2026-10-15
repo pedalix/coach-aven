@@ -47,7 +47,7 @@ const raw = () => ({
       { id: 'F0BC1234567', name: 'Sales Q3 secret.pdf', title: 'Sales Q3 secret', mimetype: 'application/pdf', size: 1234, url_private: 'https://files.slack.com/x', url_private_download: 'https://files.slack.com/y', permalink: 'https://p', thumb_64: 'https://t' },
     ],
   },
-  user: { id: HUMAN, username: 'Vera Lindqvist', name: 'Vera Lindqvist', team_id: TEAM },
+  user: { id: HUMAN, username: 'vera.lindqvist', name: 'vera.lindqvist', team_id: TEAM },
   // Shapes the first eyeball pass over real fixtures caught slipping through:
   profile: { first_name: 'Carla', real_name_normalized: 'Carla X', image_72: 'https://avatars.slack-edge.com/2022/abc_419c92e4bd2e', avatar_hash: '419c92e4bd2e', email: 'c@example.ch' },
   channel_meta: { name_normalized: 'bluefin-aven-lumora', old_name: 'bluefin-aven-art' },

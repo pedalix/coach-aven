@@ -27,7 +27,7 @@ test('Jira issue → task', () => {
       fields: {
         summary: 'Rotate GastroDat keys',
         status: { name: 'In Review', statusCategory: { key: 'indeterminate' } },
-        assignee: { accountId: '712020:abc', displayName: 'Owen', emailAddress: 'Owen.Hale@example.com' },
+        assignee: { accountId: '712020:abc', displayName: 'Owen', emailAddress: 'Owen.Hale@partner.example' },
         reporter: { accountId: '5b10:def', displayName: 'Tess North' },
         duedate: '2026-10-12',
         created: '2026-10-01T09:00:00.000+0200',
@@ -41,7 +41,7 @@ test('Jira issue → task', () => {
     'contoso.atlassian.net',
   );
   assert.equal(t.statusCategory, 'doing');
-  assert.equal(t.assignee, 'owen.hale@example.com');
+  assert.equal(t.assignee, 'owen.hale@partner.example');
   assert.equal(t.reporter, 'jira:5b10:def');
   assert.equal(t.updated, '2026-10-06T14:30:00.000Z');
   assert.equal(t.url, 'https://contoso.atlassian.net/browse/P1-7');

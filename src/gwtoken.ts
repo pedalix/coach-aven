@@ -1,4 +1,4 @@
-// Auth0 M2M tokens for the MCP gateway (<gateway-host>/gw/<slug>/mcp).
+// Auth0 M2M tokens for the MCP gateway (engine.example.com/gw/<slug>/mcp).
 //
 // The bot reaches a project's gateway route as a machine identity: the Auth0 client
 // `coach-aven-<slug>` (client credentials, audience = the route URL). The token proves

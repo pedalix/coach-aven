@@ -14,7 +14,7 @@ const task = (gid: string, name: string, assignee: string | null, followers: str
   name,
   notes: '',
   completed: false,
-  assignee: assignee ? { gid: assignee, name: assignee === ME ? 'Owen Hale' : 'Rowan Mills', ...(assignee === ME ? { email: 'owen@example.com' } : {}) } : null,
+  assignee: assignee ? { gid: assignee, name: assignee === ME ? 'Owen Hale' : 'Rowan Mills', ...(assignee === ME ? { email: 'owen@side.example' } : {}) } : null,
   created_by: { gid: ROWAN, name: 'Rowan Mills' },
   followers: followers.map((g) => ({ gid: g })),
   created_at: '2026-10-01T00:00:00.000Z',
@@ -30,7 +30,7 @@ function fakeAsana() {
   const fetchImpl = (async (url: string) => {
     urls.push(url);
     const u = new URL(url);
-    if (u.pathname.endsWith('/users/me')) return data({ gid: ME, email: 'owen@example.com' });
+    if (u.pathname.endsWith('/users/me')) return data({ gid: ME, email: 'owen@side.example' });
     if (u.pathname.endsWith('/tasks') && u.searchParams.get('assignee') === 'me') return data([task('A', 'AWS billing alerts', ME, [ME, ROWAN])]);
     if (u.pathname.endsWith('/tasks') && u.searchParams.get('project') === 'P1') {
       return data([
@@ -51,7 +51,7 @@ test('fetchAsana: a watched project contributes only tasks assigned to me or fol
   const lines: string[] = [];
   const got: string[] = [];
   for await (const t of fetchAsana(http, { workspace: 'W', projects: ['P1'] }, new Date('2026-10-12T00:00:00Z'), (l) => lines.push(l))) got.push(`${t.id}:${t.assignee}:${t.comments.length}`);
-  assert.deepEqual(got, ['A:owen@example.com:1', 'B:asana:7520977444547:1']);
+  assert.deepEqual(got, ['A:owen@side.example:1', 'B:asana:7520977444547:1']);
   assert.equal(urls.filter((u) => u.includes('/users/me')).length, 1, 'me resolved once per pull');
   assert.ok(!urls.some((u) => u.includes('/tasks/C/stories')), 'a task that is not mine costs no story fetch');
   assert.equal(urls.filter((u) => u.includes('/tasks/A/stories')).length, 1, 'the duplicate from the project query is not fetched twice');
@@ -73,5 +73,5 @@ test('resolveMe: a configured gid or e-mail needs no request; `me` asks /users/m
   assert.deepEqual(await resolveMe(http, '42'), { gid: '42' });
   assert.deepEqual(await resolveMe(http, 'Owen@X.com'), { email: 'owen@x.com' });
   assert.equal(urls.length, 0);
-  assert.deepEqual(await resolveMe(http), { gid: ME, email: 'owen@example.com' });
+  assert.deepEqual(await resolveMe(http), { gid: ME, email: 'owen@side.example' });
 });

@@ -209,11 +209,11 @@ test('pickTagApplier: an authorless entry yields undefined, missing name fields 
 });
 
 test('taggerMatches: matches login OR email, case-insensitively; empty list = feature off', () => {
-  const owen = { login: 'Owen', fullName: 'Owen', email: 'owen@example.com' };
+  const owen = { login: 'Owen', fullName: 'Owen', email: 'owen@home.example' };
   assert.equal(taggerMatches(owen, ['owen']), true); // login, lowercased
-  assert.equal(taggerMatches(owen, [' OWEN@example.com ']), true); // email, padded + uppercased
-  assert.equal(taggerMatches(owen, ['Carla@example.com', 'Owen']), true);
-  assert.equal(taggerMatches(owen, ['Carla@example.com']), false);
+  assert.equal(taggerMatches(owen, [' OWEN@HOME.EXAMPLE ']), true); // email, padded + uppercased
+  assert.equal(taggerMatches(owen, ['carla@client.example', 'Owen']), true);
+  assert.equal(taggerMatches(owen, ['carla@client.example']), false);
   assert.equal(taggerMatches(owen, []), false);
   assert.equal(taggerMatches(owen, ['']), false); // a stray comma in the env var must not match all
   assert.equal(taggerMatches(undefined, ['owen']), false); // unknown tagger → default path

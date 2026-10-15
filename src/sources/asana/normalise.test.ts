@@ -3,10 +3,10 @@ import assert from 'node:assert/strict';
 import { commentsFromStories, involvesMe, normaliseAsanaTask } from './normalise.js';
 
 test('involvesMe: assigned to me, or me among the followers (what an @mention makes), by gid or e-mail', () => {
-  const me = { gid: '1167899671459952', email: 'owen@example.com' };
+  const me = { gid: '1167899671459952', email: 'owen@side.example' };
   assert.equal(involvesMe({ assignee: { gid: '1167899671459952', name: 'Owen Hale' } }, me), true);
   assert.equal(involvesMe({ assignee: { gid: '7520977444547', name: 'Rowan Mills' }, followers: [{ gid: '7520977444547' }, { gid: '1167899671459952' }] }, me), true);
-  assert.equal(involvesMe({ assignee: null, followers: [{ gid: '1', email: 'OWEN@example.com' }] }, { email: 'owen@example.com' }), true);
+  assert.equal(involvesMe({ assignee: null, followers: [{ gid: '1', email: 'OWEN@side.example' }] }, { email: 'owen@side.example' }), true);
   assert.equal(involvesMe({ assignee: { gid: '7520977444547' }, followers: [{ gid: '7520977444547' }] }, me), false);
   assert.equal(involvesMe({ assignee: null }, me), false);
   assert.equal(involvesMe({ assignee: { gid: '1167899671459952' } }, {}), false, 'an unresolved me matches nothing');
@@ -23,7 +23,7 @@ test('Asana task + stories → task', () => {
       name: 'AWS billing alerts expanded and hard limits',
       notes: 'Budgets + anomaly detection',
       completed: false,
-      assignee: { gid: '1167899671459952', name: 'Owen Hale', email: 'owen@example.com' },
+      assignee: { gid: '1167899671459952', name: 'Owen Hale', email: 'owen@side.example' },
       created_by: { gid: '7520977444547', name: 'Rowan Mills' },
       due_on: '2026-10-09',
       created_at: '2026-09-30T10:00:00.000Z',
@@ -37,7 +37,7 @@ test('Asana task + stories → task', () => {
   );
   assert.equal(t.status, 'Internal review / QA');
   assert.equal(t.statusCategory, 'doing');
-  assert.equal(t.assignee, 'owen@example.com');
+  assert.equal(t.assignee, 'owen@side.example');
   assert.equal(t.reporter, 'asana:7520977444547');
   assert.equal(t.due, '2026-10-09');
   assert.equal(t.project, 'CartGenie dev board');

@@ -4,8 +4,8 @@
  * exposed as `orch sources auth <slug> google <action> …`:
  *
  *   client add --name pedalix --json ~/Downloads/client_secret_….json [--audience internal|external]
- *   login  --client pedalix [--account owen@example.com]
- *   dwd    --key ~/Downloads/sa-key.json --account owen@example.com   # primary address, never an alias
+ *   login  --client pedalix [--account owen@home.example]
+ *   dwd    --key ~/Downloads/sa-key.json --account owen@home.example   # primary address, never an alias
  *   check                  # mint a token per account, verify identity + scopes (the daily health check)
  *   list | remove --account <email>
  *

@@ -93,7 +93,7 @@ test('diffDay tombstones blocks that a recompute merged away; scrubActivity reda
 function git(dir: string, args: string[], date?: string) {
   execFileSync('git', ['-C', dir, ...args], {
     stdio: 'ignore',
-    env: { ...process.env, GIT_AUTHOR_NAME: 'Owen Hale', GIT_AUTHOR_EMAIL: 'owen@example.com', GIT_COMMITTER_NAME: 'Owen Hale', GIT_COMMITTER_EMAIL: 'owen@example.com', ...(date ? { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } : {}) },
+    env: { ...process.env, GIT_AUTHOR_NAME: 'Owen Hale', GIT_AUTHOR_EMAIL: 'owen@home.example', GIT_COMMITTER_NAME: 'Owen Hale', GIT_COMMITTER_EMAIL: 'owen@home.example', ...(date ? { GIT_AUTHOR_DATE: date, GIT_COMMITTER_DATE: date } : {}) },
   });
 }
 

@@ -1,0 +1,7 @@
+# Public patterns (grep -E, case-insensitive) that must never appear in a tracked file of this repo.
+# The real deny-list — names of our installations, customers, people, their ids and hosts — is NOT
+# here: a public list of forbidden names is itself the leak. It lives in the operator's private ops
+# repo and reaches CI as the secret PUBLIC_GUARD_PATTERNS (one pattern per line); scripts/public-guard.sh
+# adds it to the patterns below. Fork pull requests run without it.
+# Placeholders that are fine: you@example.com, T_FIX_1, <gateway-host>, 00000000-0000-4000-….
+# (No public patterns today: secret-shaped strings are gitleaks' job, see .gitleaks.toml.)

@@ -7,7 +7,7 @@ const dir = parseSlackDirectory(
     T1: {
       fetched_at: '2026-10-09T00:00:00Z',
       users: [
-        { id: 'U03D1FXGTFZ', name: 'florin', real_name: 'Florin Ganz', profile: { display_name: 'Florin' } },
+        { id: 'U03D1FXGTFZ', name: 'florin', real_name: 'Fabio Ganz', profile: { display_name: 'Florin' } },
         { id: 'U09BOT00001', name: 'intercom', is_bot: true, profile: { display_name: 'Intercom Convert' } },
         { id: 'USLACKBOT', name: 'slackbot', is_app_user: true, real_name: 'Slackbot' },
       ],
@@ -41,6 +41,6 @@ test('isBotAuthor: explicit flag, known integrations, users-map bots, mail no-re
   assert.equal(isBotAuthor('gmail', 'noreply@tm.openai.com', dir), true);
   assert.equal(isBotAuthor('gmail', 'Google <calendar-notification@google.com>', dir), true);
   assert.equal(isBotAuthor('gmail', 'gemini-notes@google.com', dir), true);
-  assert.equal(isBotAuthor('gmail', 'Tess North@example.com', dir), false);
+  assert.equal(isBotAuthor('gmail', 'tess.north@partner.example', dir), false);
   assert.equal(isBotAuthor('msgraph', 'account-security-noreply@accountprotection.microsoft.com', dir), true);
 });

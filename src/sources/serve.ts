@@ -3,7 +3,7 @@
 //
 // Why: the replica bind mount only reaches sandboxes on the bot host's own docker engine (the home
 // bot). Prod sandboxes run on the Bluefin VM (Daytona) and the sandbox box — nothing on the bot host —
-// so a tenant store there is reachable only over the network. agentgateway (<gateway-host>)
+// so a tenant store there is reachable only over the network. agentgateway (engine.example.com)
 // already fronts every project's MCP servers; this listener is one more upstream target for it,
 // and the sandbox keeps talking to the gateway with its Auth0 M2M token exactly as for every
 // other remote server (`mcp` entry with `url` + `auth: "gateway-m2m"`, docs/runtime-config.md).

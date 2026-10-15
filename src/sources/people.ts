@@ -7,7 +7,7 @@
 //
 // Shape (JSON array):
 //   [{ "person_id": "vincent", "name": "Vera Lindqvist", "company": "hcg",
-//      "identities": ["Vera Lindqvist@example.com", "slack:Vera Lindqvist"],
+//      "identities": ["vera.lindqvist@home.example", "slack:Vera Lindqvist"],
 //      "marker": { "type": "broad", "initiatives": ["hcg/hcg/st-steering"] } }]
 // Canonical home: the tenant repo's annotations/people.json (docs/sources.md → "Tenant").
 // `marker` says how much a person tells about WHICH initiative a conversation belongs to:
