@@ -41,6 +41,10 @@
 4. Next real tag: observe dispatch → deploy. Ledger row gets the date.
 5. Rollback: re-add the old `deploy` job from git history and the secrets to the public repo (10 minutes); nothing on the box changes shape.
 
+## Amendment 2026-10-15
+
+Owen chose the manual hand-off over the dispatch: the public repo keeps **no** credential at all; `npm run release -- vX.Y.Z` (`scripts/release.sh`) tags, pushes and starts the ops deploy with the operator's own `gh` login. The dispatch steps in `release.yml` stay as an opt-in for other operators (skipped without `OPS_APP_*`). Rationale: we tag by hand anyway, and a credential in the public repo bought only the saving of one command.
+
 ## Open Questions
 
 - None blocking. (Whether to also notify a Slack channel from the ops deploy is a later nicety.)

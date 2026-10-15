@@ -133,8 +133,14 @@ Two repositories, two jobs:
 Cut a release (no changelog or version edits — the tag is the version of record):
 
 ```bash
-git tag vX.Y.Z && git push origin vX.Y.Z      # tag push → release → dispatch → your ops repo deploys
+npm run release -- vX.Y.Z     # = git tag + push (→ GitHub Release) + `gh workflow run deploy.yml` in your ops repo
 ```
+
+`scripts/release.sh` does the two steps by hand-equivalent commands and prints the ops run
+URL; `OPS_REPO` (default `pedalix/coach-aven-ops`) names the ops repo. We deliberately keep
+**no credential in this repo** for the hand-off: the person who tags starts the deploy.
+The `repository_dispatch` step in `release.yml` stays as an opt-in for operators who prefer
+the automatic path (set `OPS_APP_ID`/`OPS_APP_PRIVATE_KEY`; it is skipped otherwise).
 
 The manual path, `npm run prod:deploy` from a machine with the ops checkout, is unchanged
 and always available.
@@ -146,7 +152,7 @@ and always available.
 | ops repo | `DEPLOY_SSH_KEY` | passphrase-less private key for `deployer@<host>` |
 | ops repo | `DEPLOY_ENV` | the full contents of `infra/prod/.env` |
 | ops repo | `APP_ID`, `APP_PRIVATE_KEY` | optional — a GitHub App that can read the product repo; only while it is private to you |
-| product repo | `OPS_APP_ID`, `OPS_APP_PRIVATE_KEY` | optional — a GitHub App installed on your ops repo; enables the automatic hand-off. A token scoped to that one repo and `contents: write` is minted per run |
+| product repo | `OPS_APP_ID`, `OPS_APP_PRIVATE_KEY` | optional, **not set for our installation** — a GitHub App installed on your ops repo enables the automatic hand-off instead of `npm run release`. A token scoped to that one repo and `contents: write` is minted per run |
 
 Why a GitHub App and not a personal token: it is scoped at mint time, lives an hour, and
 is revoked by rotating one key — nobody's account, nothing that expires in a year.
