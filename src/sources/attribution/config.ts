@@ -7,6 +7,9 @@
 //     "pinAfterDays": 1,                 a day's rule decisions stay live this many full days after it ends, then are pinned
 //     "parallelSessions": "sum",         timelog: parallel work on different initiatives counts in full ("sum") or is
 //                                        scaled so a day never exceeds wall-clock ("wallclock")
+//     "budgets": [                       what the timelog is reconciled against, per umbrella (optional):
+//       { "umbrella": "x", "unit": "hour" | "half_day", "unitMinutes": 240, "perMonth": 24,
+//         "overrides": { "YYYY-MM": 20 }, "by": "initiative" | "billing_code" } ]
 //     "admin": { "<umbrella>": "<initiative>" } }   each umbrella's non-billable admin bucket (optional)
 export interface AttributionConfig {
   subject: string;
@@ -16,6 +19,21 @@ export interface AttributionConfig {
   pinAfterDays: number;
   parallelSessions: 'sum' | 'wallclock';
   admin?: Record<string, string>;
+  budgets?: Budget[];
+}
+
+/** A billing frame the timelog is reconciled against — never used to bend the minutes. */
+export interface Budget {
+  umbrella: string;
+  unit: 'hour' | 'half_day';
+  /** Minutes per unit (hour 60, half_day 240 by default). */
+  unitMinutes?: number;
+  /** Units per month; absent = report only (hourly work without a cap). */
+  perMonth?: number;
+  /** Month (YYYY-MM) → units, for renegotiated months. */
+  overrides?: Record<string, number>;
+  /** Breakdown and rounding key: per initiative (default) or per billing code. */
+  by?: 'initiative' | 'billing_code';
 }
 
 const PERSON_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
@@ -47,6 +65,28 @@ export function parseAttributionConfig(raw: unknown, where = 'annotations/attrib
   if (r.parallelSessions !== undefined) {
     if (r.parallelSessions !== 'sum' && r.parallelSessions !== 'wallclock') throw new Error(`${where}: "parallelSessions" must be "sum" or "wallclock"`);
     out.parallelSessions = r.parallelSessions;
+  }
+  if (r.budgets !== undefined) {
+    if (!Array.isArray(r.budgets)) throw new Error(`${where}: "budgets" must be an array`);
+    out.budgets = r.budgets.map((b, i) => {
+      const w = `${where}: budgets[${i}]`;
+      if (!b || typeof b !== 'object' || Array.isArray(b)) throw new Error(`${w} must be an object`);
+      const x = b as Record<string, unknown>;
+      if (typeof x.umbrella !== 'string' || !x.umbrella) throw new Error(`${w}: "umbrella" is required`);
+      if (x.unit !== 'hour' && x.unit !== 'half_day') throw new Error(`${w}: "unit" must be "hour" or "half_day"`);
+      const num = (k: string) => {
+        if (x[k] === undefined) return undefined;
+        if (typeof x[k] !== 'number' || !Number.isFinite(x[k] as number) || (x[k] as number) < 0) throw new Error(`${w}: "${k}" must be a non-negative number`);
+        return x[k] as number;
+      };
+      const overrides = x.overrides;
+      if (overrides !== undefined && (!overrides || typeof overrides !== 'object' || Array.isArray(overrides) || Object.entries(overrides).some(([k, v]) => !/^\d{4}-\d{2}$/.test(k) || typeof v !== 'number'))) throw new Error(`${w}: "overrides" must map YYYY-MM to a number`);
+      if (x.by !== undefined && x.by !== 'initiative' && x.by !== 'billing_code') throw new Error(`${w}: "by" must be "initiative" or "billing_code"`);
+      const unitMinutes = num('unitMinutes');
+      if (unitMinutes === 0) throw new Error(`${w}: "unitMinutes" must be positive`);
+      const perMonth = num('perMonth');
+      return { umbrella: x.umbrella, unit: x.unit, ...(unitMinutes !== undefined ? { unitMinutes } : {}), ...(perMonth !== undefined ? { perMonth } : {}), ...(overrides ? { overrides: overrides as Record<string, number> } : {}), ...(x.by ? { by: x.by as 'initiative' | 'billing_code' } : {}) };
+    });
   }
   if (r.admin !== undefined) {
     const a = r.admin;

@@ -2,7 +2,7 @@
 // calls in full, coding unioned per initiative minus call time, split aliases, co-activity, wall-clock policy.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildTimelog, fragmentsToEvidence, resolveByCoActivity, routeOfAttributions, type TlEvidence, type TlRoute } from '../../../snapshot/plain/sources-mcp.mjs';
+import { buildTimelog, fragmentsToEvidence, reconcile, resolveByCoActivity, routeOfAttributions, type TlEvidence, type TlRoute } from '../../../snapshot/plain/sources-mcp.mjs';
 
 const reg = {
   'acme/b/p5': { umbrella: 'acme', billing_code: 'P5' },
@@ -91,4 +91,37 @@ test('days are cut in the given zone: an hour of work at 22:30 UTC is the next d
   const e = [ev('session', '2026-10-05T22:30:00Z', '2026-10-05T23:30:00Z', R('acme/b/p5'), 'late', 'fragment:work')];
   assert.equal(buildTimelog(e, reg, 'UTC')[0]!.day, '2026-10-05');
   assert.equal(buildTimelog(e, reg, 'Europe/Moscow')[0]!.day, '2026-10-06');
+});
+
+// ── reconciliation against the tenant's budgets (the CLI's summarize tests) ─────────────────────────────────
+const budgets = [
+  { umbrella: 'acme', unit: 'half_day' as const, perMonth: 24, by: 'billing_code' as const },
+  { umbrella: 'globex', unit: 'hour' as const, perMonth: 100, overrides: { '2026-10': 70, '2026-11': 70 } },
+  { umbrella: 'initech', unit: 'hour' as const },
+];
+const regB = { ...reg, 'globex/a/a': { umbrella: 'globex', billing_code: 'a' }, 'acme/l/admin': { umbrella: 'acme' }, 'initech/x': { umbrella: 'initech', billing_code: 'x' } };
+
+test('reconcile: half-days per billing code, hours against the month\'s cap, unrouted apart — the minutes untouched', () => {
+  const entries = buildTimelog([
+    ev('session', '2026-10-05T08:00:00Z', '2026-10-05T12:00:00Z', R('acme/b/p5'), 'a', 'fragment:work'),
+    ev('session', '2026-10-05T13:00:00Z', '2026-10-05T15:30:00Z', R('globex/a/a'), 'b', 'fragment:work'),
+    ev('session', '2026-10-06T08:00:00Z', '2026-10-06T09:00:00Z', R(null, 'none'), 'c', 'fragment:work'),
+  ], regB, 'UTC');
+  const r = reconcile(entries, budgets, '2026-10');
+  assert.deepEqual(r.budgets[0], { umbrella: 'acme', unit: 'half_day', minutes: 240, used: 1, cap: 24, cap_source: 'default', remaining: 23, by: { P5: { minutes: 240, units: 1 } } });
+  assert.deepEqual(r.budgets[1], { umbrella: 'globex', unit: 'hour', minutes: 150, used: 2.5, cap: 70, cap_source: 'override', remaining: 67.5, by: { 'globex/a/a': { minutes: 150, units: 2.5 } } });
+  assert.deepEqual(r.budgets[2], { umbrella: 'initech', unit: 'hour', minutes: 0, used: 0, by: {} }, 'no cap: report only');
+  assert.deepEqual(r.unrouted, { minutes: 60, entries: 1 });
+  assert.deepEqual(r.per_umbrella, { acme: 240, globex: 150, unrouted: 60 });
+  assert.equal(entries.reduce((a, e) => a + e.minutes, 0), 450, 'reconciling never bends the minutes');
+  assert.equal(reconcile([], budgets, '2026-12').budgets[1]!.cap, 100, 'outside the overrides: the standing cap');
+});
+
+test('reconcile: routed time without a billing code is non-billable; half-days round per code (ties up), then sum', () => {
+  const row = (initiative: string, minutes: number) => ({ initiative, umbrella: (regB as Record<string, { umbrella?: string }>)[initiative]!.umbrella, ...((regB as Record<string, { billing_code?: string }>)[initiative]!.billing_code ? { billing_code: (regB as Record<string, { billing_code?: string }>)[initiative]!.billing_code } : {}), minutes });
+  const r = reconcile([row('acme/l/admin', 30), row('acme/b/p5', 300), row('acme/s/p1', 59), row('acme/y/p3', 60), row('globex/a/a', 90)], budgets, '2026-10');
+  assert.deepEqual(r.non_billable, [{ initiative: 'acme/l/admin', minutes: 30 }]);
+  assert.deepEqual(r.budgets[0]!.by, { P5: { minutes: 300, units: 1.5 }, P3: { minutes: 60, units: 0.5 }, P1: { minutes: 59, units: 0 } });
+  assert.equal(r.budgets[0]!.used, 2);
+  assert.deepEqual([r.budgets[1]!.used, r.budgets[1]!.by], [1.5, { 'globex/a/a': { minutes: 90, units: 1.5 } }]);
 });

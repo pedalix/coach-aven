@@ -620,8 +620,15 @@ count in full (topics by share), message runs and work blocks are unioned per in
 split aliases distribute by weight, open work in a shared repo follows the one candidate active that day,
 and unattributed time is its own row (`confidence: open | escalated`, with candidates). `parallelSessions`
 in attribution.json: `sum` (default) or `wallclock` (parallel work scaled so a day never exceeds
-wall-clock; calls untouched). Default window: this month so far. Retainer caps and half-day reports are
-arithmetic over these rows.
+wall-clock; calls untouched). Default window: this month so far.
+
+**Budgets**: `budgets` in attribution.json — the billing frames the timelog is reconciled against, one per
+umbrella: `{umbrella, unit: hour | half_day, unitMinutes?, perMonth?, overrides?: {YYYY-MM: n}, by?: initiative |
+billing_code}`. With budgets, every `timelog` answer carries `reconciliation` for the month of `until` from its
+first day, whatever the window: per budget the units used (half-days rounded to 0.5 per breakdown key and then
+summed, hours rounded to 0.1 on the total), the month's cap (an override wins) and what is left, plus minutes
+per umbrella, non-billable time (routed initiatives without a billing code) and unrouted time. It never bends
+the minutes; a model quotes it and never recomputes it.
 
 **Recompute**: at every build that consumed new lines or saw a tenant file change (and at least hourly,
 since the horizon ends today), over `since` to today in the tenant's zone (`sources.timezone`; the table stores
