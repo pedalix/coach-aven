@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.7.0';
+export const SERVER_VERSION = '1.7.1';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -1434,6 +1434,9 @@ export function runAttribution(db, args, now = new Date()) {
         end: f.end,
         title: f.title,
         state: f.state,
+        // What a question about this fragment is about: the conversation (runs), the repo or folder (work);
+        // calls are their meeting ref (refs[0]).
+        ...(f.container ? { container: f.container } : {}),
         ...(f.weight !== 1 ? { weight: f.weight } : {}),
         ...(f.state === 'open' || f.state === 'rule' ? { candidates: parseJson(f.candidates || '[]', []), hint: f.hint } : {}),
         ...(f.state !== 'open' ? { decided_by: f.decided_by, attributions: parseJson(f.attributions || '[]', []), ...(f.rule_id ? { rule_id: f.rule_id } : {}), ...(f.rationale ? { rationale: f.rationale } : {}) } : {}),
