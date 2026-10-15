@@ -107,12 +107,25 @@ test('recomputeAttribution: the subject\'s fragments with ledger precedence, lad
     assert.equal(out.fragments!.some((f) => (f.refs as string[]).includes('slack:T/C3/6')), false, 'the greeting-only run is dropped');
     assert.equal(out.fragments!.some((f) => (f.refs as string[]).includes('slack:T/C1/7')), false, 'another author\'s message is not a fragment of the subject');
     assert.deepEqual(runAttribution(db, { since: '2026-10-15', state: 'open' }, NOW).fragments!.map((f) => f.state), ['open']);
+    // the initiative index follows the plan: rule and judged fragments over the platform's refs, never open ones;
+    // a ledger line the plan does not hold keeps its own rows
+    const index = () => db.prepare('SELECT ref, initiative, fragment_id, decided_by FROM attributions ORDER BY ref, initiative').all() as { ref: string; initiative: string; fragment_id: string; decided_by: string }[];
+    const rows = index();
+    assert.deepEqual(rows.filter((r) => r.ref === 'slack:T/C1/1').map((r) => [r.initiative, r.decided_by]), [['globex/shop', 'rule']], 'a live rule decision is searchable by initiative');
+    assert.deepEqual(rows.filter((r) => r.ref === 'slack:T/C2/4').map((r) => [r.initiative, r.fragment_id, r.decided_by]), [['initech/b', judgedId, 'model']], 'the judgment, under its ledger id');
+    assert.ok(rows.some((r) => r.ref === 'activity:git:a1' && r.initiative === 'acme/p5'), 'the work block by its repo');
+    assert.equal(rows.some((r) => r.ref.startsWith('slack:T/D1/')), false, 'the open DM is in no initiative');
+    const outside: Fragment = { ...ledger[0]!, id: 'frag-2026-09-01-thread-old', start: '2026-09-01T09:00:00.000Z', end: '2026-09-01T09:00:00.000Z', refs: ['slack:T/C9/0'], attributions: [{ initiative: 'acme/p5', share: 1 }] };
+    recomputeAttribution(db, inputs, people, [...ledger, outside], NOW);
+    assert.deepEqual(index().filter((r) => r.ref === 'slack:T/C9/0').map((r) => [r.initiative, r.fragment_id]), [['acme/p5', 'frag-2026-09-01-thread-old']], 'before the horizon: the ledger line\'s own rows');
     assert.match(String(runAttribution(db, { since: '2026-09-01', until: '2026-09-02' }, NOW).note), /outside the computed horizon 2026-10-14\.\.2026-10-15/);
     // recompute is idempotent: the same ids again
     const again = recomputeAttribution(db, inputs, people, ledger, NOW);
     assert.equal(again.fragments, sum.fragments);
-    clearAttribution(db);
+    // the layer switched off: not configured, and the index is the ledger's alone again
+    clearAttribution(db, ledger);
     assert.equal(runAttribution(db, {}, NOW).configured, false);
+    assert.deepEqual(index().map((r) => [r.ref, r.initiative]), [['slack:T/C2/4', 'initech/b']]);
   } finally {
     db.close();
   }

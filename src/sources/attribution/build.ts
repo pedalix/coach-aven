@@ -14,7 +14,7 @@ import { planFragments, proposeRules, STATES, type LedgerRecord, type Planned, t
 import { appendPinLines, pinsToAdd, readPins, rulesVersion } from './pins.js';
 import type { MarkedPerson, RuleRecord } from './ladder.js';
 import { resolveIdentity, type Person } from '../people.js';
-import type { Fragment } from '../annotations.js';
+import { attributionRows, type Fragment } from '../annotations.js';
 
 export interface AttributionFiles {
   /** The tenant checkout's root (initiatives.json lives here). */
@@ -186,6 +186,19 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
     }
     const props = db.prepare('INSERT OR REPLACE INTO att_proposals(id, question, options, refs) VALUES (?, ?, ?, ?)');
     for (const x of proposals) props.run(x.id, x.question, JSON.stringify(x.options), JSON.stringify(x.refs));
+    // The initiative index (search/get/fragments `initiative`) follows the plan: judgments, pins and live rule decisions
+    // over the platform's own refs — the tenant ledger keeps judgments only and need not carry refs. Ledger lines the plan
+    // does not hold (before the horizon, or an id that no longer matches) keep their own rows.
+    db.exec('DELETE FROM attributions');
+    const aIns = db.prepare('INSERT OR REPLACE INTO attributions(ref, initiative, share, fragment_id, decided_by) VALUES (?, ?, ?, ?, ?)');
+    const held = new Set<string>();
+    for (const p of planned) {
+      held.add(p.draft.id);
+      if (p.ledger_id) held.add(p.ledger_id);
+      if (p.state !== 'decided' && p.state !== 'rule') continue;
+      for (const ref of p.draft.refs) for (const a of p.attributions) aIns.run(ref, a.initiative, a.share, p.ledger_id ?? p.draft.id, p.decided_by ?? 'rule');
+    }
+    for (const r of attributionRows(ledgerRecords.filter((f) => !held.has(f.id)))) aIns.run(r.ref, r.initiative, r.share, r.fragment_id, r.decided_by);
     const pinIns = db.prepare('INSERT OR REPLACE INTO att_pins(id, pinned_at, rules_version) VALUES (?, ?, ?)');
     for (const p of planned) if (p.pinned_at) pinIns.run(p.draft.id, p.pinned_at, p.rules_version ?? '');
     const meta = db.prepare('INSERT OR REPLACE INTO sync_state(key, value) VALUES (?, ?)');
@@ -205,9 +218,21 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
   return { since, until, fragments: planned.length, states, proposals: proposals.length };
 }
 
-/** The layer switched off (the tenant removed its config): no rows, no meta — the tool then says "not configured". */
-export function clearAttribution(db: DatabaseSync): void {
-  db.exec("DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins; DELETE FROM sync_state WHERE key LIKE 'att:%';");
+/**
+ * The layer switched off (the tenant removed its config): no rows, no meta — the tool then says "not configured" — and
+ * the initiative index goes back to the ledger alone.
+ */
+export function clearAttribution(db: DatabaseSync, ledgerRecords: readonly Fragment[] = []): void {
+  db.exec('BEGIN');
+  try {
+    db.exec("DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins; DELETE FROM sync_state WHERE key LIKE 'att:%'; DELETE FROM attributions;");
+    const aIns = db.prepare('INSERT OR REPLACE INTO attributions(ref, initiative, share, fragment_id, decided_by) VALUES (?, ?, ?, ?, ?)');
+    for (const r of attributionRows(ledgerRecords)) aIns.run(r.ref, r.initiative, r.share, r.fragment_id, r.decided_by);
+    db.exec('COMMIT');
+  } catch (e) {
+    db.exec('ROLLBACK');
+    throw e;
+  }
 }
 
 /** The pinned ids among the store's fragments whose start lies in [loIso, hiIso] — what a redo releases. */
