@@ -15,9 +15,8 @@ import {
   repoCheckout,
   projectCwd,
 } from './project.js';
-import { withSourcesMcp } from './sources/mcp.js';
-import { withHostMcp } from './hostmcp.js';
 import { dispatch } from './dispatch.js';
+import type { HostServerRoute } from './hosttools.js';
 import { buildSystemPrompt } from './prompt.js';
 import type { GitFlow, McpServerSpec } from './projects.js';
 import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
@@ -128,7 +127,6 @@ async function prepareChat(
   cliVersion?: string,
   upgradeCli?: boolean,
   sandboxOpts?: SandboxOptions,
-  sourcesEnabled = false,
 ) {
   if (repos.length === 0) throw new Error(`project ${slug} has no repos`);
   const driver = createDriver(cfg, driverKind);
@@ -136,7 +134,7 @@ async function prepareChat(
 
   const proj = store.upsertProject(slug, repos[0], cfg.sandbox.namePrefix);
   const sandbox = await driver.ensureSandbox(proj.sandboxName, slug, sandboxOpts);
-  await provisionTooling(sandbox, { cliVersion, upgradeCli, where: proj.sandboxName, sourcesMcp: sourcesEnabled, hostMcp: dispatch.enabled });
+  await provisionTooling(sandbox, { cliVersion, upgradeCli, where: proj.sandboxName });
   // dockerd liveness guard: a dead daemon breaks Sail (php/composer/artisan shims) for
   // every turn until revived — catch it here rather than mid-conversation. A plain project
   // (sandbox.dind === false) has no dockerd to guard — the probe would only ever "fail".
@@ -224,16 +222,19 @@ export async function openChat(
     sandbox?: SandboxOptions;
     // ProjectConfig.scrubSecrets; undefined → on. See claudeSession.ts / scrub.ts.
     scrubSecrets?: boolean;
-    // ProjectConfig.sources present → the `sources` MCP server (sources/mcp.ts) is added to the
-    // chat's MCP list, its script is provisioned into the sandbox, and the system prompt explains it.
+    // ProjectConfig.sources present → the system prompt explains the `sources` tools; the server
+    // itself is one of `hostServers` (served by the bot over the control channel, hostrouter.ts).
     sources?: boolean;
+    // The bot-served MCP servers this session registers (host tools, channel-served sources).
+    // Empty/absent → nothing is registered and the session is byte-identical to today's.
+    hostServers?: HostServerRoute[];
   },
 ): Promise<ChatSession> {
   const sourcesEnabled = opts.sources === true;
-  // One merged list for every seeding site below: the project's own servers plus `sources`.
-  const mcp = withHostMcp(withSourcesMcp(opts.mcp, sourcesEnabled), dispatch.enabled);
+  // The sandbox's own MCP list is exactly the project's: bot-served servers never appear in it.
+  const mcp = opts.mcp;
   const prep = await withSandboxLock(opts.slug, () =>
-    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox, sourcesEnabled),
+    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox),
   );
   const { driver, proj, cwd } = prep;
   let sandbox = prep.sandbox;
@@ -303,6 +304,7 @@ export async function openChat(
             mcpConfigPath,
             avenSession: opts.avenSession,
             scrubSecrets: opts.scrubSecrets,
+            hostServers: opts.hostServers,
             attach: target,
             resumeSessionId: sessionId, // seed claudeSessionId; not used to relaunch
           });
@@ -329,6 +331,7 @@ export async function openChat(
         mcpConfigPath,
         avenSession: opts.avenSession,
         scrubSecrets: opts.scrubSecrets,
+        hostServers: opts.hostServers,
         model: cfg.claudeModel,
       });
       session.onIdleResult = idleNotify;

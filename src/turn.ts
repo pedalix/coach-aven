@@ -16,7 +16,8 @@ import { skippedNotice, type AttachmentRef } from './attachments.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
 import { MAX_SLACK_TEXT, errText, alertOps } from './chat/slack/blocks.js';
 import { QueueJournal } from './queuejournal.js';
-import { isThreadKey, threadRoot, slugOfBase } from './teamkeys.js';
+import { isThreadKey, threadRoot, slugOfBase, splitTeam } from './teamkeys.js';
+import type { HostCaller, HostServerRoute } from './hosttools.js';
 import { DraftStore } from './drafts.js';
 import { UsageLog, aggregateUsage, usageSummaryText } from './metering.js';
 import { RateLimitTracker, type RateLimitInfo } from './ratelimit.js';
@@ -144,8 +145,15 @@ const ETA_HINT_MS = 3 * 60_000;
 // Injection seam for the recorded-call tests (src/chat/slack/turn.record.test.ts): a fake
 // session factory instead of a real sandbox, and throwaway journal/usage/feedback/draft
 // locations instead of the checkout's. Production passes nothing — every default is today's.
+// The bot-served MCP servers a session registers over its control channel (hostrouter.ts);
+// absent → none, and every session is byte-identical to one without host tools.
+export interface HostRoutes {
+  routesFor(caller: HostCaller, project: ProjectConfig): HostServerRoute[];
+}
+
 export interface TurnDeps {
   openChat?: typeof openChat;
+  hostRoutes?: HostRoutes;
   journal?: QueueJournal;
   usageLog?: UsageLog;
   feedbackLog?: FeedbackLog;
@@ -365,10 +373,15 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       return existing;
     }
     const prior = store.getChat(key);
+    // Who the bot-served tools see as the caller: this session's own project, conversation and
+    // tenant — fixed here, never taken from anything the agent writes (hosttools.ts).
+    const tenantId = splitTeam(key).tenantId;
+    const caller: HostCaller = { slug: project.slug, conversationKey: key, ...(tenantId ? { teamId: tenantId } : {}) };
     const chat = await openSession(cfg, store, {
       slug: project.slug,
       repos: project.repos,
       resumeSessionId: prior?.sessionId,
+      hostServers: deps.hostRoutes?.routesFor(caller, project) ?? [],
       systemPrompt: project.systemPrompt,
       gitFlow: project.gitFlow,
       slackUrl,

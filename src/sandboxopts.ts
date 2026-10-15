@@ -33,22 +33,6 @@ export interface ResolvedSandboxOptions {
 
 export const DEFAULT_SANDBOX_OPTIONS: ResolvedSandboxOptions = { privileged: true, dind: true, mounts: [] };
 
-// Where a project with a `sources:` block sees its read-only store replica. Fixed, not
-// configurable: the sandbox-side search tool and the system prompt both rely on it.
-export const SOURCES_MOUNT_TARGET = '/data/sources';
-
-// A project that declares `sources` gets the replica mount added for it — projects never
-// hand-write that line, so the host layout (sources/paths.ts) can change without touching
-// every config. Returns plain SandboxOptions so resolveSandboxOptions still validates the
-// result (a hand-written mount on the same target is a duplicate-target error, deliberately).
-export function withSourcesMount(input: SandboxOptions | undefined, replicaDir: string): SandboxOptions {
-  const base = input ?? {};
-  const spec = `${replicaDir}:${SOURCES_MOUNT_TARGET}:ro`;
-  const mounts = base.mounts ?? [];
-  if (mounts.includes(spec)) return base;
-  return { ...base, mounts: [...mounts, spec] };
-}
-
 // Same charset sshdocker.safeToken accepts — these become `-v` argv segments on the host.
 const SAFE_PATH = /^\/[A-Za-z0-9._/-]*$/;
 

@@ -160,14 +160,15 @@ test('a project with sources gets the replica mount merged into its sandbox opti
       );
       const reg = loadProjects(configPath);
       const ops = reg.projects.find((p) => p.slug === 'ops')!;
-      assert.deepEqual(ops.sandbox?.mounts, [`${join(dir, 'data', 'ops', 'replica')}:/data/sources:ro`]);
+      // Since host-tools the store never rides into the sandbox: the options are exactly the config's.
+      assert.deepEqual(ops.sandbox, { privileged: false, dind: false }, 'no replica mount is injected');
       assert.equal(reg.projects.find((p) => p.slug === 'plain')!.sandbox, undefined, 'no sources → untouched');
-      // A hand-written mount on the same target is a boot error, not a silent shadow.
+      // A hand-written mount is the operator's own and stays as written.
       writeFileSync(
         configPath,
         JSON.stringify({ projects: [{ slug: 'ops', repos: ['Org/ops'], sandbox: { privileged: false, dind: false, mounts: ['/elsewhere:/data/sources'] }, sources: { slack: { workspaces: ['T1'] } } }] }),
       );
-      assert.throws(() => loadProjects(configPath), /duplicate mount target/);
+      assert.deepEqual(loadProjects(configPath).projects[0]!.sandbox?.mounts, ['/elsewhere:/data/sources']);
     } finally {
       delete process.env.AVEN_DATA_DIR;
     }

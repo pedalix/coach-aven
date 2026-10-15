@@ -1,4 +1,3 @@
-import { HOST_MCP_PATH, hostMcpScript, hostMcpSha256 } from './hostmcp.js';
 import type { SandboxHandle } from './driver.js';
 import type { Config } from './config.js';
 import type { McpServerSpec } from './projects.js';
@@ -11,7 +10,6 @@ import { alertOps } from './chat/slack/blocks.js';
 import { log } from './log.js';
 import { withGitRetry, type GitRetryOpts } from './gitretry.js';
 import { routineGuard } from './routineguard.js';
-import { SOURCES_MCP_PATH, sourcesMcpScript, sourcesMcpSha256 } from './sources/mcp.js';
 import { GIT_EMAIL, GIT_NAME } from './gitidentity.js';
 
 // The snapshot image (snapshot/Dockerfile → SNAPSHOT_IMAGE) bakes in the sandbox tooling
@@ -22,15 +20,8 @@ import { GIT_EMAIL, GIT_NAME } from './gitidentity.js';
 // Dockerfile so freshly-baked images stop needing the runtime install.
 export async function provisionTooling(
   sandbox: SandboxHandle,
-  opts: { cliVersion?: string; upgradeCli?: boolean; where?: string; sourcesMcp?: boolean; hostMcp?: boolean } = {},
+  opts: { cliVersion?: string; upgradeCli?: boolean; where?: string } = {},
 ) {
-  // The `sources` MCP server (sources/mcp.ts) is baked into the plain image at SOURCES_MCP_PATH;
-  // warm sandboxes — and the laravel image — converge here: compare the sandbox copy's sha256
-  // with the script this bot ships and upload on mismatch. Only for projects with a `sources`
-  // block, so every other sandbox stays untouched.
-  if (opts.sourcesMcp) await ensureSourcesMcp(sandbox);
-  // The `host` MCP server (hostmcp.ts) — the dispatch primitive's `propose` tool; DISPATCH=1 only.
-  if (opts.hostMcp) await ensureHostMcp(sandbox);
   // imagemagick is the recovery tool for oversized images: attachments are pre-scaled by the
   // orchestrator, but if one slips through (e.g. a format sharp couldn't decode), the agent
   // resizes in one `magick` step instead of hand-rolling a resizer.
@@ -46,31 +37,6 @@ export async function provisionTooling(
     if (notice) alertOps(notice.text, notice.level);
     if (notice?.level === 'warning') captureError(new Error(notice.text), { subsystem: 'cli-upgrade' });
   }
-}
-
-export async function ensureSourcesMcp(sandbox: SandboxHandle): Promise<'present' | 'uploaded'> {
-  const script = sourcesMcpScript();
-  const want = sourcesMcpSha256(script);
-  const r = await sandbox.exec(`sha256sum ${SOURCES_MCP_PATH} 2>/dev/null | cut -d' ' -f1`, { timeout: 30 });
-  if ((r.result ?? '').trim() === want) return 'present';
-  // mkdir first: on the laravel image /opt/aven does not exist; on plain it holds the baked copy.
-  await sandbox.exec(`mkdir -p ${SOURCES_MCP_PATH.slice(0, SOURCES_MCP_PATH.lastIndexOf('/'))}`, { timeout: 30, check: true });
-  await sandbox.uploadFile(script, SOURCES_MCP_PATH);
-  await sandbox.exec(`chmod 644 ${SOURCES_MCP_PATH}`, { timeout: 30, check: true });
-  log.info(`sources MCP server uploaded to sandbox (${want.slice(0, 12)})`);
-  return 'uploaded';
-}
-
-export async function ensureHostMcp(sandbox: SandboxHandle): Promise<'present' | 'uploaded'> {
-  const script = hostMcpScript();
-  const want = hostMcpSha256(script);
-  const r = await sandbox.exec(`sha256sum ${HOST_MCP_PATH} 2>/dev/null | cut -d' ' -f1`, { timeout: 30 });
-  if ((r.result ?? '').trim() === want) return 'present';
-  await sandbox.exec(`mkdir -p ${HOST_MCP_PATH.slice(0, HOST_MCP_PATH.lastIndexOf('/'))}`, { timeout: 30, check: true });
-  await sandbox.uploadFile(script, HOST_MCP_PATH);
-  await sandbox.exec(`chmod 644 ${HOST_MCP_PATH}`, { timeout: 30, check: true });
-  log.info(`host MCP server uploaded to sandbox (${want.slice(0, 12)})`);
-  return 'uploaded';
 }
 
 // Make sure dockerd is alive before a turn runs. The dind entrypoint starts it once and

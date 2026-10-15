@@ -5,7 +5,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { buildStore, openReadOnly, SCHEMA_VERSION, type BuildContext } from './store.js';
-import { SOURCES_MCP_SOURCE } from './mcp.js';
+// The stdio face of the server (what `node sources-mcp.mjs` runs); the bot itself calls handleMessage in-process.
+const SOURCES_MCP_SOURCE = new URL('../../snapshot/plain/sources-mcp.mjs', import.meta.url).pathname;
 // The server script IS the implementation under test (see its header): import it directly.
 import {
   LOCAL_TZ,

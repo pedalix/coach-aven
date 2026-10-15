@@ -1,4 +1,4 @@
-import { DISPATCH_PROMPT_PARAGRAPH } from './hostmcp.js';
+import { DISPATCH_PROMPT_PARAGRAPH } from './dispatch.js';
 import { repoName } from './project.js';
 import { SOURCES_PROMPT_PARAGRAPH } from './sources/mcp.js';
 import type { GitFlow } from './projects.js';

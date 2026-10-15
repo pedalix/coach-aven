@@ -1,7 +1,8 @@
-// Dispatch primitive, the IO half (pure half: dispatch.ts). Owns the three verbs — ingest a
-// proposal from a project's outbox, approve/dismiss it, execute it — and talks to the chat
-// driver, the turn engine and state.json. Constructed once in slack.ts and handed to pollers.ts (outbox
-// poll, auto mode) and events.ts (the buttons). Nothing here runs unless DISPATCH=1.
+// Dispatch primitive, the IO half (pure half: dispatch.ts). Owns the three verbs — take a
+// proposal (the `host` tool `propose`, which the bot serves over the session's control channel:
+// hostrouter.ts), approve/dismiss it, execute it — and talks to the chat driver, the turn engine
+// and state.json. Constructed once in the composition root (chat/slack/app.ts) and handed to the
+// host router (propose) and events (the buttons). Nothing here runs unless DISPATCH=1.
 import type { Store } from './state.js';
 import type { TurnEngine } from './turn.js';
 import type { ChatDriver, DriverForTenant } from './chat/driver.js';
@@ -12,13 +13,11 @@ import { headline } from './routinerun.js';
 import { localDate } from './routineguard.js';
 import { log } from './log.js';
 import {
-  consumeProposals,
-  dispatch,
   gateDecision,
-  outboxDir,
   parseProposal,
   sessionThread,
   wrapDispatch,
+  type ProposeOutcome,
   type StoredProposal,
 } from './dispatch.js';
 
@@ -34,8 +33,8 @@ export interface DispatcherDeps {
 }
 
 export interface Dispatcher {
-  /** One pass over every project's outbox (pollers.ts, every few seconds). */
-  pollOutboxes(): void;
+  /** The `propose` tool: a record the host composed from the call (dispatch.ts composeProposal) → stored, gated, rendered; what the agent is told. */
+  propose(slug: string, raw: unknown): Promise<ProposeOutcome>;
   /** Send clicked: executes once (idempotent on id); returns the fresh record for the message rewrite. */
   approve(chat: ChatDriver, id: string, userId: string): Promise<StoredProposal | undefined>;
   dismiss(id: string, userId: string): StoredProposal | undefined;
@@ -107,19 +106,22 @@ export function createDispatcher(d: DispatcherDeps): Dispatcher {
     return stored;
   }
 
-  async function ingest(slug: string, raw: unknown, file: string): Promise<void> {
+  async function ingest(slug: string, raw: unknown): Promise<ProposeOutcome> {
     const parsed = parseProposal(raw);
     if (!parsed.ok) {
-      log.warn(`dispatch (${slug}): ${file} rejected — ${parsed.error}`);
-      return;
+      log.warn(`dispatch (${slug}): proposal rejected — ${parsed.error}`);
+      return { ok: false, error: parsed.error };
     }
     const rec = parsed.record;
-    if (d.store.getProposal(rec.id)) {
+    const known = d.store.getProposal(rec.id);
+    if (known) {
+      // Same content from the same conversation (a retried call, a reattached session): the agent
+      // learns the existing record's state; nothing is rendered twice.
       log.info(`dispatch (${slug}): ${rec.id} already known — ignored`);
-      return;
+      return { ok: true, id: known.id, status: known.status, gate: known.approvedBy === 'auto' ? 'auto' : 'buttons', duplicate: true };
     }
     const project = projectOf(slug);
-    if (!project) return;
+    if (!project) return { ok: false, error: `unknown project ${slug}` };
     const { teamId, threadTs } = sessionThread(rec.session);
     const driver = d.driverFor(teamId);
     // Where the proposing turn runs: its chat record lives under the FULL conversation key —
@@ -141,33 +143,27 @@ export function createDispatcher(d: DispatcherDeps): Dispatcher {
         const res = await driver.post({ conv: channel, thread }, { kind: 'proposal', proposal: done }).catch(() => undefined);
         if (res?.id) d.store.patchProposal(p.id, { messageTs: res.id });
       }
-      return;
+      return { ok: true, id: p.id, status: done.status, gate: 'auto', ...(done.result ? { note: done.result } : {}) };
     }
     log.info(`dispatch (${slug}): ${p.id} ${p.kind} → ${p.target} gated — ${gate.reason}`);
     if (!channel) {
       log.warn(`dispatch (${slug}): ${p.id} has no channel to render in (session ${rec.session || 'none'})`);
-      return;
+      return { ok: true, id: p.id, status: 'pending', gate: 'buttons', note: 'recorded, but this conversation has no thread to show the Send / Dismiss buttons in' };
     }
     const res = await driver.post({ conv: channel, thread }, { kind: 'proposal', proposal: p }).catch((e: unknown) => {
       log.warn(`dispatch (${slug}): ${p.id} render failed: ${e instanceof Error ? e.message : String(e)}`);
       return undefined;
     });
     if (res?.id) d.store.patchProposal(p.id, { messageTs: res.id });
+    return { ok: true, id: p.id, status: 'pending', gate: 'buttons', note: `waiting for Send / Dismiss in this thread (${gate.reason})` };
   }
 
   return {
-    pollOutboxes() {
-      if (!dispatch.enabled) return;
-      for (const p of d.reg.current.projects) {
-        try {
-          consumeProposals(outboxDir(p.slug), (raw, file) => {
-            void ingest(p.slug, raw, file).catch((e: unknown) => log.error(`dispatch (${p.slug}): ingest ${file}: ${e instanceof Error ? e.message : String(e)}`));
-          });
-        } catch (e) {
-          log.error(`dispatch (${p.slug}): outbox poll: ${e instanceof Error ? e.message : String(e)}`);
-        }
-      }
-    },
+    propose: (slug, raw) =>
+      ingest(slug, raw).catch((e: unknown) => {
+        log.error(`dispatch (${slug}): propose: ${e instanceof Error ? e.message : String(e)}`);
+        return { ok: false as const, error: 'the orchestrator could not record the proposal' };
+      }),
     async approve(chat, id, userId) {
       const p = d.store.getProposal(id);
       if (!p) return undefined;

@@ -16,6 +16,7 @@ import { CLI_PATH_ENV } from './cliversion.js';
 import { log } from './log.js';
 import { scrubSummary, scrubText } from './scrub.js';
 import { ATTRIBUTION_SETTINGS, gitIdentityEnv } from './gitidentity.js';
+import type { HostServerRoute, JsonRpc } from './hosttools.js';
 
 export interface AskQuestion {
   question: string;
@@ -152,9 +153,19 @@ export class ClaudeSession {
   // will never come. adoptInflight dismisses it so the turn can finish instead of hanging
   // to the runtime watchdog (whose kill also retires the whole session).
   private snapshotPendingTool?: { requestId: string; input: unknown };
+  // On reattach: an mcp_message (a host tool call) the OLD bot never answered — served for real
+  // by adoptInflight, since this process holds the same routes; a tool with an effect (propose)
+  // is idempotent on its id, so a reply the old bot did get out is harmless.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private snapshotPendingMcp?: any;
   private attached = false; // opened by reattaching to a running command (vs fresh spawn)
   // Running total → per-turn cost for THIS process; fed every `result` we see, in order.
   private readonly costs = new CostDelta();
+  // Every stdin write goes through this chain, one at a time. A host tool answer can be tens of KB
+  // (a sources page) and the agent may call tools in parallel; on ssh-docker each write is its own
+  // `cat > fifo` process, and two writes over PIPE_BUF to one FIFO may interleave their bytes —
+  // two corrupted JSON lines. Serialising keeps every line whole on every driver.
+  private stdin: Promise<void> = Promise.resolve();
 
   // Fires when a `result` event arrives with NO turn pending — i.e. the CLI process,
   // otherwise idle, spontaneously completed a fresh turn on its own. This happens when a
@@ -194,6 +205,10 @@ export class ClaudeSession {
       // Reattach to an already-running command (the bot restarted; claude kept running in
       // the sandbox) instead of spawning a fresh process — see open().
       attach?: { sessionKey: string; cmdId: string };
+      // In-process MCP servers the BOT serves to this session over the control channel
+      // (hosttools.ts / hostrouter.ts): registered right after spawn, answered on every
+      // control_request{mcp_message}. On attach the running process already knows them.
+      hostServers?: HostServerRoute[];
     },
   ) {
     this.sessionKey =
@@ -278,6 +293,25 @@ export class ClaudeSession {
       .streamSessionCommandLogs(this.sessionKey, this.cmdId, (c) => this.onChunk(c))
       .then(() => this.onExit())
       .catch(() => this.onExit());
+    await this.registerHostServers();
+  }
+
+  // Tell the CLI about the bot-served MCP servers — once, right after spawn and before any
+  // turn, exactly as the Agent SDK does (`initialize` with `sdkMcpServers`): the CLI then runs
+  // each server's MCP handshake and every tools/call back over this channel as
+  // control_request{mcp_message} (handleMcpMessage). stdin is ordered, so the first user turn
+  // cannot overtake the registration. No-op without servers: the sandbox's MCP list and the
+  // control traffic stay byte-identical to a bot without host tools.
+  private async registerHostServers(): Promise<void> {
+    const servers = this.opts.hostServers ?? [];
+    if (!servers.length) return;
+    const sdkMcpServerConfigs: Record<string, { timeout: number }> = {};
+    for (const s of servers) if (s.timeoutMs) sdkMcpServerConfigs[s.name] = { timeout: s.timeoutMs };
+    await this.write({
+      type: 'control_request',
+      request_id: `init-${Date.now()}`,
+      request: { subtype: 'initialize', sdkMcpServers: servers.map((s) => s.name), sdkMcpServerConfigs },
+    });
   }
 
   // Arm the two-stage watchdog on a pending turn (see the STREAM_*_MS comment): soft
@@ -343,8 +377,7 @@ export class ClaudeSession {
       // The last hop before the API: whatever a person typed in Slack (plus the attachment
       // preamble) becomes model input here, so this is where pasted secrets get redacted.
       const line = JSON.stringify({ type: 'user', message: { role: 'user', content: this.scrub(text, 'turn') } }) + '\n';
-      void this.sandbox
-        .sendSessionInput(this.sessionKey, this.cmdId!, line)
+      void this.input(line)
         .catch((e: unknown) =>
           this.settle({
             status: 'error',
@@ -409,6 +442,9 @@ export class ClaudeSession {
       // instant the old bot died could make this a duplicate reply; worst case the turn
       // errors and the user resends — still far better than the guaranteed 15-min hang.)
       this.snapshotPendingTool = { requestId: lastEvent.request_id, input: lastEvent.request.input ?? {} };
+    } else if (lastEvent?.type === 'control_request' && lastEvent.request?.subtype === 'mcp_message') {
+      // Same heuristic for a host tool call the old bot never answered: served after reattach.
+      this.snapshotPendingMcp = lastEvent;
     }
   }
 
@@ -466,6 +502,12 @@ export class ClaudeSession {
           },
         });
       }
+      // A host tool call left waiting: this process has the routes, so answer it for real.
+      const mcp = this.snapshotPendingMcp;
+      if (mcp) {
+        this.snapshotPendingMcp = undefined;
+        void this.handleMcpMessage(mcp);
+      }
     });
   }
 
@@ -481,9 +523,16 @@ export class ClaudeSession {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async write(obj: any): Promise<void> {
     if (this.dead || !this.cmdId) return;
-    await this.sandbox
-      .sendSessionInput(this.sessionKey, this.cmdId, JSON.stringify(obj) + '\n')
-      .catch(() => {});
+    await this.input(JSON.stringify(obj) + '\n').catch(() => {});
+  }
+
+  // Queue one line for the process's stdin behind every earlier one (see `stdin`). Rejects with
+  // the driver's error for THIS line; the chain itself never breaks on a failed write.
+  private input(line: string): Promise<void> {
+    const cmdId = this.cmdId!;
+    const next = this.stdin.then(() => this.sandbox.sendSessionInput(this.sessionKey, cmdId, line));
+    this.stdin = next.catch(() => {});
+    return next;
   }
 
   async close(): Promise<void> {
@@ -543,6 +592,10 @@ export class ClaudeSession {
     } else if (t === 'control_request' && ev.request?.subtype === 'can_use_tool') {
       this.turnStarted = true;
       void this.handleCanUseTool(ev); // AskUserQuestion → Slack; everything else auto-allow
+    } else if (t === 'control_request' && ev.request?.subtype === 'mcp_message') {
+      // A bot-served MCP server's handshake or tool call (hosttools.ts) — answered here, on the
+      // channel; the handshake arrives before any turn, a tools/call within one.
+      void this.handleMcpMessage(ev);
     } else if (t === 'control_cancel_request') {
       // claude withdrew a still-open can_use_tool (e.g. the turn was interrupted while
       // we were waiting on a Slack answer) — abort the matching question so its buttons
@@ -607,6 +660,41 @@ export class ClaudeSession {
     } finally {
       this.inflightTools.delete(requestId);
     }
+  }
+
+  // Answer an mcp_message control_request: route the JSON-RPC message to the bot-served server
+  // it names and reply in `mcp_response` — a request gets the server's response, a notification
+  // the empty result the Agent SDK sends (the CLI expects an acknowledgement either way). A server
+  // this session never registered (a route dropped between restarts) gets a control error, which
+  // the CLI turns into a failed tool call the agent can read.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async handleMcpMessage(ev: any): Promise<void> {
+    const requestId = ev.request_id;
+    const serverName = String(ev.request?.server_name ?? '');
+    const message = ev.request?.message as JsonRpc | undefined;
+    const route = (this.opts.hostServers ?? []).find((s) => s.name === serverName);
+    const respond = (mcp_response: unknown) =>
+      this.write({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response: { mcp_response } } });
+    if (!route || !message || typeof message !== 'object') {
+      await this.write({ type: 'control_response', response: { subtype: 'error', request_id: requestId, error: `no host server "${serverName}" in this session` } });
+      return;
+    }
+    if (message.id === undefined || message.id === null) {
+      try {
+        await route.handle(message);
+      } catch {
+        /* a notification has no error channel */
+      }
+      await respond({ jsonrpc: '2.0', result: {}, id: 0 });
+      return;
+    }
+    let reply: JsonRpc | undefined;
+    try {
+      reply = await route.handle(message);
+    } catch (e) {
+      reply = { jsonrpc: '2.0', id: message.id, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } };
+    }
+    await respond(reply ?? { jsonrpc: '2.0', id: message.id, result: {} });
   }
 
   private onExit(): void {

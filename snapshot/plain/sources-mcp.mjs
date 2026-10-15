@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.4.1';
+export const SERVER_VERSION = '1.4.2';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -94,7 +94,13 @@ function resolveTz(name) {
     return 'UTC';
   }
 }
-export const LOCAL_TZ = resolveTz(process.env.SOURCES_TZ);
+// Settable: the stdio server reads SOURCES_TZ at load; the bot, which serves this same tool table over
+// the session control channel (src/hosttools.ts), sets its AVEN_TZ here after import.
+export let LOCAL_TZ = resolveTz(process.env.SOURCES_TZ);
+export function setLocalTz(name) {
+  LOCAL_TZ = resolveTz(name);
+  return LOCAL_TZ;
+}
 
 // Offset (ms) of `tz` at the UTC instant `utcMs`: format the instant in that zone, read the wall
 // clock back as if it were UTC, and take the difference.

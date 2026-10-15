@@ -81,7 +81,7 @@ test('startServe — a real loopback round-trip with fetch, and the token check 
   }
 });
 
-test('a project with its own `sources` MCP url mounts no replica; one without still does', () => {
+test('no sources project mounts a replica any more — with or without its own `sources` url (host-tools serves it over the session channel)', () => {
   const dir = mkdtempSync(join(tmpdir(), 'proj-'));
   mkdirSync(join(dir, 'projects.d'), { recursive: true });
   const cfg = join(dir, 'projects.config.json');
@@ -92,6 +92,6 @@ test('a project with its own `sources` MCP url mounts no replica; one without st
   ] }));
   const reg = loadProjects(cfg);
   const mounts = (slug: string) => (reg.projects.find((p) => p.slug === slug)!.sandbox?.mounts ?? []).map((m) => m.split(':')[1]);
-  assert.deepEqual(mounts('local').filter((t) => t === '/data/sources'), ['/data/sources']);
-  assert.deepEqual(mounts('remote').filter((t) => t === '/data/sources'), []);
+  assert.deepEqual(mounts('local'), [], 'served by the bot over the control channel (hostrouter.ts)');
+  assert.deepEqual(mounts('remote'), [], 'reached at its own url');
 });
