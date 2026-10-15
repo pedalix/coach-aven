@@ -31,8 +31,15 @@ The sources table SHALL offer `timelog({since, until})`: for each local day of t
 - **THEN** the day shows 30 minutes for the call's initiative and 30 for the work's
 
 ### Requirement: Reconciliation against tenant budgets
-When the tenant's attribution config lists budgets, every `timelog` answer SHALL carry the reconciliation of the month of `until`, from that month's first day whatever the window: per budget the units used, rounded as the frame bills (half-days to 0.5 per breakdown key then summed, hours to 0.1 on the total), the month's cap with a month override taking precedence, and what is left; plus minutes per umbrella, non-billable time and unrouted time. The reconciliation SHALL NOT change any minute of the timelog.
+When the tenant's attribution config lists budgets, every `timelog` answer SHALL carry the reconciliation of the month of `until`, counted from that month's first day whatever the window.
 
 #### Scenario: A one-day window
 - **WHEN** the evening close asks for today's timelog
 - **THEN** the answer carries the month-to-date reconciliation, identical to the one a whole-month window returns
+
+### Requirement: Budgets round as the frame bills
+Each budget SHALL report the units used (half-days to 0.5 per breakdown key then summed, hours to 0.1 on the total), the month's cap with a month override taking precedence, and what is left; routed time without a billing code SHALL be reported as non-billable and time without an umbrella as unrouted, and no minute of the timelog SHALL change.
+
+#### Scenario: Half-days per billing code
+- **WHEN** a month holds 300 minutes on one billing code and 59 on another, with 240 minutes per half-day
+- **THEN** the first counts 1.5 half-days, the second none, and the budget has used 1.5
