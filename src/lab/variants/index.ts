@@ -6,4 +6,18 @@ import type { Variant } from '../types.js';
 
 export const VARIANTS: Record<string, () => Promise<Variant>> = {
   baseline: () => import('./baseline.js').then((m) => m.baseline),
+  stage0: () => import('./stage0.js').then((m) => m.stage0Variant),
+  keys: () => import('./keys.js').then((m) => m.keys),
+  'keys+g': () => import('./keys.js').then((m) => m.keysG),
+  judge: () => import('./judge.js').then((m) => m.judge),
 };
+
+// Variant parameters for ablations come from the CLI's repeatable --opt key=value (as LAB_OPT_<key>), so a
+// sweep needs no new variant names: e.g. --opt machineWeight=1.
+export function opt(key: string, fallback: number): number;
+export function opt(key: string, fallback: string): string;
+export function opt(key: string, fallback: number | string): number | string {
+  const v = process.env[`LAB_OPT_${key}`];
+  if (v === undefined || v === '') return fallback;
+  return typeof fallback === 'number' ? Number(v) : v;
+}

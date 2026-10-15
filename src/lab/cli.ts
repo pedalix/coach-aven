@@ -83,6 +83,8 @@ async function cmdRun(argv: string[]): Promise<void> {
       memory: { type: 'string', default: 'none' },
       q: { type: 'string', default: '10' },
       threshold: { type: 'string', default: '0' },
+      audit: { type: 'string', default: '0' },
+      opt: { type: 'string', multiple: true },
       population: { type: 'string', default: 'gold' },
       tiers: { type: 'string' },
       level: { type: 'string', default: 'initiative' },
@@ -99,6 +101,12 @@ async function cmdRun(argv: string[]): Promise<void> {
   const tiers = tiersOf(v.tiers);
   const questionsPerDay = number('q', v.q!);
   const threshold = number('threshold', v.threshold!);
+  const auditShare = number('audit', v.audit!);
+  // --opt key=value (repeatable): variant parameters for ablations (e.g. machineWeight=1), read via LAB_OPT_<KEY>
+  for (const kv of (v.opt as string[] | undefined) ?? []) {
+    const [k, ...rest] = kv.split('=');
+    process.env[`LAB_OPT_${k}`] = rest.join('=');
+  }
   const floor = number('floor', v.floor!);
   const taskArg = v.task === 'all' ? 'all' : oneOf<TaskId>('task', v.task!, TASKS);
   const names = v.variant!.split(',').map((s) => s.trim()).filter(Boolean);
@@ -125,7 +133,7 @@ async function cmdRun(argv: string[]): Promise<void> {
       return !skip;
     });
     for (const task of tasks) {
-      const result = await runTask(ds, variant, task, { mode, memory, questionsPerDay, threshold, population, tiers, llm: model?.llm ?? null, runName, log });
+      const result = await runTask(ds, variant, task, { mode, memory, questionsPerDay, auditShare, threshold, population, tiers, llm: model?.llm ?? null, runName, log });
       const score = scoreTask(ds, result, { tiers, level, floor });
       writeFileSync(join(resultDir(result), `${task}.score.json`), `${JSON.stringify(score)}\n`);
       entries.push({ result, score });
@@ -192,7 +200,7 @@ function cmdList(): void {
 
 const USAGE = `usage: npm run lab -- <run|report|list|export|label|synth> [options]
   run     --dataset <name|dir> [--variant a,b] [--task <t>|all] [--mode static|replay] [--memory none|oracle|loop]
-          [--q 10] [--threshold 0] [--population gold|all] [--tiers human,opus] [--level initiative|umbrella]
+          [--q 10] [--audit 0.15] [--threshold 0] [--population gold|all] [--tiers human,opus] [--level initiative|umbrella] [--opt key=value]
           [--floor 0.95] [--no-llm] [--run <name>]
   report  --run <name> [--out file] [--tiers ...] [--level umbrella] [--floor 0.95]
   list
