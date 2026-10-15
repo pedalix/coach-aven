@@ -12,7 +12,7 @@ import { parseRegistry, Registry, type RegistryData } from './registry.js';
 import { containerPeople, dedupeMeetings, meetingFragments, messageFragments, settleLowSubstance, workFragments, type FragmentDraft, type MeetingIn, type MsgIn, type WorkBlock } from './fragment.js';
 import { planFragments, proposeRules, STATES, type LedgerRecord, type Planned, type State } from './plan.js';
 import { appendPinLines, pinsToAdd, readPins, rulesVersion } from './pins.js';
-import type { MarkedPerson, RuleRecord } from './ladder.js';
+import type { LadderCtx, MarkedPerson, RuleRecord } from './ladder.js';
 import { resolveIdentity, type Person } from '../people.js';
 import { attributionRows, type Fragment } from '../annotations.js';
 import { collectIdentities } from '../identities/collect.js';
@@ -101,8 +101,27 @@ function parseList(v: unknown): string[] {
   }
 }
 
-/** Compute and write the layer for the horizon (config `since`, default 30 days back, to today in the tenant's zone). */
-export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs, people: readonly Person[], ledgerRecords: readonly Fragment[], now: Date = new Date()): AttributionSummary {
+/** What the layer decides on: the horizon's fragments and the ladder's context, before any ledger, pin or write. */
+export interface AttributionDrafts {
+  /** The horizon in the tenant's zone: config `since` (default 30 days back) to today. */
+  since: string;
+  until: string;
+  /** The UTC query window around it (a day before, two after): what the fragmenter read. */
+  lo: string;
+  hi: string;
+  /** The subject's fragments starting in the horizon, low-substance runs already attached to a call or dropped. */
+  drafts: FragmentDraft[];
+  /** The calls as the fragmenter saw them (recorder copies merged by overlap): the summaries topic sub-fragments were cut from. */
+  meetings: MeetingIn[];
+  ctx: LadderCtx;
+}
+
+/**
+ * The DB → drafts half of the layer, read-only: the subject's messages, the meetings and the activity of the horizon cut
+ * into fragments, plus the ladder's context. Exported so a bench (src/lab) can replay today's fragmenter and ladder over
+ * a frozen store without writing anything; recomputeAttribution is this plus the plan, the pins and the writes.
+ */
+export function loadAttributionDrafts(db: DatabaseSync, inputs: AttributionInputs, people: readonly Person[], now: Date = new Date()): AttributionDrafts {
   const { config, rules } = inputs;
   const reg = new Registry(inputs.registry);
   const tz = inputs.timezone;
@@ -157,11 +176,19 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
     const day = localDay(d.start, tz);
     return day >= since && day <= until;
   };
-  let drafts = [...dedupeMeetings(meetings).flatMap(meetingFragments), ...messageFragments(msgs, config.threadGapMinutes), ...workFragments(blocks)].filter(inHorizon);
+  const calls = dedupeMeetings(meetings);
+  let drafts = [...calls.flatMap(meetingFragments), ...messageFragments(msgs, config.threadGapMinutes), ...workFragments(blocks)].filter(inHorizon);
   if (config.substance) drafts = settleLowSubstance(drafts, config.subject, names).kept;
+  const ctx: LadderCtx = { rules, people: marked, reg, self: config.subject, ...(config.admin ? { admin: config.admin } : {}) };
+  return { since, until, lo, hi, drafts, meetings: calls, ctx };
+}
 
+/** Compute and write the layer for the horizon (config `since`, default 30 days back, to today in the tenant's zone). */
+export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs, people: readonly Person[], ledgerRecords: readonly Fragment[], now: Date = new Date()): AttributionSummary {
+  const { config } = inputs;
+  const tz = inputs.timezone;
+  const { since, until, lo, hi, drafts, ctx } = loadAttributionDrafts(db, inputs, people, now);
   const ledger = new Map<string, LedgerRecord>(ledgerRecords.map((f) => [f.id, { id: f.id, kind: f.kind, refs: f.refs, attributions: f.attributions, decided_by: f.decided_by, rule_id: f.rule_id ?? null, rationale: f.rationale ?? '', status: f.status }]));
-  const ctx = { rules, people: marked, reg, self: config.subject, ...(config.admin ? { admin: config.admin } : {}) };
   // Ledger > pin > ladder. Rule decisions of closed days (before `cutoff`) are pinned now, with the rules
   // version that decided them, and count as decided from this build on.
   const pins = inputs.pinsPath ? readPins(inputs.pinsPath) : new Map();
