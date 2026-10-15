@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":information_source: Usage: `/aven review <PR url or #number> [low|med|high]` (or `/aven review auto on|off`)"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

@@ -8,6 +8,7 @@
 
 import type { AskQuestion } from '../claudeSession.js';
 import type { ProjectConfig } from '../projects.js';
+import type { RoutineRecord } from '../state.js';
 import type { YouTrackComment, YouTrackIssue } from '../youtrack.js';
 
 // Context a completed answer needs for its follow-up buttons (Report to YouTrack, session
@@ -73,6 +74,8 @@ export type MessageView =
   | { kind: 'answer'; markdown: string; opts?: AnswerOpts; notice?: string }
   // A report the turn already posted to YouTrack on its own.
   | { kind: 'reported'; markdown: string; ticket: string; url: string; group: string }
+  // A DM with no project hint: pick one of these (`pid` = the parked question).
+  | { kind: 'projectPicker'; pid: string; projects: ProjectConfig[] }
   // An agent question with its options; `picks` = chosen option indices per question;
   // `done` renders the answered summary without controls.
   | {
@@ -95,14 +98,44 @@ export interface SessionPanelInfo {
   prCreated: boolean;
 }
 
+// The `/aven status` report.
+export interface ProjectStatus {
+  slug: string;
+  repos: number;
+  state?: string; // Daytona sandbox state; undefined = sandbox never created
+  sessions: number; // conversations bound to this project in state.json
+  active: number; // conversations with a turn in flight right now
+  openPRs?: number; // undefined = couldn't be determined
+  jobs: number; // scheduled report routines
+  dreams: number; // scheduled dream routines
+  hk: number; // scheduled housekeeping routines
+  sources?: string; // sources/sync.ts statusLine for projects with a `sources` block
+}
+export interface StatusReport {
+  projects: ProjectStatus[];
+  turnsInFlight: number;
+  daytonaOk: boolean;
+  githubOk: boolean;
+  // Subscription quota line (ratelimit.ts) — operator info about OUR one Claude plan, so
+  // only the home workspace's report carries it.
+  claudeQuota?: string;
+}
+
 // Replies only the acting person sees (Slack: ephemeral).
 export type PrivateView =
   | { kind: 'text'; text: string }
+  // Agent-written markdown shown as-is (an answer, a memory file, a system prompt), with an
+  // optional bold title line and a trailing note.
+  | { kind: 'markdown'; markdown: string; title?: string; note?: string }
+  | { kind: 'statusReport'; report: StatusReport }
+  | { kind: 'access'; project: ProjectConfig }
+  | { kind: 'routines'; routines: RoutineRecord[] }
+  | { kind: 'allRoutines'; groups: { slug: string; routines: RoutineRecord[] }[] }
+  // The memory index with a drill-down control per topic it links.
+  | { kind: 'memoryIndex'; slug: string; markdown: string; note: string; topics: { title: string; file: string }[] }
   // `value` is the panel's own control payload (the conversation it describes), echoed by
   // its 🔄 Restart session button.
-  | { kind: 'sessionPanel'; info: SessionPanelInfo; value: string }
-  // One memory topic file, as the agent wrote it.
-  | { kind: 'memoryTopic'; file: string; markdown: string };
+  | { kind: 'sessionPanel'; info: SessionPanelInfo; value: string };
 
 // Pop-up dialogs (Slack: modals). Opened from a click; some are swapped in place once data
 // arrives (ticket: loading → ticket | unavailable).

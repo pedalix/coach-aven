@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":lock: Usage reporting is operator-only."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

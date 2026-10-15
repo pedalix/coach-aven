@@ -1,0 +1,25 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-TCLIENT222",
+      "payload": {
+        "team_id": "TCLIENT222",
+        "channel": "D2"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-TCLIENT222",
+        "channel": "D2",
+        "msgTs": "2.3",
+        "key": "TCLIENT222:dm:D2:beta",
+        "slug": "beta",
+        "question": "hello"
+      }
+    }
+  ],
+  "pollers": []
+}

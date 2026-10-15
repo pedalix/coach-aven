@@ -15,9 +15,9 @@
 
 ## 3. PR 3 — messages and commands (bucket 1)
 
-- [ ] 3.1 Recorder scenarios for mentions, thread replies, DMs with picker, files, every `/aven` verb including denials; snapshot first. Verify: green on unchanged code.
-- [ ] 3.2 `ChatMessage` / `ChatCommand` normalization; platform-neutral `/aven` router; `slackfiles.ts` as the Slack `fetchFile`; `access.ts` on opaque platform user ids. Verify: snapshots identical; `access.test.ts`, `attachments.test.ts` unchanged.
-- [ ] 3.3 Ledger row; PR. Verify: CI green.
+- [x] 3.1 Recorder scenarios for mentions, thread replies, DMs with picker, files, every `/aven` verb including denials; snapshot first. Verify: green on unchanged code.
+- [x] 3.2 `ChatMessage` / `ChatCommand` normalization; platform-neutral message core (`core/messages.ts`) and `/aven` router (`core/commands.ts`); files reach the core as a lazy `files()` on the message (Slack: `slackfiles.ts` hydration with the event's token); the Connect dedupe as the message's `claim`; project resolution asks the driver only for `conversationName`; pollers' fire paths through a `FirePort` bound by the adapter; `access.ts` already works on opaque user ids (unchanged). Verify: snapshots identical; `access.test.ts`, `attachments.test.ts` unchanged.
+- [x] 3.3 Ledger row; PR. Verify: CI green.
 
 ## 4. PR 4 — pollers, routines, dispatch, alerts (bucket 1)
 

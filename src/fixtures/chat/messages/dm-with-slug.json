@@ -1,0 +1,25 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "D1"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-THOME1111",
+        "channel": "D1",
+        "msgTs": "2.1",
+        "key": "dm:D1:beta",
+        "slug": "beta",
+        "question": "what changed?"
+      }
+    }
+  ],
+  "pollers": []
+}

@@ -1,0 +1,22 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_RANDOM"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":x: Give a PR URL or a number, e.g. `#123` or `<repo> #123`."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

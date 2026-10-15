@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*Watched PRs*\n_No PRs watched here._ Subscribe: `/aven autofix <PR url or #number>`"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

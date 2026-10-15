@@ -1,0 +1,26 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_BETA"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-THOME1111",
+        "channel": "C_BETA",
+        "msgTs": "5.1",
+        "threadTs": "5.0",
+        "key": "thread:5.0",
+        "slug": "beta",
+        "question": "follow-up"
+      }
+    }
+  ],
+  "pollers": []
+}

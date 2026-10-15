@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":x: Project registry not found at /nonexistent/projects.config.json. Copy projects.config.example.json → projects.config.json (or set PROJECTS_CONFIG_PATH).\n_The previous config stays active._"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

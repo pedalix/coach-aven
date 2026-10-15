@@ -1,0 +1,40 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "conversations.open",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "users": "U_HUMAN"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":envelope_with_arrow: Answering you in DM…"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-THOME1111",
+        "channel": "D_NEW",
+        "key": "cmd:U_HUMAN:alpha",
+        "slug": "alpha",
+        "question": "how do we deploy?"
+      }
+    }
+  ],
+  "pollers": []
+}

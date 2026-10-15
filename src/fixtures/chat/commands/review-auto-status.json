@@ -1,0 +1,22 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "Auto-review for *alpha*: :white_circle: OFF. Toggle: `/aven review auto on|off [low|med|high]`."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

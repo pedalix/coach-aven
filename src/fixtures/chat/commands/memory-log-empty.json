@@ -1,0 +1,22 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_MEM"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*Memory journal — cmdrec-mem*\n_No snapshots yet — memory is journaled after each dream (`/aven dream`)._"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

@@ -1,0 +1,24 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "D1"
+      }
+    },
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "D1",
+        "text": "Which project?",
+        "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Which project should I work on? _(DMs aren't tied to a channel.)_\"}},{\"type\":\"actions\",\"elements\":[{\"type\":\"static_select\",\"action_id\":\"dm_pick_project\",\"placeholder\":{\"type\":\"plain_text\",\"text\":\"Pick a project\"},\"options\":[{\"text\":{\"type\":\"plain_text\",\"text\":\"alpha\"},\"value\":\"dp1:alpha\"},{\"text\":{\"type\":\"plain_text\",\"text\":\"beta\"},\"value\":\"dp1:beta\"},{\"text\":{\"type\":\"plain_text\",\"text\":\"cmdrec-mem\"},\"value\":\"dp1:cmdrec-mem\"}]}]}]"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

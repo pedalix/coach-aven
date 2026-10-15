@@ -10,20 +10,27 @@ import type bolt from '@slack/bolt';
 import { resolveByChannel, resolveBySlug, teamProjects, workspacePrefix, type ProjectConfig, type RegistryRef } from './projects.js';
 import { log } from './log.js';
 
+// What project resolution needs from a chat platform: a conversation's name (for the
+// `<prefix><slug>` wildcard binding), undefined when it has none or can't be read. Any
+// ChatDriver provides it.
+export interface ConversationNames {
+  conversationName(conv: string): Promise<string | undefined>;
+}
+
 export interface Channels {
   readonly prefix: string; // the deployment default (SLACK_CHANNEL_PREFIX)
   // The wildcard for ONE workspace: its workspaces-entry override ("" = bare slugs,
   // e.g. #coach-aven) or the deployment default. Use this, not `.prefix`, wherever a
   // tenant is known — client workspaces shouldn't be forced to carry `bluefin-aven-`.
   prefixFor(tenantId: string | undefined): string;
-  channelName(client: bolt.webApi.WebClient, channelId: string): Promise<string | undefined>;
+  channelName(names: ConversationNames, channelId: string): Promise<string | undefined>;
   channelIdForSlug(
     client: bolt.webApi.WebClient,
     project: ProjectConfig,
     tenantId?: string,
   ): Promise<string | undefined>;
   pickProject(
-    client: bolt.webApi.WebClient,
+    names: ConversationNames,
     channel: string,
     text: string,
     tenantId?: string,
@@ -41,18 +48,9 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
     workspacePrefix(reg.current, tenantId) ?? prefix;
   const nameCache = new Map<string, string | undefined>();
 
-  async function channelName(
-    client: bolt.webApi.WebClient,
-    channelId: string,
-  ): Promise<string | undefined> {
+  async function channelName(names: ConversationNames, channelId: string): Promise<string | undefined> {
     if (nameCache.has(channelId)) return nameCache.get(channelId);
-    let name: string | undefined;
-    try {
-      const r = await client.conversations.info({ channel: channelId });
-      name = (r.channel as { name?: string } | undefined)?.name;
-    } catch {
-      name = undefined; // DM / no access
-    }
+    const name = await names.conversationName(channelId); // undefined: DM / no access
     nameCache.set(channelId, name);
     return name;
   }
@@ -106,7 +104,7 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
   // <slug> token (handy in DMs) → else the tenant's sole project. The ambiguity error
   // lists only the tenant's own slugs — never the fleet's.
   async function pickProject(
-    client: bolt.webApi.WebClient,
+    names: ConversationNames,
     channel: string,
     text: string,
     tenantId?: string,
@@ -117,7 +115,7 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
     let project = resolveByChannel(scoped, channel);
     let question = text.trim();
     if (!project) {
-      const name = await channelName(client, channel);
+      const name = await channelName(names, channel);
       if (name && name.startsWith(p)) {
         project = resolveBySlug(scoped, name.slice(p.length));
       }

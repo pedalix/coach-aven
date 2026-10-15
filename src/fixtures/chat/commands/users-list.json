@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*Agent access — this workspace*\nMode: *open* (anyone here may drive the agent) — home default\nAdmins: _everyone in the home workspace_\n\nManage: `/aven users allow @user` · `deny @user` · `open` · `restrict`"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

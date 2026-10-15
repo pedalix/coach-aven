@@ -1,0 +1,23 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_MEM"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "replace_original": true,
+        "text": "*Deploys*\n\nUse *make ship*.\n\n\n_(last dream snapshot — `/aven memory live` for the sandbox's current state)_"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

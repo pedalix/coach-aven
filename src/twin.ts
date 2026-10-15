@@ -60,6 +60,9 @@ export class RecordingApi {
   // Slack's own failures are what the fallback paths exist for, so a test has to be able to
   // stage one — the show_trail modal died in prod exactly this way and nobody saw it.
   readonly failures: Record<string, string> = {};
+  // Extra fields merged into a method's ok answer, e.g. `api.responses['conversations.open'] =
+  // { channel: { id: 'D1' } }` — for the paths that read something back beyond ts.
+  readonly responses: Record<string, Record<string, unknown>> = {};
   private server?: Server;
   private posted = 0;
   // seqTs: answer every chat.postMessage with a fresh ts (1000.0001, 1000.0002, …) so a
@@ -101,6 +104,7 @@ export class RecordingApi {
         }
         if (method === 'views.open') body.view = { id: 'V1' };
         if (method === 'files.info') body.file = this.files[String(payload.file ?? '')];
+        Object.assign(body, this.responses[method] ?? {});
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify(body));
       });

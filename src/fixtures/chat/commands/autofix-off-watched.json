@@ -1,0 +1,30 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*Watched PRs*\n• *alpha#7*"
+      }
+    },
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":white_check_mark: Stopped watching alpha#7."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

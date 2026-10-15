@@ -1,0 +1,21 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":rocket: Running *r1* now…"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": [
+    {
+      "fireRoutine": {
+        "token": "xoxb-THOME1111",
+        "id": "r1"
+      }
+    }
+  ]
+}

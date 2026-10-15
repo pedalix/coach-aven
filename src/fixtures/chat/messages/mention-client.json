@@ -1,0 +1,26 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-TCLIENT222",
+      "payload": {
+        "team_id": "TCLIENT222",
+        "channel": "C_CLIENT"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-TCLIENT222",
+        "channel": "C_CLIENT",
+        "msgTs": "1.7",
+        "threadTs": "1.7",
+        "key": "TCLIENT222:thread:1.7",
+        "slug": "beta",
+        "question": "go"
+      }
+    }
+  ],
+  "pollers": []
+}

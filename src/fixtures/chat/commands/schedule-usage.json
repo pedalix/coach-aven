@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":information_source: Usage: `/aven schedule <when> | <what to report>` (read-only digest) or `/aven schedule task <when> | <what to do>` (may edit/commit per the project's instructions)\n`<when>` = `daily 9:00`, `weekdays 9:00`, `weekly mon 9:00`, or `cron 0 9 * * 1-5` (times in UTC)."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

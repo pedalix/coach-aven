@@ -1,0 +1,23 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-TCLIENT222",
+      "payload": {
+        "team_id": "TCLIENT222",
+        "channel": "D2"
+      }
+    },
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-TCLIENT222",
+      "payload": {
+        "team_id": "TCLIENT222",
+        "channel": "D2",
+        "text": "🔒 You're not on this workspace's allowlist for driving the agent — ask <@U_ADMIN> to run `/aven users allow @you`."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

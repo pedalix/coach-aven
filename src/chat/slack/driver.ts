@@ -6,13 +6,19 @@
 // pins it against snapshots taken before the move.
 
 import type bolt from '@slack/bolt';
-import type { ChatAction, ChatDriver, ConvTarget, DialogRef, Mark, MsgRef } from '../driver.js';
+import type { ChatAction, ChatDriver, ConvTarget, DialogRef, Interaction, Mark, MsgRef } from '../driver.js';
 import type { DialogView, HomeView, MessageView, PrivateView } from '../views.js';
 import type { Tally } from '../../feedback.js';
 import {
   MAX_SLACK_TEXT,
+  accessBlocks,
+  allRoutinesBlocks,
   answerBlocks,
   backgroundBlocks,
+  dmPickerBlocks,
+  routineListBlocks,
+  statusReportBlocks,
+  topicButtons,
   backgroundDoneBlocks,
   feedbackModalView,
   homeBlocks,
@@ -61,6 +67,8 @@ export function renderTurnView(v: MessageView): { text: string; blocks?: any[] }
     }
     case 'reported':
       return { text: `✅ Reported to ${v.ticket}`, blocks: reportPostedBlocks(v.markdown, v.ticket, v.url, v.group) };
+    case 'projectPicker':
+      return { text: 'Which project?', blocks: dmPickerBlocks(v.pid, v.projects) };
     case 'question':
       return {
         text: v.done ? '✅ Answered' : '❓ The agent has a question',
@@ -76,8 +84,26 @@ export function renderPrivateView(v: PrivateView): { text: string; blocks?: any[
       return { text: v.text };
     case 'sessionPanel':
       return { text: `Session — ${v.info.slug}`, blocks: sessionPanelBlocks(v.info, v.value) };
-    case 'memoryTopic':
-      return { text: `*${v.file}*\n\n${mdToMrkdwn(v.markdown)}`.slice(0, MAX_SLACK_TEXT) };
+    case 'markdown':
+      // Sent as mrkdwn text, NOT markdown blocks: the ephemeral respond/response_url path
+      // rejects Slack `markdown` blocks with a 500.
+      return { text: `${v.title ? `*${v.title}*\n\n` : ''}${mdToMrkdwn(v.markdown)}${v.note ?? ''}`.slice(0, MAX_SLACK_TEXT) };
+    case 'statusReport':
+      return { text: 'CoachAven status', blocks: statusReportBlocks(v.report) };
+    case 'access':
+      return { text: `Access for ${v.project.slug}`, blocks: accessBlocks(v.project) };
+    case 'routines':
+      return { text: 'Scheduled jobs', blocks: routineListBlocks(v.routines) };
+    case 'allRoutines':
+      return { text: 'All scheduled jobs', blocks: allRoutinesBlocks(v.groups) };
+    case 'memoryIndex':
+      return {
+        text: `Memory — ${v.slug}`,
+        blocks: [
+          { type: 'section', text: { type: 'mrkdwn', text: `${mdToMrkdwn(v.markdown)}${v.note}`.slice(0, 2900) } },
+          ...topicButtons(v.slug, v.topics),
+        ],
+      };
   }
 }
 
@@ -116,7 +142,7 @@ export interface SlackActionCtx {
   triggerId?: string;
   blocks?: unknown[];
 }
-const ctxOf = (a: ChatAction): SlackActionCtx => (a.ctx ?? {}) as SlackActionCtx;
+const ctxOf = (a: Interaction): SlackActionCtx => (a.ctx ?? {}) as SlackActionCtx;
 
 // Resolves a workspace's Web API client (undefined = home). Throws for a tenant with no
 // live installation — callers treat that per record, never letting one uninstalled
@@ -161,11 +187,32 @@ export function slackDriver(client: bolt.webApi.WebClient): SlackChatDriver {
         return undefined; // DM / missing scope — the traceability line is simply omitted
       }
     },
-    async reply(action: ChatAction, view: PrivateView, opts?: { replace?: boolean }): Promise<void> {
-      const respond = ctxOf(action).respond;
+    async reply(to: Interaction, view: PrivateView, opts?: { replace?: boolean }): Promise<void> {
+      const respond = ctxOf(to).respond;
       if (!respond) throw new Error('no response_url on this interaction');
-      const { text } = renderPrivateView(view);
-      await respond({ response_type: 'ephemeral', replace_original: !!opts?.replace, text });
+      const { text, blocks } = renderPrivateView(view);
+      await respond({
+        response_type: 'ephemeral',
+        ...(opts?.replace === undefined ? {} : { replace_original: opts.replace }),
+        text,
+        ...(blocks ? { blocks } : {}),
+      });
+    },
+    async conversationName(conv: string): Promise<string | undefined> {
+      try {
+        const r = await client.conversations.info({ channel: conv });
+        return (r.channel as { name?: string } | undefined)?.name;
+      } catch {
+        return undefined; // DM / no access
+      }
+    },
+    async openDirect(user: string): Promise<string | undefined> {
+      try {
+        const im = await client.conversations.open({ users: user });
+        return im.channel?.id;
+      } catch {
+        return undefined; // no im:write
+      }
     },
     async postPrivate(to: ConvTarget, user: string, view: PrivateView): Promise<void> {
       // chat.postEphemeral, not respond(): only it honours thread_ts (response_url always

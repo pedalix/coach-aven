@@ -1,0 +1,33 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":eyes: Reviewing alpha#7 (high)…"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": [
+    {
+      "fireReview": {
+        "token": "xoxb-THOME1111",
+        "slug": "alpha",
+        "repo": "Org/alpha",
+        "number": 7,
+        "channel": "C_HOME",
+        "effort": "high"
+      }
+    }
+  ]
+}
