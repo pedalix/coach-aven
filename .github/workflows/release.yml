@@ -9,14 +9,14 @@ name: Release & Deploy
 # so write human-readable PR titles.
 #
 # The tag push runs: verify (typecheck + tests) → GitHub Release (auto-generated notes) →
-# SSH deploy to the shared Hetzner box via infra/prod/deploy.sh (deployer key only).
+# SSH deploy to the bot host via infra/prod/deploy.sh (deployer key only).
 #
 # Required config (GitHub → Settings → Environments → "production"):
 #   secrets.DEPLOY_SSH_KEY  — private key for deployer@<box> (passphrase-less)
 #   secrets.DEPLOY_ENV      — the full contents of infra/prod/.env
 #                             (DEPLOY_HOST/DEPLOY_USER/ROOT_USER/REMOTE_DIR/SERVICE_NAME)
 # Runtime app secrets (.env, GitHub App key, projects.config.json) are NOT managed here —
-# they live on the box and are pushed manually with `npm run prod:export`.
+# they live in your ops repo (infra/prod/runtime/) and go to the box with `npm run prod:export`.
 
 on:
   push:
@@ -47,6 +47,10 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - name: public-guard (no installation identifiers in tracked files)
+        run: bash scripts/public-guard.sh
+      - name: gitleaks (no secret-shaped strings in the tree)
+        run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 detect --source /repo --no-git --config /repo/.gitleaks.toml --redact --verbose
 
   release:
     needs: verify

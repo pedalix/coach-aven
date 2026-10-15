@@ -25,21 +25,21 @@
 
 ## 3. PR 3 — public scaffolding and the guard (`docs`/`ci`)
 
-- [ ] 3.1 `LICENSE` Apache-2.0 (copyright "Owen Hale"), `"license": "Apache-2.0"` in `package.json`.
-- [ ] 3.2 `README.md` rewritten: what it is, architecture in five lines, self-host quickstart (Slack app from the manifest → `.env` → `SANDBOX_DRIVER` → first project), status disclaimer, link to coachaven.com. `CONTRIBUTING.md` (typecheck + test + OpenSpec + rollout buckets), `SECURITY.md` (contact, no bounty).
-- [ ] 3.3 CI: `public-guard` job + gitleaks action in `.github/workflows/release.yml` `verify` and a new `ci.yml` on push/PR; `.gitleaks.toml` allow-listing `src/scrub.test.ts`, `src/sources/audit.test.ts`, `.env.example`. Verify: a scratch branch adding a real partner-domain mailbox to a test fails CI.
-- [ ] 3.4 `docs/rollout.md` row: "Public-repo hygiene guard + history rewrite" | PR numbers | gate: none (no behaviour change) | date | canary note "tests green, bot unchanged".
+- [x] 3.1 `LICENSE` Apache-2.0 (copyright "Owen Hale"), `"license": "Apache-2.0"` in `package.json`.
+- [x] 3.2 `README.md` rewritten: what it is, architecture in five lines, self-host quickstart (Slack app from the manifest → `.env` → `SANDBOX_DRIVER` → first project), status disclaimer, link to coachaven.com. `CONTRIBUTING.md` (typecheck + test + OpenSpec + rollout buckets), `SECURITY.md` (contact, no bounty).
+- [x] 3.3 CI: `public-guard` job + gitleaks action in `.github/workflows/release.yml` `verify` and a new `ci.yml` on push/PR; `.gitleaks.toml` allow-listing `src/scrub.test.ts`, `src/sources/audit.test.ts`, `.env.example`. Verify: a scratch branch adding a real partner-domain mailbox to a test fails CI.
+- [x] 3.4 `docs/rollout.md` row: "Public-repo hygiene guard + history rewrite" | PR numbers | gate: none (no behaviour change) | date | canary note "tests green, bot unchanged".
 
 ## 4. GitHub hardening (settings, before the flip)
 
-- [ ] 4.1 `production` environment: required reviewer Owen; deployment branch policy → tags `v*` only. Verify: `gh api repos/pedalix/coach-aven/environments/production` shows the rule and the policy.
-- [ ] 4.2 Actions: fork PR approval required; secret scanning + push protection on; Dependabot security updates on; Discussions/Wiki/Projects off. Verify: `gh api repos/pedalix/coach-aven` fields.
-- [ ] 4.3 Branch protection on `main`: PR required, status checks `verify` + `public-guard` required.
+- [ ] 4.1 `production` environment: required reviewer Owen; deployment branch policy → tags `v*` only. Verify: `gh api repos/pedalix/coach-aven/environments/production` shows the rule and the policy. **Tried 2026-10-15: GitHub refuses both on a private repo of a Free-plan org (HTTP 422 "billing plan" / 404 on branch policies); they are available for public repos → do this within minutes of 6.1.** Risk in that gap is nil: deploy runs only on tag push (write access) and fork PRs never get secrets.
+- [ ] 4.2 Actions: fork PR approval required; secret scanning + push protection on; Dependabot security updates on; Discussions/Wiki/Projects off. Verify: `gh api repos/pedalix/coach-aven` fields. **Done 2026-10-15 except fork-PR approval** (secret scanning + push protection enabled, Dependabot alerts + security updates enabled, wiki/projects/discussions off); fork-PR approval is "not allowed for private repositories" → right after 6.1.
+- [ ] 4.3 Branch protection on `main`: PR required, status checks `verify` + `public-guard` required. (Only after PR 3 is on `main`: a required check that has never reported blocks every merge.)
 
 ## 5. History rewrite (option B, decided 2026-10-15)
 
 - [ ] 5.1 Freeze: `gh pr list` empty (merge or close; note branch names); restart window open (20:30–08:00 MSK).
-- [ ] 5.2 Fresh mirror in the scratchpad: `git clone --mirror`, `replacements.txt` derived from the guard list, `git filter-repo --replace-text replacements.txt`. Verify: `git log --all -p | grep -Ef scripts/public-guard.txt` empty; `git tag | wc -l` unchanged; `git log --oneline | wc -l` unchanged.
+- [ ] 5.2 Fresh mirror in the scratchpad: `git clone --mirror`, `scripts/public-guard-replacements.txt` (derived from the guard list, committed with PR 3), `git filter-repo --replace-text …`. Verify: `git log --all -p | grep -Eif scripts/public-guard.txt` empty; `git tag | wc -l` unchanged; `git rev-list --all --count` unchanged. **Dry run 2026-10-15 on a scratch mirror: 796 matching lines → 0; 352 commits → 352; 66 tags → 66; 2.3 s.** The real run repeats this on a fresh mirror after PRs #149–#151 are merged.
 - [ ] 5.3 `git push --force --mirror origin`. Verify: `gh release list` shows every release attached to its tag (re-publish any draft).
 - [ ] 5.4 Main checkout: `git fetch && git reset --hard origin/main`; `systemctl --user restart coach-aven-home`; `journalctl --user -u coach-aven-home -n 20` shows a clean start. Worktrees: rebase each live branch onto the new `main` (`git rebase --onto origin/main <old-main> <branch>`), or delete if merged.
 - [ ] 5.5 Re-run `verify` for the latest tag via `workflow_dispatch` (not `deploy`). Verify: green.

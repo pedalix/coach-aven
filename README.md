@@ -1,270 +1,162 @@
 # CoachAven
 
-A Slack coding agent that runs per-project, isolated **Claude Code** sandboxes on our
-self-hosted **Daytona**, driven by a small TypeScript control program. One warm sandbox per
-project; the agent reads and edits the repo and opens PRs, reachable from a Slack channel.
-No AgentBox, no S3, no SSH gateway.
+A coding agent that lives in Slack. One bot, many channels; each channel is bound to a project,
+and each project gets its own warm, isolated sandbox running a persistent **Claude Code**
+process. The agent reads the repos, answers questions, runs builds and tests, and opens pull
+requests — your team reviews and merges. The bot itself is a small TypeScript control plane
+with no model calls of its own: all the thinking happens inside the sandboxes.
 
-> Extracted from `bluefin-infra/daytona/orchestrator` into its own repo. Run with
-> `npm install && npm run orch -- slack` (see `.env.example` + `projects.config.example.json`).
+Website: [coachaven.com](https://coachaven.com). Status: a single-operator project that runs
+two installations for real users; self-hosting is supported and documented, support is
+best-effort (see [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md)).
+Licence: Apache-2.0.
 
-**Model:** one warm **sandbox per project** (a `docker:28-dind`-based image with git/gh/Node +
-Claude Code), N parallel **tasks per project via `git worktree`** (each task = own branch +
-own `COMPOSE_PROJECT_NAME`, so Sail stacks don't collide). The repos are `git clone`d *inside*
-the box (no upload); each Slack thread/DM drives a persistent Claude Code process over the
-Daytona toolbox (stream-json), and the agent pushes and opens a PR.
+## How it works
 
-## Decisions (locked 2026-06-17)
+```
+ Slack ⇄ (Socket Mode, outbound)
+   │
+ orchestrator  (Node, one process; state.json; pollers for routines / PR review / tickets)
+   │  sandbox driver: Daytona over HTTPS, or containers on your own host over SSH
+   ▼
+ proj-<slug> sandbox  ── git clone of the project's repos, one worktree per task,
+                         a persistent `claude` process per Slack thread (stream-json),
+                         MCP servers the project declares (Grafana, Sentry, trackers, …)
+```
 
-| Area | Choice |
-|---|---|
-| Language / API | **TypeScript** + `@daytonaio/sdk` (v0.187.0) |
-| Claude Code auth | **`CLAUDE_CODE_OAUTH_TOKEN`** (Claude Max subscription) |
-| GitHub auth in-box | **GitHub App** installation tokens (short-lived, re-minted per task) |
-| Sandbox lifecycle | **Persistent (warm) per project**; worktree per task |
-| Snapshot image | `docker:28-dind` + git + gh + Node + Claude Code (NO PHP/Composer — Sail provides them) → **GHCR** |
+- **One sandbox per project, one worktree per task.** Tasks are branches; Sail/DinD stacks
+  get their own `COMPOSE_PROJECT_NAME`, so parallel tasks do not collide.
+- **Three-layer system prompt**: orchestrator base → the project's `projects.d/<slug>.md` →
+  the repo's own `CLAUDE.md` (`src/prompt.ts`, golden-tested).
+- **Secrets never reach the model**: the GitHub App token is scoped per project and
+  re-minted every turn; every user turn and every ingested document is scrubbed
+  (`src/scrub.ts`) before it is sent.
+- **Git flow per project**: `pr` (default — the agent never pushes to the default branch)
+  or `direct`.
+- Optional: scheduled routines and reports, auto PR review and autofix, ticket investigations
+  (YouTrack/Jira/Asana), per-project ingestion of mail/chat/calendar into a searchable,
+  scrubbed store the agent can query (`docs/sources.md`), multi-workspace installs over OAuth.
+
+The App Home tab of the bot is the user-facing cheat-sheet for every command and button.
+
+## Self-host quickstart
+
+You need: Node 22, a Slack workspace where you can create apps, a GitHub App (or token) for
+the repos, a Claude Code token, and a place to run sandboxes.
+
+1. **Slack app** — create it from [`slack-app-manifest.json`](slack-app-manifest.json)
+   (Socket Mode on). Note the bot token (`xoxb-…`) and the app-level token (`xapp-…`).
+2. **Sandboxes** — pick a driver (`docs/sandbox-drivers.md`):
+   - `SANDBOX_DRIVER=sshdocker`: containers on a Docker host you own (also `local`).
+   - `SANDBOX_DRIVER=daytona`: a self-hosted [Daytona](https://www.daytona.io) with the image
+     from [`snapshot/`](snapshot/) (build with `snapshot/build-and-push.sh`; the `plain` variant
+     needs no privileged containers and runs on arm64).
+3. **GitHub** — a GitHub App installed on the org/repos with *Contents* + *Pull requests*
+   read & write and *Metadata* read; set `GITHUB_APP_ID` + the private key path. (A plain
+   `GITHUB_TOKEN` works for a quick trial.)
+4. **Claude Code** — `claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`.
+5. **Config**
+   ```bash
+   cp .env.example .env                                  # secrets + infra endpoints
+   cp projects.config.example.json projects.config.json  # projects: slug, repos[], mcp[], git flow
+   npm install && npm run orch -- slack
+   ```
+6. **A channel per project** named `bluefin-aven-<slug>` (prefix configurable with
+   `SLACK_CHANNEL_PREFIX`) auto-binds to the project; `@mention` the bot there. Project
+   prompts go in `projects.d/<slug>.md` beside the config (`docs/runtime-config.md`).
+
+Production: a systemd unit on any Linux box, deployed by `infra/prod/deploy.sh` or by the
+tag-triggered GitHub Action; your installation's config lives in a private **ops repo**
+checked out at `infra/prod/runtime/` — [`infra/prod/README.md`](infra/prod/README.md).
+Local dev beside a prod bot: [`docs/local-dev.md`](docs/local-dev.md).
+
+## What goes where
+
+| File | Who writes | Holds |
+|---|---|---|
+| `.env` | you | secrets + infra endpoints: sandbox driver, Slack tokens, GitHub App, Claude token, optional OAuth / MCP gateway / observability |
+| `projects.config.json` | you | the project registry: `slug`, `repos[]`, `mcp[]`, `gitFlow`, `youtrackProjects[]`, `sources`, optional `workspaces` (tenant → slugs) |
+| `projects.d/<slug>.md` | you | the project's system prompt (wins over the JSON `systemPrompt` field) |
+| `state.json` | the bot | sandboxes, tasks, thread → session bindings, installations, routines — never hand-edited |
+| `queue.jsonl`, `drafts/`, `usage/`, `feedback/`, `facts/`, `memory/`, `data/` | the bot | journals and derived state beside `state.json` (`docs/`) |
+
+Rule of thumb: a **secret or endpoint** → `.env`; a **description of a project** →
+`projects.config.json` + `projects.d/`; everything else the bot derives and you may delete.
+`/aven reload` re-reads the project config at runtime (new sessions only).
 
 ## Layout
 
 ```
-snapshot/
-  Dockerfile            # the `laravel` sandbox image (dind + Sail shims, amd64)
-  plain/Dockerfile      # the `plain` variant: no dockerd, multi-arch (amd64 + arm64)
-  shims/sail-shim.sh    # bare php/composer/artisan → ./vendor/bin/sail
-  build-and-push.sh     # build + push one variant to GHCR (default: laravel)
 src/
   cli.ts            # commander CLI (`slack`, `sources …`, `routines list|run`)
-  control.ts        # local control channel: CLI → running bot (data/control/run-<id>.json)
   slack.ts          # composition root: engine + resolvers + handlers + pollers
   turn.ts           # turn engine: queues, live status, agent questions, restart recovery
   events.ts         # @mentions, thread replies, DMs, buttons, App Home
   commands.ts       # the /aven router + subcommands
-  pollers.ts        # scheduler + auto-review / autofix / YouTrack pollers
+  pollers.ts        # scheduler + auto-review / autofix / ticket pollers
   blocks.ts         # every Block Kit renderer + user-facing text helpers
-  channels.ts       # channel ↔ project resolution
   tasks.ts          # chat session over a sandbox
-  prompt.ts         # the 3-layer system prompt (base → project prompt → repo CLAUDE.md), golden-tested
-  scrub.ts          # secrets redaction: model boundary (claudeSession send) + ingest (sources)
-  sandboxopts.ts    # per-project container options: privileged / dind / mounts
-  sources/          # per-project ingestion of mail/chat/calendar/files + task trackers (youtrack/jira/asana) (docs/sources.md):
-                    #   google/ slack/ msgraph/ pullers + auth, common/ vault+sink, audit.ts, cli.ts
-  sources/store.ts  # per-project SQLite (FTS5) built from raw/, replica mounted ro into the sandbox
-  sources/calls.ts  # recorder copies (granola/gmeet/wispr) of one call grouped into one call
-  sources/bots.ts   # integration/no-reply detection + Slack id → name resolution at build
-  claudeSession.ts  # the persistent claude process (stream-json protocol)
+  prompt.ts         # the 3-layer system prompt, golden-tested (src/fixtures/prompt/)
+  scrub.ts          # secrets redaction at the model boundary and at ingest
+  driver.ts         # the sandbox driver interface; daytona.ts / sshdocker.ts implement it
   project.ts        # clone, worktrees, auth/MCP seeding into the sandbox
-  daytona.ts        # SDK client: ensureSnapshot / ensureSandbox / exec
+  claudeSession.ts  # the persistent claude process (stream-json protocol)
   github.ts         # GitHub App tokens + PR/CI reads
   state.ts          # single-file state.json store
-  config.ts         # env loading
-  …plus pure logic modules with tests beside them (schedule, pr, youtrack, dream,
-  format, attachments, memory, memjournal, mcp, prompts)
+  sources/          # ingestion of mail/chat/calendar/files + trackers into a per-project store
+  …plus pure logic modules with tests beside them
+snapshot/           # sandbox images: `laravel` (dind + Sail shims) and `plain` (multi-arch)
+infra/prod/         # systemd deploy script, unit templates, runtime.example/ for your ops repo
+docs/               # runtime config, sandbox drivers, sources, rollout ledger, …
+openspec/           # change proposals (specs, design, tasks) — how work is planned here
 ```
 
-## Why no PHP/Composer in the image
+## Sandbox image
 
-With DinD + Laravel **Sail**, the Laravel runtime lives in the *project's own* containers at
-the project's own versions. Host PHP/Composer would be the wrong version and never used.
-**Node stays** — only because Claude Code is an npm package (the app's JS still runs via
-`sail npm`). Bare `php`/`composer`/`artisan` are shimmed to forward into the Sail container
-(and `composer` bootstraps via a throwaway container when `vendor/` doesn't exist yet).
+The tooling (git, gh, node, Claude Code, Sail shims, imagemagick) is baked into the image
+(`snapshot/Dockerfile`); `provisionTooling()` only tops up additions newer than the fleet's
+image. `laravel` is `docker:28-dind` + Sail shims (needs sysbox or `--privileged`); `plain`
+drops dockerd, builds amd64 + arm64 and runs unprivileged. Point `SNAPSHOT_IMAGE` at the
+`:<gitsha>` tag the build prints. The Claude Code CLI inside sandboxes is pinned by
+`CLAUDE_CLI_VERSION` (warm sandboxes converge in place; `"cliVersion"` per project is the
+canary) — see `src/cliversion.ts`.
 
-## Setup
+Why no PHP/Composer in the image: with Sail, the Laravel runtime lives in the project's own
+containers at the project's own versions; bare `php`/`composer`/`artisan` are shimmed into
+the Sail container.
 
-### Snapshot image
+## Multi-workspace installs (optional)
 
-The sandbox tooling (git, gh, node, Claude Code, sail shims, imagemagick) is **baked into
-the image** (`snapshot/Dockerfile`); `provisionTooling()` at chat-prep only tops up
-additions newer than the running fleet's image. To rebuild and roll a new image:
-
-```bash
-echo "$GHCR_PAT" | docker login ghcr.io -u <you> --password-stdin   # needs write:packages
-cd snapshot && ./build-and-push.sh        # laravel variant: pushes :<gitsha> and :latest
-cd snapshot && ./build-and-push.sh plain  # plain variant (own image name, amd64 + arm64)
-PUSH=0 ./build-and-push.sh plain          # build-only: proves the Dockerfile on every platform
-```
-
-**Image variants.** `laravel` (`snapshot/Dockerfile`) is the fleet default: `docker:28-dind`
-plus Sail shims, `linux/amd64`, and it needs sysbox or `--privileged` on the sandbox host.
-`plain` (`snapshot/plain/Dockerfile`) drops dockerd and Sail, builds for amd64 *and* arm64,
-and runs as an ordinary unprivileged container — for projects that never start containers
-of their own and for a self-hosted instance on Apple silicon. Variants share the
-`CLAUDE_CLI_VERSION` ARG, so one pin serves both. A project on the plain image must also
-run with the driver's `dind` disabled (otherwise chat-prep waits for a dockerd that is not
-there); see `docs/sandbox-drivers.md`.
-
-Point `SNAPSHOT_IMAGE` at the **`:<gitsha>` tag** the script prints (pin it — `:latest`
-tells you nothing about what the fleet actually runs) and set a new `SNAPSHOT_NAME`; the
-snapshot is created on next boot (`ensureSnapshot`). Existing warm sandboxes keep their
-old image until recreated. (If the GHCR package is private, the Daytona runner needs pull
-creds — make it public or add a registry pull secret to the runner.)
-
-**Claude Code version.** The CLI inside the sandboxes is pinned by `CLAUDE_CLI_VERSION`
-(runtime `.env`), not by the image: warm sandboxes converge to the pin in place (an
-`npm i -g` at their next chat prep or nightly housekeeping — repos, transcripts and memory
-stay put), and `build-and-push.sh` bakes the same pin into fresh images. To bump: set
-`"cliVersion"` on one low-traffic project in `projects.config.json` as a canary, run a few
-real turns (steps, a question, a cancel, a `--resume`), then move `CLAUDE_CLI_VERSION`
-for the fleet. A daily check alerts when the pin falls behind npm's `stable` tag. Rollback
-is the same mechanism with the old number. The upgrade installs into `/root/.local`
-(first on the spawn PATH), not over the image's copy — sysbox containers can't write
-`/usr/local` — so a bare `claude --version` in a shell shows the image's version; use
-`PATH=/root/.local/bin:$PATH claude --version` for the effective one. See `src/cliversion.ts`.
-
-### GitHub auth
-
-The orchestrator clones/pushes/opens PRs as a **GitHub App installation** (preferred) or a
-plain token. We reuse the existing **`pedalix-factory`** App (App ID `3215982`, shared with
-`agentic-factory-core`) — it has Contents + Pull requests write across the `BluefinOrg` org,
-and the installation id is **auto-discovered** from the repo owner. Just set `GITHUB_APP_ID` +
-the `.pem` path. (To use a plain token instead, set `GITHUB_TOKEN=$(gh auth token)`.)
-
-Creating a *new* App from scratch (if you ever need one): Org → Settings → Developer settings →
-GitHub Apps → New; repository permissions Contents + Pull requests = Read & write, Metadata =
-Read; no webhook; generate a private key; install on the org.
-
-### Claude Code token
-
-`claude setup-token` on a Claude Max machine → `CLAUDE_CODE_OAUTH_TOKEN`. (For a quick local
-test you can reuse the `accessToken` from `~/.claude/.credentials.json`, but it expires.)
-
-### Config
-
-```bash
-cp .env.example .env                                  # secrets + infra (see table below)
-cp projects.config.example.json projects.config.json  # the channel→project registry
-npm install
-```
-
-#### What goes where
-
-Two are **input you edit**; one is **state the orchestrator writes itself**. All three are gitignored.
-
-| File | Who writes | What it is | Holds |
-|---|---|---|---|
-| `.env` | you | secrets + infra (access) | `DAYTONA_*`, `SNAPSHOT_*`, `SANDBOX_*`, `CLAUDE_CODE_OAUTH_TOKEN`, `GITHUB_APP_*` / `GITHUB_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `SLACK_CLIENT_ID`/`SECRET`/`STATE_SECRET` (multi-workspace OAuth, optional), `PROJECTS_CONFIG_PATH` |
-| `projects.config.json` | you | the channel→project registry | per project: `slug`, `repos[]`, `slackChannel`, `mcp[]`, `env{}` |
-| `state.json` | the orchestrator | runtime journal/memory | created sandbox name, default branch, tasks (branch/worktree/status/PR), and Slack `thread/dm → {slug, Claude sessionId}` mappings (for `--resume`) |
-
-Rule of thumb: a **secret or infra endpoint** → `.env`; a **description of a project** (repos, MCP
-servers, project env, its bound channel) → `projects.config.json`. You never hand-edit `state.json`
-— deleting it just makes the bot re-derive everything (you only lose thread→session history).
-One bot serves many channels; **each channel is bound to a project, and each project gets its own
-isolated sandbox** (`proj-<slug>`). Channels **auto-bind by name** via the wildcard
-`bluefin-aven-{project}` (the `{project}` part is the slug) — no channel ids to wire (an explicit
-`slackChannel` id still overrides). Override the prefix with `SLACK_CHANNEL_PREFIX`.
-
-## Usage
-
-```bash
-# run the Slack bot (one bot, many channels; channel→project)
-cp projects.config.example.json projects.config.json   # list projects (slug + repos)
-# create a Slack channel `bluefin-aven-<slug>` per project — it auto-binds by name
-npm run orch -- slack
-
-# operate scheduled routines from the bot host (no Slack needed)
-npm run orch -- routines list [slug]
-npm run orch -- routines run r3     # hands the request to the running bot via data/control/
-```
-
-### Multi-workspace installs (OAuth, optional)
-
-Set `SLACK_CLIENT_ID` + `SLACK_CLIENT_SECRET` + `SLACK_STATE_SECRET` (see `.env.example`) and
-the bot switches to OAuth mode: it serves `http://<host>:3000/slack/install` (override with
-`SLACK_OAUTH_PORT`) and other workspaces can install it from that link — enable **Public
-Distribution** in the Slack app admin and register your public
-`https://<host>/slack/oauth_redirect` URL there (the manifest carries a placeholder; each
-app — dev, prod — registers its own). Per-workspace bot tokens land in `state.json` →
-`installations` (that's why it's written `0600`); events for all workspaces keep riding the
-one Socket Mode connection, so the HTTP port is only for the install handshake. Our own
-workspace is seeded from `SLACK_BOT_TOKEN` on first boot and stays the home of alerts and
-operator commands. Local dev: a tunnel (e.g. `ngrok http 3000`) is the easiest redirect URL.
-
-**Per-workspace projects (slice 2).** The optional top-level `workspaces` block in
-`projects.config.json` maps each Slack team id to the project slugs it may see and drive:
+Set `SLACK_CLIENT_ID` + `SLACK_CLIENT_SECRET` + `SLACK_STATE_SECRET` and the bot serves
+`/slack/install` on `SLACK_OAUTH_PORT`; other workspaces install from that link (enable
+Public Distribution in the Slack app admin, register your `https://<host>/slack/oauth_redirect`).
+Per-workspace tokens land in `state.json`; events still ride the one Socket Mode connection.
+The `workspaces` block in `projects.config.json` maps each team id to the slugs it may see:
 
 ```jsonc
-"workspaces": { "T0YOURHOME1": ["caldora", "dorfberg-monitoring"], "T0CLIENT001": ["dorfberg-monitoring"] }
+"workspaces": { "T0YOURHOME1": ["shop", "monitoring"], "T0CLIENT001": ["monitoring"] }
 ```
 
-No block = single-tenant back-compat (the home workspace owns everything). With the block,
-membership is explicit-only: every resolution (channels, DM picker, App Home, `/aven`,
-PR refs) happens inside the calling workspace's subset; an installed-but-unmapped
-workspace gets an onboarding App Home + one polite reply (`AVEN_CONTACT` names who to
-contact). Session keys and every persisted record carry the owning team (bare/absent =
-home), so pollers, routines and restart recovery post with the right workspace's token —
-and per-tenant export/offboarding (`Store.exportTenant`/`purgeTenant`) is a field filter.
-A slug may appear under several teams (the data model allows sharing; pollers then act
-for the first team listing it — the "owner"). ⚠️ Admit a client team only AFTER this
-version is deployed: earlier records are keyed without a team and would orphan.
+No block = single-tenant. With it, membership is explicit-only and every record carries
+the owning team — admit a client workspace only after this version runs
+(`docs/multitenancy.md`).
 
-Everything else — building, PR reviews, scheduled digests, memory, ticket
-investigations — is driven from Slack; the bot's App Home tab is the user-facing
-cheat-sheet.
+## Development
 
-### GitHub token scoping
+- `npm run typecheck` and `npm test` must pass; pure logic lives in its own module with a
+  `*.test.ts` beside it. `scripts/public-guard.sh` keeps installation identifiers out.
+- `main` is the canary (one real installation follows it); production runs the last tag.
+  Nothing may change for production users as a side effect of a merge — every behaviour
+  change is a bug fix, default-preserving with a test, or behind a flag canaried first
+  (`docs/rollout.md`).
+- Work is planned as OpenSpec changes (`openspec/`); PR titles become the release notes.
+- Releases: `git tag vX.Y.Z && git push origin vX.Y.Z` — CI typechecks, tests, publishes
+  the GitHub Release and deploys.
 
-`getGitHubToken()` mints an installation token **scoped to only the project's repo(s)**
-(`repositoryNames`) + least-privilege permissions (contents + pull_requests write, metadata read),
-so the org-wide App still yields a per-sandbox token limited to that project.
+## Gotchas
 
-## Hosting (production)
-
-Deployed as a **systemd service** on the shared Hetzner VM `aven-prod`, alongside Lumora and
-`aven.guru`. It's just the control plane — one long-lived Node process holding a Slack
-**Socket-Mode** connection and driving Daytona over HTTPS — so it's tiny, needs **no nginx,
-no ports, no TLS** (Socket Mode dials *out*), and never touches the host's shared `80/443`. All
-heavy work runs inside Daytona, not on the box.
-
-Manual, scripted deploy (mirrors the `aven` prod pattern). See [`infra/prod/README.md`](infra/prod/README.md).
-
-```bash
-cp infra/prod/.env.example infra/prod/.env   # deploy target (host/users/remote dir)
-npm run prod:install        # root: REMOTE_DIR + systemd unit (enabled) + scoped sudoers + journal group
-npm run prod:export         # upload infra/prod/runtime/ → .env, github-app-private-key.pem, projects.config.json
-npm run prod:deploy         # upload code, npm ci, restart, health-check Socket Mode
-
-npm run prod:import         # reverse of export: pull the box's runtime into infra/prod/runtime/
-npm run prod:logs           # journalctl -u coach-aven -f
-npm run prod:status         # systemctl status + is-active
-npm run prod:restart        # / prod:stop / prod:start / prod:down
-```
-
-The app's runtime secrets/config live in **`infra/prod/runtime/`** (gitignored, prod truth) —
-kept separate from the repo-root `.env`/`projects.config.json`, which are your **local dev**.
-`deploy` ships **code only** — it never overwrites the server's `.env`, GitHub key,
-`projects.config.json`, or `state.json` (server-owned, survives releases). Change a secret or
-the project list in `infra/prod/runtime/`, then `export` → `restart` (the project list is read
-once at boot, so a restart is always required for it to take effect).
-
-### Local dev vs prod
-
-**Setting up a dev box?** See [`docs/local-dev.md`](docs/local-dev.md) for the full step-by-step.
-
-Both read their own files (dev: local `.env`/`state.json`/`projects.config.json`; prod: the
-copies on the box), so most config is already separate **by location**. The only shared external
-resources are Slack and Daytona — isolate those in your **local** `.env`:
-
-- **Slack** — use a **separate Slack app** for dev. Socket Mode delivers each event to only one
-  connected socket, so a dev bot sharing prod's app would steal ~half of prod's events. Give the
-  dev app its own `SLACK_BOT_TOKEN`/`SLACK_APP_TOKEN`, and set `SLACK_CHANNEL_PREFIX=dev-bluefin-aven-`
-  so it only answers in dev channels (prod keeps the default `bluefin-aven-`).
-- **Daytona** — both hit the same server, so set `SANDBOX_NAME_PREFIX=dev-proj-` locally. Dev
-  sandboxes become `dev-proj-<slug>` and never collide with prod's `proj-<slug>` warm sandboxes.
-- **Repos** — point dev's `projects.config.json` at a throwaway/test repo so dev tasks don't open
-  PRs against real project repos.
-
-Prod (the box) just keeps the defaults — no extra env needed.
-
-## Notes / gotchas
-
-- **GitHub token lifetime** ≈ 1h. Every chat prep re-mints and re-seeds it (and `cloneRepo`
-  heals tokens baked into remote URLs); a single agent turn that exceeds an hour could still
-  see a stale token — send another message to re-seed if that bites.
-- **Resources**: DinD wants ≥2 vCPU / 4 GiB. ~10 warm project sandboxes each running Sail is
-  heavy and the box also runs observability + Archestra — run a few concurrently, not all.
-- **Auth seeding** writes the token to `/root/.gh-token` via the toolbox file API (not `echo`),
-  so it never lands in command logs. A git credential helper + `gh auth login --with-token`
-  read it.
-- **State** is a single `state.json` (gitignored). Single-process only for now.
-- The orchestrator runs as a systemd service on `aven-prod` (see [Hosting](#hosting-production)).
+- **GitHub token lifetime** ≈ 1h; every chat prep re-mints and re-seeds it. A single turn
+  longer than an hour may see a stale token — send another message.
+- **Resources**: DinD wants ≥2 vCPU / 4 GiB per warm sandbox running a Sail stack.
+- **State** is one `state.json`; single process per installation. Socket Mode delivers each
+  event to one socket only, so a dev bot must be a separate Slack app (`docs/local-dev.md`).

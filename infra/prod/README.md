@@ -129,7 +129,7 @@ Cut a release (no changelog or version edits — the tag is the version of recor
 git tag vX.Y.Z && git push origin vX.Y.Z      # tag push → release + deploy
 ```
 
-`workflow_dispatch` can also deploy an arbitrary ref by hand (no release is cut).
+`workflow_dispatch` can also deploy by hand (no release is cut) — run it from a `v*` tag; the environment policy refuses branch refs.
 
 **One-time setup** (GitHub → Settings → Environments → **production**). Protect the
 environment: a required reviewer and a deployment branch policy that allows **tags `v*`

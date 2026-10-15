@@ -1,0 +1,25 @@
+# gitleaks config for CI (scripts/public-guard.sh covers installation identifiers; this covers
+# secret-shaped strings). Test fixtures deliberately contain token-shaped placeholders.
+title = "coach-aven"
+[extend]
+useDefault = true
+[allowlist]
+paths = [
+  '''infra/prod/runtime/''',          # your ops checkout (gitignored) — real secrets live there on purpose
+  '''\.claude/worktrees/''',
+  '''node_modules/''',
+  '''src/scrub\.test\.ts''',
+  '''src/sources/audit\.test\.ts''',
+  '''src/fixtures/.*\.json''',
+  '''\.env\.example$''',
+  '''infra/prod/runtime\.example/\.env\.example''',
+  '''package-lock\.json''',
+]
+regexes = [
+  '''(xoxb|xoxp|xapp)-[0-9]+-[a-z]+''',   # the shapes the scrub tests use (letters, not real ids)
+  '''ghp_abcdefghijklmnopqrstuvwxyz0123456789''',
+  '''AKIAIOSFODNN7EXAMPLE''',
+  '''sk-ant-oat01-x+''',
+  '''abcdef123456''',                        # rescrub.test.ts fixture
+  '''PBTxdRtIrGN26RhPQ7uW5iMA''',             # fixtures.test.ts: the scrubbed Slack verification-token placeholder
+]

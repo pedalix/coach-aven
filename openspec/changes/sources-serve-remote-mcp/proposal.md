@@ -2,7 +2,7 @@
 
 ## Why
 
-Today the ingest, the store and the sandbox must share a filesystem: the bot pulls, builds the store and bind-mounts a replica into the sandbox, where a stdio MCP server reads it. That ties the sandbox to the bot host, duplicates the store per sandbox and makes a hosted or second-person deployment (Vincent, Bluefin's tenant agent on prod sandboxes on another host) impossible without copying data around. Owen's direction (2026-10-14): ingest is just another tool; it runs wherever the data is and is reached over a secure channel.
+Today the ingest, the store and the sandbox must share a filesystem: the bot pulls, builds the store and bind-mounts a replica into the sandbox, where a stdio MCP server reads it. That ties the sandbox to the bot host, duplicates the store per sandbox and makes a hosted or second-person deployment (a sponsor's workspace, Bluefin's tenant agent on prod sandboxes on another host) impossible without copying data around. Owen's direction (2026-10-14): ingest is just another tool; it runs wherever the data is and is reached over a secure channel.
 
 ## What Changes
 
