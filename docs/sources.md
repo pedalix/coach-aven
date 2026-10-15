@@ -238,6 +238,17 @@ every minute and runs `pull → store build → replica` for every project whose
   the replica swap is an atomic rename, so an in-flight turn keeps reading the old file.
 - **Daily credential check.** At 06:00 (`AVEN_TZ`) every configured kind's `check` runs
   headless; a failing one alerts with the checker's last lines.
+- **One writer.** Whoever ingests a project holds `data/<slug>/.lock` (`src/sources/lock.ts`:
+  pid, host, since, by): the bot's poller before each pass, a sources daemon for as long as it
+  runs. A second writer refuses (the daemon at start, `orch sources pull/build` unless `--force`)
+  or skips (the bot, logged once); a lock whose pid is gone is stale and taken over.
+
+**Daemon mode** (OpenSpec `sources-daemon`): `orch sources daemon` runs this same ticker, the
+daily check and the HTTP face in one process where the data lives, and the bot ingests nothing
+for a project with `sources.daemon` — or for any project when `SOURCES_DAEMON=1` (a daemon on
+the same host ingests). The daemon has no chat: its re-auth and auth-check alerts sit in its
+status, and the bot's minute watcher passes each one on once (plus one alert when the daemon has
+not answered for ten minutes, and one when it is back). See *Remote access*.
 
 ### State: the `sources_sync` fact
 
@@ -398,11 +409,27 @@ gateway) — then the sandbox calls that url and the bot registers no `sources` 
 "mcp": [{ "name": "sources", "url": "https://<gateway-host>/gw/<slug>/mcp", "auth": "gateway-m2m" }]
 ```
 
-**Next** (OpenSpec `sources-daemon`): `orch sources daemon` runs ingest and this listener as one
-process where the data lives, and the bot forwards the agent's channel calls to it — the sandbox
-keeps talking only to the bot, and the bot host holds neither the store nor the source tokens.
-`infra/prod/nginx-sources.conf.example` and `infra/prod/coach-aven-sources.service.tmpl` hold the
-listener snippets.
+**The daemon** (OpenSpec `sources-daemon`) puts ingest and this face in one process where the data
+lives, and the bot forwards to it — the sandbox keeps talking only to the bot, and the bot host holds
+neither the store nor the source tokens:
+
+```
+orch sources daemon [--listen 127.0.0.1:3416] [--only <slug,…>]       # SOURCES_DAEMON_TOKEN required
+```
+
+- `POST /mcp/<slug>` — the same stateless JSON-RPC face, routed by slug; `GET /status/<slug>` — the
+  sync state, the replica's raw-record count, what the tenant ledgers say is due today, the replica's
+  age, recent alerts, the last auth check. Both need the bearer; an unserved slug is 404; `GET /health`
+  is open and says only `ok`.
+- The bot side is one block per project: `"sources": { …, "daemon": { "url": "http://10.0.0.5:3416",
+  "tokenEnv": "SOURCES_DAEMON_TOKEN" } }`. The bot forwards every `tools/call` to `<url>/mcp/<slug>`
+  (initialize and tools/list it answers itself: the table is static, so a session opens while the
+  daemon is away; a call it cannot forward is a tool error the agent reports in one line), and reads
+  `<url>/status/<slug>` every minute for `/aven status`, the empty-slot skip and the ops alerts. A
+  status older than three minutes is not trusted: the slot fires.
+- `infra/prod/coach-aven-sources-daemon.service.tmpl` is the unit (it replaces the per-slug
+  `coach-aven-sources.service.tmpl`); `infra/prod/nginx-sources.conf.example` the TLS snippet when the
+  bot reaches the daemon over a public name.
 
 ## Task trackers
 

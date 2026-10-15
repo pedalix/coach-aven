@@ -5,8 +5,9 @@
 // chat-driver-interface, PR 3); the heavy lifting lives in the turn engine, the pollers'
 // fire* helpers, and the memory/journal modules.
 
-import { FactStore } from '../../facts.js';
-import { DEFAULT_INTERVAL_MIN, readSyncState, statusLine } from '../../sources/sync.js';
+import { DEFAULT_INTERVAL_MIN, statusLine } from '../../sources/sync.js';
+import { sourcesViews } from '../../sources/daemonclient.js';
+import { localDate } from '../../routineguard.js';
 import type { Config } from '../../config.js';
 import type { Store } from '../../state.js';
 import { loadProjects, resolveBySlug, teamProjects, projectOwnerTeam, type ProjectConfig, type RegistryRef } from '../../projects.js';
@@ -88,8 +89,14 @@ export async function readMemory(
   return out;
 }
 
-// Facts are a file-backed derived cache (facts.ts); a second reader beside tasks.ts is fine.
-const facts = new FactStore();
+/** `/aven status`'s sources line: local sync state, or the project's daemon's (and whether it answers). */
+function sourcesStatus(p: ProjectConfig, intervalMin: number): string {
+  const now = new Date();
+  const v = sourcesViews.view(p, localDate(ROUTINE_TZ, now));
+  if (!p.sources?.daemon) return statusLine(v.sync, intervalMin, now, ROUTINE_TZ);
+  if (!v.reachable) return `sources: daemon ${p.sources.daemon.url} not answering${v.unreachableSince ? ` since ${v.unreachableSince.slice(11, 16)}Z` : ''}${v.error ? ` (${v.error})` : ''}`;
+  return `${statusLine(v.sync, intervalMin, now, ROUTINE_TZ)} (daemon)`;
+}
 
 export function createCommands(deps: CommandDeps) {
   const { cfg, store, reg, engine, channels, pollers, homeTeamId } = deps;
@@ -151,7 +158,7 @@ export function createCommands(deps: CommandDeps) {
       dreams: jobsBySlug.get(p.slug)?.dreams ?? 0,
       hk: jobsBySlug.get(p.slug)?.hk ?? 0,
       ...(p.sources
-        ? { sources: statusLine(readSyncState(facts, p.slug), p.sources.intervalMinutes ?? DEFAULT_INTERVAL_MIN, new Date(), ROUTINE_TZ) }
+        ? { sources: sourcesStatus(p, p.sources.intervalMinutes ?? DEFAULT_INTERVAL_MIN) }
         : {}),
     }));
     return {

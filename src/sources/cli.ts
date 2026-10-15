@@ -5,6 +5,7 @@
 //   orch sources build <slug>                                     rebuild store.sqlite + replica from raw/
 //   orch sources audit <slug> [--no-gitleaks] [--gold FILE] [--dir EXTRA…]
 //   orch sources serve <slug> [--listen host:port]               the sources tools over MCP streamable HTTP (SOURCES_SERVE_TOKEN)
+//   orch sources daemon [--listen host:port] [--only a,b]       ingest + serve where the data lives (SOURCES_DAEMON_TOKEN; OpenSpec sources-daemon)
 //   orch sources attribution redo <slug> --since D [--until D]   unpin a window's rule decisions; the next build re-decides them
 //
 // Everything here runs on the BOT HOST as the bot's own user: it reads the same projects
@@ -24,6 +25,8 @@ import { appendPinLines, readPins, unpinLines } from './attribution/pins.js';
 import { normalizeTime } from '../../snapshot/plain/sources-mcp.mjs';
 import { tokenPath } from './tokens.js';
 import { DEFAULT_LISTEN, replicaPathFor, SERVE_TOKEN_ENV, startServe } from './serve.js';
+import { DAEMON_LISTEN, DAEMON_TOKEN_ENV, runDaemon } from './daemon.js';
+import { describeLock, otherWriter } from './lock.js';
 import { SOURCE_KINDS, type SourceKind } from './types.js';
 
 function project(slug: string): ProjectConfig {
@@ -39,6 +42,14 @@ function isKind(k: string): k is SourceKind {
 }
 
 const csv = (v: string | undefined): string[] | undefined => v?.split(',').map((x) => x.trim()).filter(Boolean);
+
+/** One writer per data directory (lock.ts): a manual pull/build waits for the bot or the daemon unless forced. */
+function notWhileIngested(slug: string, force: boolean): void {
+  const holder = otherWriter(slug);
+  if (!holder) return;
+  if (!force) throw new UsageError(`${slug} is ingested by ${describeLock(holder)} — its next pass does this anyway; --force to run now (only when no pass is in flight)`);
+  process.stderr.write(`warning: ${slug} is ingested by ${describeLock(holder)}; running anyway (--force)\n`);
+}
 
 export function registerSourcesCommands(program: Command): void {
   const sources = program.command('sources').description('Per-project source ingestion: OAuth bootstrap, pulls, secret audits (docs/sources.md)').enablePositionalOptions();
@@ -65,9 +76,11 @@ export function registerSourcesCommands(program: Command): void {
     .option('--chats-full', 'msgraph: open every chat (daily edit/delete sweep)', false)
     .option('--no-build', 'leave store.sqlite and the replica as they are (default: build after the pull)')
     .option('--verbose', 'per-conversation / per-folder lines', false)
-    .action(async (slug: string, o: { only?: string; since?: string; full: boolean; calendars?: string; chatsFull: boolean; build: boolean; verbose: boolean }) => {
+    .option('--force', 'run even while the bot or a sources daemon ingests this project (only when no pass is in flight)', false)
+    .action(async (slug: string, o: { only?: string; since?: string; full: boolean; calendars?: string; chatsFull: boolean; build: boolean; verbose: boolean; force: boolean }) => {
       const p = project(slug);
       if (!p.sources) throw new UsageError(`project "${slug}" has no "sources" block in projects.config.json`);
+      notWhileIngested(slug, o.force);
       const only = csv(o.only)?.filter(isKind);
       const wanted = configuredKinds(p).filter((k) => !only || only.includes(k));
       if (!wanted.length) throw new UsageError(`nothing to pull (configured: ${configuredKinds(p).join(', ') || 'none'})`);
@@ -88,9 +101,11 @@ export function registerSourcesCommands(program: Command): void {
     .command('build <slug>')
     .description('Rebuild data/<slug>/store.sqlite incrementally from raw/ and publish the read-only replica')
     .option('--verbose', 'per-file lines', false)
-    .action(async (slug: string, o: { verbose: boolean }) => {
+    .option('--force', 'run even while the bot or a sources daemon ingests this project (only when no pass is in flight)', false)
+    .action(async (slug: string, o: { verbose: boolean; force: boolean }) => {
       const p = project(slug);
       if (!p.sources) throw new UsageError(`project "${slug}" has no "sources" block in projects.config.json`);
+      notWhileIngested(slug, o.force);
       await refreshTenant(p);
       runBuild(p, o.verbose);
     });
@@ -128,6 +143,40 @@ export function registerSourcesCommands(program: Command): void {
       if (!token) throw new UsageError(`${SERVE_TOKEN_ENV} is not set — refusing to serve a tenant store unauthenticated`);
       const server = await startServe(o.listen, { dbPath: o.db ?? replicaPathFor(p.slug), token, slug: p.slug });
       const stop = () => server.close(() => process.exit(0));
+      process.on('SIGINT', stop);
+      process.on('SIGTERM', stop);
+    });
+
+  sources
+    .command('daemon')
+    .description(`Ingest (pull → build → replica, per project interval) and serve every project with a sources block — or --only — over HTTP: POST /mcp/<slug>, GET /status/<slug> (bearer from ${DAEMON_TOKEN_ENV}). The bot then forwards with \`sources.daemon\` and stops ingesting with SOURCES_DAEMON=1.`)
+    .option('--listen <hostport>', 'bind address', DAEMON_LISTEN)
+    .option('--only <slugs>', 'comma list of projects (default: every project with a sources block)')
+    .action(async (o: { listen: string; only?: string }) => {
+      const token = process.env[DAEMON_TOKEN_ENV] ?? '';
+      if (!token) throw new UsageError(`${DAEMON_TOKEN_ENV} is not set — refusing to serve tenant stores unauthenticated`);
+      const reg = loadProjects(loadConfig().projectsConfigPath);
+      const only = csv(o.only);
+      const projects = reg.projects.filter((p) => p.sources && (!only || only.includes(p.slug)));
+      const unknown = (only ?? []).filter((s) => !projects.some((p) => p.slug === s));
+      if (unknown.length) throw new UsageError(`no sources project ${unknown.join(', ')} (known: ${reg.projects.filter((p) => p.sources).map((p) => p.slug).join(', ')})`);
+      if (!projects.length) throw new UsageError('no project with a sources block to serve');
+      const log = (line: string) => process.stderr.write(`${new Date().toISOString()} ${line}\n`);
+      let d: Awaited<ReturnType<typeof runDaemon>>;
+      try {
+        d = await runDaemon({ projects, listen: o.listen, token, log });
+      } catch (e) {
+        throw new UsageError(e instanceof Error ? e.message : String(e));
+      }
+      // First pass soon after start, as the bot does; then the minute tick inside runDaemon.
+      setTimeout(() => void d.tick().catch((e: unknown) => log(`sources daemon tick: ${e instanceof Error ? e.message : String(e)}`)), 5_000);
+      let stopping = false;
+      const stop = () => {
+        if (stopping) return;
+        stopping = true;
+        log('sources daemon: stopping (a pass in flight finishes first)');
+        void d.stop().then(() => process.exit(0));
+      };
       process.on('SIGINT', stop);
       process.on('SIGTERM', stop);
     });

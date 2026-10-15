@@ -47,7 +47,7 @@ export function parseListen(s: string): { host: string; port: number } {
   const m = /^(?:(\[[^\]]+\]|[^:]+):)?(\d{1,5})$/.exec(s.trim());
   if (!m) throw new Error(`--listen must be host:port or port, got ${JSON.stringify(s)}`);
   const port = Number(m[2]);
-  if (port < 1 || port > 65535) throw new Error(`port out of range: ${port}`);
+  if (port > 65535) throw new Error(`port out of range: ${port}`); // 0 = any free port (tests)
   return { host: (m[1] ?? '127.0.0.1').replace(/^\[|\]$/g, ''), port };
 }
 

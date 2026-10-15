@@ -50,7 +50,7 @@ function slackChannels(where: string, v: unknown): string[] {
 export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesConfig {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) fail(where, 'must be an object');
   const r = raw as Record<string, unknown>;
-  const known = new Set<string>([...SOURCE_KINDS, 'intervalMinutes', 'people', 'tenant', 'timezone']);
+  const known = new Set<string>([...SOURCE_KINDS, 'intervalMinutes', 'people', 'tenant', 'timezone', 'daemon']);
   for (const k of Object.keys(r)) if (!known.has(k)) fail(where, `unknown key "${k}" (allowed: ${[...known].join(', ')})`);
   const out: SourcesConfig = {};
   if (r.google !== undefined) {
@@ -179,6 +179,20 @@ export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesC
   }
   const interval = int(where, r.intervalMinutes, 'intervalMinutes', 1, 24 * 60);
   if (interval !== undefined) out.intervalMinutes = interval;
+  if (r.daemon !== undefined) {
+    const w = `${where}.daemon`;
+    const d = (typeof r.daemon === 'object' && r.daemon && !Array.isArray(r.daemon) ? r.daemon : fail(w, 'must be an object')) as Record<string, unknown>;
+    for (const k of Object.keys(d)) if (k !== 'url' && k !== 'tokenEnv') fail(w, `unknown key "${k}" (allowed: url, tokenEnv)`);
+    let url: URL | undefined;
+    try {
+      url = typeof d.url === 'string' ? new URL(d.url) : undefined;
+    } catch {
+      url = undefined;
+    }
+    if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:') || url.pathname.replace(/\/$/, '') !== '' || url.search || url.username) fail(w, '"url" must be http(s)://host[:port] with no path, query or credentials');
+    if (typeof d.tokenEnv !== 'string' || !/^[A-Z][A-Z0-9_]{2,63}$/.test(d.tokenEnv)) fail(w, '"tokenEnv" must be the NAME of an environment variable (e.g. SOURCES_DAEMON_TOKEN), never the token');
+    out.daemon = { url: url.origin, tokenEnv: d.tokenEnv as string };
+  }
   if (r.timezone !== undefined) {
     let ok = typeof r.timezone === 'string' && !!r.timezone;
     if (ok) {
