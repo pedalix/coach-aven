@@ -17,5 +17,5 @@
 
 ## 4. Canary and C3
 
-- [ ] 4.1 Home: daemon as a second user unit, both projects on loopback, bot ticker off; verify pulls in the daemon log, `/aven status` from the daemon, unchanged briefs, per-call latency logged.
+- [x] 4.1 Home: daemon as a second user unit, both projects on loopback, bot ticker off; verify pulls in the daemon log, `/aven status` from the daemon, unchanged briefs, per-call latency logged. 2026-10-15 21:18: both projects pulled and built by the daemon, the bot pulled nothing; forwarded calls 4–70 ms (`unanswered` 1.2 s); field brief, review, morning brief and evening close all delivered through it.
 - [ ] 4.2 C3 (ops repo): bluefin-ops daemon on Bluefin's VM, bot forwards; verify the first prod field brief quotes `unanswered` rows and `stats.meta` ages from the daemon.
