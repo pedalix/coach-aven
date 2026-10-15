@@ -131,7 +131,10 @@ cmd_install() {
   # the sudoers rule is scoped to the three verbs on this one unit, validated before install.
   log "Root stage: granting deployer service-control (sudoers) + journal read"
   local sudoers
-  sudoers="${DEPLOY_USER} ALL=(root) NOPASSWD: ${systemctl_path} start ${SERVICE_NAME}.service, ${systemctl_path} stop ${SERVICE_NAME}.service, ${systemctl_path} restart ${SERVICE_NAME}.service"
+  # …and on the sources daemon's unit (OpenSpec sources-daemon), which runs the same checkout: a deploy must
+  # restart it too, or it keeps answering the bot with the previous release's code.
+  local daemon="${SERVICE_NAME}-sources-daemon.service"
+  sudoers="${DEPLOY_USER} ALL=(root) NOPASSWD: ${systemctl_path} start ${SERVICE_NAME}.service, ${systemctl_path} stop ${SERVICE_NAME}.service, ${systemctl_path} restart ${SERVICE_NAME}.service, ${systemctl_path} start ${daemon}, ${systemctl_path} stop ${daemon}, ${systemctl_path} restart ${daemon}"
   printf '# Managed by coach-aven infra/prod/deploy.sh\n%s\n' "$sudoers" \
     | rssh "cat > /etc/sudoers.d/${SERVICE_NAME}.tmp \
             && visudo -cf /etc/sudoers.d/${SERVICE_NAME}.tmp \
@@ -235,6 +238,12 @@ REMOTE
 
   log "Restarting ${SERVICE_NAME}"
   dssh "sudo systemctl restart ${SERVICE_NAME}.service"
+  # The sources daemon runs the same code (infra/prod/coach-aven-sources-daemon.service.tmpl): restart it when the box
+  # has it, so the bot never forwards to a daemon of the previous release. Absent unit → nothing to do.
+  if dssh "systemctl cat ${SERVICE_NAME}-sources-daemon.service >/dev/null 2>&1" </dev/null; then
+    log "Restarting ${SERVICE_NAME}-sources-daemon (a pass in flight finishes first)"
+    dssh "sudo systemctl restart ${SERVICE_NAME}-sources-daemon.service" </dev/null || warn "the sources daemon did not restart — check: journalctl -u ${SERVICE_NAME}-sources-daemon"
+  fi
 
   log "Health check: waiting for the Socket-Mode connection"
   if dssh "for i in \$(seq 1 20); do
