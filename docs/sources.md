@@ -566,6 +566,49 @@ Decided fragments become `attributions(ref, initiative, share, fragment_id, deci
 **`fragments({since, until, initiative, status})`** lists the decisions themselves. Who decides is
 the tenant's business (its review session in the sandbox commits these files); the bot indexes.
 
+## Attribution
+
+The tenant's attribution plan is computed in the store build, from the tenant's own data, and served
+by the `attribution` tool (OpenSpec `attribution-layer`; `src/sources/attribution/`). It is the
+deterministic half of a review session: which initiative each piece of the subject's day belongs to,
+and what is left for a judgment. No tenant code runs on the host and no file reaches the sandbox.
+
+**On** when the tenant ships `annotations/attribution.json`:
+
+```json
+{ "subject": "<person_id>", "since": "2026-10-01", "timezone": "Europe/Zurich",
+  "threadGapMinutes": 45, "substance": true, "admin": { "<umbrella>": "<umbrella>/<umbrella>/admin" } }
+```
+
+**Inputs** (all tenant data): `initiatives.json` at the tenant root — routing keys per initiative
+(`repos`, `local_paths`, `calendar_title_patterns`, `slack_channels`, `teams_channels`, `jira_keys`,
+`youtrack_prefixes`, `alias_of`, `split_into`); `annotations/rules.json` — `{id, when: {person,
+container, title_re, repo, project_key, source}, then: {initiative | candidates}}`; people markers
+(`annotations/people.json`); the ledger (`annotations/fragments.jsonl`).
+
+**Fragments**: the subject's calls (one per summary topic, weighted by the topic's share), runs of the
+subject's own messages per container (a gap over `threadGapMinutes` ends a run), and work blocks from
+`activity`; greeting-only runs attach to the adjacent call with the same counterpart or drop. Ids depend
+only on the records, so decisions recorded against an id stay attached across rebuilds.
+
+**The ladder**, strong to weak, stops at the first rung that decides: tenant rules (a `candidates` rule
+stops it with exactly that choice set), the admin bucket (money, contracts, visas → the counterpart
+umbrella's `admin` initiative), exclusive markers, registry routing (repo/path, channel, tracker key,
+calendar title), narrow markers, broad markers. It never guesses: several registry hits are candidates.
+
+**States**: `decided` (the ledger has a decision — it always wins, matched by id or, for message runs,
+by overlapping refs), `escalated` (the ledger has an open question), `rule` (the ladder decides it now),
+`open` (candidates + hint for a judgment). Rule proposals come from recorded judgments: a person (not a
+broad marker) or a container whose judged fragments are at least 90 % one initiative, three or more.
+
+**Recompute**: at every build that consumed new lines or saw a tenant file change (and at least hourly,
+since the horizon ends today), over `since` to today in the tenant's zone — 389 fragments of 15 days in
+under half a second on the home store. A broken tenant file keeps the previous tables and is logged.
+
+**Parity** with the owen-ops CLI it was ported from (2026-10-15, four days of the real store): the same
+ids, the same `decided` / `rule` / `open` sets and the same initiatives; the one difference — a work block
+just after local midnight that the CLI's UTC-day load window never saw — is the platform being right.
+
 ## What comes next
 
 | Slice | Adds |
