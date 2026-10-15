@@ -57,9 +57,9 @@ import { captureError } from './sentry.js';
 import path from 'node:path';
 import { FactStore } from './facts.js';
 import { authCheck, configuredKinds, pullProject } from './sources/run.js';
-import { authCheckDue, createSourcesTicker, readSyncState } from './sources/sync.js';
-import { rawRecordCount, REPLICA_FILE as REPLICA_STORE_FILE } from './sources/store.js';
-import { readDueNow } from './sources/tenant.js';
+import { authCheckDue, createSourcesTicker, type SourcesSyncState } from './sources/sync.js';
+import { sourcesViews } from './sources/daemonclient.js';
+import { acquireLock, describeLock } from './sources/lock.js';
 import { replicaDir } from './sources/paths.js';
 
 // Timezone the cron schedules are evaluated in. Set AVEN_TZ (IANA, e.g. Europe/Zurich)
@@ -75,6 +75,8 @@ const AUTOFIX_POLL_MS = 120_000; // 2 min
 const YOUTRACK_POLL_MS = 120_000; // 2 min — support-ticket investigation pilot
 const CLI_PIN_POLL_MS = 24 * 3_600_000; // daily — is the Claude Code pin behind npm stable?
 const SOURCES_POLL_MS = 60_000; // 1 min tick; each project's own interval/backoff decides (sources/sync.ts)
+/** SOURCES_DAEMON=1: a sources daemon on this host ingests every project; the bot pulls and builds none (OpenSpec sources-daemon). */
+const sourcesDaemonOn = process.env.SOURCES_DAEMON === '1';
 
 export interface Pollers {
   startAll(): void;
@@ -179,14 +181,17 @@ export function createPollers(
     // the last delivered run and nothing due in the tenant ledgers → one line, no turn, no cost.
     // Every input is read here, deterministically; the decision itself is pure and tested.
     if (routineGuard.skipEmpty && fire.mode !== 'manual' && project.sources) {
+      // Local files, or the project's sources daemon's last status (sources/daemonclient.ts) — an
+      // unreachable daemon reads as "unreadable", so the slot fires.
+      const view = sourcesViews.view(project, localDate(r.tz, now));
       const decision = emptySkipDecision(
         {
           fire,
           routine: r,
           hasSources: true,
-          rawCount: rawRecordCount(path.join(replicaDir(r.slug), REPLICA_STORE_FILE)),
-          due: project.sources.tenant ? readDueNow(r.slug, project.sources.tenant, localDate(r.tz, now)) : { escalationsOpen: 0, commitmentsDue: 0 },
-          sources: sourceFreshness(r.slug, project, now),
+          ...(view.rawRecords !== undefined ? { rawCount: view.rawRecords } : {}),
+          ...(view.due ? { due: view.due } : {}),
+          sources: sourceFreshness(view.sync, project, now),
           intervalMinutes: project.sources.intervalMinutes ?? 15,
         },
         routineGuard,
@@ -217,7 +222,10 @@ export function createPollers(
           settled = true;
           const { patch, note } = settlePatch(fire, outcome, info, new Date(), routineGuard);
           // The delivered run's fingerprint for the empty-slot skip: the replica's raw-record count now.
-          if (outcome === 'ok' && routineGuard.skipEmpty && project.sources) patch.lastDeliveredRawCount = rawRecordCount(path.join(replicaDir(r.slug), REPLICA_STORE_FILE));
+          if (outcome === 'ok' && routineGuard.skipEmpty && project.sources) {
+            const raw = sourcesViews.view(project, localDate(r.tz, new Date())).rawRecords;
+            if (raw !== undefined) patch.lastDeliveredRawCount = raw;
+          }
           store.patchRoutine(r.id, patch);
           log.info(`routine ${r.id} (${r.slug}): ${note}`);
         }
@@ -253,9 +261,8 @@ export function createPollers(
     return true;
   }
 
-  // Per configured source kind: did its last pass succeed and how old is it (sources_sync facts).
-  function sourceFreshness(slug: string, project: ProjectConfig, now: Date): SourceFreshness[] {
-    const state = readSyncState(facts, slug);
+  // Per configured source kind: did its last pass succeed and how old is it (the sync state: local facts or the daemon's).
+  function sourceFreshness(state: SourcesSyncState, project: ProjectConfig, now: Date): SourceFreshness[] {
     return configuredKinds(project).map((kind) => {
       const s = state.lastSummary[kind];
       const at = s ? Date.parse(s.finishedAt) : NaN;
@@ -609,10 +616,30 @@ export function createPollers(
   // facts predicate, so a restart neither re-pulls early nor forgets a dead grant. Pulls never
   // touch the sandbox: they run on this host with tokens the sandbox must not see, and the
   // replica swap is an atomic rename, so an in-flight turn is unaffected (docs/sources.md).
+  //
+  // Not here (OpenSpec sources-daemon): a project with `sources.daemon` — its data lives with that
+  // daemon — and every project when SOURCES_DAEMON=1 (a daemon on this host ingests). Before a pass
+  // the bot takes the project's data lock, so a daemon started by mistake beside it refuses to run,
+  // and a project a live daemon holds is skipped (logged once).
   const facts = new FactStore();
+  const lockSkipLogged = new Set<string>();
+  const ingestedHere = (p: ProjectConfig): boolean => !!p.sources && !p.sources.daemon && !sourcesDaemonOn;
   function startSourcesPoller(): void {
     const ticker = createSourcesTicker({
-      projects: () => reg.current.projects,
+      projects: () =>
+        reg.current.projects.filter((p) => {
+          if (!ingestedHere(p)) return false;
+          const holder = acquireLock(p.slug, 'bot');
+          if (!holder) {
+            lockSkipLogged.delete(p.slug);
+            return true;
+          }
+          if (!lockSkipLogged.has(p.slug)) {
+            lockSkipLogged.add(p.slug);
+            log.warn(`[sources:${p.slug}] not pulling: the data is held by ${describeLock(holder)}`);
+          }
+          return false;
+        }),
       facts,
       now: () => new Date(),
       alert: (text) => alertOps(text, 'warning'),
@@ -633,7 +660,7 @@ export function createPollers(
       const due = authCheckDue(new Date(), ROUTINE_TZ, lastAuthCheckDay);
       if (!due) return;
       lastAuthCheckDay = due;
-      for (const p of reg.current.projects) {
+      for (const p of reg.current.projects.filter(ingestedHere)) {
         for (const kind of configuredKinds(p)) {
           const r = await authCheck(p.slug, kind, p);
           if (r.code === 0) continue;
@@ -643,6 +670,19 @@ export function createPollers(
       }
     };
     setInterval(() => void tick().catch(pollFail('sources-auth')), SOURCES_POLL_MS);
+  }
+
+  // Projects whose sources live with a daemon: refresh its status every minute (the views read it
+  // synchronously) and pass on what the operator should hear — its own alerts, silence, recovery.
+  function startDaemonWatcher(): void {
+    const tick = async (): Promise<void> => {
+      for (const p of reg.current.projects) {
+        if (!p.sources?.daemon) continue;
+        for (const n of await sourcesViews.refresh(p)) alertOps(n.text, n.level);
+      }
+    };
+    setTimeout(() => void tick().catch(pollFail('sources-daemon')), 5_000);
+    setInterval(() => void tick().catch(pollFail('sources-daemon')), SOURCES_POLL_MS);
   }
 
   return {
@@ -655,6 +695,7 @@ export function createPollers(
       startCliPinCheck();
       startSourcesPoller();
       startSourcesAuthCheck();
+      startDaemonWatcher();
     },
     fireRoutine,
     fireReview,

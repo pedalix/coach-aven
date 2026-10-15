@@ -169,6 +169,19 @@ export interface SourcesConfig {
   timezone?: string;
   /** Path (relative to projects.config.json) of the people/identities JSON used by the store build (PR-B). */
   people?: string;
+  /**
+   * The project's data lives with a sources daemon (OpenSpec sources-daemon): the bot does not pull or build it, and
+   * forwards the agent's `sources` calls to `<url>/mcp/<slug>` and its status reads to `<url>/status/<slug>`, with the
+   * bearer from the environment variable `tokenEnv`. Absent = the bot ingests and answers from its own replica.
+   */
+  daemon?: DaemonConfig;
+}
+
+export interface DaemonConfig {
+  /** http(s)://host:port of the daemon — loopback on the same machine, a private address otherwise. */
+  url: string;
+  /** Name of the env var holding the daemon's bearer (the value never goes into the config). */
+  tokenEnv: string;
 }
 
 export type Logger = (line: string) => void;

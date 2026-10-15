@@ -6,7 +6,10 @@
 //                 replaced a stdio server in the sandbox and its outbox mount).
 //   • `sources` — a project with a `sources` block: the sources tool table over the replica on this
 //                 disk, answered on a worker thread (sources/worker.mjs). Bucket 2: only sources
-//                 projects are affected, and no prod project has one.
+//                 projects are affected, and no prod project has one. With `sources.daemon` the
+//                 tools/calls go to the daemon that holds the data (sources/daemonclient.ts); the
+//                 static answers (initialize, tools/list) stay on the worker, so a session opens
+//                 even while the daemon is away.
 // A project that declares its own MCP server under either name keeps it; the bot registers nothing
 // under that name, so the two never compete.
 import { existsSync } from 'node:fs';
@@ -18,6 +21,8 @@ import { dispatch, type ProposalRecord, type ProposeOutcome } from './dispatch.j
 import { hostToolTable, mcpServer, type HostCaller, type HostServerRoute, type JsonRpc } from './hosttools.js';
 import { sourcesTimezone, SOURCES_SERVER_NAME } from './sources/mcp.js';
 import { replicaDir } from './sources/paths.js';
+import { forwardToDaemon } from './sources/daemonclient.js';
+import type { DaemonConfig } from './sources/types.js';
 import { REPLICA_FILE } from './sources/store.js';
 import { log } from './log.js';
 
@@ -43,6 +48,8 @@ export interface HostRouterDeps {
   dispatchEnabled?: boolean; // default: the DISPATCH flag
   replicaPath?: (slug: string) => string;
   sources?: SourcesCall; // default: the worker thread
+  /** Forwards a tools/call to a project's daemon (default: forwardToDaemon over HTTP). */
+  forward?: (cfg: DaemonConfig, slug: string, message: JsonRpc) => Promise<JsonRpc | undefined>;
   tz?: string; // default: AVEN_TZ (the zone bare dates are read in)
 }
 
@@ -55,6 +62,7 @@ export function createHostRouter(d: HostRouterDeps): HostRouter {
   const dispatchOn = d.dispatchEnabled ?? dispatch.enabled;
   const replicaPath = d.replicaPath ?? ((slug: string) => join(replicaDir(slug), REPLICA_FILE));
   const sources = d.sources ?? sourcesWorker(d.tz ?? sourcesTimezone());
+  const forward = d.forward ?? ((cfg: DaemonConfig, slug: string, m: JsonRpc) => forwardToDaemon(cfg, slug, m));
   return {
     routesFor(caller, project) {
       const routes: HostServerRoute[] = [];
@@ -72,7 +80,12 @@ export function createHostRouter(d: HostRouterDeps): HostRouter {
       }
       if (project.sources !== undefined && !declares(project, SOURCES_SERVER_NAME)) {
         const db = replicaPath(project.slug);
-        routes.push({ name: SOURCES_SERVER_NAME, timeoutMs: SOURCES_TIMEOUT_MS, handle: (m) => sourcesRoute(m, db, project.slug, sources) });
+        const daemon = project.sources.daemon;
+        routes.push({
+          name: SOURCES_SERVER_NAME,
+          timeoutMs: SOURCES_TIMEOUT_MS,
+          handle: daemon ? (m) => daemonRoute(m, daemon, project.slug, sources, forward) : (m) => sourcesRoute(m, db, project.slug, sources),
+        });
       }
       return routes;
     },
@@ -90,6 +103,26 @@ export async function sourcesRoute(m: JsonRpc, dbPath: string, slug: string, cal
   } catch (e) {
     if (!isRequest) return undefined;
     return { jsonrpc: '2.0', id: m.id, error: { code: -32603, message: `sources: ${e instanceof Error ? e.message : String(e)}` } };
+  }
+}
+
+/**
+ * A daemon project's route: tools/call goes to the daemon; everything else (initialize, tools/list, ping,
+ * notifications) is answered by the local table, which needs no data. A daemon that does not answer is a
+ * tool error the agent reads — the prompt tells it to say so in one line — never a dead server.
+ */
+export async function daemonRoute(m: JsonRpc, cfg: DaemonConfig, slug: string, local: SourcesCall, forward: (cfg: DaemonConfig, slug: string, m: JsonRpc) => Promise<JsonRpc | undefined>): Promise<JsonRpc | undefined> {
+  if (m.method !== 'tools/call') return sourcesRoute(m, '', slug, local);
+  const isRequest = m.id !== undefined && m.id !== null;
+  const started = Date.now();
+  try {
+    const r = await forward(cfg, slug, m);
+    log.info(`[sources:${slug}] daemon ${String((m.params as { name?: unknown } | undefined)?.name ?? '?')} ${Date.now() - started} ms`);
+    return r;
+  } catch (e) {
+    if (!isRequest) return undefined;
+    const why = e instanceof Error ? (e.name === 'TimeoutError' ? 'no answer in time' : e.message) : String(e);
+    return { jsonrpc: '2.0', id: m.id, result: { content: [{ type: 'text', text: `sources: the daemon for ${slug} is unavailable (${why})` }], isError: true } };
   }
 }
 

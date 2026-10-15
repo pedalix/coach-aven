@@ -4,7 +4,7 @@ import { copyFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createHostRouter, declares, sourcesRoute, sourcesWorker, type SourcesCall } from './hostrouter.js';
+import { createHostRouter, daemonRoute, declares, sourcesRoute, sourcesWorker, type SourcesCall } from './hostrouter.js';
 import type { ProjectConfig, RegistryRef } from './projects.js';
 import type { HostCaller, JsonRpc } from './hosttools.js';
 
@@ -66,4 +66,28 @@ test('sourcesWorker — the real tool table answers on a worker thread, in the g
   // a 1 ms limit cannot be met: the call fails, and the next call works on a fresh worker
   const tight = sourcesWorker('UTC', 1);
   await assert.rejects(() => tight({ jsonrpc: '2.0', id: 5, method: 'tools/list' }, db), /no answer within 0 s — the worker is restarted/);
+});
+
+test('daemonRoute — tools/call goes to the daemon; initialize and tools/list stay local; an unreachable daemon is a tool error, never a dead server', async () => {
+  const cfg = { url: 'http://127.0.0.1:3416', tokenEnv: 'X_TOKEN' };
+  const local: SourcesCall = async (m) => ({ jsonrpc: '2.0', id: m.id ?? null, result: { local: m.method } });
+  const forwarded: JsonRpc[] = [];
+  const up = async (_c: typeof cfg, slug: string, m: JsonRpc): Promise<JsonRpc> => {
+    forwarded.push(m);
+    return { jsonrpc: '2.0', id: m.id ?? null, result: { daemon: slug } };
+  };
+  assert.deepEqual(await daemonRoute({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} }, cfg, 'acme', local, up), { jsonrpc: '2.0', id: 1, result: { local: 'initialize' } });
+  assert.deepEqual(await daemonRoute({ jsonrpc: '2.0', id: 2, method: 'tools/list' }, cfg, 'acme', local, up), { jsonrpc: '2.0', id: 2, result: { local: 'tools/list' } });
+  assert.equal(forwarded.length, 0, 'a session opens without the daemon');
+  assert.deepEqual(await daemonRoute({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'stats', arguments: {} } }, cfg, 'acme', local, up), { jsonrpc: '2.0', id: 3, result: { daemon: 'acme' } });
+  const down = async (): Promise<JsonRpc> => {
+    throw new Error('connect ECONNREFUSED 127.0.0.1:3416');
+  };
+  const r = await daemonRoute({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'stats', arguments: {} } }, cfg, 'acme', local, down);
+  assert.deepEqual(r, { jsonrpc: '2.0', id: 4, result: { content: [{ type: 'text', text: 'sources: the daemon for acme is unavailable (connect ECONNREFUSED 127.0.0.1:3416)' }], isError: true } });
+  // the router picks the daemon route for a project with `sources.daemon`
+  const viaDaemon = project('acme', { sources: { youtrack: { url: 'https://yt', projects: ['AC'] }, daemon: cfg } });
+  const router = createHostRouter({ reg: { current: { projects: [viaDaemon] } } as RegistryRef, home: () => undefined, propose: async () => assert.fail('no propose'), dispatchEnabled: false, replicaPath: () => missing, sources: local, forward: up });
+  const [route] = router.routesFor(caller('acme'), viaDaemon);
+  assert.deepEqual(await route!.handle({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'stats', arguments: {} } }), { jsonrpc: '2.0', id: 5, result: { daemon: 'acme' } });
 });

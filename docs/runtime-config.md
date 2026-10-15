@@ -275,6 +275,21 @@ inside a sandbox on every Claude Code pin bump.
   old bot never answered is answered by the new one. Every stdin write of a session is serialised —
   a tool answer can be tens of KB and two writes over `PIPE_BUF` to one FIFO could interleave.
 
+## Sources daemon (`SOURCES_DAEMON`, `sources.daemon`)
+
+A project's sources can live with a daemon instead of the bot (`orch sources daemon`, docs/sources.md →
+*Remote access*, OpenSpec `sources-daemon`). Two switches, both off by default:
+
+- `SOURCES_DAEMON=1` in the bot's env — a daemon on THIS host ingests: the bot's sources poller and
+  the 06:00 auth check run for no project. Set it (and restart the bot) before starting a daemon on the
+  bot host; the daemon refuses to start while a live bot holds a project's data lock.
+- `sources.daemon: { url, tokenEnv }` per project — the data lives with that daemon: the bot never
+  pulls the project (whatever `SOURCES_DAEMON` says), forwards the agent's `sources` calls to it and
+  reads its status. `tokenEnv` names the bot's env variable holding the daemon's bearer (the daemon
+  reads its own copy from `SOURCES_DAEMON_TOKEN`).
+
+Without either, everything is as before: the bot ingests and answers from its own replica.
+
 ## Dispatch (`DISPATCH`)
 
 Off by default. `DISPATCH=1` (read at boot) gives every session the `host` server above with the

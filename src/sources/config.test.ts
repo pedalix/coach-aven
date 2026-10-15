@@ -79,3 +79,16 @@ test('sources config: timezone is an IANA zone (presentation only; storage stays
   assert.throws(() => validateSourcesConfig({ ...base, timezone: 'Mars/Base' }), /"timezone" must be an IANA zone name/);
   assert.throws(() => validateSourcesConfig({ ...base, timezone: 3 }), /"timezone" must be an IANA zone name/);
 });
+
+test('sources config: `daemon` — an http(s) origin and the NAME of the token variable, nothing else', () => {
+  const base = { youtrack: { url: 'https://yt.example', projects: ['AC'] } };
+  assert.deepEqual(validateSourcesConfig({ ...base, daemon: { url: 'http://127.0.0.1:3416/', tokenEnv: 'SOURCES_DAEMON_TOKEN' } }).daemon, { url: 'http://127.0.0.1:3416', tokenEnv: 'SOURCES_DAEMON_TOKEN' });
+  for (const [daemon, re] of [
+    [{ url: 'ftp://x:1', tokenEnv: 'SOURCES_DAEMON_TOKEN' }, /"url" must be http/],
+    [{ url: 'http://x:1/mcp', tokenEnv: 'SOURCES_DAEMON_TOKEN' }, /no path/],
+    [{ url: 'http://user:pw@x:1', tokenEnv: 'SOURCES_DAEMON_TOKEN' }, /credentials/],
+    [{ url: 'http://x:1', tokenEnv: 'sk-live-0123456789' }, /NAME of an environment variable/],
+    [{ url: 'http://x:1', tokenEnv: 'SOURCES_DAEMON_TOKEN', extra: 1 }, /unknown key "extra"/],
+    ['http://x:1', /must be an object/],
+  ] as Array<[unknown, RegExp]>) assert.throws(() => validateSourcesConfig({ ...base, daemon }), re, JSON.stringify(daemon));
+});
