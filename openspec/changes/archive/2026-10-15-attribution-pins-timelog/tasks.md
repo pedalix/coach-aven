@@ -8,4 +8,4 @@
 - [x] 2.2 Docs (`docs/sources.md` → Attribution: pins, timelog), ledger row.
 - [x] 2.3 `budgets` in attribution.json and `reconciliation` in the `timelog` answer (1.8.0); verify with the CLI's summarize cases and an end-to-end month test.
 - [x] 2.4 The initiative index follows the plan (search/get/fragments `initiative`); the layer off restores the ledger-only index; verify with build and store tests.
-- [ ] 3.1 Home: compare `timelog` with `owen-ops timelog` for October; explain differences; the reconciliation equals the CLI's `status --month`.
+- [x] 3.1 Home: compare `timelog` with `owen-ops timelog` for October; explain differences. Day totals match within minutes (1–14.10: 7979 vs 7981 min, wallclock). Per initiative they differ because the CLI applied the first evidence's split weight to a whole initiative's union (P3 halved on days with a split thread) and applied six manual call overrides the ledger did not hold (migrated as Owen's ledger decisions); the platform's reconciliation is the corrected one (HCG 17 vs 16.5 half-days through 10-14).

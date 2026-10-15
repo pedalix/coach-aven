@@ -19,5 +19,5 @@
 
 ## 4. Parity and canary
 
-- [ ] 4.1 owen-ops commits `annotations/attribution.json`; the home bot's build fills the tables.
+- [x] 4.1 owen-ops commits `annotations/attribution.json`; the home bot's build fills the tables.
 - [x] 4.2 Parity run: the tool's decided/open sets against `owen-ops review --since D --until D` (no `--write`) for three past days; differences explained or fixed. — Done 2026-10-15 on a copy of the home store, 12–15.10: identical ids, `decided`/`rule`/`open` sets and initiatives; one extra `rule` work block on 14.10 that started 21:xx UTC on 13.10 — the CLI loads a daily window by UTC day and filters by local day, so it never sees blocks just after local midnight; the platform loads with a day of margin.
