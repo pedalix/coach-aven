@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.6.0';
+export const SERVER_VERSION = '1.7.0';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -937,6 +937,22 @@ export const TOOLS = [
     },
   },
   {
+    name: 'timelog',
+    description:
+      'The subject\'s time per local day and initiative, from the attribution plan (decided, pinned and rule decisions): calls count in ' +
+      'full (topics by share), runs of messages and work blocks are unioned per initiative minus call time, split aliases distribute by ' +
+      'weight; unattributed time is its own row with `confidence` open|escalated and the candidates. Policy from the tenant config ' +
+      `(sum | wallclock). since/until: YYYY-MM-DD, each a whole day in ${ZONE_DOC}; default: this month so far. ` +
+      'Retainer reconciliation (caps, half-days) is arithmetic over these rows.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        since: { type: 'string', description: 'YYYY-MM-DD, a local day' },
+        until: { type: 'string', description: 'YYYY-MM-DD, a local day' },
+      },
+    },
+  },
+  {
     name: 'people',
     description: 'Look up known people by name or identity (email / slack id); returns person_id, company, marker {type: exclusive|narrow|broad, initiatives}, identities.',
     inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
@@ -1390,8 +1406,12 @@ export function runAttribution(db, args, now = new Date()) {
   const lo = normalizeTime(since, 'since', tz);
   const hi = normalizeTime(until, 'until', tz);
   for (const r of db.prepare('SELECT state, count(*) AS n FROM att_fragments WHERE start >= ? AND start <= ? GROUP BY state').all(lo, hi)) counts[r.state] = r.n;
+  const pinsJoin = hasTable(db, 'att_pins');
   const rows = db
-    .prepare(`SELECT * FROM att_fragments WHERE start >= ? AND start <= ?${state ? ' AND state = ?' : ''} ORDER BY start LIMIT ?`)
+    .prepare(
+      `SELECT f.*${pinsJoin ? ', p.pinned_at, p.rules_version' : ''} FROM att_fragments f${pinsJoin ? ' LEFT JOIN att_pins p ON p.id = f.id' : ''} ` +
+        `WHERE f.start >= ? AND f.start <= ?${state ? ' AND f.state = ?' : ''} ORDER BY f.start LIMIT ?`,
+    )
     .all(...[lo, hi, ...(state ? [state] : []), limit + 1]);
   const truncated = rows.length > limit;
   const refsOf = (f) => parseJson(f.refs || '[]', []);
@@ -1418,6 +1438,7 @@ export function runAttribution(db, args, now = new Date()) {
         ...(f.state === 'open' || f.state === 'rule' ? { candidates: parseJson(f.candidates || '[]', []), hint: f.hint } : {}),
         ...(f.state !== 'open' ? { decided_by: f.decided_by, attributions: parseJson(f.attributions || '[]', []), ...(f.rule_id ? { rule_id: f.rule_id } : {}), ...(f.rationale ? { rationale: f.rationale } : {}) } : {}),
         ...(f.ledger_id && f.ledger_id !== f.id ? { ledger_id: f.ledger_id } : {}),
+        ...(f.pinned_at ? { pinned: { at: f.pinned_at, rules_version: f.rules_version } } : {}),
         participants: parseJson(f.participants || '[]', []),
         refs: refs.slice(0, 5),
         ...(refs.length > 5 ? { more_refs: refs.length - 5 } : {}),
@@ -1425,6 +1446,241 @@ export function runAttribution(db, args, now = new Date()) {
     }),
     ...(truncated ? { truncated: true } : {}),
     proposals: hasTable(db, 'att_proposals') ? db.prepare('SELECT * FROM att_proposals ORDER BY id').all().map((p) => ({ id: p.id, question: p.question, options: parseJson(p.options || '[]', []), refs: parseJson(p.refs || '[]', []) })) : [],
+  };
+}
+
+// ── timelog (OpenSpec attribution-pins-timelog) ─────────────────────────────────────────────
+// Minutes per local day (the tenant's zone, cut here at query time) and initiative, over the subject's
+// fragments with their effective decision (ledger, pin or rule). The owen-ops CLI's merge rules
+// (src/timelog.ts), ported: calls count in full (topics by share), runs and work blocks are unioned per
+// initiative minus call time, split aliases distribute by weight, a shared repo's open work follows the
+// one candidate active that day, unattributed time is its own row with candidates; policy `wallclock`
+// scales parallel work so a day never exceeds wall-clock (calls untouched).
+const MIN_MS = 60_000;
+export function unionIntervals(xs) {
+  const s = xs.filter((x) => x.end > x.start).sort((a, b) => a.start - b.start);
+  const out = [];
+  for (const x of s) {
+    const last = out[out.length - 1];
+    if (last && x.start <= last.end) last.end = Math.max(last.end, x.end);
+    else out.push({ ...x });
+  }
+  return out;
+}
+export function subtractIntervals(xs, cut) {
+  let cur = unionIntervals(xs);
+  for (const c of unionIntervals(cut)) {
+    const next = [];
+    for (const x of cur) {
+      if (c.end <= x.start || c.start >= x.end) {
+        next.push(x);
+        continue;
+      }
+      if (c.start > x.start) next.push({ start: x.start, end: c.start });
+      if (c.end < x.end) next.push({ start: c.end, end: x.end });
+    }
+    cur = next;
+  }
+  return cur;
+}
+const totalMinutes = (xs) => Math.round(xs.reduce((a, x) => a + (x.end - x.start), 0) / MIN_MS);
+
+function resolveAliasIn(reg, id) {
+  let cur = id;
+  for (let i = 0; i < 5; i++) {
+    const ini = reg[cur];
+    if (!ini || !ini.alias_of || ini.split_into) return cur;
+    cur = ini.alias_of;
+  }
+  return cur;
+}
+/** Attributions → a route: one initiative, or a split over several (aliases and split_into expanded, shares normalised). */
+export function routeOfAttributions(atts, reg) {
+  const split = {};
+  for (const a of atts) {
+    const id = resolveAliasIn(reg, a.initiative);
+    const parts = reg[id] && reg[id].split_into ? Object.entries(reg[id].split_into) : [[id, 1]];
+    for (const [k, w] of parts) split[k] = (split[k] ?? 0) + a.share * w;
+  }
+  const ids = Object.keys(split);
+  const total = Object.values(split).reduce((a, b) => a + b, 0);
+  if (!ids.length || total <= 0) return { initiative: null, confidence: 'none', candidates: [] };
+  if (ids.length === 1) return { initiative: ids[0], confidence: 'exact', candidates: ids };
+  for (const k of ids) split[k] = Math.round((split[k] / total) * 1000) / 1000;
+  return { initiative: null, confidence: 'exact', candidates: ids, split };
+}
+
+const MEETING_REF_RE = /^(meeting:|granola:|wispr:|gmeet:)/;
+const meetingKey = (f) => (f.refs.find((r) => MEETING_REF_RE.test(r)) ?? f.refs[0] ?? f.id).replace(/^meeting:/, '');
+
+/** Fragments (rows with parsed refs/attributions/candidates) → timed evidence: one per call (topics joined), one per run or work block. */
+export function fragmentsToEvidence(rows, reg) {
+  const live = rows.filter((f) => f.start && f.end);
+  const decided = (f) => f.state === 'decided' || f.state === 'rule';
+  const undecided = (f) => ({ initiative: null, confidence: f.state === 'escalated' ? 'escalated' : 'open', candidates: f.candidates || [] });
+  const mins = (a, b) => Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / MIN_MS));
+  const out = [];
+  const calls = new Map();
+  for (const f of live.filter((f) => f.kind === 'call')) calls.set(meetingKey(f), [...(calls.get(meetingKey(f)) ?? []), f]);
+  for (const [key, fs] of calls) {
+    const start = fs.map((f) => f.start).sort()[0];
+    const end = fs.map((f) => f.end).sort().slice(-1)[0];
+    const ds = fs.filter(decided);
+    out.push({ kind: 'meeting', start, end, minutes: mins(start, end), title: key, ref: `fragment:${fs.map((f) => f.id).join('+')}`, route: ds.length ? routeOfAttributions(ds.flatMap((f) => f.attributions), reg) : undecided(fs[0]) });
+  }
+  for (const f of live.filter((f) => f.kind !== 'call')) {
+    out.push({ kind: 'session', start: f.start, end: f.end, minutes: mins(f.start, f.end), title: f.id, ref: `fragment:${f.id}`, route: decided(f) ? routeOfAttributions(f.attributions, reg) : undecided(f), workKey: `fragment:${f.kind}` });
+  }
+  return out;
+}
+
+/** Shared-repo rule: open WORK with several candidates follows the one candidate that has other decided time that day. */
+export function resolveByCoActivity(dayEvidence) {
+  const active = new Set(dayEvidence.filter((e) => e.route.initiative && e.route.confidence !== 'open').map((e) => e.route.initiative));
+  return dayEvidence.map((e) => {
+    if (e.route.confidence !== 'open' || e.workKey !== 'fragment:work' || e.route.candidates.length < 2) return e;
+    const hits = e.route.candidates.filter((c) => active.has(c));
+    if (hits.length !== 1) return e;
+    return { ...e, route: { ...e.route, initiative: hits[0], confidence: 'default' } };
+  });
+}
+
+function dedupeMeetingEvidence(evs) {
+  const kept = [];
+  for (const e of [...evs].sort((a, b) => Date.parse(a.start) - Date.parse(b.start))) {
+    const s = Date.parse(e.start);
+    const en = Date.parse(e.end);
+    const dup = kept.find((k) => {
+      const ks = Date.parse(k.start);
+      const ke = Date.parse(k.end);
+      return Math.min(en, ke) - Math.max(s, ks) > 0.5 * Math.min(en - s, ke - ks);
+    });
+    if (dup) dup.ref += `+${e.ref}`;
+    else kept.push({ ...e });
+  }
+  return kept;
+}
+
+const CONF_RANK = ['exact', 'default', 'open', 'escalated', 'none'];
+const worst = (a, b) => CONF_RANK[Math.max(CONF_RANK.indexOf(a), CONF_RANK.indexOf(b))];
+
+/** Evidence → per local day and initiative minutes (the CLI's buildTimelog). */
+export function buildTimelog(evidence, reg, tz, policy = 'sum') {
+  const dayOf = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+  const byDay = new Map();
+  for (const e of evidence) {
+    const d = dayOf(e.start);
+    byDay.set(d, [...(byDay.get(d) ?? []), e]);
+  }
+  const entries = [];
+  for (const [day, raw] of [...byDay].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const evs = resolveByCoActivity(raw);
+    const meetings = dedupeMeetingEvidence(evs.filter((e) => e.kind === 'meeting'));
+    const meetingIv = meetings.map((m) => ({ start: Date.parse(m.start), end: Date.parse(m.end) }));
+    const acc = new Map();
+    const bump = (key, add, ref, conf, candidates, coding = false) => {
+      const cur = acc.get(key) ?? { minutes: 0, coding: 0, refs: [], conf, candidates: [] };
+      cur.minutes += add;
+      if (coding) cur.coding += add;
+      cur.refs.push(ref);
+      cur.conf = worst(cur.conf, conf);
+      cur.candidates = [...new Set([...cur.candidates, ...candidates])];
+      acc.set(key, cur);
+    };
+    const targets = (e) => {
+      if (e.route.split) return Object.entries(e.route.split);
+      if (e.route.initiative) return [[e.route.initiative, 1]];
+      return [[`?${e.route.confidence}:${e.route.candidates.join('|') || e.workKey || e.ref}`, 1]];
+    };
+    for (const m of meetings) for (const [key, w] of targets(m)) bump(key, Math.round(m.minutes * w), m.ref, m.route.confidence, m.route.candidates);
+    const ivByKey = new Map();
+    for (const e of evs.filter((e) => e.kind !== 'meeting')) {
+      for (const [key, w] of targets(e)) {
+        const cur = ivByKey.get(key) ?? { iv: [], weight: w, refs: [], conf: e.route.confidence, candidates: e.route.candidates };
+        cur.iv.push({ start: Date.parse(e.start), end: Date.parse(e.end) });
+        cur.refs.push(e.ref);
+        cur.conf = worst(cur.conf, e.route.confidence);
+        ivByKey.set(key, cur);
+      }
+    }
+    for (const [key, v] of ivByKey) {
+      const m = totalMinutes(subtractIntervals(unionIntervals(v.iv), meetingIv));
+      if (m > 0) bump(key, Math.round(m * v.weight), v.refs.join(','), v.conf, v.candidates, true);
+    }
+    if (policy === 'wallclock') {
+      const wall = totalMinutes(unionIntervals(evs.map((e) => ({ start: Date.parse(e.start), end: Date.parse(e.end) }))));
+      const meetingMin = totalMinutes(unionIntervals(meetingIv));
+      const codingSum = [...acc.values()].reduce((a, v) => a + v.coding, 0);
+      const budget = Math.max(0, wall - meetingMin);
+      if (codingSum > budget && codingSum > 0) {
+        const f = budget / codingSum;
+        for (const v of acc.values()) {
+          const scaled = Math.round(v.coding * f);
+          v.minutes = v.minutes - v.coding + scaled;
+          v.coding = scaled;
+        }
+      }
+    }
+    for (const [key, v] of acc) {
+      const unattributed = key.startsWith('?');
+      const initiative = unattributed ? null : key;
+      entries.push({
+        day,
+        initiative,
+        ...(initiative && reg[initiative]?.umbrella ? { umbrella: reg[initiative].umbrella } : {}),
+        ...(initiative && typeof reg[initiative]?.billing_code === 'string' ? { billing_code: reg[initiative].billing_code } : {}),
+        minutes: v.minutes,
+        confidence: unattributed ? (key.startsWith('?escalated') ? 'escalated' : key.startsWith('?open') ? 'open' : 'none') : v.conf,
+        ...(unattributed && v.candidates.length ? { candidates: v.candidates } : {}),
+        refs: v.refs,
+      });
+    }
+  }
+  return entries.sort((a, b) => a.day.localeCompare(b.day) || b.minutes - a.minutes);
+}
+
+export function runTimelog(db, args, now = new Date()) {
+  const meta = Object.fromEntries(
+    hasTable(db, 'sync_state') ? db.prepare("SELECT key, value FROM sync_state WHERE key LIKE 'att:%'").all().map((r) => [r.key.slice(4), r.value]) : [],
+  );
+  if (!hasTable(db, 'att_fragments') || !meta.subject) {
+    return { configured: false, note: 'no attribution layer for this project: the tenant repo has no annotations/attribution.json (or the store predates it)' };
+  }
+  const tz = LOCAL_TZ;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
+  const since = DAY_ARG.test(String(args.since ?? '')) ? String(args.since) : `${today.slice(0, 8)}01`;
+  const until = DAY_ARG.test(String(args.until ?? '')) ? String(args.until) : today;
+  const lo = normalizeTime(since, 'since', tz);
+  const hi = normalizeTime(until, 'until', tz);
+  const rows = db
+    .prepare("SELECT id, kind, start, \"end\", state, attributions, candidates, refs FROM att_fragments WHERE start >= ? AND start <= ? AND kind IN ('call', 'thread', 'work') ORDER BY start")
+    .all(lo, hi)
+    .map((f) => ({ ...f, attributions: parseJson(f.attributions || '[]', []), candidates: parseJson(f.candidates || '[]', []), refs: parseJson(f.refs || '[]', []) }));
+  const reg = parseJson(meta.registry || '{}', {});
+  const policy = meta.policy === 'wallclock' ? 'wallclock' : 'sum';
+  const entries = buildTimelog(fragmentsToEvidence(rows, reg), reg, tz, policy);
+  const days = new Map();
+  const totals = new Map();
+  for (const e of entries) {
+    const d = days.get(e.day) ?? { day: e.day, minutes: 0, entries: [] };
+    d.minutes += e.minutes;
+    const { day, refs, ...rest } = e;
+    d.entries.push({ ...rest, fragments: refs.join(',').split(/[,+]/).filter(Boolean).length });
+    days.set(e.day, d);
+    const key = e.initiative ?? `(unattributed: ${e.confidence})`;
+    totals.set(key, (totals.get(key) ?? 0) + e.minutes);
+  }
+  return {
+    subject: meta.subject,
+    since,
+    until,
+    tz,
+    policy,
+    computed_at: meta.computed_at,
+    ...(since < meta.since || until > meta.until ? { note: `outside the computed horizon ${meta.since}..${meta.until}: days there have no fragments` } : {}),
+    total_minutes: entries.reduce((a, e) => a + e.minutes, 0),
+    totals: [...totals].map(([initiative, minutes]) => ({ initiative, minutes })).sort((a, b) => b.minutes - a.minutes),
+    days: [...days.values()],
   };
 }
 
@@ -1697,6 +1953,8 @@ export function callTool(dbPath, name, args) {
         return runStuck(db, args ?? {});
       case 'attribution':
         return runAttribution(db, args ?? {});
+      case 'timelog':
+        return runTimelog(db, args ?? {});
       case 'stats':
         return runStats(db);
       default:

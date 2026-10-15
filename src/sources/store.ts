@@ -185,6 +185,7 @@ CREATE TABLE IF NOT EXISTS att_fragments (
 );
 CREATE INDEX IF NOT EXISTS att_fragments_start ON att_fragments(start, state);
 CREATE TABLE IF NOT EXISTS att_proposals (id TEXT PRIMARY KEY, question TEXT NOT NULL, options TEXT NOT NULL DEFAULT '[]', refs TEXT NOT NULL DEFAULT '[]');
+CREATE TABLE IF NOT EXISTS att_pins (id TEXT PRIMARY KEY, pinned_at TEXT NOT NULL, rules_version TEXT NOT NULL DEFAULT '');
 -- Task trackers (youtrack/jira/asana) share one shape (trackers/task.ts). comments is a JSON
 -- array; comments_text is its flattened text, kept only so FTS can index it.
 CREATE TABLE IF NOT EXISTS tasks (

@@ -8,7 +8,8 @@ import { join } from 'node:path';
 import { openStore } from '../store.js';
 import { clearAttribution, localDay, plusDays, readAttributionInputs, recomputeAttribution } from './build.js';
 import { hash } from './fragment.js';
-import { runAttribution } from '../../../snapshot/plain/sources-mcp.mjs';
+import { runAttribution, runTimelog } from '../../../snapshot/plain/sources-mcp.mjs';
+import { appendPinLines, readPins, unpinLines } from './pins.js';
 import type { Person } from '../people.js';
 import type { Fragment } from '../annotations.js';
 
@@ -119,4 +120,47 @@ test('days are local: the horizon ends today in the tenant\'s zone', () => {
   assert.equal(localDay('2026-10-15T22:30:00.000Z', 'Europe/Moscow'), '2026-10-16');
   assert.equal(localDay('2026-10-15T22:30:00.000Z', 'UTC'), '2026-10-15');
   assert.equal(plusDays('2026-10-01', -1), '2026-09-30');
+});
+
+test('pins end to end: a closed day\'s rule decisions are pinned once, survive a rule change, and a redo releases them; the timelog reads the plan', () => {
+  const db = store();
+  try {
+    // an older message in #shop: on 10-12 (closed), decided by the registry channel
+    db.prepare('INSERT INTO messages(ref, source, account, container, thread_id, ts, author_person, author_raw, subject, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      'slack:T/C1/0', 'slack', 'T', '#shop', 't0', '2026-10-12T07:00:00.000Z', 'owner', 'Olga Owner', '', 'Checked the SH-11 export, all rows are there now',
+    );
+    // a second message of Olga's in the DM with Rui: the run lasts 20 minutes (a single message has no duration)
+    db.prepare('INSERT INTO messages(ref, source, account, container, thread_id, ts, author_person, author_raw, subject, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+      'slack:T/D1/9', 'slack', 'T', 'dm:@Rui Rosa', 'd1', '2026-10-15T08:20:00.000Z', 'owner', 'Olga Owner', '', 'and the open invoices list too please, by Friday',
+    );
+    const pinsPath = join(mkdtempSync(join(tmpdir(), 'pins-')), 'attribution', 'pins.jsonl');
+    const t = tenant({ 'initiatives.json': registry, 'annotations/attribution.json': { subject: 'owner', since: '2026-10-12' } });
+    const read = () => readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow', pinsPath })!.inputs;
+    const first = recomputeAttribution(db, read(), people, [], NOW);
+    const pins = readPins(pinsPath);
+    assert.deepEqual([...pins.values()].map((p) => [p.attributions[0]!.initiative, p.rule_id]), [['globex/shop', 'registry:channel']], 'only the closed day (10-12) is pinned; 10-14 and 10-15 stay live');
+    assert.equal(first.states.decided, 1);
+    // the tenant moves #shop to another initiative: the pinned day keeps its decision, today follows the new rule
+    writeFileSync(join(t.ann, 'rules.json'), JSON.stringify([{ id: 'r-move', when: { container: '#shop' }, then: { initiative: 'initech/a' } }]));
+    recomputeAttribution(db, read(), people, [], NOW);
+    const old = runAttribution(db, { since: '2026-10-12' }, NOW).fragments!.find((f) => (f.refs as string[]).includes('slack:T/C1/0'))!;
+    assert.deepEqual([old.state, (old.attributions as { initiative: string }[])[0]!.initiative, (old.pinned as { rules_version: string }).rules_version.length], ['decided', 'globex/shop', 12]);
+    const today = runAttribution(db, { since: '2026-10-15', state: 'rule' }, NOW).fragments!.find((f) => (f.refs as string[]).includes('slack:T/C1/1'))!;
+    assert.equal((today.attributions as { initiative: string }[])[0]!.initiative, 'initech/a');
+    // redo releases the day; the next build decides it with the current rule and pins it again
+    appendPinLines(pinsPath, unpinLines(readPins(pinsPath), [old.id as string], 'redo'));
+    recomputeAttribution(db, read(), people, [], NOW);
+    const redone = runAttribution(db, { since: '2026-10-12' }, NOW).fragments!.find((f) => f.id === old.id)!;
+    assert.deepEqual([redone.state, (redone.attributions as { initiative: string }[])[0]!.initiative], ['decided', 'initech/a']);
+    // the timelog: today's call (exclusive Hana → acme/p5), the work block (repo → acme/p5), runs by their decisions
+    const tl = runTimelog(db, { since: '2026-10-15' }, NOW);
+    assert.equal(tl.policy, 'sum');
+    const day = tl.days!.find((d) => d.day === '2026-10-15')!;
+    const p5 = day.entries.find((e) => e.initiative === 'acme/p5') as { minutes: number };
+    assert.equal(p5.minutes, 30 + 60, 'the 30-minute call and the 60-minute work block');
+    const open = day.entries.find((e) => e.initiative === null && e.confidence === 'open') as { minutes: number; candidates: string[] };
+    assert.deepEqual([open.minutes, open.candidates], [20, ['initech/a', 'initech/b']], 'the DM with Rui stays unattributed with candidates');
+  } finally {
+    db.close();
+  }
 });

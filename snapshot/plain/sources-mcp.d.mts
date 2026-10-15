@@ -137,5 +137,14 @@ export function runAttribution(
   truncated?: boolean;
   proposals?: Array<{ id: string; question: string; options: string[]; refs: string[] }>;
 };
+export interface TlRoute { initiative: string | null; confidence: string; candidates: string[]; split?: Record<string, number> }
+export interface TlEvidence { kind: 'meeting' | 'session'; start: string; end: string; minutes: number; title: string; ref: string; route: TlRoute; workKey?: string }
+export function unionIntervals(xs: { start: number; end: number }[]): { start: number; end: number }[];
+export function subtractIntervals(xs: { start: number; end: number }[], cut: { start: number; end: number }[]): { start: number; end: number }[];
+export function routeOfAttributions(atts: { initiative: string; share: number }[], reg: Record<string, { umbrella?: string; billing_code?: string; alias_of?: string; split_into?: Record<string, number> }>): TlRoute;
+export function fragmentsToEvidence(rows: Array<{ id: string; kind: string; start: string; end: string; state: string; attributions: { initiative: string; share: number }[]; candidates: string[]; refs: string[] }>, reg: Record<string, unknown>): TlEvidence[];
+export function resolveByCoActivity(evs: TlEvidence[]): TlEvidence[];
+export function buildTimelog(evidence: TlEvidence[], reg: Record<string, { umbrella?: string; billing_code?: string; alias_of?: string; split_into?: Record<string, number> }>, tz: string, policy?: 'sum' | 'wallclock'): Array<{ day: string; initiative: string | null; umbrella?: string; billing_code?: string; minutes: number; confidence: string; candidates?: string[]; refs: string[] }>;
+export function runTimelog(db: unknown, args: { since?: string; until?: string }, now?: Date): Record<string, unknown> & { configured?: false; total_minutes?: number; totals?: { initiative: string; minutes: number }[]; days?: Array<{ day: string; minutes: number; entries: Array<Record<string, unknown>> }> };
 export function handleMessage(msg: unknown, dbPath: string): Record<string, unknown> | undefined;
 export function serve(dbPath?: string, input?: NodeJS.ReadableStream, output?: NodeJS.WritableStream): void;

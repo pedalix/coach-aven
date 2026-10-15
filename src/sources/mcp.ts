@@ -31,7 +31,7 @@ export function channelSourcesEnabled(sources: boolean, mcp: McpServerSpec[] | u
 
 /** Layer-1 system-prompt paragraph for projects with sources (prompt.ts buildSystemPrompt). */
 export const SOURCES_PROMPT_PARAGRAPH =
-  `Connected sources: the \`sources\` MCP tools (search, get, transcript, tasks, meetings, calendar, activity, fragments, attribution, unanswered, stuck, people, stats) ` +
+  `Connected sources: the \`sources\` MCP tools (search, get, transcript, tasks, meetings, calendar, activity, fragments, attribution, timelog, unanswered, stuck, people, stats) ` +
   `query a READ-ONLY, scrubbed replica of this project's connected mail, chat, calendar, trackers and recorded calls, served by the orchestrator. ` +
   `\`initiative\` filters and \`fragments\` reflect only what the project's own review has attributed — absence there is not evidence. ` +
   `\`unanswered\` (what waits for a reply) and \`stuck\` (open tickets that stopped moving) are THE source for those two lists — ` +

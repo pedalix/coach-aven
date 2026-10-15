@@ -606,6 +606,23 @@ by overlapping refs), `escalated` (the ledger has an open question), `rule` (the
 `open` (candidates + hint for a judgment). Rule proposals come from recorded judgments: a person (not a
 broad marker) or a container whose judged fragments are at least 90 % one initiative, three or more.
 
+**Pins**: a `rule` decision is live while its day is open — the evening review and the next morning see
+the current rules — and is pinned once the day has closed (`pinAfterDays` full days after it ended, default
+1): decided once, with the rule id and the rules version (hash of rules, registry and people markers), in
+`data/<slug>/attribution/pins.jsonl` on the bot host — outside the store, which is rebuilt at will. A rule
+changed later does not move a pinned day; a judgment in the ledger still wins over a pin. The readout marks
+pinned rows (`pinned: {at, rules_version}`). `orch sources attribution redo <slug> --since D [--until D]`
+unpins a window (days in the tenant's zone); the next build decides it with the current rules.
+
+**Timelog**: `timelog({since, until})` — the subject's minutes per local day and initiative, computed at
+query time from the plan (decided, pinned and rule decisions), with the owen-ops CLI's merge rules: calls
+count in full (topics by share), message runs and work blocks are unioned per initiative minus call time,
+split aliases distribute by weight, open work in a shared repo follows the one candidate active that day,
+and unattributed time is its own row (`confidence: open | escalated`, with candidates). `parallelSessions`
+in attribution.json: `sum` (default) or `wallclock` (parallel work scaled so a day never exceeds
+wall-clock; calls untouched). Default window: this month so far. Retainer caps and half-day reports are
+arithmetic over these rows.
+
 **Recompute**: at every build that consumed new lines or saw a tenant file change (and at least hourly,
 since the horizon ends today), over `since` to today in the tenant's zone (`sources.timezone`; the table stores
 UTC instants only, the tool turns the asked days into UTC bounds and labels each row with its local day) — 389 fragments of 15 days in
