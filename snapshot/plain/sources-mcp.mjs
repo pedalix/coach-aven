@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.7.1';
+export const SERVER_VERSION = '1.8.0';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -943,7 +943,9 @@ export const TOOLS = [
       'full (topics by share), runs of messages and work blocks are unioned per initiative minus call time, split aliases distribute by ' +
       'weight; unattributed time is its own row with `confidence` open|escalated and the candidates. Policy from the tenant config ' +
       `(sum | wallclock). since/until: YYYY-MM-DD, each a whole day in ${ZONE_DOC}; default: this month so far. ` +
-      'Retainer reconciliation (caps, half-days) is arithmetic over these rows.',
+      'With budgets in the tenant config, `reconciliation` covers the month of `until` from its first day (whatever the window): per ' +
+      'budget the units used (half-days rounded per billing code, hours), the month\'s cap (overrides win) and what is left, plus ' +
+      'minutes per umbrella, non-billable and unrouted time. Quote it; never recompute it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1642,6 +1644,60 @@ export function buildTimelog(evidence, reg, tz, policy = 'sum') {
   return entries.sort((a, b) => a.day.localeCompare(b.day) || b.minutes - a.minutes);
 }
 
+/**
+ * Timelog entries reconciled against the tenant's budgets (attribution.json `budgets`) for one month: per budget the
+ * units used — rounded as the frame bills (half-days to 0.5 per breakdown key, then summed; hours to 0.1 on the
+ * total) — the month's cap (an override wins) and what is left. Routed time without a billing code (admin buckets,
+ * personal work) is non-billable; time without an umbrella is unrouted. Never bends the minutes. The owen-ops CLI's
+ * `summarize`, with the frames as tenant data instead of code.
+ */
+export function reconcile(entries, budgets, month) {
+  const unrouted = { minutes: 0, entries: 0 };
+  const nonBillable = new Map();
+  const perUmbrella = new Map();
+  const billable = new Map();
+  for (const e of entries) {
+    const u = e.umbrella ?? 'unrouted';
+    perUmbrella.set(u, (perUmbrella.get(u) ?? 0) + e.minutes);
+    if (!e.umbrella) {
+      unrouted.minutes += e.minutes;
+      unrouted.entries++;
+      continue;
+    }
+    if (e.initiative && !e.billing_code) {
+      nonBillable.set(e.initiative, (nonBillable.get(e.initiative) ?? 0) + e.minutes);
+      continue;
+    }
+    billable.set(e.umbrella, [...(billable.get(e.umbrella) ?? []), e]);
+  }
+  const out = budgets.map((b) => {
+    const unitMinutes = b.unitMinutes ?? (b.unit === 'half_day' ? 240 : 60);
+    const round = (m) => (b.unit === 'half_day' ? Math.round((m / unitMinutes) * 2) / 2 : Math.round((m / unitMinutes) * 10) / 10);
+    const keyOf = (e) => (b.by === 'billing_code' ? e.billing_code : e.initiative) ?? '??';
+    const minutes = new Map();
+    for (const e of billable.get(b.umbrella) ?? []) minutes.set(keyOf(e), (minutes.get(keyOf(e)) ?? 0) + e.minutes);
+    const by = Object.fromEntries([...minutes].sort((x, y) => y[1] - x[1]).map(([k, m]) => [k, { minutes: m, units: round(m) }]));
+    const total = [...minutes.values()].reduce((a, m) => a + m, 0);
+    const used = b.unit === 'half_day' ? Object.values(by).reduce((a, v) => a + v.units, 0) : round(total);
+    const override = b.overrides?.[month];
+    const cap = override ?? b.perMonth;
+    return {
+      umbrella: b.umbrella,
+      unit: b.unit,
+      minutes: total,
+      used,
+      ...(cap !== undefined ? { cap, cap_source: override !== undefined ? 'override' : 'default', remaining: Math.round((cap - used) * 10) / 10 } : {}),
+      by,
+    };
+  });
+  return {
+    budgets: out,
+    per_umbrella: Object.fromEntries([...perUmbrella].sort((a, b) => b[1] - a[1])),
+    non_billable: [...nonBillable].map(([initiative, minutes]) => ({ initiative, minutes })).sort((a, b) => b.minutes - a.minutes),
+    unrouted,
+  };
+}
+
 export function runTimelog(db, args, now = new Date()) {
   const meta = Object.fromEntries(
     hasTable(db, 'sync_state') ? db.prepare("SELECT key, value FROM sync_state WHERE key LIKE 'att:%'").all().map((r) => [r.key.slice(4), r.value]) : [],
@@ -1655,13 +1711,18 @@ export function runTimelog(db, args, now = new Date()) {
   const until = DAY_ARG.test(String(args.until ?? '')) ? String(args.until) : today;
   const lo = normalizeTime(since, 'since', tz);
   const hi = normalizeTime(until, 'until', tz);
-  const rows = db
-    .prepare("SELECT id, kind, start, \"end\", state, attributions, candidates, refs FROM att_fragments WHERE start >= ? AND start <= ? AND kind IN ('call', 'thread', 'work') ORDER BY start")
-    .all(lo, hi)
-    .map((f) => ({ ...f, attributions: parseJson(f.attributions || '[]', []), candidates: parseJson(f.candidates || '[]', []), refs: parseJson(f.refs || '[]', []) }));
   const reg = parseJson(meta.registry || '{}', {});
   const policy = meta.policy === 'wallclock' ? 'wallclock' : 'sum';
-  const entries = buildTimelog(fragmentsToEvidence(rows, reg), reg, tz, policy);
+  // Entries are per local day (wall-clock scaling, unions and call trimming never cross a day), so a sub-window's
+  // entries are exactly the window's entries for those days.
+  const entriesBetween = (a, b) => {
+    const rows = db
+      .prepare("SELECT id, kind, start, \"end\", state, attributions, candidates, refs FROM att_fragments WHERE start >= ? AND start <= ? AND kind IN ('call', 'thread', 'work') ORDER BY start")
+      .all(a, b)
+      .map((f) => ({ ...f, attributions: parseJson(f.attributions || '[]', []), candidates: parseJson(f.candidates || '[]', []), refs: parseJson(f.refs || '[]', []) }));
+    return buildTimelog(fragmentsToEvidence(rows, reg), reg, tz, policy);
+  };
+  const entries = entriesBetween(lo, hi);
   const days = new Map();
   const totals = new Map();
   for (const e of entries) {
@@ -1672,6 +1733,16 @@ export function runTimelog(db, args, now = new Date()) {
     days.set(e.day, d);
     const key = e.initiative ?? `(unattributed: ${e.confidence})`;
     totals.set(key, (totals.get(key) ?? 0) + e.minutes);
+  }
+  // The month of `until`, from its first day — whatever the window — so a day's close and the month's budgets come
+  // from one call.
+  const budgets = parseJson(meta.budgets || '[]', []);
+  let reconciliation;
+  if (budgets.length) {
+    const month = until.slice(0, 7);
+    const first = `${month}-01`;
+    const monthEntries = since === first ? entries : entriesBetween(normalizeTime(first, 'since', tz), hi);
+    reconciliation = { month, since: first, until, ...reconcile(monthEntries, budgets, month) };
   }
   return {
     subject: meta.subject,
@@ -1684,6 +1755,7 @@ export function runTimelog(db, args, now = new Date()) {
     total_minutes: entries.reduce((a, e) => a + e.minutes, 0),
     totals: [...totals].map(([initiative, minutes]) => ({ initiative, minutes })).sort((a, b) => b.minutes - a.minutes),
     days: [...days.values()],
+    ...(reconciliation ? { reconciliation } : {}),
   };
 }
 

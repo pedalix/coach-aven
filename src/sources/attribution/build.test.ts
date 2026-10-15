@@ -166,3 +166,30 @@ test('pins end to end: a closed day\'s rule decisions are pinned once, survive a
     db.close();
   }
 });
+
+test('budgets: the timelog reconciles the month of `until` from its first day, whatever the window', () => {
+  const db = store();
+  try {
+    const billed = { initiatives: registry.initiatives.map((i) => (i.id === 'acme/p5' ? { ...i, billing_code: 'P5' } : i.id === 'globex/shop' ? { ...i, billing_code: 'shop' } : i)) };
+    const t = tenant({
+      'initiatives.json': billed,
+      'annotations/attribution.json': { subject: 'owner', since: '2026-10-14', budgets: [{ umbrella: 'acme', unit: 'half_day', perMonth: 24, by: 'billing_code' }, { umbrella: 'globex', unit: 'hour', perMonth: 10, overrides: { '2026-10': 8 } }] },
+    });
+    recomputeAttribution(db, readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow' })!.inputs, people, [], NOW);
+    const day = runTimelog(db, { since: '2026-10-15' }, NOW);
+    const month = runTimelog(db, { since: '2026-10-01' }, NOW);
+    const rec = day.reconciliation as { month: string; since: string; budgets: Array<Record<string, unknown>>; unrouted: unknown };
+    assert.deepEqual([rec.month, rec.since], ['2026-10', '2026-10-01']);
+    assert.deepEqual(rec, month.reconciliation, 'a one-day window and the whole month give one month');
+    assert.deepEqual(rec.budgets[0], { umbrella: 'acme', unit: 'half_day', minutes: 90, used: 0.5, cap: 24, cap_source: 'default', remaining: 23.5, by: { P5: { minutes: 90, units: 0.5 } } });
+    assert.deepEqual([rec.budgets[1]!.cap, rec.budgets[1]!.cap_source], [8, 'override']);
+    // without budgets there is no reconciliation
+    const plain = store();
+    const t2 = tenant({ 'initiatives.json': billed, 'annotations/attribution.json': { subject: 'owner', since: '2026-10-14' } });
+    recomputeAttribution(plain, readAttributionInputs({ tenantRoot: t2.root, annotationsDir: t2.ann, timezone: 'Europe/Moscow' })!.inputs, people, [], NOW);
+    assert.equal(runTimelog(plain, {}, NOW).reconciliation, undefined);
+    plain.close();
+  } finally {
+    db.close();
+  }
+});

@@ -29,3 +29,10 @@ The sources table SHALL offer `timelog({since, until})`: for each local day of t
 #### Scenario: A call and overlapping work
 - **WHEN** an hour of work on one initiative overlaps a 30-minute call on another
 - **THEN** the day shows 30 minutes for the call's initiative and 30 for the work's
+
+### Requirement: Reconciliation against tenant budgets
+When the tenant's attribution config lists budgets, every `timelog` answer SHALL carry the reconciliation of the month of `until`, from that month's first day whatever the window: per budget the units used, rounded as the frame bills (half-days to 0.5 per breakdown key then summed, hours to 0.1 on the total), the month's cap with a month override taking precedence, and what is left; plus minutes per umbrella, non-billable time and unrouted time. The reconciliation SHALL NOT change any minute of the timelog.
+
+#### Scenario: A one-day window
+- **WHEN** the evening close asks for today's timelog
+- **THEN** the answer carries the month-to-date reconciliation, identical to the one a whole-month window returns

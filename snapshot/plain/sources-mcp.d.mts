@@ -145,6 +145,16 @@ export function routeOfAttributions(atts: { initiative: string; share: number }[
 export function fragmentsToEvidence(rows: Array<{ id: string; kind: string; start: string; end: string; state: string; attributions: { initiative: string; share: number }[]; candidates: string[]; refs: string[] }>, reg: Record<string, unknown>): TlEvidence[];
 export function resolveByCoActivity(evs: TlEvidence[]): TlEvidence[];
 export function buildTimelog(evidence: TlEvidence[], reg: Record<string, { umbrella?: string; billing_code?: string; alias_of?: string; split_into?: Record<string, number> }>, tz: string, policy?: 'sum' | 'wallclock'): Array<{ day: string; initiative: string | null; umbrella?: string; billing_code?: string; minutes: number; confidence: string; candidates?: string[]; refs: string[] }>;
+export function reconcile(
+  entries: Array<{ initiative: string | null; umbrella?: string; billing_code?: string; minutes: number }>,
+  budgets: Array<{ umbrella: string; unit: 'hour' | 'half_day'; unitMinutes?: number; perMonth?: number; overrides?: Record<string, number>; by?: 'initiative' | 'billing_code' }>,
+  month: string,
+): {
+  budgets: Array<{ umbrella: string; unit: string; minutes: number; used: number; cap?: number; cap_source?: 'default' | 'override'; remaining?: number; by: Record<string, { minutes: number; units: number }> }>;
+  per_umbrella: Record<string, number>;
+  non_billable: Array<{ initiative: string; minutes: number }>;
+  unrouted: { minutes: number; entries: number };
+};
 export function runTimelog(db: unknown, args: { since?: string; until?: string }, now?: Date): Record<string, unknown> & { configured?: false; total_minutes?: number; totals?: { initiative: string; minutes: number }[]; days?: Array<{ day: string; minutes: number; entries: Array<Record<string, unknown>> }> };
 export function handleMessage(msg: unknown, dbPath: string): Record<string, unknown> | undefined;
 export function serve(dbPath?: string, input?: NodeJS.ReadableStream, output?: NodeJS.WritableStream): void;

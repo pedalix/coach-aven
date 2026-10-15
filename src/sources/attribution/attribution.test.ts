@@ -206,6 +206,16 @@ test('config: subject required; defaults; bad values fail with the file named', 
   assert.deepEqual(parseAttributionConfig({ subject: 'owner', since: '2026-10-01', threadGapMinutes: 30, substance: false, pinAfterDays: 0, parallelSessions: 'wallclock', admin: { acme: 'acme/admin' } }), { subject: 'owner', since: '2026-10-01', threadGapMinutes: 30, substance: false, pinAfterDays: 0, parallelSessions: 'wallclock', admin: { acme: 'acme/admin' } });
   assert.throws(() => parseAttributionConfig({ subject: 'owner', pinAfterDays: -1 }), /"pinAfterDays" must be an integer/);
   assert.throws(() => parseAttributionConfig({ subject: 'owner', parallelSessions: 'max' }), /"parallelSessions" must be/);
+  const budgets = [{ umbrella: 'acme', unit: 'half_day', perMonth: 24, by: 'billing_code' }, { umbrella: 'globex', unit: 'hour', perMonth: 100, overrides: { '2026-10': 70 } }, { umbrella: 'initech', unit: 'hour' }];
+  assert.deepEqual(parseAttributionConfig({ subject: 'owner', budgets }).budgets, budgets);
+  for (const [b, re] of [
+    [{ umbrella: 'acme', unit: 'day' }, /"unit" must be/],
+    [{ unit: 'hour' }, /"umbrella" is required/],
+    [{ umbrella: 'acme', unit: 'hour', perMonth: -1 }, /"perMonth" must be a non-negative number/],
+    [{ umbrella: 'acme', unit: 'hour', unitMinutes: 0 }, /"unitMinutes" must be positive/],
+    [{ umbrella: 'acme', unit: 'hour', overrides: { october: 70 } }, /"overrides" must map YYYY-MM/],
+    [{ umbrella: 'acme', unit: 'hour', by: 'person' }, /"by" must be/],
+  ] as Array<[Record<string, unknown>, RegExp]>) assert.throws(() => parseAttributionConfig({ subject: 'owner', budgets: [b] }), re, JSON.stringify(b));
   assert.throws(() => parseAttributionConfig({}), /"subject" must be a person id/);
   assert.throws(() => parseAttributionConfig({ subject: 'owner', timezone: 'Europe/Zurich' }), /moved to the project's sources\.timezone/, 'one zone per tenant');
   assert.throws(() => parseAttributionConfig({ subject: 'owner', since: '15.10.2026' }), /YYYY-MM-DD/);

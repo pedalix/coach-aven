@@ -195,6 +195,7 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
     // What the timelog readout needs from the registry and the config (no local value: ids and weights only).
     meta.run('att:registry', JSON.stringify(Object.fromEntries(inputs.registry.initiatives.map((i) => [i.id, { ...(i.umbrella ? { umbrella: i.umbrella } : {}), ...(typeof i.billing_code === 'string' ? { billing_code: i.billing_code } : {}), ...(i.alias_of ? { alias_of: i.alias_of } : {}), ...(i.split_into ? { split_into: i.split_into } : {}) }]))));
     meta.run('att:policy', config.parallelSessions);
+    meta.run('att:budgets', JSON.stringify(config.budgets ?? []));
     meta.run('att:computed_at', now.toISOString());
     db.exec('COMMIT');
   } catch (e) {
