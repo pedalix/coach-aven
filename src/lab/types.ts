@@ -153,6 +153,9 @@ export interface Prediction {
   costUsd?: number; // model spend attributed to this unit
   why?: string; // short rationale (never shown to a model as truth)
   group?: string; // the question unit: one answer resolves every unit of the group (a call, a family, a name form)
+  // How the variant wants it asked (design §5.1). group wins over the bare `group`; value ranks questions
+  // (higher first); a 'confirm' with a right guess costs the person half a question, a wrong one 1.5.
+  ask?: { group?: string; value?: number; guess?: string | null; form?: 'choose' | 'confirm' };
 }
 
 // What the loop knows about earlier days. 'human' rows are answers to questions (= gold), 'machine'
@@ -168,6 +171,7 @@ export interface MemoryRow {
   conf?: number;
   rung?: string;
   audit?: boolean; // a random check of an auto-decided unit (the only unbiased sample of the machine's precision)
+  answer?: string; // the question id: rows of one answer are ONE observation, however many units it covered
 }
 
 export interface DayCtx {

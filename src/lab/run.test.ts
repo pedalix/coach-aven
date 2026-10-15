@@ -198,7 +198,7 @@ test('replay — answers within the budget, least sure first; memory only from e
   );
   assert.deepEqual(v.seen[0].memory, []);
   // the row also keeps what the pipeline said before the answer (here: it abstained)
-  assert.deepEqual(v.seen[1].memory, [{ id: 'i3', task: 't4-kind', day: D1, label: 'question', source: 'human', predicted: null, conf: 0, rung: 'abstain' }]);
+  assert.deepEqual(v.seen[1].memory, [{ id: 'i3', task: 't4-kind', day: D1, label: 'question', source: 'human', answer: `${D1}:i3`, predicted: null, conf: 0, rung: 'abstain' }]);
   for (const s of v.seen) assert.ok(s.memory.every((m) => m.day < s.day), `memory on ${s.day} must come from earlier days`);
   assert.deepEqual(
     v.seen[2].memory.map((m) => m.id),

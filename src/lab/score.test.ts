@@ -98,7 +98,7 @@ const IDS = [...DEV, ...TEST];
 
 test('auto share — threshold on dev, measured on test; alts count; abstentions charged', () => {
   const ds = dataset('t1-item', GOLD, IDS);
-  const s = scoreTask(ds, result('t1-item', PREDS, { costUsd: 0.5, perDay: [{ day: 'd1', n: 6, decided: 3, correctDecided: 3, questions: 2, answered: 1, asked: 0, audited: 0, costUsd: 0.2 }, { day: 'd2', n: 4, decided: 3, correctDecided: 2, questions: 1, answered: 1, asked: 0, audited: 0, costUsd: 0.3 }] }));
+  const s = scoreTask(ds, result('t1-item', PREDS, { costUsd: 0.5, perDay: [{ day: 'd1', n: 6, decided: 3, correctDecided: 3, questions: 2, answered: 1, asked: 0, effort: 0, audited: 0, costUsd: 0.2 }, { day: 'd2', n: 4, decided: 3, correctDecided: 2, questions: 1, answered: 1, asked: 0, effort: 0, audited: 0, costUsd: 0.3 }] }));
   assert.equal(s.n, 10);
   assert.deepEqual(s.split, { dev: 5, test: 5 });
   // dev curve: .9 1/1, .8 2/2, .7 2/3, .6 3/4 → the widest point at ≥95% is .8 (coverage 2/5)

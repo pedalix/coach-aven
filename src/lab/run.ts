@@ -67,6 +67,7 @@ export interface DayStat {
   questions: number; // sent to a person (abstained or under the threshold)
   answered: number; // of those, answered within the budget (replay only) — units, not questions
   asked: number; // questions put to the person (groups answered)
+  effort: number; // the person's effort in question units (see the effort model in runTask), audits included
   audited: number; // auto-decided units checked at random (replay with auditShare)
   costUsd: number;
 }
@@ -169,6 +170,7 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
     let answeredToday: Prediction[] = [];
     let askedToday = 0;
     let auditedToday: Prediction[] = [];
+    let effortToday = 0;
     if (opts.mode === 'replay') {
       // A question is a group (Prediction.group, else the unit): one answer resolves all of it. A person's
       // time goes to what is worth most: the longest fragments first (minutes are what gets billed), then the
@@ -176,23 +178,45 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
       // units — the only unbiased sample of the machine's own precision.
       const groups = new Map<string, Prediction[]>();
       for (const p of questions) {
-        const k = p.group ?? p.id;
+        const k = p.ask?.group ?? p.group ?? p.id;
         const g = groups.get(k);
         if (g) g.push(p);
         else groups.set(k, [p]);
       }
       const sum = (ps: Prediction[], f: (id: string) => number) => ps.reduce((a, p) => a + f(p.id), 0);
       const minConf = (ps: Prediction[]) => Math.min(...ps.map((p) => p.conf));
+      const value = (ps: Prediction[]) => ps.reduce((a, p) => a + (p.ask?.value ?? 0), 0);
       const ranked = [...groups.entries()].sort(
-        ([ka, a], [kb, b]) => sum(b, minutes) - sum(a, minutes) || sum(b, weight) - sum(a, weight) || minConf(a) - minConf(b) || ka.localeCompare(kb),
+        ([ka, a], [kb, b]) => value(b) - value(a) || sum(b, minutes) - sum(a, minutes) || sum(b, weight) - sum(a, weight) || minConf(a) - minConf(b) || ka.localeCompare(kb),
       );
+      // The person's effort, in questions: a group whose members share one gold label is one question; a
+      // 'confirm' with the right guess is half of one, a wrong guess one and a half; every further gold label
+      // in the group is one more. The budget is filled greedily in this unit (design §5.1 — an assumption).
+      const effort = (ps: Prediction[]): number => {
+        const labels = new Set(ps.map((p) => gold.get(p.id)?.label).filter((l): l is string => !!l));
+        const form = ps[0].ask?.form ?? 'choose';
+        const guess = ps[0].ask?.guess ?? null;
+        if (form === 'confirm' && guess != null) return (labels.has(guess) ? 0.5 : 1.5) + Math.max(0, labels.size - 1);
+        return 1 + Math.max(0, labels.size - 1);
+      };
       const audits = Math.min(auto.length, Math.floor(Math.max(0, budget) * (opts.auditShare ?? 0)));
-      const asks = ranked.slice(0, Math.max(0, budget - audits));
+      let left = Math.max(0, budget - audits);
+      const asks: [string, Prediction[]][] = [];
+      for (const g of ranked) {
+        const e = effort(g[1]);
+        if (e > left) continue;
+        asks.push(g);
+        left -= e;
+        effortToday += e;
+      }
       askedToday = asks.length;
       answeredToday = asks.flatMap(([, ps]) => ps);
+      const answerOf = new Map<string, string>();
+      for (const [k, ps] of asks) for (const p of ps) answerOf.set(p.id, `${day}:${k}`);
       auditedToday = [...auto].sort((a, b) => fnv1a(`${day}|${a.id}`) - fnv1a(`${day}|${b.id}`)).slice(0, audits);
+      effortToday += auditedToday.length;
       const rows: MemoryRow[] = [];
-      const said = (p: Prediction) => ({ predicted: p.label, conf: p.conf, rung: p.rung });
+      const said = (p: Prediction) => ({ predicted: p.label ?? p.ask?.guess ?? null, conf: p.conf, rung: p.rung });
       if (opts.memory === 'oracle') {
         for (const u of pool.get(day) ?? units) {
           const g = gold.get(u.id);
@@ -203,11 +227,11 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
         // answer: it leaves no memory row rather than an invented one.
         for (const p of answeredToday) {
           const g = gold.get(p.id);
-          if (g) rows.push({ id: p.id, task, day, label: g.label, source: 'human', ...said(p) });
+          if (g) rows.push({ id: p.id, task, day, label: g.label, source: 'human', answer: answerOf.get(p.id), ...said(p) });
         }
         for (const p of auditedToday) {
           const g = gold.get(p.id);
-          if (g) rows.push({ id: p.id, task, day, label: g.label, source: 'human', audit: true, ...said(p) });
+          if (g) rows.push({ id: p.id, task, day, label: g.label, source: 'human', audit: true, answer: `${day}:audit:${p.id}`, ...said(p) });
         }
         if (opts.memory === 'loop') for (const p of auto) rows.push({ id: p.id, task, day, label: p.label!, source: 'machine', ...said(p) });
       }
@@ -220,7 +244,7 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
     const attributed = got.reduce((a, p) => a + (p.costUsd ?? 0), 0);
     predictions.push(...got);
     dayIds.set(day, got.map((p) => p.id));
-    perDay.push({ day, n: units.length, decided: auto.length, correctDecided: 0, questions: questions.length, answered: answeredToday.length, asked: askedToday, audited: auditedToday.length, costUsd: Math.max(spent, attributed) });
+    perDay.push({ day, n: units.length, decided: auto.length, correctDecided: 0, questions: questions.length, answered: answeredToday.length, asked: askedToday, effort: effortToday, audited: auditedToday.length, costUsd: Math.max(spent, attributed) });
     opts.log(`${variant.name} ${task} ${day}: ${units.length} units, ${auto.length} auto, ${questions.length} questions${opts.mode === 'replay' ? ` (${answeredToday.length} answered)` : ''}${perDay.at(-1)!.costUsd ? `, $${perDay.at(-1)!.costUsd.toFixed(4)}` : ''}`);
   }
 
