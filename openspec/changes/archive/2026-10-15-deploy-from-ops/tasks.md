@@ -15,6 +15,6 @@
 
 ## 3. Proof and cut-over
 
-- [ ] 3.1 Manual proof: `gh workflow run deploy.yml -R pedalix/coach-aven-ops -f tag=v0.39.0` (the tag prod already runs). Verify: run green, `npm run prod:status` active, `journalctl` shows "Slack bot running", `/aven` answers in `#bluefin-aven-caldora`.
-- [ ] 3.2 First real release through `npm run release -- vX.Y.Z` (decision 2026-10-15: manual hand-off, no credential in the public repo; the dispatch step stays opt-in and is skipped). Verify: Release published, ops `workflow_dispatch` run green, Sentry release = the tag; `docs/rollout.md` row dated.
+- [x] 3.1 Manual proof: `gh workflow run deploy.yml -R pedalix/coach-aven-ops -f tag=v0.39.0` (the tag prod already runs). Verify: run green, `npm run prod:status` active, `journalctl` shows "Slack bot running", `/aven` answers in `#bluefin-aven-caldora`. **Done 2026-10-15:** ops run 38726169971 green (all steps), prod active on v0.39.0.
+- [x] 3.2 First real release through `npm run release -- vX.Y.Z` (decision 2026-10-15: manual hand-off, no credential in the public repo; the dispatch step stays opt-in and is skipped). Verify: Release published, ops `workflow_dispatch` run green, Sentry release = the tag; `docs/rollout.md` row dated. **Done 2026-10-15:** `npm run release -- v0.40.0` → release run 38726311037 green (dispatch steps skipped, as designed), ops run 38726313954 green, prod `.release` = v0.40.0.
 - [x] 3.3 Dropped 2026-10-15: `OPS_APP_*` deleted from the public repo (manual hand-off chosen); nothing to re-set after the recreate. Verify: `gh secret list -R pedalix/coach-aven` is empty.
