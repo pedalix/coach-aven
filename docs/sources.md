@@ -681,6 +681,71 @@ under half a second on the home store. A broken tenant file keeps the previous t
 ids, the same `decided` / `rule` / `open` sets and the same initiatives; the one difference — a work block
 just after local midnight that the CLI's UTC-day load window never saw — is the platform being right.
 
+## Learning loop (shadow)
+
+People's answers teach the attribution layer, deterministically and only as data
+(`src/sources/attribution/learn.ts`, the pure learner; `learn-load.ts`, what it reads and writes). **On** when
+attribution.json says `"learn": {"mode": "shadow"}` (optional `questionsPerDay` 0–50, default 3; `auditShare` 0–1,
+default .15; `siblingAware`, default true); absent = off, and the next build clears what an earlier one stored.
+No model anywhere: a model may word a question or pre-fill its guess in the sandbox, never decide or teach.
+
+**What an answer becomes.** One line in the tenant repo, nothing else — the store keeps no learning state:
+
+- **Fragments**: a line of `annotations/fragments.jsonl` a person decided — `decided_by: "owen"` (the owner's
+  literal) or `"human:<person_id>"` — with `status: "decided"`. Optional fields record the question:
+  `answer` (its id: the lines of one answer are ONE observation, however many units it covered), `guess` (what the
+  machine proposed before the answer, or null), `conf` and `rung` (its confidence and rung instance), `audit: true`
+  (a re-check of an auto-decision). Without `answer`, a call's topic lines decided at the same `decided_at` count as
+  one answer (one override of a call), any other line as its own. The plan reads a `human:<id>` line exactly as
+  before (as `model`); only the loop reads the decider.
+- **Items** (item mode): a new file `annotations/labels.jsonl`, one line per answered item:
+  `{ref, task: "t1-item", label, by: "human:<person_id>", answer, audit?, guess?, conf?, rung?, at}`. The last line per
+  task × ref wins; `status: "superseded"` withdraws it. A line by anyone but a person (`by: "model"`, `"rule"`) is
+  kept in the file and never read as evidence.
+- **Seeds**: none yet.
+
+Labels are compared alias-resolved, a split alias spread into its targets (the top share is the label). **Never
+evidence**: the ledger's `rule` and `model` lines, pins, the floor's decisions, the loop's own output, a model's guess
+— on the bench, feeding the loop's own decisions back took its weekly precision from 100 % to 81 %.
+
+**Audits.** Every build draws the day's audit sample from the units the loop would auto-decide today: seeded by the
+day (every build of a day draws the same units), its size accruing `questionsPerDay × auditShare` per day from the
+first answer on (one about every second day at the defaults). The routine re-asks them; the answer line carries
+`audit: true` and what the machine said (`guess`, `conf`, `rung`). Auto-decided units are never asked otherwise, so
+audits are the only unbiased look at the machine's own precision — the one way a stale rule or a registry error
+reaches the calibration.
+
+**What the daemon derives, every build, from scratch** (a pure function of the store and the tenant: deleting the
+store and rebuilding reproduces it): per unit — every fragment of the horizon, every item of the item window — the
+floor's OWN say (the ladder alone, without the ledger or pins: label, graded confidence, rung instance such as
+`rule:<id>`, `excl:<person>`, `channel:<id>`, `key:<PREFIX>`, `title:<pattern>`, `repo:<repo>`, `host:<h>`), its case
+(a call, a run-day, a family-day, a ticket) and its typed keys (fragments: recurring call series, run container,
+counterpart set, rare title words, structure-decided work next to it; items: thread, alert family, host, app, mail
+subject and domain, channel, sender, rare subject words). From the answers, replayed in day order: key tables (a key
+predicts once it holds k agreeing answers; two labels end it) and each key type's measured reliability (a Beta prior,
+moved by every prediction a person then checked); the calibration of every rung instance (prior Beta(20c, 20(1−c)),
+moved by answers and audits on its units; an instance that decided on its own and falls below τ = .95 is
+**demoted** — its units become questions with its label as the guess); **sibling-aware trust** — a structural rung
+(rule, exclusive marker, channel, tracker key, title) of a client that runs other active initiatives decides the
+client, the initiative only when the unit's own text carries a cue of it and none of a sibling's (or answers on the
+route confirm it), else it asks; the ranked question queue (per client and day, a learnable key, or the case), the
+audit sample, and rule candidates (keys people confirmed three times). Each answered unit shows what the loop said
+BEFORE its answer, so `agreement` is an honest check.
+
+**Shadow vs live.** Shadow computes all of that, stores it (`att_learn`: per unit label, conf, rung, the question it
+would ask, audit; the `att:learn` meta: counts and tables) and shows it — and nothing else reads it: the plan, the
+pins, the timelog and the initiative index are byte-identical with the loop on or off (checked on the real store),
+and the `attribution` answer without `learn: true` is unchanged. **Live** is not built: the plan would take the loop's
+decisions at τ and pin them with a calibration version beside the rules version — after at least two days of shadow
+on the canary and its own rollout row.
+
+**Readout**: `attribution({since, until, unit, learn: true})` adds `learn` — per unit of the asked days and kind
+`{id, day, label, conf, rung, ask?: {group, value, guess, form}, audit?}`, plus `counts` (the floor at τ, the loop at τ,
+`promoted`/`held`/`relabelled` against the floor, asked, questions, audits, evidence), `agreement` (on answered units:
+how many the floor and the loop would decide and how many of those carry the answer), `calibration` per rung instance,
+`key_types`, today's ranked `questions`, the `audits` and `rule_candidates`. Cost on the owner's store (388
+fragments): about 0.1 s per build; with item mode's 7,272 items, about 1 s more.
+
 ## What comes next
 
 | Slice | Adds |

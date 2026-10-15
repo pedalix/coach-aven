@@ -203,6 +203,9 @@ CREATE TABLE IF NOT EXISTS att_items (
 );
 CREATE INDEX IF NOT EXISTS att_items_day ON att_items(day, ts);
 CREATE INDEX IF NOT EXISTS att_items_cluster ON att_items(cluster);
+-- The learning loop in shadow (attribution/learn-load.ts, tenant key "learn" in attribution.json): per fragment or item what
+-- the loop WOULD decide, its question (ask: JSON) and whether it is in the day's audit sample. Never read by the plan.
+CREATE TABLE IF NOT EXISTS att_learn (id TEXT PRIMARY KEY, unit TEXT, day TEXT, label TEXT, conf REAL, rung TEXT, ask TEXT, audit INTEGER);
 -- Task trackers (youtrack/jira/asana) share one shape (trackers/task.ts). comments is a JSON
 -- array; comments_text is its flattened text, kept only so FTS can index it.
 CREATE TABLE IF NOT EXISTS tasks (

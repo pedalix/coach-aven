@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.10.0';
+export const SERVER_VERSION = '1.11.0';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -931,7 +931,12 @@ export const TOOLS = [
       'tickets, comments, recordings — with the deterministic floor\'s sender class (human|bot|bulk|system), family (a reuse key), ' +
       'duplicate cluster (`cluster` = the earliest ref it repeats; `collapse` lists one item per cluster with its `repeats`), initiative ' +
       '(`none` = nothing to attribute, `unregistered` = work the registry lacks), kind (`noise`, else undecided) and addressee, each with ' +
-      'its rung and graded confidence — below .95 a guess, not a decision. `state`: decided|open; `sender` filters the class.',
+      'its rung and graded confidence — below .95 a guess, not a decision. `state`: decided|open; `sender` filters the class. ' +
+      '`learn: true` (when the tenant turned the learning loop on: attribution.json `learn`, shadow) adds `learn`: per fragment ' +
+      '(or item) of those days what the loop WOULD decide from people\'s answers — label, conf, rung, the question it would ask ' +
+      '(`ask` {group, value, guess, form}), `audit` when the unit is in today\'s audit sample — plus its calibration per rung ' +
+      'instance, its key types, today\'s ranked questions, the audit sample, rule candidates and counts (`agreement`: on answered ' +
+      'units, how often the floor and the loop carry the answer). Shadow: the plan, the pins and the timelog never use it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -942,6 +947,7 @@ export const TOOLS = [
         unit: { type: 'string', enum: ['fragment', 'item'], default: 'fragment' },
         sender: { type: 'string', enum: ['human', 'bot', 'bulk', 'system'], description: 'unit item: only this sender class' },
         collapse: { type: 'boolean', description: 'unit item: one item per duplicate cluster (its earliest), with `repeats`' },
+        learn: { type: 'boolean', description: 'add the learning loop\'s shadow readout (attribution.json `learn`)' },
       },
     },
   },
@@ -1424,10 +1430,67 @@ export function runFragments(db, args) {
 // tables — no attribution logic here, so every face of the server (stdio, HTTP, the bot's channel) agrees.
 const DAY_ARG = /^\d{4}-\d{2}-\d{2}$/;
 export function runAttribution(db, args, now = new Date()) {
-  if (args.unit != null && args.unit !== 'fragment') {
-    if (args.unit === 'item') return runAttributionItems(db, args, now);
-    throw new Error('unit must be "fragment" or "item"');
+  const out = args.unit === 'item' ? runAttributionItems(db, args, now) : runAttributionFragments(db, args, now);
+  // `learn: true` only: without it the answer is exactly what it was before the loop existed.
+  if (args.learn !== true || out.configured === false) return out;
+  const limit = Math.max(1, Math.min(1000, Number(args.limit) || 300));
+  return { ...out, learn: learnSection(db, args.unit === 'item' ? 'item' : 'fragment', out.since, out.until, limit) };
+}
+
+const LEARN_LIST = 20;
+// The learning loop's shadow readout (attribution/learn-load.ts writes att_learn and the `att:learn` meta at every build):
+// what the loop WOULD decide from people's answers — never what the plan did. Rows for the asked unit kind and days; the
+// tables (calibration, key types, questions, audits) are the whole build's.
+function learnSection(db, unit, since, until, limit) {
+  const meta = parseJson(attMeta(db).learn || 'null', null);
+  if (!meta || !hasTable(db, 'att_learn') || !db.prepare('SELECT 1 FROM att_learn LIMIT 1').get()) {
+    return { mode: 'off', note: 'the learning loop is off for this project: annotations/attribution.json has no "learn" key (e.g. "learn": {"mode": "shadow"})' };
   }
+  const rows = since && until ? db.prepare('SELECT * FROM att_learn WHERE unit = ? AND day >= ? AND day <= ? ORDER BY day, id LIMIT ?').all(unit, since, until, limit + 1) : [];
+  return {
+    mode: meta.mode,
+    note: 'shadow: what the loop would decide — the plan, the pins and the timelog do not use it; below tau it is a question, never a decision',
+    computed_at: meta.computed_at,
+    today: meta.today,
+    tau: meta.tau,
+    counts: {
+      units: meta.units,
+      floor_decided: meta.floor_decided,
+      would_decide: meta.would_decide,
+      promoted: meta.promoted,
+      held: meta.held,
+      relabelled: meta.relabelled,
+      asked: meta.asked,
+      questions: meta.questions,
+      audits: meta.audits,
+      evidence: meta.evidence,
+      rule_candidates: meta.rule_candidates,
+      ...(meta.trials ? { trials: meta.trials } : {}),
+    },
+    agreement: meta.agreement,
+    calibration: meta.calibration_table ?? [],
+    key_types: meta.key_types_table ?? [],
+    // The day's queue, best first: a routine asks the top few, so the readout stays short (`more_*` says what is left).
+    questions: (meta.questions_ranked ?? []).slice(0, LEARN_LIST),
+    ...(meta.questions > LEARN_LIST ? { more_questions: meta.questions - LEARN_LIST } : {}),
+    audits: meta.audit_sample ?? [],
+    rule_candidates: (meta.rule_candidates_list ?? []).slice(0, LEARN_LIST),
+    ...(meta.rule_candidates > LEARN_LIST ? { more_rule_candidates: meta.rule_candidates - LEARN_LIST } : {}),
+    units: rows.slice(0, limit).map((r) => ({
+      id: r.id,
+      day: r.day,
+      label: r.label,
+      ...(r.label !== null ? { conf: r.conf } : {}),
+      rung: r.rung,
+      ...(r.ask ? { ask: parseJson(r.ask, null) } : {}),
+      ...(r.audit ? { audit: true } : {}),
+    })),
+    ...(rows.length > limit ? { units_truncated: true } : {}),
+  };
+}
+
+function runAttributionFragments(db, args, now) {
+  if (args.unit != null && args.unit !== 'fragment') throw new Error('unit must be "fragment" or "item"');
   const meta = Object.fromEntries(
     hasTable(db, 'sync_state') ? db.prepare("SELECT key, value FROM sync_state WHERE key LIKE 'att:%'").all().map((r) => [r.key.slice(4), r.value]) : [],
   );

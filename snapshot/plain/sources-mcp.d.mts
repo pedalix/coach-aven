@@ -121,7 +121,7 @@ export interface JsonRpcMessage {
 }
 export function runAttribution(
   db: unknown,
-  args: { since?: string; until?: string; state?: string; limit?: number | string; unit?: 'fragment' | 'item' | string; sender?: string; collapse?: boolean },
+  args: { since?: string; until?: string; state?: string; limit?: number | string; unit?: 'fragment' | 'item' | string; sender?: string; collapse?: boolean; learn?: boolean },
   now?: Date,
 ): {
   configured?: false;
@@ -141,6 +141,25 @@ export function runAttribution(
   items_mode?: 'off';
   window?: { since: string; until: string; days: number };
   items?: Array<Record<string, unknown> & { ref: string; day: string; sender: string; family: string; initiative: string | null; rung: string; kind: string | null; addressee: string[] | null; case: string }>;
+  /** `learn: true` only: the learning loop's shadow readout (att_learn + the `att:learn` meta), or `mode: 'off'`. */
+  learn?: {
+    mode: 'shadow' | 'off';
+    note: string;
+    computed_at?: string;
+    today?: string;
+    tau?: number;
+    counts?: Record<string, unknown>;
+    agreement?: { answered: number; floor: { decided: number; agree: number }; loop: { decided: number; agree: number } };
+    calibration?: Array<{ instance: string; a: number; b: number; mean: number; demoted: boolean }>;
+    key_types?: Array<{ type: string; a: number; b: number; mean: number; deciding: boolean }>;
+    questions?: Array<{ group: string; units: string[]; value: number; guess: string | null; form: 'choose' | 'confirm' }>;
+    more_questions?: number;
+    audits?: string[];
+    rule_candidates?: Array<{ key: string; label: string; support: number }>;
+    more_rule_candidates?: number;
+    units?: Array<{ id: string; day: string; label: string | null; conf?: number; rung: string; ask?: { group: string; value: number; guess: string | null; form: 'choose' | 'confirm' }; audit?: true }>;
+    units_truncated?: true;
+  };
 };
 export interface TlRoute { initiative: string | null; confidence: string; candidates: string[]; split?: Record<string, number> }
 export interface TlEvidence { kind: 'meeting' | 'session'; start: string; end: string; minutes: number; title: string; ref: string; route: TlRoute; workKey?: string }

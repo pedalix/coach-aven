@@ -6,6 +6,12 @@
 //   annotations/fragments.jsonl   append-only; the last line per `id` wins; `superseded` is ignored
 //   annotations/people.json       people + identities + markers (people.ts)
 //
+// Who decided: `rule` | `model` | `owen` (the owner, the CLI's literal) | `human:<person_id>` (a person, any tenant).
+// A `human:<id>` line keeps parsing as `model` for the plan, exactly as before; its decider rides in `decider`, which
+// only the learning loop reads (attribution/learn-load.ts) — as it reads what the machine said BEFORE the answer
+// (`guess`, `conf`, `rung`), the question's `answer` id (lines of one answer are one observation) and `audit: true`
+// (a re-asked auto-decision). Without those fields a line parses exactly as before.
+//
 // Pure: parse + validate + flatten into attribution rows. A malformed line is skipped and
 // counted (a tenant mistake must not take the bot's build down), a malformed people file is not
 // (people.ts throws — identity resolution silently going wrong is worse than a visible failure).
@@ -32,6 +38,16 @@ export interface Fragment {
   rationale?: string;
   decided_at?: string;
   status: FragmentStatus;
+  /** `human:<person_id>` when a person other than the owner's literal decided (decided_by then reads `model`, as before). */
+  decider?: string;
+  /** The question this line answers: lines of one answer are ONE observation for the learning loop. */
+  answer?: string;
+  /** What the machine proposed before the person answered (null: it had nothing), its confidence and rung instance. */
+  guess?: string | null;
+  conf?: number;
+  rung?: string;
+  /** An audit: the person re-checked a decision the machine had made on its own. */
+  audit?: boolean;
 }
 
 export interface AttributionRow {
@@ -45,6 +61,14 @@ export interface AttributionRow {
 const KINDS: readonly string[] = ['call', 'thread', 'work'];
 const DECIDERS: readonly string[] = ['rule', 'model', 'owen'];
 const STATUSES: readonly string[] = ['decided', 'escalated', 'superseded'];
+/** A person as decider: `human:<person_id>` (people.json's id shape). */
+const HUMAN_DECIDER = /^human:[a-z0-9][a-z0-9._-]{0,63}$/;
+
+/** Is this decider a person — the owner (`owen`) or `human:<id>`? Only a person's lines are evidence for the learning loop. */
+export const isHumanDecider = (d: string | null | undefined): boolean => d === 'owen' || HUMAN_DECIDER.test(d ?? '');
+
+/** Did a person decide this ledger line? */
+export const isHumanLine = (f: Pick<Fragment, 'decided_by' | 'decider'>): boolean => isHumanDecider(f.decider ?? f.decided_by);
 
 export function parseFragment(raw: unknown): Fragment | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
@@ -68,6 +92,13 @@ export function parseFragment(raw: unknown): Fragment | undefined {
     ...(typeof r.rationale === 'string' ? { rationale: r.rationale } : {}),
     ...(typeof r.decided_at === 'string' ? { decided_at: r.decided_at } : {}),
     status,
+    // The learning loop's fields: present only when the line carries them, so an older line's parse is unchanged.
+    ...(typeof r.decided_by === 'string' && HUMAN_DECIDER.test(r.decided_by) ? { decider: r.decided_by } : {}),
+    ...(typeof r.answer === 'string' && r.answer ? { answer: r.answer } : {}),
+    ...(typeof r.guess === 'string' || r.guess === null ? { guess: r.guess as string | null } : {}),
+    ...(typeof r.conf === 'number' && Number.isFinite(r.conf) && r.conf >= 0 && r.conf <= 1 ? { conf: r.conf } : {}),
+    ...(typeof r.rung === 'string' && r.rung ? { rung: r.rung } : {}),
+    ...(r.audit === true ? { audit: true } : {}),
   };
 }
 

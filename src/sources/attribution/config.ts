@@ -11,9 +11,17 @@
 //       { "umbrella": "x", "unit": "hour" | "half_day", "unitMinutes": 240, "perMonth": 24,
 //         "overrides": { "YYYY-MM": 20 }, "by": "initiative" | "billing_code" } ]
 //     "admin": { "<umbrella>": "<initiative>" },   each umbrella's non-billable admin bucket (optional)
-//     "items": { "days": 30 } }          item mode (attribution/items.ts): the stage-0 floor per stream item — every
+//     "items": { "days": 30 },           item mode (attribution/items.ts): the stage-0 floor per stream item — every
 //                                        message, ticket, comment, recording — of the last `days` local days (1–90,
 //                                        default 30); absent = off
+//     "learn": { "mode": "shadow",       the learning loop (attribution/learn.ts + learn-load.ts): answers in the ledger
+//       "questionsPerDay": 3,            (fragments.jsonl, labels.jsonl) earn typed keys and calibrate the floor's rung
+//       "auditShare": 0.15,              instances, re-derived on every build. "shadow" — the only mode yet — computes it,
+//       "siblingAware": true } }         stores it (att_learn) and shows it (`attribution({learn: true})`); the plan, the
+//                                        pins and the timelog never read it. Absent = off. questionsPerDay 0–50 (3),
+//                                        auditShare 0–1 (.15: that share of the budget re-asks auto-decided units),
+//                                        siblingAware (true: a structural rung of a client with sibling initiatives
+//                                        decides the umbrella, not the initiative — notes/20-iter2.md K2a)
 export interface AttributionConfig {
   subject: string;
   since?: string;
@@ -24,6 +32,15 @@ export interface AttributionConfig {
   admin?: Record<string, string>;
   budgets?: Budget[];
   items?: { days: number };
+  learn?: LearnConfig;
+}
+
+/** The learning loop's switch and budget (`learn` in attribution.json). Shadow only: nothing it says reaches a decision. */
+export interface LearnConfig {
+  mode: 'shadow';
+  questionsPerDay: number;
+  auditShare: number;
+  siblingAware: boolean;
 }
 
 /** A billing frame the timelog is reconciled against — never used to bend the minutes. */
@@ -103,6 +120,28 @@ export function parseAttributionConfig(raw: unknown, where = 'annotations/attrib
     const days = (it as Record<string, unknown>).days;
     if (days !== undefined && (!Number.isInteger(days) || (days as number) < 1 || (days as number) > 90)) throw new Error(`${where}: "items.days" must be an integer in [1, 90]`);
     out.items = { days: (days as number | undefined) ?? 30 };
+  }
+  if (r.learn !== undefined) out.learn = parseLearn(r.learn, where);
+  return out;
+}
+
+/** `learn`: a mode is required (no accidental live switch later); every number is bounded so a typo cannot flood the queue. */
+function parseLearn(raw: unknown, where: string): LearnConfig {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${where}: "learn" must be an object like {"mode": "shadow"}`);
+  const l = raw as Record<string, unknown>;
+  if (l.mode !== 'shadow') throw new Error(`${where}: "learn.mode" must be "shadow" (the only mode so far)`);
+  const out: LearnConfig = { mode: 'shadow', questionsPerDay: 3, auditShare: 0.15, siblingAware: true };
+  if (l.questionsPerDay !== undefined) {
+    if (!Number.isInteger(l.questionsPerDay) || (l.questionsPerDay as number) < 0 || (l.questionsPerDay as number) > 50) throw new Error(`${where}: "learn.questionsPerDay" must be an integer in [0, 50]`);
+    out.questionsPerDay = l.questionsPerDay as number;
+  }
+  if (l.auditShare !== undefined) {
+    if (typeof l.auditShare !== 'number' || !Number.isFinite(l.auditShare) || l.auditShare < 0 || l.auditShare > 1) throw new Error(`${where}: "learn.auditShare" must be a number in [0, 1]`);
+    out.auditShare = l.auditShare;
+  }
+  if (l.siblingAware !== undefined) {
+    if (typeof l.siblingAware !== 'boolean') throw new Error(`${where}: "learn.siblingAware" must be true or false`);
+    out.siblingAware = l.siblingAware;
   }
   return out;
 }

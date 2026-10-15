@@ -25,6 +25,7 @@ import { collectIdentities } from '../identities/collect.js';
 import { loadObservations } from '../identities/observations.js';
 import { attendeeNames, extractCommitments, subjectNames, type CallIn } from '../commitments.js';
 import { recomputeItems, type ItemsSummary } from './items.js';
+import { clearLearn, recomputeLearn, type LearnSummary } from './learn-load.js';
 
 export interface AttributionFiles {
   /** The tenant checkout's root (initiatives.json lives here). */
@@ -46,6 +47,8 @@ export interface AttributionInputs {
   pinsPath?: string;
   /** The rules, registry and attribution texts — with the people markers, the rules version a pin records. */
   versionText: string;
+  /** annotations/labels.jsonl — people's answers about items; read only while the learning loop is on. */
+  labelsText?: string;
 }
 
 export interface AttributionSummary {
@@ -58,6 +61,8 @@ export interface AttributionSummary {
   commitments: number;
   // Item mode (attribution.json `items`): null when off; an error never costs the fragments their tables.
   items?: ItemsSummary | { error: string } | null;
+  // The learning loop (attribution.json `learn`), shadow: present only while it is on; an error costs the plan nothing.
+  learn?: LearnSummary | { error: string };
 }
 
 function parseRules(raw: unknown, where = 'annotations/rules.json'): RuleRecord[] {
@@ -81,9 +86,12 @@ export function readAttributionInputs(f: AttributionFiles): { inputs: Attributio
   const config = parseAttributionConfig(JSON.parse(cfgText));
   // Pins change the result too: a redo between builds must recompute even when nothing else moved.
   const pinsText = f.pinsPath && existsSync(f.pinsPath) ? readFileSync(f.pinsPath, 'utf8') : '';
+  // People's item answers move the loop's keys and calibration: part of the fingerprint, but only while the loop is on —
+  // a tenant without `learn` keeps its fingerprint (and its builds) exactly as before.
+  const labelsText = config.learn ? read(join(f.annotationsDir, 'labels.jsonl'), '') : undefined;
   return {
-    inputs: { config, registry: parseRegistry(JSON.parse(regText)), rules: parseRules(JSON.parse(rulesText)), timezone: f.timezone ?? 'UTC', ...(f.pinsPath ? { pinsPath: f.pinsPath } : {}), versionText: [rulesText, regText, cfgText].join('\0') },
-    text: [cfgText, regText, rulesText, f.timezone ?? 'UTC', pinsText].join('\0'),
+    inputs: { config, registry: parseRegistry(JSON.parse(regText)), rules: parseRules(JSON.parse(rulesText)), timezone: f.timezone ?? 'UTC', ...(f.pinsPath ? { pinsPath: f.pinsPath } : {}), versionText: [rulesText, regText, cfgText].join('\0'), ...(labelsText !== undefined ? { labelsText } : {}) },
+    text: [cfgText, regText, rulesText, f.timezone ?? 'UTC', pinsText, ...(labelsText !== undefined ? [labelsText] : [])].join('\0'),
   };
 }
 
@@ -233,7 +241,8 @@ export function loadAttributionDrafts(db: DatabaseSync, inputs: AttributionInput
 export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs, people: readonly Person[], ledgerRecords: readonly Fragment[], now: Date = new Date()): AttributionSummary {
   const { config } = inputs;
   const tz = inputs.timezone;
-  const { since, until, lo, hi, drafts, ctx } = loadAttributionDrafts(db, inputs, people, now);
+  const loaded = loadAttributionDrafts(db, inputs, people, now);
+  const { since, until, lo, hi, drafts, ctx } = loaded;
   const ledger = new Map<string, LedgerRecord>(ledgerRecords.map((f) => [f.id, { id: f.id, kind: f.kind, refs: f.refs, attributions: f.attributions, decided_by: f.decided_by, rule_id: f.rule_id ?? null, rationale: f.rationale ?? '', status: f.status }]));
   // Ledger > pin > ladder. Rule decisions of closed days (before `cutoff`) are pinned now, with the rules
   // version that decided them, and count as decided from this build on.
@@ -317,7 +326,18 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
   } catch (e) {
     items = { error: e instanceof Error ? e.message : String(e) };
   }
-  return { since, until, fragments: planned.length, states, proposals: proposals.length, identities: { merges: identities.merges.length, questions: identities.questions.length }, commitments: commitments.length, items };
+  // The learning loop, shadow (attribution.json `learn`): after the plan and the items are written (it reads both), in
+  // its own transaction and try — what it would decide lands in att_learn only; the plan, the pins and the timelog
+  // above never read it. Without the key its rows are cleared, so switching it off leaves nothing stale behind.
+  let learn: LearnSummary | { error: string } | undefined;
+  if (config.learn?.mode === 'shadow') {
+    try {
+      learn = recomputeLearn(db, inputs, people, ledgerRecords, now, { drafts: loaded });
+    } catch (e) {
+      learn = { error: e instanceof Error ? e.message : String(e) };
+    }
+  } else clearLearn(db);
+  return { since, until, fragments: planned.length, states, proposals: proposals.length, identities: { merges: identities.merges.length, questions: identities.questions.length }, commitments: commitments.length, items, ...(learn ? { learn } : {}) };
 }
 
 /**
@@ -327,7 +347,7 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
 export function clearAttribution(db: DatabaseSync, ledgerRecords: readonly Fragment[] = []): void {
   db.exec('BEGIN');
   try {
-    db.exec("DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins; DELETE FROM att_commitments; DELETE FROM att_items; DELETE FROM sync_state WHERE key LIKE 'att:%'; DELETE FROM attributions;");
+    db.exec("DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins; DELETE FROM att_commitments; DELETE FROM att_items; DELETE FROM att_learn; DELETE FROM sync_state WHERE key LIKE 'att:%'; DELETE FROM attributions;");
     const aIns = db.prepare('INSERT OR REPLACE INTO attributions(ref, initiative, share, fragment_id, decided_by) VALUES (?, ?, ?, ?, ?)');
     for (const r of attributionRows(ledgerRecords)) aIns.run(r.ref, r.initiative, r.share, r.fragment_id, r.decided_by);
     db.exec('COMMIT');
