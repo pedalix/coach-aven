@@ -1,0 +1,31 @@
+# Spec Delta
+
+## Purpose
+Rule decisions are kept once their day has closed; the subject's minutes per day and initiative are a readout.
+
+## ADDED Requirements
+
+### Requirement: Rule decisions are pinned once the day has closed
+The store build SHALL pin every `rule` decision whose fragment's local day ended at least `pinAfterDays` days before today, recording the attributions, the rule id, the rules version and the time outside the store, and SHALL thereafter present the fragment as decided by that pin, whatever the current rules say, until an explicit redo unpins it.
+
+#### Scenario: A rule changes after the day closed
+- **WHEN** a tenant edits a rule that decided a fragment of a closed day
+- **THEN** the readout still shows the pinned decision with its rule id and rules version
+
+#### Scenario: Redo
+- **WHEN** the operator runs `orch sources attribution redo <slug> --since D --until D`
+- **THEN** the next build decides that window's fragments with the current rules and pins them again once closed
+
+### Requirement: The ledger still wins
+A judgment recorded in the tenant ledger SHALL take precedence over a pin for the same fragment.
+
+#### Scenario: A judgment after the pin
+- **WHEN** the model or a human records a decision for a pinned fragment
+- **THEN** the readout shows the recorded decision
+
+### Requirement: Timelog readout
+The sources table SHALL offer `timelog({since, until})`: for each local day of the tenant's zone and each initiative, the subject's minutes — calls in full by topic share, message runs and work blocks unioned per initiative minus call time, split aliases by weight — and the unattributed minutes with their candidates; no stored value depends on a time zone.
+
+#### Scenario: A call and overlapping work
+- **WHEN** an hour of work on one initiative overlaps a 30-minute call on another
+- **THEN** the day shows 30 minutes for the call's initiative and 30 for the work's

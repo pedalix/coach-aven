@@ -5,6 +5,7 @@
 //   orch sources build <slug>                                     rebuild store.sqlite + replica from raw/
 //   orch sources audit <slug> [--no-gitleaks] [--gold FILE] [--dir EXTRA…]
 //   orch sources serve <slug> [--listen host:port]               the sources tools over MCP streamable HTTP (SOURCES_SERVE_TOKEN)
+//   orch sources attribution redo <slug> --since D [--until D]   unpin a window's rule decisions; the next build re-decides them
 //
 // Everything here runs on the BOT HOST as the bot's own user: it reads the same projects
 // config the bot does, holds the tokens the sandbox must never see, and writes data/<slug>/.
@@ -16,7 +17,11 @@ import { runAudit } from './audit.js';
 import { UsageError } from './errors.js';
 import { ageDecrypt, rescrubDir } from './common/rescrub.js';
 import { dataDir, rawDir, vaultDir } from './paths.js';
-import { configuredKinds, pullProject, refreshTenant, runAuth, runBuild } from './run.js';
+import { configuredKinds, pinsPath, pullProject, refreshTenant, runAuth, runBuild, tenantZone } from './run.js';
+import { openReadOnly } from './store.js';
+import { pinnedIdsBetween } from './attribution/build.js';
+import { appendPinLines, readPins, unpinLines } from './attribution/pins.js';
+import { normalizeTime } from '../../snapshot/plain/sources-mcp.mjs';
 import { tokenPath } from './tokens.js';
 import { DEFAULT_LISTEN, replicaPathFor, SERVE_TOKEN_ENV, startServe } from './serve.js';
 import { SOURCE_KINDS, type SourceKind } from './types.js';
@@ -125,6 +130,30 @@ export function registerSourcesCommands(program: Command): void {
       const stop = () => server.close(() => process.exit(0));
       process.on('SIGINT', stop);
       process.on('SIGTERM', stop);
+    });
+
+  sources
+    .command('attribution')
+    .description('The attribution layer (docs/sources.md → Attribution)')
+    .command('redo <slug>')
+    .description("Unpin a window's rule decisions (days in the tenant's zone); the next build decides them with the current rules and pins them again once closed")
+    .requiredOption('--since <day>', 'first day, YYYY-MM-DD')
+    .option('--until <day>', 'last day, YYYY-MM-DD (default: --since)')
+    .action((slug: string, o: { since: string; until?: string }) => {
+      const p = project(slug);
+      if (!p.sources) throw new UsageError(`project "${slug}" has no "sources" block in projects.config.json`);
+      const tz = tenantZone(p);
+      const lo = normalizeTime(o.since, 'since', tz)!;
+      const hi = normalizeTime(o.until ?? o.since, 'until', tz)!;
+      const db = openReadOnly(replicaPathFor(p.slug));
+      try {
+        const path = pinsPath(p.slug);
+        const lines = unpinLines(readPins(path), pinnedIdsBetween(db, lo, hi), new Date().toISOString());
+        appendPinLines(path, lines);
+        console.log(`${slug}: unpinned ${lines.length} rule decision(s) between ${o.since} and ${o.until ?? o.since} (${tz}); the next build re-decides them`);
+      } finally {
+        db.close();
+      }
     });
 
   sources

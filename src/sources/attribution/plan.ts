@@ -1,5 +1,6 @@
 // The plan for a horizon: every fragment with its effective decision, plus rule proposals.
-//   decided   — the tenant ledger (annotations/fragments.jsonl) has a live decision for it (whoever made it)
+//   decided   — the tenant ledger (annotations/fragments.jsonl) has a live decision for it (whoever made it),
+//               or the platform pinned a rule decision once its day closed (pins.ts)
 //   escalated — the ledger has an open question for it (a human answers)
 //   rule      — the ledger has nothing; the ladder decides it now (deterministic, from tenant data)
 //   open      — the ledger has nothing and the ladder only narrows: candidates + hint for a judgment
@@ -8,6 +9,7 @@
 // produced another id for the same messages). Rule proposals: ported from the owen-ops CLI (plan.ts).
 import type { FragmentDraft } from './fragment.js';
 import { attribute, type Attribution, type LadderCtx, type RuleRecord } from './ladder.js';
+import type { Pin } from './pins.js';
 
 export type DecidedBy = 'rule' | 'model' | 'owen';
 export interface LedgerRecord {
@@ -35,6 +37,9 @@ export interface Planned {
   hint: string;
   /** The ledger record covering this fragment (its own id, or an overlapping run's). */
   ledger_id: string | null;
+  /** Set when a pinned rule decision is in effect (no ledger record covers the fragment). */
+  pinned_at?: string;
+  rules_version?: string;
 }
 
 export interface Proposal {
@@ -49,7 +54,8 @@ function live(ledger: ReadonlyMap<string, LedgerRecord>): Map<string, LedgerReco
   return new Map([...ledger].filter(([, r]) => r.status !== 'superseded'));
 }
 
-export function planFragments(drafts: FragmentDraft[], ledger: ReadonlyMap<string, LedgerRecord>, ctx: LadderCtx): Planned[] {
+/** Precedence: the ledger, then a pin, then the ladder. */
+export function planFragments(drafts: FragmentDraft[], ledger: ReadonlyMap<string, LedgerRecord>, ctx: LadderCtx, pins: ReadonlyMap<string, Pin> = new Map()): Planned[] {
   const records = live(ledger);
   const threadByRef = new Map<string, LedgerRecord>();
   for (const r of records.values()) if (r.kind === 'thread') for (const ref of r.refs) threadByRef.set(ref, r);
@@ -67,6 +73,10 @@ export function planFragments(drafts: FragmentDraft[], ledger: ReadonlyMap<strin
         hint: '',
         ledger_id: rec.id,
       } satisfies Planned;
+    }
+    const pin = pins.get(d.id);
+    if (pin) {
+      return { draft: d, state: 'decided', decided_by: 'rule', attributions: pin.attributions, rule_id: pin.rule_id, rationale: pin.rationale, candidates: [], hint: '', ledger_id: null, pinned_at: pin.pinned_at, rules_version: pin.rules_version } satisfies Planned;
     }
     const r = attribute(d, ctx);
     if (r.decided) return { draft: d, state: 'rule', decided_by: 'rule', attributions: r.decided.attributions, rule_id: r.decided.rule_id, rationale: `${d.title}: ${r.decided.rationale}`, candidates: r.candidates, hint: r.hint, ledger_id: null } satisfies Planned;

@@ -10,7 +10,8 @@ import { join } from 'node:path';
 import { parseAttributionConfig, type AttributionConfig } from './config.js';
 import { parseRegistry, Registry, type RegistryData } from './registry.js';
 import { containerPeople, dedupeMeetings, meetingFragments, messageFragments, settleLowSubstance, workFragments, type FragmentDraft, type MeetingIn, type MsgIn, type WorkBlock } from './fragment.js';
-import { planFragments, proposeRules, STATES, type LedgerRecord, type State } from './plan.js';
+import { planFragments, proposeRules, STATES, type LedgerRecord, type Planned, type State } from './plan.js';
+import { appendPinLines, pinsToAdd, readPins, rulesVersion } from './pins.js';
 import type { MarkedPerson, RuleRecord } from './ladder.js';
 import { resolveIdentity, type Person } from '../people.js';
 import type { Fragment } from '../annotations.js';
@@ -22,6 +23,8 @@ export interface AttributionFiles {
   annotationsDir: string;
   /** The tenant's zone (sources.timezone, else the bot's AVEN_TZ): where days are cut. Storage stays UTC. */
   timezone?: string;
+  /** Pinned rule decisions (data/<slug>/attribution/pins.jsonl): outside the store, which is rebuilt at will. */
+  pinsPath?: string;
 }
 
 export interface AttributionInputs {
@@ -30,6 +33,9 @@ export interface AttributionInputs {
   rules: RuleRecord[];
   /** The tenant's zone: the horizon's days are cut here; nothing local is stored. */
   timezone: string;
+  pinsPath?: string;
+  /** The rules, registry and attribution texts — with the people markers, the rules version a pin records. */
+  versionText: string;
 }
 
 export interface AttributionSummary {
@@ -59,9 +65,11 @@ export function readAttributionInputs(f: AttributionFiles): { inputs: Attributio
   const regText = read(join(f.tenantRoot, 'initiatives.json'), '[]');
   const rulesText = read(join(f.annotationsDir, 'rules.json'), '[]');
   const config = parseAttributionConfig(JSON.parse(cfgText));
+  // Pins change the result too: a redo between builds must recompute even when nothing else moved.
+  const pinsText = f.pinsPath && existsSync(f.pinsPath) ? readFileSync(f.pinsPath, 'utf8') : '';
   return {
-    inputs: { config, registry: parseRegistry(JSON.parse(regText)), rules: parseRules(JSON.parse(rulesText)), timezone: f.timezone ?? 'UTC' },
-    text: [cfgText, regText, rulesText, f.timezone ?? 'UTC'].join('\0'),
+    inputs: { config, registry: parseRegistry(JSON.parse(regText)), rules: parseRules(JSON.parse(rulesText)), timezone: f.timezone ?? 'UTC', ...(f.pinsPath ? { pinsPath: f.pinsPath } : {}), versionText: [rulesText, regText, cfgText].join('\0') },
+    text: [cfgText, regText, rulesText, f.timezone ?? 'UTC', pinsText].join('\0'),
   };
 }
 
@@ -149,13 +157,25 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
 
   const ledger = new Map<string, LedgerRecord>(ledgerRecords.map((f) => [f.id, { id: f.id, kind: f.kind, refs: f.refs, attributions: f.attributions, decided_by: f.decided_by, rule_id: f.rule_id ?? null, rationale: f.rationale ?? '', status: f.status }]));
   const ctx = { rules, people: marked, reg, self: config.subject, ...(config.admin ? { admin: config.admin } : {}) };
-  const planned = planFragments(drafts, ledger, ctx);
+  // Ledger > pin > ladder. Rule decisions of closed days (before `cutoff`) are pinned now, with the rules
+  // version that decided them, and count as decided from this build on.
+  const pins = inputs.pinsPath ? readPins(inputs.pinsPath) : new Map();
+  let planned: Planned[] = planFragments(drafts, ledger, ctx, pins);
+  if (inputs.pinsPath) {
+    const markers = JSON.stringify(people.map((p) => [p.person_id, p.marker ?? null]));
+    const fresh = pinsToAdd(planned, (iso) => localDay(iso, tz), plusDays(until, -config.pinAfterDays), rulesVersion(inputs.versionText, markers), now.toISOString());
+    if (fresh.length) {
+      appendPinLines(inputs.pinsPath, fresh);
+      for (const p of fresh) pins.set(p.id, p);
+      planned = planFragments(drafts, ledger, ctx, pins);
+    }
+  }
   const proposals = proposeRules(drafts, ledger, ctx);
 
   const states = Object.fromEntries(STATES.map((s) => [s, 0])) as Record<State, number>;
   db.exec('BEGIN');
   try {
-    db.exec('DELETE FROM att_fragments; DELETE FROM att_proposals;');
+    db.exec('DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins;');
     const ins = db.prepare(
       'INSERT OR REPLACE INTO att_fragments(id, kind, start, "end", title, source, container, refs, participants, project_keys, weight, state, decided_by, attributions, rule_id, rationale, candidates, hint, ledger_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     );
@@ -164,12 +184,17 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
       states[p.state]++;
       ins.run(d.id, d.kind, d.start, d.end, d.title, d.source, d.container, JSON.stringify(d.refs), JSON.stringify(d.participants), JSON.stringify(d.projectKeys), d.weight, p.state, p.decided_by, JSON.stringify(p.attributions), p.rule_id, p.rationale, JSON.stringify(p.candidates), p.hint, p.ledger_id);
     }
-    const pins = db.prepare('INSERT OR REPLACE INTO att_proposals(id, question, options, refs) VALUES (?, ?, ?, ?)');
-    for (const x of proposals) pins.run(x.id, x.question, JSON.stringify(x.options), JSON.stringify(x.refs));
+    const props = db.prepare('INSERT OR REPLACE INTO att_proposals(id, question, options, refs) VALUES (?, ?, ?, ?)');
+    for (const x of proposals) props.run(x.id, x.question, JSON.stringify(x.options), JSON.stringify(x.refs));
+    const pinIns = db.prepare('INSERT OR REPLACE INTO att_pins(id, pinned_at, rules_version) VALUES (?, ?, ?)');
+    for (const p of planned) if (p.pinned_at) pinIns.run(p.draft.id, p.pinned_at, p.rules_version ?? '');
     const meta = db.prepare('INSERT OR REPLACE INTO sync_state(key, value) VALUES (?, ?)');
     meta.run('att:subject', config.subject);
     meta.run('att:since', since);
     meta.run('att:until', until);
+    // What the timelog readout needs from the registry and the config (no local value: ids and weights only).
+    meta.run('att:registry', JSON.stringify(Object.fromEntries(inputs.registry.initiatives.map((i) => [i.id, { ...(i.umbrella ? { umbrella: i.umbrella } : {}), ...(typeof i.billing_code === 'string' ? { billing_code: i.billing_code } : {}), ...(i.alias_of ? { alias_of: i.alias_of } : {}), ...(i.split_into ? { split_into: i.split_into } : {}) }]))));
+    meta.run('att:policy', config.parallelSessions);
     meta.run('att:computed_at', now.toISOString());
     db.exec('COMMIT');
   } catch (e) {
@@ -181,5 +206,10 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
 
 /** The layer switched off (the tenant removed its config): no rows, no meta — the tool then says "not configured". */
 export function clearAttribution(db: DatabaseSync): void {
-  db.exec("DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM sync_state WHERE key LIKE 'att:%';");
+  db.exec("DELETE FROM att_fragments; DELETE FROM att_proposals; DELETE FROM att_pins; DELETE FROM sync_state WHERE key LIKE 'att:%';");
+}
+
+/** The pinned ids among the store's fragments whose start lies in [loIso, hiIso] — what a redo releases. */
+export function pinnedIdsBetween(db: DatabaseSync, loIso: string, hiIso: string): string[] {
+  return (db.prepare('SELECT p.id FROM att_pins p JOIN att_fragments f ON f.id = p.id WHERE f.start >= ? AND f.start <= ?').all(loIso, hiIso) as { id: string }[]).map((r) => r.id);
 }

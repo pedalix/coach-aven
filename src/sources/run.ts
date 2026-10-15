@@ -104,6 +104,11 @@ export function pullContext(slug: string, kind: SourceKind, verbose: boolean, si
  * `pulled` = the kinds that completed ok in the pass this build closes (their finishedAt lands in
  * sync_state as `pulled:<kind>`, the per-source data age `stats.meta` shows); the CLI `build` passes none.
  */
+/** Pinned rule decisions of the attribution layer: in the project's data dir, outside the store. */
+export function pinsPath(slug: string): string {
+  return join(dataDir(slug), 'attribution', 'pins.jsonl');
+}
+
 /** The tenant's zone: `sources.timezone`, else the bot's AVEN_TZ, else UTC. */
 export function tenantZone(p: ProjectConfig): string {
   return p.sources?.timezone ?? process.env.AVEN_TZ ?? 'UTC';
@@ -122,7 +127,7 @@ export function runBuild(p: ProjectConfig, verbose: boolean, sink: (line: string
     // The tenant's zone: presentation only (storage is UTC) — every sources tool and the attribution days use it.
     timezone: tenantZone(p),
     // The attribution layer reads the tenant checkout (data only); it is on when the tenant ships annotations/attribution.json.
-    ...(p.sources?.tenant ? { attribution: { tenantRoot: tenantDir(p.slug), annotationsDir: annotationsDir(p.slug, p.sources.tenant), timezone: tenantZone(p) } } : {}),
+    ...(p.sources?.tenant ? { attribution: { tenantRoot: tenantDir(p.slug), annotationsDir: annotationsDir(p.slug, p.sources.tenant), timezone: tenantZone(p), pinsPath: pinsPath(p.slug) } } : {}),
     log: (line) => (verbose || !line.startsWith('  ') ? sink(`${prefix} ${line}`) : undefined),
   });
   sink(

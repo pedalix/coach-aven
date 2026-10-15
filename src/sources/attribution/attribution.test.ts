@@ -9,6 +9,7 @@ import { planFragments, proposeRules, type LedgerRecord } from './plan.js';
 import { parseRegistry, Registry, normaliseRepo, repoMatches } from './registry.js';
 import { isGarbledMeeting, isLowSubstance, substance } from './substance.js';
 import { parseAttributionConfig } from './config.js';
+import { parsePins, pinsToAdd, rulesVersion, unpinLines, type Pin } from './pins.js';
 
 const reg = new Registry(parseRegistry({
   initiatives: [
@@ -201,10 +202,33 @@ test('containers and meeting dedupe', () => {
 });
 
 test('config: subject required; defaults; bad values fail with the file named', () => {
-  assert.deepEqual(parseAttributionConfig({ subject: 'owner' }), { subject: 'owner', threadGapMinutes: 45, substance: true });
-  assert.deepEqual(parseAttributionConfig({ subject: 'owner', since: '2026-10-01', threadGapMinutes: 30, substance: false, admin: { acme: 'acme/admin' } }), { subject: 'owner', since: '2026-10-01', threadGapMinutes: 30, substance: false, admin: { acme: 'acme/admin' } });
+  assert.deepEqual(parseAttributionConfig({ subject: 'owner' }), { subject: 'owner', threadGapMinutes: 45, substance: true, pinAfterDays: 1, parallelSessions: 'sum' });
+  assert.deepEqual(parseAttributionConfig({ subject: 'owner', since: '2026-10-01', threadGapMinutes: 30, substance: false, pinAfterDays: 0, parallelSessions: 'wallclock', admin: { acme: 'acme/admin' } }), { subject: 'owner', since: '2026-10-01', threadGapMinutes: 30, substance: false, pinAfterDays: 0, parallelSessions: 'wallclock', admin: { acme: 'acme/admin' } });
+  assert.throws(() => parseAttributionConfig({ subject: 'owner', pinAfterDays: -1 }), /"pinAfterDays" must be an integer/);
+  assert.throws(() => parseAttributionConfig({ subject: 'owner', parallelSessions: 'max' }), /"parallelSessions" must be/);
   assert.throws(() => parseAttributionConfig({}), /"subject" must be a person id/);
   assert.throws(() => parseAttributionConfig({ subject: 'owner', timezone: 'Europe/Zurich' }), /moved to the project's sources\.timezone/, 'one zone per tenant');
   assert.throws(() => parseAttributionConfig({ subject: 'owner', since: '15.10.2026' }), /YYYY-MM-DD/);
   assert.throws(() => parseAttributionConfig({ subject: 'owner', admin: { acme: 1 } }), /"admin" must map/);
+});
+
+test('pins: last line per id wins, an unpin line releases; closed days only; the ledger still wins over a pin', () => {
+  const pin = (id: string, ini: string, at = '2026-10-14T00:00:00.000Z'): Pin => ({ id, attributions: [{ initiative: ini, share: 1 }], rule_id: 'r1', rationale: 'rule r1', rules_version: 'abc123def456', pinned_at: at });
+  const text = [JSON.stringify(pin('a', 'acme/p1')), '{broken', JSON.stringify(pin('b', 'acme/p1')), JSON.stringify({ id: 'b', unpinned_at: 'x' }), JSON.stringify(pin('a', 'globex/shop', 'later'))].join('\n');
+  const pins = parsePins(text);
+  assert.deepEqual([...pins.keys()], ['a']);
+  assert.equal(pins.get('a')!.attributions[0]!.initiative, 'globex/shop', 'the last line wins');
+  assert.match(rulesVersion('rules', 'registry'), /^[0-9a-f]{12}$/);
+  assert.notEqual(rulesVersion('rules', 'registry'), rulesVersion('rules2', 'registry'));
+  // which rule decisions to pin: days before the cutoff only
+  const planned = planFragments([draft({ id: 'old', container: '#shop', start: '2026-10-12T10:00:00Z' }), draft({ id: 'new', container: '#shop', start: '2026-10-14T10:00:00Z' }), draft({ id: 'open-old', start: '2026-10-12T11:00:00Z', participants: ['rui'] })], new Map(), ctx());
+  const fresh = pinsToAdd(planned, (iso) => iso.slice(0, 10), '2026-10-14', 'v1', 'now');
+  assert.deepEqual(fresh.map((p) => [p.id, p.attributions[0]!.initiative, p.rule_id, p.rules_version]), [['old', 'globex/shop', 'registry:channel', 'v1']], 'open fragments are never pinned; the cutoff day is still live');
+  // precedence: ledger > pin > ladder — a pin decides even when the rules would now decide otherwise
+  const pinned = new Map([['old', { ...fresh[0]!, attributions: [{ initiative: 'acme/p1', share: 1 }] }]]);
+  const again = planFragments([draft({ id: 'old', container: '#shop', start: '2026-10-12T10:00:00Z' })], new Map(), ctx(), pinned);
+  assert.deepEqual([again[0]!.state, again[0]!.decided_by, again[0]!.attributions[0]!.initiative, again[0]!.pinned_at], ['decided', 'rule', 'acme/p1', 'now']);
+  const judged = planFragments([draft({ id: 'old', container: '#shop', start: '2026-10-12T10:00:00Z' })], new Map([['old', rec('old', 'initech/a')]]), ctx(), pinned);
+  assert.deepEqual([judged[0]!.decided_by, judged[0]!.attributions[0]!.initiative, judged[0]!.pinned_at], ['model', 'initech/a', undefined], 'a judgment beats the pin');
+  assert.deepEqual(unpinLines(pinned, ['old', 'never-pinned', 'old'], 't').map((l) => l.id), ['old']);
 });
