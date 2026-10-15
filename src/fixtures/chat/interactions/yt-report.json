@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "views.open",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "trigger_id": "trig.1",
+        "view": "{\"type\":\"modal\",\"callback_id\":\"yt_prompt_modal\",\"private_metadata\":\"{\\\"t\\\":\\\"SUP-12\\\",\\\"key\\\":\\\"thread:9.1\\\",\\\"channel\\\":\\\"C_HOME\\\",\\\"threadTs\\\":\\\"9.1\\\"}\",\"title\":{\"type\":\"plain_text\",\"text\":\"Report to SUP-12\"},\"submit\":{\"type\":\"plain_text\",\"text\":\"Generate report\"},\"close\":{\"type\":\"plain_text\",\"text\":\"Cancel\"},\"blocks\":[{\"type\":\"input\",\"block_id\":\"yt_prompt_text\",\"label\":{\"type\":\"plain_text\",\"text\":\"Instructions for the report (edit freely — even a one-liner works)\"},\"element\":{\"type\":\"plain_text_input\",\"action_id\":\"text\",\"multiline\":true,\"initial_value\":\"Draft an internal report comment for YouTrack ticket SUP-12, summarizing this investigation for the SUPPORT TEAM (internal — the customer will not see it, but write professionally). Structure: a 1–2 sentence plain-language conclusion first, then \\\"What was checked\\\" (bullet list of systems/sources and what each showed), then \\\"Suggested fix / next steps\\\". If the investigation is still inconclusive, say so honestly and list what info is missing.\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"🔒 Always appended to your instructions:\\nDELIVERY CONTRACT (fixed — applies regardless of the instructions above): your answer will be posted VERBATIM as an internal comment on YouTrack ticket SUP-12 by the orchestrator. Do NOT try to post it yourself — your YouTrack access is read-only. Output ONLY the comment text: no preamble, no meta-commentary about tools or posting, no sign-off. Plain Markdown (YouTrack renders it), no Slack-specific formatting, no @-mentions. HARD LIMIT 2500 characters.\"}]},{\"type\":\"input\",\"block_id\":\"yt_prompt_now\",\"optional\":true,\"label\":{\"type\":\"plain_text\",\"text\":\"Delivery\"},\"element\":{\"type\":\"checkboxes\",\"action_id\":\"now\",\"options\":[{\"text\":{\"type\":\"plain_text\",\"text\":\"Post to the ticket immediately (skip the preview)\"},\"description\":{\"type\":\"plain_text\",\"text\":\"Internal comment, team-only — the answer is posted word-for-word.\"},\"value\":\"now\"}]}}]}"
+      }
+    }
+  ],
+  "engine": []
+}

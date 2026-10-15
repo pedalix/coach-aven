@@ -9,9 +9,9 @@
 
 ## 2. PR 2 — actions, dialogs, Home (bucket 1)
 
-- [ ] 2.1 Recorder scenarios for every `app.action` / `app.view` / `app_home_opened` / uninstall handler; snapshot first. Verify: green on unchanged code.
-- [ ] 2.2 Inbound `ChatAction` / `DialogSubmit` / `HomeOpened` / `Installed`/`Removed`; outbound `openDialog` / `updateDialog` / `postPrivate` / `publishHome`; handler logic to `src/chat/core/`; Slack wiring and `blocks.ts` to `src/chat/slack/`. Verify: snapshots identical; `blocks.test.ts` unchanged.
-- [ ] 2.3 Ledger row; PR. Verify: CI green.
+- [x] 2.1 Recorder scenarios for every `app.action` / `app.view` / `app_home_opened` / uninstall handler; snapshot first. Verify: green on unchanged code.
+- [x] 2.2 Inbound `ChatAction` / `DialogSubmit` (+ home opened as an `Actor`); outbound `reply` / `postPrivate` / `openDialog` / `updateDialog` / `refreshRating` / `publishHome`; handler logic to `src/chat/core/interactions.ts` (+ the actor gate in `core/gates.ts`); Slack wiring, `events.ts` and `blocks.ts` to `src/chat/slack/`. Install lifecycle (`app_uninstalled`, `tokens_revoked`) stays in the Slack adapter — it only drops the Slack installation record, there is no core logic. Dispatch Send/Dismiss moves with `dispatchrun` in 4.2. Verify: snapshots identical; `blocks.test.ts` unchanged; `src/chat/core/interactions.test.ts` drives the core with a fake driver.
+- [x] 2.3 Ledger row; PR. Verify: CI green.
 
 ## 3. PR 3 — messages and commands (bucket 1)
 
@@ -22,5 +22,5 @@
 ## 4. PR 4 — pollers, routines, dispatch, alerts (bucket 1)
 
 - [ ] 4.1 Recorder scenarios: routine fire (with and without `ROUTINE_GUARD`), dream, housekeeping, auto-review, autofix, YouTrack investigation, dispatch Send/Dismiss, ops alert; snapshot first. Verify: green on unchanged code.
-- [ ] 4.2 Deliveries through `projectChannel` + `post`; `channels.ts` as the Slack implementation; `pollers.ts`, `routinerun.ts`, `dispatchrun.ts` lose Bolt imports; driver selection seam in `cli.ts` with the unknown-driver error. Verify: snapshots identical; import-rule test; unknown-driver test.
+- [ ] 4.2 Deliveries through `projectChannel` + `post`; dispatch Send/Dismiss buttons move into the core with `dispatchrun`; `channels.ts` as the Slack implementation; `pollers.ts`, `routinerun.ts`, `dispatchrun.ts` lose Bolt imports; driver selection seam in `cli.ts` with the unknown-driver error. Verify: snapshots identical; import-rule test; unknown-driver test.
 - [ ] 4.3 CLAUDE.md architecture pointers for `src/chat/`; ledger row; PR. Verify: CI green.

@@ -1,11 +1,11 @@
 // The Bolt bot's composition root: load config + registry, build the turn engine and
 // channel resolver, register the Slack surfaces (events + /aven commands), start the
 // pollers. The moving parts live in their own modules:
-//   blocks.ts   — every Block Kit renderer + user-facing text helpers
+//   chat/slack/blocks.ts — every Block Kit renderer + user-facing text helpers
 //   turn.ts     — the turn engine (queues, live status, agent questions, recovery)
 //   channels.ts — channel ↔ project resolution
 //   commands.ts — the /aven router and subcommand handlers
-//   events.ts   — @mentions, thread replies, DMs, buttons, App Home
+//   chat/slack/events.ts — @mentions, thread replies, DMs, buttons, App Home
 //   pollers.ts  — scheduler + auto-review / autofix / YouTrack pollers
 import { createDispatcher } from './dispatchrun.js';
 import { slackDriver } from './chat/slack/driver.js';
@@ -22,8 +22,8 @@ import { createTurnEngine } from './turn.js';
 import { createChannels } from './channels.js';
 import { createPollers, ROUTINE_TZ } from './pollers.js';
 import { registerCommands } from './commands.js';
-import { registerEvents } from './events.js';
-import { setAlertSink, summary, notConfiguredText, type AlertLevel } from './blocks.js';
+import { registerEvents } from './chat/slack/events.js';
+import { setAlertSink, summary, notConfiguredText, type AlertLevel } from './chat/slack/blocks.js';
 import { log } from './log.js';
 
 const { App } = bolt;

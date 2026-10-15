@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "views.open",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "trigger_id": "trig.1",
+        "view": "{\"type\":\"modal\",\"title\":{\"type\":\"plain_text\",\"text\":\"Draft expired\"},\"close\":{\"type\":\"plain_text\",\"text\":\"Close\"},\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"This draft for *SUP-12* is gone (the bot restarted since it was generated). Hit *📝 Report to YouTrack* on the thread again to regenerate it.\"}}]}"
+      }
+    }
+  ],
+  "engine": []
+}

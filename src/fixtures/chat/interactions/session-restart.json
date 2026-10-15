@@ -1,0 +1,21 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "replace_original": true,
+        "text": ":white_check_mark: Session restarted — the next message in this thread starts fresh."
+      }
+    }
+  ],
+  "engine": [
+    {
+      "restartSession": {
+        "key": "thread:9.1",
+        "slug": "alpha"
+      }
+    }
+  ]
+}

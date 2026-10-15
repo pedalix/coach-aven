@@ -14,7 +14,7 @@ import { Store } from './state.js';
 import type { FeedbackRecord } from './feedback.js';
 import { loadFixture, rehome } from './fixtures.js';
 import { createChannels } from './channels.js';
-import { registerEvents } from './events.js';
+import { registerEvents } from './chat/slack/events.js';
 import { slugOfBase, isThreadKey } from './teamkeys.js';
 import type { TurnEngine } from './turn.js';
 import type { SlackChatDriver } from './chat/slack/driver.js';

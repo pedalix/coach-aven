@@ -22,7 +22,7 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   that is off by default and canaried first — and the PR says which. Flags are rollout
   stages, not permanent switches: add the ledger row in the same PR. See `docs/rollout.md`.
 - **Changing Slack UI/UX → update the App Home tab.** The Home tab (`homeBlocks` in
-  `src/blocks.ts`) is the user-facing cheat-sheet. Any new command, button, or changed
+  `src/chat/slack/blocks.ts`) is the user-facing cheat-sheet. Any new command, button, or changed
   interaction MUST be reflected there in the same change, or it silently goes stale.
 - **Release notes are auto-generated from merged PR titles** (GitHub Releases — `CHANGELOG.md`
   is just a pointer there). So write clear, human-readable PR titles, and label PRs
@@ -43,9 +43,14 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 - `src/slack.ts` — the composition root: builds the turn engine + channel resolver,
   registers the Slack surfaces, starts the pollers. The parts live beside it:
   `src/turn.ts` (turn lifecycle: `liveTurn`/`doTurn`, queues, agent questions, restart
-  recovery), `src/events.ts` (mentions/DMs/buttons/App Home), `src/commands.ts` (the
-  `/aven` router), `src/pollers.ts` (scheduler + auto-review/autofix/YouTrack pollers),
-  `src/blocks.ts` (all Block Kit rendering), `src/channels.ts` (channel↔project).
+  recovery), `src/chat/slack/events.ts` (mentions/DMs/buttons/App Home), `src/commands.ts`
+  (the `/aven` router), `src/pollers.ts` (scheduler + auto-review/autofix/YouTrack pollers),
+  `src/chat/slack/blocks.ts` (all Block Kit rendering), `src/channels.ts` (channel↔project).
+- `src/chat/` — the **chat driver** layer (OpenSpec `chat-driver-interface`, in progress): the
+  core talks to `ChatDriver` (`src/chat/driver.ts`) with platform-neutral view models
+  (`src/chat/views.ts`); `src/chat/slack/` is the Slack implementation. Turn-path and
+  interaction changes are pinned by recorded Slack call snapshots (`src/fixtures/chat/`,
+  re-snapshot on purpose with `UPDATE_SNAPSHOTS=1`).
 - `src/tasks.ts` — chat session over a sandbox. `src/prompt.ts` — the **3-layer system prompt**
   (orchestrator base → project prompt → repo `CLAUDE.md`), pure and golden-tested: the base text
   reaches every production session, so `src/fixtures/prompt/*.txt` pins it byte-exact — change it

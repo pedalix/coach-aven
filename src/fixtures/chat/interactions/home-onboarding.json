@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "views.publish",
+      "token": "xoxb-TNOBODY9",
+      "payload": {
+        "team_id": "TNOBODY9",
+        "user_id": "U_HUMAN",
+        "view": "{\"type\":\"home\",\"blocks\":[{\"type\":\"header\",\"text\":{\"type\":\"plain_text\",\"text\":\"🧭 CoachAven\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"I'm a coding agent that lives in project channels — I investigate, build, and open PRs without leaving Slack.\\n\\n*You're almost there.* CoachAven is installed in this workspace, but no projects are configured for it yet. Contact the CoachAven team to connect your repositories — once a project is set up, a channel here starts driving it.\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"Nothing runs and no data is read until a project is explicitly configured for this workspace.\"}]}]}"
+      }
+    }
+  ],
+  "engine": []
+}

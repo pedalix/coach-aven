@@ -5,7 +5,7 @@
 
 import { avenSessionValue } from './gwtoken.js';
 import type { ChatDriver, DriverForTenant } from './chat/driver.js';
-import type { TurnView } from './chat/views.js';
+import type { MessageView } from './chat/views.js';
 import type { Config } from './config.js';
 import type { Store } from './state.js';
 import { resolveBySlug, type ProjectConfig, type RegistryRef } from './projects.js';
@@ -14,7 +14,7 @@ import { createDriver } from './driver.js';
 import { fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
-import { MAX_SLACK_TEXT, errText, alertOps } from './blocks.js';
+import { MAX_SLACK_TEXT, errText, alertOps } from './chat/slack/blocks.js';
 import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase } from './teamkeys.js';
 import { DraftStore } from './drafts.js';
@@ -726,7 +726,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     // Where the turn's outcome goes. While the message is still live it rewrites itself, as
     // always. Once backgrounded, we promised a new message in the thread — so post one (it
     // pings; chat.update does not) and collapse the card to a pointer at it.
-    const deliver = async (view: TurnView, label: string): Promise<void> => {
+    const deliver = async (view: MessageView, label: string): Promise<void> => {
       if (!background) {
         await chat.update(status, view);
         return;
@@ -833,7 +833,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       const elapsedMs = Date.now() - start;
       // Skip-preview draft: deliver the answer directly (the autoPost hook), and only fall
       // back to the reviewable draft — error attached — when delivery fails.
-      let view: TurnView | undefined;
+      let view: MessageView | undefined;
       if (opts?.ytDraftFor && opts.autoPost) {
         try {
           const posted = await opts.autoPost(capped);

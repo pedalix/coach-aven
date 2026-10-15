@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "views.open",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "trigger_id": "trig.1",
+        "view": "{\"type\":\"modal\",\"title\":{\"type\":\"plain_text\",\"text\":\"🧭 Steps\"},\"close\":{\"type\":\"plain_text\",\"text\":\"Close\"},\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"_This turn's step-by-step trail is no longer available (I've been restarted since it ran)._\"}}]}"
+      }
+    }
+  ],
+  "engine": []
+}

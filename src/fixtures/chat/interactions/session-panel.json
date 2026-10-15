@@ -1,0 +1,17 @@
+{
+  "calls": [
+    {
+      "method": "chat.postEphemeral",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "user": "U_HUMAN",
+        "thread_ts": "9.1",
+        "text": "Session — alpha",
+        "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*alpha* — this thread's session\\n*Repos:* `alpha`\\n*Tools (MCP):* `youtrack`\\n*Session:* active _(since 1970-01-01 00:00)_\\n*Turn running:* no\\n*PR:* opened from this thread\"}},{\"type\":\"actions\",\"elements\":[{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"🔄 Restart session\"},\"style\":\"danger\",\"action_id\":\"session_restart\",\"value\":\"{\\\"key\\\":\\\"thread:9.1\\\",\\\"channel\\\":\\\"C_HOME\\\",\\\"threadTs\\\":\\\"9.1\\\"}\",\"confirm\":{\"title\":{\"type\":\"plain_text\",\"text\":\"Restart this thread's session?\"},\"text\":{\"type\":\"mrkdwn\",\"text\":\"This forgets the conversation so far — the next message starts a brand-new session. The thread history in Slack is untouched.\"},\"confirm\":{\"type\":\"plain_text\",\"text\":\"Restart\"},\"deny\":{\"type\":\"plain_text\",\"text\":\"Cancel\"}}}]}]"
+      }
+    }
+  ],
+  "engine": []
+}

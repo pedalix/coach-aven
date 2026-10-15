@@ -7,7 +7,7 @@ import { gatewayTokens } from './gwtoken.js';
 import { dockerdGuardCmd } from './housekeeping.js';
 import { captureError } from './sentry.js';
 import { cliUpgradeCmd, parseCliMarkers, cliUpgradeNotice } from './cliversion.js';
-import { alertOps } from './blocks.js';
+import { alertOps } from './chat/slack/blocks.js';
 import { log } from './log.js';
 import { withGitRetry, type GitRetryOpts } from './gitretry.js';
 import { routineGuard } from './routineguard.js';

@@ -44,7 +44,7 @@ import {
   applierName,
   type YouTrackIssue,
 } from './youtrack.js';
-import { ticketCardBlocks } from './blocks.js';
+import { ticketCardBlocks } from './chat/slack/blocks.js';
 import { listOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js';
 import { createDriver } from './driver.js';
 import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
@@ -53,7 +53,7 @@ import { cliUpgradeNotice, cliPinDrift, fetchCliDistTags } from './cliversion.js
 import { dreamPrompt, dreamDigest } from './dream.js';
 import { snapshotMemory } from './memjournal.js';
 import { routineLabel, startRoutineTurn } from './routinerun.js';
-import { autofixNotifyBlocks, shortRepo, alertOps } from './blocks.js';
+import { autofixNotifyBlocks, shortRepo, alertOps } from './chat/slack/blocks.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
 import path from 'node:path';

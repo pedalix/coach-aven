@@ -1,0 +1,63 @@
+{
+  "calls": [
+    {
+      "method": "chat.update",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "ts": "8.1",
+        "text": "❓ The agent has a question",
+        "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"❓ *The agent needs your input*  _(pick one or more, then Submit)_\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*Which DB?*\\n✅ *Postgres*\\n• *SQLite*\"}},{\"type\":\"actions\",\"block_id\":\"q2:0\",\"elements\":[{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Postgres\"},\"action_id\":\"answer_q:q2:0:0\",\"value\":\"{\\\"qid\\\":\\\"q2\\\",\\\"qi\\\":0,\\\"oi\\\":0}\"},{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"SQLite\"},\"action_id\":\"answer_q:q2:0:1\",\"value\":\"{\\\"qid\\\":\\\"q2\\\",\\\"qi\\\":0,\\\"oi\\\":1}\"}]},{\"type\":\"actions\",\"block_id\":\"q2:submit\",\"elements\":[{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Submit\"},\"style\":\"primary\",\"action_id\":\"submit_q:q2\",\"value\":\"{\\\"qid\\\":\\\"q2\\\"}\"}]}]"
+      }
+    },
+    {
+      "method": "chat.update",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "ts": "8.1",
+        "text": "❓ The agent has a question",
+        "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"❓ *The agent needs your input*  _(pick one or more, then Submit)_\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*Which DB?*\\n✅ *Postgres*\\n✅ *SQLite*\"}},{\"type\":\"actions\",\"block_id\":\"q2:0\",\"elements\":[{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Postgres\"},\"action_id\":\"answer_q:q2:0:0\",\"value\":\"{\\\"qid\\\":\\\"q2\\\",\\\"qi\\\":0,\\\"oi\\\":0}\"},{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"SQLite\"},\"action_id\":\"answer_q:q2:0:1\",\"value\":\"{\\\"qid\\\":\\\"q2\\\",\\\"qi\\\":0,\\\"oi\\\":1}\"}]},{\"type\":\"actions\",\"block_id\":\"q2:submit\",\"elements\":[{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Submit\"},\"style\":\"primary\",\"action_id\":\"submit_q:q2\",\"value\":\"{\\\"qid\\\":\\\"q2\\\"}\"}]}]"
+      }
+    },
+    {
+      "method": "chat.update",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "ts": "8.1",
+        "text": "❓ The agent has a question",
+        "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"❓ *The agent needs your input*  _(pick one or more, then Submit)_\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*Which DB?*\\n• *Postgres*\\n✅ *SQLite*\"}},{\"type\":\"actions\",\"block_id\":\"q2:0\",\"elements\":[{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Postgres\"},\"action_id\":\"answer_q:q2:0:0\",\"value\":\"{\\\"qid\\\":\\\"q2\\\",\\\"qi\\\":0,\\\"oi\\\":0}\"},{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"SQLite\"},\"action_id\":\"answer_q:q2:0:1\",\"value\":\"{\\\"qid\\\":\\\"q2\\\",\\\"qi\\\":0,\\\"oi\\\":1}\"}]},{\"type\":\"actions\",\"block_id\":\"q2:submit\",\"elements\":[{\"type\":\"button\",\"text\":{\"type\":\"plain_text\",\"text\":\"Submit\"},\"style\":\"primary\",\"action_id\":\"submit_q:q2\",\"value\":\"{\\\"qid\\\":\\\"q2\\\"}\"}]}]"
+      }
+    },
+    {
+      "method": "chat.update",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "ts": "8.1",
+        "text": "✅ Answered",
+        "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"✅ *Answered*\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*Which DB?*\\n• *Postgres*\\n✅ *SQLite*\"}}]"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "finalize": {
+        "qid": "q2",
+        "picks": [
+          [
+            0,
+            [
+              1
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

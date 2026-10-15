@@ -3,21 +3,21 @@
 // no state mutation (except the alert sink hook) — just payload shaping, so the Slack
 // wiring in events.ts/commands.ts stays thin.
 
-import type { RoutineRecord, PrWatch } from './state.js';
-import type { AnswerOpts, FollowUp, RateMeta, TrailMeta } from './chat/views.js';
-import { dispatch } from './dispatch.js';
-import type { ProjectConfig, ProjectsRegistry } from './projects.js';
-import type { AskQuestion } from './claudeSession.js';
-import type { YouTrackIssue, YouTrackComment } from './youtrack.js';
-import { prUrls, mdToMrkdwn, fmtElapsed } from './format.js';
-import { trailView } from './steps.js';
-import { BAD_REASONS, type Tally } from './feedback.js';
-import { log } from './log.js';
-import { captureError } from './sentry.js';
-import { stackHead } from './netretry.js';
+import type { RoutineRecord, PrWatch } from '../../state.js';
+import type { AnswerOpts, FollowUp, RateMeta, SessionPanelInfo, TrailMeta } from '../views.js';
+import { dispatch } from '../../dispatch.js';
+import type { ProjectConfig, ProjectsRegistry } from '../../projects.js';
+import type { AskQuestion } from '../../claudeSession.js';
+import type { YouTrackIssue, YouTrackComment } from '../../youtrack.js';
+import { prUrls, mdToMrkdwn, fmtElapsed } from '../../format.js';
+import { trailView } from '../../steps.js';
+import { BAD_REASONS, type Tally } from '../../feedback.js';
+import { log } from '../../log.js';
+import { captureError } from '../../sentry.js';
+import { stackHead } from '../../netretry.js';
 
 // The answer decorations are platform-neutral data — they live with the view models.
-export type { AnswerOpts, FollowUp, RateMeta, TrailMeta };
+export type { AnswerOpts, FollowUp, RateMeta, SessionPanelInfo, TrailMeta };
 
 // Slack hard-caps a single message at 40k chars; leave headroom.
 export const MAX_SLACK_TEXT = 39000;
@@ -776,15 +776,6 @@ export function accessBlocks(project: ProjectConfig): any[] {
 // session looks like (bound or not, a turn running, a PR already opened) plus the project's
 // repos/MCP — ephemeral, so only the clicker sees it. `value` is the JSON the panel button
 // itself carried, reused unchanged on the restart button so its handler needs no new shape.
-export interface SessionPanelInfo {
-  slug: string;
-  repos: string[];
-  mcp?: string[]; // MCP tool names
-  hasSession: boolean;
-  sessionSince?: string; // ChatRecord.updatedAt, ISO
-  turnInFlight: boolean;
-  prCreated: boolean;
-}
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
 export function sessionPanelBlocks(info: SessionPanelInfo, value: string): any[] {
   const repos = info.repos.map((r) => `\`${shortRepo(r)}\``).join(', ');

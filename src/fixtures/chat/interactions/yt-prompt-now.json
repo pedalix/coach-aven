@@ -1,0 +1,18 @@
+{
+  "calls": [],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-THOME1111",
+        "channel": "C_HOME",
+        "threadTs": "9.1",
+        "key": "thread:9.1",
+        "slug": "alpha",
+        "question": "Summarise the fix for support.\n\nDELIVERY CONTRACT (fixed — applies regardless of the instructions above): your answer will be posted VERBATIM as an internal comment on YouTrack ticket SUP-12 by the orchestrator. Do NOT try to post it yourself — your YouTrack access is read-only. Output ONLY the comment text: no preamble, no meta-commentary about tools or posting, no sign-off. Plain Markdown (YouTrack renders it), no Slack-specific formatting, no @-mentions. HARD LIMIT 2500 characters.",
+        "attachments": false,
+        "ytDraftFor": "SUP-12",
+        "autoPost": true
+      }
+    }
+  ]
+}

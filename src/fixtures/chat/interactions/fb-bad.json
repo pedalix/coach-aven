@@ -1,0 +1,37 @@
+{
+  "calls": [
+    {
+      "method": "views.open",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "trigger_id": "trig.1",
+        "view": "{\"type\":\"modal\",\"callback_id\":\"fb_reason_modal\",\"private_metadata\":\"{\\\"t\\\":\\\"tabc123-1\\\",\\\"s\\\":\\\"beta\\\",\\\"k\\\":\\\"thread:9.2\\\",\\\"c\\\":\\\"C_HOME\\\",\\\"ts\\\":\\\"1.0\\\"}\",\"title\":{\"type\":\"plain_text\",\"text\":\"What went wrong?\"},\"submit\":{\"type\":\"plain_text\",\"text\":\"Send\"},\"close\":{\"type\":\"plain_text\",\"text\":\"Skip\"},\"blocks\":[{\"type\":\"input\",\"block_id\":\"fb_reason\",\"label\":{\"type\":\"plain_text\",\"text\":\"Closest cause\"},\"element\":{\"type\":\"radio_buttons\",\"action_id\":\"reason\",\"options\":[{\"text\":{\"type\":\"plain_text\",\"text\":\"Wrong — the facts are off\"},\"value\":\"wrong\"},{\"text\":{\"type\":\"plain_text\",\"text\":\"Can't verify — probably right, but I couldn't check it\"},\"value\":\"unverifiable\"},{\"text\":{\"type\":\"plain_text\",\"text\":\"Missed the question — answered something else\"},\"value\":\"missed\"},{\"text\":{\"type\":\"plain_text\",\"text\":\"Too technical / wrong tone\"},\"value\":\"tone\"},{\"text\":{\"type\":\"plain_text\",\"text\":\"Too slow\"},\"value\":\"slow\"},{\"text\":{\"type\":\"plain_text\",\"text\":\"Took too much back-and-forth\"},\"value\":\"backforth\"}]}},{\"type\":\"input\",\"block_id\":\"fb_note\",\"optional\":true,\"label\":{\"type\":\"plain_text\",\"text\":\"What would a good answer have looked like?\"},\"element\":{\"type\":\"plain_text_input\",\"action_id\":\"note\",\"multiline\":true}},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"*Useful notes look like:*\\n• \\\"said a deploy caused it but never which one, so I couldn’t check\\\"\\n• \\\"the numbers were for staging, I asked about production\\\"\\n• \\\"correct, but I had to ask three times to get it\\\"\"}]},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"Recorded against this answer only — nothing is posted in the thread.\"}]}]}"
+      }
+    },
+    {
+      "method": "chat.update",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "ts": "1.0",
+        "blocks": "[{\"type\":\"rich_text\",\"elements\":[{\"type\":\"rich_text_section\",\"elements\":[{\"type\":\"text\",\"text\":\"the answer\"}]}]},{\"type\":\"actions\",\"elements\":[{\"type\":\"button\",\"action_id\":\"show_trail\",\"text\":{\"type\":\"plain_text\",\"text\":\"🧭 Show steps\"},\"value\":\"tabc123-1\"},{\"type\":\"button\",\"action_id\":\"fb_good\",\"text\":{\"type\":\"plain_text\",\"text\":\"👍 Helped\"},\"value\":\"{\\\"t\\\":\\\"tabc123-1\\\",\\\"s\\\":\\\"beta\\\",\\\"k\\\":\\\"thread:9.2\\\"}\"},{\"type\":\"button\",\"action_id\":\"fb_bad\",\"text\":{\"type\":\"plain_text\",\"text\":\"👎 Missed · 1\"},\"value\":\"{\\\"t\\\":\\\"tabc123-1\\\",\\\"s\\\":\\\"beta\\\",\\\"k\\\":\\\"thread:9.2\\\"}\"}]}]"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "recordFeedback": {
+        "at": "1970-01-01T00:00:00.000Z",
+        "turnId": "tabc123-1",
+        "key": "thread:9.2",
+        "slug": "beta",
+        "user": "U_HUMAN",
+        "verdict": "bad",
+        "channel": "C_HOME",
+        "ts": "1.0"
+      }
+    }
+  ]
+}

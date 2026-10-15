@@ -1,0 +1,30 @@
+{
+  "calls": [
+    {
+      "method": "chat.update",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "ts": "8.1",
+        "text": "✅ Answered",
+        "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"✅ *Answered*\"}},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"*Which DB?*\\n• *Postgres*\\n✅ *SQLite*\"}}]"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "finalize": {
+        "qid": "q1",
+        "picks": [
+          [
+            0,
+            [
+              1
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

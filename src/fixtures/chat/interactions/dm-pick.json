@@ -1,0 +1,46 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "D_HOME"
+      }
+    },
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "D_HOME",
+        "text": "Which project?",
+        "blocks": "[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"Which project should I work on? _(DMs aren't tied to a channel.)_\"}},{\"type\":\"actions\",\"elements\":[{\"type\":\"static_select\",\"action_id\":\"dm_pick_project\",\"placeholder\":{\"type\":\"plain_text\",\"text\":\"Pick a project\"},\"options\":[{\"text\":{\"type\":\"plain_text\",\"text\":\"alpha\"},\"value\":\"dp1:alpha\"},{\"text\":{\"type\":\"plain_text\",\"text\":\"beta\"},\"value\":\"dp1:beta\"},{\"text\":{\"type\":\"plain_text\",\"text\":\"evrec-mem\"},\"value\":\"dp1:evrec-mem\"}]}]}]"
+      }
+    },
+    {
+      "method": "chat.update",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "D_HOME",
+        "ts": "6.2",
+        "text": "▶️ Running on *beta*…",
+        "blocks": "[]"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-THOME1111",
+        "channel": "D_HOME",
+        "key": "dm:D_HOME:beta",
+        "slug": "beta",
+        "question": "what is up?",
+        "attachments": false,
+        "autoPost": false
+      }
+    }
+  ]
+}

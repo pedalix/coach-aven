@@ -6,17 +6,32 @@
 // pins it against snapshots taken before the move.
 
 import type bolt from '@slack/bolt';
-import type { ChatDriver, ConvTarget, Mark, MsgRef } from '../driver.js';
-import type { TurnView } from '../views.js';
+import type { ChatAction, ChatDriver, ConvTarget, DialogRef, Mark, MsgRef } from '../driver.js';
+import type { DialogView, HomeView, MessageView, PrivateView } from '../views.js';
+import type { Tally } from '../../feedback.js';
 import {
+  MAX_SLACK_TEXT,
   answerBlocks,
   backgroundBlocks,
   backgroundDoneBlocks,
+  feedbackModalView,
+  homeBlocks,
+  onboardingHomeBlocks,
   questionBlocks,
+  reportExpiredView,
+  reportModalView,
   reportPostedBlocks,
+  reportPromptModalView,
+  sessionPanelBlocks,
   statusBlocks,
-} from '../../blocks.js';
-import { fallbackText } from '../../format.js';
+  ticketLoadingView,
+  ticketModalView,
+  ticketUnavailableView,
+  trailModalView,
+  withRatingTally,
+} from './blocks.js';
+import { fallbackText, mdToMrkdwn } from '../../format.js';
+import { log } from '../../log.js';
 
 // Reaction a skipped "!" note gets (configurable — some workspaces lack the default emoji).
 const NOTE_REACTION = process.env.SLACK_NOTE_REACTION || 'shushing_face';
@@ -29,7 +44,7 @@ const REACTION: Record<Mark, string> = {
 
 // Pure: a view → the text + blocks Slack gets. `blocks` undefined = a text-only message.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-export function renderTurnView(v: TurnView): { text: string; blocks?: any[] } {
+export function renderTurnView(v: MessageView): { text: string; blocks?: any[] } {
   switch (v.kind) {
     case 'status':
       return { text: v.notify, blocks: statusBlocks(v.line, v.turnId) };
@@ -47,9 +62,61 @@ export function renderTurnView(v: TurnView): { text: string; blocks?: any[] } {
     case 'reported':
       return { text: `✅ Reported to ${v.ticket}`, blocks: reportPostedBlocks(v.markdown, v.ticket, v.url, v.group) };
     case 'question':
-      return { text: '❓ The agent has a question', blocks: questionBlocks(v.questions, v.picks, v.multi, v.qid, v.done) };
+      return {
+        text: v.done ? '✅ Answered' : '❓ The agent has a question',
+        blocks: questionBlocks(v.questions, v.picks, v.multi, v.qid, v.done),
+      };
   }
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function renderPrivateView(v: PrivateView): { text: string; blocks?: any[] } {
+  switch (v.kind) {
+    case 'text':
+      return { text: v.text };
+    case 'sessionPanel':
+      return { text: `Session — ${v.info.slug}`, blocks: sessionPanelBlocks(v.info, v.value) };
+    case 'memoryTopic':
+      return { text: `*${v.file}*\n\n${mdToMrkdwn(v.markdown)}`.slice(0, MAX_SLACK_TEXT) };
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack view payload
+export function renderDialogView(v: DialogView): any {
+  switch (v.kind) {
+    case 'trail':
+      return trailModalView(v.trail);
+    case 'feedback':
+      return feedbackModalView(v.meta);
+    case 'ticketLoading':
+      return ticketLoadingView(v.id);
+    case 'ticket':
+      return ticketModalView(v.issue, v.url, v.comments, v.attachmentNames);
+    case 'ticketUnavailable':
+      return ticketUnavailableView(v.id, v.url);
+    case 'reportPrompt':
+      return reportPromptModalView(v.ticket, v.prompt, v.contract, v.meta);
+    case 'report':
+      return reportModalView(v.ticket, v.draft, v.meta);
+    case 'reportExpired':
+      return reportExpiredView(v.ticket);
+  }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function renderHomeView(v: HomeView): any[] {
+  return v.kind === 'home' ? homeBlocks(v.projects, v.prefix) : onboardingHomeBlocks();
+}
+
+// What a Slack interaction carries that the core never sees: the response_url responder,
+// the single-use trigger for modals, and the message's own blocks (a rating refresh writes
+// them back with only the vote labels changed — Slack has rewritten the answer by then).
+export interface SlackActionCtx {
+  respond?: (msg: Record<string, unknown>) => Promise<unknown>;
+  triggerId?: string;
+  blocks?: unknown[];
+}
+const ctxOf = (a: ChatAction): SlackActionCtx => (a.ctx ?? {}) as SlackActionCtx;
 
 // Resolves a workspace's Web API client (undefined = home). Throws for a tenant with no
 // live installation — callers treat that per record, never letting one uninstalled
@@ -67,12 +134,12 @@ export function slackDriver(client: bolt.webApi.WebClient): SlackChatDriver {
   return {
     client,
     capabilities: { reactions: true, privateReplies: 'native', threadRepliesNeedMention: false },
-    async post(to: ConvTarget, view: TurnView): Promise<MsgRef> {
+    async post(to: ConvTarget, view: MessageView): Promise<MsgRef> {
       const { text, blocks } = renderTurnView(view);
       const posted = await client.chat.postMessage({ channel: to.conv, thread_ts: to.thread, text, blocks });
       return { conv: to.conv, id: posted.ts as string };
     },
-    async update(msg: MsgRef, view: TurnView): Promise<void> {
+    async update(msg: MsgRef, view: MessageView): Promise<void> {
       const { text, blocks } = renderTurnView(view);
       // An update with no blocks must clear the old ones (buttons included) — [] does that.
       await client.chat.update({ channel: msg.conv, ts: msg.id, text, blocks: blocks ?? [] });
@@ -93,6 +160,37 @@ export function slackDriver(client: bolt.webApi.WebClient): SlackChatDriver {
       } catch {
         return undefined; // DM / missing scope — the traceability line is simply omitted
       }
+    },
+    async reply(action: ChatAction, view: PrivateView, opts?: { replace?: boolean }): Promise<void> {
+      const respond = ctxOf(action).respond;
+      if (!respond) throw new Error('no response_url on this interaction');
+      const { text } = renderPrivateView(view);
+      await respond({ response_type: 'ephemeral', replace_original: !!opts?.replace, text });
+    },
+    async postPrivate(to: ConvTarget, user: string, view: PrivateView): Promise<void> {
+      // chat.postEphemeral, not respond(): only it honours thread_ts (response_url always
+      // posts an ephemeral at the channel's top level).
+      const { text, blocks } = renderPrivateView(view);
+      await client.chat.postEphemeral({ channel: to.conv, user, thread_ts: to.thread, text, blocks });
+    },
+    async openDialog(action: ChatAction, view: DialogView): Promise<DialogRef | undefined> {
+      const trigger = ctxOf(action).triggerId;
+      if (!trigger) return undefined;
+      const opened = await client.views.open({ trigger_id: trigger, view: renderDialogView(view) });
+      return opened.view?.id ? { id: opened.view.id } : undefined;
+    },
+    async updateDialog(dialog: DialogRef, view: DialogView): Promise<void> {
+      await client.views.update({ view_id: dialog.id, view: renderDialogView(view) });
+    },
+    async refreshRating(action: ChatAction, tally: Tally): Promise<void> {
+      const blocks = withRatingTally(ctxOf(action).blocks, tally);
+      if (!action.where?.conv || !action.msg?.id || !blocks) return;
+      await client.chat
+        .update({ channel: action.where.conv, ts: action.msg.id, blocks })
+        .catch((e) => log.error(`rating tally: ${e instanceof Error ? e.message : String(e)}`));
+    },
+    async publishHome(user: string, view: HomeView): Promise<void> {
+      await client.views.publish({ user_id: user, view: { type: 'home', blocks: renderHomeView(view) } });
     },
   };
 }

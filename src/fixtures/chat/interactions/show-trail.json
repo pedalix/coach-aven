@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "views.open",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "trigger_id": "trig.1",
+        "view": "{\"type\":\"modal\",\"title\":{\"type\":\"plain_text\",\"text\":\"🧭 Steps\"},\"close\":{\"type\":\"plain_text\",\"text\":\"Close\"},\"blocks\":[{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"🧭 2 steps · 4s so far\"}]},{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"1. 📖 Read a.ts\\n2. ✏️ Edit a.ts\"}},{\"type\":\"context\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"⏳ Still running — close and reopen to catch up.\"}]}]}"
+      }
+    }
+  ],
+  "engine": []
+}

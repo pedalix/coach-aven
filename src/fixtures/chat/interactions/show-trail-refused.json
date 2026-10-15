@@ -1,0 +1,25 @@
+{
+  "calls": [
+    {
+      "method": "views.open",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "trigger_id": "trig.1",
+        "view": "{\"type\":\"modal\",\"title\":{\"type\":\"plain_text\",\"text\":\"🧭 Steps\"},\"close\":{\"type\":\"plain_text\",\"text\":\"Close\"},\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"_This turn's step-by-step trail is no longer available (I've been restarted since it ran)._\"}}]}"
+      }
+    },
+    {
+      "method": "chat.postEphemeral",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "user": "U_HUMAN",
+        "thread_ts": "9.1",
+        "text": "Couldn't open the steps view just now — Slack rejected it. Try again in a moment; if it keeps failing, the trail is in the logs."
+      }
+    }
+  ],
+  "engine": []
+}
