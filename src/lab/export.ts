@@ -13,6 +13,7 @@
 // so ledger lines attach exactly as the plan attaches them (by id, or a thread by any overlapping ref — plan.ts);
 // lines that attach to no exported fragment are counted in export.json, never guessed onto a neighbour.
 
+import { annotateCases } from './annotate.js';
 import { existsSync, lstatSync, readFileSync, realpathSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -813,6 +814,7 @@ export async function exportDataset(opts: ExportOptions): Promise<DatasetMeta> {
     };
     saveMeta(out, meta);
     writeFileSync(join(out, 'export.json'), `${JSON.stringify(report, null, 2)}\n`);
+    annotateCases(out); // recorder copies and topics of one call share call:<call_id> (annotate.ts)
     log(`${opts.name}: ${JSON.stringify(report.units)} items ${JSON.stringify(report.items)} gold ${JSON.stringify(report.gold)}`);
     log(`  t1 ${JSON.stringify(report.t1)}`);
     log(`  t3 ${JSON.stringify(report.t3)}`);

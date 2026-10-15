@@ -154,6 +154,7 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
   const weight = (id: string): number => (task === 't1-fragment' ? ((unitById.get(id) as FragmentUnit | undefined)?.weight ?? 0) : 0);
 
   const memory: MemoryRow[] = [];
+  let auditCredit = 0;
   const state = new Map<string, unknown>();
   const meter = metered(opts.llm);
   const predictions: Prediction[] = [];
@@ -200,7 +201,11 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
         if (form === 'confirm' && guess != null) return (labels.has(guess) ? 0.5 : 1.5) + Math.max(0, labels.size - 1);
         return 1 + Math.max(0, labels.size - 1);
       };
-      const audits = Math.min(auto.length, Math.floor(Math.max(0, budget) * (opts.auditShare ?? 0)));
+      // Audit credit accrues across days (Q × share per day): at Q=3 and 15% that is one audit every ~2.2 days,
+      // not floor(0.45) = none at all.
+      auditCredit += Math.max(0, budget) * (opts.auditShare ?? 0);
+      const audits = Math.min(auto.length, Math.floor(auditCredit + 1e-9));
+      auditCredit -= audits;
       let left = Math.max(0, budget - audits);
       const asks: [string, Prediction[]][] = [];
       for (const g of ranked) {

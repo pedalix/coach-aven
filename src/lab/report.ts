@@ -77,7 +77,7 @@ function mainTable(group: ReportEntry[]): string {
       }),
     );
   }
-  const head = ['variant', 'run', 'n (dev/test)', 'auto@95 test', 'auto@95 conservative', 'oracle', 'acc (test)'];
+  const head = ['variant', 'run', 'n (dev/test)', 'auto@95 test', 'auto@95 conservative', 'auto at τ .95 (P)', 'oracle', 'acc (test)'];
   if (task === 't1-fragment') head.push('auto@95 by minutes');
   if (task === 't4-kind') head.push('macroF1');
   if (task === 't4-addressee') head.push('Jaccard');
@@ -85,7 +85,7 @@ function mainTable(group: ReportEntry[]): string {
   return table(
     head.map((h) => h.replace('95', String(Math.round((group[0].score.floor ?? 0.95) * 100)))),
     group.map(({ result: r, score: s }) => {
-      const cells = [r.variant, runLabel(r), `${s.n} (${s.split.dev}/${s.split.test})${s.answered ? ` +${s.answered} answered` : ''}`, autoCell(s.auto), autoCell(s.autoConservative), pct(s.auto.oracle.coverage), pct(s.auto.accuracyAll)];
+      const cells = [r.variant, runLabel(r), `${s.n} (${s.split.dev}/${s.split.test})${s.answered ? ` +${s.answered} answered` : ''}`, autoCell(s.auto), autoCell(s.autoConservative), s.autoTau ? `${pct(s.autoTau.coverage)} (${pct(s.autoTau.precision)}, n ${s.autoTau.decided})` : '—', pct(s.auto.oracle.coverage), pct(s.auto.accuracyAll)];
       if (task === 't1-fragment') cells.push(s.autoMinutes ? pct(s.autoMinutes.test.coverage) : '—');
       if (task === 't4-kind') cells.push(s.macroF1 !== undefined ? num(s.macroF1, 3) : '—');
       if (task === 't4-addressee') cells.push(s.jaccard !== undefined ? num(s.jaccard, 3) : '—');

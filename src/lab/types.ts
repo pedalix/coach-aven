@@ -79,6 +79,7 @@ export interface FragmentUnit {
   refs: string[]; // store refs of the evidence
   text: string; // evidence text, truncated (summary section / run messages / work items)
   ladder?: { state: string; initiative?: string; candidates?: string[]; rule?: string; hint?: string }; // today's production ladder, for reference
+  case?: string; // the case key when the exporter knows better than the id (call:<call_id> joins recorder copies)
 }
 
 export interface ItemUnit {

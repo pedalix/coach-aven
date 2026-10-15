@@ -15,7 +15,7 @@
 
 import { join } from 'node:path';
 import { dayOf, goldFor, readJsonl, unitsFor, type Dataset } from './dataset.js';
-import { autoShare, bcubed, jaccard, macroF1, pairwise, perClass, setKey, wilson, type AutoShare, type ClassRow, type PairScores, type Scored } from './metrics.js';
+import { atThreshold, autoShare, bcubed, jaccard, macroF1, pairwise, perClass, setKey, wilson, type AutoShare, type Operating, type ClassRow, type PairScores, type Scored } from './metrics.js';
 import { splitOfUnit } from './cases.js';
 import { NONE, type FragmentUnit, type GoldRow, type GoldTier, type ItemUnit, type Prediction, type TaskId, type Unit } from './types.js';
 import type { RunResult } from './run.js';
@@ -26,6 +26,7 @@ export interface ScoreOpts {
   tiers?: GoldTier[]; // score against these gold tiers only (default: every tier, most trusted wins per unit)
   level?: Level; // t1 only: compare initiatives or their umbrellas
   floor?: number; // the precision floor of the headline (0.95)
+  tau?: number; // the fixed decide/ask cut for autoTau (.95)
 }
 
 export interface RungRow {
@@ -84,6 +85,7 @@ export interface TaskScore {
   split: { dev: number; test: number };
   auto: AutoShare; // the headline: threshold chosen on dev (point precision ≥ floor), measured on test
   autoConservative: AutoShare; // same, but the dev threshold must hold the floor at the Wilson LOWER bound
+  autoTau: Operating; // test units decided at the FIXED cut τ (what the pipeline does in production) — robust when dev is tiny
   autoMinutes?: AutoShare; // t1-fragment: the same weighted by minutes (what the timelog actually bills)
   accuracy: number; // every scored unit (dev + test), abstention = wrong
   rungs: RungRow[];
@@ -237,6 +239,7 @@ export function scoreTask(ds: Dataset, result: RunResult, opts: ScoreOpts = {}):
   const test = scored.filter((u) => u.split === 'test');
   const auto = autoShare(dev, test, floor);
   const autoConservative = autoShare(dev, test, floor, { lowerBound: true });
+  const autoTau = atThreshold(test, opts.tau ?? 0.95);
   let autoMinutes: AutoShare | undefined;
   if (task === 't1-fragment') {
     const byMinutes = rows.map(({ id, pred, conf, gold: g, minutes, split }) => ({ id, pred, conf, gold: g, weight: minutes, split }));
@@ -297,6 +300,7 @@ export function scoreTask(ds: Dataset, result: RunResult, opts: ScoreOpts = {}):
     split: { dev: dev.length, test: test.length },
     auto,
     autoConservative,
+    autoTau,
     ...(autoMinutes ? { autoMinutes } : {}),
     accuracy: rows.length ? rows.filter((r) => r.correct).length / rows.length : 0,
     rungs,

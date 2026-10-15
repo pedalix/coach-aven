@@ -11,7 +11,7 @@ import { UNIT_OF } from './types.js';
 
 export function caseKeyOf(task: TaskId, u: Unit): string {
   const kind = UNIT_OF[task];
-  if (kind === 'fragment') return (u as FragmentUnit).id.replace(/#\d+$/, '');
+  if (kind === 'fragment') return (u as FragmentUnit).case ?? (u as FragmentUnit).id.replace(/#\d+$/, '');
   if (kind === 'item') {
     const it = u as ItemUnit;
     if (it.type === 'comment') return it.id.replace(/#c[^#]*$/, '');

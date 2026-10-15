@@ -8,7 +8,7 @@
 //           → runs every variant × task, scores it, saves runs/<run>/…, prints the summary table
 //   report  --run <name> [--out file] [--tiers …] [--level umbrella] [--floor 0.95]
 //   list    → the datasets under LAB_DIR/datasets with unit and gold counts
-//   export | label | synth …  → main(argv) of ./export.js, ./label.js, ./synth/index.js
+//   export | label | synth | cases …  → main(argv) of ./export.js, ./label.js, ./synth/index.js, ./annotate.js
 //
 // Environment: LAB_DIR (default data/lab, gitignored — never the live daemon's data dir); the model token
 // from LAB_CLAUDE_TOKEN, else CLAUDE_CODE_OAUTH_TOKEN in LAB_ENV_FILE (default ./.env); LAB_CONCURRENCY (4).
@@ -29,7 +29,7 @@ import { VARIANTS } from './variants/index.js';
 class UsageError extends Error {}
 
 const TIERS: GoldTier[] = ['human', 'synthetic', 'opus', 'model', 'rule'];
-const DELEGATES: Record<string, string> = { export: './export.js', label: './label.js', synth: './synth/index.js' };
+const DELEGATES: Record<string, string> = { export: './export.js', label: './label.js', synth: './synth/index.js', cases: './annotate.js' };
 
 function oneOf<T extends string>(name: string, v: string, allowed: readonly T[]): T {
   if (!(allowed as readonly string[]).includes(v)) throw new UsageError(`--${name} must be one of ${allowed.join(', ')} (got "${v}")`);
@@ -198,7 +198,7 @@ function cmdList(): void {
   }
 }
 
-const USAGE = `usage: npm run lab -- <run|report|list|export|label|synth> [options]
+const USAGE = `usage: npm run lab -- <run|report|list|export|label|synth|cases> [options]
   run     --dataset <name|dir> [--variant a,b] [--task <t>|all] [--mode static|replay] [--memory none|oracle|loop]
           [--q 10] [--audit 0.15] [--threshold .95 replay | 0 static] [--population gold|all] [--tiers human,opus] [--level initiative|umbrella] [--opt key=value]
           [--floor 0.95] [--no-llm] [--run <name>]
