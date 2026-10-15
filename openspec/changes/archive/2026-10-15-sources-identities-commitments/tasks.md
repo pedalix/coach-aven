@@ -5,4 +5,4 @@
 - [x] 1.3 Build: `att:identities` and `att_commitments` next to the plan; verify with the build test.
 - [x] 2.1 `.mjs` 1.9.0: tools `identities()` and `commitments({since, until})`; the prompt paragraph's tool list; verify with the MCP test and the golden prompt.
 - [x] 2.2 Docs (`docs/sources.md` → Attribution), ledger row.
-- [ ] 3.1 Home: compare with the owen-ops collector and extractor (dry runs) on the live store; then the tenant switch and the mount-free container.
+- [x] 3.1 Home: compare with the owen-ops collector and extractor (dry runs) on the live store; then the tenant switch and the mount-free container. Parity 66 = 66 commitment rows, identities 0/0; tenant `fedd4cc` deleted the store loader; `proj-owen-ops` recreated without mounts; the 2026-10-15 21:31 review ran end to end through the readouts (1 decided, 2 escalated, 2 rule proposals, committed by the bot).
