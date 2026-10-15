@@ -101,6 +101,8 @@ test('recomputeAttribution: the subject\'s fragments with ledger precedence, lad
     assert.equal(byKind['call:rule']!.rule_id, 'marker:hana', 'the call with an exclusive person');
     assert.deepEqual(byKind['work:rule']!.attributions, [{ initiative: 'acme/p5', share: 1 }], 'the repo routes it');
     assert.deepEqual(byKind['thread:open']!.candidates, ['initech/a', 'initech/b'], 'Rui narrows');
+    assert.equal(byKind['thread:open']!.container, 'dm:@Rui Rosa', 'the conversation, for grouping questions by subject');
+    assert.equal(byKind['work:rule']!.container, 'github.com/acme-tools/platform');
     assert.deepEqual(byKind['thread:decided']!.attributions, [{ initiative: 'initech/b', share: 1 }], 'the ledger beats Hana\'s exclusive marker');
     assert.equal(out.fragments!.some((f) => (f.refs as string[]).includes('slack:T/C3/6')), false, 'the greeting-only run is dropped');
     assert.equal(out.fragments!.some((f) => (f.refs as string[]).includes('slack:T/C1/7')), false, 'another author\'s message is not a fragment of the subject');
