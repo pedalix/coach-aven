@@ -34,12 +34,12 @@ Every request SHALL carry a bearer token the server was started with (or arrive 
 - **THEN** `stats.meta` names it and its last pull time
 
 ### Requirement: Project opts in by config
-A project with a `sources` block SHALL use the replica mount unless its `mcp` list declares a server named `sources` with a `url`; then no replica is mounted and the sandbox reaches the store through that URL.
-
-#### Scenario: Remote sources declared
-- **WHEN** `mcp: [{ "name": "sources", "url": "https://…/gw/<slug>/sources", "auth": "gateway-m2m" }]` is set
-- **THEN** the sandbox has no `/data/sources` mount and the sources tools come from the URL
+A project with a `sources` block SHALL reach its store through the `sources` server the bot serves over the session's control channel from the replica on the bot host; the bot mounts no replica and runs no sources server in the sandbox (a mount the operator lists in the project's `sandbox.mounts` is the operator's own). A project whose `mcp` list declares its own server named `sources` SHALL use it instead and receives no channel-served `sources`.
 
 #### Scenario: Nothing declared
-- **WHEN** the project has no `sources` entry in `mcp`
-- **THEN** the replica mount and the stdio server are used as today
+- **WHEN** a project has a `sources` block and no `sources` entry in `mcp`
+- **THEN** the sandbox has no `/data/sources` mount and no stdio sources server, and the sources tools answer over the control channel
+
+#### Scenario: Remote sources declared
+- **WHEN** `mcp: [{ "name": "sources", "url": "https://…", "auth": "gateway-m2m" }]` is set
+- **THEN** the sandbox reaches the store through that URL and the bot registers no `sources` server for the session

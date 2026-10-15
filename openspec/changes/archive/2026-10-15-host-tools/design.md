@@ -25,7 +25,7 @@
 - **One writer on stdin.** Every line a session writes (turns, control responses, tool answers) goes through one promise chain. On ssh-docker each write is its own `cat > fifo`; two writes over `PIPE_BUF` to one FIFO may interleave, and parallel tool calls make concurrent answers of tens of KB normal.
 - **Payload.** Results travel as text in the MCP `content`; a sources transcript page is ≤ 50k characters, within what the driver session stream already carries. Measured during the canary (tasks).
 - **Removal in the same PR.** The outbox poller, the mounts and the sha uploads never ran on prod (flag off, no sources project), so they go with this change instead of lingering behind a flag. One exception: `snapshot/plain/host-mcp.mjs` stays for one release — a bot that pulled this change but still runs the old code reads it at every session prep while `DISPATCH=1`.
-- **Explicit mounts stay possible.** The bot injects none; a project config may still list one. owen-ops does (its review loader reads the replica file with SQL); bluefin-ops and every future remote tenant go through the tools.
+- **No exceptions.** The bot injects no mount and no tenant keeps one. A deterministic program that needs the whole store (owen-ops' review loader) does not get the file in the sandbox — neither as a mount nor as a copy; its logic moves into the store build as a platform layer whose results the tools serve (OpenSpec `attribution-layer`). Until then owen-ops' existing container keeps its old mount (containers are not recreated on an option change).
 
 ## Risks / Trade-offs
 
@@ -35,9 +35,9 @@
 
 ## Migration Plan
 
-Bucket 3 (`DISPATCH=1`, already on at home) + bucket 2 (sources-gated). Home: owen-ops gets the explicit replica mount line, restart in the window, both briefs and one `propose` round trip observed (session init lists `sources`/`host` with `source: sdk`), timings logged; ledger row; prod gets it with C3 on the next tag.
+Bucket 3 (`DISPATCH=1`, already on at home) + bucket 2 (sources-gated). Home: restart, both briefs and one `propose` round trip observed (session init lists `sources`/`host` with `source: sdk`), timings logged; ledger row; prod gets it with C3 on the next tag.
 
 ## Open Questions
 
 - Whether `registry` should hide projects the tenant's rules never target (today: the gate decides, the list is complete).
-- Whether owen-ops' review loader should read through a bulk tool so owen-ops can run mount-free too (today: explicit mount, home only).
+- Resolved: owen-ops' review loader goes into the platform as the attribution layer (OpenSpec `attribution-layer`).

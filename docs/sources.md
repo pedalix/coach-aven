@@ -170,12 +170,10 @@ once. **The sandbox does not get it.** The bot answers the agent's `sources` too
 session's control channel (*Search tool* below; `docs/runtime-config.md` → *Host tools*), so a
 sources project runs on any driver and nothing is mounted for it.
 
-A tenant that runs its own code over the store inside the sandbox (owen-ops' review loader reads
-`/data/sources/store.sqlite` with SQL) can still have the **directory** mounted — but only as the
-operator's explicit choice in its config, and only where the sandbox runs on the bot host's docker:
-`"sandbox": {"mounts": ["<data dir>/<slug>/replica:/data/sources:ro"]}`. The directory, not the
-file, so the rename is visible inside the container. Like every sandbox option it applies at
-container creation.
+No project mounts it, and there are no exceptions (Owen, 2026-10-15). Deterministic work over the
+whole store — attributing threads, calls, tickets and work blocks to initiatives — belongs in the
+store build, where the data is, and reaches the agent through tools (OpenSpec `attribution-layer`),
+not as a program reading the file inside the sandbox.
 
 ## Secrets
 

@@ -23,5 +23,5 @@
 
 ## 5. Canary
 
-- [ ] 5.1 Home: owen-ops gets its explicit replica mount line (byte-identical to the old injected one), restart in the window; verify the next owen-ops and bluefin-ops briefs use `mcp__sources__*` and the session log shows both servers as in-process; one `propose` round trip with buttons; log the per-call latency of a transcript page.
-- [ ] 5.2 After the home restart: delete `snapshot/plain/host-mcp.mjs` (kept one release for bots that pulled but had not restarted).
+- [x] 5.1 Home restart (2026-10-15 18:16, Owen: now, outside the window); verify the next owen-ops and bluefin-ops briefs use `mcp__sources__*` and the session log shows both servers as in-process; one `propose` round trip with buttons. — Done: bluefin-ops brief session init `host`/`sources` connected with `source: sdk`, 14 `mcp_message` calls, `propose` answered `p-6530b394d846` + gate. No mount exception (Owen); owen-ops' review keeps the old container's mount until `attribution-layer`.
+- [x] 5.2 After the home restart: delete `snapshot/plain/host-mcp.mjs` (kept one release for bots that pulled but had not restarted). — Done in the cleanup PR.

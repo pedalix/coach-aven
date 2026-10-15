@@ -310,6 +310,4 @@ host (OpenSpec `dispatch-primitive`, `host-tools`; pure half `src/dispatch.ts`, 
   bullet the same way.
 - **Any driver.** The tool rides the session channel, so a Daytona sandbox proposes exactly like an
   ssh-docker one; the targets are the projects of the bot the sandbox belongs to. (Until the
-  `host-tools` change it was a file in a bind-mounted `/data/outbox`; `snapshot/plain/host-mcp.mjs`
-  stays in the tree for one release so a bot that pulled this change but has not restarted yet keeps
-  preparing sessions — delete it after the home canary.)
+  `host-tools` change it was a file in a bind-mounted `/data/outbox`.)
