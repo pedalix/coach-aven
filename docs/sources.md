@@ -17,12 +17,12 @@ poller and the sandbox-side search tool are the next slices (see *What comes nex
   "slug": "owen-ops",
   "repos": ["owner-example/owen-ops"],
   "sources": {
-    "google":  { "accounts": ["owen@example.com", "owen@example.com"], "since": "2026-09-01",
+    "google":  { "accounts": ["you@example.com", "you@side.example"], "since": "2026-09-01",
                  "calendars": [], "kinds": ["gmail", "drive", "calendar"] },
     "slack":   { "workspaces": ["T0000FAKE01"], "since": "2026-10-01", "threadWindowDays": 30, "editWindowHours": 48 },
     // a tenant store: only the shared channels, no DMs —
     // "slack": { "workspaces": ["T0000FAKE01"], "channels": ["bluefin-aven-caldora", "C0BBX082QNQ"], "kinds": ["channel"] },
-    "msgraph": { "tenant": "00000000-0000-4000-8000-000000000000", "accounts": ["owen.hale@example.com"],
+    "msgraph": { "tenant": "00000000-0000-4000-8000-000000000000", "accounts": ["you@partner.example"],
                  "only": ["mail", "calendar", "chats", "channels", "files"], "calendars": [] },
     "intervalMinutes": 15,
     "people": "projects.d/owen-ops.people.json"
@@ -62,7 +62,7 @@ Bootstrap runs **once, where a browser is** (the operator's laptop; WSL2 + Windo
 
 ```bash
 orch sources auth owen-ops google client add --name pedalix --json ~/Downloads/client_secret_….json --audience internal
-orch sources auth owen-ops google login --client pedalix --account owen@example.com
+orch sources auth owen-ops google login --client pedalix --account you@example.com
 orch sources auth owen-ops slack add --probe              # paste the xoxp; --probe checks the rate-limit tier
 orch sources auth bluefin-ops slack add --from-install T0SPOT   # the CoachAven installation's bot token for Bluefin's own workspace (or --bot to paste a xoxb)
 orch sources auth owen-ops msgraph login --tenant <guid> --client <app-id>
@@ -352,9 +352,9 @@ Worked example — the 18:30 close for owen-ops asks `unanswered({hours: 24})` a
 ```jsonc
 { "subject": {"mode": "person", "people": ["owen-hale"]}, "hours": 24, "since": "2026-09-30T…", "conversations": 2,
   "unanswered": [
-    { "ref": "slack:T02J…", "container": "#bluefin-aven-caldora", "author": "florin", "to": ["Owen Hale"], "ts": "2026-10-13T08:12:00.000Z",
+    { "ref": "slack:T02J…", "container": "#bluefin-aven-caldora", "author": "client-user", "to": ["Owen Hale"], "ts": "2026-10-13T08:12:00.000Z",
       "ageHours": 31, "pending": 2, "lastInboundTs": "2026-10-14T07:40:00.000Z", "thread": {"n": 3}, "snippet": "@Owen Hale …", "permalink": "https://pedalix.slack.com/archives/…" },
-    { "ref": "gmail:owen@example.com:1a13…", "container": "inbox", "author": "konrad@…", "ts": "2026-10-12T15:02:00.000Z", "ageHours": 48, "pending": 1, … } ] }
+    { "ref": "gmail:you@example.com:1a13…", "container": "inbox", "author": "konrad@…", "ts": "2026-10-12T15:02:00.000Z", "ageHours": 48, "pending": 1, … } ] }
 ```
 
 and `stuck({days: 5})` returns `groups: [{project: "CG", status: "In Progress", n: 2, tasks: [{key: "CG-61", daysSinceUpdate: 9, …}]}]`.
@@ -396,7 +396,7 @@ nginx (already the TLS edge for `aven.guru`) proxies `location /sources/<slug>/m
 hold the two snippets. A machine without a public name (a laptop ingesting local sources) uses a
 `cloudflared` tunnel to the same nginx/gateway pattern; the home bot keeps the mount.
 
-Prod wiring order: tag the release that carries `serve` → unit + nginx location on aven-prod → gateway
+Prod wiring order: tag the release that carries `serve` → unit + nginx location on the bot host → gateway
 target + token → `initialize` answers 200 through `<gateway-host>/gw/<slug>/mcp` with an M2M token →
 only then the project's `mcp` entry (and its `sources` block on prod).
 
@@ -460,7 +460,7 @@ every note it wrote, because recorders keep rewriting a note after the call.
 ```jsonc
 "meetings": {
   "granola": { "since": "2026-10-01" },          // Personal API key: orch sources auth <slug> meetings granola add
-  "gmeet":   { "accounts": ["owen@example.com"] }, // Gemini "Notes by Gemini" docs via the google token (drive.readonly)
+  "gmeet":   { "accounts": ["you@example.com"] }, // Gemini "Notes by Gemini" docs via the google token (drive.readonly)
   "wispr":   { "since": "2026-10-01" }           // device-code login: orch sources auth <slug> meetings wispr login
 }
 ```

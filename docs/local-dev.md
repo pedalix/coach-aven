@@ -1,7 +1,7 @@
 # Local dev setup
 
 How to run CoachAven on your machine **without colliding with prod**. Prod runs as
-a systemd service on the shared `aven-prod` VM (see [`../infra/prod/README.md`](../infra/prod/README.md));
+a systemd service on the bot host (see [`../infra/prod/README.md`](../infra/prod/README.md));
 your laptop and prod hit the **same Daytona** and could hit the **same Slack app**,
 so the whole point of this guide is isolating those two.
 

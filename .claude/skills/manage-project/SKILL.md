@@ -3,6 +3,8 @@ name: manage-project
 description: Add a new project to CoachAven prod OR edit an existing one (add/remove repos, change the system prompt, MCP / gateway route, YouTrack prefixes, sandbox driver, CLI pin, workspace membership) — sync from the box, edit infra/prod/runtime/projects.config.json + projects.d/<slug>.md, wire the bluefin-infra side (gateway route, Auth0 bot client) when needed, then export + /aven reload and verify. Use when the user wants to onboard, change, or remove a project/repo of the Slack coding agent.
 ---
 
+> Instance values (gateway host, team ids, slugs, YouTrack prefixes) live in your ops repo at `infra/prod/runtime/README.md`; this skill only knows the mechanics.
+
 # Add or edit a CoachAven project (prod)
 
 A project is one entry in **`infra/prod/runtime/projects.config.json`** (gitignored **prod
@@ -58,7 +60,7 @@ then gather only what changes. The field reference (shape in `src/projects.ts`):
 | `slackChannel` | explicit channel id override — avoid, name binding is the default. | reload |
 | `sources` | mail/chat/calendar archive the bot pulls (`docs/sources.md`); needs `orch sources auth` on the host. Rare — follow that doc. | partly |
 | `env` | reserved, keep `{}`. | — |
-| top-level `workspaces` | tenant → slugs. When present, membership is **explicit-only**: a new slug MUST be added to a tenant (home `T0000FAKE01` unless told otherwise), and a removed slug MUST be removed there too (unknown slug = reload error). | reload |
+| top-level `workspaces` | tenant → slugs. When present, membership is **explicit-only**: a new slug MUST be added to a tenant (the home team id unless told otherwise — see `infra/prod/runtime/README.md`), and a removed slug MUST be removed there too (unknown slug = reload error). | reload |
 
 Not config any more (don't ask for them): `composerAuth` — gone. Private composer deps
 are found by the dependency scanner (`docs/project-facts.md`): `facts/<slug>.json`

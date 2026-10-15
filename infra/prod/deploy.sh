@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CoachAven — scripted deploy onto the shared Hetzner VM `aven-prod`.
+# CoachAven — scripted deploy onto a plain Linux host (systemd + ssh), no Docker.
 # Runs as a systemd service (NOT Docker): a single long-lived Node process holding
 # a Slack Socket-Mode connection and driving Daytona sandboxes. No nginx, no ports,
 # no TLS — Socket Mode dials OUT, so it never touches the shared 80/443.
@@ -8,12 +8,14 @@
 #
 #   install        Root stage: create REMOTE_DIR (deployer-owned), render + install
 #                  the systemd unit, daemon-reload, enable (NOT start). Idempotent.
-#   export         Upload the gitignored prod-runtime files the app needs at REMOTE_DIR:
-#                  .env, github-app-private-key.pem, projects.config.json — read from
-#                  infra/prod/runtime/ (SEPARATE from the repo-root local-dev files).
-#                  Run once, and again whenever any change. NEVER touches state.json.
-#   import         The reverse: download the box's live runtime files into
-#                  infra/prod/runtime/ so it mirrors prod. (alias: pull)
+#   export         Upload the runtime files the app needs at REMOTE_DIR: .env,
+#                  github-app-private-key.pem, projects.config.json, projects.d/ — read
+#                  from infra/prod/runtime/, which is YOUR OPS REPO (a git checkout, see
+#                  infra/prod/README.md). Refuses while that checkout is dirty, pushes it
+#                  first, then uploads. Run once, and again on any change. NEVER touches
+#                  state.json.
+#   import         The reverse: download the box's live runtime files into the ops
+#                  checkout and show the drift as `git status` for you to commit. (alias: pull)
 #   deploy         Upload the repo (code only), `npm ci` on the server, restart the
 #                  service, health-check for the "Slack bot running" log line. The release.
 #   logs           Tail the service logs (journalctl -f).
@@ -34,9 +36,11 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
 ENV_FILE="$HERE/.env"
-# Prod runtime truth (gitignored). SEPARATE from the repo-root files, which are your
-# LOCAL DEV runtime. `export` uploads these to the box; `import` pulls the box's copies
-# back down here so this dir always mirrors prod.
+# Prod runtime truth: a git checkout of your private OPS REPO (gitignored here; template in
+# runtime.example/). SEPARATE from the repo-root files, which are your LOCAL DEV runtime.
+# `export` pushes the checkout and uploads it to the box; `import` pulls the box's copies
+# back into it so the repo always records what prod runs. Secrets (.env, the App key)
+# live in the checkout but are ignored by its .gitignore — they travel by scp only.
 RUNTIME_DIR="$HERE/runtime"
 # The runtime files the app needs at REMOTE_DIR (uploaded by export, pulled by import).
 RUNTIME_FILES=(.env github-app-private-key.pem projects.config.json)
@@ -51,6 +55,23 @@ ok()   { printf '\033[1;32m✓ %s\033[0m\n' "$*" >&2; }
 warn() { printf '\033[1;33m! %s\033[0m\n' "$*" >&2; }
 die()  { printf '\033[1;31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "missing required tool: $1"; }
+
+# The ops checkout must exist and be a git repo; export additionally wants it clean
+# and pushed, so the repo — not a laptop — is the record of what the box got.
+overlay_check() {
+  [[ -d "$RUNTIME_DIR/.git" || -f "$RUNTIME_DIR/.git" ]] \
+    || die "$RUNTIME_DIR is not a git checkout — clone your ops repo there:
+    git clone <your-ops-repo-url> $RUNTIME_DIR
+  (start one from $HERE/runtime.example/ — see infra/prod/README.md)"
+}
+overlay_push() {
+  if [[ -n "$(git -C "$RUNTIME_DIR" status --porcelain)" ]]; then
+    git -C "$RUNTIME_DIR" status --short >&2
+    die "ops checkout is dirty — commit it first (git -C $RUNTIME_DIR commit -a), then export"
+  fi
+  git -C "$RUNTIME_DIR" push -q || die "push of the ops checkout failed — set its upstream (git -C $RUNTIME_DIR push -u origin main) and retry"
+  ok "ops repo pushed ($(git -C "$RUNTIME_DIR" rev-parse --short HEAD))"
+}
 
 load_env() {
   [[ -f "$ENV_FILE" ]] || die "no $ENV_FILE — copy infra/prod/.env.example and fill it in"
@@ -123,11 +144,13 @@ cmd_install() {
 # export: upload the local prod-runtime truth → the box.
 cmd_export() {
   preflight_deployer
+  overlay_check
   local missing=0
   for f in "${RUNTIME_FILES[@]}"; do
     [[ -f "$RUNTIME_DIR/$f" ]] || { warn "missing $RUNTIME_DIR/$f"; missing=1; }
   done
-  [[ "$missing" == 0 ]] || die "fill in the prod-runtime files first (cp from .env.example, or run: import)"
+  [[ "$missing" == 0 ]] || die "fill in the prod-runtime files first (cp from runtime.example/, or run: import)"
+  overlay_push
 
   log "Uploading prod runtime ($RUNTIME_DIR) → $DEPLOYER:$REMOTE_DIR"
   dssh "mkdir -p $REMOTE_DIR"
@@ -148,7 +171,7 @@ cmd_export() {
 # prod. The reverse of export. state.json is server-owned and deliberately NOT pulled.
 cmd_import() {
   preflight_deployer
-  mkdir -p "$RUNTIME_DIR"
+  overlay_check
   log "Downloading prod runtime from $DEPLOYER:$REMOTE_DIR → $RUNTIME_DIR"
   for f in "${RUNTIME_FILES[@]}"; do
     if dssh "test -f $REMOTE_DIR/$f" </dev/null; then
@@ -164,6 +187,12 @@ cmd_import() {
   done
   chmod 600 "$RUNTIME_DIR/.env" "$RUNTIME_DIR/github-app-private-key.pem" 2>/dev/null || true
   ok "prod runtime pulled into $RUNTIME_DIR"
+  if [[ -n "$(git -C "$RUNTIME_DIR" status --porcelain)" ]]; then
+    git -C "$RUNTIME_DIR" status --short >&2
+    warn "the box differs from the ops repo — review, then: git -C $RUNTIME_DIR commit -am 'import from box' && git -C $RUNTIME_DIR push"
+  else
+    ok "ops repo already matches the box"
+  fi
 }
 
 cmd_deploy() {

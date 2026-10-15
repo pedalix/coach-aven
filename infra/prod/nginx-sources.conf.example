@@ -1,4 +1,4 @@
-# aven-prod nginx: expose `orch sources serve <slug>` (loopback) at https://aven.guru/sources/<slug>/mcp
+# bot-host nginx: expose `orch sources serve <slug>` (loopback) at https://<bot-public-host>/sources/<slug>/mcp
 # for agentgateway (bluefin-infra engine/config.yaml target `sources`). Paste the location into the
 # aven.guru server block (sites-available/aven.guru.conf); one location per served project.
 # The bearer is checked by the serve process itself (SOURCES_SERVE_TOKEN) — nginx only proxies.

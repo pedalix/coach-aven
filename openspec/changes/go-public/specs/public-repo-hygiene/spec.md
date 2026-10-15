@@ -9,7 +9,7 @@ Keeps the public repository free of tenant and personal identifiers and keeps pr
 CI SHALL fail when any tracked file matches a pattern in `scripts/public-guard.txt` (third-party e-mail domains, tenant ids, host IPs and hostnames). Product defaults (channel-name prefixes, example slugs) are not identifiers and SHALL NOT be listed.
 
 #### Scenario: A real mailbox lands in a test
-- **WHEN** a commit adds `someone@example.com` to a `*.test.ts`
+- **WHEN** a commit adds `someone@<a-real-partner-domain>` to a `*.test.ts`
 - **THEN** the `public-guard` job fails and names the file and line
 
 #### Scenario: Placeholder values

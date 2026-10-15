@@ -23,9 +23,9 @@ facts/
 .env.*
 !.env.example
 github-app-private-key.pem
-# prod runtime truth (pulled/pushed by infra/prod/deploy.sh import|export) — never commit:
-infra/prod/runtime/*
-!infra/prod/runtime/.env.example
+# prod runtime truth = your private ops repo checked out here (infra/prod/README.md); template
+# in infra/prod/runtime.example/. Never part of this repo:
+infra/prod/runtime/
 /.claude/worktrees/transparency-trail/
 /.claude/worktrees/youtrack-rich-context/
 events/
