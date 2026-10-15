@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "replace_original": true,
+        "text": ":information_source: A turn is running in this thread — cancel it first, then restart."
+      }
+    }
+  ],
+  "engine": []
+}

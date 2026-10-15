@@ -1,0 +1,28 @@
+{
+  "calls": [
+    {
+      "method": "chat.update",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "ts": "1.0",
+        "blocks": "[{\"type\":\"rich_text\",\"elements\":[{\"type\":\"rich_text_section\",\"elements\":[{\"type\":\"text\",\"text\":\"the answer\"}]}]},{\"type\":\"actions\",\"elements\":[{\"type\":\"button\",\"action_id\":\"show_trail\",\"text\":{\"type\":\"plain_text\",\"text\":\"🧭 Show steps\"},\"value\":\"tabc123-1\"},{\"type\":\"button\",\"action_id\":\"fb_good\",\"text\":{\"type\":\"plain_text\",\"text\":\"👍 Helped · 1\"},\"value\":\"{\\\"t\\\":\\\"tabc123-1\\\",\\\"s\\\":\\\"beta\\\",\\\"k\\\":\\\"thread:9.2\\\"}\"},{\"type\":\"button\",\"action_id\":\"fb_bad\",\"text\":{\"type\":\"plain_text\",\"text\":\"👎 Missed\"},\"value\":\"{\\\"t\\\":\\\"tabc123-1\\\",\\\"s\\\":\\\"beta\\\",\\\"k\\\":\\\"thread:9.2\\\"}\"}]}]"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "recordFeedback": {
+        "at": "1970-01-01T00:00:00.000Z",
+        "turnId": "tabc123-1",
+        "key": "thread:9.2",
+        "slug": "beta",
+        "user": "U_HUMAN",
+        "verdict": "good",
+        "channel": "C_HOME",
+        "ts": "1.0"
+      }
+    }
+  ]
+}

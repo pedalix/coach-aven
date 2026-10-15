@@ -1,0 +1,23 @@
+{
+  "calls": [
+    {
+      "method": "views.open",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "trigger_id": "trig.1",
+        "view": "{\"type\":\"modal\",\"title\":{\"type\":\"plain_text\",\"text\":\"SUP-12\"},\"close\":{\"type\":\"plain_text\",\"text\":\"Close\"},\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"⏳ Loading the ticket…\"}}]}"
+      }
+    },
+    {
+      "method": "views.update",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "view_id": "V1",
+        "view": "{\"type\":\"modal\",\"title\":{\"type\":\"plain_text\",\"text\":\"SUP-12\"},\"close\":{\"type\":\"plain_text\",\"text\":\"Close\"},\"blocks\":[{\"type\":\"section\",\"text\":{\"type\":\"mrkdwn\",\"text\":\"⚠️ Couldn't load *SUP-12* from YouTrack right now — </issue/SUP-12|open it there>.\"}}]}"
+      }
+    }
+  ],
+  "engine": []
+}

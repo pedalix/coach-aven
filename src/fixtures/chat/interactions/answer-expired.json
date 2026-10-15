@@ -1,0 +1,16 @@
+{
+  "calls": [
+    {
+      "method": "chat.update",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "ts": "8.9",
+        "text": "⌛ This question has expired",
+        "blocks": "[]"
+      }
+    }
+  ],
+  "engine": []
+}

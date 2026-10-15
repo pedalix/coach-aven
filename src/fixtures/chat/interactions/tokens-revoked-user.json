@@ -1,0 +1,12 @@
+{
+  "calls": [],
+  "engine": [
+    {
+      "installationAfter": {
+        "bot": {
+          "token": "xoxb-dead"
+        }
+      }
+    }
+  ]
+}

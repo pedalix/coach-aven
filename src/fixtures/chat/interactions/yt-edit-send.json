@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "views.open",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "trigger_id": "trig.1",
+        "view": "{\"type\":\"modal\",\"callback_id\":\"yt_send_modal\",\"private_metadata\":\"{\\\"t\\\":\\\"SUP-12\\\",\\\"channel\\\":\\\"C_HOME\\\",\\\"ts\\\":\\\"1.0\\\",\\\"threadTs\\\":\\\"9.1\\\"}\",\"title\":{\"type\":\"plain_text\",\"text\":\"Report to SUP-12\"},\"submit\":{\"type\":\"plain_text\",\"text\":\"Post internal comment\"},\"close\":{\"type\":\"plain_text\",\"text\":\"Cancel\"},\"blocks\":[{\"type\":\"input\",\"block_id\":\"yt_report_text\",\"label\":{\"type\":\"plain_text\",\"text\":\"Internal comment (Markdown) — visible to the support team only\"},\"element\":{\"type\":\"plain_text_input\",\"action_id\":\"text\",\"multiline\":true,\"initial_value\":\"Root cause: X.\"}}]}"
+      }
+    }
+  ],
+  "engine": []
+}

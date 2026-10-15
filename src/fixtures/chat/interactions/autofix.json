@@ -1,0 +1,16 @@
+{
+  "calls": [],
+  "engine": [
+    {
+      "liveTurn": {
+        "token": "xoxb-TCLIENT222",
+        "channel": "C_CLIENT",
+        "key": "TCLIENT222:autofix:Org/beta:7:beta",
+        "slug": "beta",
+        "question": "Address the latest feedback on pull request #7 in Org/beta. Check out the PR branch (`gh pr checkout 7 -R Org/beta`), then investigate with `gh pr view`, `gh pr diff`, `gh pr checks 7 -R Org/beta` (read the failing CI logs) and the review comments.\nMake the fix on that branch, commit, and push. Skip any change that would alter intended behavior, reach well outside this PR's diff, or that you judge a false positive — note the skip rather than arguing with it. If the right fix is ambiguous, architectural, or risky, ask before changing anything instead of guessing.\nFinish with a short summary of what you changed and what you skipped.",
+        "attachments": false,
+        "autoPost": false
+      }
+    }
+  ]
+}

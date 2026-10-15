@@ -1,0 +1,16 @@
+{
+  "calls": [
+    {
+      "method": "chat.update",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "D_HOME",
+        "ts": "6.2",
+        "text": "⌛ This picker expired — send your message again.",
+        "blocks": "[]"
+      }
+    }
+  ],
+  "engine": []
+}

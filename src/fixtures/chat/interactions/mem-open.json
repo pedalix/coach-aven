@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "replace_original": false,
+        "text": "*notes.md*\n\n*Notes*\n\n*Deploys* go through `make ship`.\n"
+      }
+    }
+  ],
+  "engine": []
+}
