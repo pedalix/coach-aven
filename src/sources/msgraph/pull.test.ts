@@ -11,7 +11,7 @@ import { CALENDAR_CURSOR_VERSION, pullCalendar, Store, type CalendarGraph, type 
 // and serves one page per route, a real Store on a temp dir, so what is asserted is what lands
 // in calendar.jsonl and cursor.json — the contract the store build and the next pass depend on.
 
-const ctx: AccountContext = { tenant_id: '00000000-0000-4000-8000-000000000000', upn: 'owen.hale@example.com', user_id: 'u1' };
+const ctx: AccountContext = { tenant_id: '00000000-0000-4000-8000-000000000000', upn: 'owen.hale@partner.example', user_id: 'u1' };
 const PRI = 'AQMkPrimary';
 const VAL = 'AQMkVincent';
 const HOL = 'AQMkHolidays';

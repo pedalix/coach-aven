@@ -29,12 +29,12 @@ test('seedGatewayAuth: writes the helper + a 600 token file per gateway entry; s
     sandbox,
     'caldora',
     [
-      { name: 'gw', url: 'https://<gateway-host>/gw/caldora/mcp', auth: 'gateway-m2m' },
-      { name: 'grafana', url: 'https://<grafana-host>/mcp' },
+      { name: 'gw', url: 'https://engine.example.com/gw/caldora/mcp', auth: 'gateway-m2m' },
+      { name: 'grafana', url: 'https://observe.example.com/mcp' },
     ],
     { get: async (slug, aud) => (asked.push(`${slug}|${aud}`), 'TOKEN') },
   );
-  assert.deepEqual(asked, ['caldora|https://<gateway-host>/gw/caldora/mcp']);
+  assert.deepEqual(asked, ['caldora|https://engine.example.com/gw/caldora/mcp']);
   assert.equal(uploads['/root/.aven/gw-token-gw'], 'TOKEN');
   assert.ok(uploads['/root/.aven/gw-headers.sh'].startsWith('#!/bin/sh'));
   assert.ok(execs.some((c) => c === 'chmod 600 /root/.aven/gw-token-gw'));
@@ -59,7 +59,7 @@ test('seedGatewayAuth: no gateway entry → touches nothing', async () => {
     uploadFile: async () => void (touched = true),
     exec: async () => ((touched = true), { exitCode: 0, result: '' }),
   } as unknown as SandboxHandle;
-  await seedGatewayAuth(sandbox, 'lumora', [{ name: 'grafana', url: 'https://<grafana-host>/mcp' }]);
+  await seedGatewayAuth(sandbox, 'lumora', [{ name: 'grafana', url: 'https://observe.example.com/mcp' }]);
   assert.equal(touched, false);
 });
 

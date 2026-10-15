@@ -14,11 +14,11 @@ const granolaNote = {
   id: 'not_UJ29EeA8tqpykU',
   object: 'note',
   title: 'Front Office Cloud security incident and encryption vulnerabilities',
-  owner: { name: 'Owen', email: 'Owen@example.com' },
+  owner: { name: 'Owen', email: 'Owen@Home.example' },
   created_at: '2026-10-08T17:07:34.602Z',
   updated_at: '2026-10-08T17:52:00.000Z',
   calendar_event: null,
-  attendees: [{ name: 'Owen', email: 'owen@example.com' }],
+  attendees: [{ name: 'Owen', email: 'owen@home.example' }],
   summary_markdown: '# Security Incident Overview\n\n- Attacker extracted a backup\n\n# Next Steps\n\n- **Run security AI agent on Front Office Cloud repo**\n- Review password reset endpoint encryption\n\n---\n',
   private_notes_markdown: '',
   transcript: [
@@ -32,7 +32,7 @@ const granolaNote = {
 test('granola: note → meeting (times from transcript when no calendar event, me/them merged, next steps)', () => {
   const m = normaliseGranolaNote(granolaNote);
   assert.equal(m.source, 'granola');
-  assert.equal(m.account, 'owen@example.com');
+  assert.equal(m.account, 'owen@home.example');
   assert.equal(m.start, '2026-10-08T17:07:40.000Z');
   assert.equal(m.end, '2026-10-08T17:47:10.000Z');
   assert.equal(m.transcript, 'Them: So the attacker got the backup.\nMe: I will run the agent tomorrow.');
@@ -57,9 +57,9 @@ test('gemini: doc name parsed with its timezone; doc split into summary / transc
   assert.deepEqual(p.attendees, ['Vera Lindqvist', 'Owen Hale']);
   assert.match(p.summary, /Produktstrategie/);
   assert.equal(p.transcript, 'Vincent: Hallo\nOwen: Hi');
-  const m = normaliseGeminiDoc({ id: 'doc1', name: 'Instant meeting – 2026/10/07 09:11 CEST – Notes by Gemini', link: 'https://docs.google.com/document/d/doc1' }, doc, 'Owen@example.com')!;
+  const m = normaliseGeminiDoc({ id: 'doc1', name: 'Instant meeting – 2026/10/07 09:11 CEST – Notes by Gemini', link: 'https://docs.google.com/document/d/doc1' }, doc, 'Owen@Home.example')!;
   assert.equal(m.source, 'gmeet');
-  assert.equal(m.account, 'owen@example.com');
+  assert.equal(m.account, 'owen@home.example');
   assert.deepEqual(m.next_steps, ['[Owen Hale] Dimitri kontaktieren']);
   assert.deepEqual(m.attendees, [{ email: '', name: 'Vera Lindqvist' }, { email: '', name: 'Owen Hale' }]);
   assert.match(geminiQuery('2026-10-01T00:00:00.000Z'), /Notes by Gemini.*modifiedTime > '2026-10-01T00:00:00.000Z'/);
@@ -69,7 +69,7 @@ test('wispr: get_meeting result → meeting; attendees as names', () => {
   const m = normaliseWisprMeeting(
     { id: '8cd8', title: 'Instant meeting', summary: 'Strategy.\n\n### Next Steps\n- (Owen Hale) Contact Dimitri\n', attendees: [{ name: 'Vera Lindqvist', response: 'accepted' }], start: '2026-10-07T07:11:40Z', end: '2026-10-07T07:26:40Z', share_link: 'https://notes.wisprflow.ai/shared/x' },
     'Vincent: ...',
-    'owen@example.com',
+    'owen@home.example',
   );
   assert.equal(m.end, '2026-10-07T07:26:40.000Z');
   assert.deepEqual(m.attendees, [{ email: '', name: 'Vera Lindqvist' }]);
@@ -126,7 +126,7 @@ test('granola puller: paginates, skips not-yet-summarised (404), re-fetches only
   const r1 = await pullGranola(ctxIn(dir), tok, { since: '2026-10-01', fetchImpl: fakeFetch(routes, calls) });
   assert.equal(r1.error, undefined);
   assert.equal(r1.count, 2);
-  assert.equal(r1.account, 'owen@example.com');
+  assert.equal(r1.account, 'owen@home.example');
   const file = join(dir, 'meetings', 'granola', 'granola', 'meetings.jsonl');
   assert.equal(readFileSync(file, 'utf8').trim().split('\n').length, 2);
   // second run: n1 changed, n2 unchanged, n3 still processing

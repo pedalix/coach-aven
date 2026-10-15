@@ -18,7 +18,7 @@ import type { SourcesConfig } from './sources/types.js';
 // several codebases); `mcp` and `env` are modeled now, wired later.
 // A per-project MCP server (Claude Code mcpServers entry shape). Two forms: a local
 // stdio command (`command`/`args`/`env`) or a remote HTTP endpoint (`url`/`headers` —
-// e.g. the shared mcp-grafana at <grafana-host>/mcp, so sandboxes need no
+// e.g. the shared mcp-grafana at observe.example.com/mcp, so sandboxes need no
 // docker-in-docker). `env` and `headers` values may use ${ENV_NAME} refs, resolved from
 // the ORCHESTRATOR's process.env at materialization — so secrets (a Grafana token, an
 // endpoint's auth header) live in the orchestrator's .env, not this config.
@@ -29,7 +29,7 @@ export interface McpServerSpec {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
-  // `gateway-m2m`: a remote server behind the MCP gateway (<gateway-host>/gw/<slug>/mcp)
+  // `gateway-m2m`: a remote server behind the MCP gateway (engine.example.com/gw/<slug>/mcp)
   // that the bot reaches as its Auth0 M2M client coach-aven-<slug>. The orchestrator mints and
   // caches the token (gwtoken.ts) and writes it into the sandbox; Claude Code picks it up via
   // the server's `headersHelper` (mcp.ts). Needs AUTH0_M2M_<SLUG>_ID/_SECRET + AUTH0_M2M_TOKEN_URL.

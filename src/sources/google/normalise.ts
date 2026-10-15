@@ -26,7 +26,7 @@
 
 export interface MessageRecord {
   source: 'gmail';
-  /** The mailbox address (`owen@example.com`) — also the key in the token store. */
+  /** The mailbox address (`owen@home.example`) — also the key in the token store. */
   account: string;
   /** Mailbox folder derived from system labels: inbox | sent | draft | trash | spam | chat | archive. */
   container: string;

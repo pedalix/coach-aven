@@ -58,12 +58,12 @@ test('args and env/headers default to empty', () => {
 
 test('buildMcpServers: a gateway-m2m entry gets the headersHelper, static headers kept', () => {
   const servers = buildMcpServers(
-    [{ name: 'gw', url: 'https://<gateway-host>/gw/caldora/mcp', auth: 'gateway-m2m' }],
+    [{ name: 'gw', url: 'https://engine.example.com/gw/caldora/mcp', auth: 'gateway-m2m' }],
     {},
   );
   assert.deepEqual(servers.gw, {
     type: 'http',
-    url: 'https://<gateway-host>/gw/caldora/mcp',
+    url: 'https://engine.example.com/gw/caldora/mcp',
     headers: {},
     headersHelper: GATEWAY_HELPER_PATH,
   });

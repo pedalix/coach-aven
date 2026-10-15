@@ -314,11 +314,11 @@ test('vault: deterministic id, path validation, payload carries secrets + ref, n
   assert.equal(paths.recipientFile, '/home/x/.xdg/coach-aven/sources/proj-a/vault.recipient');
   assert.equal(vaultFile(paths.dir, vaultId('gmail', 'm1')), `/srv/aven-data/proj-a/vault/${vaultId('gmail', 'm1')}.json.age`);
   assert.throws(() => vaultFile(paths.dir, '../etc/passwd'));
-  const p = buildPayload({ ...CONTOSO_MAIL, account: 'owen@example.com', ts: '2026-10-01T11:18:42Z', author: 'tobin@example' });
+  const p = buildPayload({ ...CONTOSO_MAIL, account: 'owen@home.example', ts: '2026-10-01T11:18:42Z', author: 'tobin@example' });
   assert.equal(p.vault_id, vaultId('gmail', 'm1'));
   assert.equal(p.body, CONTOSO_MAIL.text);
   assert.deepEqual(p.secrets.map((s) => s.kind).sort(), ['dsn', 'kv']);
-  assert.equal(p.ref.account, 'owen@example.com');
+  assert.equal(p.ref.account, 'owen@home.example');
 });
 
 // CANARY: every planted secret in the fixture set must be absent from the serialised output.

@@ -4,13 +4,13 @@ import { validateSourcesConfig } from './config.js';
 
 test('sources config: full valid block is normalised (lower-cased e-mails, trimmed)', () => {
   const out = validateSourcesConfig({
-    google: { accounts: ['Owen@example.com ', 'owen@example.com'], since: '2026-09-01', calendars: [], kinds: ['gmail', 'calendar'] },
+    google: { accounts: ['Owen@Home.example ', 'owen@side.example'], since: '2026-09-01', calendars: [], kinds: ['gmail', 'calendar'] },
     slack: { workspaces: ['T0000FAKE01'], since: '2026-10-06', threadWindowDays: 30, editWindowHours: 48 },
-    msgraph: { tenant: '00000000-0000-4000-8000-000000000000', accounts: ['owen.hale@example.com'], only: ['mail', 'chats'], calendars: [' AQMkShared '] },
+    msgraph: { tenant: '00000000-0000-4000-8000-000000000000', accounts: ['owen.hale@partner.example'], only: ['mail', 'chats'], calendars: [' AQMkShared '] },
     intervalMinutes: 15,
     people: 'projects.d/owen-ops.people.json',
   });
-  assert.deepEqual(out.google?.accounts, ['owen@example.com', 'owen@example.com']);
+  assert.deepEqual(out.google?.accounts, ['owen@home.example', 'owen@side.example']);
   assert.equal(out.msgraph?.tenant, '00000000-0000-4000-8000-000000000000');
   assert.deepEqual(out.msgraph?.only, ['mail', 'chats']);
   assert.deepEqual(out.msgraph?.calendars, ['AQMkShared']);

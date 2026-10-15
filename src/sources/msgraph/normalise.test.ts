@@ -42,7 +42,7 @@ import {
 
 const ctx: AccountContext = {
   tenant_id: '00000000-0000-4000-8000-000000000000',
-  upn: 'owen.hale@example.com',
+  upn: 'owen.hale@partner.example',
   user_id: '4f3d5a1e-0b2c-4d6e-8f90-1a2b3c4d5e6f',
   display_name: 'Owen Hale',
 };
@@ -60,7 +60,7 @@ const mail: RawMailMessage = {
   receivedDateTime: '2026-10-06T07:12:33Z',
   sentDateTime: '2026-10-06T07:12:30Z',
   hasAttachments: true,
-  internetMessageId: '<abc123@example.com>',
+  internetMessageId: '<abc123@partner.example>',
   subject: 'P5 go-live checklist',
   bodyPreview: 'Hi Owen, can you confirm the go-live checklist by Thursday?',
   parentFolderId: 'AAMkLhs',
@@ -72,10 +72,10 @@ const mail: RawMailMessage = {
     content:
       '<html><head><style>p{margin:0}</style></head><body><div><p>Hi Owen,</p><p>can you confirm the <b>go-live checklist</b> by Thursday?&nbsp;See <a href="https://contoso.sharepoint.com/sites/P5/Shared%20Documents/checklist.xlsx">the sheet</a>.</p><br><div>Thanks,<br>Tobin</div></div></body></html>',
   },
-  from: { emailAddress: { name: 'Tess North', address: 'Tess North@example.com' } },
-  sender: { emailAddress: { name: 'Tess North', address: 'Tess North@example.com' } },
-  toRecipients: [{ emailAddress: { name: 'Owen Hale', address: 'owen.hale@example.com' } }],
-  ccRecipients: [{ emailAddress: { name: 'Vera Lindqvist', address: 'vincent@example.com' } }],
+  from: { emailAddress: { name: 'Tess North', address: 'tess.north@partner.example' } },
+  sender: { emailAddress: { name: 'Tess North', address: 'tess.north@partner.example' } },
+  toRecipients: [{ emailAddress: { name: 'Owen Hale', address: 'owen.hale@partner.example' } }],
+  ccRecipients: [{ emailAddress: { name: 'Vera Lindqvist', address: 'vincent@partner.example' } }],
   bccRecipients: [],
 };
 
@@ -91,7 +91,7 @@ const oneOnOne: RawChat = {
   tenantId: ctx.tenant_id,
   members: [
     { '@odata.type': '#microsoft.graph.aadUserConversationMember', id: 'MCMj', roles: ['owner'], displayName: 'Owen Hale', userId: ctx.user_id, email: ctx.upn },
-    { '@odata.type': '#microsoft.graph.aadUserConversationMember', id: 'MCMk', roles: ['owner'], displayName: 'Alice Example', userId: alice.id, email: 'alice@example.com' },
+    { '@odata.type': '#microsoft.graph.aadUserConversationMember', id: 'MCMk', roles: ['owner'], displayName: 'Alice Example', userId: alice.id, email: 'alice@partner.example' },
   ],
   lastMessagePreview: { id: '1759737600000', createdDateTime: '2026-10-06T08:00:00Z', isDeleted: false },
 };
@@ -102,8 +102,8 @@ const groupChat: RawChat = {
   chatType: 'group',
   members: [
     { displayName: 'Owen Hale', userId: ctx.user_id, email: ctx.upn },
-    { displayName: 'Alice Example', userId: alice.id, email: 'alice@example.com' },
-    { displayName: 'Bob Builder', userId: 'b-id', email: 'bob@example.com' },
+    { displayName: 'Alice Example', userId: alice.id, email: 'alice@partner.example' },
+    { displayName: 'Bob Builder', userId: 'b-id', email: 'bob@partner.example' },
   ],
 };
 
@@ -174,10 +174,10 @@ const event: RawEvent = {
   webLink: 'https://outlook.office365.com/owa/?itemid=AAMkAGI2EventAAA%3D&exvsurl=1&path=/calendar/item',
   onlineMeeting: { joinUrl: 'https://teams.microsoft.com/l/meetup-join/19%3Ameeting_abc%40thread.v2/0' },
   location: { displayName: 'Microsoft Teams Meeting' },
-  organizer: { emailAddress: { name: 'Tess North', address: 'Tess North@example.com' } },
+  organizer: { emailAddress: { name: 'Tess North', address: 'tess.north@partner.example' } },
   attendees: [
-    { type: 'required', status: { response: 'accepted', time: '2026-10-01T10:00:00Z' }, emailAddress: { name: 'Owen Hale', address: 'owen.hale@example.com' } },
-    { type: 'optional', status: { response: 'none' }, emailAddress: { name: 'Alice Example', address: 'alice@example.com' } },
+    { type: 'required', status: { response: 'accepted', time: '2026-10-01T10:00:00Z' }, emailAddress: { name: 'Owen Hale', address: 'owen.hale@partner.example' } },
+    { type: 'optional', status: { response: 'none' }, emailAddress: { name: 'Alice Example', address: 'alice@partner.example' } },
   ],
   responseStatus: { response: 'accepted' },
 };
@@ -193,7 +193,7 @@ const driveFile: RawDriveItem = {
   lastModifiedDateTime: '2026-10-05T16:45:12Z',
   file: { mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
   parentReference: { driveId: drive.driveId, driveType: 'documentLibrary', id: '01BYE5RZ56Y2GOVW7725BZO354PWSELRRZ', path: `/drives/${drive.driveId}/root:/Projects/P5%20Platform`, name: 'P5 Platform' },
-  lastModifiedBy: { user: { displayName: 'Tess North', email: 'Tess North@example.com' } },
+  lastModifiedBy: { user: { displayName: 'Tess North', email: 'tess.north@partner.example' } },
 };
 
 // ---------------------------------------------------------------------------------------
@@ -201,7 +201,7 @@ const driveFile: RawDriveItem = {
 // ---------------------------------------------------------------------------------------
 
 test('accountSlug is directory-safe and stable', () => {
-  assert.equal(accountSlug('Owen.Hale@example.com'), 'owen.hale_at_contoso.com');
+  assert.equal(accountSlug('Owen.Hale@Partner.example'), 'owen.hale_at_partner.example');
 });
 
 test('personLabel prefers "Name <address>", degrades gracefully', () => {
@@ -261,11 +261,11 @@ test('normaliseMailMessage maps a received message with attachments', () => {
   assert.deepEqual(r, {
     source: 'msgraph',
     account: ctx.upn,
-    container: 'mailbox:owen.hale@example.com/Inbox/Clients/HCG',
+    container: 'mailbox:owen.hale@partner.example/Inbox/Clients/HCG',
     id: 'AAMkAGI2THVSAAA=',
     ts: '2026-10-06T07:12:33Z',
-    author: 'Tess North <Tess North@example.com>',
-    participants: ['Tess North <Tess North@example.com>', 'Owen Hale <owen.hale@example.com>', 'Vera Lindqvist <vincent@example.com>'],
+    author: 'Tess North <tess.north@partner.example>',
+    participants: ['Tess North <tess.north@partner.example>', 'Owen Hale <owen.hale@partner.example>', 'Vera Lindqvist <vincent@partner.example>'],
     subject: 'P5 go-live checklist',
     text:
       'Hi Owen,\ncan you confirm the go-live checklist by Thursday? See the sheet (https://contoso.sharepoint.com/sites/P5/Shared%20Documents/checklist.xlsx).\n\nThanks,\nTobin\n[has attachments]',
@@ -305,7 +305,7 @@ test('chatContainer names 1:1 chats after the other member, groups after the top
 });
 
 test('otherMembers excludes me by userId', () => {
-  assert.deepEqual(otherMembers(groupChat, ctx), ['Alice Example <alice@example.com>', 'Bob Builder <bob@example.com>']);
+  assert.deepEqual(otherMembers(groupChat, ctx), ['Alice Example <alice@partner.example>', 'Bob Builder <bob@partner.example>']);
 });
 
 test('normaliseChatMessage flattens Teams HTML, lists attachments, builds the deep link', () => {
@@ -316,8 +316,8 @@ test('normaliseChatMessage flattens Teams HTML, lists attachments, builds the de
     container: 'chat:@Alice Example',
     id: '1759737600000',
     ts: '2026-10-06T08:00:00Z',
-    author: 'Alice Example <alice@example.com>',
-    participants: ['Alice Example <alice@example.com>', 'Owen Hale <owen.hale@example.com>'],
+    author: 'Alice Example <alice@partner.example>',
+    participants: ['Alice Example <alice@partner.example>', 'Owen Hale <owen.hale@partner.example>'],
     text: '@Owen Hale can you review the spec today? 🙂\n[image]\n[attachment: spec.docx — https://contoso.sharepoint.com/sites/P5/Shared%20Documents/spec.docx]',
     permalink: teamsChatMessageLink(oneOnOne.id, '1759737600000'),
     raw_ref: `msgraph:${ctx.tenant_id}/chats/${oneOnOne.id}/messages/1759737600000`,
@@ -384,14 +384,14 @@ test('normaliseEvent maps an occurrence with UTC times, attendees, organizer and
     start: '2026-10-07T09:00:00Z',
     end: '2026-10-07T09:30:00Z',
     title: 'P5 weekly sync',
-    attendees: ['Owen Hale <owen.hale@example.com>', 'Alice Example <alice@example.com>'],
-    organizer: 'Tess North <Tess North@example.com>',
+    attendees: ['Owen Hale <owen.hale@partner.example>', 'Alice Example <alice@partner.example>'],
+    organizer: 'Tess North <tess.north@partner.example>',
     link: event.webLink,
   });
   // An item from a calendar shared INTO the mailbox: Graph reports the mailbox owner as organizer,
   // so only the calendar tag tells it apart from an own event.
   const shared = normaliseEvent({ ...event, organizer: { emailAddress: { name: 'Owen Hale', address: ctx.upn } }, attendees: [] }, ctx, { id: 'AAMkShared', name: 'Vera Lindqvist | HCG', is_default: false });
-  assert.equal(shared?.organizer, 'Owen Hale <owen.hale@example.com>');
+  assert.equal(shared?.organizer, 'Owen Hale <owen.hale@partner.example>');
   assert.deepEqual(shared?.calendar, { id: 'AAMkShared', name: 'Vera Lindqvist | HCG', is_default: false });
 });
 

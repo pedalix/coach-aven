@@ -52,8 +52,8 @@ test('tenant git args: token travels as a one-shot header, never in the URL', ()
 });
 
 test('config: meetings + tenant validate; bad shapes fail with a path', () => {
-  const c = validateSourcesConfig({ meetings: { granola: { since: '2026-10-01' }, gmeet: { accounts: ['Owen@example.com'] }, wispr: {} }, tenant: { repo: 'owner-example/owen-ops', ref: 'master' } });
-  assert.deepEqual(c.meetings, { granola: { since: '2026-10-01' }, gmeet: { accounts: ['owen@example.com'] }, wispr: {} });
+  const c = validateSourcesConfig({ meetings: { granola: { since: '2026-10-01' }, gmeet: { accounts: ['Owen@Home.example'] }, wispr: {} }, tenant: { repo: 'owner-example/owen-ops', ref: 'master' } });
+  assert.deepEqual(c.meetings, { granola: { since: '2026-10-01' }, gmeet: { accounts: ['owen@home.example'] }, wispr: {} });
   assert.deepEqual(c.tenant, { repo: 'owner-example/owen-ops', ref: 'master' });
   assert.throws(() => validateSourcesConfig({ meetings: { zoom: {} } }), /sources\.meetings: unknown provider "zoom"/);
   assert.throws(() => validateSourcesConfig({ meetings: {} }), /declares no provider/);

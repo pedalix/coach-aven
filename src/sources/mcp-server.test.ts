@@ -76,17 +76,17 @@ function fixtureReplica(): { dbPath: string } {
   writeFileSync(
     people,
     JSON.stringify([
-      { person_id: 'tobin', name: 'Tess North', company: 'contoso', marker: { type: 'broad', initiatives: ['hcg/p1'] }, identities: ['Tess North@example.com'] },
+      { person_id: 'tobin', name: 'Tess North', company: 'contoso', marker: { type: 'broad', initiatives: ['hcg/p1'] }, identities: ['tess.north@partner.example'] },
       // legacy field: read as a broad marker
-      { person_id: 'Carla', name: 'Carla Bowman', company: 'bluefin', default_initiative: 'bluefin/lumora', identities: ['slack:Carla Bowman'] },
+      { person_id: 'carla', name: 'Carla Bowman', company: 'bluefin', default_initiative: 'bluefin/lumora', identities: ['slack:Carla Bowman'] },
       { person_id: 'owen', name: 'Owen', identities: ['me@x.com', 'slack:Owen'] },
     ]),
   );
   const line = (o: object) => JSON.stringify(o) + '\n';
   const gmail = (id: string, ts: string, subject: string, text: string, extra: object = {}) =>
     line({
-      source: 'gmail', account: 'me@x.com', container: 'inbox', id, ts, author: 'Tess North@example.com',
-      participants: ['Tess North@example.com', 'me@x.com'], subject, text, permalink: `https://mail/${id}`,
+      source: 'gmail', account: 'me@x.com', container: 'inbox', id, ts, author: 'tess.north@partner.example',
+      participants: ['tess.north@partner.example', 'me@x.com'], subject, text, permalink: `https://mail/${id}`,
       raw_ref: `gmail:me@x.com/thr1/${id}`, scrub: { withheld: false, kinds: [], redactions: 0 }, ...extra,
     });
   writeFileSync(
@@ -117,7 +117,7 @@ function fixtureReplica(): { dbPath: string } {
     join(raw, 'meetings', 'granola', 'granola', 'meetings.jsonl'),
     line({
       source: 'granola', account: 'me@x.com', id: 'g1', title: 'FO Cloud security incident', start: '2026-10-08T17:00:00.000Z', end: '2026-10-08T17:40:00.000Z',
-      attendees: [{ email: 'Tess North@example.com', name: 'Tess North' }, { email: 'me@x.com', name: 'Owen' }],
+      attendees: [{ email: 'tess.north@partner.example', name: 'Tess North' }, { email: 'me@x.com', name: 'Owen' }],
       summary: '# Incident\n- base64 URL encryption reverse-engineered', next_steps: ['(Owen) run the security agent on the repo'],
       transcript: GRANOLA_TRANSCRIPT, url: 'https://notes.granola.ai/d/g1', text: '', scrub: { withheld: false, kinds: [], redactions: 0 },
     }) +
@@ -136,7 +136,7 @@ function fixtureReplica(): { dbPath: string } {
   mkdirSync(join(raw, 'asana', 'ws1'), { recursive: true });
   const task = (id: string, extra: object) =>
     line({
-      source: 'asana', account: 'ws1', id, key: id, status: 'Ready to Code', statusCategory: 'todo', assignee: 'me@x.com', reporter: 'rowan@example.com',
+      source: 'asana', account: 'ws1', id, key: id, status: 'Ready to Code', statusCategory: 'todo', assignee: 'me@x.com', reporter: 'rowan@vendor.example',
       due: '', created: '2026-09-01T00:00:00.000Z', project: 'CartGenie', url: `https://asana/${id}`, labels: [], text: 'Expand the alerts.', comments: [],
       scrub: { withheld: false, kinds: [], redactions: 0 }, ...extra,
     });
@@ -147,8 +147,8 @@ function fixtureReplica(): { dbPath: string } {
       // deliberately unsorted: the newest comment must be found by ts, not by position
       comments: [
         { id: 'c1', author: 'me@x.com', ts: '2026-10-11T07:01:00.000Z', text: 'Follow-up on Nov 12: check the Cloudvisor invoice' },
-        { id: 'c2', author: 'rowan@example.com', ts: '2026-10-12T14:51:58.000Z', text: 'Thanks, looks good' },
-        { id: 'c0', author: 'rowan@example.com', ts: '2026-08-01T08:00:00.000Z', text: 'Old comment' },
+        { id: 'c2', author: 'rowan@vendor.example', ts: '2026-10-12T14:51:58.000Z', text: 'Thanks, looks good' },
+        { id: 'c0', author: 'rowan@vendor.example', ts: '2026-08-01T08:00:00.000Z', text: 'Old comment' },
       ],
     }) + task('t2', { title: 'Old task', status: 'Done', statusCategory: 'done', updated: '2026-09-01T00:00:00.000Z' }),
   );
@@ -160,8 +160,8 @@ function fixtureReplica(): { dbPath: string } {
     ev('gcal', 'me@x.com', 'e2', '2026-10-09T09:30:00.000Z', 'BLUEFIN Devs Weekly Sync', ['me@x.com', 'nicola@bluefin.example'], 'me@x.com') +
       ev('gcal', 'me@x.com', 'e1', '2026-10-09T09:00:00.000Z', 'Daily Catch-up', ['me@x.com'], 'me@x.com'),
   );
-  mkdirSync(join(raw, 'msgraph', 'owen@example.com'), { recursive: true });
-  writeFileSync(join(raw, 'msgraph', 'owen@example.com', 'calendar.jsonl'), ev('msgraph', 'owen@example.com', 'o1', '2026-10-09T09:15:00.000Z', 'T4M security sync', ['Tess North@example.com', 'owen@example.com'], 'Tess North@example.com'));
+  mkdirSync(join(raw, 'msgraph', 'owen@partner.example'), { recursive: true });
+  writeFileSync(join(raw, 'msgraph', 'owen@partner.example', 'calendar.jsonl'), ev('msgraph', 'owen@partner.example', 'o1', '2026-10-09T09:15:00.000Z', 'T4M security sync', ['tess.north@partner.example', 'owen@partner.example'], 'tess.north@partner.example'));
   // The same call captured by Wispr too (overlapping window, longer transcript) → one call.
   mkdirSync(join(raw, 'meetings', 'wispr', 'wispr'), { recursive: true });
   writeFileSync(
@@ -208,7 +208,7 @@ function fixtureReplica(): { dbPath: string } {
 
 // ── pure builders ────────────────────────────────────────────────────────────────────────
 test('sanitizeFtsQuery quotes every token so user text cannot reach the MATCH grammar', () => {
-  assert.equal(sanitizeFtsQuery('Tess North'), '"Tobin" "Alder"');
+  assert.equal(sanitizeFtsQuery('Tess North'), '"Tess" "North"');
   assert.equal(sanitizeFtsQuery('  team4multimedia  '), '"team4multimedia"');
   // column filters and parentheses are neutralised; a leading NOT is dangling and dropped;
   // OR between two terms survives as an operator; prefix star survives
@@ -221,7 +221,7 @@ test('sanitizeFtsQuery quotes every token so user text cannot reach the MATCH gr
   assert.equal(sanitizeFtsQuery('"unterminated phrase'), '"unterminated phrase"');
   assert.equal(sanitizeFtsQuery('""'), '');
   assert.equal(sanitizeFtsQuery(undefined), '');
-  assert.equal(sanitizeFtsQuery('owen@example.com'), '"owen@example.com"');
+  assert.equal(sanitizeFtsQuery('owen@home.example'), '"owen@home.example"');
 });
 
 test('normalizeTime: a bare date is the whole LOCAL day, zone-less datetimes are local wall time, Z/offset pass through, junk rejected', () => {
@@ -297,8 +297,8 @@ test('search ranks FTS hits, honours diacritics/porter, filters by person and in
     // Cyrillic + remove_diacritics
     assert.equal(runSearch(db, { query: 'ретейнер' }).hits.length, 1);
     // person filter by identity and by name fragment
-    assert.equal(runSearch(db, { query: 'access', person: 'Tess North@example.com' }).hits.length, 2);
-    assert.equal(runSearch(db, { query: 'release', person: 'Carla' }).hits.length, 1);
+    assert.equal(runSearch(db, { query: 'access', person: 'tess.north@partner.example' }).hits.length, 2);
+    assert.equal(runSearch(db, { query: 'release', person: 'carla' }).hits.length, 1);
     assert.equal(runSearch(db, { query: 'release', person: 'nobody-here' }).hits.length, 0);
     // initiative filter via the tenant's attributions (never via people): m1+m2 are hcg/p1;
     // the superseded fragment f3 must not make the Slack message bluefin/lumora.
@@ -483,7 +483,7 @@ test('meetings: listed by attendee, searchable by transcript, get is compact (su
     assert.deepEqual(list[0]!.next_steps, ['(Owen) run the security agent on the repo', '(Owen) compare findings with the agent output'], 'next steps from every copy, primary first');
     assert.deepEqual(previewSummary(list[0]!.summary), { summary: '# Incident\n- base64 URL encryption reverse-engineered', summary_truncated: false });
     assert.equal(list[0]!.summary_truncated, false);
-    assert.equal(runMeetings(db, { person: 'Carla' }).meetings.length, 0);
+    assert.equal(runMeetings(db, { person: 'carla' }).meetings.length, 0);
     assert.equal(runSearch(db, { query: 'GWS secret', source: 'granola' }).hits.length, 1);
     const g = runGet(db, { ref: 'granola:me@x.com:g1' });
     assert.equal(g.kind, 'meeting');
@@ -496,7 +496,7 @@ test('meetings: listed by attendee, searchable by transcript, get is compact (su
     const frags = runFragments(db, { initiative: 'hcg' }).fragments;
     assert.deepEqual(frags.map((f) => f.id).sort(), ['f1', 'f2']);
     assert.deepEqual(runFragments(db, { status: 'superseded' }).fragments, []);
-    const people = runPeople(db, { q: 'Carla' }).people;
+    const people = runPeople(db, { q: 'carla' }).people;
     assert.deepEqual(people[0]!.marker, { type: 'broad', initiatives: ['bluefin/lumora'] });
   } finally {
     db.close();
@@ -627,7 +627,7 @@ test('tasks: lastComment on every row; commentsSince counts the window given by 
     assert.deepEqual(
       all.map((t) => [t.key, t.lastComment, t.commentsSince]),
       [
-        ['t1', { by: 'rowan@example.com', at: '2026-10-12T14:51:58.000Z' }, undefined],
+        ['t1', { by: 'rowan@vendor.example', at: '2026-10-12T14:51:58.000Z' }, undefined],
         ['t2', null, undefined],
       ],
       'newest comment by ts, not by position; no window → no commentsSince',
@@ -635,10 +635,10 @@ test('tasks: lastComment on every row; commentsSince counts the window given by 
     const moved = runTasks(db, { status: 'any', updatedSince: '2026-10-11' }).tasks as Row[];
     assert.deepEqual(
       moved.map((t) => [t.key, t.commentsSince]),
-      [['t1', { n: 2, authors: ['me@x.com', 'rowan@example.com'] }]],
+      [['t1', { n: 2, authors: ['me@x.com', 'rowan@vendor.example'] }]],
       'the August comment is outside the window',
     );
-    assert.deepEqual((runTasks(db, { status: 'any', updatedSince: '2026-10-12T14:00:00Z' }).tasks as Row[])[0]!.commentsSince, { n: 1, authors: ['rowan@example.com'] });
+    assert.deepEqual((runTasks(db, { status: 'any', updatedSince: '2026-10-12T14:00:00Z' }).tasks as Row[])[0]!.commentsSince, { n: 1, authors: ['rowan@vendor.example'] });
     const t1 = runGet(db, { ref: 'asana:ws1:t1' }) as { comments: unknown[] };
     assert.equal(t1.comments.length, 3, 'get still carries the comment texts');
   } finally {
@@ -660,10 +660,10 @@ function fixtureReadouts(): { dbPath: string } {
     people,
     JSON.stringify([
       { person_id: 'owen', name: 'Owen', company: 'self', identities: ['me@x.com', 'slack:Owen'] },
-      { person_id: 'Carla', name: 'Carla Bowman', company: 'bluefin', identities: ['slack:Carla Bowman'] },
+      { person_id: 'carla', name: 'Carla Bowman', company: 'bluefin', identities: ['slack:Carla Bowman'] },
       // the project's agent, listed on Bluefin's side so its replies count as the side's
       { person_id: 'aven', name: 'CoachAven', company: 'bluefin', identities: ['slack:CoachAven'] },
-      { person_id: 'tobin', name: 'Tess North', company: 'contoso', identities: ['Tess North@example.com'] },
+      { person_id: 'tobin', name: 'Tess North', company: 'contoso', identities: ['tess.north@partner.example'] },
     ]),
   );
   const line = (o: object) => JSON.stringify(o) + '\n';
@@ -675,12 +675,12 @@ function fixtureReadouts(): { dbPath: string } {
   writeFileSync(
     join(raw, 'google', 'me@x.com', 'messages.jsonl'),
     // thr1: Tobin writes twice, Owen replies in the thread → answered, however late the reply.
-    mail('m1', '2026-10-01T09:00:00.000Z', 'thr1', 'Tess North@example.com', 'me@x.com', 'Report', 'Tobin sends the report.') +
-      mail('m2', '2026-10-02T09:00:00.000Z', 'thr1', 'Tess North@example.com', 'me@x.com', 'Re: Report', 'Any thoughts?') +
-      mail('m5', '2026-10-05T09:00:00.000Z', 'thr1', 'me@x.com', 'Tess North@example.com', 'Re: Report', 'Agreed, see you Monday.', 'sent') +
+    mail('m1', '2026-10-01T09:00:00.000Z', 'thr1', 'tess.north@partner.example', 'me@x.com', 'Report', 'Tobin sends the report.') +
+      mail('m2', '2026-10-02T09:00:00.000Z', 'thr1', 'tess.north@partner.example', 'me@x.com', 'Re: Report', 'Any thoughts?') +
+      mail('m5', '2026-10-05T09:00:00.000Z', 'thr1', 'me@x.com', 'tess.north@partner.example', 'Re: Report', 'Agreed, see you Monday.', 'sent') +
       // thr2/thr3: Konrad (not in the people file) asks; Owen answers in a NEW thread addressed to him.
-      mail('m6', '2026-10-07T09:00:00.000Z', 'thr2', 'konrad@example.com', 'me@x.com', 'Access list', 'Konrad asks for the access list.') +
-      mail('m7', '2026-10-08T09:00:00.000Z', 'thr3', 'me@x.com', 'konrad@example.com', 'Access list', 'Here it is.', 'sent') +
+      mail('m6', '2026-10-07T09:00:00.000Z', 'thr2', 'konrad@partner.example', 'me@x.com', 'Access list', 'Konrad asks for the access list.') +
+      mail('m7', '2026-10-08T09:00:00.000Z', 'thr3', 'me@x.com', 'konrad@partner.example', 'Access list', 'Here it is.', 'sent') +
       // thr4: Anna (unknown) waits.
       mail('m8', '2026-10-09T08:00:00.000Z', 'thr4', 'anna@acme.com', 'me@x.com', 'Invoice question', 'Anna asks about the invoice.'),
   );
@@ -713,17 +713,17 @@ function fixtureReadouts(): { dbPath: string } {
   );
   const task = (id: string, extra: object) =>
     line({
-      source: 'asana', account: 'ws1', id, key: id, status: 'Ready to Code', statusCategory: 'todo', assignee: 'me@x.com', reporter: 'rowan@example.com',
+      source: 'asana', account: 'ws1', id, key: id, status: 'Ready to Code', statusCategory: 'todo', assignee: 'me@x.com', reporter: 'rowan@vendor.example',
       due: '', created: '2026-09-01T00:00:00.000Z', project: 'CartGenie', url: `https://asana/${id}`, labels: [], text: 'Expand the alerts.', comments: [],
       scrub: { withheld: false, kinds: [], redactions: 0 }, ...extra,
     });
   writeFileSync(
     join(raw, 'asana', 'ws1', 'tasks.jsonl'),
-    task('t1', { title: 'AWS billing alerts', updated: '2026-10-12T14:51:58.000Z', comments: [{ id: 'c1', author: 'rowan@example.com', ts: '2026-10-12T14:51:58.000Z', text: 'ok' }] }) +
+    task('t1', { title: 'AWS billing alerts', updated: '2026-10-12T14:51:58.000Z', comments: [{ id: 'c1', author: 'rowan@vendor.example', ts: '2026-10-12T14:51:58.000Z', text: 'ok' }] }) +
       task('t2', { title: 'Old task', status: 'Done', statusCategory: 'done', updated: '2026-09-01T00:00:00.000Z' }) +
       task('t3', { title: 'Stale ticket', updated: '2026-09-20T00:00:00.000Z' }) +
       // `updated` is old, but a comment inside the window moved it
-      task('t4', { title: 'Quiet but commented', status: 'In Progress', statusCategory: 'doing', project: 'Infra', updated: '2026-09-25T00:00:00.000Z', comments: [{ id: 'c2', author: 'rowan@example.com', ts: '2026-10-10T00:00:00.000Z', text: 'still on it' }] }),
+      task('t4', { title: 'Quiet but commented', status: 'In Progress', statusCategory: 'doing', project: 'Infra', updated: '2026-09-25T00:00:00.000Z', comments: [{ id: 'c2', author: 'rowan@vendor.example', ts: '2026-10-10T00:00:00.000Z', text: 'still on it' }] }),
   );
   const ctx: BuildContext = { slug: 'r', rawDir: raw, storePath: join(root, 'store.sqlite'), replicaDir: join(root, 'replica'), peoplePath: people, log: () => undefined };
   buildStore(ctx);
@@ -744,7 +744,7 @@ test('unanswered: owner by default; answered = later reply in thread, in the DM,
     assert.deepEqual(
       rows.map((x) => [x.container, x.author, x.ts, x.pending, x.ageHours]),
       [
-        ['#lumora', 'Carla', '2026-10-07T09:00:00.000Z', 2, 135], // asked 10-07, pinged 10-10 in the thread: one row, pending 2
+        ['#lumora', 'carla', '2026-10-07T09:00:00.000Z', 2, 135], // asked 10-07, pinged 10-10 in the thread: one row, pending 2
         ['inbox', 'anna@acme.com', '2026-10-09T08:00:00.000Z', 1, 88],
         ['dm:@noel', 'Noel', '2026-10-09T09:00:00.000Z', 1, 87],
       ],
@@ -762,8 +762,8 @@ test('unanswered: owner by default; answered = later reply in thread, in the DM,
     assert.deepEqual((runUnanswered(db, { source: 'gmail' }, READOUTS_NOW).unanswered as Row[]).map((x) => x.ref), ['gmail:me@x.com:m8']);
     // `person` picks another subject: Carla waits for Owen's 10-08 question (addressed to her by mention); her
     // own 10-10 ping to Owen is in #lumora, not that channel, so it does not close it
-    const cil = runUnanswered(db, { person: 'Carla', since: '2026-10-01' }, READOUTS_NOW);
-    assert.deepEqual(cil.subject, { mode: 'person', people: ['Carla'] });
+    const cil = runUnanswered(db, { person: 'carla', since: '2026-10-01' }, READOUTS_NOW);
+    assert.deepEqual(cil.subject, { mode: 'person', people: ['carla'] });
     assert.deepEqual((cil.unanswered as Row[]).map((x) => [x.author, x.ts]), [['owen', '2026-10-08T08:00:00.000Z']]);
     // nobody matches → empty subject, a note, no rows
     const nobody = runUnanswered(db, { person: 'zzz' }, READOUTS_NOW);
@@ -781,7 +781,7 @@ test('unanswered in side mode: every non-side human message in scope counts; the
   try {
     type Row = { ref: string; author: string; ts: string; pending: number };
     const r = runUnanswered(db, { side: 'bluefin', container: '#' }, READOUTS_NOW);
-    assert.deepEqual(r.subject, { mode: 'side', people: ['Carla', 'aven'] }, 'everyone whose company is bluefin');
+    assert.deepEqual(r.subject, { mode: 'side', people: ['carla', 'aven'] }, 'everyone whose company is bluefin');
     assert.deepEqual(
       (r.unanswered as Row[]).map((x) => [x.author, x.ts, x.pending]),
       [['owen', '2026-10-08T08:00:00.000Z', 1]],
@@ -793,7 +793,7 @@ test('unanswered in side mode: every non-side human message in scope counts; the
     assert.match(none.note ?? '', /matches no company or person id/);
     assert.deepEqual(none.unanswered, []);
     // person ids mix with company names
-    assert.deepEqual(runUnanswered(db, { side: 'tobin, BLUEFIN' }, READOUTS_NOW).subject.people, ['tobin', 'Carla', 'aven']);
+    assert.deepEqual(runUnanswered(db, { side: 'tobin, BLUEFIN' }, READOUTS_NOW).subject.people, ['tobin', 'carla', 'aven']);
   } finally {
     db.close();
   }

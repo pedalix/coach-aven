@@ -225,7 +225,7 @@ export function pickTagApplier(activities: RawTagActivity[], label: string): Tag
 
 // Does the tagger appear in a configured list of logins/emails? Case- and whitespace-
 // insensitive, and matches EITHER identifier so config can use whichever is stable (login
-// "Owen" or "owen@example.com"). Empty list → false, i.e. the feature is off by default.
+// "Owen" or "owen@home.example"). Empty list → false, i.e. the feature is off by default.
 export function taggerMatches(applier: TagApplier | undefined, list: string[]): boolean {
   if (!applier || list.length === 0) return false;
   const ids = new Set([applier.login, applier.email].map((s) => s.trim().toLowerCase()).filter(Boolean));

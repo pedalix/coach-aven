@@ -32,7 +32,7 @@
 
 export interface MessageRecord {
   source: 'msgraph';
-  /** The signed-in user's UPN (`owen.hale@example.com`); tenant lives in `raw_ref`. */
+  /** The signed-in user's UPN (`owen.hale@partner.example`); tenant lives in `raw_ref`. */
   account: string;
   /** `mailbox:<upn>/<Folder/Path>`, `chat:@name`, `chat:group:<topic>`, `chat:meeting:<topic>`, `team:<Team>/#<Channel>`. */
   container: string;
@@ -292,7 +292,7 @@ export interface DriveContext {
 // Small pure helpers
 // ---------------------------------------------------------------------------------------
 
-/** Directory-safe form of a UPN: `owen.hale@example.com` → `owen.hale_at_contoso.com`. */
+/** Directory-safe form of a UPN: `owen.hale@partner.example` → `owen.hale_at_partner.example`. */
 export function accountSlug(upn: string): string {
   return upn.toLowerCase().replace('@', '_at_').replace(/[^a-z0-9._-]+/g, '_');
 }

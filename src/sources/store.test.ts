@@ -16,8 +16,8 @@ function scaffold() {
   writeFileSync(
     people,
     JSON.stringify([
-      { person_id: 'tobin', name: 'Tess North', company: 'contoso', default_initiative: 'hcg/p1', identities: ['Tess North@example.com', 'slack:Tess North'] },
-      { person_id: 'owen', name: 'Owen', identities: ['owen@example.com', 'slack:Owen Hale'] },
+      { person_id: 'tobin', name: 'Tess North', company: 'contoso', default_initiative: 'hcg/p1', identities: ['tess.north@partner.example', 'slack:Tess North'] },
+      { person_id: 'owen', name: 'Owen', identities: ['owen@home.example', 'slack:Owen Hale'] },
     ]),
   );
   const ctx: BuildContext = { slug: 't', rawDir: raw, storePath: join(root, 'store.sqlite'), replicaDir: join(root, 'replica'), peoplePath: people, log: () => undefined };
@@ -27,7 +27,7 @@ const line = (o: object) => JSON.stringify(o) + '\n';
 // node:sqlite rows have a null prototype; strict deepEqual wants plain objects.
 const plain = <T>(rows: T[]): T[] => rows.map((r) => ({ ...r }));
 const gmail = (id: string, text: string, extra: object = {}) =>
-  line({ source: 'gmail', account: 'acc@x.com', container: 'inbox', id, ts: `2026-10-0${id.length % 9 || 1}T10:00:00.000Z`, author: 'Tess North@example.com', participants: ['Tess North@example.com', 'owen@example.com'], subject: `Re: ${id}`, text, permalink: `https://mail/${id}`, raw_ref: `gmail:acc@x.com/thr1/${id}`, scrub: { withheld: false, kinds: [], redactions: 0 }, ...extra });
+  line({ source: 'gmail', account: 'acc@x.com', container: 'inbox', id, ts: `2026-10-0${id.length % 9 || 1}T10:00:00.000Z`, author: 'tess.north@partner.example', participants: ['tess.north@partner.example', 'owen@home.example'], subject: `Re: ${id}`, text, permalink: `https://mail/${id}`, raw_ref: `gmail:acc@x.com/thr1/${id}`, scrub: { withheld: false, kinds: [], redactions: 0 }, ...extra });
 
 test('classifyRawFile + threadIdOf follow the pullers\' contracts', () => {
   assert.equal(classifyRawFile('/x/google/a/messages.jsonl'), 'messages');
@@ -134,7 +134,7 @@ test('build: people are seeded, authors resolved, message_people recomputed on r
   assert.equal((db.prepare('SELECT count(*) c FROM identities').get() as { c: number }).c, 4);
   db.close();
   // Re-emitted with a different sender: the old 'from' row must not linger.
-  appendFileSync(f, gmail('p1', 'hallo again', { author: 'owen@example.com', participants: ['owen@example.com'] }));
+  appendFileSync(f, gmail('p1', 'hallo again', { author: 'owen@home.example', participants: ['owen@home.example'] }));
   buildStore(ctx);
   db = openReadOnly(ctx.storePath);
   assert.deepEqual(plain(db.prepare('SELECT person_id, role FROM message_people WHERE ref = ?').all('gmail:acc@x.com:p1')), [{ person_id: 'owen', role: 'from' }]);
@@ -250,7 +250,7 @@ test('people: the same key written twice for one person collapses; for two peopl
 // ── tenant-derived recompute (the 2026-10-08 relink bug) ─────────────────────────────────
 test('build: a people.json change relinks ALREADY stored rows; unchanged files skip the recompute', () => {
   const { raw, ctx } = scaffold();
-  writeFileSync(join(raw, 'google', 'acc@x.com', 'messages.jsonl'), gmail('r1', 'from an unknown sender', { author: 'rowan@mf.com', participants: ['rowan@mf.com', 'owen@example.com'] }));
+  writeFileSync(join(raw, 'google', 'acc@x.com', 'messages.jsonl'), gmail('r1', 'from an unknown sender', { author: 'rowan@mf.com', participants: ['rowan@mf.com', 'owen@home.example'] }));
   const s1 = buildStore(ctx);
   assert.equal(s1.recomputed, true); // first build: nothing recorded yet
   let db = openReadOnly(ctx.storePath);
@@ -262,7 +262,7 @@ test('build: a people.json change relinks ALREADY stored rows; unchanged files s
     ctx.peoplePath!,
     JSON.stringify([
       { person_id: 'rowan', name: 'Rowan', marker: { type: 'narrow', initiatives: ['rowan/monto', 'rowan/cartgenie'] }, identities: ['rowan@mf.com'] },
-      { person_id: 'owen', name: 'Owen', identities: ['owen@example.com'] },
+      { person_id: 'owen', name: 'Owen', identities: ['owen@home.example'] },
     ]),
   );
   const s3 = buildStore(ctx);

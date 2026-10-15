@@ -10,7 +10,7 @@ const issue = {
   created: Date.UTC(2026, 8, 20),
   updated: Date.UTC(2026, 9, 5, 8, 30),
   resolved: null,
-  reporter: { login: 'florin', email: 'Florin@example.com', fullName: 'Florin' },
+  reporter: { login: 'florin', email: 'Florin@Client.example', fullName: 'Florin' },
   project: { shortName: 'CG' },
   tags: [{ name: 'investigate' }],
   customFields: [
@@ -20,7 +20,7 @@ const issue = {
     { name: 'Priority', value: { name: 'Major' } },
   ],
   comments: [
-    { id: 'c1', text: 'Looking into it', created: Date.UTC(2026, 9, 1), author: { login: 'owen', email: 'owen@example.com' } },
+    { id: 'c1', text: 'Looking into it', created: Date.UTC(2026, 9, 1), author: { login: 'owen', email: 'owen@home.example' } },
     { id: 'c2', text: 'gone', created: Date.UTC(2026, 9, 2), deleted: true, author: { login: 'x' } },
   ],
 };
@@ -32,13 +32,13 @@ test('YouTrack issue → task', () => {
   assert.equal(t.status, 'In Progress');
   assert.equal(t.statusCategory, 'doing');
   assert.equal(t.assignee, 'youtrack:owen');
-  assert.equal(t.reporter, 'florin@example.com');
+  assert.equal(t.reporter, 'florin@client.example');
   assert.equal(t.due, '2026-10-10');
   assert.equal(t.updated, '2026-10-05T08:30:00.000Z');
   assert.equal(t.url, 'https://bluefin-example.youtrack.cloud/issue/CG-50');
   assert.deepEqual(t.labels, ['investigate']);
   assert.equal(t.comments.length, 1);
-  assert.equal(t.comments[0]!.author, 'owen@example.com');
+  assert.equal(t.comments[0]!.author, 'owen@home.example');
 });
 
 test('resolved issue is done regardless of state name', () => {

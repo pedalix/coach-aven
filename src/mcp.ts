@@ -35,7 +35,7 @@ export const GATEWAY_HELPER_SCRIPT = [
 
 // Build the `mcpServers` object of a Claude Code --mcp-config file from project specs.
 // Two spec shapes: a `url` entry is a REMOTE server ({type:'http', url, headers} — e.g.
-// the shared mcp-grafana at <grafana-host>/mcp), anything else a local stdio
+// the shared mcp-grafana at observe.example.com/mcp), anything else a local stdio
 // command ({command, args, env}). Env refs are resolved in `env` and `headers` alike.
 export function buildMcpServers(
   mcp: McpServerSpec[],

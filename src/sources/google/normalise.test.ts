@@ -27,7 +27,7 @@ import {
 } from './normalise.js';
 
 const b64 = (s: string) => Buffer.from(s, 'utf8').toString('base64url');
-const ACCOUNT = 'owen@example.com';
+const ACCOUNT = 'owen@home.example';
 
 // ---------------------------------------------------------------------------------------
 // Gmail
@@ -47,13 +47,13 @@ const gmailMixed: RawGmailMessage = {
     mimeType: 'multipart/mixed',
     filename: '',
     headers: [
-      { name: 'Delivered-To', value: 'owen@example.com' },
-      { name: 'From', value: '"North, Tess" <Tess North@example.com>' },
-      { name: 'To', value: 'Owen Hale <owen@example.com>, vincent@example.com' },
-      { name: 'Cc', value: '"Lindqvist, Vincent" <Vera Lindqvist@example.com>' },
+      { name: 'Delivered-To', value: 'owen@home.example' },
+      { name: 'From', value: '"North, Tess" <Tess.North@partner.example>' },
+      { name: 'To', value: 'Owen Hale <owen@home.example>, vincent@partner.example' },
+      { name: 'Cc', value: '"Lindqvist, Vincent" <vera.lindqvist@partner.example>' },
       { name: 'Subject', value: 'P3 estimate — Friday?' },
       { name: 'Date', value: 'Tue, 6 Oct 2026 12:00:00 +0200' },
-      { name: 'Message-ID', value: '<AM0PR01MB1234@example.com>' },
+      { name: 'Message-ID', value: '<AM0PR01MB1234@partner.example>' },
     ],
     body: { size: 0 },
     parts: [
@@ -98,12 +98,12 @@ test('gmail: multipart/mixed → plain body, e-mail participants, internalDate a
   assert.equal(r.id, '19a1b2c3d4e5f607');
   assert.equal(r.container, 'inbox');
   assert.equal(r.ts, '2026-10-06T10:00:00.000Z');
-  assert.equal(r.author, 'Tess North@example.com');
-  assert.deepEqual(r.participants, ['Tess North@example.com', 'owen@example.com', 'vincent@example.com', 'Vera Lindqvist@example.com']);
+  assert.equal(r.author, 'tess.north@partner.example');
+  assert.deepEqual(r.participants, ['tess.north@partner.example', 'owen@home.example', 'vincent@partner.example', 'vera.lindqvist@partner.example']);
   assert.equal(r.subject, 'P3 estimate — Friday?');
   assert.equal(r.text, 'Hi Owen,\n\ncan you send the P3 estimate by Friday?\n\nTobin');
-  assert.equal(r.permalink, 'https://mail.google.com/mail/?authuser=owen%40pedalix.com#all/19a1b2c3d4e5f607');
-  assert.equal(r.raw_ref, 'gmail:owen@example.com/19a1b2c3d4e5f600/19a1b2c3d4e5f607');
+  assert.equal(r.permalink, 'https://mail.google.com/mail/?authuser=owen%40home.example#all/19a1b2c3d4e5f607');
+  assert.equal(r.raw_ref, 'gmail:owen@home.example/19a1b2c3d4e5f600/19a1b2c3d4e5f607');
   assert.equal(r.deleted, undefined);
 });
 
@@ -115,14 +115,14 @@ test('gmail: html-only message is flattened; sent mail lands in "sent" even when
     internalDate: '1791280800000',
     payload: {
       mimeType: 'text/html',
-      headers: [{ name: 'From', value: 'owen@example.com' }, { name: 'To', value: 'Carla@bluefin.example' }, { name: 'Subject', value: 'Re: Alpco' }],
+      headers: [{ name: 'From', value: 'owen@home.example' }, { name: 'To', value: 'carla@bluefin.example' }, { name: 'Subject', value: 'Re: Alpco' }],
       body: { size: 1, data: b64('<html><head><style>p{color:red}</style></head><body><p>Done &amp; deployed.</p><p>See <a href="https://x">ticket</a>&nbsp;CAR-14</p></body></html>') },
     },
   };
   const r = normaliseGmailMessage(htmlOnly, ACCOUNT);
   assert.equal(r.container, 'sent');
   assert.equal(r.text, 'Done & deployed.\n\nSee ticket CAR-14');
-  assert.deepEqual(r.participants, ['owen@example.com', 'Carla@bluefin.example']);
+  assert.deepEqual(r.participants, ['owen@home.example', 'carla@bluefin.example']);
 });
 
 test('gmail: metadata-only / empty body falls back to the snippet; missing From gives empty author', () => {
@@ -189,7 +189,7 @@ const driveDoc: RawDriveFile = {
   mimeType: 'application/vnd.google-apps.document',
   modifiedTime: '2026-10-05T16:42:11.123Z',
   parents: ['fldLHS'],
-  owners: [{ emailAddress: 'owen@example.com', displayName: 'Owen Hale' }],
+  owners: [{ emailAddress: 'owen@home.example', displayName: 'Owen Hale' }],
   webViewLink: 'https://docs.google.com/document/d/1aBcDeFgHiJkLmNoPqRsTuVwXyZ/edit?usp=drivesdk',
   trashed: false,
   shared: true,
@@ -265,13 +265,13 @@ const timedEvent: RawCalendarEvent = {
   start: { dateTime: '2026-10-07T09:00:00+02:00', timeZone: 'Europe/Zurich' },
   end: { dateTime: '2026-10-07T09:30:00+02:00', timeZone: 'Europe/Zurich' },
   iCalUID: '5k2j4h3g2f1d0s9a8p7o6i5u4y3t@google.com',
-  organizer: { email: 'Tess North@example.com', displayName: 'Tess North' },
-  creator: { email: 'Tess North@example.com' },
+  organizer: { email: 'Tess.North@partner.example', displayName: 'Tess North' },
+  creator: { email: 'tess.north@partner.example' },
   attendees: [
-    { email: 'Tess North@example.com', organizer: true, responseStatus: 'accepted' },
-    { email: 'owen@example.com', self: true, responseStatus: 'accepted' },
+    { email: 'tess.north@partner.example', organizer: true, responseStatus: 'accepted' },
+    { email: 'owen@home.example', self: true, responseStatus: 'accepted' },
     { email: 'room-bern-1@resource.calendar.google.com', displayName: 'Bern 1', resource: true, responseStatus: 'accepted' },
-    { email: 'owen@example.com', responseStatus: 'needsAction' },
+    { email: 'owen@home.example', responseStatus: 'needsAction' },
   ],
   eventType: 'default',
 };
@@ -286,8 +286,8 @@ test('calendar: timed event → RFC3339 start/end, people-only attendees de-dupl
     start: '2026-10-07T09:00:00+02:00',
     end: '2026-10-07T09:30:00+02:00',
     title: 'HCG weekly',
-    attendees: ['Tess North@example.com', 'owen@example.com'],
-    organizer: 'Tess North@example.com',
+    attendees: ['tess.north@partner.example', 'owen@home.example'],
+    organizer: 'tess.north@partner.example',
     link: timedEvent.htmlLink,
   });
 });
@@ -319,18 +319,18 @@ import { calendarWindow, keepCalendarEvent, selectCalendars } from './normalise.
 
 test('selectCalendars: primary only by default; opt-in by id; shared/holiday/contacts/deleted skipped', () => {
   const list = [
-    { id: 'owen@example.com', primary: true, accessRole: 'owner' },
-    { id: 'milo.gross@example.com', summary: 'Milo', accessRole: 'reader' },
+    { id: 'owen@home.example', primary: true, accessRole: 'owner' },
+    { id: 'max.muster@home.example', summary: 'Milo', accessRole: 'reader' },
     { id: 'en.ch#holiday@group.v.calendar.google.com', summary: 'Holidays in Switzerland', accessRole: 'reader' },
     { id: 'addressbook#contacts@group.v.calendar.google.com', summary: 'Birthdays', accessRole: 'reader' },
-    { id: 'team@example.com', summary: 'Team', accessRole: 'writer' },
-    { id: 'old@example.com', deleted: true },
+    { id: 'team@home.example', summary: 'Team', accessRole: 'writer' },
+    { id: 'old@home.example', deleted: true },
   ];
   const d = selectCalendars(list);
-  assert.deepEqual(d.selected.map((c) => c.id), ['owen@example.com']);
-  assert.deepEqual(d.skipped.map((c) => c.id), ['milo.gross@example.com', 'en.ch#holiday@group.v.calendar.google.com', 'addressbook#contacts@group.v.calendar.google.com', 'team@example.com']);
-  const o = selectCalendars(list, ['TEAM@example.com']);
-  assert.deepEqual(o.selected.map((c) => c.id), ['owen@example.com', 'team@example.com']);
+  assert.deepEqual(d.selected.map((c) => c.id), ['owen@home.example']);
+  assert.deepEqual(d.skipped.map((c) => c.id), ['max.muster@home.example', 'en.ch#holiday@group.v.calendar.google.com', 'addressbook#contacts@group.v.calendar.google.com', 'team@home.example']);
+  const o = selectCalendars(list, ['TEAM@home.example']);
+  assert.deepEqual(o.selected.map((c) => c.id), ['owen@home.example', 'team@home.example']);
 });
 
 test('keepCalendarEvent: window, cancelled, declined, empty placeholder', () => {
@@ -338,8 +338,8 @@ test('keepCalendarEvent: window, cancelled, declined, empty placeholder', () => 
   const w = calendarWindow(now, 400, 120);
   assert.equal(w.timeMin.slice(0, 10), '2025-09-02');
   assert.equal(w.timeMax.slice(0, 10), '2027-02-04');
-  const me = { email: 'owen@example.com', self: true, responseStatus: 'accepted' };
-  const base = { id: 'e1', status: 'confirmed' as const, summary: 'BLUEFIN Devs Weekly Sync', start: { dateTime: '2026-10-06T14:30:00+03:00' }, end: { dateTime: '2026-10-06T15:00:00+03:00' }, attendees: [me, { email: 'nicola@example.com' }] };
+  const me = { email: 'owen@home.example', self: true, responseStatus: 'accepted' };
+  const base = { id: 'e1', status: 'confirmed' as const, summary: 'BLUEFIN Devs Weekly Sync', start: { dateTime: '2026-10-06T14:30:00+03:00' }, end: { dateTime: '2026-10-06T15:00:00+03:00' }, attendees: [me, { email: 'nicola@client.example' }] };
   assert.equal(keepCalendarEvent(base, w, { incremental: false }), true);
   assert.equal(keepCalendarEvent({ ...base, start: { date: '1984-05-01' } }, w, { incremental: false }), false, 'ancient recurrence');
   assert.equal(keepCalendarEvent({ ...base, start: { date: '2099-12-25' } }, w, { incremental: false }), false, 'far future');
