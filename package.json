@@ -26,7 +26,8 @@
     "prod:start": "infra/prod/deploy.sh start",
     "prod:stop": "infra/prod/deploy.sh stop",
     "prod:ssh": "infra/prod/deploy.sh ssh",
-    "prod:down": "infra/prod/deploy.sh down"
+    "prod:down": "infra/prod/deploy.sh down",
+    "release": "bash scripts/release.sh"
   },
   "dependencies": {
     "@daytonaio/sdk": "0.187.0",

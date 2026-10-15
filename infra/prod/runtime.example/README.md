@@ -20,7 +20,7 @@ Copy [`workflows/deploy.yml`](workflows/deploy.yml) to `.github/workflows/deploy
 your ops repo and add two secrets there: `DEPLOY_SSH_KEY` (the deployer key) and
 `DEPLOY_ENV` (your `infra/prod/.env`). Then either
 
-- deploy by hand: Actions → *Deploy CoachAven release* → *Run workflow* → the tag; or
+- deploy by hand: Actions → *Deploy CoachAven release* → *Run workflow* → the tag, or `npm run release -- vX.Y.Z` from a product checkout (tags, pushes, starts the run — this is what we do); or
 - let releases deploy themselves: install a GitHub App of yours on the ops repo and give the
   product repo its id and key as `OPS_APP_ID` / `OPS_APP_PRIVATE_KEY` — every published
   tag then arrives as a `repository_dispatch` and deploys. Only useful when you run your own
