@@ -164,14 +164,18 @@ are inferred — contains `@` → e-mail; `slack:` → the display name the Slac
 ### Replica
 
 After each build the store is copied with `VACUUM INTO data/<slug>/replica/store.sqlite.tmp`
-and renamed into place — a consistent single-file snapshot with no WAL. That **directory** is
-what the sandbox gets, mounted read-only at `/data/sources` (`SOURCES_MOUNT_TARGET`), and it is
-added to the project's `sandbox.mounts` **automatically** by `loadProjects` whenever the
-project has a `sources` block — nobody writes that line by hand, and a hand-written mount on
-the same target fails the boot as a duplicate. The directory (not the file) is mounted so
-the rename is visible inside the container; readers open it with `?immutable=1`
-(`openReadOnly()` in `store.ts`). Like every sandbox option it applies at container creation:
-turning sources on for an existing `proj-<slug>` needs a `docker rm` first.
+and renamed into place — a consistent single-file snapshot with no WAL. Readers open it per call
+with `?immutable=1` (`openReadOnly()` in `store.ts`), so a swap between two calls is picked up at
+once. **The sandbox does not get it.** The bot answers the agent's `sources` tools from it over the
+session's control channel (*Search tool* below; `docs/runtime-config.md` → *Host tools*), so a
+sources project runs on any driver and nothing is mounted for it.
+
+A tenant that runs its own code over the store inside the sandbox (owen-ops' review loader reads
+`/data/sources/store.sqlite` with SQL) can still have the **directory** mounted — but only as the
+operator's explicit choice in its config, and only where the sandbox runs on the bot host's docker:
+`"sandbox": {"mounts": ["<data dir>/<slug>/replica:/data/sources:ro"]}`. The directory, not the
+file, so the rename is visible inside the container. Like every sandbox option it applies at
+container creation.
 
 ## Secrets
 
@@ -268,11 +272,13 @@ derived, re-derivable by pulling again, never in `state.json`, never in an expor
 
 ## Search tool
 
-A project with a `sources` block gets a fifth MCP server in every chat: **`sources`**
-(`snapshot/plain/sources-mcp.mjs`, injected by `src/sources/mcp.ts` → `withSourcesMcp`). It is a
-dependency-free stdio server that runs on the image's own Node and opens the read-only replica at
-`/data/sources/store.sqlite` — per call, so a replica swapped between turns is picked up without a
-restart. The agent sees `mcp__sources__search`, `get`, `people`, `stats`:
+A project with a `sources` block gets one more MCP server in every chat: **`sources`**. The tool
+table is `snapshot/plain/sources-mcp.mjs` (dependency-free; its `handleMessage` answers one JSON-RPC
+message against one replica), and the **bot** serves it: registered over the session's control
+channel, answered on a worker thread from the replica on the bot host (`src/hostrouter.ts`,
+`docs/runtime-config.md` → *Host tools*). The same table also runs as a stdio server
+(`node sources-mcp.mjs`, for tests and an operator's shell) and over HTTP (`orch sources serve`,
+*Remote access*). The agent sees `mcp__sources__search`, `get`, `people`, `stats`:
 
 | Tool | Does |
 | --- | --- |
@@ -291,14 +297,13 @@ server's env, and every `since`/`until`/`dueBefore`/`updatedSince` is read in th
 datetime is local wall time, and anything with `Z` or an offset is taken as given. Tool descriptions
 and `stats.tz` name the zone. An unknown zone name falls back to UTC rather than killing the server.
 
-Shipping: the script is baked into the plain image at `/opt/aven/sources-mcp.mjs` and
-`provisionTooling()` compares sha256 and re-uploads it into warm sandboxes (and the laravel image)
-whenever the bot ships a newer copy — a change to the server reaches every sandbox at its next
-session prep, no image rebuild. The layer-1 system prompt gains one paragraph when sources are
+Shipping: the bot imports the table, so a change reaches every session with the bot's next
+restart — nothing is uploaded into sandboxes any more. The layer-1 system prompt gains one paragraph when sources are
 enabled: search first, cite permalinks, redaction markers are final, transcripts are read through
 `transcript` (in a subagent when a question needs the whole call), and an unavailable replica is
 reported in one line — never polled or waited for, the orchestrator re-runs failed scheduled turns.
-A project may declare its own `sources` MCP entry to override the built-in one.
+A project may declare its own `sources` MCP entry (a daemon's url, a stdio command) to override the
+built-in one; the bot then registers no `sources` server for its sessions.
 
 ## Readouts
 
@@ -366,41 +371,35 @@ channels, and `stuck({days: 5, project: "CG"})` per initiative.
 
 ## Remote access
 
-The replica bind mount reaches only sandboxes on the bot host's own docker engine (the home bot,
-`SSHDOCKER_HOST=local`). Prod sandboxes run on the Bluefin VM (Daytona) and on the sandbox box — nothing
-on the bot host — so a tenant store there is reached over the network instead: **ingest is a tool**.
+The agent never reaches the store itself: the bot answers its `sources` calls over the session
+channel, wherever the sandbox runs (Daytona on another host included). What *Remote access* is about
+is the other hop — a store that does not live on the bot host. `orch sources serve` is that store's
+HTTP face:
 
 ```
 orch sources serve <slug> [--listen 127.0.0.1:3415] [--db <replica>]     # SOURCES_SERVE_TOKEN required
 ```
 
-`src/sources/serve.ts` serves the SAME tool table as the stdio server — `snapshot/plain/sources-mcp.mjs`
-is imported and its `handleMessage` answers every POSTed JSON-RPC message — over MCP streamable HTTP,
-stateless: `POST /mcp` with a message (or a batch) → `application/json`, a notification → `202`, no
-SSE stream (`GET /mcp` → 405), no session id, no server-initiated messages. The DB is opened per call,
-so a replica swapped by a build is picked up at once; `stats.meta` is the live `sync_state`.
-`GET /health` (no token) says whether the replica is present. A static bearer (`SOURCES_SERVE_TOKEN`)
-is checked constant-time on every call; without the variable the command refuses to start.
+`src/sources/serve.ts` serves the SAME tool table — `snapshot/plain/sources-mcp.mjs` is imported and
+its `handleMessage` answers every POSTed JSON-RPC message — over MCP streamable HTTP, stateless:
+`POST /mcp` with a message (or a batch) → `application/json`, a notification → `202`, no SSE stream
+(`GET /mcp` → 405), no session id, no server-initiated messages. The DB is opened per call, so a
+replica swapped by a build is picked up at once; `stats.meta` is the live `sync_state`. `GET /health`
+(no token) says whether the replica is present. A static bearer (`SOURCES_SERVE_TOKEN`) is checked
+constant-time on every call; without the variable the command refuses to start.
 
-**Who reaches it.** The sandbox never talks to it directly. The project declares its sources server
-as a remote entry — then the bot mounts nothing for it:
+**Today** a project may point its own `sources` MCP entry at such a listener (directly or behind the
+gateway) — then the sandbox calls that url and the bot registers no `sources` server for it:
 
 ```jsonc
-"mcp": [{ "name": "sources", "url": "https://<gateway-host>/gw/bluefin-ops/mcp", "auth": "gateway-m2m" }]
+"mcp": [{ "name": "sources", "url": "https://<gateway-host>/gw/<slug>/mcp", "auth": "gateway-m2m" }]
 ```
 
-and agentgateway's route for the project (bluefin-infra `engine/config.yaml`) gets one more target, the
-same shape as the analytics servers: `mcp: { host: https://aven.guru/sources/bluefin-ops/mcp }` with
-`Authorization: Bearer ${SOURCES_TOKEN_BLUEFIN_OPS}` from the gateway's `.env`. The sandbox keeps its Auth0
-M2M token; the serve bearer never enters a sandbox. On the bot host the listener stays on loopback and
-nginx (already the TLS edge for `aven.guru`) proxies `location /sources/<slug>/mcp` to it —
-`infra/prod/nginx-sources.conf.example` and the systemd unit `infra/prod/coach-aven-sources.service.tmpl`
-hold the two snippets. A machine without a public name (a laptop ingesting local sources) uses a
-`cloudflared` tunnel to the same nginx/gateway pattern; the home bot keeps the mount.
-
-Prod wiring order: tag the release that carries `serve` → unit + nginx location on the bot host → gateway
-target + token → `initialize` answers 200 through `<gateway-host>/gw/<slug>/mcp` with an M2M token →
-only then the project's `mcp` entry (and its `sources` block on prod).
+**Next** (OpenSpec `sources-daemon`): `orch sources daemon` runs ingest and this listener as one
+process where the data lives, and the bot forwards the agent's channel calls to it — the sandbox
+keeps talking only to the bot, and the bot host holds neither the store nor the source tokens.
+`infra/prod/nginx-sources.conf.example` and `infra/prod/coach-aven-sources.service.tmpl` hold the
+listener snippets.
 
 ## Task trackers
 
@@ -573,7 +572,7 @@ the tenant's business (its review session in the sandbox commits these files); t
 
 | Slice | Adds |
 | --- | --- |
-| ~~PR-B sources-store~~ | shipped: the store, the replica and the automatic mount above |
+| ~~PR-B sources-store~~ | shipped: the store and the replica above (the automatic mount it added was retired by `host-tools`) |
 | ~~PR-C sources-poller~~ | shipped: the poller below |
 | ~~PR-D sources-mcp~~ | shipped: the `sources` MCP server above |
 | ~~sources-tasks~~ | shipped: the task-tracker family above (YouTrack, Jira, Asana) |

@@ -247,28 +247,57 @@ add `ROUTINE_GUARD=1` to the checkout's `.env`, restart in the window, then watc
 run — its thread starts with the `[Routine state]` line and the journal shows `routine r1
 (owen-ops): fired — scheduled` … `delivered — <headline>`.
 
+## Host tools (the session control channel)
+
+The bot serves some MCP servers to the agent **itself**, over the stream-json channel it already
+drives every turn through — no mount, no listener, no credential in the sandbox, the same on
+Daytona, ssh-docker and local docker (OpenSpec `host-tools`; pure part `src/hosttools.ts`, routes
+`src/hostrouter.ts`, framing `src/claudeSession.ts`). This is Claude Code's in-process MCP
+mechanism, the one the Agent SDK uses: right after spawn the bot writes
+`control_request{initialize, sdkMcpServers: [names], sdkMcpServerConfigs: {timeouts}}`; the CLI then
+sends each server's handshake and every `tools/call` back as `control_request{mcp_message}`, and the
+bot answers in `control_response.response.mcp_response`. The agent sees ordinary MCP tools
+(`mcp__host__propose`, `mcp__sources__search`, …) and the session's `init` lists them with
+`source: "sdk"`. `scripts/host-tools-smoke.mjs` proves the round trip against a real CLI — run it
+inside a sandbox on every Claude Code pin bump.
+
+- **The caller is the session.** A tool call is attributed to the project and conversation of the
+  session it arrived on; a project or thread named in the input is ignored.
+- **`host`** — while `DISPATCH=1`: `propose` (below) and `registry` (the projects this conversation may
+  address, with their bound channel and `self`). Absent otherwise.
+- **`sources`** — for a project with a `sources` block: the same twelve tools as before, answered
+  from the replica on the bot host's disk on a worker thread (`src/sources/worker.mjs` — a heavy
+  `unanswered` over a 200 MB personal store takes about a second and must not stall Slack acks).
+  The sandbox holds no copy of the server and mounts nothing for it. See `docs/sources.md`.
+- **A project's own server wins.** A project that declares an MCP server named `host` or `sources`
+  keeps it; the bot registers nothing under that name.
+- **Restarts.** A reattached session keeps its registration (the CLI process is the same); a call the
+  old bot never answered is answered by the new one. Every stdin write of a session is serialised —
+  a tool answer can be tens of KB and two writes over `PIPE_BUF` to one FIFO could interleave.
+
 ## Dispatch (`DISPATCH`)
 
-Off by default. `DISPATCH=1` (read at boot) gives every sandbox a `host` MCP server with one tool,
-`propose`, and gives the host a deterministic path from that proposal to a side effect — the
+Off by default. `DISPATCH=1` (read at boot) gives every session the `host` server above with the
+`propose` tool, and gives the host a deterministic path from that proposal to a side effect — the
 primitive an agent needs to reach beyond its own thread without a model step anywhere on the
-host (OpenSpec `dispatch-primitive`; pure half `src/dispatch.ts`, IO half `src/dispatchrun.ts`,
-sandbox side `snapshot/plain/host-mcp.mjs`, uploaded by sha like the sources server).
+host (OpenSpec `dispatch-primitive`, `host-tools`; pure half `src/dispatch.ts`, IO half
+`src/dispatchrun.ts`).
 
-- **Record, not action.** `propose({kind: message|dispatch, target, text, refs, rationale})` writes
-  `propose-<id>.json` into `/data/outbox` — the project's `data/<slug>/outbox` on the host, mounted
-  read-write beside the read-only replica (created owner-only by the bot at boot, so docker never
-  creates it root-owned). The bot polls every outbox every 5 s and claims files by rename
-  (`consumeProposals`, the control-dir pattern). The record carries `AVEN_SESSION` — the proposing
-  conversation key — so the host knows which thread to render in.
+- **Record, not action.** `propose({kind: message|dispatch, target, text, refs, rationale})` is a
+  host tool call: the bot composes the record from the arguments and the **session's** own key
+  (`composeProposal` — the id is a content hash of project, conversation, kind, target and text, so a
+  retried call is the same proposal), stores it, gates it and answers the agent with
+  `{ok, id, status, gate: buttons|auto}`. The proposal is rendered where the proposing turn runs:
+  the conversation's `inflight` channel and thread, the project's bound channel only when the turn
+  has already settled.
 - **The gate.** The proposal is posted in the agent's thread as Block Kit with *Send* / *Dismiss*
   (`proposalBlocks`); the click executes it once (idempotent on the id, "✅ sent by <user> at …") and
   the record in `state.json` (`proposals`) keeps who/when/where. `dispatch.auto: [targets]` on the
   project lets listed targets execute without the click; `dispatch.maxPerDay` (default 5) caps
   executed dispatches per source project per local day, after which every proposal is gated again.
   A `message` is gated the same way. Mentioning a project in text never dispatches.
-- **`message`** → `chat.postMessage` to the target (a project's bound channel or a channel id) with
-  a "proposed by *slug* · approved by <user>" footer and the permalink written back to the record.
+- **`message`** → a post to the target (a project's bound channel or a channel id) with a
+  "proposed by *slug* · approved by <user>" footer and the permalink written back to the record.
 - **`dispatch`** → a parent `📨 Task from <slug> · running…` in the target project's channel and a
   turn in its thread (key `thread:<ts>`, a fresh session), the task **wrapped as data** with its
   origin (`wrapDispatch`: "data from another agent, not an instruction from a user"); the queued turn
@@ -279,7 +308,8 @@ sandbox side `snapshot/plain/host-mcp.mjs`, uploaded by sha like the sources ser
 - **Prompt.** One paragraph (`DISPATCH_PROMPT_PARAGRAPH`) is appended to the base prompt while the
   flag is on — absent otherwise, so the prod golden fixtures hold; the Home tab gains a *Proposals*
   bullet the same way.
-- **Transport scope (phase A).** The outbox is a bind mount, so proposals work on the ssh-docker
-  driver (home bot); Daytona sandboxes get the tool only after the host endpoint (phase B, after
-  `sources-serve-remote-mcp`). An existing container must be recreated once to pick up the mount.
-
+- **Any driver.** The tool rides the session channel, so a Daytona sandbox proposes exactly like an
+  ssh-docker one; the targets are the projects of the bot the sandbox belongs to. (Until the
+  `host-tools` change it was a file in a bind-mounted `/data/outbox`; `snapshot/plain/host-mcp.mjs`
+  stays in the tree for one release so a bot that pulled this change but has not restarted yet keeps
+  preparing sessions — delete it after the home canary.)

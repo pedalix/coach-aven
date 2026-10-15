@@ -6,7 +6,7 @@ The control channel replaces the replica mount as the default path from a source
 ## MODIFIED Requirements
 
 ### Requirement: Project opts in by config
-A project with a `sources` block SHALL reach its store through the `sources` server the bot serves over the session's control channel from the replica on the bot host; no replica is mounted and no sources server runs in the sandbox. A project whose `mcp` list declares a server named `sources` with a `url` SHALL use that URL instead and receives no channel-served `sources`.
+A project with a `sources` block SHALL reach its store through the `sources` server the bot serves over the session's control channel from the replica on the bot host; the bot mounts no replica and runs no sources server in the sandbox (a mount the operator lists in the project's `sandbox.mounts` is the operator's own). A project whose `mcp` list declares its own server named `sources` SHALL use it instead and receives no channel-served `sources`.
 
 #### Scenario: Nothing declared
 - **WHEN** a project has a `sources` block and no `sources` entry in `mcp`

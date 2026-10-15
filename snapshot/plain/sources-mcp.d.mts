@@ -10,7 +10,8 @@ export const TRACKER_SOURCES: string[];
 export const MEETING_SOURCES: string[];
 export function initiativeClause(refExpr: string, initiative: string, meetingShorthand?: string): { sql: string; params: unknown[] };
 
-export const LOCAL_TZ: string;
+export let LOCAL_TZ: string;
+export function setLocalTz(name: string | undefined): string;
 export const SUMMARY_PREVIEW_CHARS: number;
 export const DEFAULT_MEETINGS_WINDOW_DAYS: number;
 export const SPEAKER_SAMPLE_CHARS: number;

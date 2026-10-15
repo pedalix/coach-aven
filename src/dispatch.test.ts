@@ -1,22 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  consumeProposals,
+  composeProposal,
   gateDecision,
   parseProposal,
   proposalBlocks,
+  proposalId,
   proposalText,
   readDispatch,
   sessionThread,
-  withOutboxMount,
   wrapDispatch,
   type StoredProposal,
 } from './dispatch.js';
-import { makeProposal, writeProposal, handleMessage as hostHandle, TOOLS as HOST_TOOLS } from '../snapshot/plain/host-mcp.mjs';
-import { withHostMcp, hostMcpSpec } from './hostmcp.js';
 import { pendingFromJournal } from './queuejournal.js';
 import { Store } from './state.js';
 import { buildSystemPrompt } from './prompt.js';
@@ -28,39 +26,27 @@ const stored = (over: Partial<StoredProposal> = {}): StoredProposal => ({
   session: 'thread:1792005676.356099', createdAt: NOW.toISOString(), slug: 'bluefin-ops', status: 'pending', receivedAt: NOW.toISOString(), channel: 'C0C95AP2E58', threadTs: '1792005676.356099', ...over,
 });
 
-test('readDispatch — off unless DISPATCH=1; the prompt, the MCP list and the mounts stay byte-identical with it off', () => {
+test('readDispatch — off unless DISPATCH=1; the prompt stays byte-identical with the paragraph off', () => {
   assert.deepEqual(readDispatch({}), { enabled: false });
   assert.deepEqual(readDispatch({ DISPATCH: '1' }), { enabled: true });
-  assert.equal(withHostMcp(undefined, false), undefined);
-  assert.deepEqual(withHostMcp([{ name: 'grafana', command: 'x' }], false)!.map((s) => s.name), ['grafana']);
-  assert.deepEqual(withHostMcp([{ name: 'grafana', command: 'x' }], true)!.map((s) => s.name), ['grafana', 'host']);
-  assert.deepEqual(withHostMcp([{ name: 'host', command: 'own' }], true)!.length, 1, 'a project-declared host server wins');
-  assert.deepEqual(hostMcpSpec().env, { HOST_OUTBOX: '/data/outbox' });
   const inp = { slug: 'acme', cwd: '/root/work/acme/acme-admin', repos: ['AcmeOrg/acme-admin'], sandbox: DEFAULT_SANDBOX_OPTIONS };
   assert.equal(buildSystemPrompt({ ...inp, dispatchEnabled: false }), buildSystemPrompt(inp));
   assert.match(buildSystemPrompt({ ...inp, dispatchEnabled: true }), /Proposals: the `host` MCP tool `propose`/);
-  assert.deepEqual(withOutboxMount({ mounts: ['/a:/data/sources:ro'] }, '/h/data/x/outbox').mounts, ['/a:/data/sources:ro', '/h/data/x/outbox:/data/outbox:rw']);
 });
 
-test('the sandbox tool validates and writes an atomic file the host parses back; junk and over-limits are rejected on both sides', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'outbox-'));
-  const made = makeProposal({ kind: 'dispatch', target: 'owen-ops', text: '  Check CG-61 ', refs: ['https://x/1', ' ', 'https://x/2'], rationale: 'why' }, { AVEN_SESSION: 'thread:1792005676.356099' }, NOW);
+test('composeProposal builds the record from the tool arguments and the SESSION identity; the host parses it back; junk and over-limits are rejected', () => {
+  const caller = { slug: 'bluefin-ops', conversationKey: 'thread:1792005676.356099' };
+  const made = composeProposal({ kind: 'dispatch', target: 'owen-ops', text: '  Check CG-61 ', refs: ['https://x/1', ' ', 'https://x/2'], rationale: 'why', session: 'thread:999', slug: 'other' }, caller, NOW);
   assert.ok('record' in made);
-  const rec = (made as { record: Parameters<typeof writeProposal>[0] }).record;
-  assert.match(rec.id, /^p-20261014200000-[0-9a-f]{6}$/);
-  assert.deepEqual([rec.text, rec.refs, rec.session], ['Check CG-61', ['https://x/1', 'https://x/2'], 'thread:1792005676.356099']);
-  writeProposal(rec, dir);
-  assert.deepEqual(readdirSync(dir), [`propose-${rec.id}.json`], 'no tmp file left behind');
-  writeFileSync(join(dir, 'propose-p-bad.json'), '{not json');
-  writeFileSync(join(dir, 'notes.txt'), 'x');
-  const seen: unknown[] = [];
-  assert.deepEqual(consumeProposals(dir, (raw) => seen.push(raw)).length, 2);
-  const parsed = seen.map(parseProposal);
-  assert.ok(parsed[0]!.ok && parsed[0]!.record.id === rec.id);
-  assert.ok(!parsed[1]!.ok, 'unparsable file → undefined → rejected');
-  assert.deepEqual(readdirSync(dir), ['notes.txt'], 'claimed files are removed, junk ignored');
-  assert.deepEqual(consumeProposals(dir, () => assert.fail('nothing left')), []);
-  assert.deepEqual(consumeProposals(join(dir, 'missing'), () => undefined), []);
+  const rec = made.record;
+  assert.match(rec.id, /^p-[0-9a-f]{12}$/);
+  assert.deepEqual([rec.text, rec.refs, rec.session, rec.createdAt], ['Check CG-61', ['https://x/1', 'https://x/2'], 'thread:1792005676.356099', NOW.toISOString()], 'session and slug come from the caller, never from the arguments');
+  // deterministic: the same proposal from the same conversation is the same id; another conversation or text is not
+  assert.equal(rec.id, proposalId('bluefin-ops', 'thread:1792005676.356099', 'dispatch', 'owen-ops', 'Check CG-61'));
+  assert.equal((composeProposal({ kind: 'dispatch', target: 'owen-ops', text: 'Check CG-61' }, caller, new Date()) as { record: { id: string } }).record.id, rec.id);
+  assert.notEqual((composeProposal({ kind: 'dispatch', target: 'owen-ops', text: 'Check CG-61' }, { ...caller, conversationKey: 'thread:2' }, NOW) as { record: { id: string } }).record.id, rec.id);
+  const parsed = parseProposal(rec);
+  assert.ok(parsed.ok && parsed.record.id === rec.id && parsed.record.session === rec.session);
   for (const [args, re] of [
     [{ kind: 'email', target: 'x', text: 'y' }, /kind must be/],
     [{ kind: 'message', target: 'bad target!', text: 'y' }, /target/],
@@ -68,19 +54,11 @@ test('the sandbox tool validates and writes an atomic file the host parses back;
     [{ kind: 'message', target: 'owen-ops', text: 'x'.repeat(4001) }, /limit is 4000/],
     [{ kind: 'message', target: 'owen-ops', text: 'y', refs: 'nope' }, /refs must be/],
   ] as Array<[Record<string, unknown>, RegExp]>) {
-    const r = makeProposal(args, {}, NOW);
+    const r = composeProposal(args, caller, NOW);
     assert.ok('error' in r && re.test(r.error), JSON.stringify(args));
   }
   assert.deepEqual(parseProposal({ id: 'nope', kind: 'message', target: 'x', text: 'y' }), { ok: false, error: 'bad id' });
   assert.equal(parseProposal({ id: 'p-1', kind: 'dispatch', target: 'owen-ops', text: 'y', refs: ['a'] }).ok, true);
-  // the stdio server speaks the same JSON-RPC subset as the sources server
-  const list = hostHandle({ jsonrpc: '2.0', id: 1, method: 'tools/list' }, dir) as { result: { tools: { name: string }[] } };
-  assert.deepEqual(list.result.tools.map((t) => t.name), ['propose']);
-  assert.equal(HOST_TOOLS.length, 1);
-  const call = hostHandle({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'propose', arguments: { kind: 'message', target: 'owen-ops', text: 'hi' } } }, dir) as { result: { isError: boolean; content: { text: string }[] } };
-  assert.equal(call.result.isError, false);
-  assert.match(call.result.content[0]!.text, /"ok":true/);
-  assert.equal(existsSync(join(dir, `propose-${(JSON.parse(call.result.content[0]!.text) as { id: string }).id}.json`)), true);
 });
 
 test('sessionThread, gateDecision, wrapDispatch, rendering', () => {

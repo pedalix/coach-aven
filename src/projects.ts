@@ -1,11 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SandboxDriverKind } from './config.js';
-import { resolveSandboxOptions, withSourcesMount, type SandboxOptions } from './sandboxopts.js';
-import { dispatch, outboxDir, withOutboxMount, type DispatchConfig } from './dispatch.js';
-import { ensureDir } from './sources/paths.js';
+import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
+import type { DispatchConfig } from './dispatch.js';
 import { validateSourcesConfig } from './sources/config.js';
-import { replicaDir } from './sources/paths.js';
 import type { SourcesConfig } from './sources/types.js';
 
 // Registry of the projects the bot serves. ONE bot, MANY channels: each Slack channel
@@ -153,17 +151,12 @@ export function loadProjects(path: string): ProjectsRegistry {
       throw new Error(`${path}: project "${p.slug}" ${e instanceof Error ? e.message : String(e)}`);
     }
     if (p.sources !== undefined) {
+      // The store never rides into the sandbox: the bot serves the `sources` tools over the
+      // session's control channel from the replica on its own disk (hostrouter.ts), or the project
+      // declares a `sources` MCP entry with a `url` and reaches a daemon that way (docs/sources.md →
+      // "Remote access"). Either way the sandbox options stay exactly what the config says.
       try {
         p.sources = validateSourcesConfig(p.sources, `project "${p.slug}" sources`);
-        // The store replica rides into the sandbox automatically (docs/sources.md → "Replica").
-        // Merged here, once, so every ensureSandbox caller — turns, /aven memory, pollers —
-        // sees the same options without each knowing about sources. Re-validated so a
-        // hand-written mount on the same target fails the boot as a duplicate. A project that
-        // declares its own `sources` MCP entry with a `url` reaches the store over the network
-        // (`orch sources serve` behind the gateway) and mounts nothing — the sandbox may live on
-        // another host (docs/sources.md → "Remote access").
-        if (!(p.mcp ?? []).some((s) => s.name === 'sources' && !!s.url)) p.sandbox = withSourcesMount(p.sandbox, replicaDir(p.slug));
-        resolveSandboxOptions(p.sandbox);
       } catch (e) {
         throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
       }
@@ -176,17 +169,6 @@ export function loadProjects(path: string): ProjectsRegistry {
       }
       if (dc.maxPerDay !== undefined && (!Number.isInteger(dc.maxPerDay) || dc.maxPerDay < 0 || dc.maxPerDay > 100)) {
         throw new Error(`${path}: project "${p.slug}" dispatch.maxPerDay must be an integer in [0, 100]`);
-      }
-    }
-    // While dispatch is on, every project gets a read-write outbox beside the read-only replica
-    // (the `host` MCP tool writes proposals there). Created here, owner-only, BEFORE a container
-    // can mount it — docker would otherwise create it root-owned and the bot could not claim files.
-    if (dispatch.enabled) {
-      try {
-        p.sandbox = withOutboxMount(p.sandbox, ensureDir(outboxDir(p.slug)));
-        resolveSandboxOptions(p.sandbox);
-      } catch (e) {
-        throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
     for (const s of p.mcp ?? []) {

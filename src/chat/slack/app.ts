@@ -7,7 +7,8 @@
 //   commands.ts — the /aven router and subcommand handlers
 //   chat/slack/events.ts — @mentions, thread replies, DMs, buttons, App Home
 //   pollers.ts  — scheduler + auto-review / autofix / YouTrack pollers
-import { createDispatcher } from '../../dispatchrun.js';
+import { createDispatcher, type Dispatcher } from '../../dispatchrun.js';
+import { createHostRouter } from '../../hostrouter.js';
 import { slackDriver } from './driver.js';
 import bolt from '@slack/bolt';
 import type { Installation } from '@slack/bolt';
@@ -242,15 +243,27 @@ export async function runSlack(cfg: Config): Promise<void> {
   const botUserId = authInfo?.user_id as string | undefined;
   if (!oauth) homeTeamId = authInfo?.team_id as string | undefined;
 
-  const engine = createTurnEngine(cfg, store, reg);
+  // Bot-served MCP servers (hostrouter.ts): `host` (propose, registry — while DISPATCH=1) and the
+  // channel-served `sources` are answered by this process over each session's control channel.
+  // The dispatcher is built after the engine (it drives child turns through it), so `propose`
+  // reaches it late-bound; a session only calls it during a turn, long after boot.
+  const dispatcherRef: { current?: Dispatcher } = {};
+  const hostRoutes = createHostRouter({
+    reg,
+    home: () => homeTeamId,
+    tz: ROUTINE_TZ,
+    propose: (slug, record) => dispatcherRef.current?.propose(slug, record) ?? Promise.resolve({ ok: false as const, error: 'dispatch is not available yet' }),
+  });
+  const engine = createTurnEngine(cfg, store, reg, { hostRoutes });
   // Late-bound home getter: channels is built here, but homeTeamId was resolved above and
   // a future re-auth could in principle refresh it.
   const channels = createChannels(reg, () => homeTeamId);
-  // Dispatch primitive (DISPATCH=1): proposals from the sandboxes' outboxes → buttons → side effects.
+  // Dispatch primitive (DISPATCH=1): `host.propose` → Send / Dismiss → side effects.
   // Every non-event path (pollers, dispatch, recovery) posts through a tenant's chat driver.
   const driverFor = (t?: string) => slackDriver(clientForTeam(t));
   const dispatcher = createDispatcher({ store, reg, engine, channels, driverFor, home: () => homeTeamId, tz: ROUTINE_TZ });
-  const pollers = createPollers(cfg, store, reg, driverFor, engine, channels, () => homeTeamId, dispatcher);
+  dispatcherRef.current = dispatcher;
+  const pollers = createPollers(cfg, store, reg, driverFor, engine, channels, () => homeTeamId);
 
   registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, dispatcher });
   registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId });

@@ -8,8 +8,9 @@ import type { SandboxHandle } from './driver.js';
 // real driver's streamSessionCommandLogs would deliver it.
 // `log` is the stdout a reattach finds already written: sessionCommandLogs returns it and,
 // like a real driver, the stream replays it before tailing new output.
-function fakeSandbox(log = ''): { handle: SandboxHandle; push: (ev: unknown) => void } {
+function fakeSandbox(log = ''): { handle: SandboxHandle; push: (ev: unknown) => void; writes: unknown[] } {
   let onStdout: ((chunk: string) => void) | undefined;
+  const writes: unknown[] = []; // every line the session wrote to the process's stdin, parsed
   const handle: SandboxHandle = {
     name: 'fake',
     started: true,
@@ -24,10 +25,12 @@ function fakeSandbox(log = ''): { handle: SandboxHandle; push: (ev: unknown) => 
       if (log) onStdoutCb(log);
       return new Promise(() => {}); // never resolves — the fake process stays alive
     },
-    sendSessionInput: async () => {},
+    sendSessionInput: async (_k, _c, line) => {
+      for (const l of line.split('\n')) if (l.trim()) writes.push(JSON.parse(l));
+    },
     deleteSession: async () => {},
   };
-  return { handle, push: (ev) => onStdout?.(JSON.stringify(ev) + '\n') };
+  return { handle, push: (ev) => onStdout?.(JSON.stringify(ev) + '\n'), writes };
 }
 
 async function openFake() {
@@ -188,4 +191,80 @@ test('ClaudeSession — a reattach seeds the baseline from the replayed log, so 
   push({ type: 'result', result: 'c', is_error: false, session_id: 's1', total_cost_usd: 0.334 });
   const r = await turn;
   assert.ok(Math.abs((r.usage?.costUsd ?? -1) - 0.024) < 1e-9);
+});
+
+// ── host tools over the control channel (hosttools.ts / hostrouter.ts) ─────────────────────
+
+const tick = () => new Promise((r) => setImmediate(r));
+const hostRoute = (seen: unknown[] = []) => ({
+  name: 'host',
+  timeoutMs: 30_000,
+  handle: async (m: { id?: number | string | null; method?: string }) => {
+    seen.push(m);
+    if (m.id === undefined || m.id === null) return undefined;
+    if (m.method === 'tools/list') return { jsonrpc: '2.0', id: m.id, result: { tools: [{ name: 'registry' }] } };
+    if (m.method === 'boom') throw new Error('kaboom');
+    return { jsonrpc: '2.0', id: m.id, result: {} };
+  },
+});
+
+test('ClaudeSession — host servers are registered right after spawn, before the first user turn; nothing is written without them', async () => {
+  const none = fakeSandbox();
+  await new ClaudeSession(none.handle, { cwd: '/tmp' }).open();
+  assert.deepEqual(none.writes, [], 'no host servers → the process sees exactly what it saw before');
+
+  const { handle, push, writes } = fakeSandbox();
+  const session = new ClaudeSession(handle, { cwd: '/tmp', hostServers: [hostRoute(), { name: 'sources', timeoutMs: 90_000, handle: () => undefined }] });
+  await session.open();
+  assert.equal(writes.length, 1);
+  const init = writes[0] as { type: string; request: { subtype: string; sdkMcpServers: string[]; sdkMcpServerConfigs: Record<string, { timeout: number }> } };
+  assert.equal(init.type, 'control_request');
+  assert.equal(init.request.subtype, 'initialize');
+  assert.deepEqual(init.request.sdkMcpServers, ['host', 'sources']);
+  assert.deepEqual(init.request.sdkMcpServerConfigs, { host: { timeout: 30_000 }, sources: { timeout: 90_000 } });
+  const turn = session.send('hello');
+  await tick();
+  assert.equal((writes[1] as { type: string }).type, 'user', 'the registration precedes the first turn on stdin');
+  push({ type: 'result', result: 'hi', is_error: false, session_id: 's1' });
+  assert.equal((await turn).status, 'ok');
+});
+
+test('ClaudeSession — an mcp_message request is answered with the route\'s reply in mcp_response; a notification is acknowledged; a thrown handler and an unknown server become errors', async () => {
+  const seen: unknown[] = [];
+  const { handle, push, writes } = fakeSandbox();
+  const session = new ClaudeSession(handle, { cwd: '/tmp', hostServers: [hostRoute(seen)] });
+  await session.open();
+  writes.length = 0;
+  const req = (request_id: string, server_name: string, message: unknown) => push({ type: 'control_request', request_id, request: { subtype: 'mcp_message', server_name, message } });
+
+  req('r1', 'host', { jsonrpc: '2.0', id: 1, method: 'tools/list' });
+  await tick();
+  assert.deepEqual(writes[0], { type: 'control_response', response: { subtype: 'success', request_id: 'r1', response: { mcp_response: { jsonrpc: '2.0', id: 1, result: { tools: [{ name: 'registry' }] } } } } });
+
+  req('r2', 'host', { jsonrpc: '2.0', method: 'notifications/initialized' });
+  await tick();
+  assert.deepEqual(writes[1], { type: 'control_response', response: { subtype: 'success', request_id: 'r2', response: { mcp_response: { jsonrpc: '2.0', result: {}, id: 0 } } } }, 'the SDK\'s empty result for a notification');
+  assert.equal(seen.length, 2, 'the notification was delivered to the route');
+
+  req('r3', 'host', { jsonrpc: '2.0', id: 3, method: 'boom' });
+  await tick();
+  assert.deepEqual((writes[2] as { response: { response: { mcp_response: { error: { code: number; message: string } } } } }).response.response.mcp_response.error, { code: -32603, message: 'kaboom' });
+
+  req('r4', 'nope', { jsonrpc: '2.0', id: 4, method: 'tools/list' });
+  await tick();
+  assert.deepEqual(writes[3], { type: 'control_response', response: { subtype: 'error', request_id: 'r4', error: 'no host server "nope" in this session' } });
+});
+
+test('ClaudeSession — a reattach whose snapshot ends on an unanswered mcp_message serves it for real', async () => {
+  const pending = { type: 'control_request', request_id: 'old-9', request: { subtype: 'mcp_message', server_name: 'host', message: { jsonrpc: '2.0', id: 9, method: 'tools/list' } } };
+  const log = [{ type: 'system', subtype: 'init', session_id: 's1' }, pending].map((e) => JSON.stringify(e)).join('\n') + '\n';
+  const { handle, push, writes } = fakeSandbox(log);
+  const session = new ClaudeSession(handle, { cwd: '/tmp', resumeSessionId: 's1', attach: { sessionKey: 'k', cmdId: 'cmd1' }, hostServers: [hostRoute()] });
+  await session.open();
+  assert.deepEqual(writes, [], 'no registration on attach — the running process already knows the servers');
+  const adopted = session.adoptInflight();
+  await tick();
+  assert.deepEqual(writes[0], { type: 'control_response', response: { subtype: 'success', request_id: 'old-9', response: { mcp_response: { jsonrpc: '2.0', id: 9, result: { tools: [{ name: 'registry' }] } } } } });
+  push({ type: 'result', result: 'done', is_error: false, session_id: 's1' });
+  assert.equal((await adopted).status, 'ok');
 });

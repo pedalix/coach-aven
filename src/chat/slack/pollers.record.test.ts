@@ -1,14 +1,14 @@
 // Recorded-call pins for what the bot posts on its own (OpenSpec chat-driver-interface,
 // task 4.1): scheduled routines (guard off and on, answered / failed / canceled / stacked /
 // orphaned), reviews, and the dispatch primitive (Send for a message and a task, Dismiss,
-// outbox ingest gated and auto-approved, rejected and duplicate files). Real createPollers /
+// `propose` gated and auto-approved, rejected and duplicate records). Real createPollers /
 // createDispatcher against the twin's RecordingApi with a recording fake engine that plays
 // the turn's outcome. Taken before the deliveries moved behind the chat driver; the move must
 // leave them byte-identical. Re-snapshot on purpose with UPDATE_SNAPSHOTS=1.
 
 import { test, mock, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import bolt from '@slack/bolt';
@@ -17,7 +17,7 @@ import { Store, type RoutineRecord } from '../../state.js';
 import { createChannels } from '../../channels.js';
 import { createPollers } from '../../pollers.js';
 import { createDispatcher, type Dispatcher } from '../../dispatchrun.js';
-import { dispatch, outboxDir, type StoredProposal } from '../../dispatch.js';
+import { dispatch, type StoredProposal } from '../../dispatch.js';
 import { routineGuard } from '../../routineguard.js';
 import type { TurnEngine, TurnOpts } from '../../turn.js';
 import { RecordingApi } from './twin.js';
@@ -98,7 +98,7 @@ function harness(outcome: Outcome = 'answer') {
   };
   const cfg = { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 } } as unknown as Config;
   const dispatcher = createDispatcher({ store, reg: reg as never, engine: rec.engine, channels, driverFor, home: () => HOME, tz: 'Europe/Zurich' });
-  const pollers = createPollers(cfg, store, reg as never, driverFor, rec.engine, channels, () => HOME, dispatcher);
+  const pollers = createPollers(cfg, store, reg as never, driverFor, rec.engine, channels, () => HOME);
   return { store, reg, client, driverFor, pollers, dispatcher, ...rec };
 }
 type H = ReturnType<typeof harness>;
@@ -225,11 +225,6 @@ test('pollers record: dispatch Send twice changes nothing', () =>
 test('pollers record: dispatch Dismiss', () =>
   withDispatch(() => record('dispatch-dismiss', 'answer', async (h) => (h.store.setProposal(pending({})), h.dispatcher.dismiss('p-1', 'U_HUMAN')))));
 
-const drop = (slug: string, file: string, body: unknown) => {
-  const dir = outboxDir(slug);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, file), typeof body === 'string' ? body : JSON.stringify(body));
-};
 const proposalFile = (over: Record<string, unknown>) => ({
   id: 'p-2',
   kind: 'message',
@@ -241,50 +236,48 @@ const proposalFile = (over: Record<string, unknown>) => ({
   createdAt: '2026-10-15T07:00:00.000Z',
   ...over,
 });
-async function poll(h: H): Promise<void> {
-  h.dispatcher.pollOutboxes();
+// The `propose` host tool hands the dispatcher a record (hostrouter.ts); what the agent is told is
+// asserted here, what Slack sees is the snapshot — the same calls the outbox path made.
+async function propose(h: H, record: unknown, expect: Record<string, unknown>): Promise<void> {
+  const out = await h.dispatcher.propose('alpha', record);
+  for (const [k, v] of Object.entries(expect)) assert.deepEqual((out as Record<string, unknown>)[k], v, `propose → ${k}`);
   await quiesce(h);
 }
-test('pollers record: outbox — gated proposal rendered in its thread', () =>
+test('pollers record: propose — gated proposal rendered in its thread', () =>
   withDispatch(() =>
-    record('outbox-gated', 'answer', async (h) => {
+    record('propose-gated', 'answer', async (h) => {
       h.store.patchChat('thread:9.1', 'alpha', { inflight: { channel: 'C_HOME', statusTs: '9.2', startedAt: '2026-10-15T07:00:00.000Z' } });
-      drop('alpha', 'propose-p-2.json', proposalFile({}));
-      await poll(h);
+      await propose(h, proposalFile({}), { ok: true, id: 'p-2', status: 'pending', gate: 'buttons' });
     }),
   ));
-test('pollers record: outbox — auto-approved task executes and renders', () =>
+test('pollers record: propose — auto-approved task executes and renders', () =>
   withDispatch(() =>
-    record('outbox-auto', 'answer', async (h) => {
+    record('propose-auto', 'answer', async (h) => {
       h.store.patchChat('thread:9.1', 'alpha', { inflight: { channel: 'C_HOME', statusTs: '9.2', startedAt: '2026-10-15T07:00:00.000Z' } });
-      drop('alpha', 'propose-p-3.json', proposalFile({ id: 'p-3', kind: 'dispatch', target: 'beta', text: 'Bump the SDK.' }));
-      await poll(h);
+      await propose(h, proposalFile({ id: 'p-3', kind: 'dispatch', target: 'beta', text: 'Bump the SDK.' }), { ok: true, id: 'p-3', status: 'sent', gate: 'auto' });
     }),
   ));
 // The proposing conversation is found by its full key, so a thread outside the project's own channel
 // and a DM render where the turn runs — not in the bound channel (the fallback the bare-ts lookup hit).
-test('pollers record: outbox — a proposal from a thread outside the project channel renders in that thread', () =>
+test('pollers record: propose — a proposal from a thread outside the project channel renders in that thread', () =>
   withDispatch(() =>
-    record('outbox-thread-elsewhere', 'answer', async (h) => {
+    record('propose-thread-elsewhere', 'answer', async (h) => {
       h.store.patchChat('thread:9.1', 'alpha', { inflight: { channel: 'C_OTHER', statusTs: '9.2', msgThreadTs: '9.1', startedAt: '2026-10-15T07:00:00.000Z' } });
-      drop('alpha', 'propose-p-2.json', proposalFile({}));
-      await poll(h);
+      await propose(h, proposalFile({}), { ok: true, id: 'p-2', status: 'pending', gate: 'buttons' });
     }),
   ));
-test('pollers record: outbox — a proposal from a DM renders in the DM', () =>
+test('pollers record: propose — a proposal from a DM renders in the DM', () =>
   withDispatch(() =>
-    record('outbox-dm', 'answer', async (h) => {
+    record('propose-dm', 'answer', async (h) => {
       h.store.patchChat('dm:D0DM:alpha', 'alpha', { inflight: { channel: 'D0DM', statusTs: '9.3', startedAt: '2026-10-15T07:00:00.000Z' } });
-      drop('alpha', 'propose-p-2.json', proposalFile({ session: 'dm:D0DM:alpha' }));
-      await poll(h);
+      await propose(h, proposalFile({ session: 'dm:D0DM:alpha' }), { ok: true, id: 'p-2', status: 'pending', gate: 'buttons' });
     }),
   ));
-test('pollers record: outbox — rejected and duplicate files', () =>
+test('pollers record: propose — rejected and duplicate records', () =>
   withDispatch(() =>
-    record('outbox-rejected', 'answer', async (h) => {
+    record('propose-rejected', 'answer', async (h) => {
       h.store.setProposal(pending({ id: 'p-2' }));
-      drop('alpha', 'propose-p-2.json', proposalFile({}));
-      drop('alpha', 'propose-p-9.json', '{ not json');
-      await poll(h);
+      await propose(h, proposalFile({}), { ok: true, id: 'p-2', duplicate: true });
+      await propose(h, { not: 'a proposal' }, { ok: false, error: 'bad id' });
     }),
   ));

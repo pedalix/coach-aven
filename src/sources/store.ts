@@ -30,7 +30,7 @@
 // unconsumed), apply inside one transaction per file chunk with the new offset, then
 // `VACUUM INTO` a fresh copy under replica/ and rename it into place. The replica, not the
 // live file, is what the sandbox mounts: a bind-mounted FILE would pin an inode and never
-// see the swap, so the mount is the replica DIRECTORY (sandboxopts.ts → SOURCES_MOUNT_TARGET).
+// see the swap: the bot (hostrouter.ts) and `serve` open the file per call and pick up the new one.
 import { createHash } from 'node:crypto';
 import { attributionRows, loadFragments, type Fragment } from './annotations.js';
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync } from 'node:fs';
