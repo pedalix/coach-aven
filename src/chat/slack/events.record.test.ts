@@ -14,14 +14,14 @@ import type { Config } from '../../config.js';
 import { Store } from '../../state.js';
 import type { FeedbackRecord } from '../../feedback.js';
 import { createChannels } from '../../channels.js';
-import { registerEvents } from '../../events.js';
+import { registerEvents } from './events.js';
 import { slugOfBase, isThreadKey } from '../../teamkeys.js';
 import { memoryRepoDir } from '../../memjournal.js';
 import { dispatch, type StoredProposal } from '../../dispatch.js';
 import type { PendingQuestion, TurnEngine, TurnOpts, TurnTrail } from '../../turn.js';
 import type { Dispatcher } from '../../dispatchrun.js';
 import type { SlackChatDriver } from './driver.js';
-import { FB_CALLBACK, FB_NOTE, FB_REASON, YT_PROMPT_CALLBACK, YT_PROMPT_INPUT, YT_PROMPT_NOW, YT_SEND_CALLBACK, YT_SEND_INPUT } from '../../blocks.js';
+import { FB_CALLBACK, FB_NOTE, FB_REASON, YT_PROMPT_CALLBACK, YT_PROMPT_INPUT, YT_PROMPT_NOW, YT_SEND_CALLBACK, YT_SEND_INPUT } from './blocks.js';
 import { createTwinApp, messageEnvelope, homeOpenedEnvelope, blockActionEnvelope } from '../../twin.js';
 
 const SNAP_DIR = new URL('../../fixtures/chat/events/', import.meta.url).pathname;

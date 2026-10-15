@@ -3,18 +3,18 @@
 // no state mutation (except the alert sink hook) — just payload shaping, so the Slack
 // wiring in events.ts/commands.ts stays thin.
 
-import type { RoutineRecord, PrWatch } from './state.js';
-import type { AnswerOpts, FollowUp, RateMeta, TrailMeta } from './chat/views.js';
-import { dispatch } from './dispatch.js';
-import type { ProjectConfig, ProjectsRegistry } from './projects.js';
-import type { AskQuestion } from './claudeSession.js';
-import type { YouTrackIssue, YouTrackComment } from './youtrack.js';
-import { prUrls, mdToMrkdwn, fmtElapsed } from './format.js';
-import { trailView } from './steps.js';
-import { BAD_REASONS, type Tally } from './feedback.js';
-import { log } from './log.js';
-import { captureError } from './sentry.js';
-import { stackHead } from './netretry.js';
+import type { RoutineRecord, PrWatch } from '../../state.js';
+import type { AnswerOpts, FollowUp, RateMeta, TrailMeta } from '../views.js';
+import { dispatch } from '../../dispatch.js';
+import type { ProjectConfig, ProjectsRegistry } from '../../projects.js';
+import type { AskQuestion } from '../../claudeSession.js';
+import type { YouTrackIssue, YouTrackComment } from '../../youtrack.js';
+import { prUrls, mdToMrkdwn, fmtElapsed } from '../../format.js';
+import { trailView } from '../../steps.js';
+import { BAD_REASONS, type Tally } from '../../feedback.js';
+import { log } from '../../log.js';
+import { captureError } from '../../sentry.js';
+import { stackHead } from '../../netretry.js';
 
 // The answer decorations are platform-neutral data — they live with the view models.
 export type { AnswerOpts, FollowUp, RateMeta, TrailMeta };

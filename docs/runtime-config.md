@@ -242,7 +242,7 @@ across the minute loses the fire (no catch-up) and a restart inside the minute r
 double-fires it (`firedThisMinute` is in-memory); with the guard on both are covered (late run;
 `lastRunAt` dedupe), but a restart *during* a run still leaves its parent at `running…` — recovery
 re-posts the answer, not the headline — so keep the window anyway. The Home tab (`homeBlocks`,
-`src/blocks.ts`) needs no change: the guard adds no command or button. To switch it on at home:
+`src/chat/slack/blocks.ts`) needs no change: the guard adds no command or button. To switch it on at home:
 add `ROUTINE_GUARD=1` to the checkout's `.env`, restart in the window, then watch the next 08:30
 run — its thread starts with the `[Routine state]` line and the journal shows `routine r1
 (owen-ops): fired — scheduled` … `delivered — <headline>`.

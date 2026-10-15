@@ -40,7 +40,7 @@ import {
   notConfiguredText,
   type ProjectStatus,
   type StatusReport,
-} from './blocks.js';
+} from './chat/slack/blocks.js';
 import { log } from './log.js';
 
 const THINKING = ':hourglass_flowing_sand: thinking…';

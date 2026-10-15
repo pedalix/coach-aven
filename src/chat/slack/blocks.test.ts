@@ -30,8 +30,8 @@ import {
   type TrailMeta,
   type SessionPanelInfo,
 } from './blocks.js';
-import type { YouTrackIssue, YouTrackComment } from './youtrack.js';
-import type { ProjectConfig } from './projects.js';
+import type { YouTrackIssue, YouTrackComment } from '../../youtrack.js';
+import type { ProjectConfig } from '../../projects.js';
 
 // The action row is the last block; its button action_ids tell us which affordance rendered.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

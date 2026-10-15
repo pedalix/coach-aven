@@ -15,7 +15,7 @@ import {
   questionBlocks,
   reportPostedBlocks,
   statusBlocks,
-} from '../../blocks.js';
+} from './blocks.js';
 import { fallbackText } from '../../format.js';
 
 // Reaction a skipped "!" note gets (configurable — some workspaces lack the default emoji).

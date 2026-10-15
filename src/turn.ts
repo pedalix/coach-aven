@@ -14,7 +14,7 @@ import { createDriver } from './driver.js';
 import { fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
 import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
-import { MAX_SLACK_TEXT, errText, alertOps } from './blocks.js';
+import { MAX_SLACK_TEXT, errText, alertOps } from './chat/slack/blocks.js';
 import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase } from './teamkeys.js';
 import { DraftStore } from './drafts.js';

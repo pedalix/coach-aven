@@ -3,25 +3,25 @@
 // and payload normalization here, the actual work in the turn engine.
 
 import type bolt from '@slack/bolt';
-import { slackDriver } from './chat/slack/driver.js';
-import type { Config } from './config.js';
-import type { Store } from './state.js';
-import { resolveBySlug, teamProjects, type RegistryRef } from './projects.js';
-import { tenantOf, withTeam, normalizeTenant } from './teamkeys.js';
-import { effectiveAccess, mayDrive, deniedText } from './access.js';
-import { RecentSet } from './recent.js';
-import { eventLog } from './eventlog.js';
-import type { TurnEngine } from './turn.js';
-import type { Channels } from './channels.js';
-import { readMemory } from './commands.js';
-import { autofixPrompt, reportDraftPrompt, reportDeliveryContract } from './prompts.js';
-import { extractSlackFiles, hydrateSlackFiles, type FileInfoFn, type SlackFile } from './slackfiles.js';
-import { projectCwd } from './project.js';
-import { memoryFilePath } from './memory.js';
-import { memoryRepoDir, readSnapshotFile } from './memjournal.js';
-import { stripMention, mdToMrkdwn } from './format.js';
-import { captureError } from './sentry.js';
-import { getIssue, listComments, listAttachments, postInternalComment } from './youtrack.js';
+import { slackDriver } from './driver.js';
+import type { Config } from '../../config.js';
+import type { Store } from '../../state.js';
+import { resolveBySlug, teamProjects, type RegistryRef } from '../../projects.js';
+import { tenantOf, withTeam, normalizeTenant } from '../../teamkeys.js';
+import { effectiveAccess, mayDrive, deniedText } from '../../access.js';
+import { RecentSet } from '../../recent.js';
+import { eventLog } from '../../eventlog.js';
+import type { TurnEngine } from '../../turn.js';
+import type { Channels } from '../../channels.js';
+import { readMemory } from '../../commands.js';
+import { autofixPrompt, reportDraftPrompt, reportDeliveryContract } from '../../prompts.js';
+import { extractSlackFiles, hydrateSlackFiles, type FileInfoFn, type SlackFile } from '../../slackfiles.js';
+import { projectCwd } from '../../project.js';
+import { memoryFilePath } from '../../memory.js';
+import { memoryRepoDir, readSnapshotFile } from '../../memjournal.js';
+import { stripMention, mdToMrkdwn } from '../../format.js';
+import { captureError } from '../../sentry.js';
+import { getIssue, listComments, listAttachments, postInternalComment } from '../../youtrack.js';
 import {
   MAX_SLACK_TEXT,
   info,
@@ -51,10 +51,10 @@ import {
   YT_PROMPT_INPUT,
   YT_PROMPT_NOW,
 } from './blocks.js';
-import { isBadReason, isTurnId, type Tally } from './feedback.js';
-import { dispatch, proposalBlocks, proposalText } from './dispatch.js';
-import type { Dispatcher } from './dispatchrun.js';
-import { log } from './log.js';
+import { isBadReason, isTurnId, type Tally } from '../../feedback.js';
+import { dispatch, proposalBlocks, proposalText } from '../../dispatch.js';
+import type { Dispatcher } from '../../dispatchrun.js';
+import { log } from '../../log.js';
 
 export interface EventDeps {
   cfg: Config;
