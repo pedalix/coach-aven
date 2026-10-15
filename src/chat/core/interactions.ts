@@ -13,7 +13,7 @@ import type { Store } from '../../state.js';
 import { resolveBySlug, teamProjects, type RegistryRef } from '../../projects.js';
 import { withTeam } from '../../teamkeys.js';
 import type { TurnEngine } from '../../turn.js';
-import { readMemory } from '../../commands.js';
+import { readMemory } from './commands.js';
 import { autofixPrompt, reportDraftPrompt, reportDeliveryContract } from '../../prompts.js';
 import { projectCwd } from '../../project.js';
 import { memoryFilePath } from '../../memory.js';
@@ -68,7 +68,7 @@ export function createInteractions(deps: InteractionDeps): Interactions {
   const cleared = async (a: ChatAction, d: ChatDriver): Promise<boolean> => {
     const gate = actor(a.actor.tenant, a.actor.user);
     if (gate.ok) return true;
-    await d.reply(a, { kind: 'text', text: gate.denial }).catch(() => {});
+    await d.reply(a, { kind: 'text', text: gate.denial }, { replace: false }).catch(() => {});
     return false;
   };
 
@@ -326,9 +326,9 @@ export function createInteractions(deps: InteractionDeps): Interactions {
       try {
         let text = await readSnapshotFile(memoryRepoDir(project.slug), v.f).catch(() => null);
         if (text == null) text = await readMemory(cfg, project, fp, false); // not journaled → live (no wake)
-        await d.reply(a, { kind: 'memoryTopic', file: v.f, markdown: text });
+        await d.reply(a, { kind: 'markdown', title: v.f, markdown: text }, { replace: false });
       } catch (err) {
-        await d.reply(a, { kind: 'text', text: errText(err) });
+        await d.reply(a, { kind: 'text', text: errText(err) }, { replace: false });
       }
     },
 

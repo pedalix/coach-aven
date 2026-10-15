@@ -9,6 +9,7 @@
 // interaction surface (clicks, dialogs, private replies, Home).
 
 import type { Tally } from '../feedback.js';
+import type { AttachmentRef } from '../attachments.js';
 import type { DialogView, HomeView, MessageView, PrivateView } from './views.js';
 
 // Where to post: a conversation (Slack channel/DM id) and, optionally, the thread in it.
@@ -39,6 +40,34 @@ export interface ChatAction {
   msgText?: string; // that message's text as markdown, best-effort (a draft's fallback)
   canDialog: boolean; // whether this click may open a dialog (Slack: a trigger id came along)
   readonly ctx: unknown; // driver-private interaction state (Slack: respond URL, trigger, blocks)
+}
+
+// A typed command (Slack: `/aven …`), normalized.
+export interface ChatCommand {
+  text: string; // everything after the command itself
+  conv: string; // where it was typed
+  actor: Actor & { user: string };
+  readonly ctx: unknown; // driver-private (Slack: the response_url responder)
+}
+
+// Anything the core can answer privately: a click or a command.
+export type Interaction = Pick<ChatAction, 'ctx'>;
+
+// A message that may concern the agent, normalized. Mentions arrive with the mention itself
+// stripped from `text`.
+export interface ChatMessage {
+  conv: string;
+  id: string;
+  thread?: string; // the thread it was posted in, if any
+  text: string;
+  actor: Actor;
+  direct: boolean; // a one-to-one conversation with the bot
+  hasFiles: boolean; // files came along that the driver can fetch
+  // Fetch the files for the turn (lazily — only once the core decided to act).
+  files(): Promise<{ refs: AttachmentRef[]; bearer: string } | undefined>;
+  // Platform-level dedupe at the moment of acting (Slack Connect delivers one message once per
+  // installation): true = this delivery acts. `kind` namespaces the claim.
+  claim(kind: string): boolean;
 }
 
 // A submitted dialog, normalized: field name → entered text, or the chosen option values.
@@ -79,9 +108,16 @@ export interface ChatDriver {
   permalink(msg: MsgRef): Promise<string | undefined>;
 
   // ── interaction surface ──
-  // Answer a click privately, to the person who clicked (`replace`: in place of the private
-  // message the click came from). Throws on platform failure.
-  reply(action: ChatAction, view: PrivateView, opts?: { replace?: boolean }): Promise<void>;
+  // Answer a click or a command privately, to the person who acted. `replace` true: in place
+  // of the private message the interaction came from; false: as a new one; absent: the
+  // platform default. Throws on platform failure.
+  reply(to: Interaction, view: PrivateView, opts?: { replace?: boolean }): Promise<void>;
+  // The conversation's name, for the `<prefix><slug>` binding; undefined when it has none or
+  // can't be read. Never throws.
+  conversationName(conv: string): Promise<string | undefined>;
+  // The direct conversation with one person, opened if needed; undefined when the platform
+  // won't (missing permission). Never throws.
+  openDirect(user: string): Promise<string | undefined>;
   // Post privately to one person inside a conversation/thread. Throws on platform failure.
   postPrivate(to: ConvTarget, user: string, view: PrivateView): Promise<void>;
   // Open a dialog for the person who clicked. Throws on platform failure (the click's dialog

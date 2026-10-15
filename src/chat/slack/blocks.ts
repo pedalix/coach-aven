@@ -4,7 +4,7 @@
 // wiring in events.ts/commands.ts stays thin.
 
 import type { RoutineRecord, PrWatch } from '../../state.js';
-import type { AnswerOpts, FollowUp, RateMeta, SessionPanelInfo, TrailMeta } from '../views.js';
+import type { AnswerOpts, FollowUp, ProjectStatus, RateMeta, SessionPanelInfo, StatusReport, TrailMeta } from '../views.js';
 import { dispatch } from '../../dispatch.js';
 import type { ProjectConfig, ProjectsRegistry } from '../../projects.js';
 import type { AskQuestion } from '../../claudeSession.js';
@@ -17,7 +17,7 @@ import { captureError } from '../../sentry.js';
 import { stackHead } from '../../netretry.js';
 
 // The answer decorations are platform-neutral data — they live with the view models.
-export type { AnswerOpts, FollowUp, RateMeta, SessionPanelInfo, TrailMeta };
+export type { AnswerOpts, FollowUp, ProjectStatus, RateMeta, SessionPanelInfo, StatusReport, TrailMeta };
 
 // Slack hard-caps a single message at 40k chars; leave headroom.
 export const MAX_SLACK_TEXT = 39000;
@@ -699,28 +699,6 @@ export function trailModalView(t: { steps: string[]; elapsedMs: number; done: bo
 }
 
 // ── `/aven status` rendering ────────────────────────────────────────────────
-export interface ProjectStatus {
-  slug: string;
-  repos: number;
-  state?: string; // Daytona sandbox state; undefined = sandbox never created
-  sessions: number; // conversations bound to this project in state.json
-  active: number; // conversations with a turn in flight right now
-  openPRs?: number; // undefined = couldn't be determined
-  jobs: number; // scheduled report routines
-  dreams: number; // scheduled dream routines
-  hk: number; // scheduled housekeeping routines
-  sources?: string; // sources/sync.ts statusLine for projects with a `sources` block
-}
-export interface StatusReport {
-  projects: ProjectStatus[];
-  turnsInFlight: number;
-  daytonaOk: boolean;
-  githubOk: boolean;
-  // Subscription quota line (ratelimit.ts) — operator info about OUR one Claude plan, so
-  // only the home workspace's report carries it.
-  claudeQuota?: string;
-}
-
 function stateLabel(state?: string): string {
   if (!state) return '🌑 not created';
   if (state === 'started') return '✅ started';

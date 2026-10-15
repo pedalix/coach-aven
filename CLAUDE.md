@@ -43,14 +43,16 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 - `src/slack.ts` — the composition root: builds the turn engine + channel resolver,
   registers the Slack surfaces, starts the pollers. The parts live beside it:
   `src/turn.ts` (turn lifecycle: `liveTurn`/`doTurn`, queues, agent questions, restart
-  recovery), `src/chat/slack/events.ts` (mentions/DMs/buttons/App Home), `src/commands.ts`
-  (the `/aven` router), `src/pollers.ts` (scheduler + auto-review/autofix/YouTrack pollers),
-  `src/chat/slack/blocks.ts` (all Block Kit rendering), `src/channels.ts` (channel↔project).
+  recovery), `src/pollers.ts` (scheduler + auto-review/autofix/YouTrack pollers),
+  `src/channels.ts` (channel↔project).
 - `src/chat/` — the **chat driver** layer (OpenSpec `chat-driver-interface`, in progress): the
-  core talks to `ChatDriver` (`src/chat/driver.ts`) with platform-neutral view models
-  (`src/chat/views.ts`); `src/chat/slack/` is the Slack implementation. Turn-path and
-  interaction changes are pinned by recorded Slack call snapshots (`src/fixtures/chat/`,
-  re-snapshot on purpose with `UPDATE_SNAPSHOTS=1`).
+  platform-neutral core (`src/chat/core/`: `messages.ts` mentions/DMs/thread replies,
+  `commands.ts` the `/aven` router, `interactions.ts` buttons/dialogs/home, `gates.ts` who may
+  drive) talks to `ChatDriver` (`src/chat/driver.ts`) with view models (`src/chat/views.ts`).
+  `src/chat/slack/` is the Slack implementation: `driver.ts` (rendering + Web API), `events.ts`
+  / `commands.ts` (Bolt wiring, payload normalization), `blocks.ts` (all Block Kit). Slack
+  output is pinned by recorded call snapshots (`src/fixtures/chat/`, re-snapshot on purpose
+  with `UPDATE_SNAPSHOTS=1`).
 - `src/tasks.ts` — chat session over a sandbox. `src/prompt.ts` — the **3-layer system prompt**
   (orchestrator base → project prompt → repo `CLAUDE.md`), pure and golden-tested: the base text
   reaches every production session, so `src/fixtures/prompt/*.txt` pins it byte-exact — change it

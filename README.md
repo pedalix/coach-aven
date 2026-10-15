@@ -91,11 +91,10 @@ src/
   cli.ts            # commander CLI (`slack`, `sources …`, `routines list|run`)
   slack.ts          # composition root: engine + resolvers + handlers + pollers
   turn.ts           # turn engine: queues, live status, agent questions, restart recovery
-  commands.ts       # the /aven router + subcommands
   pollers.ts        # scheduler + auto-review / autofix / ticket pollers
-  chat/             # chat driver interface + view models; chat/slack/ = the Slack driver
-    slack/events.ts #   @mentions, thread replies, DMs, buttons, App Home
-    slack/blocks.ts #   every Block Kit renderer + user-facing text helpers
+  chat/             # chat driver interface + view models
+    core/           #   platform-neutral: messages, the /aven router, buttons/dialogs/home, gates
+    slack/          #   the Slack driver: rendering, Bolt wiring (events, commands), blocks.ts
   tasks.ts          # chat session over a sandbox
   prompt.ts         # the 3-layer system prompt, golden-tested (src/fixtures/prompt/)
   scrub.ts          # secrets redaction at the model boundary and at ingest

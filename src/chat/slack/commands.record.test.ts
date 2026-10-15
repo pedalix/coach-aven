@@ -14,7 +14,7 @@ import type { Config } from '../../config.js';
 import { Store } from '../../state.js';
 import { createChannels } from '../../channels.js';
 import { registerEvents } from './events.js';
-import { registerCommands } from '../../commands.js';
+import { registerCommands } from './commands.js';
 import { slugOfBase, isThreadKey } from '../../teamkeys.js';
 import { memoryRepoDir } from '../../memjournal.js';
 import type { TurnEngine } from '../../turn.js';

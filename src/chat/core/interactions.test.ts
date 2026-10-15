@@ -34,6 +34,8 @@ function fakeDriver() {
     updateDialog: rec('updateDialog') as ChatDriver['updateDialog'],
     refreshRating: rec('refreshRating') as ChatDriver['refreshRating'],
     publishHome: rec('publishHome') as ChatDriver['publishHome'],
+    conversationName: rec('conversationName') as ChatDriver['conversationName'],
+    openDirect: rec('openDirect') as ChatDriver['openDirect'],
   };
   return { d, calls };
 }

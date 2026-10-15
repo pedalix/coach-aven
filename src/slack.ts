@@ -21,7 +21,7 @@ import { loadProjects, entrySlugs, type RegistryRef } from './projects.js';
 import { createTurnEngine } from './turn.js';
 import { createChannels } from './channels.js';
 import { createPollers, ROUTINE_TZ } from './pollers.js';
-import { registerCommands } from './commands.js';
+import { registerCommands } from './chat/slack/commands.js';
 import { registerEvents } from './chat/slack/events.js';
 import { setAlertSink, summary, notConfiguredText, type AlertLevel } from './chat/slack/blocks.js';
 import { log } from './log.js';
