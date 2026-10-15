@@ -4,6 +4,7 @@
 // wiring in events.ts/commands.ts stays thin.
 
 import type { RoutineRecord, PrWatch } from './state.js';
+import type { AnswerOpts, FollowUp, RateMeta, TrailMeta } from './chat/views.js';
 import { dispatch } from './dispatch.js';
 import type { ProjectConfig, ProjectsRegistry } from './projects.js';
 import type { AskQuestion } from './claudeSession.js';
@@ -14,6 +15,9 @@ import { BAD_REASONS, type Tally } from './feedback.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
 import { stackHead } from './netretry.js';
+
+// The answer decorations are platform-neutral data — they live with the view models.
+export type { AnswerOpts, FollowUp, RateMeta, TrailMeta };
 
 // Slack hard-caps a single message at 40k chars; leave headroom.
 export const MAX_SLACK_TEXT = 39000;
@@ -29,23 +33,6 @@ export const CMD = ((c) => (c.startsWith('/') ? c : `/${c}`))((process.env.SLACK
 // the lossy legacy mrkdwn. Each markdown block caps ~12k chars; chunk longer answers.
 const SLACK_MD_BLOCK_LIMIT = 11900;
 
-// Context a completed answer needs for its follow-up buttons (Report to YouTrack, session
-// panel): which conversation to enqueue a turn under, and where to post it.
-export interface FollowUp {
-  key: string;
-  channel: string;
-  threadTs?: string;
-}
-
-// The "how did I get here" affordance on a finished answer: a compact step-count/duration
-// context line plus a "🧭 Show steps" button. The button carries ONLY the turnId — the trail
-// itself lives in the engine's in-memory registry (events.ts fetches it on click and shows it
-// ephemerally), so nothing heavy rides the message payload.
-export interface TrailMeta {
-  turnId: string;
-  steps: number;
-  elapsedMs: number;
-}
 
 // Render the answer as markdown block(s), then an action row: link buttons to any PR(s)
 // the agent opened (there is deliberately NO "Open a PR" button — always-visible action
@@ -84,31 +71,6 @@ export function topicButtons(slug: string, topics: { title: string; file: string
   ];
 }
 
-// Everything a finished answer may decorate itself with. `ytReport` (the investigated ticket
-// id) offers the "📝 Report to YouTrack" button; `ytDraft` marks this answer as a report
-// DRAFT — it renders the "✏️ Edit & send" button instead of the usual follow-ups (a draft
-// asking to be PR'd or re-reported would be noise). The draft TEXT lives server-side under
-// `draftId` (turn.ts keeps it): Slack converts `markdown` blocks to `rich_text` on delivery,
-// so the message's own blocks canNOT round-trip the draft — the button only carries the id.
-export interface AnswerOpts {
-  followUp?: FollowUp;
-  trail?: TrailMeta;
-  ytReport?: string;
-  ytDraft?: { ticket: string; draftId: string };
-  // Present on the messages a person is allowed to rate: a turn's answer, and any
-  // background update belonging to it. Everything else a turn posts (status card, skip
-  // notices, agent questions, ticket drafts) deliberately carries no rating control, so a
-  // person has exactly one verdict to give per turn — see feedback.ts.
-  rate?: RateMeta;
-}
-
-// What a rating click has to carry back: the turn it judges, plus the project and
-// conversation key the record is attributed to. Rides in the button value as JSON.
-export interface RateMeta {
-  turnId: string;
-  slug: string;
-  key: string;
-}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack 'markdown' block not yet in SDK block union
 export function answerBlocks(answer: string, opts: AnswerOpts = {}): any[] {
