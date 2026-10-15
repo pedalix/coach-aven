@@ -122,9 +122,15 @@ export function createDispatcher(d: DispatcherDeps): Dispatcher {
     if (!project) return;
     const { teamId, threadTs } = sessionThread(rec.session);
     const driver = d.driverFor(teamId);
-    const chat = threadTs ? d.store.getChat(threadTs) : undefined;
-    const channel = chat?.inflight?.channel ?? (await d.channels.channelIdForSlug(driver, project, teamId));
-    const p: StoredProposal = { ...rec, slug, ...(teamId ? { teamId } : {}), status: 'pending', receivedAt: now().toISOString(), ...(channel ? { channel } : {}), ...(threadTs ? { threadTs } : {}) };
+    // Where the proposing turn runs: its chat record lives under the FULL conversation key —
+    // `thread:<ts>` (team-prefixed for a client workspace) or `dm:…` — which is exactly what the
+    // session carries; the bare ts finds nothing, so every proposal used to fall back to the
+    // project's bound channel. While the turn runs, `inflight` names its channel and thread; only
+    // without it (the turn already settled) is the bound channel the guess.
+    const live = rec.session ? d.store.getChat(rec.session)?.inflight : undefined;
+    const channel = live?.channel ?? (await d.channels.channelIdForSlug(driver, project, teamId));
+    const thread = live ? (live.msgThreadTs ?? threadTs) : threadTs;
+    const p: StoredProposal = { ...rec, slug, ...(teamId ? { teamId } : {}), status: 'pending', receivedAt: now().toISOString(), ...(channel ? { channel } : {}), ...(thread ? { threadTs: thread } : {}) };
     d.store.setProposal(p);
     const gate = gateDecision(rec, project.dispatch, d.store.dispatchCount(slug, localDate(d.tz, now())));
     if (gate.auto) {
@@ -132,7 +138,7 @@ export function createDispatcher(d: DispatcherDeps): Dispatcher {
       log.info(`dispatch (${slug}): ${p.id} ${p.kind} → ${p.target} auto-approved`);
       const done = await execute(driver, approved);
       if (channel) {
-        const res = await driver.post({ conv: channel, thread: threadTs }, { kind: 'proposal', proposal: done }).catch(() => undefined);
+        const res = await driver.post({ conv: channel, thread }, { kind: 'proposal', proposal: done }).catch(() => undefined);
         if (res?.id) d.store.patchProposal(p.id, { messageTs: res.id });
       }
       return;
@@ -142,7 +148,7 @@ export function createDispatcher(d: DispatcherDeps): Dispatcher {
       log.warn(`dispatch (${slug}): ${p.id} has no channel to render in (session ${rec.session || 'none'})`);
       return;
     }
-    const res = await driver.post({ conv: channel, thread: threadTs }, { kind: 'proposal', proposal: p }).catch((e: unknown) => {
+    const res = await driver.post({ conv: channel, thread }, { kind: 'proposal', proposal: p }).catch((e: unknown) => {
       log.warn(`dispatch (${slug}): ${p.id} render failed: ${e instanceof Error ? e.message : String(e)}`);
       return undefined;
     });

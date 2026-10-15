@@ -10,15 +10,6 @@
       }
     },
     {
-      "method": "conversations.list",
-      "token": "xoxb-home",
-      "payload": {
-        "types": "public_channel,private_channel",
-        "exclude_archived": "true",
-        "limit": "200"
-      }
-    },
-    {
       "method": "chat.postMessage",
       "token": "xoxb-home",
       "payload": {
