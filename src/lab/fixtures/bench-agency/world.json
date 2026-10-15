@@ -1,0 +1,3685 @@
+{
+  "version": 1,
+  "slug": "bench-agency",
+  "tz": "Europe/Zurich",
+  "since": "2026-09-07",
+  "until": "2026-10-04",
+  "now": "2026-10-04T18:00:00.000Z",
+  "subject": "mara-keller",
+  "agency": "brightwell",
+  "accounts": {
+    "slackTeam": "T0BENCH0001",
+    "slackUrl": "https://brightwell-digital.slack.example/",
+    "selfSlackId": "U0BWMARA001",
+    "work": "mara.keller@brightwell.example",
+    "personal": "mara.keller@mailbox.example",
+    "granola": "mara.keller@brightwell.example",
+    "wispr": "mara.keller@brightwell.example",
+    "youtrack": "brightwell.youtrack.example",
+    "jira": "medtrack.atlassian.example",
+    "host": "mara-mbp"
+  },
+  "companies": [
+    {
+      "id": "brightwell",
+      "name": "Brightwell Digital",
+      "umbrella": "brightwell",
+      "domains": [
+        "brightwell.example"
+      ],
+      "side": "us"
+    },
+    {
+      "id": "alpenhof",
+      "name": "Alpenhof Hotels",
+      "umbrella": "alpenhof",
+      "domains": [
+        "alpenhof-hotels.example"
+      ],
+      "side": "client"
+    },
+    {
+      "id": "velonord",
+      "name": "Velo Nord",
+      "umbrella": "velonord",
+      "domains": [
+        "velonord.example",
+        "velo-nord.example"
+      ],
+      "side": "client"
+    },
+    {
+      "id": "swl",
+      "name": "Stadtwerke Lindquell",
+      "umbrella": "swl",
+      "domains": [
+        "stadtwerke-lindquell.example"
+      ],
+      "side": "client"
+    },
+    {
+      "id": "medtrack",
+      "name": "MedTrack",
+      "umbrella": "medtrack",
+      "domains": [
+        "medtrack.example"
+      ],
+      "side": "client"
+    },
+    {
+      "id": "klartext",
+      "name": "KlarText Verlag",
+      "umbrella": "klartext",
+      "domains": [
+        "klartext-verlag.example"
+      ],
+      "side": "client"
+    },
+    {
+      "id": "treuhand",
+      "name": "Treuhand Schmid",
+      "umbrella": null,
+      "domains": [
+        "treuhand-schmid.example"
+      ],
+      "side": "vendor"
+    },
+    {
+      "id": "nordhost",
+      "name": "Nordhost",
+      "umbrella": null,
+      "domains": [
+        "nordhost.example"
+      ],
+      "side": "vendor"
+    },
+    {
+      "id": "kuehne",
+      "name": "Kühne Versicherungen",
+      "umbrella": null,
+      "domains": [
+        "kuehne-vers.example"
+      ],
+      "side": "vendor"
+    },
+    {
+      "id": "zermatt",
+      "name": "Zermatt Alpine Resorts",
+      "umbrella": null,
+      "domains": [
+        "zermatt-resorts.example"
+      ],
+      "side": "prospect"
+    },
+    {
+      "id": "freelance",
+      "name": "Rossi Mobile (freelance)",
+      "umbrella": null,
+      "domains": [
+        "rossi-mobile.example"
+      ],
+      "side": "freelance"
+    },
+    {
+      "id": "albergo-riva",
+      "name": "Albergo Riva (Booker pilot hotel, Lakora)",
+      "umbrella": null,
+      "domains": [
+        "albergo-riva.example"
+      ],
+      "side": "client"
+    },
+    {
+      "id": "candidates",
+      "name": "Candidates",
+      "umbrella": null,
+      "domains": [
+        "mailbox.example"
+      ],
+      "side": "candidate"
+    },
+    {
+      "id": "personal",
+      "name": "Private contacts",
+      "umbrella": "personal",
+      "domains": [
+        "mailbox.example",
+        "zahnarzt-frei.example",
+        "zimmermann-immo.example"
+      ],
+      "side": "personal"
+    }
+  ],
+  "people": [
+    {
+      "id": "mara-keller",
+      "name": "Mara Keller",
+      "company": "brightwell",
+      "side": "us",
+      "role": "co-founder and CTO; the subject (owner of this tenant)",
+      "langs": [
+        "de",
+        "en",
+        "ru"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.04,
+        "emoji": "rare",
+        "greeting": "Hi",
+        "signature": "Mara Keller\nCTO · Brightwell Digital\nbrightwell.example",
+        "notes": "precise, short paragraphs; grew up bilingual DE/RU"
+      },
+      "email": "mara.keller@brightwell.example",
+      "slack": {
+        "id": "U0BWMARA001",
+        "handle": "mara",
+        "label": "Mara Keller",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "mara.keller@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt",
+            "jira"
+          ]
+        },
+        {
+          "raw": "m.keller@brightwell.example",
+          "form": "alias_email",
+          "given": false,
+          "expected": "merge",
+          "where": [
+            "mail"
+          ]
+        },
+        {
+          "raw": "mara.keller@mailbox.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "pmail"
+          ]
+        },
+        {
+          "raw": "Mara Keller",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Mara Keller",
+          "form": "full_name",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "gmeet",
+            "wispr"
+          ]
+        },
+        {
+          "raw": "youtrack:mkeller",
+          "form": "login",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "yt"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": null
+    },
+    {
+      "id": "jonas-brandt",
+      "name": "Jonas Brandt",
+      "company": "brightwell",
+      "side": "us",
+      "role": "co-founder and CEO, runs sales",
+      "langs": [
+        "de",
+        "en",
+        "fr"
+      ],
+      "persona": {
+        "register": "casual",
+        "typoRate": 0.1,
+        "emoji": "often",
+        "greeting": "Hoi",
+        "swiss": true,
+        "signature": "Jonas\n—\nJonas Brandt · CEO · Brightwell Digital",
+        "notes": "fast, many topics in one message, Swiss German flavour"
+      },
+      "email": "jonas.brandt@brightwell.example",
+      "slack": {
+        "id": "U0BWJONA001",
+        "handle": "jonas",
+        "label": "Jonas Brandt",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "jonas.brandt@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola"
+          ]
+        },
+        {
+          "raw": "jonas@brightwell.example",
+          "form": "alias_email",
+          "given": false,
+          "expected": "merge",
+          "where": [
+            "mail"
+          ]
+        },
+        {
+          "raw": "Jonas Brandt",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "JB",
+          "form": "nickname",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "wispr"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": [
+          "brightwell/sales"
+        ]
+      }
+    },
+    {
+      "id": "lea-vogt",
+      "name": "Lea Vogt",
+      "company": "brightwell",
+      "side": "us",
+      "role": "project manager for Alpenhof and Booker",
+      "langs": [
+        "de",
+        "en"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.03,
+        "emoji": "rare",
+        "greeting": "Hallo",
+        "signature": "Lea Vogt\nProject Manager · Brightwell Digital",
+        "notes": "structured, numbered lists, always gives dates"
+      },
+      "email": "lea.vogt@brightwell.example",
+      "slack": {
+        "id": "U0BWLEAV001",
+        "handle": "lea",
+        "label": "Lea Vogt",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "lea.vogt@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt"
+          ]
+        },
+        {
+          "raw": "Lea Vogt",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Lea Vogt",
+          "form": "full_name",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "gmeet",
+            "wispr"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "narrow",
+        "initiatives": [
+          "alpenhof/relaunch",
+          "alpenhof/retainer",
+          "brightwell/booker"
+        ]
+      }
+    },
+    {
+      "id": "tobias-hofer",
+      "name": "Tobias Hofer",
+      "company": "brightwell",
+      "side": "us",
+      "role": "project manager for Stadtwerke Lindquell and KlarText",
+      "langs": [
+        "de",
+        "en",
+        "it"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.02,
+        "emoji": "none",
+        "greeting": "Guten Tag",
+        "swiss": true,
+        "signature": "Freundliche Grüsse\nTobias Hofer\nProjektleiter · Brightwell Digital",
+        "notes": "formal with clients, references ticket keys"
+      },
+      "email": "tobias.hofer@brightwell.example",
+      "slack": {
+        "id": "U0BWTOBI001",
+        "handle": "tobias",
+        "label": "Tobias Hofer",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "tobias.hofer@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt"
+          ]
+        },
+        {
+          "raw": "Tobias Hofer",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Tobias Hofer",
+          "form": "full_name",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "gmeet"
+          ]
+        },
+        {
+          "raw": "Tobais Hofer",
+          "form": "typo",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "wispr"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "narrow",
+        "initiatives": [
+          "swl/portal",
+          "klartext/content-hub"
+        ]
+      }
+    },
+    {
+      "id": "dmitry-sokolov",
+      "name": "Dmitry Sokolov",
+      "company": "brightwell",
+      "side": "us",
+      "role": "backend developer (Booker, MedTrack API, SWL portal)",
+      "langs": [
+        "ru",
+        "en"
+      ],
+      "persona": {
+        "register": "terse",
+        "typoRate": 0.12,
+        "emoji": "none",
+        "translit": 0.3,
+        "notes": "terse, lowercase, code in backticks"
+      },
+      "email": "dmitry.sokolov@brightwell.example",
+      "slack": {
+        "id": "U0BWDIMA001",
+        "handle": "dima",
+        "label": "Dmitry Sokolov",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "dmitry.sokolov@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "jira"
+          ]
+        },
+        {
+          "raw": "Dmitry Sokolov",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "youtrack:dsokolov",
+          "form": "login",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "yt"
+          ]
+        },
+        {
+          "raw": "Дмитрий Соколов",
+          "form": "transliteration",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "gmeet"
+          ]
+        },
+        {
+          "raw": "Dmitrii Sokolov",
+          "form": "transliteration",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "wispr"
+          ]
+        },
+        {
+          "raw": "Dima S.",
+          "form": "nickname",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "wispr"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": []
+      }
+    },
+    {
+      "id": "olga-ivanova",
+      "name": "Olga Ivanova",
+      "company": "brightwell",
+      "side": "us",
+      "role": "frontend developer (KlarText, MedTrack web)",
+      "langs": [
+        "ru",
+        "en",
+        "de"
+      ],
+      "persona": {
+        "register": "casual",
+        "typoRate": 0.06,
+        "emoji": "often",
+        "translit": 0.2,
+        "notes": "friendly, emoji, switches to German with clients"
+      },
+      "email": "olga.ivanova@brightwell.example",
+      "slack": {
+        "id": "U0BWOLGA001",
+        "handle": "olga",
+        "label": "Olga Ivanova",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "olga.ivanova@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt",
+            "jira"
+          ]
+        },
+        {
+          "raw": "Olga Ivanova",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Ольга Иванова",
+          "form": "transliteration",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "gmeet"
+          ]
+        },
+        {
+          "raw": "Olga I.",
+          "form": "nickname",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "gmeet"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": []
+      }
+    },
+    {
+      "id": "aleksandr-petrov",
+      "name": "Aleksandr Petrov",
+      "company": "brightwell",
+      "side": "us",
+      "role": "devops; runs hosting, CI and the Nordhost move",
+      "langs": [
+        "ru",
+        "en"
+      ],
+      "persona": {
+        "register": "terse",
+        "typoRate": 0.08,
+        "emoji": "rare",
+        "translit": 0.25,
+        "notes": "short status lines, numbers and hostnames"
+      },
+      "email": "aleksandr.petrov@brightwell.example",
+      "slack": {
+        "id": "U0BWSASH001",
+        "handle": "sasha",
+        "label": "Aleksandr Petrov",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "aleksandr.petrov@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt"
+          ]
+        },
+        {
+          "raw": "a.petrov@brightwell.example",
+          "form": "alias_email",
+          "given": false,
+          "expected": "merge",
+          "where": [
+            "mail",
+            "cal"
+          ]
+        },
+        {
+          "raw": "Aleksandr Petrov",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Sasha",
+          "form": "nickname",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "wispr"
+          ]
+        },
+        {
+          "raw": "Alexander Petrov",
+          "form": "transliteration",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "gmeet",
+            "wispr"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": [
+          "brightwell/infra"
+        ]
+      }
+    },
+    {
+      "id": "nina-brunner",
+      "name": "Nina Brunner",
+      "company": "brightwell",
+      "side": "us",
+      "role": "UI/UX designer",
+      "langs": [
+        "de",
+        "en"
+      ],
+      "persona": {
+        "register": "casual",
+        "typoRate": 0.04,
+        "emoji": "often",
+        "swiss": true,
+        "notes": "visual, links Figma-like boards (no brand names)"
+      },
+      "email": "nina.brunner@brightwell.example",
+      "slack": {
+        "id": "U0BWNINA001",
+        "handle": "nina",
+        "label": "Nina Brunner",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "nina.brunner@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt"
+          ]
+        },
+        {
+          "raw": "Nina Brunner",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Nina Brunner",
+          "form": "full_name",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "wispr"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": []
+      }
+    },
+    {
+      "id": "sebastian-kraus",
+      "name": "Sebastian Kraus",
+      "company": "brightwell",
+      "side": "us",
+      "role": "support lead for Booker hotels",
+      "langs": [
+        "de",
+        "en",
+        "it"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.05,
+        "emoji": "rare",
+        "notes": "polite, quotes the hotel verbatim"
+      },
+      "email": "sebastian.kraus@brightwell.example",
+      "slack": {
+        "id": "U0BWSEBA001",
+        "handle": "sebastian",
+        "label": "Sebastian Kraus",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "sebastian.kraus@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "yt"
+          ]
+        },
+        {
+          "raw": "support@brightwell.example",
+          "form": "role_mailbox",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail"
+          ]
+        },
+        {
+          "raw": "Sebastian Kraus",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Sebastain Kraus",
+          "form": "typo",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "wispr"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": [
+          "brightwell/booker-support"
+        ]
+      }
+    },
+    {
+      "id": "hanna-lindqvist",
+      "name": "Hanna Lindqvist",
+      "company": "brightwell",
+      "side": "us",
+      "role": "QA engineer",
+      "langs": [
+        "en",
+        "de"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.03,
+        "emoji": "rare",
+        "notes": "reproduction steps, device names"
+      },
+      "email": "hanna.lindqvist@brightwell.example",
+      "slack": {
+        "id": "U0BWHANN001",
+        "handle": "hanna",
+        "label": "Hanna Lindqvist",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "hanna.lindqvist@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "jira"
+          ]
+        },
+        {
+          "raw": "Hanna Lindqvist",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": []
+      }
+    },
+    {
+      "id": "felix-wagner",
+      "name": "Felix Wagner",
+      "company": "brightwell",
+      "side": "us",
+      "role": "full-stack developer, Velo Nord lead dev",
+      "langs": [
+        "de",
+        "en"
+      ],
+      "persona": {
+        "register": "casual",
+        "typoRate": 0.07,
+        "emoji": "rare",
+        "notes": "pragmatic, proposes quick fixes"
+      },
+      "email": "felix.wagner@brightwell.example",
+      "slack": {
+        "id": "U0BWFELI001",
+        "handle": "felix",
+        "label": "Felix Wagner",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "felix.wagner@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola"
+          ]
+        },
+        {
+          "raw": "youtrack:fwagner",
+          "form": "login",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "yt"
+          ]
+        },
+        {
+          "raw": "Felix Wagner",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": []
+      }
+    },
+    {
+      "id": "chiara-romano",
+      "name": "Chiara Romano",
+      "company": "brightwell",
+      "side": "us",
+      "role": "developer on the Booker widget",
+      "langs": [
+        "it",
+        "en",
+        "de"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.06,
+        "emoji": "rare",
+        "notes": "writes English with Italian phrases now and then"
+      },
+      "email": "chiara.romano@brightwell.example",
+      "slack": {
+        "id": "U0BWCHIA001",
+        "handle": "chiara",
+        "label": "Chiara Romano",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "chiara.romano@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt"
+          ]
+        },
+        {
+          "raw": "Chiara Romano",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": []
+      }
+    },
+    {
+      "id": "ivo-meier",
+      "name": "Ivo Meier",
+      "company": "brightwell",
+      "side": "us",
+      "role": "apprentice developer, started in W1 (not yet in the tenant people file)",
+      "langs": [
+        "de"
+      ],
+      "persona": {
+        "register": "casual",
+        "typoRate": 0.12,
+        "emoji": "often",
+        "swiss": true,
+        "notes": "new, asks many small questions"
+      },
+      "email": "ivo.meier@brightwell.example",
+      "slack": {
+        "id": "U0BWIVOM001",
+        "handle": "ivo",
+        "label": "Ivo Meier",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "ivo.meier@brightwell.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail",
+            "cal"
+          ]
+        },
+        {
+          "raw": "Ivo Meier",
+          "form": "slack_label",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "slack"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "sophie-laurent",
+      "name": "Sophie Laurent",
+      "company": "brightwell",
+      "side": "us",
+      "role": "office and finance assistant",
+      "langs": [
+        "fr",
+        "de",
+        "en"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.02,
+        "emoji": "none",
+        "signature": "Sophie Laurent\nOffice & Finance · Brightwell Digital",
+        "notes": "French native, formal German"
+      },
+      "email": "sophie.laurent@brightwell.example",
+      "slack": {
+        "id": "U0BWSOPH001",
+        "handle": "sophie",
+        "label": "Sophie Laurent",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "sophie.laurent@brightwell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal"
+          ]
+        },
+        {
+          "raw": "office@brightwell.example",
+          "form": "role_mailbox",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail"
+          ]
+        },
+        {
+          "raw": "Sophie Laurent",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": [
+          "brightwell/admin"
+        ]
+      }
+    },
+    {
+      "id": "marco-rossi",
+      "name": "Marco Rossi",
+      "company": "freelance",
+      "side": "freelance",
+      "role": "freelance iOS developer on MedTrack (Slack Connect guest)",
+      "langs": [
+        "en",
+        "it"
+      ],
+      "persona": {
+        "register": "casual",
+        "typoRate": 0.08,
+        "emoji": "often",
+        "notes": "English with Italian sign-offs (\"ciao\", \"a dopo\")"
+      },
+      "email": "marco@rossi-mobile.example",
+      "slack": {
+        "id": "U0BWMRSGST1",
+        "handle": "marco.rossi",
+        "label": "Marco Rossi",
+        "inDirectory": false,
+        "guest": true
+      },
+      "forms": [
+        {
+          "raw": "marco@rossi-mobile.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "jira"
+          ]
+        },
+        {
+          "raw": "Marco Rossi",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "U0BWMRSGST1",
+          "form": "opaque_id",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "slack"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": [
+          "medtrack/app"
+        ]
+      }
+    },
+    {
+      "id": "petra-schmid",
+      "name": "Petra Schmid",
+      "company": "treuhand",
+      "side": "vendor",
+      "role": "external bookkeeper (Treuhand Schmid)",
+      "langs": [
+        "de"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.01,
+        "emoji": "none",
+        "swiss": true,
+        "signature": "Freundliche Grüsse\nPetra Schmid\nTreuhand Schmid",
+        "notes": "admin mail only: VAT, payroll, accounts"
+      },
+      "email": "petra.schmid@treuhand-schmid.example",
+      "forms": [
+        {
+          "raw": "petra.schmid@treuhand-schmid.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "exclusive",
+        "initiatives": [
+          "brightwell/admin"
+        ]
+      }
+    },
+    {
+      "id": "juerg-mueller",
+      "name": "Jürg Müller",
+      "company": "alpenhof",
+      "side": "client",
+      "role": "IT lead at Alpenhof Hotels (servers, DNS, mail)",
+      "langs": [
+        "de"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.05,
+        "emoji": "none",
+        "greeting": "Grüezi",
+        "swiss": true,
+        "signature": "Gruss\nJürg Müller\nLeiter IT · Alpenhof Hotels",
+        "notes": "technical, short, Swiss spelling"
+      },
+      "email": "juerg.mueller@alpenhof-hotels.example",
+      "slack": {
+        "id": "U0BWJUER001",
+        "handle": "juerg.mueller",
+        "label": "Jürg Müller | Alpenhof",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "juerg.mueller@alpenhof-hotels.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola"
+          ]
+        },
+        {
+          "raw": "Jürg Müller | Alpenhof",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Juerg Mueller",
+          "form": "umlaut_variant",
+          "given": false,
+          "expected": "merge",
+          "where": [
+            "gmeet"
+          ]
+        },
+        {
+          "raw": "Müller, Jürg",
+          "form": "order_swapped",
+          "given": false,
+          "expected": "merge",
+          "where": [
+            "gmeet",
+            "yt"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "exclusive",
+        "initiatives": [
+          "alpenhof/retainer"
+        ]
+      }
+    },
+    {
+      "id": "claudia-steiner",
+      "name": "Claudia Steiner",
+      "company": "alpenhof",
+      "side": "client",
+      "role": "head of marketing at Alpenhof Hotels; owns the relaunch",
+      "langs": [
+        "de",
+        "en"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.03,
+        "emoji": "rare",
+        "greeting": "Liebe Mara",
+        "swiss": true,
+        "signature": "Herzliche Grüsse\nClaudia Steiner\nLeiterin Marketing · Alpenhof Hotels",
+        "notes": "friendly but pushes on dates"
+      },
+      "email": "claudia.steiner@alpenhof-hotels.example",
+      "slack": {
+        "id": "U0BWCLAU001",
+        "handle": "claudia.steiner",
+        "label": "Claudia Steiner | Alpenhof",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "claudia.steiner@alpenhof-hotels.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt"
+          ]
+        },
+        {
+          "raw": "Claudia Steiner | Alpenhof",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Claudia Steiner",
+          "form": "full_name",
+          "given": false,
+          "expected": "merge",
+          "where": [
+            "gmeet"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "narrow",
+        "initiatives": [
+          "alpenhof/relaunch",
+          "alpenhof/retainer"
+        ]
+      }
+    },
+    {
+      "id": "remo-gerber",
+      "name": "Remo Gerber",
+      "company": "alpenhof",
+      "side": "client",
+      "role": "CFO at Alpenhof Hotels (invoices, purchase orders)",
+      "langs": [
+        "de"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.01,
+        "emoji": "none",
+        "swiss": true,
+        "signature": "Freundliche Grüsse\nReto Gerber\nCFO · Alpenhof Hotels",
+        "notes": "formal, numbers"
+      },
+      "email": "remo.gerber@alpenhof-hotels.example",
+      "forms": [
+        {
+          "raw": "remo.gerber@alpenhof-hotels.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": [
+          "alpenhof/admin"
+        ]
+      }
+    },
+    {
+      "id": "kai-lund",
+      "name": "Kai Lund",
+      "company": "velonord",
+      "side": "client",
+      "role": "e-commerce manager at Velo Nord",
+      "langs": [
+        "en",
+        "de"
+      ],
+      "persona": {
+        "register": "casual",
+        "typoRate": 0.05,
+        "emoji": "rare",
+        "greeting": "Hi Mara",
+        "signature": "Kai Lund\nE-Commerce · Velo Nord",
+        "notes": "Danish, writes English"
+      },
+      "email": "kai.lund@velonord.example",
+      "slack": {
+        "id": "U0BWKAIL001",
+        "handle": "kai.lund",
+        "label": "Kai Lund | VELO-NORD",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "kai.lund@velonord.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "until": "2026-09-15",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt"
+          ]
+        },
+        {
+          "raw": "kai.lund@velo-nord.example",
+          "form": "alias_email",
+          "given": false,
+          "expected": "merge",
+          "from": "2026-09-16",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt"
+          ]
+        },
+        {
+          "raw": "Kai Lund | Velo Nord",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "until": "2026-09-15",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Kai Lund | VELO-NORD",
+          "form": "slack_label",
+          "given": false,
+          "expected": "merge",
+          "from": "2026-09-16",
+          "where": [
+            "slack"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "narrow",
+        "initiatives": [
+          "velonord/shop",
+          "velonord/erp-sync"
+        ]
+      }
+    },
+    {
+      "id": "mette-hansen",
+      "name": "Mette Hansen",
+      "company": "velonord",
+      "side": "client",
+      "role": "operations and ERP at Velo Nord",
+      "langs": [
+        "en"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.04,
+        "emoji": "none",
+        "signature": "Mette Hansen\nOperations · Velo Nord",
+        "notes": "factual, numbers of articles affected"
+      },
+      "email": "mette.hansen@velonord.example",
+      "slack": {
+        "id": "U0BWMETT001",
+        "handle": "mette.hansen",
+        "label": "Mette Hansen | VELO-NORD",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "mette.hansen@velonord.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "until": "2026-09-15",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt"
+          ]
+        },
+        {
+          "raw": "mette.hansen@velo-nord.example",
+          "form": "alias_email",
+          "given": false,
+          "expected": "merge",
+          "from": "2026-09-16",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt"
+          ]
+        },
+        {
+          "raw": "Mette Hansen | Velo Nord",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "until": "2026-09-15",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Mette Hansen | VELO-NORD",
+          "form": "slack_label",
+          "given": false,
+          "expected": "merge",
+          "from": "2026-09-16",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Mette Hansen",
+          "form": "full_name",
+          "given": false,
+          "expected": "merge",
+          "where": [
+            "gmeet"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "exclusive",
+        "initiatives": [
+          "velonord/erp-sync"
+        ]
+      }
+    },
+    {
+      "id": "jan-peters",
+      "name": "Jan Peters",
+      "company": "velonord",
+      "side": "client",
+      "role": "managing director at Velo Nord; wants a dealer portal",
+      "langs": [
+        "de",
+        "en"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.02,
+        "emoji": "none",
+        "signature": "Jan Peters\nGeschäftsführer · Velo Nord",
+        "notes": "big-picture, budget questions"
+      },
+      "email": "jan.peters@velo-nord.example",
+      "forms": [
+        {
+          "raw": "jan.peters@velo-nord.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "from": "2026-09-16",
+          "where": [
+            "mail",
+            "cal",
+            "granola"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "marco-bernasconi",
+      "name": "Marco Bernasconi",
+      "company": "swl",
+      "side": "client",
+      "role": "head of IT at Stadtwerke Lindquell (the second \"Marco\")",
+      "langs": [
+        "de",
+        "it"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.04,
+        "emoji": "none",
+        "signature": "Marco Bernasconi\nLeiter IT · Stadtwerke Lindquell",
+        "notes": "Lakora-born, German with occasional Italian"
+      },
+      "email": "marco.bernasconi@stadtwerke-lindquell.example",
+      "slack": {
+        "id": "U0BWMBER001",
+        "handle": "marco.bernasconi",
+        "label": "Marco Bernasconi | SWL",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "marco.bernasconi@stadtwerke-lindquell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola"
+          ]
+        },
+        {
+          "raw": "Marco Bernasconi | SWL",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "youtrack:mbernasconi@SWL",
+          "form": "login_org_suffix",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "yt"
+          ]
+        },
+        {
+          "raw": "Marco",
+          "form": "first_name",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "wispr"
+          ],
+          "ambiguous": [
+            "marco-bernasconi",
+            "marco-rossi"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "narrow",
+        "initiatives": [
+          "swl/portal"
+        ]
+      }
+    },
+    {
+      "id": "andrea-fischer",
+      "name": "Andrea Fischer",
+      "company": "swl",
+      "side": "client",
+      "role": "procurement at Stadtwerke Lindquell (SLA penalty, purchase orders)",
+      "langs": [
+        "de"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.01,
+        "emoji": "none",
+        "signature": "Freundliche Grüsse\nAndrea Fischer\nEinkauf · Stadtwerke Lindquell",
+        "notes": "contract language, clause numbers"
+      },
+      "email": "andrea.fischer@stadtwerke-lindquell.example",
+      "forms": [
+        {
+          "raw": "andrea.fischer@stadtwerke-lindquell.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail",
+            "cal"
+          ]
+        },
+        {
+          "raw": "einkauf@stadtwerke-lindquell.example",
+          "form": "role_mailbox",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "tobin-berger",
+      "name": "Tobin Berger",
+      "company": "swl",
+      "side": "client",
+      "role": "customer-service lead at Stadtwerke Lindquell; reports portal issues",
+      "langs": [
+        "de"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.06,
+        "emoji": "none",
+        "notes": "relays what customers report"
+      },
+      "email": "tobin.berger@stadtwerke-lindquell.example",
+      "slack": {
+        "id": "U0BWTBER001",
+        "handle": "tobin.berger",
+        "label": "Tobin Berger | SWL",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "tobin.berger@stadtwerke-lindquell.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola"
+          ]
+        },
+        {
+          "raw": "Tobin Berger | SWL",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "youtrack:tberger@SWL",
+          "form": "login_org_suffix",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "yt"
+          ]
+        },
+        {
+          "raw": "Tobin Berger",
+          "form": "full_name",
+          "given": false,
+          "expected": "merge",
+          "where": [
+            "wispr"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": [
+          "swl/portal"
+        ]
+      }
+    },
+    {
+      "id": "yulia-kuznetsova",
+      "name": "Yulia Kuznetsova",
+      "company": "medtrack",
+      "side": "client",
+      "role": "product owner of the MedTrack app",
+      "langs": [
+        "en",
+        "ru",
+        "de"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.03,
+        "emoji": "rare",
+        "signature": "Yulia Kuznetsova\nProduct Owner · MedTrack",
+        "notes": "sprint language, priorities"
+      },
+      "email": "yulia.kuznetsova@medtrack.example",
+      "slack": {
+        "id": "U0BWYULI001",
+        "handle": "yulia.k",
+        "label": "Yulia Kuznetsova | MedTrack",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "yulia.kuznetsova@medtrack.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "jira"
+          ]
+        },
+        {
+          "raw": "Yulia Kuznetsova | MedTrack",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Юлия Кузнецова",
+          "form": "transliteration",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "gmeet"
+          ]
+        },
+        {
+          "raw": "Iuliia Kuznetsova",
+          "form": "transliteration",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "gmeet"
+          ]
+        },
+        {
+          "raw": "Julia Kusnezowa",
+          "form": "transliteration",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "gmeet"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "narrow",
+        "initiatives": [
+          "medtrack/app"
+        ]
+      }
+    },
+    {
+      "id": "daniel-weber",
+      "name": "Daniel Weber",
+      "company": "medtrack",
+      "side": "client",
+      "role": "CTO of MedTrack",
+      "langs": [
+        "de",
+        "en"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.03,
+        "emoji": "none",
+        "notes": "technical, asks about root causes"
+      },
+      "email": "daniel.weber@medtrack.example",
+      "slack": {
+        "id": "U0BWDWEB001",
+        "handle": "daniel.weber",
+        "label": "Daniel Weber | MedTrack",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "daniel.weber@medtrack.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "jira"
+          ]
+        },
+        {
+          "raw": "Daniel Weber | MedTrack",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Daniel Weber",
+          "form": "full_name",
+          "given": false,
+          "expected": "merge",
+          "where": [
+            "gmeet"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "narrow",
+        "initiatives": [
+          "medtrack/app"
+        ]
+      }
+    },
+    {
+      "id": "priya-nair",
+      "name": "Priya Nair",
+      "company": "medtrack",
+      "side": "client",
+      "role": "Android developer and QA at MedTrack",
+      "langs": [
+        "en"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.04,
+        "emoji": "rare",
+        "notes": "logs, device models, Android versions"
+      },
+      "email": "priya.nair@medtrack.example",
+      "forms": [
+        {
+          "raw": "priya.nair@medtrack.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail",
+            "cal",
+            "gmeet"
+          ]
+        },
+        {
+          "raw": "jira:712020:5c3d9a7e-8b1f-4e2a-9c6d-2f4b8e1a7c3d",
+          "form": "login",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "jira"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "paul-keller",
+      "name": "Paul Keller",
+      "company": "klartext",
+      "side": "client",
+      "role": "editor-in-chief at KlarText Verlag; owns the content hub (surname collision with Mara)",
+      "langs": [
+        "de"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.02,
+        "emoji": "none",
+        "signature": "Mit freundlichen Grüssen\nPaul Keller\nChefredaktor · KlarText Verlag",
+        "notes": "editorial vocabulary"
+      },
+      "email": "paul.keller@klartext-verlag.example",
+      "slack": {
+        "id": "U0BWPKEL001",
+        "handle": "paul.keller",
+        "label": "Paul Keller | KlarText",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "paul.keller@klartext-verlag.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola",
+            "yt"
+          ]
+        },
+        {
+          "raw": "Paul Keller | KlarText",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "Paul Keller",
+          "form": "full_name",
+          "given": false,
+          "expected": "merge",
+          "where": [
+            "gmeet"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "narrow",
+        "initiatives": [
+          "klartext/content-hub"
+        ]
+      }
+    },
+    {
+      "id": "ines-wolf",
+      "name": "Ines Wolf",
+      "company": "klartext",
+      "side": "client",
+      "role": "content manager at KlarText Verlag",
+      "langs": [
+        "de"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.04,
+        "emoji": "rare",
+        "notes": "lists of articles, editorial workflow"
+      },
+      "email": "ines.wolf@klartext-verlag.example",
+      "slack": {
+        "id": "U0BWINES001",
+        "handle": "ines.wolf",
+        "label": "Ines Wolf | KlarText",
+        "inDirectory": true
+      },
+      "forms": [
+        {
+          "raw": "ines.wolf@klartext-verlag.example",
+          "form": "email",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "mail",
+            "cal",
+            "granola"
+          ]
+        },
+        {
+          "raw": "Ines Wolf | KlarText",
+          "form": "slack_label",
+          "given": true,
+          "expected": "mapped",
+          "where": [
+            "slack"
+          ]
+        },
+        {
+          "raw": "youtrack:iwolf@KLARTEXT",
+          "form": "login_org_suffix",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "yt"
+          ]
+        }
+      ],
+      "given": true,
+      "marker": {
+        "type": "broad",
+        "initiatives": [
+          "klartext/content-hub"
+        ]
+      }
+    },
+    {
+      "id": "giulia-ferri",
+      "name": "Giulia Ferri",
+      "company": "albergo-riva",
+      "side": "client",
+      "role": "front-office manager of a Booker pilot hotel in Lakora; writes to support in Italian",
+      "langs": [
+        "it",
+        "en"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.05,
+        "emoji": "rare",
+        "greeting": "Buongiorno",
+        "signature": "Giulia Ferri\nFront Office · Albergo Riva",
+        "notes": "Italian, polite, concrete booking numbers"
+      },
+      "email": "giulia.ferri@albergo-riva.example",
+      "forms": [
+        {
+          "raw": "giulia.ferri@albergo-riva.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail",
+            "yt"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "laura-imhof",
+      "name": "Laura Imhof",
+      "company": "zermatt",
+      "side": "prospect",
+      "role": "head of digital at Zermatt Alpine Resorts (pitch lead)",
+      "langs": [
+        "de",
+        "fr",
+        "en"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.02,
+        "emoji": "none",
+        "signature": "Laura Imhof\nHead of Digital · Zermatt Alpine Resorts",
+        "notes": "decisive, asks for references"
+      },
+      "email": "laura.imhof@zermatt-resorts.example",
+      "forms": [
+        {
+          "raw": "laura.imhof@zermatt-resorts.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail",
+            "cal"
+          ]
+        },
+        {
+          "raw": "Laura Imhof",
+          "form": "full_name",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "wispr"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "tim-novak",
+      "name": "Tim Novak",
+      "company": "candidates",
+      "side": "candidate",
+      "role": "backend developer candidate",
+      "langs": [
+        "en",
+        "de"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.02,
+        "emoji": "none",
+        "notes": "applicant tone"
+      },
+      "email": "tim.novak@mailbox.example",
+      "forms": [
+        {
+          "raw": "tim.novak@mailbox.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail",
+            "cal",
+            "granola"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "elena-popescu",
+      "name": "Elena Popescu",
+      "company": "candidates",
+      "side": "candidate",
+      "role": "frontend developer candidate",
+      "langs": [
+        "en"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.03,
+        "emoji": "none",
+        "notes": "applicant tone"
+      },
+      "email": "elena.popescu@mailbox.example",
+      "forms": [
+        {
+          "raw": "elena.popescu@mailbox.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail",
+            "cal",
+            "granola"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "lars-eriksen",
+      "name": "Lars Eriksen",
+      "company": "nordhost",
+      "side": "vendor",
+      "role": "account manager at Nordhost (the new hosting provider)",
+      "langs": [
+        "en"
+      ],
+      "persona": {
+        "register": "neutral",
+        "typoRate": 0.03,
+        "emoji": "none",
+        "signature": "Lars Eriksen\nAccount Manager · Nordhost",
+        "notes": "sales-y, offers calls"
+      },
+      "email": "lars.eriksen@nordhost.example",
+      "forms": [
+        {
+          "raw": "lars.eriksen@nordhost.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail",
+            "cal"
+          ]
+        },
+        {
+          "raw": "Lars Eriksen",
+          "form": "full_name",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "wispr"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "martin-kuehne",
+      "name": "Martin Kühne",
+      "company": "kuehne",
+      "side": "vendor",
+      "role": "insurance broker (agency liability insurance)",
+      "langs": [
+        "de"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.02,
+        "emoji": "none",
+        "swiss": true,
+        "signature": "Freundliche Grüsse\nMartin Kühne\nKühne Versicherungen",
+        "notes": "insurance jargon"
+      },
+      "email": "martin.kuehne@kuehne-vers.example",
+      "forms": [
+        {
+          "raw": "martin.kuehne@kuehne-vers.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "mail"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "anna-frei",
+      "name": "Anna Frei",
+      "company": "personal",
+      "side": "personal",
+      "role": "the subject's dentist (practice mailbox)",
+      "langs": [
+        "de"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.01,
+        "emoji": "none",
+        "swiss": true,
+        "signature": "Zahnarztpraxis Dr. A. Frei",
+        "notes": "appointment logistics"
+      },
+      "email": "praxis@zahnarzt-frei.example",
+      "forms": [
+        {
+          "raw": "praxis@zahnarzt-frei.example",
+          "form": "role_mailbox",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "pmail"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "stefan-keller",
+      "name": "Stefan Keller",
+      "company": "personal",
+      "side": "personal",
+      "role": "the subject's husband",
+      "langs": [
+        "de",
+        "en"
+      ],
+      "persona": {
+        "register": "casual",
+        "typoRate": 0.08,
+        "emoji": "often",
+        "notes": "family logistics, short"
+      },
+      "email": "stefan.keller@mailbox.example",
+      "forms": [
+        {
+          "raw": "stefan.keller@mailbox.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "pmail",
+            "cal",
+            "mail"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    },
+    {
+      "id": "beat-zimmermann",
+      "name": "Beat Zimmermann",
+      "company": "personal",
+      "side": "personal",
+      "role": "real-estate agent (apartment viewing)",
+      "langs": [
+        "de"
+      ],
+      "persona": {
+        "register": "formal",
+        "typoRate": 0.03,
+        "emoji": "none",
+        "swiss": true,
+        "signature": "Beat Zimmermann\nZimmermann Immobilien",
+        "notes": "viewing slots, documents needed"
+      },
+      "email": "beat.zimmermann@zimmermann-immo.example",
+      "forms": [
+        {
+          "raw": "beat.zimmermann@zimmermann-immo.example",
+          "form": "email",
+          "given": false,
+          "expected": "question",
+          "where": [
+            "pmail"
+          ]
+        }
+      ],
+      "given": false,
+      "marker": null
+    }
+  ],
+  "initiatives": [
+    {
+      "id": "alpenhof/relaunch",
+      "umbrella": "alpenhof",
+      "company": "alpenhof",
+      "name": "Website relaunch (fixed price, go-live W3→W4)",
+      "status": "active",
+      "billing_code": "ALP-RL",
+      "registered": true
+    },
+    {
+      "id": "alpenhof/retainer",
+      "umbrella": "alpenhof",
+      "company": "alpenhof",
+      "name": "Hosting & support retainer (30 h/month)",
+      "status": "active",
+      "billing_code": "ALP-RT",
+      "registered": true
+    },
+    {
+      "id": "alpenhof/admin",
+      "umbrella": "alpenhof",
+      "company": "alpenhof",
+      "name": "Alpenhof admin (invoices, POs)",
+      "status": "active",
+      "billing_code": "ALP-ADM",
+      "registered": true,
+      "admin": true
+    },
+    {
+      "id": "velonord/shop",
+      "umbrella": "velonord",
+      "company": "velonord",
+      "name": "Online shop",
+      "status": "active",
+      "billing_code": "VN-SHOP",
+      "registered": true
+    },
+    {
+      "id": "velonord/erp-sync",
+      "umbrella": "velonord",
+      "company": "velonord",
+      "name": "ERP stock-sync bridge",
+      "status": "active",
+      "billing_code": "VN-ERP",
+      "registered": true
+    },
+    {
+      "id": "velonord/admin",
+      "umbrella": "velonord",
+      "company": "velonord",
+      "name": "Velo Nord admin",
+      "status": "active",
+      "billing_code": "VN-ADM",
+      "registered": true,
+      "admin": true
+    },
+    {
+      "id": "swl/portal",
+      "umbrella": "swl",
+      "company": "swl",
+      "name": "Customer portal (60 h/month + SLA)",
+      "status": "active",
+      "billing_code": "SWL-P",
+      "registered": true
+    },
+    {
+      "id": "swl/admin",
+      "umbrella": "swl",
+      "company": "swl",
+      "name": "SWL admin (SLA, POs, contract)",
+      "status": "active",
+      "billing_code": "SWL-ADM",
+      "registered": true,
+      "admin": true
+    },
+    {
+      "id": "medtrack/app",
+      "umbrella": "medtrack",
+      "company": "medtrack",
+      "name": "Patient app iOS/Android (T&M, half-days)",
+      "status": "active",
+      "billing_code": "MT-APP",
+      "registered": true
+    },
+    {
+      "id": "medtrack/admin",
+      "umbrella": "medtrack",
+      "company": "medtrack",
+      "name": "MedTrack admin",
+      "status": "active",
+      "billing_code": "MT-ADM",
+      "registered": true,
+      "admin": true
+    },
+    {
+      "id": "klartext/content-hub",
+      "umbrella": "klartext",
+      "company": "klartext",
+      "name": "Content hub (formerly CMS migration)",
+      "status": "active",
+      "billing_code": "KT-HUB",
+      "registered": true
+    },
+    {
+      "id": "klartext/admin",
+      "umbrella": "klartext",
+      "company": "klartext",
+      "name": "KlarText admin",
+      "status": "active",
+      "billing_code": "KT-ADM",
+      "registered": true,
+      "admin": true
+    },
+    {
+      "id": "brightwell/booker",
+      "umbrella": "brightwell",
+      "company": "brightwell",
+      "name": "Booker — own booking SaaS (Alpenhof is the pilot)",
+      "status": "active",
+      "billing_code": "BW-BKR",
+      "registered": true
+    },
+    {
+      "id": "brightwell/booker-support",
+      "umbrella": "brightwell",
+      "company": "brightwell",
+      "name": "Booker customer support",
+      "status": "active",
+      "billing_code": "BW-SUP",
+      "registered": true
+    },
+    {
+      "id": "brightwell/infra",
+      "umbrella": "brightwell",
+      "company": "brightwell",
+      "name": "Internal infrastructure",
+      "status": "active",
+      "billing_code": "BW-INF",
+      "registered": true
+    },
+    {
+      "id": "brightwell/sales",
+      "umbrella": "brightwell",
+      "company": "brightwell",
+      "name": "Sales & pitches",
+      "status": "active",
+      "billing_code": "BW-SAL",
+      "registered": true
+    },
+    {
+      "id": "brightwell/hiring",
+      "umbrella": "brightwell",
+      "company": "brightwell",
+      "name": "Hiring",
+      "status": "active",
+      "billing_code": "BW-HIR",
+      "registered": true
+    },
+    {
+      "id": "brightwell/admin",
+      "umbrella": "brightwell",
+      "company": "brightwell",
+      "name": "Agency admin (payroll, VAT, insurance, rent)",
+      "status": "active",
+      "billing_code": "BW-ADM",
+      "registered": true,
+      "admin": true
+    },
+    {
+      "id": "personal/personal",
+      "umbrella": "personal",
+      "company": "personal",
+      "name": "Private life of the subject",
+      "status": "active",
+      "billing_code": "PRIVATE",
+      "registered": true,
+      "personal": true
+    },
+    {
+      "id": "unregistered:zermatt-pitch",
+      "umbrella": "brightwell",
+      "company": "zermatt",
+      "name": "Pitch for Zermatt Alpine Resorts",
+      "status": "active",
+      "billing_code": "",
+      "registered": false
+    },
+    {
+      "id": "unregistered:velonord-b2b-portal",
+      "umbrella": "velonord",
+      "company": "velonord",
+      "name": "Velo Nord dealer (B2B) portal",
+      "status": "active",
+      "billing_code": "",
+      "registered": false
+    },
+    {
+      "id": "unregistered:hosting-migration",
+      "umbrella": "brightwell",
+      "company": "brightwell",
+      "name": "Move of all hosting to Nordhost",
+      "status": "active",
+      "billing_code": "",
+      "registered": false
+    }
+  ],
+  "channels": [
+    {
+      "id": "C0BENCHGEN1",
+      "name": "general",
+      "kind": "public",
+      "container": "#general",
+      "members": [
+        "mara-keller",
+        "jonas-brandt",
+        "lea-vogt",
+        "tobias-hofer",
+        "dmitry-sokolov",
+        "olga-ivanova",
+        "aleksandr-petrov",
+        "nina-brunner",
+        "sebastian-kraus",
+        "hanna-lindqvist",
+        "felix-wagner",
+        "chiara-romano",
+        "ivo-meier",
+        "sophie-laurent"
+      ],
+      "initiative": null
+    },
+    {
+      "id": "C0BENCHRND1",
+      "name": "random",
+      "kind": "public",
+      "container": "#random",
+      "members": [
+        "mara-keller",
+        "jonas-brandt",
+        "lea-vogt",
+        "tobias-hofer",
+        "dmitry-sokolov",
+        "olga-ivanova",
+        "aleksandr-petrov",
+        "nina-brunner",
+        "sebastian-kraus",
+        "hanna-lindqvist",
+        "felix-wagner",
+        "chiara-romano",
+        "ivo-meier",
+        "sophie-laurent"
+      ],
+      "initiative": null
+    },
+    {
+      "id": "C0BENCHDEV1",
+      "name": "dev",
+      "kind": "public",
+      "container": "#dev",
+      "members": [
+        "dmitry-sokolov",
+        "olga-ivanova",
+        "aleksandr-petrov",
+        "felix-wagner",
+        "chiara-romano",
+        "ivo-meier",
+        "hanna-lindqvist",
+        "mara-keller",
+        "nina-brunner"
+      ],
+      "initiative": null
+    },
+    {
+      "id": "C0BENCHBKR1",
+      "name": "booker",
+      "kind": "public",
+      "container": "#booker",
+      "members": [
+        "lea-vogt",
+        "chiara-romano",
+        "dmitry-sokolov",
+        "sebastian-kraus",
+        "hanna-lindqvist",
+        "mara-keller",
+        "felix-wagner"
+      ],
+      "initiative": "brightwell/booker"
+    },
+    {
+      "id": "C0BENCHSLS1",
+      "name": "sales",
+      "kind": "public",
+      "container": "#sales",
+      "members": [
+        "jonas-brandt",
+        "mara-keller",
+        "nina-brunner",
+        "lea-vogt"
+      ],
+      "initiative": "brightwell/sales"
+    },
+    {
+      "id": "C0BENCHHIR1",
+      "name": "hiring",
+      "kind": "private",
+      "container": "#hiring",
+      "members": [
+        "jonas-brandt",
+        "mara-keller",
+        "nina-brunner",
+        "sophie-laurent"
+      ],
+      "initiative": "brightwell/hiring"
+    },
+    {
+      "id": "C0BENCHOPS1",
+      "name": "ops-alerts",
+      "kind": "public",
+      "container": "#ops-alerts",
+      "members": [],
+      "initiative": null
+    },
+    {
+      "id": "C0BENCHDPL1",
+      "name": "deploys",
+      "kind": "public",
+      "container": "#deploys",
+      "members": [],
+      "initiative": null
+    },
+    {
+      "id": "C0BENCHALP1",
+      "name": "ext-alpenhof",
+      "kind": "connect",
+      "container": "#ext-alpenhof",
+      "members": [
+        "claudia-steiner",
+        "juerg-mueller",
+        "lea-vogt",
+        "mara-keller",
+        "dmitry-sokolov",
+        "chiara-romano",
+        "nina-brunner"
+      ],
+      "initiative": null
+    },
+    {
+      "id": "C0BENCHVNO1",
+      "name": "ext-velonord",
+      "kind": "connect",
+      "container": "#ext-velonord",
+      "members": [
+        "kai-lund",
+        "mette-hansen",
+        "felix-wagner",
+        "mara-keller",
+        "aleksandr-petrov"
+      ],
+      "initiative": null
+    },
+    {
+      "id": "C0BENCHSWL1",
+      "name": "ext-swl",
+      "kind": "connect",
+      "container": "#ext-swl",
+      "members": [
+        "tobin-berger",
+        "marco-bernasconi",
+        "tobias-hofer",
+        "aleksandr-petrov",
+        "dmitry-sokolov",
+        "mara-keller"
+      ],
+      "initiative": "swl/portal"
+    },
+    {
+      "id": "C0BENCHMED1",
+      "name": "ext-medtrack",
+      "kind": "connect",
+      "container": "#ext-medtrack",
+      "members": [
+        "yulia-kuznetsova",
+        "daniel-weber",
+        "marco-rossi",
+        "dmitry-sokolov",
+        "olga-ivanova",
+        "mara-keller",
+        "hanna-lindqvist"
+      ],
+      "initiative": "medtrack/app"
+    },
+    {
+      "id": "C0BENCHKLT1",
+      "name": "ext-klartext-cms",
+      "kind": "connect",
+      "container": "#ext-klartext-cms",
+      "members": [
+        "paul-keller",
+        "ines-wolf",
+        "tobias-hofer",
+        "olga-ivanova",
+        "felix-wagner",
+        "mara-keller"
+      ],
+      "initiative": "klartext/content-hub",
+      "renamed": {
+        "at": "2026-09-23T07:30:00.000Z",
+        "name": "ext-klartext-hub",
+        "container": "#ext-klartext-hub"
+      }
+    },
+    {
+      "id": "D0BENCHJON1",
+      "name": "dm:@jonas",
+      "kind": "dm",
+      "container": "dm:@jonas",
+      "members": [
+        "mara-keller",
+        "jonas-brandt"
+      ],
+      "initiative": null
+    },
+    {
+      "id": "D0BENCHLEA1",
+      "name": "dm:@lea",
+      "kind": "dm",
+      "container": "dm:@lea",
+      "members": [
+        "mara-keller",
+        "lea-vogt"
+      ],
+      "initiative": null
+    },
+    {
+      "id": "D0BENCHDIM1",
+      "name": "dm:@dima",
+      "kind": "dm",
+      "container": "dm:@dima",
+      "members": [
+        "mara-keller",
+        "dmitry-sokolov"
+      ],
+      "initiative": null
+    },
+    {
+      "id": "D0BENCHSAS1",
+      "name": "dm:@sasha",
+      "kind": "dm",
+      "container": "dm:@sasha",
+      "members": [
+        "mara-keller",
+        "aleksandr-petrov"
+      ],
+      "initiative": null
+    },
+    {
+      "id": "D0BENCHMRS1",
+      "name": "dm:U0BWMRSGST1",
+      "kind": "dm",
+      "container": "dm:U0BWMRSGST1",
+      "members": [
+        "mara-keller",
+        "marco-rossi"
+      ],
+      "initiative": "medtrack/app"
+    },
+    {
+      "id": "G0BENCHMP01",
+      "name": "mpim:@lea+@tobias",
+      "kind": "mpim",
+      "container": "mpim:@lea+@tobias",
+      "members": [
+        "mara-keller",
+        "lea-vogt",
+        "tobias-hofer"
+      ],
+      "initiative": null
+    },
+    {
+      "id": "G0BENCHMP02",
+      "name": "mpim:@dima+@olga",
+      "kind": "mpim",
+      "container": "mpim:@dima+@olga",
+      "members": [
+        "mara-keller",
+        "dmitry-sokolov",
+        "olga-ivanova"
+      ],
+      "initiative": null
+    }
+  ],
+  "repos": [
+    {
+      "container": "git.brightwell.example/brightwell/alpenhof-web",
+      "initiative": "alpenhof/relaunch"
+    },
+    {
+      "container": "git.brightwell.example/brightwell/velonord-shop",
+      "initiative": "velonord/shop"
+    },
+    {
+      "container": "git.brightwell.example/brightwell/velonord-erp-bridge",
+      "initiative": "velonord/erp-sync"
+    },
+    {
+      "container": "git.brightwell.example/brightwell/swl-portal",
+      "initiative": "swl/portal"
+    },
+    {
+      "container": "git.brightwell.example/brightwell/booker",
+      "initiative": "brightwell/booker"
+    },
+    {
+      "container": "git.brightwell.example/brightwell/infra",
+      "initiative": "brightwell/infra"
+    },
+    {
+      "container": "git.brightwell.example/brightwell/klartext-cms",
+      "initiative": "klartext/content-hub",
+      "renamed": {
+        "at": "2026-09-23T07:30:00.000Z",
+        "container": "git.brightwell.example/brightwell/klartext-hub"
+      }
+    },
+    {
+      "container": "git.brightwell.example/medtrack/app",
+      "initiative": "medtrack/app"
+    },
+    {
+      "container": "git.brightwell.example/brightwell/nordhost-migration",
+      "initiative": "unregistered:hosting-migration"
+    }
+  ],
+  "assets": [
+    {
+      "name": "www.alpenhof-hotels.example",
+      "kind": "host",
+      "initiative": "alpenhof/retainer"
+    },
+    {
+      "name": "staging.alpenhof-hotels.example",
+      "kind": "host",
+      "initiative": "alpenhof/relaunch"
+    },
+    {
+      "name": "shop.velo-nord.example",
+      "kind": "host",
+      "initiative": "velonord/shop"
+    },
+    {
+      "name": "shop.velonord.example",
+      "kind": "host",
+      "initiative": "velonord/shop"
+    },
+    {
+      "name": "erp-bridge.brightwell.example",
+      "kind": "host",
+      "initiative": "velonord/erp-sync"
+    },
+    {
+      "name": "portal.stadtwerke-lindquell.example",
+      "kind": "host",
+      "initiative": "swl/portal"
+    },
+    {
+      "name": "api.medtrack.example",
+      "kind": "host",
+      "initiative": "medtrack/app"
+    },
+    {
+      "name": "hub.klartext-verlag.example",
+      "kind": "host",
+      "initiative": "klartext/content-hub"
+    },
+    {
+      "name": "booker.brightwell.example",
+      "kind": "host",
+      "initiative": "brightwell/booker"
+    },
+    {
+      "name": "widget.brightwell.example",
+      "kind": "host",
+      "initiative": "brightwell/booker"
+    },
+    {
+      "name": "ci.brightwell.example",
+      "kind": "host",
+      "initiative": "brightwell/infra"
+    },
+    {
+      "name": "vpn.brightwell.example",
+      "kind": "host",
+      "initiative": "brightwell/infra"
+    },
+    {
+      "name": "nh-k8s-01.nordhost.example",
+      "kind": "host",
+      "initiative": "unregistered:hosting-migration"
+    },
+    {
+      "name": "alpenhof-web",
+      "kind": "app",
+      "initiative": "alpenhof/relaunch"
+    },
+    {
+      "name": "velonord-shop",
+      "kind": "app",
+      "initiative": "velonord/shop"
+    },
+    {
+      "name": "erp-bridge",
+      "kind": "app",
+      "initiative": "velonord/erp-sync"
+    },
+    {
+      "name": "swl-portal",
+      "kind": "app",
+      "initiative": "swl/portal"
+    },
+    {
+      "name": "booker-api",
+      "kind": "app",
+      "initiative": "brightwell/booker"
+    },
+    {
+      "name": "booker-widget",
+      "kind": "app",
+      "initiative": "brightwell/booker"
+    },
+    {
+      "name": "klartext-hub",
+      "kind": "app",
+      "initiative": "klartext/content-hub"
+    },
+    {
+      "name": "medtrack-api",
+      "kind": "app",
+      "initiative": "medtrack/app"
+    },
+    {
+      "name": "status-page",
+      "kind": "app",
+      "initiative": "brightwell/infra"
+    },
+    {
+      "name": "pitch-demo",
+      "kind": "app",
+      "initiative": "unregistered:zermatt-pitch"
+    }
+  ],
+  "bots": [
+    {
+      "id": "uptime",
+      "kind": "slack_bot",
+      "label": "UptimeRobot",
+      "slackBotId": "B0BENCHUPT1"
+    },
+    {
+      "id": "sentry",
+      "kind": "slack_bot",
+      "label": "Sentry",
+      "slackBotId": "B0BENCHSEN1"
+    },
+    {
+      "id": "sentry-qa",
+      "kind": "slack_bot",
+      "label": "Sentry Quick Analyzer",
+      "slackBotId": "B0BENCHSQA1"
+    },
+    {
+      "id": "github",
+      "kind": "slack_bot",
+      "label": "GitHub",
+      "slackBotId": "B0BENCHGIT1"
+    },
+    {
+      "id": "youtrack-bot",
+      "kind": "slack_bot",
+      "label": "YouTrack",
+      "slackBotId": "B0BENCHYTR1"
+    },
+    {
+      "id": "deploybot",
+      "kind": "slack_bot",
+      "label": "Deploybot",
+      "slackBotId": "B0BENCHDPL1"
+    },
+    {
+      "id": "deploy-hook",
+      "kind": "slack_bot",
+      "label": "B0BENCHHOOK1",
+      "slackBotId": "B0BENCHHOOK1",
+      "unflagged": true
+    },
+    {
+      "id": "aven",
+      "kind": "slack_bot",
+      "label": "Aven",
+      "slackBotId": "B0BENCHAVN1"
+    },
+    {
+      "id": "yt-mail",
+      "kind": "notification",
+      "label": "YouTrack",
+      "address": "youtrack@brightwell.youtrack.example"
+    },
+    {
+      "id": "jira-mail",
+      "kind": "notification",
+      "label": "Jira",
+      "address": "jira@medtrack.atlassian.example"
+    },
+    {
+      "id": "gh-mail",
+      "kind": "notification",
+      "label": "GitHub",
+      "address": "notifications@github.example"
+    },
+    {
+      "id": "docs-mail",
+      "kind": "notification",
+      "label": "Docs",
+      "address": "comments-noreply@docs.workspace.example"
+    },
+    {
+      "id": "sentry-mail",
+      "kind": "notification",
+      "label": "Sentry",
+      "address": "noreply@sentry.example"
+    },
+    {
+      "id": "uptime-mail",
+      "kind": "notification",
+      "label": "UptimeRobot",
+      "address": "alert@uptimerobot.example"
+    },
+    {
+      "id": "slack-mail",
+      "kind": "notification",
+      "label": "Slack",
+      "address": "feedback@slack.example"
+    },
+    {
+      "id": "cal-mail",
+      "kind": "notification",
+      "label": "Calendar",
+      "address": "calendar-notification@workspace.example"
+    },
+    {
+      "id": "nl-webweekly",
+      "kind": "newsletter",
+      "label": "Web Weekly",
+      "address": "news@webweekly.example"
+    },
+    {
+      "id": "nl-frontend",
+      "kind": "newsletter",
+      "label": "Frontend Focus",
+      "address": "digest@frontend-focus.example"
+    },
+    {
+      "id": "nl-saas",
+      "kind": "newsletter",
+      "label": "SaaS Growth Notes",
+      "address": "hello@saas-growth.example"
+    },
+    {
+      "id": "nl-hoteltech",
+      "kind": "newsletter",
+      "label": "Hotel Tech Insider",
+      "address": "newsletter@hotel-tech.example"
+    },
+    {
+      "id": "nl-bookingtools",
+      "kind": "newsletter",
+      "label": "BookingTools Blog",
+      "address": "team@bookingtools.example"
+    },
+    {
+      "id": "nl-swissdigital",
+      "kind": "newsletter",
+      "label": "Swiss Digital",
+      "address": "info@swiss-digital.example"
+    },
+    {
+      "id": "nl-devops",
+      "kind": "newsletter",
+      "label": "DevOps Digest",
+      "address": "updates@devops-digest.example"
+    },
+    {
+      "id": "nl-cms",
+      "kind": "newsletter",
+      "label": "CMS Insider",
+      "address": "news@cms-insider.example"
+    },
+    {
+      "id": "nl-ecom",
+      "kind": "newsletter",
+      "label": "E-Commerce Daily",
+      "address": "newsletter@ecommerce-daily.example"
+    },
+    {
+      "id": "nl-ux",
+      "kind": "newsletter",
+      "label": "UX Notes",
+      "address": "news@ux-notes.example"
+    },
+    {
+      "id": "rc-cloudhost",
+      "kind": "receipt",
+      "label": "CloudHost Billing",
+      "address": "billing@cloudhost.example"
+    },
+    {
+      "id": "rc-design",
+      "kind": "receipt",
+      "label": "DesignBoard",
+      "address": "invoices@designboard.example"
+    },
+    {
+      "id": "rc-workspace",
+      "kind": "receipt",
+      "label": "Workspace",
+      "address": "receipts@workspace.example"
+    },
+    {
+      "id": "rc-nordhost",
+      "kind": "receipt",
+      "label": "Nordhost Billing",
+      "address": "billing@nordhost.example"
+    },
+    {
+      "id": "rc-rail",
+      "kind": "receipt",
+      "label": "Rail Tickets",
+      "address": "no-reply@rail-tickets.example"
+    },
+    {
+      "id": "dg-analytics",
+      "kind": "digest",
+      "label": "Site Analytics",
+      "address": "reports@analytics.example"
+    },
+    {
+      "id": "dg-booker",
+      "kind": "digest",
+      "label": "Booker KPIs",
+      "address": "kpi@booker.brightwell.example"
+    },
+    {
+      "id": "dg-sentry",
+      "kind": "digest",
+      "label": "Sentry",
+      "address": "noreply@sentry.example"
+    },
+    {
+      "id": "dg-bank",
+      "kind": "digest",
+      "label": "Bank Zürichsee",
+      "address": "statements@bank-zsee.example"
+    },
+    {
+      "id": "dg-timesheet",
+      "kind": "digest",
+      "label": "Timesheets",
+      "address": "reminder@timesheets.example"
+    },
+    {
+      "id": "dg-yt",
+      "kind": "digest",
+      "label": "YouTrack",
+      "address": "youtrack@brightwell.youtrack.example"
+    },
+    {
+      "id": "dg-uptime",
+      "kind": "digest",
+      "label": "UptimeRobot",
+      "address": "alert@uptimerobot.example"
+    },
+    {
+      "id": "p-bank",
+      "kind": "notification",
+      "label": "Bank Zürichsee",
+      "address": "notices@bank-zsee.example"
+    },
+    {
+      "id": "p-shop",
+      "kind": "receipt",
+      "label": "Bergsport Shop",
+      "address": "orders@bergsport-shop.example"
+    },
+    {
+      "id": "p-post",
+      "kind": "notification",
+      "label": "Paketdienst",
+      "address": "versand@paket-post.example"
+    },
+    {
+      "id": "p-school",
+      "kind": "notification",
+      "label": "Schule Hottingen",
+      "address": "sekretariat@schule-hottingen.example"
+    },
+    {
+      "id": "p-nl-running",
+      "kind": "newsletter",
+      "label": "Running Club",
+      "address": "news@laufclub-zh.example"
+    },
+    {
+      "id": "p-nl-kultur",
+      "kind": "newsletter",
+      "label": "Kulturagenda",
+      "address": "newsletter@kulturagenda.example"
+    },
+    {
+      "id": "list-team",
+      "kind": "notification",
+      "label": "Team list",
+      "address": "team@brightwell.example"
+    }
+  ],
+  "renames": [
+    {
+      "kind": "domain",
+      "from": "velonord.example",
+      "to": "velo-nord.example",
+      "at": "2026-09-16"
+    },
+    {
+      "kind": "initiative",
+      "from": "klartext/cms-migration",
+      "to": "klartext/content-hub",
+      "at": "2026-09-23"
+    },
+    {
+      "kind": "channel",
+      "from": "#ext-klartext-cms",
+      "to": "#ext-klartext-hub",
+      "at": "2026-09-23"
+    },
+    {
+      "kind": "tracker_key",
+      "from": "KT",
+      "to": "KH",
+      "at": "2026-09-23"
+    },
+    {
+      "kind": "repo",
+      "from": "git.brightwell.example/brightwell/klartext-cms",
+      "to": "git.brightwell.example/brightwell/klartext-hub",
+      "at": "2026-09-23"
+    }
+  ],
+  "slackUsers": [
+    {
+      "id": "U0BWMARA001",
+      "name": "mara",
+      "real_name": "Mara Keller",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Mara Keller",
+        "real_name": "Mara Keller"
+      }
+    },
+    {
+      "id": "U0BWJONA001",
+      "name": "jonas",
+      "real_name": "Jonas Brandt",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Jonas Brandt",
+        "real_name": "Jonas Brandt"
+      }
+    },
+    {
+      "id": "U0BWLEAV001",
+      "name": "lea",
+      "real_name": "Lea Vogt",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Lea Vogt",
+        "real_name": "Lea Vogt"
+      }
+    },
+    {
+      "id": "U0BWTOBI001",
+      "name": "tobias",
+      "real_name": "Tobias Hofer",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Tobias Hofer",
+        "real_name": "Tobias Hofer"
+      }
+    },
+    {
+      "id": "U0BWDIMA001",
+      "name": "dima",
+      "real_name": "Dmitry Sokolov",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Dmitry Sokolov",
+        "real_name": "Dmitry Sokolov"
+      }
+    },
+    {
+      "id": "U0BWOLGA001",
+      "name": "olga",
+      "real_name": "Olga Ivanova",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Olga Ivanova",
+        "real_name": "Olga Ivanova"
+      }
+    },
+    {
+      "id": "U0BWSASH001",
+      "name": "sasha",
+      "real_name": "Aleksandr Petrov",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Aleksandr Petrov",
+        "real_name": "Aleksandr Petrov"
+      }
+    },
+    {
+      "id": "U0BWNINA001",
+      "name": "nina",
+      "real_name": "Nina Brunner",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Nina Brunner",
+        "real_name": "Nina Brunner"
+      }
+    },
+    {
+      "id": "U0BWSEBA001",
+      "name": "sebastian",
+      "real_name": "Sebastian Kraus",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Sebastian Kraus",
+        "real_name": "Sebastian Kraus"
+      }
+    },
+    {
+      "id": "U0BWHANN001",
+      "name": "hanna",
+      "real_name": "Hanna Lindqvist",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Hanna Lindqvist",
+        "real_name": "Hanna Lindqvist"
+      }
+    },
+    {
+      "id": "U0BWFELI001",
+      "name": "felix",
+      "real_name": "Felix Wagner",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Felix Wagner",
+        "real_name": "Felix Wagner"
+      }
+    },
+    {
+      "id": "U0BWCHIA001",
+      "name": "chiara",
+      "real_name": "Chiara Romano",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Chiara Romano",
+        "real_name": "Chiara Romano"
+      }
+    },
+    {
+      "id": "U0BWIVOM001",
+      "name": "ivo",
+      "real_name": "Ivo Meier",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Ivo Meier",
+        "real_name": "Ivo Meier"
+      }
+    },
+    {
+      "id": "U0BWSOPH001",
+      "name": "sophie",
+      "real_name": "Sophie Laurent",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Sophie Laurent",
+        "real_name": "Sophie Laurent"
+      }
+    },
+    {
+      "id": "U0BWJUER001",
+      "name": "juerg.mueller",
+      "real_name": "Jürg Müller",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Jürg Müller | Alpenhof",
+        "real_name": "Jürg Müller"
+      }
+    },
+    {
+      "id": "U0BWCLAU001",
+      "name": "claudia.steiner",
+      "real_name": "Claudia Steiner",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Claudia Steiner | Alpenhof",
+        "real_name": "Claudia Steiner"
+      }
+    },
+    {
+      "id": "U0BWKAIL001",
+      "name": "kai.lund",
+      "real_name": "Kai Lund",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Kai Lund | VELO-NORD",
+        "real_name": "Kai Lund"
+      }
+    },
+    {
+      "id": "U0BWMETT001",
+      "name": "mette.hansen",
+      "real_name": "Mette Hansen",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Mette Hansen | VELO-NORD",
+        "real_name": "Mette Hansen"
+      }
+    },
+    {
+      "id": "U0BWMBER001",
+      "name": "marco.bernasconi",
+      "real_name": "Marco Bernasconi",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Marco Bernasconi | SWL",
+        "real_name": "Marco Bernasconi"
+      }
+    },
+    {
+      "id": "U0BWTBER001",
+      "name": "tobin.berger",
+      "real_name": "Tobin Berger",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Tobin Berger | SWL",
+        "real_name": "Tobin Berger"
+      }
+    },
+    {
+      "id": "U0BWYULI001",
+      "name": "yulia.k",
+      "real_name": "Yulia Kuznetsova",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Yulia Kuznetsova | MedTrack",
+        "real_name": "Yulia Kuznetsova"
+      }
+    },
+    {
+      "id": "U0BWDWEB001",
+      "name": "daniel.weber",
+      "real_name": "Daniel Weber",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Daniel Weber | MedTrack",
+        "real_name": "Daniel Weber"
+      }
+    },
+    {
+      "id": "U0BWPKEL001",
+      "name": "paul.keller",
+      "real_name": "Paul Keller",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Paul Keller | KlarText",
+        "real_name": "Paul Keller"
+      }
+    },
+    {
+      "id": "U0BWINES001",
+      "name": "ines.wolf",
+      "real_name": "Ines Wolf",
+      "is_bot": false,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Ines Wolf | KlarText",
+        "real_name": "Ines Wolf"
+      }
+    },
+    {
+      "id": "U0BWAVEN001",
+      "name": "aven",
+      "real_name": "Aven",
+      "is_bot": true,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Aven",
+        "real_name": "Aven"
+      }
+    },
+    {
+      "id": "U0BWDPLY001",
+      "name": "deploybot",
+      "real_name": "Deploybot",
+      "is_bot": true,
+      "is_app_user": false,
+      "deleted": false,
+      "profile": {
+        "display_name": "Deploybot",
+        "real_name": "Deploybot"
+      }
+    }
+  ]
+}
