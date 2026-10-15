@@ -155,6 +155,16 @@ export function reconcile(
   non_billable: Array<{ initiative: string; minutes: number }>;
   unrouted: { minutes: number; entries: number };
 };
+export function runIdentities(db: unknown): Record<string, unknown> & {
+  configured?: false;
+  merges?: Array<{ person_id: string; identity: string; reason: string }>;
+  questions?: Array<{ id: string; kind: string; question: string; options: string[]; refs: string[]; seen: number }>;
+  counts?: Record<string, number>;
+};
+export function runCommitments(db: unknown, args: { since?: string; until?: string; owner?: string }, now?: Date): Record<string, unknown> & {
+  configured?: false;
+  commitments?: Array<{ id: string; owner: string | null; to: string | null; what: string; source: string; call: string; call_title: string; call_start: string; day: string; provenance: Array<{ kind: string; ref: string }> }>;
+};
 export function runTimelog(db: unknown, args: { since?: string; until?: string }, now?: Date): Record<string, unknown> & { configured?: false; total_minutes?: number; totals?: { initiative: string; minutes: number }[]; days?: Array<{ day: string; minutes: number; entries: Array<Record<string, unknown>> }> };
 export function handleMessage(msg: unknown, dbPath: string): Record<string, unknown> | undefined;
 export function serve(dbPath?: string, input?: NodeJS.ReadableStream, output?: NodeJS.WritableStream): void;
