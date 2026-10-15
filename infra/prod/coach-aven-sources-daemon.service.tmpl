@@ -3,6 +3,8 @@
 # a tenant's own machine otherwise (C3: Bluefin's VM for bluefin-ops). Replaces the per-slug serve unit
 # (coach-aven-sources.service.tmpl). By hand, as root: fill the placeholders, then
 # `systemctl daemon-reload && systemctl enable --now coach-aven-sources-daemon`.
+# `deploy.sh install` grants the deployer start/stop/restart on this unit, and `deploy.sh deploy` restarts it
+# after the bot when it exists.
 #
 # The .env must hold SOURCES_DAEMON_TOKEN (the bearer the bot sends: the bot's `sources.daemon.tokenEnv`
 # names the same value on its side), PROJECTS_CONFIG_PATH, AVEN_DATA_DIR and AVEN_TZ, plus what the
