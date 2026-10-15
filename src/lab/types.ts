@@ -168,6 +168,7 @@ export interface DayCtx {
   dataset: DatasetMeta;
   dir: string; // dataset directory (store.sqlite, tenant/ inside)
   day: string;
+  pool: Unit[]; // every unit of this kind on this day, decided or not — context (threads, cases), never a to-do list
   memory: MemoryRow[]; // rows of days strictly before `day` (policy-dependent)
   state: Map<string, unknown>; // variant-private state that survives across days of one run
   llm: LlmLike | null; // null when the run forbids model calls
