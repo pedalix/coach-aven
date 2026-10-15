@@ -12,4 +12,4 @@
 ## 3. Docs and rollout
 
 - [x] 3.1 `docs/sources.md` (scope row, token store, `add --from-install` example), manifest already grants channels:history/join/read, groups:history/read, users:read; `docs/rollout.md` row (bucket 2).
-- [ ] 3.2 Canary: once the app is installed in Bluefin's workspace, bluefin-ops lists one Bluefin-internal public channel; the log shows the join and `scope: n of m`; the store gains the channel and no DM.
+- [ ] 3.2 Canary: once the app is installed in Bluefin's workspace, bluefin-ops lists one Bluefin-internal public channel; the log shows the join and `scope: n of m`; the store gains the channel and no DM. — pending: the app is not installed in the Bluefin workspace yet (Noel); tracked in the tenant plan, not in this change.

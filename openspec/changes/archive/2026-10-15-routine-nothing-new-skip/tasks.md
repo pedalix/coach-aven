@@ -18,4 +18,4 @@
 
 ## 4. Canary
 
-- [ ] 4.1 Home bot: set the flag, fire a manual run right after a delivered one (manual always fires), then observe the next scheduled slot after a quiet period; verify the channel shows `⏭ nothing new since …` once and the following real run's preamble is correct.
+- [ ] 4.1 Home bot: set the flag, fire a manual run right after a delivered one (manual always fires), then observe the next scheduled slot after a quiet period; verify the channel shows `⏭ nothing new since …` once and the following real run's preamble is correct. — not observed yet: no quiet slot since the flag went on (every slot had new records); stays on the tenant plan as an open observation.
