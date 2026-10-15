@@ -923,9 +923,10 @@ export const TOOLS = [
       'The tenant\'s attribution plan, computed in the store build from its own data (rules, people markers, initiatives.json): the ' +
       'subject\'s fragments — calls (one per summary topic), runs of their messages, work blocks — for local days since..until ' +
       `(YYYY-MM-DD, each a whole day in ${ZONE_DOC}; default: today), each with its state: ` +
-      '`decided` (the ledger has a decision, with who decided), `escalated` (an open question), ' +
-      '`rule` (the ledger has nothing; the ladder decides it now — record it), `open` (needs a judgment: candidates + hint). Plus rule ' +
-      'proposals from recorded judgments. Filter by `state`. Refs are store refs (`get` them for content); titles carry no message text.',
+      '`decided` (a judgment in the tenant ledger, or a rule decision the platform pinned once its day closed — `pinned`), ' +
+      '`escalated` (an open question), `rule` (the ladder decides it while its day is open; the platform pins it — nothing to record), ' +
+      '`open` (needs a judgment: candidates + hint). Plus rule proposals from recorded judgments. Filter by `state`. Refs are store ' +
+      'refs (`get` them for content); `container` is what a question about it is about; titles carry no message text.',
     inputSchema: {
       type: 'object',
       properties: {
