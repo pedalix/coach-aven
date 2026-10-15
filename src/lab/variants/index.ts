@@ -16,6 +16,8 @@ export const VARIANTS: Record<string, () => Promise<Variant>> = {
   k2b: () => import('./keys2b.js').then((m) => m.k2b),
   // iteration 3: the hybrid — K2a spine, J residue (notes/30-iter3.md)
   hybrid: () => import('./hybrid.js').then((m) => m.hybrid),
+  // the PRODUCTION code (stage-0 item floor + learn.ts), replayed on the bench — the port's parity check
+  prodlearn: () => import('./prodlearn.js').then((m) => m.prodlearn),
 };
 
 // Variant parameters for ablations come from the CLI's repeatable --opt key=value (as LAB_OPT_<key>), so a
