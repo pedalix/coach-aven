@@ -1,0 +1,88 @@
+name: Deploy CoachAven release
+
+# The deploy workflow of an INSTALLATION. Lives in your private ops repo (the one checked
+# out at infra/prod/runtime/ of a coach-aven checkout) as .github/workflows/deploy.yml.
+# The public product repo only publishes releases; deploying one is this file's job.
+#
+# Triggers:
+#   repository_dispatch `coach-aven-release` — sent by the product repo's release job when
+#     it has your App secrets (OPS_APP_ID / OPS_APP_PRIVATE_KEY); payload = {tag}.
+#   workflow_dispatch(tag) — deploy any release by hand: a first install, a rollback to
+#     the previous tag, or if you prefer not to wire the dispatch at all.
+#
+# Secrets (Settings → Secrets and variables → Actions of THIS repo):
+#   DEPLOY_SSH_KEY   — passphrase-less private key for deployer@<your box>
+#   DEPLOY_ENV       — the full contents of infra/prod/.env (DEPLOY_HOST, DEPLOY_USER,
+#                      ROOT_USER, REMOTE_DIR, SERVICE_NAME)
+#   APP_ID, APP_PRIVATE_KEY — optional: a GitHub App that can read the product repo. Only
+#                      needed while the product repo is private to you (a fork of your own);
+#                      without them the checkout uses the default token, which reads any
+#                      public repo. Leave them unset for the public pedalix/coach-aven.
+#
+# What runs: exactly the manual `npm run prod:deploy` — upload the checkout (code only),
+# `npm ci` on the box, restart the systemd unit, wait for the "Slack bot running" line.
+# It never touches the box's .env, App key, projects.config.json or state.json; those go
+# up with `npm run prod:export` from your machine.
+
+on:
+  repository_dispatch:
+    types: [coach-aven-release]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to deploy (vX.Y.Z)'
+        required: true
+
+# Never let two deploys overlap on the box; queue them instead.
+concurrency:
+  group: prod-deploy
+  cancel-in-progress: false
+
+env:
+  PRODUCT_REPO: pedalix/coach-aven
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.client_payload.tag || inputs.tag }}
+      HAS_APP: ${{ secrets.APP_PRIVATE_KEY != '' }}
+    steps:
+      - name: Validate the tag (releases only — never a branch or a sha)
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "refusing to deploy '$TAG': not a vX.Y.Z release tag"; exit 1; }
+          echo "deploying $PRODUCT_REPO@$TAG"
+      - name: Mint a read token for the product repo (only if it is private to you)
+        if: env.HAS_APP == 'true'
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: pedalix
+          repositories: coach-aven
+          permission-contents: read
+      - name: Check out the product repo at the tag
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ env.PRODUCT_REPO }}
+          ref: refs/tags/${{ env.TAG }}
+          token: ${{ steps.app.outputs.token || github.token }}
+          path: src
+      - name: Configure deployer SSH key
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          cat > ~/.ssh/id_ed25519 <<'KEY'
+          ${{ secrets.DEPLOY_SSH_KEY }}
+          KEY
+          chmod 600 ~/.ssh/id_ed25519
+      - name: Write deploy target config (infra/prod/.env)
+        run: |
+          cat > src/infra/prod/.env <<'ENVFILE'
+          ${{ secrets.DEPLOY_ENV }}
+          ENVFILE
+      - name: Deploy (upload → npm ci → restart → health-check)
+        # RELEASE stamps the version so Sentry tags issues with the release.
+        env:
+          RELEASE: ${{ env.TAG }}
+        run: bash src/infra/prod/deploy.sh deploy

@@ -1,4 +1,4 @@
-name: Release & Deploy
+name: Release
 
 # Tag-triggered release pipeline for the CoachAven orchestrator.
 #
@@ -8,38 +8,30 @@ name: Release & Deploy
 # generated from the PRs merged since the previous tag (grouped per .github/release.yml),
 # so write human-readable PR titles.
 #
-# The tag push runs: verify (typecheck + tests) → GitHub Release (auto-generated notes) →
-# SSH deploy to the bot host via infra/prod/deploy.sh (deployer key only).
+# The tag push runs: verify (typecheck, tests, guards) → GitHub Release (auto-generated
+# notes) → a notification to the operator's ops repository, which deploys the tag with its
+# own secrets (infra/prod/runtime.example/workflows/deploy.yml). This repository holds no
+# deploy key, no deploy target and no environment: an installation is somebody's ops repo.
 #
-# Required config (GitHub → Settings → Environments → "production"):
-#   secrets.DEPLOY_SSH_KEY  — private key for deployer@<box> (passphrase-less)
-#   secrets.DEPLOY_ENV      — the full contents of infra/prod/.env
-#                             (DEPLOY_HOST/DEPLOY_USER/ROOT_USER/REMOTE_DIR/SERVICE_NAME)
-# Runtime app secrets (.env, GitHub App key, projects.config.json) are NOT managed here —
-# they live in your ops repo (infra/prod/runtime/) and go to the box with `npm run prod:export`.
+# Optional secrets (only an operator who wants the automatic hand-off sets them; a fork
+# cuts releases without them — the notify steps are skipped):
+#   secrets.OPS_APP_ID           — a GitHub App installed on the ops repository
+#   secrets.OPS_APP_PRIVATE_KEY  — its private key; a token scoped to the ops repo and
+#                                  `contents: write` is minted per run and dies in an hour
+# The ops repository to notify is OPS_REPO below.
 
 on:
   push:
     tags: ['v*']
-  workflow_dispatch:
-    inputs:
-      ref:
-        description: 'Git ref (tag / branch / sha) to deploy'
-        required: true
-        default: 'main'
 
-# Never let two prod deploys overlap on the shared box; queue them instead.
-concurrency:
-  group: prod-deploy
-  cancel-in-progress: false
+env:
+  OPS_REPO: pedalix/coach-aven-ops
 
 jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.inputs.ref || github.ref }}
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
@@ -58,6 +50,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      # Secrets cannot be read in `if:` directly; this env var can.
+      HAS_OPS_APP: ${{ secrets.OPS_APP_PRIVATE_KEY != '' }}
     steps:
       - uses: actions/checkout@v7
       - name: Create the GitHub Release (notes auto-generated from merged PRs)
@@ -71,29 +66,23 @@ jobs:
             # categorized per .github/release.yml.
             gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --verify-tag --generate-notes
           fi
-
-  deploy:
-    needs: verify
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v7
+      - name: "Mint a token for the ops repository (scoped to that repo, contents: write)"
+        if: env.HAS_OPS_APP == 'true'
+        id: ops_token
+        uses: actions/create-github-app-token@v2
         with:
-          ref: ${{ github.event.inputs.ref || github.ref }}
-      - name: Configure deployer SSH key
-        run: |
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          cat > ~/.ssh/id_ed25519 <<'KEY'
-          ${{ secrets.DEPLOY_SSH_KEY }}
-          KEY
-          chmod 600 ~/.ssh/id_ed25519
-      - name: Write deploy target config (infra/prod/.env)
-        run: |
-          cat > infra/prod/.env <<'ENVFILE'
-          ${{ secrets.DEPLOY_ENV }}
-          ENVFILE
-      - name: Deploy to prod (upload → npm ci → restart → health-check)
-        # On a tag build, stamp the version so Sentry tags issues with the release.
+          app-id: ${{ secrets.OPS_APP_ID }}
+          private-key: ${{ secrets.OPS_APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: coach-aven-ops
+          permission-contents: write
+      - name: Tell the ops repository to deploy this tag (repository_dispatch)
+        if: env.HAS_OPS_APP == 'true'
         env:
-          RELEASE: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-        run: bash infra/prod/deploy.sh deploy
+          GH_TOKEN: ${{ steps.ops_token.outputs.token }}
+        run: |
+          # 204 = accepted. Any other status fails this job so a broken hand-off is visible
+          # on the tag's run; the release itself is already published above.
+          printf '{"event_type":"coach-aven-release","client_payload":{"tag":"%s"}}' "$GITHUB_REF_NAME" \
+            | gh api -X POST "repos/$OPS_REPO/dispatches" --input -
+          echo "dispatched coach-aven-release $GITHUB_REF_NAME → $OPS_REPO"
