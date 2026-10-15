@@ -25,10 +25,10 @@
 
 ## 3. PR 3 — public scaffolding and the guard (`docs`/`ci`)
 
-- [ ] 3.1 `LICENSE` Apache-2.0 (copyright "Owen Hale"), `"license": "Apache-2.0"` in `package.json`.
-- [ ] 3.2 `README.md` rewritten: what it is, architecture in five lines, self-host quickstart (Slack app from the manifest → `.env` → `SANDBOX_DRIVER` → first project), status disclaimer, link to coachaven.com. `CONTRIBUTING.md` (typecheck + test + OpenSpec + rollout buckets), `SECURITY.md` (contact, no bounty).
-- [ ] 3.3 CI: `public-guard` job + gitleaks action in `.github/workflows/release.yml` `verify` and a new `ci.yml` on push/PR; `.gitleaks.toml` allow-listing `src/scrub.test.ts`, `src/sources/audit.test.ts`, `.env.example`. Verify: a scratch branch adding a real partner-domain mailbox to a test fails CI.
-- [ ] 3.4 `docs/rollout.md` row: "Public-repo hygiene guard + history rewrite" | PR numbers | gate: none (no behaviour change) | date | canary note "tests green, bot unchanged".
+- [x] 3.1 `LICENSE` Apache-2.0 (copyright "Owen Hale"), `"license": "Apache-2.0"` in `package.json`.
+- [x] 3.2 `README.md` rewritten: what it is, architecture in five lines, self-host quickstart (Slack app from the manifest → `.env` → `SANDBOX_DRIVER` → first project), status disclaimer, link to coachaven.com. `CONTRIBUTING.md` (typecheck + test + OpenSpec + rollout buckets), `SECURITY.md` (contact, no bounty).
+- [x] 3.3 CI: `public-guard` job + gitleaks action in `.github/workflows/release.yml` `verify` and a new `ci.yml` on push/PR; `.gitleaks.toml` allow-listing `src/scrub.test.ts`, `src/sources/audit.test.ts`, `.env.example`. Verify: a scratch branch adding a real partner-domain mailbox to a test fails CI.
+- [x] 3.4 `docs/rollout.md` row: "Public-repo hygiene guard + history rewrite" | PR numbers | gate: none (no behaviour change) | date | canary note "tests green, bot unchanged".
 
 ## 4. GitHub hardening (settings, before the flip)
 
