@@ -18,4 +18,4 @@
 ## 4. Canary and C3
 
 - [x] 4.1 Home: daemon as a second user unit, both projects on loopback, bot ticker off; verify pulls in the daemon log, `/aven status` from the daemon, unchanged briefs, per-call latency logged. 2026-10-15 21:18: both projects pulled and built by the daemon, the bot pulled nothing; forwarded calls 4–70 ms (`unanswered` 1.2 s); field brief, review, morning brief and evening close all delivered through it.
-- [ ] 4.2 C3 (ops repo): bluefin-ops daemon on Bluefin's VM, bot forwards; verify the first prod field brief quotes `unanswered` rows and `stats.meta` ages from the daemon.
+- [x] 4.2 C3 (ops repo): bluefin-ops daemon, bot forwards; verify the first prod field brief quotes `unanswered` rows and `stats.meta` ages from the daemon. Owen 2026-10-15: the daemon runs on the bot host (aven-prod), same sources as the dry run, tenant checkout through the GitHub App. v0.41.0; ops `ee283c2`; unit `coach-aven-sources-daemon` (loopback :3416); first build 6785 Slack records + 551 tasks; the 22:38 field brief in #bluefin-aven-ops quoted `unanswered` (1 waiting on Bluefin), `stuck` (102) and the source ages; forwarded calls 5–18 ms.
