@@ -2,7 +2,10 @@ import { readFileSync } from 'node:fs';
 import { config as loadDotenv } from 'dotenv';
 import { isValidCliVersion } from './cliversion.js';
 
-loadDotenv();
+// The checkout's .env configures a RUNNING bot. Under the test runner (node --test sets
+// NODE_TEST_CONTEXT in every test process) it must not leak into tests: a developer's
+// SLACK_CHANNEL_PREFIX or flags would make the recorded-call snapshots machine-dependent.
+if (!process.env.NODE_TEST_CONTEXT) loadDotenv();
 
 function req(name: string): string {
   const v = process.env[name];
