@@ -9,6 +9,7 @@
 import type { DayCtx, FragmentUnit, ItemUnit, MemoryRow, MentionUnit, TaskId } from '../../types.js';
 import { NONE, UNREGISTERED } from '../../types.js';
 import { caseKeyOf } from '../../cases.js';
+import { t234 } from './t234.js';
 
 export type SenderClass = 'human' | 'bot' | 'bulk' | 'system';
 
@@ -58,6 +59,7 @@ export function stage0(ctx: DayCtx): Stage0 {
 function stub(ctx: DayCtx): Stage0 {
   const space = ctx.dataset.labelSpace;
   const umbrellaOf = (id: string) => space.umbrellas[id] ?? id;
+  const rest = t234(ctx); // T2–T4 (owned by the stage-0 T2-T4 agent)
   return {
     fragment(u) {
       const l = u.ladder;
@@ -75,25 +77,13 @@ function stub(ctx: DayCtx): Stage0 {
       };
     },
     item(u) {
-      return { label: null, conf: 0, rung: 'abstain', candidates: [], hint: '', case: caseKeyOf('t1-item', u), senderClass: u.isBot ? 'bot' : 'human', family: u.id, hosts: [], apps: [] };
+      const h = rest.hostsApps(u);
+      return { label: null, conf: 0, rung: 'abstain', candidates: [], hint: '', case: caseKeyOf('t1-item', u), senderClass: rest.senderClass(u), family: rest.family(u), ...h };
     },
-    mention(u) {
-      return { label: u.production, conf: u.production ? 0.99 : 0, rung: u.production ? 'production' : 'abstain', candidates: [], hint: '', case: `form:${u.raw.toLowerCase()}` };
-    },
-    kind(u) {
-      return u.isBot
-        ? { label: 'noise', conf: 0.95, rung: 'sender:bot', candidates: [], hint: '', case: caseKeyOf('t4-kind', u) }
-        : { label: null, conf: 0, rung: 'abstain', candidates: [], hint: '', case: caseKeyOf('t4-kind', u) };
-    },
-    addressee(u) {
-      const to = [...new Set(u.toPersons)].sort();
-      return to.length
-        ? { label: to.join('|'), conf: 0.95, rung: 'explicit', candidates: [], hint: '', case: caseKeyOf('t4-addressee', u) }
-        : { label: null, conf: 0, rung: 'abstain', candidates: [], hint: '', case: caseKeyOf('t4-addressee', u) };
-    },
-    dedup(dayUnits) {
-      return new Map(dayUnits.map((u) => [u.id, { cluster: u.id, conf: 1 }]));
-    },
+    mention: (u) => rest.mention(u),
+    kind: (u) => rest.kind(u),
+    addressee: (u) => rest.addressee(u),
+    dedup: (dayUnits) => rest.dedup(dayUnits),
     labelSpace(task) {
       if (task === 't1-fragment' || task === 't1-item') return [...space.initiatives, NONE, UNREGISTERED];
       return [];
