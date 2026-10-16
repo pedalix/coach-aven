@@ -75,7 +75,7 @@ would need is public; a line naming your host, customer or a person is ops.
 - Your ops repo cloned at `infra/<slug>/` with `deploy.env`, `.env`, `github-app-private-key.pem`,
   `projects.config.json` present (from `ops.example/`, or pull a running box with
   `npm run ops -- <slug> import`).
-- Node 22 + git on the box.
+- Node 24 + git on the box (22.12+ works; `node:sqlite` is stable from 24, which silences the boot warning).
 
 ## Deploy (first time)
 

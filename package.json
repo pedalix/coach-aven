@@ -8,6 +8,9 @@
   },
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=22.12"
+  },
   "description": "CoachAven — a Slack coding agent running per-project Claude Code sandboxes on self-hosted Daytona.",
   "bin": {
     "orch": "./src/cli.ts"
