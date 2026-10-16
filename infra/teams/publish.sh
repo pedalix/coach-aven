@@ -21,6 +21,6 @@ pwsh -NoLogo -Command "
   Import-Module MicrosoftTeams
   Connect-MicrosoftTeams -UseDeviceAuthentication -TenantId '$tenant' | Out-Null
   \$app = Get-TeamsApp -ExternalId '$ext'
-  if (\$app) { Set-TeamsApp -AppId \$app.Id -Path '$pkg'; 'updated ' + \$app.Id }
+  if (\$app) { Set-TeamsApp -Id \$app.Id -Path '$pkg'; 'updated ' + \$app.Id }
   else { 'created ' + (New-TeamsApp -DistributionMethod organization -Path '$pkg').Id }
 "
