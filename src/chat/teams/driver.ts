@@ -76,6 +76,9 @@ export interface TeamsActionCtx {
   direct: boolean;
   dialog?: (d: { title: string; card: AdaptiveCard }) => void;
 }
+// What the status card says once its answer has been posted after it.
+const DONE_RECEIPT = '✅ Done — answer below';
+
 const ctxOf = (a: Interaction): TeamsActionCtx => (a.ctx ?? { conv: '', direct: false }) as TeamsActionCtx;
 
 export interface TeamsChatDriver extends ChatDriver {
@@ -124,16 +127,18 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
     });
     await p.inflight;
   }
-  // An edit that carries both text and a card — the answer replacing the status card, with its
-  // Show steps / PR buttons — becomes the text in place and the buttons as a follow-up message
-  // in the same chain (the pair in one edit is "Activity resulted into multiple skype activities").
+  // An answer never edits the status card into itself: Teams keeps an edited message where it
+  // was while the answer's card (a separate message) goes to the END of the chain — so a
+  // message the person sent meanwhile would split the text from its buttons (seen on the
+  // canary with three quick messages). Instead the status card becomes a one-line receipt and
+  // the answer lands fresh after it, text then card, always together. Other text+card edits
+  // (none today) take the same route: a pair in one edit is "multiple skype activities".
   async function edit(msg: MsgRef, thread: string | undefined, view: MessageView): Promise<void> {
     const m = renderMessageView(view);
     const target = targetId(msg.conv, thread);
-    if (m.text !== undefined && m.card) {
-      await api.update(target, msg.id, toActivity({ text: m.text }));
-      const d = await deliver(msg.conv, thread, { card: m.card });
-      if (view.kind === 'answer' && d.cardId) answerCards.set(keyOf({ conv: msg.conv, id: d.cardId }), view);
+    if (view.kind === 'answer' || (m.text !== undefined && m.card)) {
+      await api.update(target, msg.id, toActivity({ text: DONE_RECEIPT }));
+      await deliverView(msg.conv, thread, view);
       return;
     }
     await api.update(target, msg.id, toActivity(m));
@@ -152,10 +157,6 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
   // The answer cards posted, by the card message's id, so a rating refresh can re-render them.
   const answerCards = new Map<string, Extract<MessageView, { kind: 'answer' }>>();
 
-  // Text and card go as SEPARATE messages: Teams splits a text+card activity into two on its
-  // side and answers with no usable id (and rejects the pair outright on an edit) — probed
-  // 2026-10-16. The reference is the first text message (the card's when there is no text);
-  // long text is split under the message limit, parts in order.
   // Text and card go as SEPARATE messages: Teams splits a text+card activity into two on its
   // side and answers with no usable id (and rejects the pair outright on an edit) — probed
   // 2026-10-16. The reference is the first text message (the card's when there is no text);
