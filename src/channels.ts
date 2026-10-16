@@ -71,7 +71,10 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
     project: ProjectConfig,
     tenantId?: string,
   ): Promise<string | undefined> {
+    // An explicit binding wins — `slackChannel` or, on a Teams installation, `teamsChannel`
+    // (an installation runs one driver, so at most one of them is set and meaningful).
     if (project.slackChannel) return project.slackChannel;
+    if (project.teamsChannel) return project.teamsChannel;
     const cacheKey = `${tenantId ?? 'home'}:${project.slug}`;
     const cached = slugChannelCache.get(cacheKey);
     if (cached) return cached;

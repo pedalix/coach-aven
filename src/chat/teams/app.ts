@@ -11,7 +11,7 @@ import express from 'express';
 import { App, ExpressAdapter } from '@microsoft/teams.apps';
 import type { Config } from '../../config.js';
 import { Store } from '../../state.js';
-import { loadProjects, type RegistryRef } from '../../projects.js';
+import { loadProjects, type RegistryRef, resolveByChannel } from '../../projects.js';
 import { createTurnEngine } from '../../turn.js';
 import { createChannels } from '../../channels.js';
 import { createPollers, ROUTINE_TZ } from '../../pollers.js';
@@ -71,6 +71,10 @@ export async function runTeams(cfg: Config): Promise<void> {
           ? apiFor().conversations.addReaction(conversationId, activityId, type as never)
           : apiFor().conversations.deleteReaction(conversationId, activityId, type as never),
       );
+    },
+    async memberName(conversationId, userId) {
+      const m = await connector('member', conversationId, () => apiFor().conversations.members(conversationId).getById(userId));
+      return (m as { name?: string }).name;
     },
     async openPersonal(userId) {
       const res = await connector('openPersonal', userId, () =>
@@ -137,6 +141,7 @@ export async function runTeams(cfg: Config): Promise<void> {
       driver.knowPerson(id, name);
       if (aad) aadOf.set(id, aad);
     },
+    boundProject: (conv) => resolveByChannel(reg.current, conv)?.slug,
   });
 
   // Recovery before the listener opens: the journal drain must not race new activities.

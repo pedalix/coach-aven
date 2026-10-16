@@ -49,6 +49,9 @@ export interface TeamsApi {
   openPersonal(userId: string): Promise<string | undefined>;
   // Add/remove a reaction on a message; `type` is Teams' `<codepoint>_<name>` form.
   react(conversationId: string, activityId: string, type: string, op: 'add' | 'remove'): Promise<void>;
+  // A conversation member's display name from the roster (`…/members/<id>`); undefined when
+  // the person is not in it (or the lookup fails) — the caller renders a plain `@id` then.
+  memberName(conversationId: string, userId: string): Promise<string | undefined>;
 }
 
 // Teams' reaction ids for the core's marks (the `<codepoint>_<name>` form the Connector takes).
@@ -105,6 +108,19 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
   const schedule = opts.setTimeout ?? setTimeout;
   const unschedule = opts.clearTimeout ?? clearTimeout;
   const people = new Map<string, string>();
+  const unknown = new Set<string>(); // roster misses, so one person costs one lookup per run
+  // `<@id>`s in outbound text whose name was never seen: ask the conversation's roster once,
+  // so a configured owner (YouTrack `ping`) is a real mention on the first delivery too.
+  async function learn(conv: string, text: string | undefined): Promise<void> {
+    if (text === undefined) return;
+    for (const m of text.matchAll(/<@([^>|\s]+)(?:\|[^>]*)?>/g)) {
+      const id = m[1];
+      if (people.has(id) || unknown.has(id)) continue;
+      const name = await api.memberName(conv, id).catch(() => undefined);
+      if (name) people.set(id, name);
+      else unknown.add(id);
+    }
+  }
   function toActivity(m: { text?: string; card?: AdaptiveCard }): OutActivity {
     const t = m.text !== undefined ? teamsMentions(m.text, (id) => people.get(id)) : undefined;
     return {
@@ -166,6 +182,12 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
   const realId = new Map<string, string>();
   const isPending = (id: string) => id.startsWith('pending:');
   const resolve = (m: MsgRef): MsgRef => (isPending(m.id) && realId.has(m.id) ? { conv: m.conv, id: realId.get(m.id)! } : m);
+  // Dialogs opened with a placeholder (🔍 Full ticket: "Loading…" while YouTrack answers): the
+  // click's deferred is held until updateDialog brings the real view, or the hold expires and
+  // the placeholder is shown — the invoke must be answered within Teams' window either way.
+  const HOLD_MS = 3500;
+  let dialogSeq = 0;
+  const held = new Map<string, { open: (d: { title: string; card: AdaptiveCard }) => void; timer: ReturnType<typeof setTimeout> }>();
   // The answer cards posted, by the card message's id, so a rating refresh can re-render them.
   const answerCards = new Map<string, Extract<MessageView, { kind: 'answer' }>>();
 
@@ -178,6 +200,7 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
     const target = targetId(conv, thread);
     let first: { id: string } | undefined;
     let cardId: string | undefined;
+    await learn(conv, m.text);
     if (m.text !== undefined) {
       for (const part of splitText(m.text)) {
         const sent = await api.send(target, toActivity({ text: part }));
@@ -215,6 +238,7 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
     if (opts.targeted) {
       try {
         const target = targetId(c.conv, c.thread);
+        await learn(c.conv, m.text);
         const recipient = { id: c.user, isTargeted: true as const };
         if (m.text !== undefined) for (const part of splitText(m.text)) await api.sendTargeted(target, { ...toActivity({ text: part }), recipient });
         if (m.card) await api.sendTargeted(target, { ...toActivity({ card: m.card }), recipient });
@@ -316,14 +340,30 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
     async openDialog(action: ChatAction, view: DialogView): Promise<DialogRef | undefined> {
       const open = ctxOf(action).dialog;
       if (!open) return undefined; // not a task/fetch click — nothing can open a dialog now
+      if (view.kind === 'ticketLoading') {
+        const id = `dialog:${++dialogSeq}`;
+        const timer = schedule(() => {
+          if (!held.delete(id)) return;
+          open(renderDialogView(view));
+        }, HOLD_MS);
+        held.set(id, { open, timer });
+        return { id };
+      }
       open(renderDialogView(view));
       return { id: 'dialog' };
     },
 
-    async updateDialog(_dialog: DialogRef, view: DialogView): Promise<void> {
-      // Teams dialogs are not updated in place by the bot; the final view arrives with the next
-      // open (PR 2 makes the ticket dialog wait for its data instead).
-      log.info(`teams: dialog update ignored (${view.kind})`);
+    async updateDialog(dialog: DialogRef, view: DialogView): Promise<void> {
+      // Only a held dialog can still change: its deferred takes the final view. Once shown, a
+      // Teams dialog is not updated by the bot (the person reopens it instead).
+      const h = held.get(dialog.id);
+      if (!h) {
+        log.info(`teams: dialog update ignored (${view.kind}) — ${dialog.id} already shown`);
+        return;
+      }
+      held.delete(dialog.id);
+      unschedule(h.timer);
+      h.open(renderDialogView(view));
     },
 
     async refreshRating(action: ChatAction, tally: Tally): Promise<void> {

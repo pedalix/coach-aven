@@ -114,15 +114,18 @@ export function normalizeAction(
   };
 }
 
-// A dialog submit → the core's DialogSubmit: the form's data minus the routing fields.
+// A dialog submit → the core's DialogSubmit: the form's data minus the routing fields. A
+// multi-select ChoiceSet arrives as one comma-separated string; the card names those fields
+// in `multi` (cards.ts) and they become the arrays the core's handlers expect.
 export function normalizeSubmit(a: InboundActivity, tenant: string): DialogSubmit | undefined {
   const data = (a.value as { data?: Record<string, unknown> } | undefined)?.data;
   const id = typeof data?.dialog === 'string' ? data.dialog : undefined;
   if (!id) return undefined;
+  const multi = new Set(Array.isArray(data?.multi) ? data.multi.map(String) : []);
   const values: DialogSubmit['values'] = {};
   for (const [k, val] of Object.entries(data ?? {})) {
-    if (k === 'dialog' || k === 'meta' || k === 'msteams') continue;
-    if (typeof val === 'string') values[k] = val;
+    if (k === 'dialog' || k === 'meta' || k === 'msteams' || k === 'multi') continue;
+    if (typeof val === 'string') values[k] = multi.has(k) ? val.split(',').filter(Boolean) : val;
     else if (Array.isArray(val)) values[k] = val.map(String);
   }
   return { id, meta: typeof data?.meta === 'string' ? data.meta : '', values, actor: { tenant, user: a.from.id } };
@@ -151,6 +154,9 @@ export interface EventDeps {
   // Every person an accepted activity names (its sender, the people it mentions): the driver
   // renders mentions from these names, app.ts matches operators by Entra id through them.
   onPerson?: (id: string, name: string | undefined, aadObjectId: string | undefined) => void;
+  // The project bound to a channel, if any — to say which project lost its channel when the
+  // app is removed from a team.
+  boundProject?: (conv: string) => string | undefined;
 }
 
 // Teams gives an invoke 5 s before "Unable to reach the app" (and it retries twice): answer well
@@ -250,5 +256,14 @@ export function registerEvents(app: TeamsAppLike, deps: EventDeps): void {
   app.on('install.add', async ({ activity }) => {
     if (!isDirect(activity)) return;
     await core.home({ tenant: tenantId, user: activity.from.id }, driver).catch((e) => log.error(`teams home: ${e instanceof Error ? e.message : String(e)}`));
+  });
+
+  // Removed from a team or a chat: nothing to undo (bindings live in the registry), but a
+  // bound project just lost its channel — say so, loudly, in the journal.
+  app.on('install.remove', async ({ activity }) => {
+    const { conv } = splitConversation(activity.conversation.id);
+    const slug = deps.boundProject?.(conv);
+    if (slug) log.warn(`teams: the app was removed from ${conv} — project ${slug} is bound there and cannot be reached until it is added again`);
+    else log.info(`teams: the app was removed from ${conv} (${activity.conversation.conversationType ?? 'conversation'})`);
   });
 }

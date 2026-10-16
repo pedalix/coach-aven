@@ -5,45 +5,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { teamsDriver, type OutActivity, type TeamsApi, type TeamsActionCtx } from './driver.js';
+import { teamsDriver, type TeamsActionCtx } from './driver.js';
+import { Recorder } from './twin.js';
 import type { ChatAction } from '../driver.js';
 
 const SNAP = new URL('../../fixtures/chat/teams/calls.json', import.meta.url).pathname;
 const UPDATE = process.env.UPDATE_SNAPSHOTS === '1';
 const CH = '19:CHANNEL1@thread.tacv2';
 const TENANT = '00000000-0000-4000-8000-00000000000a';
-
-class Recorder implements TeamsApi {
-  calls: { op: string; conv: string; id?: string; activity?: OutActivity }[] = [];
-  seq = 0;
-  personal: string | undefined = 'a:PERSONAL1';
-  async send(conv: string, activity: OutActivity) {
-    this.calls.push({ op: 'send', conv, activity });
-    return { id: `m${++this.seq}` };
-  }
-  targetedFails = false; // the platform refusing targeted sends (not installed, a guest, …)
-  async sendTargeted(conv: string, activity: OutActivity) {
-    this.calls.push({ op: 'sendTargeted', conv, activity });
-    if (this.targetedFails) throw new Error('HTTP 403 BotNotInConversationRoster');
-    return { id: `m${++this.seq}` };
-  }
-  async update(conv: string, id: string, activity: OutActivity) {
-    // The Connector's rule, learnt on the real tenant: an edit may carry text or a card, not both.
-    if (activity.text !== undefined && activity.attachments?.length) {
-      const err = new Error('Request failed with status code 400') as Error & { response?: unknown };
-      err.response = { status: 400, data: { error: { code: 'BadSyntax', message: 'Activity resulted into multiple skype activities' } } };
-      throw err;
-    }
-    this.calls.push({ op: 'update', conv, id, activity });
-  }
-  async openPersonal(user: string) {
-    this.calls.push({ op: 'openPersonal', conv: user });
-    return this.personal;
-  }
-  async react(conv: string, id: string, type: string, op: 'add' | 'remove') {
-    this.calls.push({ op: `react:${op}:${type}`, conv, id });
-  }
-}
 
 function fakeClock() {
   let t = 0;
@@ -209,12 +178,15 @@ test('`<@id>` renders as a Teams mention once the person’s name is known, a pl
   const api = new Recorder();
   const d = teamsDriver(api, { tenantId: TENANT });
   await d.post({ conv: CH, thread: '100' }, { kind: 'text', text: 'Admins: <@29:USER2>' });
-  assert.equal(api.calls[0].activity!.text, 'Admins: @29:USER2');
-  assert.equal(api.calls[0].activity!.entities, undefined);
+  const sends = () => api.calls.filter((c) => c.op === 'send');
+  assert.equal(sends()[0].activity!.text, 'Admins: @29:USER2'); // the roster did not know them either
+  assert.equal(sends()[0].activity!.entities, undefined);
   d.knowPerson('29:USER2', 'Example Admin');
   await d.post({ conv: CH, thread: '100' }, { kind: 'text', text: 'Admins: <@29:USER2>, <@29:USER9>' });
-  assert.equal(api.calls[1].activity!.text, 'Admins: <at>Example Admin</at>, @29:USER9');
-  assert.deepEqual(api.calls[1].activity!.entities, [{ type: 'mention', mentioned: { id: '29:USER2', name: 'Example Admin' }, text: '<at>Example Admin</at>' }]);
+  assert.equal(sends()[1].activity!.text, 'Admins: <at>Example Admin</at>, @29:USER9');
+  assert.deepEqual(sends()[1].activity!.entities, [{ type: 'mention', mentioned: { id: '29:USER2', name: 'Example Admin' }, text: '<at>Example Admin</at>' }]);
+  // one roster lookup per unknown person, never repeated
+  assert.deepEqual(api.calls.filter((c) => c.op === 'memberName').map((c) => c.id), ['29:USER2', '29:USER9']);
 });
 
 test('openDialog resolves the click’s deferred with the rendered dialog, and is a no-op without one', async () => {
@@ -229,6 +201,28 @@ test('openDialog resolves the click’s deferred with the rendered dialog, and i
   const plain = { ...action, canDialog: false, ctx: { ...ctx, dialog: undefined } } as ChatAction;
   assert.equal(await d.openDialog(plain, { kind: 'trail', trail: undefined }), undefined);
   assert.equal(api.calls.length, 0);
+});
+
+test('a loading dialog is held for its data: updateDialog answers the click; the hold expiring shows the placeholder', async () => {
+  const api = new Recorder();
+  const clock = fakeClock();
+  const d = teamsDriver(api, { tenantId: TENANT, now: clock.now, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout });
+  const shown: { title: string }[] = [];
+  const ctx: TeamsActionCtx = { conv: CH, thread: '100', user: '29:USER1', direct: false, dialog: (x) => shown.push(x) };
+  const click = { id: 'ticket_modal', value: 'SUP-1', actor: { user: '29:USER1' }, canDialog: true, ctx } as ChatAction;
+  const ref = await d.openDialog(click, { kind: 'ticketLoading', id: 'SUP-1' });
+  assert.equal(shown.length, 0); // nothing answered yet — the data is on its way
+  await d.updateDialog(ref!, { kind: 'ticketUnavailable', id: 'SUP-1', url: 'https://yt.example/issue/SUP-1' });
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].title, 'SUP-1');
+  await clock.advance(5000);
+  assert.equal(shown.length, 1); // the expired hold does not show the placeholder on top
+  // the slow path: no data within the hold → the placeholder, and a late update is ignored
+  const ref2 = await d.openDialog(click, { kind: 'ticketLoading', id: 'SUP-2' });
+  await clock.advance(4000);
+  assert.equal(shown.length, 2);
+  await d.updateDialog(ref2!, { kind: 'ticketUnavailable', id: 'SUP-2', url: 'https://yt.example/issue/SUP-2' });
+  assert.equal(shown.length, 2);
 });
 
 test('the home card goes to the person’s 1:1 chat', async () => {

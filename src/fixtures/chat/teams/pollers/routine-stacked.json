@@ -1,0 +1,50 @@
+{
+  "calls": [
+    {
+      "op": "send",
+      "conv": "19:ALPHA@thread.tacv2",
+      "activity": {
+        "type": "message",
+        "text": "📋 what shipped · running…",
+        "textFormat": "extendedmarkdown"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "restartSession": {
+        "key": "cron:r1:alpha",
+        "slug": "alpha"
+      }
+    },
+    {
+      "liveTurn": {
+        "channel": "19:ALPHA@thread.tacv2",
+        "threadTs": "m1",
+        "key": "thread:m1",
+        "slug": "alpha",
+        "question": "[Scheduled read-only digest] Do NOT modify code, create branches, commit, or open PRs. Read-only: gather the requested information and post one concise summary. If nothing is noteworthy, say so briefly.\n\nwhat shipped",
+        "attachments": false,
+        "routine": {
+          "id": "r1",
+          "label": "📋 what shipped"
+        }
+      }
+    }
+  ],
+  "result": [
+    true,
+    false
+  ],
+  "routines": [
+    {
+      "id": "r1",
+      "lastRunAt": "2026-10-15T07:00:00.000Z"
+    }
+  ],
+  "proposals": [
+    null,
+    null,
+    null
+  ]
+}

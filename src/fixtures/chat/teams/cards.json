@@ -482,8 +482,49 @@
         "body": [
           {
             "type": "TextBlock",
-            "text": "_Report dialogs arrive with the next Teams release._",
-            "wrap": true
+            "text": "**Instructions for the draft** — edit before running:",
+            "wrap": true,
+            "isSubtle": true
+          },
+          {
+            "type": "Input.Text",
+            "id": "instructions",
+            "isMultiline": true,
+            "isRequired": true,
+            "errorMessage": "Say what to write",
+            "value": "p"
+          },
+          {
+            "type": "Input.ChoiceSet",
+            "id": "now",
+            "isMultiSelect": true,
+            "style": "expanded",
+            "choices": [
+              {
+                "title": "Post to the ticket immediately (no review)",
+                "value": "now"
+              }
+            ]
+          },
+          {
+            "type": "TextBlock",
+            "text": "_c_",
+            "wrap": true,
+            "isSubtle": true,
+            "size": "Small"
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.Submit",
+            "title": "Draft the report",
+            "data": {
+              "dialog": "yt_prompt",
+              "multi": [
+                "now"
+              ],
+              "meta": "{\"t\":\"SUP-1\",\"key\":\"k\",\"channel\":\"c\"}"
+            }
           }
         ]
       }
@@ -497,8 +538,27 @@
         "body": [
           {
             "type": "TextBlock",
-            "text": "draft",
-            "wrap": true
+            "text": "Posted as an **internal** comment on the ticket — edit first if needed:",
+            "wrap": true,
+            "isSubtle": true
+          },
+          {
+            "type": "Input.Text",
+            "id": "text",
+            "isMultiline": true,
+            "isRequired": true,
+            "errorMessage": "Nothing to post",
+            "value": "draft"
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.Submit",
+            "title": "Send to YouTrack",
+            "data": {
+              "dialog": "yt_send",
+              "meta": "{\"t\":\"SUP-1\",\"channel\":\"c\",\"ts\":\"1\"}"
+            }
           }
         ]
       }

@@ -59,8 +59,11 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 | `/aven users allow @user` | `@Aven /users allow @user` with a real mention; ids are Teams user ids (`29:…`). Admins: the installation's operators (`TEAMS_OPERATORS`) and whoever they add. Operator-only verbs (`/usage`, `/reload`) are theirs alone |
 | `@user` mentions in bot text | rendered as Teams mentions for people the bot has seen in this run (sender or mentioned); others appear as `@<id>` |
 
-Arriving with PR 2: files, routines and the other pollers' deliveries, YouTrack and dispatch
-cards, team owners as admins.
+| routines, dreams, housekeeping, auto-review, autofix, YouTrack investigations, dispatch, ops alerts | the same deliveries into the project's bound channel (`teamsChannel`); a routine opens a new reply chain and replies there continue its session. 🔍 Full ticket waits for the ticket data before the dialog opens (a few seconds at most); 📝 Report to YouTrack and ✏️ Edit & send are dialogs with the editable text |
+| YouTrack `ping` owners | the same `youtrack.ping` list, with Teams user ids (`29:…`); each becomes a real mention (the bot looks the name up in the channel roster once) |
+| `AVEN_ALERT_CHANNEL` | the same; a Teams channel id the app is in |
+
+Arriving later: files (task 3.3), team owners as admins (3.5a).
 
 ## Operations notes
 
@@ -69,6 +72,8 @@ cards, team owners as admins.
   A fresh installation can post proactively only after its first inbound message.
 - **Consent.** Without the team owner's RSC consent only @mentions reach the bot; the help text
   says so. Re-adding the app to the team shows the consent again.
+- **Removed from a team.** The journal says which bound project lost its channel; the binding
+  stays in the registry and works again once the app is re-added.
 - **Rate limits.** Edits coalesce per message; 429 Retry-After is honoured. Answers over ~25 KB
   are split; the card with the buttons rides on the last part.
 - **Secrets.** The client secret rotates yearly by `terraform apply`; update `.env`, restart.
