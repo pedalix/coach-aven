@@ -86,7 +86,7 @@ async function twin() {
   const servedTenant = (t: string | undefined) =>
     !!t && (t === HOME || (reg.current.workspaces[t as keyof typeof reg.current.workspaces]?.length ?? 0) > 0);
   const { app, receiver, api, stop } = await createTwinApp(
-    { C_HOME: 'bluefin-aven-alpha', C_BETA: 'bluefin-aven-beta', C_CLIENT: 'bluefin-aven-beta', C_MEM: `bluefin-aven-${MEM}` },
+    { C_HOME: 'aven-alpha', C_BETA: 'aven-beta', C_CLIENT: 'aven-beta', C_MEM: `aven-${MEM}` },
     { F_HIDDEN: { id: 'F_HIDDEN', name: 'secret.pdf', mimetype: 'application/pdf', url_private_download: 'https://files/secret.pdf', size: 9 } },
   );
   const cfg = { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 }, projectsConfigPath: '/nonexistent/projects.config.json' } as unknown as Config;

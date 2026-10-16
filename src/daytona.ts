@@ -2,7 +2,7 @@ import { Daytona, DaytonaConflictError, DaytonaNotFoundError, type Sandbox } fro
 import type { Config } from './config.js';
 import type { ExecOpts, ExecResult, SandboxDriver, SandboxHandle } from './driver.js';
 import { log } from './log.js';
-import { isDefaultSandbox, resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
+import { isDefaultSandbox, resolveSandboxOptions, sandboxManagedBy, type SandboxOptions } from './sandboxopts.js';
 import { withNetRetry } from './netretry.js';
 
 // The Daytona implementation of SandboxDriver (see driver.ts for the contract). This is
@@ -186,7 +186,7 @@ export class DaytonaDriver implements SandboxDriver {
           // NOT baked here — it's seeded per-run via /root/.cc-token (seedClaudeAuth) so a
           // warm sandbox always uses a fresh token instead of a stale baked one.
           envVars: { IS_SANDBOX: '1' },
-          labels: { managedBy: 'bluefin-thin-orchestrator', project: projectSlug },
+          labels: { managedBy: sandboxManagedBy(), project: projectSlug },
           autoStopInterval: cfg.sandbox.autoStopMinutes,
           autoDeleteInterval: -1, // never auto-delete a warm project sandbox
         },

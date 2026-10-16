@@ -714,7 +714,7 @@ function fixtureReadouts(): { dbPath: string } {
       // an outsider posts in the channel without addressing anyone: inbound for nobody (only with `all`)
       slack('C1', '#lumora', '2026-10-07T12:00:00.000Z', '000550', 'Noel', ['Noel'], 'hello all, back from leave') +
       // Owen asks Carla in another client channel, nobody on Bluefin's side answers there
-      slack('C2', '#bluefin-aven-caldora', '2026-10-08T08:00:00.000Z', '000600', 'Owen', ['Owen', 'Carla Bowman'], '@Carla Bowman can you confirm the release date?') +
+      slack('C2', '#aven-caldora', '2026-10-08T08:00:00.000Z', '000600', 'Owen', ['Owen', 'Carla Bowman'], '@Carla Bowman can you confirm the release date?') +
       // DMs: Noel (unknown person) waits; Vincent (unknown) got a reply in the same conversation
       slack('D1', 'dm:@noel', '2026-10-09T09:00:00.000Z', '000700', 'Noel', ['Noel', 'Owen'], 'are the checks done?') +
       slack('D2', 'dm:@vincent', '2026-10-08T09:00:00.000Z', '000800', 'Vincent', ['Vincent', 'Owen'], 'did you see the deck?') +

@@ -26,7 +26,7 @@ const raw = () => ({
     ts: '1788339099.134099',
     thread_ts: '1788339000.000001',
     client_msg_id: '115640b9-9573-405e-9034-b4cc3f5c1b03',
-    text: `Hi <@${BOT}> ${SECRET_TEXT}, cc <#${CHAN}|bluefin-aven-caldora>`,
+    text: `Hi <@${BOT}> ${SECRET_TEXT}, cc <#${CHAN}|aven-caldora>`,
     blocks: [
       {
         type: 'rich_text',
@@ -50,7 +50,7 @@ const raw = () => ({
   user: { id: HUMAN, username: 'vera.lindqvist', name: 'vera.lindqvist', team_id: TEAM },
   // Shapes the first eyeball pass over real fixtures caught slipping through:
   profile: { first_name: 'Carla', real_name_normalized: 'Carla X', image_72: 'https://avatars.slack-edge.com/2022/abc_419c92e4bd2e', avatar_hash: '419c92e4bd2e', email: 'c@example.ch' },
-  channel_meta: { name_normalized: 'bluefin-aven-lumora', old_name: 'bluefin-aven-art' },
+  channel_meta: { name_normalized: 'aven-lumora', old_name: 'aven-art' },
   pr_button: { type: 'button', action_id: 'pr_link:0', url: 'https://github.com/BluefinOrg/caldora-admin/pull/38' },
   prefilled: { type: 'plain_text_input', initial_value: 'Draft a report for CB-256 about the FERRYCO Schifffahrt audit' },
   trigger_id: '11959422868163.2616500879654.354bee718353e53a0b81c67146cdacaf',
@@ -73,7 +73,7 @@ const fx = () => scrubEnvelope(raw(), { kind: 'app_mention', capturedOn: '2026-0
 
 test('scrubEnvelope — nothing identifying survives, as a flat string search', () => {
   const s = JSON.stringify(fx());
-  for (const leak of [TEAM, CHAN, HUMAN, BOT, 'PBTxdRtIrGN26RhPQ7uW5iMA', '11959422868163', 'vincent', 'Big Corp', 'E0XYZ', 'A0BBDKW4GLQ', 'Ev0BC1234567', '115640b9', 'hooks.slack.com', 'files.slack.com', 'Obersaxen', 'lift tickets', 'Sales Q3', 'staging numbers', 'bluefin-aven-caldora', 'Carla', '419c92e4bd2e', 'avatars.slack-edge', 'example.ch', 'bluefin-aven-lumora', 'bluefin-aven-art', 'BluefinOrg', 'caldora-admin', 'Schifffahrt', 'CB-256']) {
+  for (const leak of [TEAM, CHAN, HUMAN, BOT, 'PBTxdRtIrGN26RhPQ7uW5iMA', '11959422868163', 'vincent', 'Big Corp', 'E0XYZ', 'A0BBDKW4GLQ', 'Ev0BC1234567', '115640b9', 'hooks.slack.com', 'files.slack.com', 'Obersaxen', 'lift tickets', 'Sales Q3', 'staging numbers', 'aven-caldora', 'Carla', '419c92e4bd2e', 'avatars.slack-edge', 'example.ch', 'aven-lumora', 'aven-art', 'BluefinOrg', 'caldora-admin', 'Schifffahrt', 'CB-256']) {
     assert.ok(!s.includes(leak), `leaked: ${leak}`);
   }
 });

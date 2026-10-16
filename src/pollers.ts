@@ -482,7 +482,7 @@ export function createPollers(
   // before the first await, cleared in finally.
   const investigating = new Set<string>();
   // Fire a support-ticket investigation (the YouTrack-label pilot). A read-only turn keyed
-  // per ticket, posted as a thread under a compact header in the project's `bluefin-aven-<slug>`
+  // per ticket, posted as a thread under a compact header in the project's `aven-<slug>`
   // channel. Awaits channel resolution + the ticket's comments, then hands off to the normal
   // turn machinery. Returns false if it can't even start (channel unknown, or already
   // investigating) so the poller leaves the ticket unseen and retries next tick.

@@ -1,5 +1,5 @@
 // Channel ↔ project resolution: which project a Slack channel (or a slug-prefixed
-// message) maps to, and the reverse (project → its `bluefin-aven-<slug>` channel id).
+// message) maps to, and the reverse (project → its `aven-<slug>` channel id).
 // Shared by the event handlers, the /aven router, and the pollers.
 //
 // Slice 2: every resolution happens INSIDE the calling tenant's project subset
@@ -24,7 +24,7 @@ export interface Channels {
   readonly prefix: string; // the deployment default (SLACK_CHANNEL_PREFIX)
   // The wildcard for ONE workspace: its workspaces-entry override ("" = bare slugs,
   // e.g. #coach-aven) or the deployment default. Use this, not `.prefix`, wherever a
-  // tenant is known — client workspaces shouldn't be forced to carry `bluefin-aven-`.
+  // tenant is known — client workspaces shouldn't be forced to carry `aven-`.
   prefixFor(tenantId: string | undefined): string;
   channelName(names: ConversationNames, channelId: string): Promise<string | undefined>;
   channelIdForSlug(
@@ -40,13 +40,13 @@ export interface Channels {
   ): Promise<{ project?: ProjectConfig; question: string; error?: string }>;
 }
 
-// Channels auto-bind by name: a channel named `${prefix}<slug>` (e.g. bluefin-aven-caldora)
+// Channels auto-bind by name: a channel named `${prefix}<slug>` (e.g. aven-shop)
 // maps to the project with that slug — no channel ids to wire. An explicit `slackChannel`
 // id in the registry still overrides. Names cached per id. Holds the registry REF (not a
 // snapshot) so a runtime config reload is visible immediately. `home()` is late-bound:
 // the home tenant id is only known after the boot auth.test resolves it (slack.ts).
 export function createChannels(reg: RegistryRef, home: () => string | undefined): Channels {
-  const prefix = process.env.SLACK_CHANNEL_PREFIX || 'bluefin-aven-';
+  const prefix = process.env.SLACK_CHANNEL_PREFIX || 'aven-';
   const prefixFor = (tenantId: string | undefined): string =>
     workspacePrefix(reg.current, tenantId) ?? prefix;
   const nameCache = new Map<string, string | undefined>();
@@ -58,7 +58,7 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
     return name;
   }
 
-  // Reverse of channelName: resolve a project → the id of its `bluefin-aven-<slug>` channel, so
+  // Reverse of channelName: resolve a project → the id of its `aven-<slug>` channel, so
   // a poller with only a slug (no prior message) can post there. An explicit `slackChannel`
   // override wins; otherwise the driver looks the name up (Slack: pages conversations.list). Only HITS are
   // cached — a miss re-lists next call so a channel created after boot self-heals (the bot
@@ -87,7 +87,7 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
   }
 
   // Resolve the project for a turn WITHIN the tenant's subset: explicit channel-id
-  // binding wins → else the `bluefin-aven-<slug>` channel-name wildcard → else a leading
+  // binding wins → else the `aven-<slug>` channel-name wildcard → else a leading
   // <slug> token (handy in DMs) → else the tenant's sole project. The ambiguity error
   // lists only the tenant's own slugs — never the fleet's.
   async function pickProject(

@@ -84,7 +84,7 @@ const dialogs: Record<string, DialogView> = {
 };
 
 const homes: Record<string, HomeView> = {
-  home: { kind: 'home', projects: [alpha, beta], prefix: 'bluefin-aven-' },
+  home: { kind: 'home', projects: [alpha, beta], prefix: 'aven-' },
   onboarding: { kind: 'onboarding' },
 };
 

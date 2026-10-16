@@ -843,7 +843,7 @@ export const TOOLS = [
   {
     name: 'activity',
     description:
-      'Hands-on work on Owen\'s machine: git commit clusters per repo and Claude Code session clusters per working directory, ' +
+      'Hands-on work on the subject\'s machine: git commit clusters per repo and Claude Code session clusters per working directory, ' +
       'each a block with start/end/minutes, a title and items (commit subjects, or the first prompt of each session). THE source for ' +
       `"what did I work on", coding time and work fragments. Filters: ${WINDOW_DOC}, container ` +
       '(repo like owner/name, or a path fragment), source (git|claude), q (words in titles/items).',
@@ -862,8 +862,8 @@ export const TOOLS = [
   {
     name: 'fragments',
     description:
-      'The tenant\'s attribution decisions: fragments of Owen\'s day (a call, a thread, a work block) with their initiative(s) and ' +
-      `shares, who decided (rule|model|owen) and why. Filters: ${WINDOW_DOC} (on the fragment start), initiative (id or prefix), status (decided|escalated).`,
+      'The tenant\'s attribution decisions: fragments of the subject\'s day (a call, a thread, a work block) with their initiative(s) and ' +
+      `shares, who decided (rule|model|owner|human:<id>) and why. Filters: ${WINDOW_DOC} (on the fragment start), initiative (id or prefix), status (decided|escalated).`,
     inputSchema: {
       type: 'object',
       properties: { since: { type: 'string' }, until: { type: 'string' }, initiative: { type: 'string' }, status: { type: 'string' }, limit: { type: 'integer', minimum: 1, maximum: 500, default: 100 } },
@@ -1127,7 +1127,7 @@ export function runSearch(db, args) {
 
 /**
  * The other side of a message: participants minus its author, as short labels ("Tess North | Partner",
- * no address). `author` alone cannot tell direction — a mail Owen SENT has Owen as author and sits in
+ * no address). `author` alone cannot tell direction — a mail the subject SENT has the subject as author and sits in
  * …/Sent Items; the 2026-10-14 brief read exactly such a hit as "Tobin wrote". Empty (omitted) for a
  * channel post, whose participants are just the author.
  */
@@ -1635,7 +1635,7 @@ function runAttributionItems(db, args, now) {
 
 // ── timelog (OpenSpec attribution-pins-timelog) ─────────────────────────────────────────────
 // Minutes per local day (the tenant's zone, cut here at query time) and initiative, over the subject's
-// fragments with their effective decision (ledger, pin or rule). The owen-ops CLI's merge rules
+// fragments with their effective decision (ledger, pin or rule). The tenant CLI's merge rules
 // (src/timelog.ts), ported: calls count in full (topics by share), runs and work blocks are unioned per
 // initiative minus call time, split aliases distribute by weight, a shared repo's open work follows the
 // one candidate active that day, unattributed time is its own row with candidates; policy `wallclock`
@@ -1827,7 +1827,7 @@ export function buildTimelog(evidence, reg, tz, policy = 'sum') {
  * Timelog entries reconciled against the tenant's budgets (attribution.json `budgets`) for one month: per budget the
  * units used — rounded as the frame bills (half-days to 0.5 per breakdown key, then summed; hours to 0.1 on the
  * total) — the month's cap (an override wins) and what is left. Routed time without a billing code (admin buckets,
- * personal work) is non-billable; time without an umbrella is unrouted. Never bends the minutes. The owen-ops CLI's
+ * personal work) is non-billable; time without an umbrella is unrouted. Never bends the minutes. The tenant CLI's
  * `summarize`, with the frames as tenant data instead of code.
  */
 export function reconcile(entries, budgets, month) {
@@ -2044,7 +2044,7 @@ export function runGet(db, args) {
         .prepare(`SELECT ref, source, title, summary, next_steps, url, substr(transcript, 1, ${SPEAKER_SAMPLE_CHARS}) AS head, length(transcript) AS transcript_chars, scrub_withheld FROM meetings WHERE call_id = ? AND deleted = 0`)
         .all(mt.call_id);
       const call = db.prepare('SELECT call_id, primary_ref, start, "end", title FROM calls WHERE call_id = ?').get(mt.call_id);
-      // Every recorder's view side by side (summary, next steps, label quality): Owen compares
+      // Every recorder's view side by side (summary, next steps, label quality): the subject compares
       // recorder quality on exactly this. Each copy's ref is what `transcript` takes.
       return {
         ...row,

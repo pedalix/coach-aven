@@ -215,7 +215,7 @@ export function createCommands(deps: CommandDeps) {
     if (!project) {
       return {
         kind: 'text',
-        text: ':x: Schedule a job from a project channel (e.g. `' + `${channels.prefixFor(tenant)}${myProjects[0]?.slug ?? 'caldora'}` + '`).',
+        text: ':x: Schedule a job from a project channel (e.g. `' + `${channels.prefixFor(tenant)}${myProjects[0]?.slug ?? 'my-project'}` + '`).',
       };
     }
     const rec = store.addRoutine({

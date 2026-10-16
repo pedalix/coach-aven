@@ -3,7 +3,7 @@ import type { Config } from './config.js';
 import type { ExecOpts, ExecResult, SandboxDriver, SandboxHandle } from './driver.js';
 import { log } from './log.js';
 import { utf8Chunks } from './utf8.js';
-import { resolveSandboxOptions, type Mount, type SandboxOptions } from './sandboxopts.js';
+import { resolveSandboxOptions, sandboxManagedBy, type Mount, type SandboxOptions } from './sandboxopts.js';
 
 // SshDockerDriver: sandboxes as Docker containers on a host we own, driven over SSH.
 // The self-hosted answer to Daytona's freeze (see driver.ts): one fixed-cost box runs
@@ -198,7 +198,7 @@ export function ensureSandboxScript(
     // zombies pass kill -0, wedging streams and running-checks; found by the E2E smoke).
     // Existing containers created without --init must be recreated.
     `  docker run -d --init --name ${n}${runFlags ? ` ${runFlags}` : ''} \\`,
-    `    -e IS_SANDBOX=1 --label managedBy=bluefin-thin-orchestrator --label project=${sq(safeToken(projectSlug))} \\`,
+    `    -e IS_SANDBOX=1 --label managedBy=${sq(sandboxManagedBy())} --label project=${sq(safeToken(projectSlug))} \\`,
     `    --entrypoint sh ${sq(image)} -c 'sleep 2147483647' >/dev/null || exit 1`,
     `  outcome=created`,
     `fi`,
@@ -469,7 +469,7 @@ export class SshDockerDriver implements SandboxDriver {
 
   async listStates(): Promise<Map<string, string>> {
     const r = await this.onHost(
-      `docker ps -a --filter label=managedBy=bluefin-thin-orchestrator --format '{{.Names}}\t{{.State}}'`,
+      `docker ps -a --filter label=managedBy=${sq(sandboxManagedBy())} --format '{{.Names}}\t{{.State}}'`,
     );
     return parseContainerStates(r.stdout);
   }

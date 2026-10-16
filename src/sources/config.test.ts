@@ -43,8 +43,8 @@ test('sources config: slack with no workspaces means "every stored workspace"', 
 });
 
 test('sources config: slack.channels / slack.kinds — names lose their #, kinds are a subset, empty or hash-only lists are rejected, absent stays absent', () => {
-  const s = validateSourcesConfig({ slack: { workspaces: ['T0000FAKE01'], channels: ['#bluefin-aven-caldora', ' C0BBX082QNQ'], kinds: ['channel', 'group'] } }).slack!;
-  assert.deepEqual(s.channels, ['bluefin-aven-caldora', 'C0BBX082QNQ']);
+  const s = validateSourcesConfig({ slack: { workspaces: ['T0000FAKE01'], channels: ['#aven-caldora', ' C0BBX082QNQ'], kinds: ['channel', 'group'] } }).slack!;
+  assert.deepEqual(s.channels, ['aven-caldora', 'C0BBX082QNQ']);
   assert.deepEqual(s.kinds, ['channel', 'group']);
   assert.equal(validateSourcesConfig({ slack: { workspaces: [], joinPublic: true } }).slack!.joinPublic, true);
   assert.throws(() => validateSourcesConfig({ slack: { workspaces: [], joinPublic: 'yes' } }), /joinPublic/);

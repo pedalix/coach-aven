@@ -124,7 +124,7 @@ async function twin(opts: { dispatcher?: Dispatcher } = {}) {
   const channels = createChannels(reg as never, () => HOME);
   const servedTenant = (t: string | undefined) =>
     !!t && (t === HOME || (reg.current.workspaces[t as keyof typeof reg.current.workspaces]?.length ?? 0) > 0);
-  const { app, receiver, api, stop } = await createTwinApp({ C_HOME: 'bluefin-aven-alpha', C_CLIENT: 'bluefin-aven-beta' });
+  const { app, receiver, api, stop } = await createTwinApp({ C_HOME: 'aven-alpha', C_CLIENT: 'aven-beta' });
   registerEvents(app, {
     cfg: { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 } } as unknown as Config,
     store,

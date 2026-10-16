@@ -42,8 +42,8 @@ is fine to share with prod for dev.
 
 ### 2. Dev Slack channels
 
-Create one channel per project you want to test, named **`dev-bluefin-aven-<slug>`**
-(e.g. `dev-bluefin-aven-caldora`), and invite the dev bot. Channels auto-bind to the
+Create one channel per project you want to test, named **`dev-aven-<slug>`**
+(e.g. `dev-aven-caldora`), and invite the dev bot. Channels auto-bind to the
 project by name via `SLACK_CHANNEL_PREFIX` — no channel IDs to wire.
 
 ### 3. (Recommended) a throwaway repo for `projects.config.json`
@@ -66,7 +66,7 @@ Set these in your local `.env` (the rest can mirror prod):
 |---|---|---|
 | `SLACK_BOT_TOKEN` | your **dev** app `xoxb-…` | separate Slack app |
 | `SLACK_APP_TOKEN` | your **dev** app `xapp-…` | separate Slack app |
-| `SLACK_CHANNEL_PREFIX` | `dev-bluefin-aven-` | bot only answers in dev channels |
+| `SLACK_CHANNEL_PREFIX` | `dev-aven-` | bot only answers in dev channels |
 | `SANDBOX_NAME_PREFIX` | `dev-proj-` | dev sandboxes never collide with prod's `proj-<slug>` |
 | `DAYTONA_*` | same as prod | shared Daytona |
 | `CLAUDE_CODE_OAUTH_TOKEN` | blank (uses `~/.claude`) or a `setup-token` | — |
@@ -82,7 +82,7 @@ npm run orch -- slack                  # start the dev bot (Socket Mode)
 # you should see: "Slack bot running (Socket Mode) — N project(s)"
 ```
 
-Then post in a `dev-bluefin-aven-<slug>` channel. Sandboxes are created/warmed on demand
+Then post in a `dev-aven-<slug>` channel. Sandboxes are created/warmed on demand
 (first message per project); the Daytona snapshot is ensured on first use too.
 
 ## State

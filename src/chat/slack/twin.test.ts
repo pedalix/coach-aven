@@ -106,9 +106,9 @@ async function twin(files: Record<string, Record<string, unknown>> = {}) {
     !!t && (t === HOME || (reg.current.workspaces[t as keyof typeof reg.current.workspaces]?.length ?? 0) > 0);
   const { app, receiver, api, stop } = await createTwinApp(
     {
-      C_HOME: 'bluefin-aven-alpha',
-      C_CLIENT: 'bluefin-aven-beta',
-      C_SHARED: 'bluefin-aven-beta',
+      C_HOME: 'aven-alpha',
+      C_CLIENT: 'aven-beta',
+      C_SHARED: 'aven-beta',
     },
     files,
   );
@@ -436,7 +436,7 @@ test('fixture replay: a real @-mention starts a turn on the channel\'s project w
   try {
     await t.receiver.send(rehome(loadFixture('app_mention'), HOMED));
     assert.equal(t.turns.length, 1);
-    assert.equal(t.turns[0].slug, 'beta'); // C_SHARED → bluefin-aven-beta
+    assert.equal(t.turns[0].slug, 'beta'); // C_SHARED → aven-beta
     assert.equal(t.turns[0].token, `xoxb-${HOME}`);
     assert.match(t.turns[0].key, /^thread:/);
   } finally {

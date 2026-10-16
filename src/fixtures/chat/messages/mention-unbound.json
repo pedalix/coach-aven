@@ -15,7 +15,7 @@
         "team_id": "THOME1111",
         "channel": "C_RANDOM",
         "thread_ts": "1.3",
-        "text": ":information_source: This channel isn't bound to a project. Use a `bluefin-aven-{project}` channel (e.g. `bluefin-aven-alpha`), or prefix your question with a slug — one of: alpha, beta, cmdrec-mem."
+        "text": ":information_source: This channel isn't bound to a project. Use a `aven-{project}` channel (e.g. `aven-alpha`), or prefix your question with a slug — one of: alpha, beta, cmdrec-mem."
       }
     }
   ],

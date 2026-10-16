@@ -48,7 +48,7 @@ then gather only what changes. The field reference (shape in `src/projects.ts`):
 
 | Field | What / notes | Applies |
 |---|---|---|
-| `slug` | kebab-case, unique. Sandbox `proj-<slug>`, channel `bluefin-aven-<slug>`, env names `AUTH0_M2M_<SLUG>_*`. **Never rename** an existing one (routing keys orphan live sessions) — add new + remove old instead. | — |
+| `slug` | kebab-case, unique. Sandbox `proj-<slug>`, channel `aven-<slug>`, env names `AUTH0_M2M_<SLUG>_*`. **Never rename** an existing one (routing keys orphan live sessions) — add new + remove old instead. | — |
 | `repos` | `["Org/repo", …]`, `repos[0]` primary, all cloned side by side. Token scope = repos + their composer deps (automatic, see below). | new sessions; an added repo is cloned at the next chat prep |
 | prompt | `projects.d/<slug>.md` — a non-empty file **wins** over the legacy JSON `systemPrompt` (only `coach-aven` still uses the JSON field). Step 2 generates it. | new sessions |
 | `mcp` | Gateway projects: exactly `[{"name":"gw","url":"https://<gateway-host>/gw/<slug>/mcp","auth":"gateway-m2m"}]` (name MUST be `gw`). No MCP → `[]`. Direct entries (`url`+`headers` or `command`/`args`/`env`, secrets as `${VAR}` from runtime `.env`) are legacy. | new sessions |
@@ -204,7 +204,7 @@ npm run ops -- <slug> export     # upload infra/<slug>/ (incl. projects.d/) → 
 
 ## Step 8 — Slack channel (new project, manual — tell the user)
 
-1. Create **`bluefin-aven-<slug>`** (exact prefix; a client workspace may use its own
+1. Create **`aven-<slug>`** (exact prefix; a client workspace may use its own
    `channelPrefix` from `workspaces`).
 2. Invite the prod CoachAven bot.
 3. Post a message — the channel binds by name on first use.
