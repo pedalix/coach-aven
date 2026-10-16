@@ -48,10 +48,10 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 | DM | 1:1 chat; a project picker when several projects are served |
 | `/aven <verb>` | `@Aven /<verb>` in a channel, `/<verb>` in a 1:1 or in a reply chain |
 | ephemeral replies (status, help, denials) | sent to your 1:1 chat with the bot, with a one-line pointer in the thread |
-| 👀 / ✅ / ❌ reactions | none (bots cannot react); the status card is the acknowledgement; typing indicator in 1:1 |
-| live status message, ✖ Cancel, 🧭 Show steps | a status card (edited at most every `TEAMS_STATUS_MIN_MS`), the same buttons; Show steps opens a dialog |
+| 👀 / ✅ / ❌ reactions | the same (bots may react since 2026); a queued message gets only 👀 until its turn starts |
+| live status message, ✖ Cancel, 🧭 Show steps | a status card (edited at most every `TEAMS_STATUS_MIN_MS`), the same buttons; Show steps opens a dialog. When the answer is ready the card becomes a one-line receipt ("✅ Done — answer below") and the answer is posted after it |
 | `!` note | the same (no turn, nothing posted) |
-| answer with PR buttons | the same; markdown tables arrive as code blocks |
+| answer with PR buttons | the answer text, then ONE card: 🔗 PR links, 🧭 Show steps, ⚙️ Session, 👍 Helped / 👎 Missed (👎 asks for a reason in a dialog). Text and buttons are always adjacent, as the newest messages of the chain |
 | agent questions | a card with one button per option; Submit for multi-select |
 | App Home tab | a Home card in your 1:1 chat, on install and on `/home` |
 | restart recovery into the thread | the same |

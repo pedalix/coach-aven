@@ -103,19 +103,29 @@ test('status edits coalesce to one per window and the final one always lands', a
   assert.equal(last.text, 's50');
 });
 
-test('an answer that replaces the status card edits the text in place and posts the buttons after it', async () => {
+test('an answer never edits the status card: the card becomes a receipt, the answer lands after it as text then card', async () => {
   const api = new Recorder();
   const d = teamsDriver(api, { tenantId: TENANT });
   const status = await d.post({ conv: CH, thread: '100' }, { kind: 'status', line: 'working', turnId: 't1', notify: 'w' });
   await d.update(status, { kind: 'answer', markdown: 'Done, see https://github.com/Org/alpha/pull/7', opts: { trail: { turnId: 't1', steps: 3, elapsedMs: 1 } } });
   assert.deepEqual(
-    api.calls.slice(1).map((c) => [c.op, c.activity!.text !== undefined, !!c.activity!.attachments]),
+    api.calls.slice(1).map((c) => [c.op, c.id, c.activity!.text, !!c.activity!.attachments]),
     [
-      ['update', true, false],
-      ['send', false, true],
+      ['update', 'm1', '✅ Done — answer below', false],
+      ['send', undefined, 'Done, see https://github.com/Org/alpha/pull/7', false],
+      ['send', undefined, undefined, true],
     ],
   );
-  assert.equal(api.calls[2].conv, `${CH};messageid=100`);
+  assert.ok(api.calls.slice(1).every((c) => c.conv === `${CH};messageid=100`));
+  // A text-only answer (no buttons to offer) takes the same route, so the answer is always the
+  // newest message of its chain.
+  api.calls = [];
+  const s2 = await d.post({ conv: CH, thread: '100' }, { kind: 'status', line: 'working', turnId: 't2', notify: 'w' });
+  await d.update(s2, { kind: 'answer', markdown: 'Nothing to do.' });
+  assert.deepEqual(api.calls.slice(1).map((c) => [c.op, c.activity!.text]), [
+    ['update', '✅ Done — answer below'],
+    ['send', 'Nothing to do.'],
+  ]);
 });
 
 test('a long answer is split into text messages, then the card as its own message; the reference is the first text', async () => {
