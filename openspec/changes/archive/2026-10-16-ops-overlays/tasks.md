@@ -13,5 +13,5 @@
 
 ## 2. After the merge
 
-- [ ] 2.1 Image: `./snapshot/build-and-push.sh plain`; note the tag in the ledger row. Verify: an installation's next sandbox creation pulls the new digest (`docker image inspect`).
-- [ ] 2.2 Each operator follows their own plan (ops repo): overlay checkouts to `infra/<slug>/`, `deploy.env`, deploy workflow, Teams root + apply + publish where a Teams installation exists. Verify (per installation): `npm run ops -- <slug> import` reports the overlay matches the box.
+- [x] 2.1 (2026-10-16: pushed to the brandhaus installation's private registry as `6a8c928` + `latest`, amd64+arm64; the shared public tag is deliberately not moved — installations pin their own copy) Image: `./snapshot/build-and-push.sh plain`; note the tag in the ledger row. Verify: an installation's next sandbox creation pulls the new digest (`docker image inspect`).
+- [x] 2.2 (2026-10-16: the production overlay's `import` reported no diff; the staging overlay's Teams root applied and published) Each operator follows their own plan (ops repo): overlay checkouts to `infra/<slug>/`, `deploy.env`, deploy workflow, Teams root + apply + publish where a Teams installation exists. Verify (per installation): `npm run ops -- <slug> import` reports the overlay matches the box.
