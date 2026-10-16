@@ -21,6 +21,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { utf8Chunks } from '../utf8.js';
 
 export interface LlmCall {
   model: string; // 'haiku' | 'sonnet' | 'opus' or a full id
@@ -184,10 +185,14 @@ export class LlmRunner {
       let out = '';
       let err = '';
       const timer = setTimeout(() => child.kill('SIGKILL'), c.timeoutMs ?? 300_000);
-      child.stdout.on('data', (b: Buffer) => (out += b.toString()));
-      child.stderr.on('data', (b: Buffer) => (err += b.toString()));
+      const outDec = utf8Chunks(); // a per-chunk toString splits multibyte chars
+      const errDec = utf8Chunks();
+      child.stdout.on('data', (b: Buffer) => (out += outDec.push(b)));
+      child.stderr.on('data', (b: Buffer) => (err += errDec.push(b)));
       child.on('close', () => {
         clearTimeout(timer);
+        out += outDec.flush();
+        err += errDec.flush();
         const ms = Date.now() - started;
         try {
           resolve({ ...readEnvelope(out), ms, cached: false });
