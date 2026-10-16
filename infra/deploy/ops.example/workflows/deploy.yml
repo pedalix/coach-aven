@@ -88,4 +88,14 @@ jobs:
         # RELEASE stamps the version so Sentry tags issues with the release.
         env:
           RELEASE: ${{ env.TAG }}
-        run: bash src/infra/deploy/deploy.sh "$OPS_SLUG" deploy
+        run: |
+          if [[ -f src/infra/deploy/deploy.sh ]]; then
+            bash src/infra/deploy/deploy.sh "$OPS_SLUG" deploy
+          else
+            # A release from before the infra/<slug>/ layout (a rollback to ≤ v0.41.0): its
+            # deploy.sh reads the target from infra/prod/.env and knows no overlays, so hand it
+            # the target and keep the overlay out of the upload. Same deploy either way.
+            mv "src/infra/$OPS_SLUG" "$RUNNER_TEMP/overlay"
+            cp "$RUNNER_TEMP/overlay/deploy.env" src/infra/prod/.env
+            bash src/infra/prod/deploy.sh deploy
+          fi
