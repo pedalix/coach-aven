@@ -606,6 +606,8 @@ The tenant's attribution plan is computed in the store build, from the tenant's 
 by the `attribution` tool (OpenSpec `attribution-layer`; `src/sources/attribution/`). It is the
 deterministic half of a review session: which initiative each piece of the subject's day belongs to,
 and what is left for a judgment. No tenant code runs on the host and no file reaches the sandbox.
+The architecture of the layer and its learning loop — the roles, the pipeline, the two floors, what is
+decided and what is still open — is `docs/attribution.md`; this section is the reference.
 
 **On** when the tenant ships `annotations/attribution.json`:
 
@@ -758,6 +760,7 @@ People's answers teach the attribution layer, deterministically and only as data
 attribution.json says `"learn": {"mode": "shadow"}` (optional `questionsPerDay` 0–50, default 3; `auditShare` 0–1,
 default .15; `siblingAware`, default true); absent = off, and the next build clears what an earlier one stored.
 No model anywhere: a model may word a question or pre-fill its guess in the sandbox, never decide or teach.
+How the loop fits the layer and where it goes (shadow → live-hold → live-decide): `docs/attribution.md`.
 
 **What an answer becomes.** One line in the tenant repo, nothing else — the store keeps no learning state:
 
@@ -862,6 +865,7 @@ fragments): about 0.1 s per build; with item mode's 7,272 items, about 1 s more.
 | ~~PR-D sources-mcp~~ | shipped: the `sources` MCP server above |
 | ~~sources-tasks~~ | shipped: the task-tracker family above (YouTrack, Jira, Asana) |
 | ~~meetings + tenant annotations~~ | shipped: recorded calls and the tenant's attribution loop above |
+| learning loop | in shadow (above); the steps to live and the open forks are the roadmap in `docs/attribution.md` |
 
 Each pull ends with the store build, so the replica the sandbox sees is never older than
 the last pull. The CLI stays for bootstrap, backfills (`--since`, `--full`) and audits.
