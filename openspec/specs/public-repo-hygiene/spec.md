@@ -6,11 +6,15 @@ Keeps the public repository free of tenant and personal identifiers and keeps pr
 ## Requirements
 
 ### Requirement: No tenant identifiers in tracked files
-CI SHALL fail when any tracked file matches a pattern in `scripts/public-guard.txt` (third-party e-mail domains, tenant ids, host IPs and hostnames). Product defaults (channel-name prefixes, example slugs) are not identifiers and SHALL NOT be listed.
+CI SHALL fail when any tracked file matches a pattern of the guard: the public patterns in `scripts/public-guard.txt` plus the operator's private deny-list (names of installations, customers and people, their e-mail domains, ids, IPs and hostnames), which SHALL NOT live in this repository and reaches CI as the secret `PUBLIC_GUARD_PATTERNS`. Product defaults (channel-name prefixes, example slugs) are not identifiers and SHALL NOT be listed. On pushes and tags a missing private list SHALL fail the guard; a fork pull request (no secrets) runs the public patterns only. The guard's output SHALL name file and line only, never the matched text.
 
 #### Scenario: A real mailbox lands in a test
 - **WHEN** a commit adds `someone@<a-real-partner-domain>` to a `*.test.ts`
 - **THEN** the `public-guard` job fails and names the file and line
+
+#### Scenario: The deny-list stays private
+- **WHEN** someone reads the public repository, its history or a CI log
+- **THEN** they find no list of the names the guard looks for
 
 #### Scenario: Placeholder values
 - **WHEN** a doc uses `you@example.com`, `T_FIX_1` or `<gateway-host>`
@@ -24,10 +28,10 @@ CI SHALL run gitleaks over the tree on every push and pull request and fail on a
 - **THEN** gitleaks passes because the path is allow-listed
 
 ### Requirement: History free of the same identifiers
-Before the visibility flip, the full history (`git log --all -p`) SHALL match no pattern of `scripts/public-guard.txt`.
+Before the visibility flip, the full history (`git log --all -p`, commit and tag messages, and the decompressed contents of gzipped blobs) SHALL match no pattern of the guard, private list included.
 
 #### Scenario: Rewritten history
-- **WHEN** `git filter-repo --replace-text` has run and been force-pushed
+- **WHEN** the history has been rewritten with the private scrub dictionary and pushed to a recreated repository
 - **THEN** the guard over the fresh mirror's full history reports nothing
 
 ### Requirement: Deploy secrets only from protected tags

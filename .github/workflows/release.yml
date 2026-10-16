@@ -43,6 +43,11 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - name: public-guard (no installation identifiers in tracked files)
+        env:
+          # The private deny-list (names, ids, hosts) — a secret, so it never sits in this public repo.
+          # Required on pushes and tags; a fork pull request has no secrets and runs the public patterns only.
+          PUBLIC_GUARD_PATTERNS: ${{ secrets.PUBLIC_GUARD_PATTERNS }}
+          PUBLIC_GUARD_REQUIRE_PRIVATE: ${{ github.event_name != 'pull_request' && '1' || '' }}
         run: bash scripts/public-guard.sh
       - name: gitleaks (no secret-shaped strings in the tree)
         run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 detect --source /repo --no-git --config /repo/.gitleaks.toml --redact --verbose
