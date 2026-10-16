@@ -21,8 +21,22 @@ message the turn answers. Whoever ingests a project holds `data/<slug>/.lock` (`
 only the process that ingests the project (the lock holder: the daemon, or the bot's poller) has a **writer**
 (`{ask, answer}`) to serve them with. `handleMessage(msg, dbPath, writer?)` routes the two to the writer and everything
 else to the replica as today; a face without a writer — the stdio server, `orch sources serve` — answers the two with
-`error: not served on this face`, so the `sources-remote-access` promise "no tool may write" holds. The bot's channel
-router hands the two to the writer in its own process, or forwards them to the daemon, which hands them to its own.
+`error: not served on this face`, so the `sources-remote-access` promise "no tool may write" holds.
+
+Which face has a writer follows the two switches of `docs/runtime-config.md` → *Sources daemon*, and they are
+independent, so an installation has one of three shapes: **the bot ingests** (neither switch) — the bot's channel router
+hands the two to the writer in its own process; **the bot forwards** (`sources.daemon` on the project) — the daemon,
+which holds the lock, hands them to its own writer; and **a same-host daemon without forwarding** (`SOURCES_DAEMON=1` on
+the bot, no `sources.daemon` on the project) — the daemon ingests and the bot answers from the replica it writes, holding
+no lock, no writer and no path to the daemon. That third shape is a read-only face like the other two: the channel route
+answers the two with `not served on this face` and names `sources.daemon` as the fix, since the daemon is reachable only
+by forwarding. Nothing is guessed from the lock file: a face serves the two when it was built with a writer, and only the
+lock holder builds one.
+
+This is a deliberate departure from two parity promises — `sources-remote-access` "identical inputs, outputs" over HTTP
+and `host-tools` "identical to the stdio server's" over the channel — which the tools added since joined silently (the
+lists there still end at `stuck`). Both get a MODIFIED delta in this change: parity holds for every tool except `ask` and
+`answer`, which a read-only face answers with `not served on this face`; the parity test of task 5.1 proves the rest.
 
 Why not a second server: the agent already knows `sources`; a second name means a second registration, a second
 prompt paragraph and a second forwarding path for two tools.
@@ -43,12 +57,23 @@ both are stable within a day. The **answer id** written to the ledger is the que
 `q:<day>:<group>` and `audit:<day>:<unit>` — so a question posted twice in one day and answered twice is one
 observation (`answerOfLine` reads the field as is).
 
-What `ask` returns per item: `{n, id, kind: question | audit, unit: fragment | item, form, guess, units: [{id, day,
-title | subject, minutes?}]}` — a fragment's title as `att_fragments` holds it (the `attribution` readout's own rule:
-"titles carry no message text"), an item's container, type and subject line (the store's `subject` column — a heading,
-read by the writer since the item readout shows none); a post never carries a message body, a transcript line or a
-reply text. `questions` not in today's queue are listed as unknown; `max` caps the total (default 5); the order is the
-caller's, audits after questions.
+What `ask` returns per item: `{n, id, kind: question | audit, unit: fragment | item, form, guess, units: […]}`. A
+fragment unit is `{id, day, title, minutes}`, the title as `att_fragments` holds it — the `attribution` readout's own
+heading, under its own rule ("titles carry no message text"). An item unit is **structural fields only**: `{id, day,
+type, source, container, sender, case, hint}` — exactly what the item readout (`attribution({unit: 'item'})`) shows and
+what the tenant-tooling path builds its posts from today; the `hint` is the floor's (a host, a key prefix, a domain, a
+cue letter), never a quote. Not the store's `subject` column, although it reads like a heading: for a Teams channel
+reply the normaliser derives it from the parent's **body** (`re: <the parent's first 60 characters>…`,
+`msgraph/normalise.ts`), and `att_items` has no subject column precisely because the readout never needed one — a
+subject in the post would be a new exposure, on disk in `asks.jsonl` and in the tool's reply. A `subject` MAY ride on an
+item only when the store marks the row's subject as the mail's own, never a derived one; no such marker exists today
+(`messages.subject` holds a mail's subject, a channel post's subject and the derived `re:` line alike), so the first
+version shows no item subject at all — marking mail subjects at normalise time is a follow-up (6.4), and it is what would
+make the run titles' rule exact too (a run's title today joins its messages' subjects). What the person reads is the
+agent's chat message, worded from the agent's own `get` of the ref under the tenant's prompt; the post on disk and the
+tool's reply carry structure only, and never a message body, a transcript line or a reply text. `questions` not in
+today's queue are listed as unknown; `max` caps the total (default 5); the order is the caller's, audits after
+questions.
 
 ### D3. Mechanical resolution; judgement goes back to the agent
 
@@ -66,10 +91,16 @@ what a model took them to mean:
 - anything else — a sentence, a name two initiatives share, a number the post does not have — comes back as
   `unresolved: [{n, text}]`, and an item the reply does not mention is untouched.
 
-The agent then asks again or, when the meaning is plain, passes structured items (`items: [{question: n | id,
-label}]`, `[{question, confirm: true}]`). Both forms are attested the same way (D4) and write the same lines, but the
-line says which it was — `rationale: "reply to q20261016-2#3: \"shop\""` against `rationale: "agent-read reply to
-q20261016-2#3"` — so a reader of the ledger can tell which answers had a model between the person and the line.
+The agent then asks again or, when the meaning is plain, passes structured items against the same post
+(`answer({post, items: [{question: n | id, label}]})`, `[{question, confirm: true}]`). **`post` is required in both
+forms**: the post is the one source of a line's guess, confidence, rung and day (D2) and of its answer id (D5), and the
+rationale names its item — without a post there is no recorded guess to be honest about, no day for `q:<day>:<group>`
+and nothing for `agent-read reply to <post>#n` to point at. An answer a person volunteers before anything was asked goes
+through `ask` first: it writes host data only, costs nothing and pins what the machine said at that moment; a call with
+`items` and no `post` is refused as malformed and writes nothing. Both forms are attested the same way (D4) and write the
+same lines, but the line says which it was — `rationale: "reply to q20261016-2#3: \"shop\""` against `rationale:
+"agent-read reply to q20261016-2#3"` — so a reader of the ledger can tell which answers had a model between the person
+and the line.
 
 ### D4. Attestation: only the platform says who answered
 
@@ -139,9 +170,30 @@ line still replaces a person's", and the first of the two contracts `docs/attrib
 
 ### D7. The checkout as a writer's clone
 
-With `SOURCES_TENANT_WRITE=1` in the ingest process's env, `syncTenant` becomes: `fetch --depth 1 origin <ref>`; with
-local commits, `rebase --onto FETCH_HEAD <previous head>` then `push origin HEAD:<ref>`; without, `reset --hard
-FETCH_HEAD` as today. A rebase conflict can only be in a ledger file — the platform commits nothing else — and is
+With `SOURCES_TENANT_WRITE=1` in the ingest process's env, `syncTenant` becomes: `fetch --depth 1 origin <ref>` as
+today; with local commits, `rebase --onto FETCH_HEAD <previous head>` then `push origin HEAD:refs/heads/<branch>`;
+without, `reset --hard FETCH_HEAD` as today.
+
+**The push target is a branch name, resolved once per pass, right after the fetch.** With `sources.tenant.ref` it is
+that name — the key names a branch to track (`types.ts` says so), and it must come back from `ls-remote origin
+refs/heads/<ref>`: a tag or a commit id tracks fine but is no push target. Without it, today's fetch asks for `HEAD`
+(`fetchArgs`: `t.ref ?? 'HEAD'`), and a push to the same word would not fail — `git push origin HEAD:HEAD` creates a
+branch literally named `HEAD` on the tenant repo (verified on a bare repo: `* [new branch] HEAD -> HEAD`; the qualified
+`HEAD:refs/heads/HEAD` does the same), which the next `fetch origin HEAD` then follows instead of the default branch:
+every answer would land on a stray branch no clone of the default branch ever sees, the checkout would diverge silently
+and the pull would still log `(rebased, pushed)`. So without `ref` the writer resolves the remote's default branch with
+`git ls-remote --symref origin HEAD` (first line `ref: refs/heads/<name>\tHEAD`), under the same one-shot token header as
+the fetch — not `git symbolic-ref refs/remotes/origin/HEAD`: that ref is whatever the clone recorded, stale after a
+rename of the default branch, never updated by a `fetch origin HEAD`, and absent altogether after a `clone --branch`.
+The name must pass `check-ref-format --branch` (which refuses `HEAD`) and is kept with the pass's checkout state
+(`TenantSync.pushRef`). **When the resolution fails** — no `ref:` line (a detached or unborn remote HEAD), a `ref` the
+remote has no branch for, an `ls-remote` that errors — the pass has no push target: it logs that, pushes nothing, and
+the writer **refuses `answer`** for the project until a pass resolves one, naming the cure (`set sources.tenant.ref`)
+and writing nothing, so the checkout stays exactly as read-only as today instead of accumulating commits that could
+never be pushed. An unpushed commit from an earlier pass keeps its retry — the rebase needs no target, only the push
+does. A test over a bare remote pins that it never gains a ref named `HEAD`, with and without `ref`.
+
+A rebase conflict can only be in a ledger file — the platform commits nothing else — and is
 resolved mechanically: the remote's file, then the local commits' lines re-appended (append-only, so the order between
 the two sides is immaterial, except for one id decided on both sides, which the one-writer contract rules out). Anything
 else (a rebase that fails for another reason, a corrupt checkout) leaves the checkout at the remote and logs the dropped
@@ -162,11 +214,14 @@ state explicit in the pull's log line (`(rebased 1, pushed)`).
 Per tenant: `learn.writer: "platform"` (`config.ts` `parseLearn`; absent = `"tenant"`; any other value fails the parse
 at build time as the other `learn` keys do). The rules version ignores `learn`, so the pins of closed days are unchanged
 by the key. `ask` works whenever the loop is on (it writes host data only); `answer` needs `writer: "platform"` **and**
-the installation flag, and refuses otherwise naming the missing gate. Per installation: `SOURCES_TENANT_WRITE=1`,
-documented in `docs/runtime-config.md` beside `SOURCES_DAEMON`. The base system prompt's sources paragraph does not name
-the two tools — the golden prompt fixtures stay byte-identical and prod's sources project sees no changed prompt; the
-tenant's routine prompt tells the review to use them, which is tenant data. `tools/list` grows by two for every sources
-project (the table is static); every other tool's answer is unchanged (parity test over the same replica).
+the installation flag **and** a push target the last pass resolved (D7), and refuses otherwise naming the missing gate.
+Per installation: `SOURCES_TENANT_WRITE=1`, documented in `docs/runtime-config.md` beside `SOURCES_DAEMON` — whose third
+shape (D1: `SOURCES_DAEMON=1` without `sources.daemon`) leaves the bot with no writer at all, so there both tools answer
+`not served on this face` and name `sources.daemon`, whatever the flag says. The base system prompt's sources paragraph
+does not name the two tools — the golden prompt fixtures stay byte-identical and prod's sources project sees no changed
+prompt; the tenant's routine prompt tells the review to use them, which is tenant data. `tools/list` grows by two for
+every sources project (the table is static); every other tool's answer is unchanged (parity test over the same replica —
+the parity the two MODIFIED deltas of D1 now promise with exactly these two exceptions).
 
 ## Risks / Trade-offs
 

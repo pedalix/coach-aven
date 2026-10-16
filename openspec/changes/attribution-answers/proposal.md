@@ -21,19 +21,24 @@ tooling — beside (a), which stays valid.
 ## What Changes
 
 - **Two sources tools, `ask` and `answer`** (sources MCP 1.12.0, additive), served where the tenant checkout lives —
-  the daemon, or the bot's poller when a project has no daemon — and never by the read-only faces (`orch sources
-  serve`, the stdio server):
+  the daemon, reached by forwarding, or the bot's poller when the bot ingests — and never by a read-only face (`orch
+  sources serve`, the stdio server, or the bot's channel when `SOURCES_DAEMON=1` leaves ingestion to a same-host daemon
+  the project does not forward to — there the two answer "not served on this face" and name `sources.daemon`):
   - `ask` takes the loop's question ids and/or `audits: true` (and a `max`), numbers them, persists the numbered post
     **outside the tenant repo** (`data/<slug>/attribution/asks.jsonl`, beside the pins: a day's posts survive a lost
-    session) and returns the list for the agent to post — ids, form, guess, the units' titles or subjects and days,
-    never message text.
+    session) and returns the list for the agent to post — ids, form, guess, a fragment's day and title, an item's
+    structural heading (type, source, container, sender class, case, the floor's hint), never message text — not even
+    the store's `subject` column, which a Teams channel reply derives from its parent's body.
   - `answer` takes the person's reply verbatim against a post (`{post, text}`, resolved mechanically; whatever needs
-    judgement comes back unresolved) or the agent's structured reading (`items: [{question, label | confirm}]`),
-    validates every label against the label space, appends the evidence lines into the tenant checkout
+    judgement comes back unresolved) or the agent's structured reading against the same post (`{post, items:
+    [{question, label | confirm}]}` — the post is the one source of a line's guess and day, so `post` is required in
+    both forms), validates every label against the label space, appends the evidence lines into the tenant checkout
     (`fragments.jsonl`: one decided line per covered unit with `answer`/`guess`/`conf`/`rung`/`audit`; `labels.jsonl`
     for items), recomputes the attribution tables in the same call (read-your-writes: the next readout already carries
     the answer), returns the effect (units decided, calibration moved, questions left) and commits and pushes the tenant
-    repo — one commit per call; a failed push is retried at the next pull, the checkout stays the truth meanwhile.
+    repo — one commit per call, to the tenant's branch (`sources.tenant.ref`, else the remote's default branch as the
+    pass resolved it; none resolvable → `answer` refuses before writing); a failed push is retried at the next pull, the
+    checkout stays the truth meanwhile.
 - **The decider is attested by the platform.** The person is the author of the chat message the turn answers, mapped
   to a person id through the tenant's people file (the platform user id, else the e-mail). The agent passes no `by`; a
   `by` in the input is ignored; without a mapping the answer is refused and nothing is written.
@@ -57,13 +62,17 @@ tooling — beside (a), which stays valid.
   one-writer contract and the two opt-in gates. The capability itself is introduced by `ingest-learning-loop` (still in
   flight); this change is archived after it, so its delta lands on that spec.
 - `attribution`: the ledger's last-line rule stops at a person's line.
-- `sources-daemon`: the tenant checkout may carry the platform's commits — fetch + rebase, push, the write credential.
+- `sources-daemon`: the tenant checkout may carry the platform's commits — fetch + rebase, a push target resolved per
+  pass (the fetched `ref`, else the remote's default branch — never a ref named `HEAD`), push, the write credential.
+- `sources-remote-access`, `host-tools`: tool parity over HTTP and over the session channel holds for every tool except
+  `ask` and `answer`, which a read-only face answers with "not served on this face" — a deliberate per-face divergence
+  the two parity requirements must say, one sentence each.
 
 ## Impact
 
 - Code: `src/sources/attribution/{asks,reply,answer}.ts` (new; the pure parts with tests beside them),
   `src/sources/annotations.ts` (a person's line is final), `src/sources/attribution/config.ts` (`learn.writer`),
-  `src/sources/tenant.ts` (rebase, commit, push), `src/sources/{daemon,sync,daemonclient}.ts` and
+  `src/sources/tenant.ts` (rebase, the push target, commit, push), `src/sources/{daemon,run,daemonclient}.ts` and
   `src/hostrouter.ts` / `src/hosttools.ts` / `src/turn.ts` (the turn's actor rides with every sources call),
   `snapshot/plain/sources-mcp.mjs` 1.12.0 (two tools, a writer hook). The sandbox image is untouched: since
   `host-tools` the server runs in the bot and in the daemon, not in the sandbox.
