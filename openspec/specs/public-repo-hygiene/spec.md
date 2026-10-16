@@ -12,6 +12,10 @@ CI SHALL fail when any tracked file matches a pattern of the guard: the public p
 - **WHEN** a commit adds `someone@<a-real-partner-domain>` to a `*.test.ts`
 - **THEN** the `public-guard` job fails and names the file and line
 
+#### Scenario: A name in a pull request's text
+- **WHEN** a pull request's title, body or one of its commit messages contains a name of the private list
+- **THEN** the `public-guard` job fails, also after the title is edited, and names only the line
+
 #### Scenario: The deny-list stays private
 - **WHEN** someone reads the public repository, its history or a CI log
 - **THEN** they find no list of the names the guard looks for
