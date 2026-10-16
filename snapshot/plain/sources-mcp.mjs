@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.11.0';
+export const SERVER_VERSION = '1.12.0';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
 // Meeting recorders live in `meetings`.
@@ -936,7 +936,10 @@ export const TOOLS = [
       '(or item) of those days what the loop WOULD decide from people\'s answers — label, conf, rung, the question it would ask ' +
       '(`ask` {group, value, guess, form}), `audit` when the unit is in today\'s audit sample — plus its calibration per rung ' +
       'instance, its key types, today\'s ranked questions, the audit sample, rule candidates and counts (`agreement`: on answered ' +
-      'units, how often the floor and the loop carry the answer). Shadow: the plan, the pins and the timelog never use it.',
+      'units, how often the floor and the loop carry the answer). `learn: "ask"` is the compact form a review\'s tooling reads: ' +
+      'no fragment or item lists; `learn.ask` carries the top `questions_per_day` questions of the ranked queue, the audit sample ' +
+      'and, per unit they name (both kinds, whatever `unit` and the days), its loop row with its readout row as `row` — the row ' +
+      'the list would show (`missing`: ids the store has no row for). Shadow: the plan, the pins and the timelog never use it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -947,7 +950,12 @@ export const TOOLS = [
         unit: { type: 'string', enum: ['fragment', 'item'], default: 'fragment' },
         sender: { type: 'string', enum: ['human', 'bot', 'bulk', 'system'], description: 'unit item: only this sender class' },
         collapse: { type: 'boolean', description: 'unit item: one item per duplicate cluster (its earliest), with `repeats`' },
-        learn: { type: 'boolean', description: 'add the learning loop\'s shadow readout (attribution.json `learn`)' },
+        learn: {
+          type: ['boolean', 'string'],
+          description:
+            'true: add the learning loop\'s shadow readout (attribution.json `learn`); "ask": its compact form for a review\'s tooling — ' +
+            'no unit lists; under learn.ask the top questions_per_day questions, the audit sample and each named unit\'s loop row + readout row',
+        },
       },
     },
   },
@@ -1429,7 +1437,14 @@ export function runFragments(db, args) {
 // The attribution layer's readout (OpenSpec attribution-layer): rows the store build wrote into att_*
 // tables — no attribution logic here, so every face of the server (stdio, HTTP, the bot's channel) agrees.
 const DAY_ARG = /^\d{4}-\d{2}-\d{2}$/;
+// The local day (YYYY-MM-DD in the store's zone) of a UTC instant — presentation only, storage stays UTC.
+const localDay = (tz) => (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
 export function runAttribution(db, args, now = new Date()) {
+  // `learn: "ask"` is the review tooling's compact form (below); every other value answers exactly as before.
+  if (typeof args.learn === 'string') {
+    if (args.learn !== 'ask') throw new Error('learn must be true or "ask"');
+    return runAttributionAsk(db, args, now);
+  }
   const out = args.unit === 'item' ? runAttributionItems(db, args, now) : runAttributionFragments(db, args, now);
   // `learn: true` only: without it the answer is exactly what it was before the loop existed.
   if (args.learn !== true || out.configured === false) return out;
@@ -1438,15 +1453,14 @@ export function runAttribution(db, args, now = new Date()) {
 }
 
 const LEARN_LIST = 20;
-// The learning loop's shadow readout (attribution/learn-load.ts writes att_learn and the `att:learn` meta at every build):
-// what the loop WOULD decide from people's answers — never what the plan did. Rows for the asked unit kind and days; the
-// tables (calibration, key types, questions, audits) are the whole build's.
-function learnSection(db, unit, since, until, limit) {
+const learnOff = () => ({ mode: 'off', note: 'the learning loop is off for this project: annotations/attribution.json has no "learn" key (e.g. "learn": {"mode": "shadow"})' });
+// The `att:learn` meta when the loop is on (attribution/learn-load.ts writes it and att_learn at every build), else null.
+function learnMeta(db) {
   const meta = parseJson(attMeta(db).learn || 'null', null);
-  if (!meta || !hasTable(db, 'att_learn') || !db.prepare('SELECT 1 FROM att_learn LIMIT 1').get()) {
-    return { mode: 'off', note: 'the learning loop is off for this project: annotations/attribution.json has no "learn" key (e.g. "learn": {"mode": "shadow"})' };
-  }
-  const rows = since && until ? db.prepare('SELECT * FROM att_learn WHERE unit = ? AND day >= ? AND day <= ? ORDER BY day, id LIMIT ?').all(unit, since, until, limit + 1) : [];
+  return meta && hasTable(db, 'att_learn') && db.prepare('SELECT 1 FROM att_learn LIMIT 1').get() ? meta : null;
+}
+// The section's head, the same under `true` and `"ask"`: the mode, what shadow means, the build's stamp and counts.
+function learnHead(meta) {
   return {
     mode: meta.mode,
     note: 'shadow: what the loop would decide — the plan, the pins and the timelog do not use it; below tau it is a question, never a decision',
@@ -1467,6 +1481,26 @@ function learnSection(db, unit, since, until, limit) {
       rule_candidates: meta.rule_candidates,
       ...(meta.trials ? { trials: meta.trials } : {}),
     },
+  };
+}
+// One loop row (att_learn) as the readout shows it: conf only with a label, the question only when it would ask.
+const learnRow = (r) => ({
+  id: r.id,
+  day: r.day,
+  label: r.label,
+  ...(r.label !== null ? { conf: r.conf } : {}),
+  rung: r.rung,
+  ...(r.ask ? { ask: parseJson(r.ask, null) } : {}),
+  ...(r.audit ? { audit: true } : {}),
+});
+// The learning loop's shadow readout: what the loop WOULD decide from people's answers — never what the plan did. Rows
+// for the asked unit kind and days; the tables (calibration, key types, questions, audits) are the whole build's.
+function learnSection(db, unit, since, until, limit) {
+  const meta = learnMeta(db);
+  if (!meta) return learnOff();
+  const rows = since && until ? db.prepare('SELECT * FROM att_learn WHERE unit = ? AND day >= ? AND day <= ? ORDER BY day, id LIMIT ?').all(unit, since, until, limit + 1) : [];
+  return {
+    ...learnHead(meta),
     agreement: meta.agreement,
     calibration: meta.calibration_table ?? [],
     key_types: meta.key_types_table ?? [],
@@ -1476,17 +1510,86 @@ function learnSection(db, unit, since, until, limit) {
     audits: meta.audit_sample ?? [],
     rule_candidates: (meta.rule_candidates_list ?? []).slice(0, LEARN_LIST),
     ...(meta.rule_candidates > LEARN_LIST ? { more_rule_candidates: meta.rule_candidates - LEARN_LIST } : {}),
-    units: rows.slice(0, limit).map((r) => ({
-      id: r.id,
-      day: r.day,
-      label: r.label,
-      ...(r.label !== null ? { conf: r.conf } : {}),
-      rung: r.rung,
-      ...(r.ask ? { ask: parseJson(r.ask, null) } : {}),
-      ...(r.audit ? { audit: true } : {}),
-    })),
+    units: rows.slice(0, limit).map(learnRow),
     ...(rows.length > limit ? { units_truncated: true } : {}),
   };
+}
+
+// `learn: "ask"`: what a review's tooling needs and nothing else. The day's header stays (configured, since, until,
+// counts — one row's worth of SQL, the lists dropped); under `learn.ask` the top `questions_per_day` of the ranked queue,
+// the audit sample and every unit they name — both kinds, whatever `unit` and the days asked — as its loop row plus its
+// readout row (`row`: what the fragment or item list would show, by the same builders; null, and the id in `missing`,
+// when the store has none). Two full-day readouts (fragments and items at limit 1000) said the same in a hundred
+// kilobytes the agent copied into a file by hand.
+function runAttributionAsk(db, args, now) {
+  const out = (args.unit === 'item' ? runAttributionItems : runAttributionFragments)(db, { ...args, limit: 1 }, now);
+  if (out.configured === false) return out;
+  const head = { ...out };
+  for (const k of ['fragments', 'items', 'truncated', 'proposals']) delete head[k];
+  const meta = learnMeta(db);
+  return {
+    ...head,
+    note: [out.note, 'learn "ask": the rows of these days are left out — the questions\' and audits\' units are under learn.ask.units'].filter(Boolean).join('; '),
+    learn: meta ? { ...learnHead(meta), ask: learnAsk(db, meta) } : learnOff(),
+  };
+}
+function learnAsk(db, meta) {
+  const questions = (meta.questions_ranked ?? []).slice(0, Math.max(0, meta.questions_per_day ?? 3));
+  const audits = meta.audit_sample ?? [];
+  // Each unit once, in the order the review works them: the questions' units by rank, then the audits.
+  const ids = [...new Set([...questions.flatMap((q) => q.units), ...audits])];
+  const loop = db.prepare('SELECT * FROM att_learn WHERE id = ?');
+  const units = [];
+  const missing = [];
+  for (const id of ids) {
+    const r = loop.get(id);
+    const row = r ? attributionRowById(db, r.unit, id) : null;
+    if (!row) missing.push(id);
+    // No loop row (an id of another build): nothing to pair a readout row with — `missing` says all there is.
+    if (r) units.push({ id, unit: r.unit, ...learnRow(r), row });
+  }
+  return { questions, audits, units, ...(missing.length ? { missing } : {}) };
+}
+
+// The lists' SELECTs, shared with the lookup by id (learn "ask"): a fragment with its pin when the table exists, an
+// item with how many later items repeat it.
+const fragmentsSelect = (db) => {
+  const pins = hasTable(db, 'att_pins');
+  return `SELECT f.*${pins ? ', p.pinned_at, p.rules_version' : ''} FROM att_fragments f${pins ? ' LEFT JOIN att_pins p ON p.id = f.id' : ''}`;
+};
+const ITEMS_SELECT = 'SELECT i.*, (SELECT count(*) FROM att_items c WHERE c.cluster = i.ref AND c.ref != i.ref) AS repeats FROM att_items i';
+// One fragment as the readout shows it.
+function fragmentRow(f, dayOf) {
+  const refs = parseJson(f.refs || '[]', []);
+  return {
+    id: f.id,
+    kind: f.kind,
+    day: dayOf(f.start),
+    start: f.start,
+    end: f.end,
+    title: f.title,
+    state: f.state,
+    // What a question about this fragment is about: the conversation (runs), the repo or folder (work);
+    // calls are their meeting ref (refs[0]).
+    ...(f.container ? { container: f.container } : {}),
+    ...(f.weight !== 1 ? { weight: f.weight } : {}),
+    ...(f.state === 'open' || f.state === 'rule' ? { candidates: parseJson(f.candidates || '[]', []), hint: f.hint } : {}),
+    ...(f.state !== 'open' ? { decided_by: f.decided_by, attributions: parseJson(f.attributions || '[]', []), ...(f.rule_id ? { rule_id: f.rule_id } : {}), ...(f.rationale ? { rationale: f.rationale } : {}) } : {}),
+    ...(f.ledger_id && f.ledger_id !== f.id ? { ledger_id: f.ledger_id } : {}),
+    ...(f.pinned_at ? { pinned: { at: f.pinned_at, rules_version: f.rules_version } } : {}),
+    participants: parseJson(f.participants || '[]', []),
+    refs: refs.slice(0, 5),
+    ...(refs.length > 5 ? { more_refs: refs.length - 5 } : {}),
+  };
+}
+// A unit's readout row by id — the lists' own SELECT and row builder, so a review's tooling sees one shape.
+function attributionRowById(db, unit, id) {
+  if (unit === 'item') {
+    const r = hasTable(db, 'att_items') ? db.prepare(`${ITEMS_SELECT} WHERE i.ref = ?`).get(id) : undefined;
+    return r ? itemRow(r) : null;
+  }
+  const f = hasTable(db, 'att_fragments') ? db.prepare(`${fragmentsSelect(db)} WHERE f.id = ?`).get(id) : undefined;
+  return f ? fragmentRow(f, localDay(LOCAL_TZ)) : null;
 }
 
 function runAttributionFragments(db, args, now) {
@@ -1498,7 +1601,7 @@ function runAttributionFragments(db, args, now) {
     return { configured: false, note: 'no attribution layer for this project: the tenant repo has no annotations/attribution.json (or the store predates it)' };
   }
   const tz = LOCAL_TZ; // the store's zone for this call (callTool)
-  const dayOf = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
+  const dayOf = localDay(tz);
   const today = dayOf(now.toISOString());
   const since = DAY_ARG.test(String(args.since ?? '')) ? String(args.since) : today;
   const until = DAY_ARG.test(String(args.until ?? '')) ? String(args.until) : since;
@@ -1510,15 +1613,8 @@ function runAttributionFragments(db, args, now) {
   const lo = normalizeTime(since, 'since', tz);
   const hi = normalizeTime(until, 'until', tz);
   for (const r of db.prepare('SELECT state, count(*) AS n FROM att_fragments WHERE start >= ? AND start <= ? GROUP BY state').all(lo, hi)) counts[r.state] = r.n;
-  const pinsJoin = hasTable(db, 'att_pins');
-  const rows = db
-    .prepare(
-      `SELECT f.*${pinsJoin ? ', p.pinned_at, p.rules_version' : ''} FROM att_fragments f${pinsJoin ? ' LEFT JOIN att_pins p ON p.id = f.id' : ''} ` +
-        `WHERE f.start >= ? AND f.start <= ?${state ? ' AND f.state = ?' : ''} ORDER BY f.start LIMIT ?`,
-    )
-    .all(...[lo, hi, ...(state ? [state] : []), limit + 1]);
+  const rows = db.prepare(`${fragmentsSelect(db)} WHERE f.start >= ? AND f.start <= ?${state ? ' AND f.state = ?' : ''} ORDER BY f.start LIMIT ?`).all(...[lo, hi, ...(state ? [state] : []), limit + 1]);
   const truncated = rows.length > limit;
-  const refsOf = (f) => parseJson(f.refs || '[]', []);
   return {
     subject: meta.subject,
     since,
@@ -1528,29 +1624,7 @@ function runAttributionFragments(db, args, now) {
     horizon: { since: meta.since, until: meta.until },
     ...(since < meta.since || until > meta.until ? { note: `outside the computed horizon ${meta.since}..${meta.until}: days there have no fragments` } : {}),
     counts,
-    fragments: rows.slice(0, limit).map((f) => {
-      const refs = refsOf(f);
-      return {
-        id: f.id,
-        kind: f.kind,
-        day: dayOf(f.start),
-        start: f.start,
-        end: f.end,
-        title: f.title,
-        state: f.state,
-        // What a question about this fragment is about: the conversation (runs), the repo or folder (work);
-        // calls are their meeting ref (refs[0]).
-        ...(f.container ? { container: f.container } : {}),
-        ...(f.weight !== 1 ? { weight: f.weight } : {}),
-        ...(f.state === 'open' || f.state === 'rule' ? { candidates: parseJson(f.candidates || '[]', []), hint: f.hint } : {}),
-        ...(f.state !== 'open' ? { decided_by: f.decided_by, attributions: parseJson(f.attributions || '[]', []), ...(f.rule_id ? { rule_id: f.rule_id } : {}), ...(f.rationale ? { rationale: f.rationale } : {}) } : {}),
-        ...(f.ledger_id && f.ledger_id !== f.id ? { ledger_id: f.ledger_id } : {}),
-        ...(f.pinned_at ? { pinned: { at: f.pinned_at, rules_version: f.rules_version } } : {}),
-        participants: parseJson(f.participants || '[]', []),
-        refs: refs.slice(0, 5),
-        ...(refs.length > 5 ? { more_refs: refs.length - 5 } : {}),
-      };
-    }),
+    fragments: rows.slice(0, limit).map((f) => fragmentRow(f, dayOf)),
     ...(truncated ? { truncated: true } : {}),
     proposals: hasTable(db, 'att_proposals') ? db.prepare('SELECT * FROM att_proposals ORDER BY id').all().map((p) => ({ id: p.id, question: p.question, options: parseJson(p.options || '[]', []), refs: parseJson(p.refs || '[]', []) })) : [],
   };
@@ -1561,6 +1635,34 @@ function runAttributionFragments(db, args, now) {
 // filters; `repeats` (how many later items repeat this one) rides on a cluster's earliest item.
 const ITEM_STATES = ['decided', 'open'];
 const SENDER_CLASSES = ['human', 'bot', 'bulk', 'system'];
+const conf4 = (x) => Math.round(x * 1e4) / 1e4;
+// One item as the readout shows it — compact (a day of a team tenant runs to hundreds): a bot's family rides in its
+// case key, and the hint only says more than the rung when nothing was decided.
+function itemRow(r) {
+  return {
+    ref: r.ref,
+    day: r.day,
+    type: r.type,
+    source: r.source,
+    ...(r.container ? { container: r.container } : {}),
+    sender: r.sender_class,
+    ...(r.case_key.startsWith('family:') ? {} : { family: r.family }),
+    ...(r.cluster !== r.ref ? { cluster: r.cluster } : {}),
+    ...(r.repeats ? { repeats: r.repeats } : {}),
+    cluster_conf: conf4(r.cluster_conf),
+    ...(r.cluster_via !== 'single' ? { cluster_via: r.cluster_via } : {}),
+    initiative: r.initiative,
+    ...(r.initiative ? { conf: conf4(r.conf) } : { candidates: parseJson(r.candidates || '[]', []), ...(r.hint ? { hint: r.hint } : {}) }),
+    rung: r.rung,
+    kind: r.kind,
+    ...(r.kind ? { kind_conf: conf4(r.kind_conf) } : {}),
+    kind_rung: r.kind_rung,
+    addressee: r.addressee === null ? null : parseJson(r.addressee, []),
+    ...(r.addressee !== null ? { addressee_conf: conf4(r.addressee_conf) } : {}),
+    addressee_rung: r.addressee_rung,
+    case: r.case_key,
+  };
+}
 function runAttributionItems(db, args, now) {
   const meta = attMeta(db);
   const window = parseJson(meta.items || 'null', null);
@@ -1571,8 +1673,7 @@ function runAttributionItems(db, args, now) {
   if (args.state !== undefined && !ITEM_STATES.includes(args.state)) throw new Error('state for unit "item" is decided or open');
   if (args.sender !== undefined && !SENDER_CLASSES.includes(args.sender)) throw new Error(`sender must be one of ${SENDER_CLASSES.join(', ')}`);
   const tz = LOCAL_TZ;
-  const dayOf = (iso) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(iso));
-  const since = DAY_ARG.test(String(args.since ?? '')) ? String(args.since) : dayOf(now.toISOString());
+  const since = DAY_ARG.test(String(args.since ?? '')) ? String(args.since) : localDay(tz)(now.toISOString());
   const until = DAY_ARG.test(String(args.until ?? '')) ? String(args.until) : since;
   const limit = Math.max(1, Math.min(1000, Number(args.limit) || 300));
   const counts = db
@@ -1591,10 +1692,7 @@ function runAttributionItems(db, args, now) {
   if (args.state === 'decided') where.push('i.initiative IS NOT NULL');
   if (args.state === 'open') where.push('i.initiative IS NULL');
   if (args.collapse === true) where.push('i.cluster = i.ref');
-  const rows = db
-    .prepare(`SELECT i.*, (SELECT count(*) FROM att_items c WHERE c.cluster = i.ref AND c.ref != i.ref) AS repeats FROM att_items i WHERE ${where.join(' AND ')} ORDER BY i.ts, i.ref LIMIT ?`)
-    .all(...params, limit + 1);
-  const conf = (x) => Math.round(x * 1e4) / 1e4;
+  const rows = db.prepare(`${ITEMS_SELECT} WHERE ${where.join(' AND ')} ORDER BY i.ts, i.ref LIMIT ?`).all(...params, limit + 1);
   return {
     unit: 'item',
     since,
@@ -1604,31 +1702,7 @@ function runAttributionItems(db, args, now) {
     window: { since: window.since, until: window.until, days: window.days },
     ...(since < window.since || until > window.until ? { note: `outside the item window ${window.since}..${window.until}: days there have no items` } : {}),
     counts: { ...counts },
-    // Compact rows (a day of a team tenant runs to hundreds): a bot's family rides in its case key, and the hint
-    // only says more than the rung when nothing was decided.
-    items: rows.slice(0, limit).map((r) => ({
-      ref: r.ref,
-      day: r.day,
-      type: r.type,
-      source: r.source,
-      ...(r.container ? { container: r.container } : {}),
-      sender: r.sender_class,
-      ...(r.case_key.startsWith('family:') ? {} : { family: r.family }),
-      ...(r.cluster !== r.ref ? { cluster: r.cluster } : {}),
-      ...(r.repeats ? { repeats: r.repeats } : {}),
-      cluster_conf: conf(r.cluster_conf),
-      ...(r.cluster_via !== 'single' ? { cluster_via: r.cluster_via } : {}),
-      initiative: r.initiative,
-      ...(r.initiative ? { conf: conf(r.conf) } : { candidates: parseJson(r.candidates || '[]', []), ...(r.hint ? { hint: r.hint } : {}) }),
-      rung: r.rung,
-      kind: r.kind,
-      ...(r.kind ? { kind_conf: conf(r.kind_conf) } : {}),
-      kind_rung: r.kind_rung,
-      addressee: r.addressee === null ? null : parseJson(r.addressee, []),
-      ...(r.addressee !== null ? { addressee_conf: conf(r.addressee_conf) } : {}),
-      addressee_rung: r.addressee_rung,
-      case: r.case_key,
-    })),
+    items: rows.slice(0, limit).map(itemRow),
     ...(rows.length > limit ? { truncated: true } : {}),
   };
 }

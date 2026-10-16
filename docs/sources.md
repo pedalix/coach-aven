@@ -838,6 +838,18 @@ how many the floor and the loop would decide and how many of those carry the ans
 `key_types`, today's ranked `questions`, the `audits` and `rule_candidates`. Cost on the owner's store (388
 fragments): about 0.1 s per build; with item mode's 7,272 items, about 1 s more.
 
+**Readout for the review's tooling**: `attribution({learn: "ask"})` (sources MCP 1.12.0) is the compact form a
+tenant's own review tooling asks from — before it, handing a session's questions and audits over meant two full-day
+readouts (fragments and `unit: "item"` at `limit: 1000`), a hundred kilobytes and more the agent copied into a file by
+hand. The answer keeps the day's header (`configured`, `since`, `until`, `counts`) and drops the fragment or item list
+(its `note` says so); `learn` keeps `mode`, `computed_at`, `today`, `tau` and `counts` and carries `ask`: the top
+`questions_per_day` (the build's value, default 3) of the ranked queue, the whole audit sample, and `units` — one entry
+per unit those name, both kinds whatever `unit` and the days asked, in the order the review works them (the questions'
+units by rank, then the audits): `{id, unit, day, label, conf?, rung, ask?, audit?, row}`, where `row` is the unit's
+readout row exactly as the fragment or item list shows it (the same SQL and row builder) — `null` when the store has no
+such row, and `missing` then names the id. `learn: true` and the answers without `learn` are byte-identical to before
+(a golden pins them).
+
 **Known limitations** (shadow; to fix before live):
 
 - **Answers expire with their units' window.** Evidence joins only the units of this build — the fragments of the

@@ -121,7 +121,7 @@ export interface JsonRpcMessage {
 }
 export function runAttribution(
   db: unknown,
-  args: { since?: string; until?: string; state?: string; limit?: number | string; unit?: 'fragment' | 'item' | string; sender?: string; collapse?: boolean; learn?: boolean },
+  args: { since?: string; until?: string; state?: string; limit?: number | string; unit?: 'fragment' | 'item' | string; sender?: string; collapse?: boolean; learn?: boolean | 'ask' | string },
   now?: Date,
 ): {
   configured?: false;
@@ -141,7 +141,11 @@ export function runAttribution(
   items_mode?: 'off';
   window?: { since: string; until: string; days: number };
   items?: Array<Record<string, unknown> & { ref: string; day: string; sender: string; family: string; initiative: string | null; rung: string; kind: string | null; addressee: string[] | null; case: string }>;
-  /** `learn: true` only: the learning loop's shadow readout (att_learn + the `att:learn` meta), or `mode: 'off'`. */
+  /**
+   * `learn: true`: the learning loop's shadow readout (att_learn + the `att:learn` meta), or `mode: 'off'`.
+   * `learn: "ask"`: the head of that section plus `ask` (no tables, queue or unit rows) — and the answer carries no
+   * fragment/item list.
+   */
   learn?: {
     mode: 'shadow' | 'off';
     note: string;
@@ -152,15 +156,24 @@ export function runAttribution(
     agreement?: { answered: number; floor: { decided: number; agree: number }; loop: { decided: number; agree: number } };
     calibration?: Array<{ instance: string; a: number; b: number; mean: number; demoted: boolean }>;
     key_types?: Array<{ type: string; a: number; b: number; mean: number; deciding: boolean }>;
-    questions?: Array<{ group: string; units: string[]; value: number; guess: string | null; form: 'choose' | 'confirm' }>;
+    questions?: LearnQuestion[];
     more_questions?: number;
     audits?: string[];
     rule_candidates?: Array<{ key: string; label: string; support: number }>;
     more_rule_candidates?: number;
-    units?: Array<{ id: string; day: string; label: string | null; conf?: number; rung: string; ask?: { group: string; value: number; guess: string | null; form: 'choose' | 'confirm' }; audit?: true }>;
+    units?: LearnUnitRow[];
     units_truncated?: true;
+    ask?: {
+      questions: LearnQuestion[];
+      audits: string[];
+      /** One per unit the questions and audits name, questions' units first by rank; `row` as the fragment/item list shows it, null when the store has none. */
+      units: Array<LearnUnitRow & { unit: 'fragment' | 'item'; row: Record<string, unknown> | null }>;
+      missing?: string[];
+    };
   };
 };
+export interface LearnQuestion { group: string; units: string[]; value: number; guess: string | null; form: 'choose' | 'confirm'; unit?: 'fragment' | 'item' }
+export interface LearnUnitRow { id: string; day: string; label: string | null; conf?: number; rung: string; ask?: { group: string; value: number; guess: string | null; form: 'choose' | 'confirm' }; audit?: true }
 export interface TlRoute { initiative: string | null; confidence: string; candidates: string[]; split?: Record<string, number> }
 export interface TlEvidence { kind: 'meeting' | 'session'; start: string; end: string; minutes: number; title: string; ref: string; route: TlRoute; workKey?: string }
 export function unionIntervals(xs: { start: number; end: number }[]): { start: number; end: number }[];
