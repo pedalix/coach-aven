@@ -100,7 +100,7 @@ test('the tenant gate drops a foreign tenant before any handler and logs it once
   const seen: string[] = [];
   registerEvents(app, {
     tenantId: TENANT,
-    driver: {} as never,
+    driver: { remember: (m: { id: string }, thread: string | undefined) => seen.push(`remember:${m.id}:${thread ?? '-'}`) } as never,
     messages: { onMention: async (m: ChatMessage) => void seen.push(`mention:${m.text}`), onMessage: async (m: ChatMessage) => void seen.push(`message:${m.text}`) } as never,
     core: { actions: {}, submits: {}, home: async () => {}, parkDmPick: () => '' },
     commands: { run: async (c: ChatCommand) => void seen.push(`command:${c.text}`) } as never,
@@ -117,7 +117,9 @@ test('the tenant gate drops a foreign tenant before any handler and logs it once
   assert.ok(seen.some((s) => s.startsWith('url:https://')));
   await routes.get('message')!({ activity: load('message-channel-mention'), next: () => {} });
   await routes.get('message')!({ activity: load('message-personal-command'), next: () => {} });
-  assert.deepEqual(seen.filter((s) => !s.startsWith('url:')), ['mention:hello', 'command:status']);
+  assert.deepEqual(seen.filter((s) => !s.startsWith('url:') && !s.startsWith('remember:')), ['mention:hello', 'command:status']);
+  const mention = load('message-channel-mention');
+  assert.deepEqual(seen.filter((s) => s.startsWith('remember:')), [`remember:${mention.id}:${mention.id}`]);
   // Teams re-delivers an activity it had to wait on: the same id again acts at most once.
   // (The mention core claims per kind at the moment it acts; a command claims up front.)
   await routes.get('message')!({ activity: load('message-personal-command'), next: () => {} });

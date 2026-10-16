@@ -5,7 +5,12 @@
 // What differs from Slack, and how the ChatDriver contract absorbs it (design D5–D9):
 // - no ephemeral messages → `reply`/`postPrivate` go to the person's 1:1 chat, with a one-line
 //   pointer in the thread; a reply to something that already happened in a 1:1 stays there;
-// - no reactions → `mark('working')` is the typing indicator, the other marks are no-ops;
+// - reactions: bots may react since 2026 (`1f440_eyes`, `2705_whiteheavycheckmark`, …, 2/s), so
+//   `mark` is a reaction on the person's message as on Slack — in channels the message's chain
+//   is needed, which events.ts tells the driver (`remember`) for every inbound message;
+// - a queued turn's status card would push the answer below the next turn's card, so a queued
+//   placeholder is not posted at all: `post` returns a pending reference, the 👀 reaction is the
+//   acknowledgement, and the card materialises on the first update (when the turn starts);
 // - a dialog opens only as the answer to the click's own `task/fetch` invoke → `openDialog`
 //   resolves the deferred the events adapter parked on the ChatAction (`ctx.dialog`);
 // - message edits are rate-limited → `update` coalesces to one per TEAMS_STATUS_MIN_MS per
@@ -14,7 +19,7 @@
 import type { ChatAction, ChatDriver, ConvTarget, DialogRef, Interaction, Mark, MsgRef } from '../driver.js';
 import type { DialogView, HomeView, MessageView, PrivateView } from '../views.js';
 import type { Tally } from '../../feedback.js';
-import { renderDialogView, renderHomeView, renderMessageView, renderPrivateView, type AdaptiveCard } from './cards.js';
+import { answerCard, renderDialogView, renderHomeView, renderMessageView, renderPrivateView, type AdaptiveCard } from './cards.js';
 import { splitText } from './format.js';
 import { deepLink, targetId } from './keys.js';
 import { log } from '../../log.js';
@@ -37,7 +42,17 @@ export interface TeamsApi {
   update(conversationId: string, activityId: string, activity: OutActivity): Promise<void>;
   // Open (or find) the 1:1 chat with a person; undefined when the platform refuses.
   openPersonal(userId: string): Promise<string | undefined>;
+  // Add/remove a reaction on a message; `type` is Teams' `<codepoint>_<name>` form.
+  react(conversationId: string, activityId: string, type: string, op: 'add' | 'remove'): Promise<void>;
 }
+
+// Teams' reaction ids for the core's marks (the `<codepoint>_<name>` form the Connector takes).
+const REACTION: Record<Mark, string> = {
+  working: '1f440_eyes',
+  done: '2705_whiteheavycheckmark',
+  failed: '274c_crossmark',
+  note: '1f92b_shushingface',
+};
 
 export interface TeamsDriverOpts {
   tenantId: string;
@@ -65,6 +80,9 @@ const ctxOf = (a: Interaction): TeamsActionCtx => (a.ctx ?? { conv: '', direct: 
 
 export interface TeamsChatDriver extends ChatDriver {
   readonly api: TeamsApi;
+  // The chain an inbound channel message belongs to (its root), so a reaction on it can be
+  // addressed; called by events.ts for every message it hands to the core.
+  remember(msg: MsgRef, thread: string | undefined): void;
 }
 
 function toActivity(m: { text?: string; card?: AdaptiveCard }): OutActivity {
@@ -89,7 +107,19 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
     p.timer = undefined;
     const view = p.view;
     p.last = now();
-    p.inflight = edit(msg, msgThread.get(key), renderMessageView(view)).finally(() => {
+    p.inflight = (async () => {
+      // A queued placeholder's first update materialises it: the turn has started (or was
+      // canceled while waiting — then the card says so, once).
+      if (isPending(msg.id) && !realId.has(msg.id)) {
+        const t = pendingTargets.get(msg.id);
+        if (!t) throw new Error(`teams: unknown pending status ${msg.id}`);
+        const ref = await deliverView(t.conv, t.thread, view);
+        realId.set(msg.id, ref.id);
+        return;
+      }
+      const real = resolve(msg);
+      await edit(real, msgThread.get(keyOf(real)), view);
+    })().finally(() => {
       p.inflight = undefined;
     });
     await p.inflight;
@@ -97,27 +127,44 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
   // An edit that carries both text and a card — the answer replacing the status card, with its
   // Show steps / PR buttons — becomes the text in place and the buttons as a follow-up message
   // in the same chain (the pair in one edit is "Activity resulted into multiple skype activities").
-  async function edit(msg: MsgRef, thread: string | undefined, m: { text?: string; card?: AdaptiveCard }): Promise<void> {
+  async function edit(msg: MsgRef, thread: string | undefined, view: MessageView): Promise<void> {
+    const m = renderMessageView(view);
     const target = targetId(msg.conv, thread);
     if (m.text !== undefined && m.card) {
       await api.update(target, msg.id, toActivity({ text: m.text }));
-      await sendTo(msg.conv, thread, { card: m.card });
+      const d = await deliver(msg.conv, thread, { card: m.card });
+      if (view.kind === 'answer' && d.cardId) answerCards.set(keyOf({ conv: msg.conv, id: d.cardId }), view);
       return;
     }
     await api.update(target, msg.id, toActivity(m));
   }
-  // Where a message we posted lives (the chain it was posted into) — needed to edit it: the
+  // Where a message lives (the chain it was posted into) — needed to edit or react to it: the
   // Connector addresses an activity by conversation id (chain included) + activity id.
   const msgThread = new Map<string, string | undefined>();
   const keyOf = (m: MsgRef) => `${m.conv}#${m.id}`;
+  // Queued placeholders: a pending reference → where its card goes once the turn starts.
+  let pendingSeq = 0;
+  const pendingTargets = new Map<string, { conv: string; thread?: string }>();
+  // Pending reference → the real message once materialised (the engine keeps using the pending id).
+  const realId = new Map<string, string>();
+  const isPending = (id: string) => id.startsWith('pending:');
+  const resolve = (m: MsgRef): MsgRef => (isPending(m.id) && realId.has(m.id) ? { conv: m.conv, id: realId.get(m.id)! } : m);
+  // The answer cards posted, by the card message's id, so a rating refresh can re-render them.
+  const answerCards = new Map<string, Extract<MessageView, { kind: 'answer' }>>();
 
   // Text and card go as SEPARATE messages: Teams splits a text+card activity into two on its
   // side and answers with no usable id (and rejects the pair outright on an edit) — probed
   // 2026-10-16. The reference is the first text message (the card's when there is no text);
   // long text is split under the message limit, parts in order.
-  async function sendTo(conv: string, thread: string | undefined, m: { text?: string; card?: AdaptiveCard }): Promise<MsgRef> {
+  // Text and card go as SEPARATE messages: Teams splits a text+card activity into two on its
+  // side and answers with no usable id (and rejects the pair outright on an edit) — probed
+  // 2026-10-16. The reference is the first text message (the card's when there is no text);
+  // long text is split under the message limit, parts in order. `cardId` is the card's own
+  // message, kept for the answer cards a rating refresh re-renders.
+  async function deliver(conv: string, thread: string | undefined, m: { text?: string; card?: AdaptiveCard }): Promise<{ ref: MsgRef; cardId?: string }> {
     const target = targetId(conv, thread);
     let first: { id: string } | undefined;
+    let cardId: string | undefined;
     if (m.text !== undefined) {
       for (const part of splitText(m.text)) {
         const sent = await api.send(target, toActivity({ text: part }));
@@ -126,11 +173,20 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
     }
     if (m.card) {
       const sent = await api.send(target, toActivity({ card: m.card }));
+      cardId = sent.id;
+      msgThread.set(keyOf({ conv, id: sent.id }), thread);
       first ??= sent;
     }
     const ref = { conv, id: first?.id ?? '' };
     msgThread.set(keyOf(ref), thread);
-    return ref;
+    return { ref, cardId };
+  }
+  const sendTo = async (conv: string, thread: string | undefined, m: { text?: string; card?: AdaptiveCard }): Promise<MsgRef> => (await deliver(conv, thread, m)).ref;
+  // Deliver a view; an answer's card is remembered under the card message's id.
+  async function deliverView(conv: string, thread: string | undefined, view: MessageView): Promise<MsgRef> {
+    const d = await deliver(conv, thread, renderMessageView(view));
+    if (view.kind === 'answer' && d.cardId) answerCards.set(keyOf({ conv, id: d.cardId }), view);
+    return d.ref;
   }
 
   // A private answer: the person's 1:1 chat, or in place when it already is one (or the chat
@@ -152,10 +208,19 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
 
   return {
     api,
-    capabilities: { reactions: false, privateReplies: 'fallback', threadRepliesNeedMention: opts.threadRepliesNeedMention ?? false },
+    capabilities: { reactions: true, privateReplies: 'fallback', threadRepliesNeedMention: opts.threadRepliesNeedMention ?? false },
+    remember(msg, thread) {
+      msgThread.set(keyOf(msg), thread);
+    },
 
     async post(to: ConvTarget, view: MessageView): Promise<MsgRef> {
-      return sendTo(to.conv, to.thread, renderMessageView(view));
+      if (view.kind === 'status' && view.queued) {
+        // No placeholder card for a waiting turn (see the header); the 👀 reaction acknowledges it.
+        const id = `pending:${++pendingSeq}`;
+        pendingTargets.set(id, { conv: to.conv, thread: to.thread });
+        return { conv: to.conv, id };
+      }
+      return deliverView(to.conv, to.thread, view);
     },
 
     async update(msg: MsgRef, view: MessageView): Promise<void> {
@@ -184,13 +249,14 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
     },
 
     async mark(msg: MsgRef, mark: Mark, op: 'add' | 'remove'): Promise<void> {
-      // No reactions on Teams. The one visible acknowledgement is the typing indicator, and only
-      // 1:1 chats show it — a channel's status card appears within a second anyway.
-      if (mark !== 'working' || op !== 'add' || msg.conv.includes('@thread')) return;
+      // A reaction on the person's message, as on Slack. Its chain comes from remember()
+      // (events.ts) for channel messages; a 1:1 message is addressed by its conversation alone.
       try {
-        await api.send(msg.conv, { type: 'typing' });
-      } catch {
-        /* best-effort */
+        await api.react(targetId(msg.conv, msgThread.get(keyOf(msg))), msg.id, REACTION[mark], op);
+      } catch (e) {
+        // Best-effort (already reacted / removed, message gone), but say so: a wrong reaction
+        // id would otherwise fail silently on every turn.
+        log.warn(`teams reaction ${op} ${REACTION[mark]} on ${msg.id}: ${e instanceof Error ? e.message : String(e)}`);
       }
     },
 
@@ -231,8 +297,18 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
       log.info(`teams: dialog update ignored (${view.kind})`);
     },
 
-    async refreshRating(): Promise<void> {
-      /* rating controls arrive in PR 2 */
+    async refreshRating(action: ChatAction, tally: Tally): Promise<void> {
+      // The click's message is the answer card; re-render it with the counts (a card→card edit).
+      if (!action.where?.conv || !action.msg?.id) return;
+      const ref = { conv: action.where.conv, id: action.msg.id };
+      const view = answerCards.get(keyOf(ref));
+      if (!view) {
+        log.info(`teams: rating refresh skipped — card ${action.msg.id} not known (posted before a restart?)`);
+        return;
+      }
+      const c = answerCard(view, tally);
+      if (!c) return;
+      await api.update(targetId(ref.conv, msgThread.get(keyOf(ref)) ?? action.where.thread), ref.id, toActivity({ card: c })).catch((e) => log.error(`rating tally: ${e instanceof Error ? e.message : String(e)}`));
     },
 
     async publishHome(user: string, view: HomeView): Promise<void> {

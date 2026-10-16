@@ -562,6 +562,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         line: busy ? '⏳ In queue — waiting for the previous message…' : `🛠 Preparing…  ·  ${ETA_HINT}`,
         turnId,
         notify: busy ? 'In queue…' : 'Working…',
+        ...(busy ? { queued: true as const } : {}),
       },
     );
     const ts = posted.id;

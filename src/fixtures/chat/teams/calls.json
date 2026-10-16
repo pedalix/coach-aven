@@ -1,10 +1,13 @@
 [
   {
-    "op": "send",
+    "op": "react:add:1f440_eyes",
+    "conv": "19:CHANNEL1@thread.tacv2;messageid=100",
+    "id": "100"
+  },
+  {
+    "op": "react:add:1f440_eyes",
     "conv": "a:PERSONAL1",
-    "activity": {
-      "type": "typing"
-    }
+    "id": "7"
   },
   {
     "op": "send",
@@ -54,7 +57,7 @@
   {
     "op": "update",
     "conv": "19:CHANNEL1@thread.tacv2;messageid=100",
-    "id": "m2",
+    "id": "m1",
     "activity": {
       "type": "message",
       "attachments": [
@@ -100,7 +103,7 @@
   {
     "op": "update",
     "conv": "19:CHANNEL1@thread.tacv2;messageid=100",
-    "id": "m2",
+    "id": "m1",
     "activity": {
       "type": "message",
       "text": "🚫 Canceled",
@@ -159,5 +162,15 @@
         }
       ]
     }
+  },
+  {
+    "op": "react:remove:1f440_eyes",
+    "conv": "19:CHANNEL1@thread.tacv2;messageid=100",
+    "id": "100"
+  },
+  {
+    "op": "react:add:2705_whiteheavycheckmark",
+    "conv": "19:CHANNEL1@thread.tacv2;messageid=100",
+    "id": "100"
   }
 ]

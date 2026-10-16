@@ -62,7 +62,10 @@ export type MessageView =
   // The live working message: one status line (phase, clock, recent steps) with the turn's
   // controls (🧭 Show steps, ✖ Cancel). `notify` is the short text platforms use for
   // notifications/fallbacks ("Working…", "In queue…", or the line itself).
-  | { kind: 'status'; line: string; turnId: string; notify: string }
+  // `queued`: the turn waits for an earlier one on its key — a platform that would rather not
+  // show a placeholder card for a waiting turn (Teams, where the answer then lands after it)
+  // may acknowledge differently and materialise the card when the turn starts.
+  | { kind: 'status'; line: string; turnId: string; notify: string; queued?: true }
   // A plain message with no controls: cancel/error/recovery notices, skip notices. As an
   // update it replaces whatever the message showed before, controls included.
   | { kind: 'text'; text: string }
