@@ -17,7 +17,7 @@ message the turn answers. Whoever ingests a project holds `data/<slug>/.lock` (`
 
 ### D1. Two tools, one table, served by the writer only
 
-`ask` and `answer` join the `sources` table (1.12.0), so every face lists the same tools with the same schemas — but
+`ask` and `answer` join the `sources` table (the next minor), so every face lists the same tools with the same schemas — but
 only the process that ingests the project (the lock holder: the daemon, or the bot's poller) has a **writer**
 (`{ask, answer}`) to serve them with. `handleMessage(msg, dbPath, writer?)` routes the two to the writer and everything
 else to the replica as today; a face without a writer — the stdio server, `orch sources serve` — answers the two with

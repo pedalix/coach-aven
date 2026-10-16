@@ -20,7 +20,7 @@ tooling — beside (a), which stays valid.
 
 ## What Changes
 
-- **Two sources tools, `ask` and `answer`** (sources MCP 1.12.0, additive), served where the tenant checkout lives —
+- **Two sources tools, `ask` and `answer`** (the next sources MCP minor, additive — 1.12.0 is taken by `learn: "ask"`, the compact readout the tenant-tooling path reads), served where the tenant checkout lives —
   the daemon, reached by forwarding, or the bot's poller when the bot ingests — and never by a read-only face (`orch
   sources serve`, the stdio server, or the bot's channel when `SOURCES_DAEMON=1` leaves ingestion to a same-host daemon
   the project does not forward to — there the two answer "not served on this face" and name `sources.daemon`):
@@ -74,7 +74,7 @@ tooling — beside (a), which stays valid.
   `src/sources/annotations.ts` (a person's line is final), `src/sources/attribution/config.ts` (`learn.writer`),
   `src/sources/tenant.ts` (rebase, the push target, commit, push), `src/sources/{daemon,run,daemonclient}.ts` and
   `src/hostrouter.ts` / `src/hosttools.ts` / `src/turn.ts` (the turn's actor rides with every sources call),
-  `snapshot/plain/sources-mcp.mjs` 1.12.0 (two tools, a writer hook). The sandbox image is untouched: since
+  `snapshot/plain/sources-mcp.mjs`, the next minor (two tools, a writer hook). The sandbox image is untouched: since
   `host-tools` the server runs in the bot and in the daemon, not in the sandbox.
 - **Rollout: bucket 2**, opt-in twice — per tenant (`annotations/attribution.json` → `learn: {…, "writer":
   "platform"}`; absent = `"tenant"`, today's path) and per installation (`SOURCES_TENANT_WRITE=1` in the ingest
