@@ -121,6 +121,14 @@
               "action": "yt_report",
               "value": "{\"t\":\"SUP-1\",\"key\":\"thread:100\",\"channel\":\"19:CHANNEL1@thread.tacv2\",\"threadTs\":\"100\"}"
             }
+          },
+          {
+            "type": "Action.Execute",
+            "title": "⚙️ Session",
+            "data": {
+              "action": "session_panel",
+              "value": "{\"key\":\"thread:100\",\"channel\":\"19:CHANNEL1@thread.tacv2\",\"threadTs\":\"100\"}"
+            }
           }
         ]
       }
@@ -273,7 +281,28 @@
       "text": "**Memory — alpha**\n\n- [Build](build.md)\n_(snapshot)_"
     },
     "sessionPanel": {
-      "text": "⚙️ **Session — alpha**\n\n- repos: Org/alpha\n- tools: gw\n- session: since 2026-10-16T10:00:00Z\n- turn: idle\n- PR: created"
+      "card": {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.5",
+        "body": [
+          {
+            "type": "TextBlock",
+            "text": "⚙️ **Session — alpha**\n\n- repos: Org/alpha\n\n- tools: gw\n\n- session: since 2026-10-16T10:00:00Z\n\n- turn: idle\n\n- PR: created",
+            "wrap": true
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.Execute",
+            "title": "🔄 Restart session",
+            "data": {
+              "action": "session_restart",
+              "value": "{\"key\":\"thread:100\"}"
+            }
+          }
+        ]
+      }
     }
   },
   "dialogs": {
@@ -343,9 +372,53 @@
         "version": "1.5",
         "body": [
           {
-            "type": "TextBlock",
-            "text": "_Feedback dialogs arrive with the next Teams release._",
-            "wrap": true
+            "type": "Input.ChoiceSet",
+            "id": "reason",
+            "style": "expanded",
+            "isRequired": true,
+            "errorMessage": "Pick one",
+            "choices": [
+              {
+                "title": "Wrong — the facts are off",
+                "value": "wrong"
+              },
+              {
+                "title": "Can't verify — probably right, but I couldn't check it",
+                "value": "unverifiable"
+              },
+              {
+                "title": "Missed the question — answered something else",
+                "value": "missed"
+              },
+              {
+                "title": "Too technical / wrong tone",
+                "value": "tone"
+              },
+              {
+                "title": "Too slow",
+                "value": "slow"
+              },
+              {
+                "title": "Took too much back-and-forth",
+                "value": "backforth"
+              }
+            ]
+          },
+          {
+            "type": "Input.Text",
+            "id": "note",
+            "isMultiline": true,
+            "placeholder": "Optional: what would have helped? e.g. \"the file was in services/, not src/\""
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.Submit",
+            "title": "Send",
+            "data": {
+              "dialog": "feedback",
+              "meta": "{\"t\":\"t1\",\"s\":\"alpha\",\"k\":\"thread:100\"}"
+            }
           }
         ]
       }

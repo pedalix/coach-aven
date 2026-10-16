@@ -13,6 +13,8 @@ import { fmtElapsed, prUrls } from '../../format.js';
 import { homeBullets, plural } from '../slack/blocks.js';
 import { proposalText } from '../../dispatch.js';
 import { markdownToTeams, mrkdwnToTeams, MAX_TEAMS_TEXT } from './format.js';
+import { BAD_REASONS } from '../../feedback.js';
+import type { Tally } from '../../feedback.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Adaptive Card JSON
 export type AdaptiveCard = { type: 'AdaptiveCard'; $schema: string; version: string; body: any[]; actions?: any[] };
@@ -35,6 +37,37 @@ const dialog = (title: string, action: string, value: string) => ({
   data: { msteams: { type: 'task/fetch' }, action, value },
 });
 const link = (title: string, url: string) => ({ type: 'Action.OpenUrl', title, url });
+
+// The two rating buttons; with a tally the labels carry the per-turn count ("👍 Helped · 2"),
+// which IS the click's confirmation (the card is re-rendered with it — refreshRating).
+// 👍 is a plain Execute; 👎 opens the reason dialog, so it is a task/fetch opener.
+const RATING_LABEL = { fb_good: '👍 Helped', fb_bad: '👎 Missed' } as const;
+export function ratingActions(rate: { turnId: string; slug: string; key: string }, tally: Tally = { good: 0, bad: 0 }) {
+  const value = JSON.stringify({ t: rate.turnId, s: rate.slug, k: rate.key });
+  const label = (id: keyof typeof RATING_LABEL, n: number) => (n > 0 ? `${RATING_LABEL[id]} · ${n}` : RATING_LABEL[id]);
+  return [execute(label('fb_good', tally.good), 'fb_good', value), dialog(label('fb_bad', tally.bad), 'fb_bad', value)];
+}
+
+// The post-answer card: everything a finished answer offers, in ONE card after the text
+// (Teams keeps text and cards apart — driver.ts). `tally` re-renders it with fresh counts.
+export function answerCard(v: Extract<MessageView, { kind: 'answer' }>, tally?: Tally): AdaptiveCard | undefined {
+  const o = v.opts ?? {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const actions: any[] = [];
+  const prs = prUrls(v.markdown);
+  for (const url of prs.slice(0, 5)) actions.push(link(prs.length === 1 ? '🔗 View PR' : `🔗 PR #${url.split('/').pop()}`, url));
+  if (o.trail && o.trail.steps > 0) actions.push(dialog('🧭 Show steps', 'show_trail', o.trail.turnId));
+  if (o.ytDraft) actions.push(execute('✏️ Edit & send', 'yt_edit_send', JSON.stringify({ t: o.ytDraft.ticket, d: o.ytDraft.draftId })));
+  else {
+    if (o.ytReport && o.followUp) actions.push(execute('📝 Report to YouTrack', 'yt_report', JSON.stringify({ t: o.ytReport, key: o.followUp.key, channel: o.followUp.channel, threadTs: o.followUp.threadTs })));
+    if (o.followUp) actions.push(execute('⚙️ Session', 'session_panel', JSON.stringify({ key: o.followUp.key, channel: o.followUp.channel, threadTs: o.followUp.threadTs })));
+    if (o.rate) actions.push(...ratingActions(o.rate, tally));
+  }
+  if (!actions.length) return undefined;
+  const body = o.trail && o.trail.steps > 0 ? [text(`🧭 ${plural(o.trail.steps, 'step')} · ${fmtElapsed(o.trail.elapsedMs)}`, { isSubtle: true, size: 'Small' })] : [];
+  // Teams shows six primary actions; the rest fold into an overflow menu.
+  return card(body, actions.map((a, i) => (i < 6 ? a : { ...a, mode: 'secondary' })));
+}
 
 const liveActions = (turnId: string) => [dialog('🧭 Show steps', 'show_trail', turnId), execute('✖ Cancel', 'cancel_turn', turnId)];
 
@@ -63,16 +96,8 @@ export function renderMessageView(v: MessageView): TeamsMessage {
     case 'answer': {
       const body = markdownToTeams(v.markdown);
       const t = v.notice ? `${body}\n\n_${mrkdwnToTeams(v.notice)}_` : body;
-      const o = v.opts ?? {};
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const actions: any[] = [];
-      const prs = prUrls(v.markdown);
-      for (const [i, url] of prs.slice(0, 5).entries()) actions.push(link(prs.length === 1 ? '🔗 View PR' : `🔗 PR #${url.split('/').pop()}`, url));
-      if (o.trail && o.trail.steps > 0) actions.push(dialog('🧭 Show steps', 'show_trail', o.trail.turnId));
-      if (o.ytDraft) actions.push(execute('✏️ Edit & send', 'yt_edit_send', JSON.stringify({ t: o.ytDraft.ticket, d: o.ytDraft.draftId })));
-      else if (o.ytReport && o.followUp) actions.push(execute('📝 Report to YouTrack', 'yt_report', JSON.stringify({ t: o.ytReport, key: o.followUp.key, channel: o.followUp.channel, threadTs: o.followUp.threadTs })));
-      const body2 = o.trail && o.trail.steps > 0 ? [text(`🧭 ${plural(o.trail.steps, 'step')} · ${fmtElapsed(o.trail.elapsedMs)}`, { isSubtle: true, size: 'Small' })] : [];
-      return actions.length ? { text: t, card: card(body2, actions) } : { text: t };
+      const c = answerCard(v);
+      return c ? { text: t, card: c } : { text: t };
     }
     case 'reported':
       return { text: `✅ Reported to [${v.ticket}](${v.url}) (${v.group})\n\n${markdownToTeams(v.markdown)}` };
@@ -153,11 +178,11 @@ export function renderPrivateView(v: PrivateView): TeamsMessage {
       return { text: `**Memory — ${v.slug}**\n\n${markdownToTeams(v.markdown)}${mrkdwnToTeams(v.note)}`.slice(0, MAX_TEAMS_TEXT) };
     case 'sessionPanel': {
       const i = v.info;
-      return {
-        text:
-          `⚙️ **Session — ${i.slug}**\n\n- repos: ${i.repos.join(', ')}\n- tools: ${i.mcp?.join(', ') || 'none'}\n` +
-          `- session: ${i.hasSession ? `since ${i.sessionSince ?? '?'}` : 'none yet'}\n- turn: ${i.turnInFlight ? 'running' : 'idle'}\n- PR: ${i.prCreated ? 'created' : 'none'}`,
-      };
+      const lines =
+        `⚙️ **Session — ${i.slug}**\n\n- repos: ${i.repos.join(', ')}\n\n- tools: ${i.mcp?.join(', ') || 'none'}\n\n` +
+        `- session: ${i.hasSession ? `since ${i.sessionSince ?? '?'}` : 'none yet'}\n\n- turn: ${i.turnInFlight ? 'running' : 'idle'}\n\n- PR: ${i.prCreated ? 'created' : 'none'}`;
+      // Restart only when there is a session to forget (as on Slack); the value is the panel's own.
+      return { card: card([text(lines)], i.hasSession ? [execute('🔄 Restart session', 'session_restart', v.value)] : []) };
     }
   }
 }
@@ -178,7 +203,18 @@ export function renderDialogView(v: DialogView): { title: string; card: Adaptive
       };
     }
     case 'feedback':
-      return { title: '👎 What went wrong?', card: card([text('_Feedback dialogs arrive with the next Teams release._')]) };
+      // A radio group, not a dropdown: the six causes are the point (feedback.ts). The submit
+      // carries the dialog family and the private meta, as the Slack modal does.
+      return {
+        title: '👎 What went wrong?',
+        card: card(
+          [
+            { type: 'Input.ChoiceSet', id: 'reason', style: 'expanded', isRequired: true, errorMessage: 'Pick one', choices: BAD_REASONS.map((r) => ({ title: r.label, value: r.value })) },
+            { type: 'Input.Text', id: 'note', isMultiline: true, placeholder: 'Optional: what would have helped? e.g. "the file was in services/, not src/"' },
+          ],
+          [{ type: 'Action.Submit', title: 'Send', data: { dialog: 'feedback', meta: JSON.stringify({ t: v.meta.turnId, s: v.meta.slug, k: v.meta.key, c: v.meta.channel, ts: v.meta.ts }) } }],
+        ),
+      };
     case 'ticketLoading':
       return { title: v.id, card: card([text('⏳ Loading…')]) };
     case 'ticket':

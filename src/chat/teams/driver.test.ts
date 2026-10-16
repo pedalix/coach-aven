@@ -34,6 +34,9 @@ class Recorder implements TeamsApi {
     this.calls.push({ op: 'openPersonal', conv: user });
     return this.personal;
   }
+  async react(conv: string, id: string, type: string, op: 'add' | 'remove') {
+    this.calls.push({ op: `react:${op}:${type}`, conv, id });
+  }
 }
 
 function fakeClock() {
@@ -66,16 +69,18 @@ test('the recorded calls of one thread turn match the snapshot', async () => {
   const clock = fakeClock();
   const d = teamsDriver(api, { tenantId: TENANT, now: clock.now, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout });
   const where = { conv: CH, thread: '100' };
-  await d.mark({ conv: CH, id: '100' }, 'working', 'add'); // channels: nothing (no indicator there)
-  await d.mark({ conv: 'a:PERSONAL1', id: '7' }, 'working', 'add'); // 1:1: typing
+  d.remember({ conv: CH, id: '100' }, '100'); // the mention that started the chain (events.ts)
+  await d.mark({ conv: CH, id: '100' }, 'working', 'add'); // 👀 on the person's message, in its chain
+  await d.mark({ conv: 'a:PERSONAL1', id: '7' }, 'working', 'add'); // 1:1: addressed by the conversation alone
   const status = await d.post(where, { kind: 'status', line: '*Working* — 0:01', turnId: 't1', notify: 'Working…' });
-  assert.deepEqual(status, { conv: CH, id: 'm2' });
+  assert.deepEqual(status, { conv: CH, id: 'm1' }); // reactions are not sends: the status is the first message
   await d.update(status, { kind: 'status', line: '*Working* — 0:02', turnId: 't1', notify: 'Working…' }); // first edit lands at once
   await d.update(status, { kind: 'text', text: '🚫 Canceled' }); // urgent: lands at once
   await d.post(where, { kind: 'answer', markdown: 'Done — see https://github.com/Org/alpha/pull/7', opts: { trail: { turnId: 't1', steps: 3, elapsedMs: 5000 } } });
   const link = await d.permalink({ conv: CH, id: '100' });
   assert.ok(link?.startsWith('https://teams.microsoft.com/l/message/'));
-  await d.mark(status, 'done', 'add'); // no reactions on Teams → nothing recorded
+  await d.mark({ conv: CH, id: '100' }, 'working', 'remove');
+  await d.mark({ conv: CH, id: '100' }, 'done', 'add');
   if (UPDATE || !existsSync(SNAP)) writeFileSync(SNAP, JSON.stringify(api.calls, null, 2) + '\n');
   assert.deepEqual(api.calls, JSON.parse(readFileSync(SNAP, 'utf8')));
 });
@@ -179,4 +184,40 @@ test('the home card goes to the person’s 1:1 chat', async () => {
     ['openPersonal', '29:USER1'],
     ['send', 'a:PERSONAL1'],
   ]);
+});
+
+test('a queued turn gets no placeholder card: the status is pending until its first update materialises it', async () => {
+  const api = new Recorder();
+  const d = teamsDriver(api, { tenantId: TENANT });
+  const ref = await d.post({ conv: CH, thread: '100' }, { kind: 'status', line: '⏳ In queue', turnId: 't2', notify: 'In queue…', queued: true });
+  assert.match(ref.id, /^pending:/);
+  assert.equal(api.calls.length, 0);
+  await d.update(ref, { kind: 'status', line: '🛠 Preparing…', turnId: 't2', notify: 'Working…' });
+  assert.deepEqual(api.calls.map((c) => c.op), ['send']);
+  await d.update(ref, { kind: 'text', text: 'Done.' });
+  assert.deepEqual(api.calls.map((c) => [c.op, c.id]), [
+    ['send', undefined],
+    ['update', 'm1'],
+  ]);
+  await d.mark({ conv: CH, id: '101' }, 'working', 'add'); // the person's queued message still gets 👀
+  assert.equal(api.calls.at(-1)!.op, 'react:add:1f440_eyes');
+});
+
+test('a rating click re-renders the answer card with the tally', async () => {
+  const api = new Recorder();
+  const d = teamsDriver(api, { tenantId: TENANT });
+  const rate = { turnId: 't1', slug: 'alpha', key: 'thread:100' };
+  const followUp = { key: 'thread:100', channel: CH, threadTs: '100' };
+  const status = await d.post({ conv: CH, thread: '100' }, { kind: 'status', line: 'w', turnId: 't1', notify: 'w' });
+  await d.update(status, { kind: 'answer', markdown: 'Done.', opts: { followUp, rate, trail: { turnId: 't1', steps: 2, elapsedMs: 1 } } });
+  const cardMsg = api.calls.at(-1)!;
+  assert.equal(cardMsg.op, 'send');
+  const cardId = `m${api.seq}`;
+  const click = { id: 'fb_good', value: JSON.stringify({ t: 't1', s: 'alpha', k: 'thread:100' }), actor: { user: '29:USER1' }, where: { conv: CH, thread: '100' }, msg: { conv: CH, id: cardId, thread: '100' }, canDialog: false, ctx: { conv: CH, thread: '100', direct: false } } as ChatAction;
+  await d.refreshRating(click, { good: 2, bad: 0 });
+  const edit = api.calls.at(-1)!;
+  assert.equal(edit.op, 'update');
+  assert.equal(edit.id, cardId);
+  const titles = (edit.activity!.attachments![0].content.actions as { title: string }[]).map((a) => a.title);
+  assert.deepEqual(titles, ['🧭 Show steps', '⚙️ Session', '👍 Helped · 2', '👎 Missed']);
 });

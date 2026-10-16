@@ -61,6 +61,13 @@ export async function runTeams(cfg: Config): Promise<void> {
     async update(conversationId, activityId, activity) {
       await connector('update', conversationId, () => apiFor().conversations.updateActivity(conversationId, activityId, activity as never));
     },
+    async react(conversationId, activityId, type, op) {
+      await connector(`react:${op}`, conversationId, () =>
+        op === 'add'
+          ? apiFor().conversations.addReaction(conversationId, activityId, type as never)
+          : apiFor().conversations.deleteReaction(conversationId, activityId, type as never),
+      );
+    },
     async openPersonal(userId) {
       const res = await connector('openPersonal', userId, () =>
         apiFor().conversations.create({ tenantId, isGroup: false, bot: { id: `28:${teams.appId}` }, members: [{ id: userId }] } as never),

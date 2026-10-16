@@ -179,6 +179,11 @@ export function registerEvents(app: TeamsAppLike, deps: EventDeps): void {
 
   app.on('message', async ({ activity }) => {
     const n = normalizeMessage(activity, tenantId, claimFor(activity));
+    if (n.kind === 'mention' || n.kind === 'message') {
+      // A root message IS its chain's root; a reply names it. Needed to react to the message.
+      const { conv, root } = splitConversation(activity.conversation.id);
+      driver.remember({ conv, id: n.msg.id }, n.msg.direct ? undefined : (n.msg.thread ?? root ?? n.msg.id));
+    }
     switch (n.kind) {
       case 'mention':
         return messages.onMention(n.msg, driver);
