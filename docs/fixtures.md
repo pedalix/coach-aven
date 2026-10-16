@@ -38,7 +38,7 @@ scripts/pull-fixtures.sh 2026-09-02 | npx tsx scripts/scrub-fixtures.ts   # one 
 ```
 
 Needs prod's journal in **full** mode (`AVEN_EVENT_LOG=full`) — metadata-only lines have no
-`raw` and are skipped — and the deploy env (`infra/prod/.env`) for the host.
+`raw` and are skipped — and the installation's `deploy.env` (`OPS=<slug>`) for the host.
 
 ## What scrubbing keeps and removes
 

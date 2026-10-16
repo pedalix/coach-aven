@@ -1,7 +1,7 @@
 // Where source credentials live on the BOT HOST: ~/.config/coach-aven/sources/<slug>/<kind>.json
 // (XDG_CONFIG_HOME honoured), one file per (project, source kind), mode 600 in a 700 dir.
 //
-// Why not beside state.json: state.json is deploy-synced and exportable (infra/prod/deploy.sh
+// Why not beside state.json: state.json is deploy-synced and exportable (infra/deploy/deploy.sh
 // export|import) and a tenant purge may delete data/<slug>; an OAuth grant must survive both
 // and never leave the host in an export. Why not `${ENV}` refs like MCP servers: refresh tokens
 // ROTATE (Entra on every use, Slack with rotation on) and must be rewritten in place.

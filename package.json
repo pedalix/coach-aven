@@ -17,17 +17,7 @@
     "lab": "tsx src/lab/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test 'src/**/*.test.ts'",
-    "prod:install": "infra/prod/deploy.sh install",
-    "prod:export": "infra/prod/deploy.sh export",
-    "prod:import": "infra/prod/deploy.sh import",
-    "prod:deploy": "infra/prod/deploy.sh deploy",
-    "prod:logs": "infra/prod/deploy.sh logs",
-    "prod:status": "infra/prod/deploy.sh status",
-    "prod:restart": "infra/prod/deploy.sh restart",
-    "prod:start": "infra/prod/deploy.sh start",
-    "prod:stop": "infra/prod/deploy.sh stop",
-    "prod:ssh": "infra/prod/deploy.sh ssh",
-    "prod:down": "infra/prod/deploy.sh down",
+    "ops": "infra/deploy/deploy.sh",
     "release": "bash scripts/release.sh"
   },
   "dependencies": {

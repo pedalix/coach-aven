@@ -1,7 +1,7 @@
 # Local dev setup
 
 How to run CoachAven on your machine **without colliding with prod**. Prod runs as
-a systemd service on the bot host (see [`../infra/prod/README.md`](../infra/prod/README.md));
+a systemd service on the bot host (see [`../infra/deploy/README.md`](../infra/deploy/README.md));
 your laptop and prod hit the **same Daytona** and could hit the **same Slack app**,
 so the whole point of this guide is isolating those two.
 
@@ -96,7 +96,7 @@ thread→session resume history). Starting fresh is the default for a new clone.
 
 - **Never run local with prod's Slack tokens** while prod is up — see the Socket
   Mode warning above.
-- **Don't ship `state.json` to prod.** `infra/prod/deploy.sh` deliberately never
+- **Don't ship `state.json` to prod.** `infra/deploy/deploy.sh` deliberately never
   uploads it; prod owns its own.
 - A `dev-proj-<slug>` sandbox is a *real* sandbox on the shared Daytona — it counts
   against the same resources. Stop/remove dev sandboxes you're done with via the

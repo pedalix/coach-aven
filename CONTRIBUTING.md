@@ -25,7 +25,7 @@ bar is: **nothing may change for production users as a side effect of a merge.**
 ## Keep installations out of the repo
 
 Hosts, customer names, people, mailboxes, tenant ids belong in your private ops repo
-(`infra/prod/README.md`), never here. CI runs `scripts/public-guard.sh` and gitleaks; test
+(`infra/README.md`), never here. CI runs `scripts/public-guard.sh` and gitleaks; test
 data uses `*.example` addresses and `T0000FAKE01`-style ids.
 
 ## Support

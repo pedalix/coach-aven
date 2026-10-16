@@ -10,7 +10,7 @@ name: Release
 #
 # The tag push runs: verify (typecheck, tests, guards) → GitHub Release (auto-generated
 # notes) → a notification to the operator's ops repository, which deploys the tag with its
-# own secrets (infra/prod/runtime.example/workflows/deploy.yml). This repository holds no
+# own secrets (infra/deploy/ops.example/workflows/deploy.yml). This repository holds no
 # deploy key, no deploy target and no environment: an installation is somebody's ops repo.
 #
 # Optional secrets (only an operator who wants the automatic hand-off sets them; a fork
@@ -18,14 +18,17 @@ name: Release
 #   secrets.OPS_APP_ID           — a GitHub App installed on the ops repository
 #   secrets.OPS_APP_PRIVATE_KEY  — its private key; a token scoped to the ops repo and
 #                                  `contents: write` is minted per run and dies in an hour
-# The ops repository to notify is OPS_REPO below.
+#   vars.OPS_REPO                — the ops repository to notify, as owner/repo (a repository
+#                                  variable; one installation per product repo gets the hand-off)
+# Without all three the hand-off is skipped and installations deploy by hand
+# (workflow_dispatch in their ops repo, or `npm run ops -- <slug> deploy`).
 
 on:
   push:
     tags: ['v*']
 
 env:
-  OPS_REPO: pedalix/coach-aven-ops
+  OPS_REPO: ${{ vars.OPS_REPO }}
 
 jobs:
   verify:
@@ -52,7 +55,7 @@ jobs:
       contents: write
     env:
       # Secrets cannot be read in `if:` directly; this env var can.
-      HAS_OPS_APP: ${{ secrets.OPS_APP_PRIVATE_KEY != '' }}
+      HAS_OPS_APP: ${{ secrets.OPS_APP_PRIVATE_KEY != '' && vars.OPS_REPO != '' }}
     steps:
       - uses: actions/checkout@v7
       - name: Create the GitHub Release (notes auto-generated from merged PRs)
@@ -66,6 +69,13 @@ jobs:
             # categorized per .github/release.yml.
             gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --verify-tag --generate-notes
           fi
+      - name: Split OPS_REPO into owner and repo
+        if: env.HAS_OPS_APP == 'true'
+        id: ops
+        run: |
+          [[ "$OPS_REPO" == */* ]] || { echo "OPS_REPO must be owner/repo, got '$OPS_REPO'"; exit 1; }
+          echo "owner=${OPS_REPO%/*}" >> "$GITHUB_OUTPUT"
+          echo "repo=${OPS_REPO#*/}" >> "$GITHUB_OUTPUT"
       - name: "Mint a token for the ops repository (scoped to that repo, contents: write)"
         if: env.HAS_OPS_APP == 'true'
         id: ops_token
@@ -73,8 +83,8 @@ jobs:
         with:
           app-id: ${{ secrets.OPS_APP_ID }}
           private-key: ${{ secrets.OPS_APP_PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: coach-aven-ops
+          owner: ${{ steps.ops.outputs.owner }}
+          repositories: ${{ steps.ops.outputs.repo }}
           permission-contents: write
       - name: Tell the ops repository to deploy this tag (repository_dispatch)
         if: env.HAS_OPS_APP == 'true'

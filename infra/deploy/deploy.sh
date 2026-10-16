@@ -4,14 +4,19 @@
 # a Slack Socket-Mode connection and driving Daytona sandboxes. No nginx, no ports,
 # no TLS — Socket Mode dials OUT, so it never touches the shared 80/443.
 #
-# Usage:  infra/prod/deploy.sh <command>
+# Usage:  infra/deploy/deploy.sh <slug> <command>      (npm run ops -- <slug> <command>)
+#
+# <slug> names the INSTALLATION: your ops repo checked out at infra/<slug>/ (a git
+# checkout holding deploy.env, .env, the GitHub App key, projects.config.json, projects.d/;
+# see infra/deploy/README.md). Several installations sit side by side under infra/; there
+# is deliberately no default — the one you did not name is the one you would deploy by
+# mistake. No slug, or one without infra/<slug>/deploy.env, prints this help and the slugs found.
 #
 #   install        Root stage: create REMOTE_DIR (deployer-owned), render + install
 #                  the systemd unit, daemon-reload, enable (NOT start). Idempotent.
 #   export         Upload the runtime files the app needs at REMOTE_DIR: .env,
 #                  github-app-private-key.pem, projects.config.json, projects.d/ — read
-#                  from infra/prod/runtime/, which is YOUR OPS REPO (a git checkout, see
-#                  infra/prod/README.md). Refuses while that checkout is dirty, pushes it
+#                  from infra/<slug>/. Refuses while that checkout is dirty, pushes it
 #                  first, then uploads. Run once, and again on any change. NEVER touches
 #                  state.json.
 #   import         The reverse: download the box's live runtime files into the ops
@@ -27,21 +32,25 @@
 # First run order:  install → export → deploy
 # Update code:      deploy
 # Rotate secrets:   export → restart
-# Sync from box:    import   (pull prod runtime back into infra/prod/runtime/)
+# Sync from box:    import   (pull the box's runtime back into infra/<slug>/)
 #
-# Config: infra/prod/.env (copy from .env.example). SSH uses your default keys/
+# Config: infra/<slug>/deploy.env (DEPLOY_HOST, DEPLOY_USER, ROOT_USER, REMOTE_DIR,
+# SERVICE_NAME — copy from ops.example/deploy.env.example). SSH uses your default keys/
 # agent (deployer@HOST and root@HOST must both work). Needs: ssh, scp, tar.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$HERE/../.." && pwd)"
-ENV_FILE="$HERE/.env"
-# Prod runtime truth: a git checkout of your private OPS REPO (gitignored here; template in
-# runtime.example/). SEPARATE from the repo-root files, which are your LOCAL DEV runtime.
-# `export` pushes the checkout and uploads it to the box; `import` pulls the box's copies
-# back into it so the repo always records what prod runs. Secrets (.env, the App key)
-# live in the checkout but are ignored by its .gitignore — they travel by scp only.
-RUNTIME_DIR="$HERE/runtime"
+# The installation's truth: a git checkout of its private OPS REPO at infra/<slug>/ (the
+# whole of infra/ is gitignored except deploy/ and teams/; template in ops.example/).
+# SEPARATE from the repo-root files, which are your LOCAL DEV runtime. `export` pushes the
+# checkout and uploads it to the box; `import` pulls the box's copies back into it so the
+# repo always records what the box runs. Secrets (.env, the App key) live in the checkout
+# but are ignored by its .gitignore — they travel by scp only. deploy.env (the target) is
+# tracked there and only read here.
+SLUG="${1:-}"
+RUNTIME_DIR="$REPO_ROOT/infra/$SLUG"
+ENV_FILE="$RUNTIME_DIR/deploy.env"
 # The runtime files the app needs at REMOTE_DIR (uploaded by export, pulled by import).
 RUNTIME_FILES=(.env github-app-private-key.pem projects.config.json)
 # Optional runtime SUBDIRS, synced recursively when present: projects.d/ holds the
@@ -49,6 +58,11 @@ RUNTIME_FILES=(.env github-app-private-key.pem projects.config.json)
 # Note export copies over (scp, not rsync --delete): a file deleted locally lingers on
 # the box, which is harmless — the loader ignores files for unknown slugs.
 RUNTIME_DIRS=(projects.d)
+
+usage() { grep -E '^#( |$)' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
+# Installations present = infra/*/ directories that carry a deploy.env (an overlay without
+# one is half-set-up and not deployable; deploy/ and teams/ are the public tooling).
+overlays() { for d in "$REPO_ROOT"/infra/*/; do [[ -f "$d/deploy.env" ]] && basename "$d"; done; }
 
 log()  { printf '\033[1;36m▶ %s\033[0m\n' "$*" >&2; }
 ok()   { printf '\033[1;32m✓ %s\033[0m\n' "$*" >&2; }
@@ -62,7 +76,7 @@ overlay_check() {
   [[ -d "$RUNTIME_DIR/.git" || -f "$RUNTIME_DIR/.git" ]] \
     || die "$RUNTIME_DIR is not a git checkout — clone your ops repo there:
     git clone <your-ops-repo-url> $RUNTIME_DIR
-  (start one from $HERE/runtime.example/ — see infra/prod/README.md)"
+  (start one from $HERE/ops.example/ — see infra/deploy/README.md)"
 }
 overlay_push() {
   if [[ -n "$(git -C "$RUNTIME_DIR" status --porcelain)" ]]; then
@@ -74,7 +88,7 @@ overlay_push() {
 }
 
 load_env() {
-  [[ -f "$ENV_FILE" ]] || die "no $ENV_FILE — copy infra/prod/.env.example and fill it in"
+  [[ -f "$ENV_FILE" ]] || die "no $ENV_FILE — copy $HERE/ops.example/deploy.env.example there and fill it in"
   set -a; # shellcheck disable=SC1090
   source "$ENV_FILE"; set +a
   : "${DEPLOY_HOST:?}" "${DEPLOY_USER:?}" "${ROOT_USER:?}" "${REMOTE_DIR:?}" "${SERVICE_NAME:?}"
@@ -135,7 +149,7 @@ cmd_install() {
   # restart it too, or it keeps answering the bot with the previous release's code.
   local daemon="${SERVICE_NAME}-sources-daemon.service"
   sudoers="${DEPLOY_USER} ALL=(root) NOPASSWD: ${systemctl_path} start ${SERVICE_NAME}.service, ${systemctl_path} stop ${SERVICE_NAME}.service, ${systemctl_path} restart ${SERVICE_NAME}.service, ${systemctl_path} start ${daemon}, ${systemctl_path} stop ${daemon}, ${systemctl_path} restart ${daemon}"
-  printf '# Managed by coach-aven infra/prod/deploy.sh\n%s\n' "$sudoers" \
+  printf '# Managed by coach-aven infra/deploy/deploy.sh\n%s\n' "$sudoers" \
     | rssh "cat > /etc/sudoers.d/${SERVICE_NAME}.tmp \
             && visudo -cf /etc/sudoers.d/${SERVICE_NAME}.tmp \
             && install -m 440 -o root -g root /etc/sudoers.d/${SERVICE_NAME}.tmp /etc/sudoers.d/${SERVICE_NAME} \
@@ -144,7 +158,7 @@ cmd_install() {
   ok "unit installed + enabled (not started yet — run export, then deploy)"
 }
 
-# export: upload the local prod-runtime truth → the box.
+# export: upload the overlay (the installation's truth) → the box.
 cmd_export() {
   preflight_deployer
   overlay_check
@@ -152,10 +166,10 @@ cmd_export() {
   for f in "${RUNTIME_FILES[@]}"; do
     [[ -f "$RUNTIME_DIR/$f" ]] || { warn "missing $RUNTIME_DIR/$f"; missing=1; }
   done
-  [[ "$missing" == 0 ]] || die "fill in the prod-runtime files first (cp from runtime.example/, or run: import)"
+  [[ "$missing" == 0 ]] || die "fill in the runtime files first (cp from ops.example/, or run: import)"
   overlay_push
 
-  log "Uploading prod runtime ($RUNTIME_DIR) → $DEPLOYER:$REMOTE_DIR"
+  log "Uploading runtime ($RUNTIME_DIR) → $DEPLOYER:$REMOTE_DIR"
   dssh "mkdir -p $REMOTE_DIR"
   for f in "${RUNTIME_FILES[@]}"; do
     scp "${SSH_OPTS[@]}" -q "$RUNTIME_DIR/$f" "$DEPLOYER:$REMOTE_DIR/$f"
@@ -171,11 +185,11 @@ cmd_export() {
 }
 
 # import (pull): download the box's live runtime files → here, so $RUNTIME_DIR mirrors
-# prod. The reverse of export. state.json is server-owned and deliberately NOT pulled.
+# the box. The reverse of export. state.json is server-owned and deliberately NOT pulled.
 cmd_import() {
   preflight_deployer
   overlay_check
-  log "Downloading prod runtime from $DEPLOYER:$REMOTE_DIR → $RUNTIME_DIR"
+  log "Downloading runtime from $DEPLOYER:$REMOTE_DIR → $RUNTIME_DIR"
   for f in "${RUNTIME_FILES[@]}"; do
     if dssh "test -f $REMOTE_DIR/$f" </dev/null; then
       scp "${SSH_OPTS[@]}" -q "$DEPLOYER:$REMOTE_DIR/$f" "$RUNTIME_DIR/$f"
@@ -189,7 +203,7 @@ cmd_import() {
     fi
   done
   chmod 600 "$RUNTIME_DIR/.env" "$RUNTIME_DIR/github-app-private-key.pem" 2>/dev/null || true
-  ok "prod runtime pulled into $RUNTIME_DIR"
+  ok "runtime pulled into $RUNTIME_DIR"
   if [[ -n "$(git -C "$RUNTIME_DIR" status --porcelain)" ]]; then
     git -C "$RUNTIME_DIR" status --short >&2
     warn "the box differs from the ops repo — review, then: git -C $RUNTIME_DIR commit -am 'import from box' && git -C $RUNTIME_DIR push"
@@ -205,7 +219,12 @@ cmd_deploy() {
 
   log "Uploading repo (code only) to $DEPLOYER:$REMOTE_DIR"
   dssh "mkdir -p $REMOTE_DIR"
-  # Ship code + lockfile; NEVER ship runtime secrets, server-owned state, or junk.
+  # Ship code + lockfile; NEVER ship runtime secrets, server-owned state, or junk — and no
+  # overlay: every infra/<slug>/ checkout (yours and anyone else's) stays off the box.
+  local -a overlay_excludes=()
+  for d in "$REPO_ROOT"/infra/*/; do
+    case "$(basename "$d")" in deploy|teams) ;; *) overlay_excludes+=("--exclude=./infra/$(basename "$d")") ;; esac
+  done
   tar czf - -C "$REPO_ROOT" \
     --exclude='./.git' --exclude='./node_modules' --exclude='./.idea' \
     --exclude='./.env' --exclude='./.env.*' \
@@ -216,8 +235,7 @@ cmd_deploy() {
     --exclude='./memory' \
     --exclude='./feedback' \
     --exclude='./.release' \
-    --exclude='./infra/prod/.env' \
-    --exclude='./infra/prod/runtime' \
+    "${overlay_excludes[@]}" \
     . \
   | dssh "tar xzf - -C $REMOTE_DIR"
 
@@ -238,7 +256,7 @@ REMOTE
 
   log "Restarting ${SERVICE_NAME}"
   dssh "sudo systemctl restart ${SERVICE_NAME}.service"
-  # The sources daemon runs the same code (infra/prod/coach-aven-sources-daemon.service.tmpl): restart it when the box
+  # The sources daemon runs the same code (infra/deploy/coach-aven-sources-daemon.service.tmpl): restart it when the box
   # has it, so the bot never forwards to a daemon of the previous release. Absent unit → nothing to do.
   if dssh "systemctl cat ${SERVICE_NAME}-sources-daemon.service >/dev/null 2>&1" </dev/null; then
     log "Restarting ${SERVICE_NAME}-sources-daemon (a pass in flight finishes first)"
@@ -253,7 +271,7 @@ REMOTE
            done; exit 1" </dev/null; then
     ok "CoachAven is live and connected to Slack."
   else
-    warn "Service did not report 'Slack bot running' in ~40s — check: infra/prod/deploy.sh logs"
+    warn "Service did not report 'Slack bot running' in ~40s — check: infra/deploy/deploy.sh $SLUG logs"
   fi
   dssh "journalctl -u ${SERVICE_NAME}.service --since '-60s' --no-pager 2>/dev/null | tail -12" </dev/null || true
 }
@@ -274,8 +292,15 @@ cmd_down() {
 
 # ---- dispatch ---------------------------------------------------------------
 need ssh; need scp; need tar
+# Slug first: with no overlay named there is nothing to act on — print the help and what exists.
+if [[ -z "$SLUG" || ! -f "$ENV_FILE" ]]; then
+  usage
+  [[ -n "$SLUG" ]] && printf '\n✗ no installation "%s" (infra/%s/deploy.env not found)\n' "$SLUG" "$SLUG" >&2
+  printf '\ninstallations under infra/: %s\n' "$(overlays | tr '\n' ' ')" >&2
+  exit 1
+fi
 load_env
-case "${1:-}" in
+case "${2:-}" in
   install)      cmd_install ;;
   export)       cmd_export ;;
   import|pull)  cmd_import ;;
@@ -287,5 +312,5 @@ case "${1:-}" in
   restart)      cmd_restart ;;
   ssh)          cmd_ssh ;;
   down)         cmd_down ;;
-  *) grep -E '^#( |$)' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 1 ;;
+  *) usage; exit 1 ;;
 esac

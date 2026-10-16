@@ -9,6 +9,8 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 - `npm run typecheck` — `tsc --noEmit`. Must pass before every commit.
 - `npm test` — Node's built-in runner over `src/**/*.test.ts`. Must pass before every commit.
 - `npm run orch -- slack` — run the bot locally (needs a dev Slack app + `.env`; see `README.md`).
+- `npm run ops -- <slug> <command>` — deploy/export/import/logs for ONE installation: the ops repo
+  checked out at `infra/<slug>/` (`infra/README.md`). No default slug, on purpose.
 - Release — merge PRs to `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag
   triggers CI (typecheck + test → GitHub Release → deploy). No changelog or version edits.
   **`main` is the canary**: the home bot runs it; prod runs the last tag. Tag only after ~2 days
@@ -66,7 +68,7 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   allowed to import `@daytonaio/sdk`) and `src/sshdocker.ts` (containers on our own host
   over SSH). Selected by `SANDBOX_DRIVER` env, overridable per project via the `driver`
   field in projects.config.json — see `docs/sandbox-drivers.md`.
-- `src/projects.ts` / `infra/prod/runtime/projects.config.json` — per-project repos, MCP,
+- `src/projects.ts` / `infra/<slug>/projects.config.json` (an installation's ops repo) — per-project repos, MCP,
   prompt. System prompts live as markdown beside the config (`projects.d/<slug>.md`, wins
   over the JSON field). Read at boot; `/aven reload` re-reads at runtime (new sessions
   only — running conversations keep their session's prompt/MCP).

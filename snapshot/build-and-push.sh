@@ -21,7 +21,8 @@
 # Usage:
 #   ./build-and-push.sh                   # laravel: builds + pushes :<gitsha> and :latest
 #   ./build-and-push.sh plain             # plain variant (or VARIANT=plain)
-#   IMAGE=ghcr.io/foo/bar ./build-and-push.sh plain
+#   IMAGE=ghcr.io/foo/bar ./build-and-push.sh plain          # your registry (ECR, GHCR of another org…)
+#   ENV_FILE=../infra/<slug>/.env ./build-and-push.sh plain  # take CLAUDE_CLI_VERSION from that installation
 #   PLATFORMS=linux/arm64 ./build-and-push.sh plain    # override the variant's platforms
 #   PUSH=0 ./build-and-push.sh plain      # build only (validates the Dockerfile on every
 #                                         # platform; nothing is pushed or loaded)
@@ -51,10 +52,11 @@ PLATFORMS="${PLATFORMS:-$DEFAULT_PLATFORMS}"
 PUSH="${PUSH:-1}"
 TAG="${TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo manual)}"
 # The Claude Code pin baked into the image: CLAUDE_CLI_VERSION from the environment, else
-# the prod runtime .env, else the Dockerfile's own ARG default. Keep it equal to what the
-# bot runs with, or fresh sandboxes will immediately re-install at their first chat prep.
-# Both variants take the same ARG so one pin serves the whole fleet.
-CLI_PIN="${CLAUDE_CLI_VERSION:-$(grep -E '^CLAUDE_CLI_VERSION=' ../infra/prod/runtime/.env 2>/dev/null | cut -d= -f2- || true)}"
+# from ENV_FILE (an installation's runtime .env, e.g. ENV_FILE=../infra/<slug>/.env), else the
+# Dockerfile's own ARG default. Keep it equal to what the bot runs with, or fresh sandboxes
+# will immediately re-install at their first chat prep. Both variants take the same ARG so
+# one pin serves the whole fleet.
+CLI_PIN="${CLAUDE_CLI_VERSION:-$(grep -E '^CLAUDE_CLI_VERSION=' "${ENV_FILE:-/dev/null}" 2>/dev/null | cut -d= -f2- || true)}"
 
 echo ">> building ${IMAGE}:${TAG} [variant=${VARIANT} platforms=${PLATFORMS}] (Claude Code ${CLI_PIN:-Dockerfile default})"
 # Without --push buildx keeps the result in the build cache only: that is the point of

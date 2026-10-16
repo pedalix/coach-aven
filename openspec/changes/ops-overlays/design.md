@@ -47,7 +47,7 @@ infra/*
 !infra/deploy/
 !infra/teams/
 ```
-replaces `infra/prod/runtime/`. The ignore file names only public directories, so another overlay needs no edit and leaks no name. `.gitleaks.toml` gets the matching path regex `infra/(?!deploy/|teams/)[^/]+/` so the no-git scan skips overlays as it skipped `infra/prod/runtime/`. `scripts/public-guard.sh` is unaffected (tracked files only).
+replaces `infra/prod/runtime/`. The ignore file names only public directories, so another overlay needs no edit and leaks no name. `.gitleaks.toml` allow-lists the secret-bearing files of any overlay — `infra/<x>/.env*`, `*.pem`, `*.tfstate*`, `.terraform/` — rather than whole overlay directories: gitleaks is RE2 (no lookahead to carve `deploy/` and `teams/` out of `infra/[^/]+/`), and the two public directories must stay scanned. An overlay's other files (docs, config) are scanned too, which is right — they are not supposed to hold secret-shaped strings. `scripts/public-guard.sh` is unaffected (tracked files only).
 
 ### D4. `infra/teams/` is a module; the overlay is the root
 The Terraform draft moves into the public tree as a **module** with every identifier a variable (`tenant_id`, `subscription_id`, `bot_name`, `display_name`, `developer_name`, `website_url`, `messaging_endpoint`, `app_version`, `location`, `resource_group_name`, optional `icon_color_path` / `icon_outline_path`). The overlay's `teams/main.tf` is a root module: provider blocks, `module "teams" { source = "../../teams" … }`, outputs re-exported. Local state in the overlay directory, ignored.

@@ -5,14 +5,15 @@
 # Usage:  scripts/grafana-probe.sh '<loki-selector>' '<prom-metric-prefix>'
 #   e.g.  scripts/grafana-probe.sh 'app="holidayshop-dorfberg"' 'holidayshop_'
 #
-# Token + URL come from infra/prod/runtime/.env (GRAFANA_SERVICE_ACCOUNT_TOKEN);
-# GRAFANA_URL is required (your Grafana base URL, e.g. https://<grafana-host>).
+# Token + URL come from an installation's runtime .env (GRAFANA_SERVICE_ACCOUNT_TOKEN):
+# OPS=<slug> reads infra/<slug>/.env, or point ENV_FILE at any .env. GRAFANA_URL is required
+# (your Grafana base URL, e.g. https://<grafana-host>).
 set -uo pipefail
 
 SEL="${1:?usage: grafana-probe.sh '<loki-selector e.g. app=\"slug\">' '<prom-prefix e.g. slug_>'}"
 PREFIX="${2:-}"
-ENV_FILE="${ENV_FILE:-infra/prod/runtime/.env}"
-[[ -f "$ENV_FILE" ]] || { echo "no $ENV_FILE (run: npm run prod:import)" >&2; exit 1; }
+ENV_FILE="${ENV_FILE:-infra/${OPS:?set OPS=<slug> or ENV_FILE=<path to a runtime .env>}/.env}"
+[[ -f "$ENV_FILE" ]] || { echo "no $ENV_FILE (run: npm run ops -- $OPS import)" >&2; exit 1; }
 set -a; source "$ENV_FILE"; set +a
 G="${GRAFANA_URL:?set GRAFANA_URL=https://<grafana-host>}"
 H="Authorization: Bearer ${GRAFANA_SERVICE_ACCOUNT_TOKEN:?missing in $ENV_FILE}"

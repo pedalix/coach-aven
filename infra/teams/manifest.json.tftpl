@@ -1,0 +1,36 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.19/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.19",
+  "version": "${version}",
+  "id": "${app_id}",
+  "developer": {
+    "name": "${developer_name}",
+    "websiteUrl": "${website_url}",
+    "privacyUrl": "${privacy_url}",
+    "termsOfUseUrl": "${terms_url}"
+  },
+  "name": { "short": "${display_name}", "full": "${display_name} — coding agent" },
+  "description": {
+    "short": "A coding agent that works in your project's sandbox.",
+    "full": "${display_name} drives a persistent Claude Code session in a per-project sandbox: mention it in a channel or chat with it directly, follow the work in the thread, review proposals and PRs."
+  },
+  "icons": { "color": "color.png", "outline": "outline.png" },
+  "accentColor": "#4F46E5",
+  "bots": [
+    {
+      "botId": "${bot_id}",
+      "scopes": ["personal", "team", "groupChat"],
+      "supportsFiles": false,
+      "isNotificationOnly": false
+    }
+  ],
+  "authorization": {
+    "permissions": {
+      "resourceSpecific": [
+        { "name": "ChannelMessage.Read.Group", "type": "Application" },
+        { "name": "ChatMessage.Read.Chat", "type": "Application" }
+      ]
+    }
+  },
+  "validDomains": []
+}

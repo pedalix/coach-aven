@@ -5,14 +5,20 @@ title = "coach-aven"
 useDefault = true
 [allowlist]
 paths = [
-  '''infra/prod/runtime/''',          # your ops checkout (gitignored) — real secrets live there on purpose
+  # ops overlays (infra/<slug>/, gitignored) hold real secrets on purpose — but only in these files,
+  # so allow the files, not the directories (gitleaks is RE2: no lookahead to carve out deploy/ and
+  # teams/, and those two are public and must stay scanned). Anything else in an overlay is scanned.
+  '''infra/[^/]+/\.env(\.[^/]*)?$''',
+  '''infra/[^/]+/.*\.pem$''',
+  '''infra/[^/]+/.*\.tfstate(\.[^/]*)?$''',
+  '''infra/[^/]+/.*/\.terraform/''',
   '''\.claude/worktrees/''',
   '''node_modules/''',
   '''src/scrub\.test\.ts''',
   '''src/sources/audit\.test\.ts''',
   '''src/fixtures/.*\.json''',
   '''\.env\.example$''',
-  '''infra/prod/runtime\.example/\.env\.example''',
+  '''infra/deploy/ops\.example/\.env\.example''',
   '''package-lock\.json''',
 ]
 regexes = [
