@@ -21,6 +21,7 @@ import { stripBotMention } from './format.js';
 import { splitConversation, threadOf } from './keys.js';
 import type { AdaptiveCard } from './cards.js';
 import type { TeamsActionCtx, TeamsChatDriver } from './driver.js';
+import { RecentSet } from '../../recent.js';
 import { log } from '../../log.js';
 
 // The slice of a Bot Framework activity we read. Typed here, not with the SDK's classes, so
@@ -52,7 +53,7 @@ const isDirect = (a: InboundActivity) => a.conversation.conversationType === 'pe
 // A message activity → a mention (the bot is named), a command (`/verb …` after the mention,
 // or bare in a 1:1), or a plain message (a thread reply, a 1:1 line). `ctx` is what the
 // driver needs to answer privately; `files` is lazy and empty until PR 2.
-export function normalizeMessage(a: InboundActivity, tenant: string): Normalized {
+export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kind: string) => boolean = () => true): Normalized {
   if (a.type !== 'message') return { kind: 'ignore', why: `not a message: ${a.type}` };
   const { conv, root } = splitConversation(a.conversation.id);
   const mentioned = (a.entities ?? []).some((e) => e.type === 'mention' && e.mentioned?.id === a.recipient.id);
@@ -75,7 +76,7 @@ export function normalizeMessage(a: InboundActivity, tenant: string): Normalized
     direct,
     hasFiles: false,
     files: async () => undefined,
-    claim: () => true, // one delivery per activity on Teams — nothing to dedupe
+    claim,
   };
   // In a 1:1 the client may still attach a mention entity (typing "@Aven …"); the chat has no
   // reply chains, so it is a direct message, never a mention that would open a thread.
@@ -149,11 +150,18 @@ export interface EventDeps {
   onServiceUrl: (url: string) => void;
 }
 
-const DIALOG_WAIT_MS = 8000;
+// Teams gives an invoke 5 s before "Unable to reach the app" (and it retries twice): answer well
+// inside that, with a fallback dialog when the core has not produced a view by then.
+const DIALOG_WAIT_MS = 4000;
+// Teams re-delivers an activity whose first delivery took over 15 s to be answered: the same
+// id arrives again and must act at most once (the claim-on-act rule, as on Slack Connect).
+const DEDUPE_MS = 10 * 60_000;
 
 export function registerEvents(app: TeamsAppLike, deps: EventDeps): void {
   const { tenantId, driver, messages, core, commands } = deps;
   const rejected = new Set<string>();
+  const seen = new RecentSet(DEDUPE_MS);
+  const claimFor = (a: InboundActivity) => (kind: string) => seen.claim(`${kind}:${a.id}`);
 
   // Tenant gate first, for every activity: a foreign tenant is logged once and dropped.
   app.on('activity', async ({ activity, next }) => {
@@ -170,13 +178,14 @@ export function registerEvents(app: TeamsAppLike, deps: EventDeps): void {
   });
 
   app.on('message', async ({ activity }) => {
-    const n = normalizeMessage(activity, tenantId);
+    const n = normalizeMessage(activity, tenantId, claimFor(activity));
     switch (n.kind) {
       case 'mention':
         return messages.onMention(n.msg, driver);
       case 'message':
         return messages.onMessage(n.msg, driver);
       case 'command':
+        if (!claimFor(activity)('command')) return; // a re-delivery of a slow command
         return commands.run(n.cmd, driver);
       case 'ignore':
         return;
@@ -187,7 +196,7 @@ export function registerEvents(app: TeamsAppLike, deps: EventDeps): void {
   // an empty message response (the card changes come through update()).
   app.on('card.action', async ({ activity }) => {
     const a = normalizeAction(activity, tenantId);
-    if (!a) return { statusCode: 200, type: 'application/vnd.microsoft.activity.message', value: '' };
+    if (!a || !claimFor(activity)('action')) return { statusCode: 200, type: 'application/vnd.microsoft.activity.message', value: '' };
     const h = core.actions[a.id];
     if (!h) log.warn(`teams: no handler for card action ${a.id}`);
     else await h(a, driver).catch((e) => log.error(`teams ${a.id}: ${e instanceof Error ? e.message : String(e)}`));

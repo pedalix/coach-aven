@@ -24,6 +24,7 @@ import { createCommands } from '../core/commands.js';
 import { setAlertSink, summary, type AlertLevel } from '../slack/blocks.js';
 import { teamsDriver, type OutActivity, type TeamsApi } from './driver.js';
 import { registerEvents, type TeamsAppLike } from './events.js';
+import { withNetRetry } from '../../netretry.js';
 import { log } from '../../log.js';
 
 export async function runTeams(cfg: Config): Promise<void> {
@@ -156,9 +157,26 @@ export async function runTeams(cfg: Config): Promise<void> {
 // A Connector call with its failure made legible: the SDK throws axios errors whose message is
 // "Request failed with status code 400" and whose actual reason sits in the response body —
 // which is what an operator (and the thread) needs to see.
+// Retried: 429 (Retry-After honoured — Teams allows ~7 sends/s per thread), 412 (concurrent
+// operations on one conversation) and 502/503/504, then transient socket errors; the SDK itself
+// retries nothing. Anything else propagates with the body.
+const RETRIED = new Set([412, 429, 502, 503, 504]);
 async function connector<T>(call: string, target: string, fn: () => Promise<T>): Promise<T> {
   try {
-    return await fn();
+    return await withNetRetry(async () => {
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return await fn();
+        } catch (e) {
+          const r = (e as { response?: { status?: number; headers?: Record<string, string> } }).response;
+          if (!r?.status || !RETRIED.has(r.status) || attempt >= 3) throw e;
+          const after = Number(r.headers?.['retry-after']);
+          const wait = Number.isFinite(after) && after > 0 ? after * 1000 : [1000, 3000, 8000][attempt];
+          log.warn(`teams ${call}: HTTP ${r.status}, retrying in ${wait} ms (${attempt + 1}/3)`);
+          await new Promise((res) => setTimeout(res, wait));
+        }
+      }
+    });
   } catch (e) {
     const r = (e as { response?: { status?: number; data?: unknown } }).response;
     if (!r) throw e;
