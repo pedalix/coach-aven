@@ -25,6 +25,15 @@ test('a channel mention starts a thread on its own id, text stripped of the ment
   assert.equal(n.msg.claim('mention'), true);
 });
 
+test('a person mentioned beside the bot reaches the core as <@id> (what `/users allow` parses)', () => {
+  const raw = load('message-channel-mention');
+  raw.text = '<at>Aven</at> /users allow <at>Example Admin</at>';
+  raw.entities = [...(raw.entities ?? []), { type: 'mention', mentioned: { id: '29:USER2', name: 'Example Admin' }, text: '<at>Example Admin</at>' }];
+  const n = normalizeMessage(raw, TENANT);
+  assert.equal(n.kind, 'command');
+  if (n.kind === 'command') assert.equal(n.cmd.text, 'users allow <@29:USER2>');
+});
+
 test('a channel reply without a mention continues its chain', () => {
   const a = load('message-channel-reply');
   const n = normalizeMessage(a, TENANT);
@@ -105,6 +114,7 @@ test('the tenant gate drops a foreign tenant before any handler and logs it once
     core: { actions: {}, submits: {}, home: async () => {}, parkDmPick: () => '' },
     commands: { run: async (c: ChatCommand) => void seen.push(`command:${c.text}`) } as never,
     onServiceUrl: (u) => seen.push(`url:${u}`),
+    onPerson: (id, name, aad) => seen.push(`person:${id}:${name ?? '-'}:${aad ?? '-'}`),
   });
   const gate = routes.get('activity')!;
   let passed = 0;
@@ -115,9 +125,12 @@ test('the tenant gate drops a foreign tenant before any handler and logs it once
   await gate({ activity: load('message-channel-mention'), next: () => void passed++ });
   assert.equal(passed, 1);
   assert.ok(seen.some((s) => s.startsWith('url:https://')));
+  // the sender is a known person now (name for mentions, Entra id for the operator list)
+  const m0 = load('message-channel-mention');
+  assert.deepEqual(seen.filter((s) => s.startsWith('person:')), [`person:${m0.from.id}:${m0.from.name}:${m0.from.aadObjectId}`]);
   await routes.get('message')!({ activity: load('message-channel-mention'), next: () => {} });
   await routes.get('message')!({ activity: load('message-personal-command'), next: () => {} });
-  assert.deepEqual(seen.filter((s) => !s.startsWith('url:') && !s.startsWith('remember:')), ['mention:hello', 'command:status']);
+  assert.deepEqual(seen.filter((s) => !s.startsWith('url:') && !s.startsWith('remember:') && !s.startsWith('person:')), ['mention:hello', 'command:status']);
   const mention = load('message-channel-mention');
   assert.deepEqual(seen.filter((s) => s.startsWith('remember:')), [`remember:${mention.id}:${mention.id}`]);
   // Teams re-delivers an activity it had to wait on: the same id again acts at most once.

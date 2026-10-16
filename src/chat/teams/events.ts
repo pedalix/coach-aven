@@ -17,7 +17,7 @@ import type { ChatAction, ChatCommand, ChatMessage, DialogSubmit } from '../driv
 import type { Interactions } from '../core/interactions.js';
 import type { createMessages } from '../core/messages.js';
 import type { createCommands } from '../core/commands.js';
-import { stripBotMention } from './format.js';
+import { rewriteMentions, stripBotMention } from './format.js';
 import { splitConversation, threadOf } from './keys.js';
 import type { AdaptiveCard } from './cards.js';
 import type { TeamsActionCtx, TeamsChatDriver } from './driver.js';
@@ -57,7 +57,7 @@ export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kin
   if (a.type !== 'message') return { kind: 'ignore', why: `not a message: ${a.type}` };
   const { conv, root } = splitConversation(a.conversation.id);
   const mentioned = (a.entities ?? []).some((e) => e.type === 'mention' && e.mentioned?.id === a.recipient.id);
-  const text = stripBotMention(a.text ?? '', a.recipient.name);
+  const text = stripBotMention(rewriteMentions(a.text ?? '', a.entities, a.recipient.id), a.recipient.name);
   const direct = isDirect(a);
   const thread = direct ? undefined : threadOf(a.conversation.id, a.id);
   const actor = { tenant, user: a.from.id };
@@ -148,6 +148,9 @@ export interface EventDeps {
   commands: ReturnType<typeof createCommands>;
   // Called with every accepted activity's serviceUrl (proactive sends need it).
   onServiceUrl: (url: string) => void;
+  // Every person an accepted activity names (its sender, the people it mentions): the driver
+  // renders mentions from these names, app.ts matches operators by Entra id through them.
+  onPerson?: (id: string, name: string | undefined, aadObjectId: string | undefined) => void;
 }
 
 // Teams gives an invoke 5 s before "Unable to reach the app" (and it retries twice): answer well
@@ -174,6 +177,12 @@ export function registerEvents(app: TeamsAppLike, deps: EventDeps): void {
       return;
     }
     if (activity.serviceUrl) deps.onServiceUrl(activity.serviceUrl);
+    if (deps.onPerson) {
+      deps.onPerson(activity.from.id, activity.from.name, activity.from.aadObjectId);
+      for (const e of activity.entities ?? []) {
+        if (e.type === 'mention' && e.mentioned && e.mentioned.id !== activity.recipient.id) deps.onPerson(e.mentioned.id, e.mentioned.name, undefined);
+      }
+    }
     return next();
   });
 

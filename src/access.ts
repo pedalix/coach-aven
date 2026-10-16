@@ -47,8 +47,9 @@ export function deniedText(a: TeamAccess): string {
   return `🔒 You're not on this workspace's allowlist for driving the agent — ask ${admins} to run \`/aven users allow @you\`.`;
 }
 
-// `/aven users …` argument grammar. `allow`/`deny` take a Slack mention (the slash payload
-// escapes it as `<@U…|name>` or `<@U…>`); `open`/`restrict` flip the mode; bare = list.
+// `/aven users …` argument grammar. `allow`/`deny` take a mention in the core's `<@id>` form
+// (Slack's slash payload escapes it as `<@U…|name>` or `<@U…>`; the Teams adapter rewrites a
+// person's `<at>…</at>` to `<@29:…>`); `open`/`restrict` flip the mode; bare = list.
 export type UsersCmd =
   | { action: 'list' }
   | { action: 'allow'; userId: string }
@@ -57,7 +58,7 @@ export type UsersCmd =
   | { action: 'restrict' }
   | { action: 'error'; message: string };
 
-const MENTION_RE = /<@([UW][A-Z0-9]+)(?:\|[^>]*)?>/;
+const MENTION_RE = /<@([^>|\s]+)(?:\|[^>]*)?>/;
 
 export function parseUsersCmd(rest: string): UsersCmd {
   const [action, ...tail] = rest.trim().split(/\s+/).filter(Boolean);
@@ -95,7 +96,9 @@ export function applyUsersCmd(
   };
 }
 
-export function usersListText(a: TeamAccess, isHome: boolean): string {
+// `homeAdmins` names who manages on the home tenant when no admin is listed (Slack: everyone
+// there; Teams: the installation's operators).
+export function usersListText(a: TeamAccess, isHome: boolean, homeAdmins = 'everyone in the home workspace'): string {
   const lines = [
     `*Agent access — this workspace*`,
     `Mode: *${a.mode}*${a.mode === 'open' ? ' (anyone here may drive the agent)' : ''}${isHome && a.mode === 'open' ? ' — home default' : ''}`,
@@ -103,7 +106,7 @@ export function usersListText(a: TeamAccess, isHome: boolean): string {
   if (a.mode === 'allowlist') {
     lines.push(`Allowed: ${a.users.length ? a.users.map((u) => `<@${u}>`).join(', ') : '_nobody yet_'}`);
   }
-  lines.push(`Admins: ${a.admins.length ? a.admins.map((u) => `<@${u}>`).join(', ') : isHome ? '_everyone in the home workspace_' : '_none_'}`);
+  lines.push(`Admins: ${a.admins.length ? a.admins.map((u) => `<@${u}>`).join(', ') : isHome ? `_${homeAdmins}_` : '_none_'}`);
   lines.push('', 'Manage: `/aven users allow @user` · `deny @user` · `open` · `restrict`');
   return lines.join('\n');
 }

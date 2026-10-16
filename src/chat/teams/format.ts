@@ -70,6 +70,43 @@ export function splitText(text: string, max = MAX_TEAMS_TEXT): string[] {
   return parts;
 }
 
+// Inbound mentions as Teams delivers them (`<at>Name</at>` in the text, one `mention` entity
+// each): the bot's own is removed, a person's becomes the core's `<@id>` form — what
+// `/users allow <@id>` parses and what `teamsMentions` renders back.
+export function rewriteMentions(
+  text: string,
+  entities: { type: string; mentioned?: { id: string; name?: string }; text?: string }[] | undefined,
+  botId: string,
+): string {
+  let t = text;
+  for (const e of entities ?? []) {
+    if (e.type !== 'mention' || !e.mentioned || !e.text) continue;
+    t = t.replace(e.text, e.mentioned.id === botId ? '' : `<@${e.mentioned.id}>`);
+  }
+  return t;
+}
+
+export interface MentionEntity {
+  type: 'mention';
+  mentioned: { id: string; name: string };
+  text: string;
+}
+
+// Outbound `<@id>` → a Teams mention: the display text in the message plus one entity per
+// mention (Teams renders nothing without both). A person whose name was never seen stays a
+// plain `@id` — visible, not a mention.
+export function teamsMentions(text: string, nameOf: (id: string) => string | undefined): { text: string; entities?: MentionEntity[] } {
+  const entities: MentionEntity[] = [];
+  const out = text.replace(/<@([^>|\s]+)(?:\|[^>]*)?>/g, (_m, id: string) => {
+    const name = nameOf(id);
+    if (!name) return `@${id}`;
+    const at = `<at>${name}</at>`;
+    entities.push({ type: 'mention', mentioned: { id, name }, text: at });
+    return at;
+  });
+  return entities.length ? { text: out, entities } : { text: out };
+}
+
 // The bot's mention, as Teams delivers it, removed from a message's text: `<at>Aven</at>` in
 // the HTML form, and the plain `@Aven` the client puts in `text`.
 export function stripBotMention(text: string, botName: string | undefined): string {

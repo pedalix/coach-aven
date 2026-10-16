@@ -21,6 +21,12 @@ class Recorder implements TeamsApi {
     this.calls.push({ op: 'send', conv, activity });
     return { id: `m${++this.seq}` };
   }
+  targetedFails = false; // the platform refusing targeted sends (not installed, a guest, …)
+  async sendTargeted(conv: string, activity: OutActivity) {
+    this.calls.push({ op: 'sendTargeted', conv, activity });
+    if (this.targetedFails) throw new Error('HTTP 403 BotNotInConversationRoster');
+    return { id: `m${++this.seq}` };
+  }
   async update(conv: string, id: string, activity: OutActivity) {
     // The Connector's rule, learnt on the real tenant: an edit may carry text or a card, not both.
     if (activity.text !== undefined && activity.attachments?.length) {
@@ -170,6 +176,45 @@ test('private replies go to the 1:1 chat with a pointer, or stay in place when a
     ['openPersonal', '29:USER1'],
     ['send', `${CH};messageid=100`],
   ]);
+});
+
+test('with targeted messages on, a private reply stays in the channel for that person only; a refusal falls back to the 1:1', async () => {
+  const api = new Recorder();
+  const d = teamsDriver(api, { tenantId: TENANT, targeted: true });
+  const inChannel: TeamsActionCtx = { conv: CH, thread: '100', user: '29:USER1', direct: false };
+  await d.reply({ ctx: inChannel }, { kind: 'text', text: 'status: fine' });
+  assert.deepEqual(
+    api.calls.map((c) => [c.op, c.conv, c.activity?.recipient]),
+    [['sendTargeted', `${CH};messageid=100`, { id: '29:USER1', isTargeted: true }]],
+  );
+  api.calls = [];
+  api.targetedFails = true;
+  await d.reply({ ctx: inChannel }, { kind: 'text', text: 'status: fine' });
+  assert.deepEqual(
+    api.calls.map((c) => [c.op, c.conv]),
+    [
+      ['sendTargeted', `${CH};messageid=100`],
+      ['openPersonal', '29:USER1'],
+      ['send', 'a:PERSONAL1'],
+      ['send', `${CH};messageid=100`],
+    ],
+  );
+  // in a 1:1 there is nothing to target: in place, as before
+  api.calls = [];
+  await d.reply({ ctx: { conv: 'a:PERSONAL1', user: '29:USER1', direct: true } }, { kind: 'text', text: 'hi' });
+  assert.deepEqual(api.calls.map((c) => c.op), ['send']);
+});
+
+test('`<@id>` renders as a Teams mention once the person’s name is known, a plain @id before', async () => {
+  const api = new Recorder();
+  const d = teamsDriver(api, { tenantId: TENANT });
+  await d.post({ conv: CH, thread: '100' }, { kind: 'text', text: 'Admins: <@29:USER2>' });
+  assert.equal(api.calls[0].activity!.text, 'Admins: @29:USER2');
+  assert.equal(api.calls[0].activity!.entities, undefined);
+  d.knowPerson('29:USER2', 'Example Admin');
+  await d.post({ conv: CH, thread: '100' }, { kind: 'text', text: 'Admins: <@29:USER2>, <@29:USER9>' });
+  assert.equal(api.calls[1].activity!.text, 'Admins: <at>Example Admin</at>, @29:USER9');
+  assert.deepEqual(api.calls[1].activity!.entities, [{ type: 'mention', mentioned: { id: '29:USER2', name: 'Example Admin' }, text: '<at>Example Admin</at>' }]);
 });
 
 test('openDialog resolves the click’s deferred with the rendered dialog, and is a no-op without one', async () => {
