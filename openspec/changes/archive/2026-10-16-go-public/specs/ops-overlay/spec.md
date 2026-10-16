@@ -29,3 +29,7 @@ Keeps an installation (project list, prompts, topology, operator notes) in its o
 
 ### Requirement: Template for a new installation
 The public repo SHALL ship `infra/prod/runtime.example/` with a placeholder `projects.config.json` and one `projects.d/example.md`, and `infra/prod/README.md` SHALL explain how to start an ops repo from it.
+
+#### Scenario: Starting a new installation
+- **WHEN** an operator copies `infra/prod/runtime.example/` into a new private repository and clones it at `infra/prod/runtime/`
+- **THEN** `npm run prod:export` accepts it as the ops checkout and the template contains no identifier of our installation
