@@ -11,6 +11,13 @@
 
 const MESSAGE_ID = ';messageid=';
 
+// Reply chains exist in team channels only (`19:…@thread.tacv2`, legacy `@thread.skype`); a 1:1
+// (`a:…`) or group chat (`19:…@thread.v2`) has none, and a `;messageid=` suffix on their ids is
+// answered with 403 "Failed to decrypt conversation id" (probed 2026-10-16).
+export function hasReplyChains(conv: string): boolean {
+  return conv.includes('@thread.tacv2') || conv.includes('@thread.skype');
+}
+
 // The conversation without its reply-chain suffix, and the chain's root when there is one.
 export function splitConversation(conversationId: string): { conv: string; root?: string } {
   const i = conversationId.indexOf(MESSAGE_ID);
@@ -22,7 +29,7 @@ export function splitConversation(conversationId: string): { conv: string; root?
 // core targets a thread, the bare conversation otherwise (a new root post in a channel, or a
 // 1:1 chat).
 export function targetId(conv: string, thread?: string): string {
-  return thread ? `${conv}${MESSAGE_ID}${thread}` : conv;
+  return thread && hasReplyChains(conv) ? `${conv}${MESSAGE_ID}${thread}` : conv;
 }
 
 // Where an inbound channel message sits for the core: `thread` is the chain root when the

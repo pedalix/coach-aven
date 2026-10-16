@@ -38,6 +38,13 @@ test('a channel reply without a mention continues its chain', () => {
 test('a personal message is direct; `/verb` there is a command', () => {
   const m = normalizeMessage(load('message-personal'), TENANT);
   assert.equal(m.kind, 'message');
+  // even with a mention entity attached (typing "@Aven" in the 1:1), it stays a direct message
+  const raw = load('message-personal');
+  raw.entities = [...(raw.entities ?? []), { type: 'mention', mentioned: { id: raw.recipient.id, name: 'Aven' }, text: '<at>Aven</at>' }];
+  raw.text = `<at>Aven</at> ${raw.text ?? ''}`;
+  const withMention = normalizeMessage(raw, TENANT);
+  assert.equal(withMention.kind, 'message');
+  if (withMention.kind === 'message') assert.equal(withMention.msg.direct, true);
   if (m.kind === 'message') {
     assert.equal(m.msg.direct, true);
     assert.equal(m.msg.thread, undefined);
