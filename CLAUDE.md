@@ -33,6 +33,9 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 - **Pure logic lives in its own module with tests.** Anything testable without Slack/Daytona
   (parsing, matching, formatting) goes in a standalone file (e.g. `src/schedule.ts`) with a
   `*.test.ts` beside it — don't bury it inside a chat driver (`src/chat/slack/`).
+- **Fictional names only.** Tests, fixtures, docs, comments, OpenSpec and commit/PR text use invented people,
+  companies and `.example` domains — never a real customer, installation, person, host or id. Real ones live in
+  the installation's ops repo (`infra/<slug>/`). CI's `scripts/public-guard.sh` checks against a private deny-list.
 - Match the surrounding style: dense, explanatory comments on the *why*; concise code.
 - **Plan before code — OpenSpec.** Shared-code work starts as a change in `openspec/changes/<name>/`
   (`/opsx:propose`: proposal → spec delta → design → tasks), is implemented with `/opsx:apply` in a

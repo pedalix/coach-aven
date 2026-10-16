@@ -5,7 +5,7 @@ bar is: **nothing may change for production users as a side effect of a merge.**
 
 ## Before a PR
 
-- `npm run typecheck` and `npm test` pass; `bash scripts/public-guard.sh` is clean.
+- `npm run typecheck` and `npm test` pass; `bash scripts/public-guard.sh` is clean (CI adds a private deny-list; use invented names and `.example` domains in tests and docs).
 - Pure logic (parsing, matching, formatting) lives in its own module with a `*.test.ts`
   beside it — not inside the Slack handlers.
 - Any new command, button or changed interaction is reflected in the App Home tab
