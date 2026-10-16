@@ -40,7 +40,7 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
    else is 404.
 5. **Bind a project**: `teamsChannel` in `projects.config.json`, `export`, `/reload` (or restart).
 
-## What differs for people (parity, PR 1)
+## What differs for people (the parity matrix)
 
 | Slack | Teams |
 |---|---|
