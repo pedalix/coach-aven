@@ -87,5 +87,9 @@ terraform -chdir=infra/<slug>/teams output -raw bot_app_password   # → TEAMS_A
 Bot scopes `personal`, `team`, `groupChat`; resource-specific permissions
 `ChannelMessage.Read.Group` and `ChatMessage.Read.Chat`, so the bot receives thread replies
 without an @mention (Slack parity) — the team or chat owner consents when installing the app.
-`supportsFiles` is off until the driver spec decides files. Catalog upload needs **custom app
-upload** allowed in the tenant's Teams app setup policy and a Teams licence on the admin.
+`supportsFiles` follows `var.supports_files` (default off): on, people can send the bot files in
+1:1 chats, and the bot's Entra app asks for Graph `Files.Read.All` (application) to read documents
+shared in channels — an admin consents once after `apply`
+(`az ad app permission admin-consent --id <bot_app_id>`), then re-publish the package. Catalog
+upload needs **custom app upload** allowed in the tenant's Teams app setup policy and a Teams
+licence on the admin.

@@ -19,6 +19,7 @@ import type { createMessages } from '../core/messages.js';
 import type { createCommands } from '../core/commands.js';
 import { rewriteMentions, stripBotMention } from './format.js';
 import { splitConversation, threadOf } from './keys.js';
+import { hydrateTeamsFiles, teamsFiles, type FileTokens } from './files.js';
 import type { AdaptiveCard } from './cards.js';
 import type { TeamsActionCtx, TeamsChatDriver } from './driver.js';
 import { RecentSet } from '../../recent.js';
@@ -37,7 +38,7 @@ export interface InboundActivity {
   conversation: { id: string; conversationType?: string; tenantId?: string; isGroup?: boolean };
   replyToId?: string;
   entities?: { type: string; mentioned?: { id: string; name?: string }; text?: string }[];
-  attachments?: { contentType?: string; contentUrl?: string; name?: string }[];
+  attachments?: { contentType?: string; contentUrl?: string; name?: string; content?: unknown }[];
   value?: unknown;
   action?: string; // installationUpdate: 'add' | 'remove'
 }
@@ -52,8 +53,9 @@ const isDirect = (a: InboundActivity) => a.conversation.conversationType === 'pe
 
 // A message activity → a mention (the bot is named), a command (`/verb …` after the mention,
 // or bare in a 1:1), or a plain message (a thread reply, a 1:1 line). `ctx` is what the
-// driver needs to answer privately; `files` is lazy and empty until PR 2.
-export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kind: string) => boolean = () => true): Normalized {
+// driver needs to answer privately; `files` is lazy — classified now (files.ts), fetched only
+// once the core acts, with the tokens app.ts provides (none in the pure tests: no files).
+export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kind: string) => boolean = () => true, tokens?: FileTokens): Normalized {
   if (a.type !== 'message') return { kind: 'ignore', why: `not a message: ${a.type}` };
   const { conv, root } = splitConversation(a.conversation.id);
   const mentioned = (a.entities ?? []).some((e) => e.type === 'mention' && e.mentioned?.id === a.recipient.id);
@@ -67,6 +69,7 @@ export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kin
   if (text.startsWith('/') && (mentioned || direct || thread)) {
     return { kind: 'command', cmd: { text: text.slice(1), conv, actor, ctx } };
   }
+  const files = tokens ? teamsFiles(a.attachments) : [];
   const msg: ChatMessage = {
     conv,
     id: a.id,
@@ -74,8 +77,8 @@ export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kin
     text,
     actor,
     direct,
-    hasFiles: false,
-    files: async () => undefined,
+    hasFiles: files.length > 0,
+    files: async () => (files.length ? hydrateTeamsFiles(files, tokens!) : undefined),
     claim,
   };
   // In a 1:1 the client may still attach a mention entity (typing "@Aven …"); the chat has no
@@ -157,6 +160,8 @@ export interface EventDeps {
   // The project bound to a channel, if any — to say which project lost its channel when the
   // app is removed from a team.
   boundProject?: (conv: string) => string | undefined;
+  // Tokens for fetching inbound files (files.ts); absent → files are ignored.
+  files?: FileTokens;
 }
 
 // Teams gives an invoke 5 s before "Unable to reach the app" (and it retries twice): answer well
@@ -193,7 +198,7 @@ export function registerEvents(app: TeamsAppLike, deps: EventDeps): void {
   });
 
   app.on('message', async ({ activity }) => {
-    const n = normalizeMessage(activity, tenantId, claimFor(activity));
+    const n = normalizeMessage(activity, tenantId, claimFor(activity), deps.files);
     if (n.kind === 'mention' || n.kind === 'message') {
       // A root message IS its chain's root; a reply names it. Needed to react to the message.
       const { conv, root } = splitConversation(activity.conversation.id);

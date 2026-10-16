@@ -63,7 +63,9 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 | YouTrack `ping` owners | the same `youtrack.ping` list, with Teams user ids (`29:…`); each becomes a real mention (the bot looks the name up in the channel roster once) |
 | `AVEN_ALERT_CHANNEL` | the same; a Teams channel id the app is in |
 
-Arriving later: files (task 3.3), team owners as admins (3.5a).
+| files on a message | 1:1 uploads (needs `supports_files` in the module → `supportsFiles`), pasted images anywhere, documents shared in a channel (through Microsoft Graph — the module's `supports_files` adds `Files.Read.All`, an admin consents once). A file the bot cannot reach is named in the reply as "file access not granted" |
+
+Arriving later: team owners as admins (3.5a).
 
 ## Operations notes
 

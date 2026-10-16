@@ -78,6 +78,12 @@ variable "icon_outline_path" {
   default     = null
 }
 
+variable "supports_files" {
+  description = "Let people send the bot files in 1:1 chats (manifest supportsFiles) and let it read documents shared in channels (Microsoft Graph application permission Files.Read.All on the bot's app — an admin must consent once: `az ad app permission admin-consent --id <bot_app_id>`)."
+  type        = bool
+  default     = false
+}
+
 variable "build_dir" {
   description = "Where the rendered manifest and the zip go (the calling root's directory by default; ignored by the ops repo's .gitignore when under build/)."
   type        = string

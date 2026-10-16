@@ -83,6 +83,7 @@ export async function runTeams(cfg: Config): Promise<void> {
       return (res as { id?: string }).id;
     },
   };
+  const tokens = app as unknown as { getBotToken(): Promise<{ toString(): string } | null>; getAppGraphToken(t?: string): Promise<{ toString(): string } | null> };
   const driver = teamsDriver(api, { tenantId, statusMinMs: teams.statusMinMs, targeted: teams.targeted });
   // Operators (TEAMS_OPERATORS): Teams user ids (`29:…`, as `/users` lists them) or Entra object
   // ids — the latter matched through the `aadObjectId` every activity of that person carries.
@@ -142,6 +143,13 @@ export async function runTeams(cfg: Config): Promise<void> {
       if (aad) aadOf.set(id, aad);
     },
     boundProject: (conv) => resolveByChannel(reg.current, conv)?.slug,
+    // The SDK keeps both tokens protected; they are the app's own (client credentials), fetched
+    // and cached by its token manager. The Graph one is empty until the tenant consented
+    // Files.Read.All (the module's `supports_files`).
+    files: {
+      botToken: async () => (await tokens.getBotToken())?.toString(),
+      graphToken: async () => (await tokens.getAppGraphToken(tenantId))?.toString(),
+    },
   });
 
   // Recovery before the listener opens: the journal drain must not race new activities.
