@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import type { Config } from './config.js';
 import type { ExecOpts, ExecResult, SandboxDriver, SandboxHandle } from './driver.js';
 import { log } from './log.js';
+import { utf8Chunks } from './utf8.js';
 import { resolveSandboxOptions, type Mount, type SandboxOptions } from './sandboxopts.js';
 
 // SshDockerDriver: sandboxes as Docker containers on a host we own, driven over SSH.
@@ -266,15 +267,19 @@ function runSsh(
     if (opts.timeoutMs && opts.timeoutMs > 0) {
       timer = setTimeout(() => child.kill('SIGKILL'), opts.timeoutMs);
     }
-    child.stdout.on('data', (c: Buffer) => {
-      const s = c.toString('utf8');
+    // Decoded incrementally (src/utf8.ts): a per-chunk toString splits multibyte chars.
+    const out = utf8Chunks();
+    const emit = (s: string) => {
+      if (!s) return;
       if (opts.onStdout) opts.onStdout(s);
       else stdout += s;
-    });
+    };
+    child.stdout.on('data', (c: Buffer) => emit(out.push(c)));
     // Bounded: a long tail (streamSessionCommandLogs) can sit here for a whole turn, and
     // stderr is only ever read for error messages.
+    const err = utf8Chunks();
     child.stderr.on('data', (c: Buffer) => {
-      if (stderr.length < 8192) stderr += c.toString('utf8');
+      if (stderr.length < 8192) stderr += err.push(c);
     });
     child.on('error', (e) => {
       if (timer) clearTimeout(timer);
@@ -282,6 +287,9 @@ function runSsh(
     });
     child.on('close', (code) => {
       if (timer) clearTimeout(timer);
+      // Flush a trailing partial character (a truncated stream ends mid-sequence).
+      emit(out.flush());
+      stderr += err.flush();
       resolve({ code: code ?? 1, stdout, stderr });
     });
     if (opts.stdin !== undefined) child.stdin.end(opts.stdin);

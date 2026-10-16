@@ -26,6 +26,7 @@ import { join } from 'node:path';
 import { handleMessage } from '../../snapshot/plain/sources-mcp.mjs';
 import { REPLICA_FILE } from './store.js';
 import { replicaDir } from './paths.js';
+import { utf8Chunks } from '../utf8.js';
 
 export const SERVE_TOKEN_ENV = 'SOURCES_SERVE_TOKEN';
 export const DEFAULT_LISTEN = '127.0.0.1:3415';
@@ -112,9 +113,10 @@ export function startServe(listen: string, o: ServeOptions): Promise<Server> {
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     let body = '';
     let over = false;
+    const dec = utf8Chunks(); // a per-chunk toString splits multibyte chars in the JSON body
     req.on('data', (chunk: Buffer) => {
       if (over) return;
-      body += chunk.toString('utf8');
+      body += dec.push(chunk);
       if (body.length > MAX_BODY) {
         over = true;
         res.writeHead(413).end();
@@ -123,6 +125,7 @@ export function startServe(listen: string, o: ServeOptions): Promise<Server> {
     });
     req.on('end', () => {
       if (over) return;
+      body += dec.flush();
       const headers: Record<string, string | undefined> = {};
       for (const [k, v] of Object.entries(req.headers)) headers[k.toLowerCase()] = Array.isArray(v) ? v[0] : v;
       let r: ReturnType<typeof handleHttp>;

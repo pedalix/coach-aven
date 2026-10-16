@@ -30,6 +30,7 @@ import { REPLICA_FILE, rawRecordCount } from './store.js';
 import { authCheckDue, createSourcesTicker, readSyncState, type SourcesSyncState, type SourcesTicker } from './sync.js';
 import { readDueNow, type DueNow } from './tenant.js';
 import type { PullSummary, SourceKind } from './types.js';
+import { utf8Chunks } from '../utf8.js';
 
 export const DAEMON_TOKEN_ENV = 'SOURCES_DAEMON_TOKEN';
 export const DAEMON_LISTEN = '127.0.0.1:3416';
@@ -106,9 +107,10 @@ export function startDaemonServer(listen: string, d: DaemonHttpDeps, log: (line:
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     let body = '';
     let over = false;
+    const dec = utf8Chunks(); // a per-chunk toString splits multibyte chars in the JSON body
     req.on('data', (chunk: Buffer) => {
       if (over) return;
-      body += chunk.toString('utf8');
+      body += dec.push(chunk);
       if (body.length > MAX_BODY) {
         over = true;
         res.writeHead(413).end();
@@ -117,6 +119,7 @@ export function startDaemonServer(listen: string, d: DaemonHttpDeps, log: (line:
     });
     req.on('end', () => {
       if (over) return;
+      body += dec.flush();
       const headers: Record<string, string | undefined> = {};
       for (const [k, v] of Object.entries(req.headers)) headers[k.toLowerCase()] = Array.isArray(v) ? v[0] : v;
       let r: ReturnType<typeof handleDaemonHttp>;
