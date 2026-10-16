@@ -25,5 +25,5 @@
 - [x] 3.5 (done 2026-10-16 for operators + `/users` with Teams ids: `TEAMS_OPERATORS` accepts `29:` ids or Entra object ids, matched through `aadObjectId`; mentions rewritten `<at>…</at>` ↔ `<@id>` both ways) Access with Entra ids, operators as admins. Verify: `access` tests with Teams ids.
 - [ ] 3.5a Team owners as admins: needs the team roster with roles (Graph `TeamMember.Read.Group` RSC + a Graph token) — not wired yet; operators add admins with `/users` meanwhile.
 - [x] 3.5b Post-answer bundle and queue order (design D10): one card per answer (steps, rating, Session); a queued turn → 👀 reaction, status card at start (engine option behind the driver's capabilities); `mark()` as reactions in channels; 1:1 deep links via the `19:` chat id. Verify: recorder tests pin one follow-up card per answer and the queued-turn sequence; the Slack recorders are byte-identical.
-- [ ] 3.6 `docs/teams.md` completed (parity matrix differences for users); ledger row; PR. Verify: CI green.
+- [x] 3.6 (done 2026-10-16) `docs/teams.md` completed (parity matrix differences for users); ledger row; PR. Verify: CI green.
 - [ ] 3.7 Canary: the remaining spec scenarios on the staging installation with a member and a guest. Verify: ticked in the PR.
