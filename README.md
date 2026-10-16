@@ -35,7 +35,8 @@ Licence: Apache-2.0.
   or `direct`.
 - Optional: scheduled routines and reports, auto PR review and autofix, ticket investigations
   (YouTrack/Jira/Asana), per-project ingestion of mail/chat/calendar into a searchable,
-  scrubbed store the agent can query (`docs/sources.md`), multi-workspace installs over OAuth.
+  scrubbed store the agent can query (`docs/sources.md`) with an attribution layer that learns from
+  people's answers (`docs/attribution.md`), multi-workspace installs over OAuth.
 
 The App Home tab of the bot is the user-facing cheat-sheet for every command and button.
 
