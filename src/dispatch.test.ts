@@ -50,6 +50,7 @@ test('composeProposal builds the record from the tool arguments and the SESSION 
   for (const [args, re] of [
     [{ kind: 'email', target: 'x', text: 'y' }, /kind must be/],
     [{ kind: 'message', target: 'bad target!', text: 'y' }, /target/],
+    [{ kind: 'message', target: '19:x@thread.tacv2;messageid=1', text: 'y' }, /target/],
     [{ kind: 'message', target: 'C0C95AP2E58', text: '' }, /text is required/],
     [{ kind: 'message', target: 'owen-ops', text: 'x'.repeat(4001) }, /limit is 4000/],
     [{ kind: 'message', target: 'owen-ops', text: 'y', refs: 'nope' }, /refs must be/],
@@ -59,6 +60,7 @@ test('composeProposal builds the record from the tool arguments and the SESSION 
   }
   assert.deepEqual(parseProposal({ id: 'nope', kind: 'message', target: 'x', text: 'y' }), { ok: false, error: 'bad id' });
   assert.equal(parseProposal({ id: 'p-1', kind: 'dispatch', target: 'owen-ops', text: 'y', refs: ['a'] }).ok, true);
+  assert.equal(parseProposal({ id: 'p-1', kind: 'message', target: '19:aBc_1-2@thread.tacv2', text: 'y' }).ok, true);
 });
 
 test('sessionThread, gateDecision, wrapDispatch, rendering', () => {

@@ -1,0 +1,36 @@
+{
+  "calls": [
+    {
+      "op": "send",
+      "conv": "19:ALPHA@thread.tacv2;messageid=9.1",
+      "activity": {
+        "type": "message",
+        "text": "📨 Proposal: message to `19:TARGET@thread.tacv2`\nFYI the release is out.",
+        "textFormat": "extendedmarkdown"
+      }
+    }
+  ],
+  "engine": [],
+  "result": null,
+  "routines": [],
+  "proposals": [
+    null,
+    {
+      "id": "p-2",
+      "kind": "message",
+      "target": "19:TARGET@thread.tacv2",
+      "text": "FYI the release is out.",
+      "refs": [],
+      "rationale": "",
+      "session": "thread:9.1",
+      "createdAt": "2026-10-15T07:00:00.000Z",
+      "slug": "alpha",
+      "status": "pending",
+      "receivedAt": "2026-10-15T07:00:00.000Z",
+      "channel": "19:ALPHA@thread.tacv2",
+      "threadTs": "9.1",
+      "messageTs": "m1"
+    },
+    null
+  ]
+}

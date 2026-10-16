@@ -222,9 +222,32 @@ export function renderDialogView(v: DialogView): { title: string; card: Adaptive
     case 'ticketUnavailable':
       return { title: v.id, card: card([text(`Could not load [${v.id}](${v.url}).`)]) };
     case 'reportPrompt':
-      return { title: `📝 Report to ${v.ticket}`, card: card([text('_Report dialogs arrive with the next Teams release._')]) };
+      // The generation prompt, editable; "post immediately" as a one-choice multi-select (Teams
+      // has no checkbox — a multi-select ChoiceSet submits a comma-separated string, which
+      // events.ts turns into the array the core expects for the fields named in `multi`).
+      return {
+        title: `📝 Report to ${v.ticket}`,
+        card: card(
+          [
+            text('**Instructions for the draft** — edit before running:', { isSubtle: true }),
+            { type: 'Input.Text', id: 'instructions', isMultiline: true, isRequired: true, errorMessage: 'Say what to write', value: v.prompt },
+            { type: 'Input.ChoiceSet', id: 'now', isMultiSelect: true, style: 'expanded', choices: [{ title: 'Post to the ticket immediately (no review)', value: 'now' }] },
+            text(`_${mrkdwnToTeams(v.contract)}_`, { isSubtle: true, size: 'Small' }),
+          ],
+          [{ type: 'Action.Submit', title: 'Draft the report', data: { dialog: 'yt_prompt', multi: ['now'], meta: JSON.stringify({ t: v.ticket, key: v.meta.key, channel: v.meta.channel, threadTs: v.meta.threadTs }) } }],
+        ),
+      };
     case 'report':
-      return { title: `📝 Report to ${v.ticket}`, card: card([text(markdownToTeams(v.draft).slice(0, 20_000))]) };
+      return {
+        title: `📝 Report to ${v.ticket}`,
+        card: card(
+          [
+            text('Posted as an **internal** comment on the ticket — edit first if needed:', { isSubtle: true }),
+            { type: 'Input.Text', id: 'text', isMultiline: true, isRequired: true, errorMessage: 'Nothing to post', value: v.draft.slice(0, 20_000) },
+          ],
+          [{ type: 'Action.Submit', title: 'Send to YouTrack', data: { dialog: 'yt_send', meta: JSON.stringify({ t: v.ticket, channel: v.meta.channel, ts: v.meta.ts, threadTs: v.meta.threadTs }) } }],
+        ),
+      };
     case 'reportExpired':
       return { title: `📝 Report to ${v.ticket}`, card: card([text('⌛ This draft has expired.')]) };
   }

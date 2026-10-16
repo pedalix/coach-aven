@@ -88,6 +88,15 @@ test('a card click carries the family, the value, where it happened and the card
   assert.equal((p?.ctx as TeamsActionCtx).direct, true);
 });
 
+test('a submit’s multi-select fields (named in `multi` by the card) become arrays', () => {
+  const raw = load('invoke-task-submit');
+  (raw.value as { data: Record<string, unknown> }).data = { dialog: 'yt_prompt', meta: '{"t":"SUP-1"}', multi: ['now'], instructions: 'write it', now: 'now' };
+  const s = normalizeSubmit(raw, TENANT)!;
+  assert.deepEqual(s.values, { instructions: 'write it', now: ['now'] });
+  (raw.value as { data: Record<string, unknown> }).data = { dialog: 'yt_prompt', meta: '', multi: ['now'], instructions: 'x', now: '' };
+  assert.deepEqual(normalizeSubmit(raw, TENANT)!.values, { instructions: 'x', now: [] });
+});
+
 test('a dialog opener gets the deferred; a submit yields the form values', () => {
   // The probe's opener carried no `action` family — not ours to route.
   assert.equal(normalizeAction(load('invoke-task-fetch'), TENANT, () => {}), undefined);
@@ -115,7 +124,9 @@ test('the tenant gate drops a foreign tenant before any handler and logs it once
     commands: { run: async (c: ChatCommand) => void seen.push(`command:${c.text}`) } as never,
     onServiceUrl: (u) => seen.push(`url:${u}`),
     onPerson: (id, name, aad) => seen.push(`person:${id}:${name ?? '-'}:${aad ?? '-'}`),
+    boundProject: (conv) => (conv === CH ? 'alpha' : undefined),
   });
+  assert.ok(routes.has('install.remove'));
   const gate = routes.get('activity')!;
   let passed = 0;
   const foreign = { ...load('message-channel-mention'), conversation: { ...load('message-channel-mention').conversation, tenantId: 'other' } };

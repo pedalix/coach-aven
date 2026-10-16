@@ -50,7 +50,8 @@ export interface ProposalRecord {
 }
 
 const ID_RE = /^p-[A-Za-z0-9-]{1,64}$/;
-const TARGET_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/;
+// A project slug or a channel id: Slack's (`C…`), or a Teams channel's (`19:…@thread.tacv2`).
+const TARGET_RE = /^(?:[A-Za-z0-9][A-Za-z0-9_-]{0,63}|19:[A-Za-z0-9_-]{1,80}@thread\.(?:tacv2|skype|v2))$/;
 export const MAX_TEXT = 4000;
 export const MAX_REFS = 20;
 
@@ -93,7 +94,7 @@ export function composeProposal(args: Record<string, unknown>, caller: { slug: s
   const kind = String(args.kind ?? '');
   if (!(PROPOSAL_KINDS as readonly string[]).includes(kind)) return { error: `kind must be one of ${PROPOSAL_KINDS.join(', ')}` };
   const target = String(args.target ?? '').trim();
-  if (!TARGET_RE.test(target)) return { error: 'target must be a project slug or a Slack channel id' };
+  if (!TARGET_RE.test(target)) return { error: 'target must be a project slug or a channel id' };
   const text = String(args.text ?? '').trim();
   if (!text) return { error: 'text is required' };
   if (text.length > MAX_TEXT) return { error: `text is ${text.length} chars; the limit is ${MAX_TEXT}` };
