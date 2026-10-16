@@ -49,3 +49,7 @@
 - [ ] 6.1 `gh repo edit pedalix/coach-aven --visibility public`. Verify: anonymous `git ls-remote https://github.com/pedalix/coach-aven` works; CI on the next push green with the guard.
 - [ ] 6.2 coachaven.com: "Source on GitHub" link (Lovable project); README link back. Verify: both links resolve.
 - [ ] 6.3 Memory/ledger: `docs/rollout.md` row dated; owen-ops `docs/PLAN.md` one decision line ("repo public since <date>, history rewritten <date>, installation lives in coach-aven-ops"); nothing else goes to the tenant repos.
+
+## 7. Delete and recreate (added 2026-10-16)
+
+- [x] 7.1 GitHub kept `refs/pull/*` of every PR ever opened, which still exposed pre-rewrite commits; Support cannot be self-served. Decision (Owen, 2026-10-15): delete and recreate `pedalix/coach-aven` under the same name. **Done 2026-10-16:** archive refreshed in the ops repo (68 releases, 189 PRs, open-PR triage); fresh mirror without `refs/pull` (85 heads, 68 tags, 376 commits, guard 0); repo deleted and recreated private; `git push --mirror`: 153 refs identical by SHA; `refs/pull` 0; old SHAs (`314e292…`, `0cd70bd…`) return "No commit found". Labels (15) and releases (68, v0.41.0 latest) recreated from the archive; wiki/projects/discussions off; secret scanning + push protection + Dependabot on; App `coach-aven` installed on all org repos (no re-grant); branch protection on `main` (PR, `verify`, no force-push). No secrets needed on the public repo (deploy lives in the ops repo).
