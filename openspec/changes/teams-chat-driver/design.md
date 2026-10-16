@@ -98,6 +98,14 @@ In 1:1 chats the manifest enables `supportsFiles` (a module variable, PR 2); upl
 ### D9. Server shape
 `server.ts` owns the HTTP listener: `POST /api/messages` only (everything else 404), body limit 1 MB, bound to `127.0.0.1:TEAMS_PORT` (default 3978). Startup logs `Teams bot running (:<port>) — <n> project(s), <m> channel-bound`, the line the deploy health check waits for. `orch teams` validates the `teams` config block at boot and refuses to start naming the missing key; `orch slack` never reads it.
 
+### D10. What the canary taught (2026-10-16), and what PR 2 does about it
+Rules of the platform found on the first real turns, now pinned in the driver and in
+`docs/teams-pitfalls.md`:
+- **Text and a card never share one message.** An edit with both is rejected (`BadSyntax: Activity resulted into multiple skype activities`); a new message with both is split by Teams and returns no usable id. The driver posts text and card as separate messages and edits the status card into the answer text, with the buttons as a follow-up card. Consequence: with queued turns the follow-up cards gather at the end of the chain, after the later turns' status cards.
+- **Reply chains exist in channels only** (`@thread.tacv2`); a `;messageid=` suffix on a 1:1 (`a:…`) or group-chat (`@thread.v2`) id is a 403. A 1:1 message is a direct message whatever mention entity rides along.
+- **Re-deliveries** after 15 s, the **5-second invoke budget**, **429/412/5xx retries** with `Retry-After`, `extendedmarkdown` (tables, highlighted code, headings render) — all applied.
+PR 2 takes from this: (a) one post-answer card per answer (🧭 steps, 👍/👎, ⚙️ Session) instead of several; (b) a queued turn acknowledged with a 👀 reaction on the person's message (bots may react now, 2/s) and its status card posted only when the turn starts, so an answer and its card stay adjacent — an engine option the driver's capabilities switch on; (c) `mark()` as reactions in channels; (d) targeted channel messages (GA) for private replies, with the 1:1 fallback kept for people without the personal install (403 `ForbiddenOperationException`) and for guests, who never get a 1:1; (e) deep links to 1:1 messages need the `19:` chat id, not the `a:` conversation id.
+
 ## Risks / Trade-offs
 
 - [RSC consent missing → thread replies need a mention] → The help text says so; the bot detects missing consent at install and posts a hint to the team owner.
