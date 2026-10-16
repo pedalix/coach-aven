@@ -56,7 +56,7 @@ export function registerSourcesCommands(program: Command): void {
 
   sources
     .command('auth <slug> <kind> [args...]')
-    .description('Bootstrap or check credentials for one source kind of a project, e.g. `auth owen-ops google login --client pedalix`')
+    .description('Bootstrap or check credentials for one source kind of a project, e.g. `auth my-project google login --client acme`')
     .allowUnknownOption()
     .passThroughOptions()
     .action(async (slug: string, kind: string, args: string[]) => {

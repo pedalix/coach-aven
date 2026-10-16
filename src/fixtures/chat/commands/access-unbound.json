@@ -13,7 +13,7 @@
       "token": "",
       "payload": {
         "response_type": "ephemeral",
-        "text": ":information_source: This channel isn't bound to a project. Use a `bluefin-aven-<slug>` channel, or ask in one of: alpha, beta, cmdrec-mem."
+        "text": ":information_source: This channel isn't bound to a project. Use a `aven-<slug>` channel, or ask in one of: alpha, beta, cmdrec-mem."
       }
     }
   ],

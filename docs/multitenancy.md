@@ -72,7 +72,7 @@ most of "tenancy" under a different name:
 | Claude session | one Claude conversation per thread/DM (`state.ts` chats) | ✅ per conversation |
 | MCP servers | `project.mcp[]` materialized per sandbox (`project.ts:seedMcpConfig`) | ✅ per project |
 | System prompt | `project.systemPrompt` layered onto the base (`prompt.ts:buildSystemPrompt`) | ✅ per project |
-| Channel binding | explicit `slackChannel` id **or** `bluefin-aven-<slug>` name wildcard (`slack.ts:pickProject`) | ✅ per channel, **channel-id is workspace-agnostic** |
+| Channel binding | explicit `slackChannel` id **or** `aven-<slug>` name wildcard (`slack.ts:pickProject`) | ✅ per channel, **channel-id is workspace-agnostic** |
 
 **What is *global* (single-tenant) today:**
 

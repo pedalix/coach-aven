@@ -13,7 +13,7 @@
       "token": "",
       "payload": {
         "response_type": "ephemeral",
-        "text": ":x: Schedule a job from a project channel (e.g. `bluefin-aven-alpha`)."
+        "text": ":x: Schedule a job from a project channel (e.g. `aven-alpha`)."
       }
     }
   ],

@@ -9,8 +9,8 @@ import type { SourcesConfig } from './sources/types.js';
 // Registry of the projects the bot serves. ONE bot, MANY channels: each Slack channel
 // is bound to a project, and each project gets its OWN isolated sandbox (proj-<slug>).
 // Channel = context = the VM the bot works against. Channels auto-bind by name via the
-// wildcard `bluefin-aven-{project}` (e.g. bluefin-aven-caldora, bluefin-aven-cms-general,
-// bluefin-aven-dorfberg-monitoring) — the <project> part is the slug, so no channel ids to
+// wildcard `aven-{project}` (e.g. aven-caldora, aven-cms-general,
+// aven-dorfberg-monitoring) — the <project> part is the slug, so no channel ids to
 // wire (an explicit `slackChannel` id still overrides). A project owns its repos, MCP
 // servers, and env/secrets. ALL repos are cloned side by side (e.g. cms-general's
 // several codebases); `mcp` and `env` are modeled now, wired later.
@@ -38,7 +38,7 @@ export const GIT_FLOWS = ['pr', 'direct'] as const;
 export type GitFlow = (typeof GIT_FLOWS)[number];
 
 export interface ProjectConfig {
-  slug: string; // short id + sandbox suffix (proj-<slug>); channel = bluefin-aven-<slug>
+  slug: string; // short id + sandbox suffix (proj-<slug>); channel = aven-<slug>
   repos: string[]; // ["Org/name", ...]; repos[0] is primary (v1 clones/uses it)
   slackChannel?: string; // optional explicit channel-id override (else bound by name)
   // A Teams installation binds by id only (channels have no name wildcard there): the channel's
@@ -90,7 +90,7 @@ export interface ProjectConfig {
 // A workspaces entry: the short form is just the slug list; the object form adds
 // per-workspace settings — today `channelPrefix`, the channel-name wildcard for THAT
 // workspace ("" = channel name IS the slug, e.g. #coach-aven). Our home keeps the
-// legacy `bluefin-aven-` default; a client workspace shouldn't be forced to carry it.
+// legacy `aven-` default; a client workspace shouldn't be forced to carry it.
 export type WorkspaceEntry = string[] | { projects: string[]; channelPrefix?: string };
 
 export interface ProjectsRegistry {

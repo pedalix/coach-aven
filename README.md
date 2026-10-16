@@ -61,7 +61,7 @@ the repos, a Claude Code token, and a place to run sandboxes.
    cp projects.config.example.json projects.config.json  # projects: slug, repos[], mcp[], git flow
    npm install && npm run orch -- slack
    ```
-6. **A channel per project** named `bluefin-aven-<slug>` (prefix configurable with
+6. **A channel per project** named `aven-<slug>` (prefix configurable with
    `SLACK_CHANNEL_PREFIX`) auto-binds to the project; `@mention` the bot there. Project
    prompts go in `projects.d/<slug>.md` beside the config (`docs/runtime-config.md`).
 

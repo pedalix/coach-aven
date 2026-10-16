@@ -120,7 +120,7 @@ async function quiesce(h?: { log: unknown[]; turns: Promise<void>[] }): Promise<
 
 async function record(name: string, outcome: Outcome, run: (h: H) => Promise<unknown>): Promise<void> {
   api.reset();
-  api.responses['conversations.list'] = { channels: [{ id: 'C_BETA', name: 'bluefin-aven-beta' }, { id: 'C_HOME', name: 'bluefin-aven-alpha' }] };
+  api.responses['conversations.list'] = { channels: [{ id: 'C_BETA', name: 'aven-beta' }, { id: 'C_HOME', name: 'aven-alpha' }] };
   api.responses['chat.getPermalink'] = { permalink: 'https://slack/p/1' };
   const h = harness(outcome);
   const result = await run(h);

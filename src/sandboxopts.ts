@@ -71,3 +71,8 @@ export function resolveSandboxOptions(input?: SandboxOptions): ResolvedSandboxOp
 export function isDefaultSandbox(o: ResolvedSandboxOptions): boolean {
   return o.privileged && o.dind && o.mounts.length === 0;
 }
+
+// The `managedBy` label every sandbox of this deployment carries, and the filter `/aven status`
+// lists them by. An installation whose sandboxes already carry another value keeps it with
+// SANDBOX_MANAGED_BY (a change orphans nothing — the label is only read for the status listing).
+export const sandboxManagedBy = (): string => process.env.SANDBOX_MANAGED_BY || 'coach-aven';
