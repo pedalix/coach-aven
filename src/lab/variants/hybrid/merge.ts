@@ -13,6 +13,10 @@
 //        value  (minutes or 1) · (1 − conf) per member, plus (the hybrid's default, MergeOpts.value 'yield') the spine's
 //               yield — what its answer teaches the spine; the runner sums a group's members
 // Whatever is decided carries no question. J's spend on a unit stays on it whoever decided (Prediction.costUsd).
+//
+// hybrid-g (hybrid/guard.ts) replaces step 2 through three hooks, all absent for the hybrid: `decide` (J decides only
+// where its guard cell has EARNED it, at the guard's confidence), `probes` (one-unit questions `probe:<id>` at the top of
+// the queue) and `clientAgree` (J and the spine on one client but two initiatives → that client × day).
 
 import { fnv1a } from '../../metrics.js';
 import type { Prediction } from '../../types.js';
@@ -39,6 +43,15 @@ export interface MergeOpts {
    *  questions it did NOT decide (ranked by value, not drawn at random) and on rare uniform audits; a random draw of what
    *  it does decide is the sample that tells its real precision. */
   probe?: { perDay: number; cellOf: (id: string) => string | null };
+  /** The guard (hybrid-g, hybrid/guard.ts): J decides a unit only where this says so, at the confidence it gives — in
+   *  place of "J at ≥ τ decides" (and of `gate`/`probe`). null: J's judgment stays the question's guess, its confidence
+   *  held just under τ when it was at or above it. */
+  decide?: (s: Prediction | undefined, j: Prediction) => { conf: number; why: string } | null;
+  /** The guard's probes: each asked as a one-unit question `probe:<id>` at the top of the queue (J's label the guess). */
+  probes?: ReadonlySet<string>;
+  /** §5 umbrella-first (hybrid-g): the client J and the spine agree on while naming two of its initiatives → that
+   *  client × day, like the spine's own client-day groups (null: no such agreement). */
+  clientAgree?: (s: Prediction | undefined, j: Prediction) => string | null;
 }
 
 /** What a probation question adds to its value: enough to come first in the runner's queue. */
@@ -50,11 +63,12 @@ export interface MergeStats {
   spine: number; // auto-decided by the spine
   judge: number; // auto-decided by J
   gated: number; // J at ≥ τ held back by the gate (asked instead)
-  probed: number; // J at ≥ τ asked on probation
+  probed: number; // J at ≥ τ asked on probation (hybrid-g: the guard's probes, whatever J's own confidence)
   questions: number;
   guessed: number; // questions whose group guess is J's label
   umbrella: number; // questions in a client-day group
   splitUmbrella: number; // of those, put there by J's split passes (fragments)
+  clientAgree: number; // of those, put there because J and the spine agree on the client only (hybrid-g §5)
 }
 
 const decided = (p: Prediction | undefined, tau: number): boolean => !!p && p.label !== null && p.conf >= tau;
@@ -98,10 +112,11 @@ interface Q {
   value: number;
   umbrella: boolean;
   split: boolean;
+  agree: boolean;
 }
 
 export function merge(ids: readonly string[], spine: ReadonlyMap<string, Prediction>, judge: ReadonlyMap<string, Prediction>, o: MergeOpts): { preds: Prediction[]; stats: MergeStats } {
-  const stats: MergeStats = { spine: 0, judge: 0, gated: 0, probed: 0, questions: 0, guessed: 0, umbrella: 0, splitUmbrella: 0 };
+  const stats: MergeStats = { spine: 0, judge: 0, gated: 0, probed: 0, questions: 0, guessed: 0, umbrella: 0, splitUmbrella: 0, clientAgree: 0 };
   const out: Prediction[] = [];
   const qs: Q[] = [];
   const probe = new Set<string>();
@@ -128,15 +143,36 @@ export function merge(ids: readonly string[], spine: ReadonlyMap<string, Predict
       continue;
     }
     const cost = j?.costUsd !== undefined ? { costUsd: j.costUsd } : {};
+    const guardProbe = !!o.probes?.has(id);
+    const probed = probe.has(id) || guardProbe;
     let held = false;
-    if (j && decided(j, o.tau) && o.gate && !o.gate(s, j)) {
+    let earned: { conf: number; why: string } | null = null;
+    if (o.decide) {
+      // The guard: its probe is asked; otherwise J decides exactly where the guard says (J's own confidence aside).
+      if (guardProbe) {
+        held = true;
+        stats.probed++;
+      } else if (j && j.label !== null) {
+        earned = o.decide(s, j);
+        if (!earned && decided(j, o.tau)) {
+          held = true;
+          stats.gated++;
+        }
+      }
+    } else if (j && decided(j, o.tau) && o.gate && !o.gate(s, j)) {
       held = true;
       stats.gated++;
     } else if (probe.has(id)) {
       held = true;
       stats.probed++;
     }
-    if (j && !held && decided(j, o.tau)) {
+    if (j && earned) {
+      const { ask: _drop, ...rest } = j;
+      out.push({ ...rest, conf: earned.conf, ...cost, why: `${j.why ?? j.rung} · ${earned.why} · ${spineNote(s)}` });
+      stats.judge++;
+      continue;
+    }
+    if (!o.decide && j && !held && decided(j, o.tau)) {
       const { ask: _drop, ...rest } = j;
       out.push({ ...rest, ...cost, why: `${j.why ?? j.rung} · ${spineNote(s)}` });
       stats.judge++;
@@ -145,26 +181,31 @@ export function merge(ids: readonly string[], spine: ReadonlyMap<string, Predict
     // A question: J's judgment when it has one, else the spine's guess, else whichever abstention explains itself.
     const base: Prediction = j && j.label !== null ? j : s && s.label !== null ? s : (s ?? j ?? { id, label: null, conf: 0, rung: 'abstain' });
     const conf = base.label === null ? 0 : held && base === j ? Math.min(base.conf, o.tau - 0.001) : base.conf;
-    const p: Prediction = { id, label: base.label, conf, rung: base.rung, ...cost, why: base === s ? `${s.why ?? s.rung} · J ${j?.rung ?? '—'}` : `${spineNote(s)} · ${held ? `${probe.has(id) ? 'probation' : 'gated'} ${j!.conf} · ` : ''}${j?.why ?? j?.rung ?? 'J —'}` };
+    const p: Prediction = { id, label: base.label, conf, rung: base.rung, ...cost, why: base === s ? `${s.why ?? s.rung} · J ${j?.rung ?? '—'}` : `${spineNote(s)} · ${held && j ? `${probed ? 'probation' : 'gated'} ${j.conf} · ` : ''}${j?.why ?? j?.rung ?? 'J —'}` };
     const spineGroup = s?.ask?.group ?? s?.group;
     let group: string;
     let umbrella = false;
     let split = false;
-    if (spineGroup && spineGroup.startsWith('umb:')) {
+    let agree = false;
+    if (guardProbe) group = `probe:${id}`;
+    else if (spineGroup && spineGroup.startsWith('umb:')) {
       group = baseGroup(spineGroup);
       umbrella = true;
     } else {
-      const client = j && o.clientSplit ? o.clientSplit(j) : null;
+      const shared = j && o.clientAgree ? o.clientAgree(s, j) : null;
+      const client = shared ?? (j && o.clientSplit ? o.clientSplit(j) : null);
       if (client) {
         group = umbrellaGroupOf(client, o.day);
-        umbrella = split = true;
+        umbrella = true;
+        split = !shared;
+        agree = !!shared;
       } else if (o.groups === 'spine' && spineGroup) group = spineGroup;
       else group = j?.ask?.group ?? j?.group ?? spineGroup ?? id;
     }
     const guess = j?.label ?? s?.ask?.guess ?? s?.label ?? null;
     const w = o.weight(id);
-    const value = w * (1 - conf) + (o.value === 'yield' ? spineYield(s, w) : 0) + (probe.has(id) ? PROBE_VALUE : 0);
-    qs.push({ p, group, guess, value: Math.round(value * 1000) / 1000, umbrella, split });
+    const value = w * (1 - conf) + (o.value === 'yield' ? spineYield(s, w) : 0) + (probed ? PROBE_VALUE : 0);
+    qs.push({ p, group, guess, value: Math.round(value * 1000) / 1000, umbrella, split, agree });
     out.push(p);
   }
 
@@ -191,6 +232,7 @@ export function merge(ids: readonly string[], spine: ReadonlyMap<string, Predict
         stats.questions++;
         if (m.umbrella) stats.umbrella++;
         if (m.split) stats.splitUmbrella++;
+        if (m.agree) stats.clientAgree++;
         if (guess && judge.get(m.p.id)?.label === guess) stats.guessed++;
       }
     });

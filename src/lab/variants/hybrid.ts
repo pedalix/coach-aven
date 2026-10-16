@@ -29,17 +29,22 @@
 //
 // Sub-state: the run's ctx.state holds one entry, 'hybrid'; the spine and J each get a Map of their own inside it (the
 // spine's stage 0, K's tables and K2a's trusted floor in one, J's cells, precedents and the adapter in the other).
+//
+// A GUARD (`guard`, hybrid-g — hybrid-guarded.ts) takes step 3's "J at ≥ τ decides" over: it sees the day's two opinions
+// and J's cells, says which J judgments have EARNED the right to decide, which units to probe and which questions go
+// client-day (merge.ts hooks), and folds the day's human rows into its own sub-state (a third Map, created only for it).
+// Without one, every line above holds as is.
 
-import type { DayCtx, FragmentUnit, MemoryRow, Prediction, TaskId, Unit, Variant } from '../types.js';
+import type { DayCtx, FragmentUnit, ItemUnit, MemoryRow, Prediction, TaskId, Unit, Variant } from '../types.js';
 import { opt } from './index.js';
 import { judgeState, makeJudge } from './judge.js';
 import { makeK2a } from './keys2a.js';
 import { trustedOf, type TenantFacts, type Trusted } from './keys2a/floor.js';
 import { makeK2b } from './keys2b.js';
 import { TAU } from './keys/spec.js';
-import { stage0, type Stage0 } from './stage0/index.js';
+import { stage0, type Floor, type Stage0 } from './stage0/index.js';
 import { SpineFloor } from './hybrid/floor.js';
-import { merge, passesOf, type MergeStats } from './hybrid/merge.js';
+import { merge, passesOf, type MergeOpts, type MergeStats } from './hybrid/merge.js';
 
 export type SpineName = 'k2a' | 'k2b';
 
@@ -53,6 +58,7 @@ const FLOOR = 'hybrid:floor';
 export interface HybridState {
   spine: Map<string, unknown>; // the spine's own ctx.state
   judge: Map<string, unknown>; // J's own ctx.state (the adapter lives in it)
+  guard?: Map<string, unknown>; // the guard's own ctx.state (hybrid-g only)
   floor: SpineFloor;
   totals: MergeStats & { units: number; days: number };
 }
@@ -62,10 +68,30 @@ export function hybridState(ctx: Pick<DayCtx, 'state'>): HybridState {
   let st = ctx.state.get(STATE) as HybridState | undefined;
   if (!st) {
     const floor = new SpineFloor();
-    st = { spine: new Map(), judge: new Map<string, unknown>([[FLOOR, floor]]), floor, totals: { units: 0, days: 0, spine: 0, judge: 0, gated: 0, probed: 0, questions: 0, guessed: 0, umbrella: 0, splitUmbrella: 0 } };
+    st = { spine: new Map(), judge: new Map<string, unknown>([[FLOOR, floor]]), floor, totals: { units: 0, days: 0, spine: 0, judge: 0, gated: 0, probed: 0, questions: 0, guessed: 0, umbrella: 0, splitUmbrella: 0, clientAgree: 0 } };
     ctx.state.set(STATE, st);
   }
   return st;
+}
+
+/** One day of a judged task as a guard sees it: both opinions, J's cell per unit, the floor's rung label (t4). */
+export interface GuardDay {
+  task: TaskId;
+  ctx: DayCtx; // the guard's sub-context: its own state, the memory without machine rows
+  units: Unit[];
+  spine: ReadonlyMap<string, Prediction>;
+  judge: ReadonlyMap<string, Prediction>;
+  cellOf: (id: string) => { kind: string; cell: string } | undefined; // J's cell of a unit it judged today
+  floorOf: (u: Unit) => Floor | undefined; // t4-kind: stage 0's own rung label as the spine runs it (else undefined)
+  clientOf: (label: string) => string | null; // the client of a label (K2a's scope, else the dataset's umbrella)
+  tau: number;
+}
+
+/** What may decide besides the spine (hybrid-g). Machine rows never reach it: its nightly sees human rows only. */
+export interface HybridGuard {
+  day(d: GuardDay): Pick<MergeOpts, 'decide' | 'probes' | 'clientAgree'>;
+  merged(preds: readonly Prediction[], d: GuardDay): void; // what the merge made of the day (J's decisions, for audits)
+  nightly(task: TaskId, ctx: DayCtx): void;
 }
 
 /** Memory as the hybrid's parts may see it: never the loop's own decisions. */
@@ -80,6 +106,7 @@ export interface HybridOptions {
   spineGuess?: boolean; // the spine's own K+g guess call (default off: J's label is the question's guess)
   floor?: (ctx: DayCtx) => Stage0; // stage 0 for the spine (tests inject a fake)
   facts?: (ctx: DayCtx) => TenantFacts; // K2a's registry facts (tests inject their own)
+  guard?: HybridGuard; // hybrid-g: who besides the spine may decide (default: J at its own ≥ τ — the hybrid)
 }
 
 const fmtPct = (n: number, d: number): string => (d ? `${Math.round((100 * n) / d)}%` : '—');
@@ -139,18 +166,31 @@ export function makeHybrid(o: HybridOptions = {}): Variant {
               return c && c === clientOf(ab.b) ? c : null;
             }
           : undefined;
-      // --opt hybGate=agree (an ablation, not the spec): J may decide only where it names the spine's own sub-τ label.
-      const gate = opt('hybGate', 'none') === 'agree' ? (s: Prediction | undefined, j: Prediction): boolean => !!s && s.label !== null && s.label === j.label : undefined;
-      // --opt hybProbe=<n> (an ablation): n units a day that J would decide are asked instead, one per J cell (merge.ts).
-      const probeN = opt('hybProbe', 0);
-      const proposals = probeN > 0 ? judgeState({ ...ctx, state: st.judge }, task).proposals : null;
-      const probe = proposals ? { perDay: probeN, cellOf: (id: string): string | null => (proposals.get(id) ? `${proposals.get(id)!.kind}|${proposals.get(id)!.cell}` : null) } : undefined;
+      const spineOf = new Map(fromSpine.map((p) => [p.id, p]));
+      const judgeOf = new Map(fromJudge.map((p) => [p.id, p]));
+      let who: Pick<MergeOpts, 'gate' | 'probe' | 'decide' | 'probes' | 'clientAgree'>;
+      let gday: GuardDay | null = null;
+      if (o.guard) {
+        // The guard decides who besides the spine may decide (the hybGate / hybProbe ablations are the hybrid's own).
+        const proposals = judgeState({ ...ctx, state: st.judge }, task).proposals;
+        gday = { task, ctx: sub(ctx, (st.guard ??= new Map())), units, spine: spineOf, judge: judgeOf, cellOf: (id) => proposals.get(id), floorOf: (u) => (task === 't4-kind' ? raw.kind(u as ItemUnit) : undefined), clientOf, tau };
+        who = o.guard.day(gday);
+      } else {
+        // --opt hybGate=agree (an ablation, not the spec): J may decide only where it names the spine's own sub-τ label.
+        const gate = opt('hybGate', 'none') === 'agree' ? (s: Prediction | undefined, j: Prediction): boolean => !!s && s.label !== null && s.label === j.label : undefined;
+        // --opt hybProbe=<n> (an ablation): n units a day that J would decide are asked instead, one per J cell (merge.ts).
+        const probeN = opt('hybProbe', 0);
+        const proposals = probeN > 0 ? judgeState({ ...ctx, state: st.judge }, task).proposals : null;
+        const probe = proposals ? { perDay: probeN, cellOf: (id: string): string | null => (proposals.get(id) ? `${proposals.get(id)!.kind}|${proposals.get(id)!.cell}` : null) } : undefined;
+        who = { ...(gate ? { gate } : {}), ...(probe ? { probe } : {}) };
+      }
       const m = merge(
         units.map((u) => u.id),
-        new Map(fromSpine.map((p) => [p.id, p])),
-        new Map(fromJudge.map((p) => [p.id, p])),
-        { day: ctx.day, tau, weight, ...(clientSplit ? { clientSplit } : {}), value: opt('hybValue', 'yield') === 'own' ? 'own' : 'yield', groups: opt('hybGroups', 'case') === 'spine' ? 'spine' : 'case', ...(gate ? { gate } : {}), ...(probe ? { probe } : {}) },
+        spineOf,
+        judgeOf,
+        { day: ctx.day, tau, weight, ...(clientSplit ? { clientSplit } : {}), value: opt('hybValue', 'yield') === 'own' ? 'own' : 'yield', groups: opt('hybGroups', 'case') === 'spine' ? 'spine' : 'case', ...who },
       );
+      if (o.guard && gday) o.guard.merged(m.preds, gday);
       const t = st.totals;
       t.units += units.length;
       t.days++;
@@ -162,8 +202,9 @@ export function makeHybrid(o: HybridOptions = {}): Variant {
       t.guessed += m.stats.guessed;
       t.umbrella += m.stats.umbrella;
       t.splitUmbrella += m.stats.splitUmbrella;
+      t.clientAgree += m.stats.clientAgree;
       ctx.log(
-        `${name} ${task} ${ctx.day}: ${units.length} units → spine auto ${m.stats.spine}, J auto ${m.stats.judge}${m.stats.gated ? ` (gated ${m.stats.gated})` : ''}${m.stats.probed ? ` (probation ${m.stats.probed})` : ''}, questions ${m.stats.questions} (J guess ${m.stats.guessed}, client-day ${m.stats.umbrella}${m.stats.splitUmbrella ? `, ${m.stats.splitUmbrella} by J's split` : ''}) · run so far: spine ${fmtPct(t.spine, t.units)}, J ${fmtPct(t.judge, t.units)}`,
+        `${name} ${task} ${ctx.day}: ${units.length} units → spine auto ${m.stats.spine}, J auto ${m.stats.judge}${m.stats.gated ? ` (gated ${m.stats.gated})` : ''}${m.stats.probed ? ` (probation ${m.stats.probed})` : ''}, questions ${m.stats.questions} (J guess ${m.stats.guessed}, client-day ${m.stats.umbrella}${m.stats.splitUmbrella ? `, ${m.stats.splitUmbrella} by J's split` : ''}${m.stats.clientAgree ? `, ${m.stats.clientAgree} by client agreement` : ''}) · run so far: spine ${fmtPct(t.spine, t.units)}, J ${fmtPct(t.judge, t.units)}`,
       );
       return m.preds;
     },
@@ -172,6 +213,7 @@ export function makeHybrid(o: HybridOptions = {}): Variant {
       const st = hybridState(ctx);
       await spines[which()].nightly?.(task, sub(ctx, st.spine));
       if (JUDGED.has(task)) await judge.nightly!(task, sub(ctx, st.judge));
+      if (o.guard && JUDGED.has(task)) o.guard.nightly(task, sub(ctx, (st.guard ??= new Map())));
     },
   };
 }
