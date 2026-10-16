@@ -20,6 +20,7 @@
 - [x] 4.1 `learn.ts` (+ `learn-keys`, `learn-calib`, `learn-trust`, `learn-ask`): people's answers only, rung-instance calibration, earned keys, sibling-aware trust, questions (kinds take turns), seeded audits; verify: `src/sources/attribution/learn*.test.ts`.
 - [x] 4.2 Evidence contract (`annotations.ts`: `human:<id>`, `guess/conf/rung/audit/answer`; `annotations/labels.jsonl`), `learn-load.ts`, `att_learn`, `attribution({learn:true})` (sources MCP 1.11.0); shadow identity of plan/index/pins/timelog; verify: `src/sources/attribution/learn-load.test.ts`, `src/sources/mcp-server.test.ts`.
 - [x] 4.3 Parity: the production floor + learner replayed on the bench (`prodlearn`) against `k2a`; verify: `npm run lab -- run --dataset bench-agency --variant k2a,prodlearn --task t1-item --mode replay --q 3 --audit 0.15 --no-llm`.
+- [x] 4.4 `attribution({learn: "ask"})`: the compact readout the review's tooling asks from (questions_per_day questions, the audits, each unit's loop row and readout row); sources MCP 1.12.0; verify: `src/sources/mcp-server.test.ts`.
 
 ## 5. Docs and rollout
 - [x] 5.1 `docs/sources.md` → *Learning loop (shadow)*; `docs/lab.md`; `docs/rollout.md` rows and the corrected bucket note.

@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { buildStore, openReadOnly, openStore, SCHEMA_VERSION, type BuildContext } from './store.js';
 import { writeItems, type ItemRow } from './attribution/items.js';
-import { writeLearn, type LearnInputs } from './attribution/learn-load.js';
+import { clearLearn, writeLearn, type LearnInputs } from './attribution/learn-load.js';
 import type { LearnResult, LearnUnit } from './attribution/learn.js';
 // The stdio face of the server (what `node sources-mcp.mjs` runs); the bot itself calls handleMessage in-process.
 const SOURCES_MCP_SOURCE = new URL('../../snapshot/plain/sources-mcp.mjs', import.meta.url).pathname;
@@ -935,7 +935,7 @@ test('attribution learn: true adds the shadow section (rows of the asked days an
   const db = openStore(join(dir, 'store.sqlite'));
   const NOW = new Date('2026-10-15T16:00:00.000Z');
   try {
-    assert.equal(SERVER_VERSION, '1.11.0');
+    assert.equal(SERVER_VERSION, '1.12.0');
     assert.equal(runAttribution(db, { learn: true }, NOW).configured, false, 'no layer: no section either');
     const meta = db.prepare('INSERT OR REPLACE INTO sync_state(key, value) VALUES (?, ?)');
     for (const [k, v] of [['att:subject', 'me'], ['att:since', '2026-10-01'], ['att:until', '2026-10-15'], ['att:computed_at', NOW.toISOString()]]) meta.run(k, v);
@@ -1015,8 +1015,148 @@ test('attribution learn: true adds the shadow section (rows of the asked days an
     const call = handleMessage({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'attribution', arguments: { since: '2026-10-15', learn: true } } }, join(dir, 'store.sqlite'))!;
     assert.deepEqual(JSON.parse((call.result as { content: { text: string }[] }).content[0]!.text).learn.units.map((u: { id: string }) => u.id), ['frag-b', 'frag-c']);
     const schema = TOOLS.find((t) => t.name === 'attribution')!;
-    assert.equal((schema.inputSchema as { properties: Record<string, { type: string }> }).properties.learn!.type, 'boolean');
+    assert.deepEqual((schema.inputSchema as { properties: Record<string, { type: unknown }> }).properties.learn!.type, ['boolean', 'string']);
     assert.match(schema.description, /`learn: true`/);
+  } finally {
+    db.close();
+  }
+});
+
+// ── learn: "ask" — the compact readout a review's tooling asks from (fragments, items and the loop in one store) ──
+
+const LEARN_SNAP = new URL('../fixtures/sources/attribution-learn-true.json', import.meta.url).pathname;
+const UPDATE = process.env.UPDATE_SNAPSHOTS === '1';
+
+// A store with the fragment readout (one pin), item mode and the loop on. The queue names a fragment the store knows
+// (frag-b), one it has no readout row for (frag-c) and an id the build never saw (ghost); the audits name a pinned rule
+// decision (frag-d) and an item with a repeat. Returns the loop's inputs and result so a test can rewrite them.
+function learnStore(db: ReturnType<typeof openStore>, NOW: Date): { li: LearnInputs; result: LearnResult } {
+  const meta = db.prepare('INSERT OR REPLACE INTO sync_state(key, value) VALUES (?, ?)');
+  for (const [k, v] of [['att:subject', 'me'], ['att:since', '2026-10-01'], ['att:until', '2026-10-15'], ['att:computed_at', NOW.toISOString()]]) meta.run(k, v);
+  const frag = db.prepare('INSERT INTO att_fragments(id, kind, start, "end", title, source, container, refs, participants, weight, state, decided_by, attributions, rule_id, rationale, candidates, hint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  frag.run('frag-a', 'call', '2026-10-14T09:00:00.000Z', '2026-10-14T09:30:00.000Z', 'Shop weekly', 'granola', null, '["meeting:granola:m1"]', '["ana"]', 1, 'decided', 'owner', '[{"initiative":"acme/retainer","share":1}]', null, 'the owner said retainer', '[]', '');
+  frag.run('frag-b', 'run', '2026-10-15T10:00:00.000Z', '2026-10-15T10:40:00.000Z', '#shop — 3 messages', 'slack', '#shop', '["slack:T1:C0SHOP0001:1.1","slack:T1:C0SHOP0001:1.2"]', '["ana"]', 1, 'open', null, '[]', null, '', '["acme/shop","acme/retainer"]', 'channel #shop');
+  frag.run('frag-d', 'work', '2026-10-14T13:00:00.000Z', '2026-10-14T15:00:00.000Z', 'acme/shop-web', 'local', 'acme/shop-web', '["session:s1"]', '[]', 0.5, 'rule', 'rule', '[{"initiative":"acme/shop","share":1}]', 'r1', 'repo acme/shop-web', '["acme/shop"]', 'repo acme/shop-web');
+  db.prepare('INSERT INTO att_pins(id, pinned_at, rules_version) VALUES (?, ?, ?)').run('frag-d', '2026-10-15T00:05:00.000Z', 'v1');
+  const row = (o: Partial<ItemRow> & Pick<ItemRow, 'ref' | 'ts'>): ItemRow => ({
+    day: o.ts.slice(0, 10), type: 'message', source: 'slack', container: '#ops', sender_class: 'bot', family: 'fam-000000000001', cluster: o.ref, cluster_conf: 0.97, cluster_via: 'single',
+    initiative: null, conf: 0, rung: 'abstain', candidates: [], hint: '', kind: null, kind_conf: 0, kind_rung: 'abstain', addressee: [], addressee_conf: 0.95, addressee_rung: 'auto:none', case_key: `family:fam-000000000001:${o.ts.slice(0, 10)}`, ...o,
+  });
+  writeItems(db, [
+    row({ ref: 'slack:T1:C0OPS00001:1.1', ts: '2026-10-14T08:00:00.000Z', initiative: 'acme/shop', conf: 0.95, rung: 'host:shop.acme.example', candidates: ['acme/shop'], hint: 'host shop.acme.example', kind_rung: 'auto:firing' }),
+    row({ ref: 'slack:T1:C0OPS00001:1.2', ts: '2026-10-14T08:10:00.000Z', cluster: 'slack:T1:C0OPS00001:1.1', cluster_conf: 0.95, cluster_via: 'flap', initiative: 'acme/shop', conf: 0.95, rung: 'host:shop.acme.example', kind: 'noise', kind_conf: 0.95, kind_rung: 'auto:resolved' }),
+    row({ ref: 'slack:T1:D0DM000001:2.1', ts: '2026-10-15T11:00:00.000Z', container: 'dm:@Ana Berg', sender_class: 'human', family: 'fam-000000000003', candidates: ['acme/retainer', 'acme/shop'], hint: 'narrow via ana', addressee: ['me'], addressee_conf: 0.9, addressee_rung: 'explicit:dm', case_key: 'thread:slack:T1/D0DM000001/2.1' }),
+  ], { since: '2026-10-09', until: '2026-10-15', days: 7 });
+  const unit = (o: Partial<LearnUnit> & Pick<LearnUnit, 'id' | 'day'>): LearnUnit => ({ unit: 'fragment', label: null, conf: 0, rung: 'abstain', structural: false, candidates: [], caseKey: `case:${o.id}`, keys: {}, ...o });
+  const li: LearnInputs = {
+    units: [
+      unit({ id: 'frag-a', day: '2026-10-14', label: 'acme/shop', conf: 0.95, rung: 'key:SH', structural: true }),
+      unit({ id: 'frag-b', day: '2026-10-15', label: 'acme/shop', conf: 0.8, rung: 'title:Shop weekly', structural: true }),
+      unit({ id: 'frag-c', day: '2026-10-15' }),
+      unit({ id: 'frag-d', day: '2026-10-14', label: 'acme/shop', conf: 0.96, rung: 'rule:r1', structural: true }),
+      unit({ id: 'slack:T1:C0OPS00001:1.1', unit: 'item', day: '2026-10-14', label: 'acme/shop', conf: 0.95, rung: 'host:shop.acme.example' }),
+    ],
+    evidence: [{ id: 'frag-a', day: '2026-10-15', label: 'acme/retainer', source: 'human', answer: 'q-1' }],
+    opts: { tau: 0.95, today: '2026-10-15', questionsPerDay: 3, auditShare: 0.15, seed: 'att:me', initiatives: [], siblingAware: true },
+    outside: 0,
+    malformed: 0,
+  };
+  const result: LearnResult = {
+    units: [
+      { id: 'frag-a', label: 'acme/shop', conf: 0.95, rung: 'key:SH', answered: 'acme/retainer' },
+      { id: 'frag-b', label: 'acme/shop', conf: 0.85, rung: 'title:Shop weekly', ask: { group: 'client:acme:2026-10-15', value: 7.12345, guess: 'acme/shop', form: 'confirm' } },
+      { id: 'frag-c', label: null, conf: 0, rung: 'abstain', ask: { group: 'case:frag-c', value: 1, guess: null, form: 'choose' } },
+      { id: 'frag-d', label: 'acme/shop', conf: 0.96, rung: 'rule:r1', audit: true },
+      { id: 'slack:T1:C0OPS00001:1.1', label: 'acme/shop', conf: 0.96, rung: 'host:shop.acme.example', audit: true },
+    ],
+    calibration: [{ instance: 'key:SH', a: 19.4, b: 1.6, mean: 0.923809, demoted: true, prior: 0.97, right: 0, wrong: 1, clientMean: 0.97 }],
+    keyTypes: [{ type: 'host', a: 19, b: 1, mean: 0.95, deciding: true }],
+    questions: [
+      { group: 'client:acme:2026-10-15', units: ['frag-b'], value: 7.12345, guess: 'acme/shop', form: 'confirm', unit: 'fragment' },
+      { group: 'case:frag-c', units: ['frag-c', 'ghost'], value: 1, guess: null, form: 'choose', unit: 'fragment' },
+    ],
+    audits: ['frag-d', 'slack:T1:C0OPS00001:1.1'],
+    ruleCandidates: [],
+    stats: { evidence: 1, used: 1, superseded: 0, unknown: 0, answers: 1, trials: { success: 0, failure: 0 } },
+  };
+  writeLearn(db, li, result, NOW);
+  return { li, result };
+}
+
+test('attribution learn: true is byte-identical to its golden, fragments and items alike (re-snapshot on purpose with UPDATE_SNAPSHOTS=1)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'learn-golden-'));
+  const db = openStore(join(dir, 'store.sqlite'));
+  const NOW = new Date('2026-10-15T16:00:00.000Z');
+  try {
+    learnStore(db, NOW);
+    const args = { since: '2026-10-14', until: '2026-10-15', learn: true };
+    const got = JSON.stringify({ fragment: runAttribution(db, args, NOW), item: runAttribution(db, { ...args, unit: 'item' }, NOW) }, null, 2) + '\n';
+    if (UPDATE) {
+      mkdirSync(dirname(LEARN_SNAP), { recursive: true });
+      writeFileSync(LEARN_SNAP, got);
+    }
+    assert.ok(existsSync(LEARN_SNAP), `missing snapshot ${LEARN_SNAP} — run with UPDATE_SNAPSHOTS=1`);
+    assert.equal(got, readFileSync(LEARN_SNAP, 'utf8'));
+  } finally {
+    db.close();
+  }
+});
+
+test('attribution learn: "ask" — the top questions_per_day questions and the audits, each unit with its loop row and its readout row (both kinds), no unit lists', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'learn-ask-'));
+  const db = openStore(join(dir, 'store.sqlite'));
+  const NOW = new Date('2026-10-15T16:00:00.000Z');
+  try {
+    assert.equal(runAttribution(db, { learn: 'ask' }, NOW).configured, false, 'no layer: the same answer as without learn');
+    const { li, result } = learnStore(db, NOW);
+    const full = { fragment: runAttribution(db, { since: '2026-10-14', until: '2026-10-15' }, NOW), item: runAttribution(db, { unit: 'item', since: '2026-10-14', until: '2026-10-15' }, NOW) };
+    const out = runAttribution(db, { since: '2026-10-15', learn: 'ask' }, NOW);
+    // the day's header with its counts, no lists, and the note says so
+    assert.deepEqual(Object.keys(out), ['subject', 'since', 'until', 'tz', 'computed_at', 'horizon', 'counts', 'note', 'learn']);
+    assert.deepEqual(out.counts, runAttribution(db, { since: '2026-10-15' }, NOW).counts);
+    assert.match(String(out.note), /left out/);
+    const learn = out.learn!;
+    assert.deepEqual(Object.keys(learn), ['mode', 'note', 'computed_at', 'today', 'tau', 'counts', 'ask'], 'the section\'s head, then ask — no tables, no queue, no unit rows');
+    assert.deepEqual([learn.mode, learn.today, learn.tau, learn.computed_at], ['shadow', '2026-10-15', 0.95, NOW.toISOString()]);
+    const ask = learn.ask!;
+    assert.deepEqual(ask.questions.map((q) => [q.group, q.units]), [['client:acme:2026-10-15', ['frag-b']], ['case:frag-c', ['frag-c', 'ghost']]], 'the ranked queue as the build ranked it (questions_per_day 3 ≥ 2)');
+    assert.deepEqual(ask.audits, ['frag-d', 'slack:T1:C0OPS00001:1.1']);
+    assert.deepEqual(ask.units.map((u) => [u.id, u.unit, u.day]), [['frag-b', 'fragment', '2026-10-15'], ['frag-c', 'fragment', '2026-10-15'], ['frag-d', 'fragment', '2026-10-14'], ['slack:T1:C0OPS00001:1.1', 'item', '2026-10-14']], 'the questions\' units by rank, then the audits — both kinds, outside the asked day too');
+    const [b, c, d, item] = ask.units;
+    // the loop row as learn: true shows it, the readout row as the day's list shows it
+    assert.deepEqual(b, { id: 'frag-b', unit: 'fragment', day: '2026-10-15', label: 'acme/shop', conf: 0.85, rung: 'title:Shop weekly', ask: { group: 'client:acme:2026-10-15', value: 7.1235, guess: 'acme/shop', form: 'confirm' }, row: full.fragment.fragments!.find((f) => f.id === 'frag-b') });
+    assert.deepEqual(d, { id: 'frag-d', unit: 'fragment', day: '2026-10-14', label: 'acme/shop', conf: 0.96, rung: 'rule:r1', audit: true, row: full.fragment.fragments!.find((f) => f.id === 'frag-d') });
+    assert.deepEqual(d!.row!.pinned, { at: '2026-10-15T00:05:00.000Z', rules_version: 'v1' }, 'the pin rides along by id');
+    assert.deepEqual(item, { id: 'slack:T1:C0OPS00001:1.1', unit: 'item', day: '2026-10-14', label: 'acme/shop', conf: 0.96, rung: 'host:shop.acme.example', audit: true, row: full.item.items!.find((i) => i.ref === 'slack:T1:C0OPS00001:1.1') });
+    assert.equal(item!.row!.repeats, 1, 'the repeat count rides along by ref');
+    assert.deepEqual(c, { id: 'frag-c', unit: 'fragment', day: '2026-10-15', label: null, rung: 'abstain', ask: { group: 'case:frag-c', value: 1, guess: null, form: 'choose' }, row: null }, 'no readout row: null');
+    assert.deepEqual(ask.missing, ['frag-c', 'ghost'], 'no readout row, and an id the build never saw');
+    // whatever `unit` and the days asked: the same ask; the item header keeps its counts and loses its list
+    assert.deepEqual(runAttribution(db, { since: '2026-10-01', until: '2026-10-02', learn: 'ask' }, NOW).learn!.ask, ask);
+    const items = runAttribution(db, { unit: 'item', since: '2026-10-14', until: '2026-10-15', learn: 'ask' }, NOW);
+    assert.deepEqual([items.learn!.ask, items.counts, 'items' in items, 'truncated' in items], [ask, full.item.counts, false, false]);
+    // the cap is the build's questions_per_day; an older meta without the key means 3
+    const many = { ...result, questions: Array.from({ length: 25 }, (_, i) => ({ group: `case:g${i}`, units: [`u${i}`], value: 25 - i, guess: null, form: 'choose' as const })) };
+    writeLearn(db, { ...li, opts: { ...li.opts, questionsPerDay: 2 } }, many, NOW);
+    const capped = runAttribution(db, { since: '2026-10-15', learn: 'ask' }, NOW).learn!.ask!;
+    assert.deepEqual([capped.questions.map((q) => q.group), capped.units.map((u) => u.id), capped.missing], [['case:g0', 'case:g1'], ['frag-d', 'slack:T1:C0OPS00001:1.1'], ['u0', 'u1']]);
+    db.prepare("UPDATE sync_state SET value = json_remove(value, '$.questions_per_day') WHERE key = 'att:learn'").run();
+    assert.equal(runAttribution(db, { since: '2026-10-15', learn: 'ask' }, NOW).learn!.ask!.questions.length, 3);
+    writeLearn(db, li, result, NOW);
+    // true and false are what they were; any other string is refused
+    assert.deepEqual(runAttribution(db, { since: '2026-10-14', until: '2026-10-15', learn: false }, NOW), full.fragment);
+    assert.equal('ask' in runAttribution(db, { since: '2026-10-15', learn: true }, NOW).learn!, false);
+    assert.throws(() => runAttribution(db, { since: '2026-10-15', learn: 'yes' }, NOW), /learn must be true or "ask"/);
+    // the same through the protocol, and the schema says so
+    const call = handleMessage({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'attribution', arguments: { since: '2026-10-15', learn: 'ask' } } }, join(dir, 'store.sqlite'))!;
+    const text = JSON.parse((call.result as { content: { text: string }[] }).content[0]!.text);
+    assert.deepEqual([text.fragments, text.learn.ask.units.map((u: { id: string }) => u.id)], [undefined, ['frag-b', 'frag-c', 'frag-d', 'slack:T1:C0OPS00001:1.1']]);
+    const schema = TOOLS.find((t) => t.name === 'attribution')!;
+    assert.deepEqual((schema.inputSchema as { properties: Record<string, { type: unknown }> }).properties.learn!.type, ['boolean', 'string']);
+    assert.match(schema.description, /`learn: "ask"`/);
+    // the loop off: the same answer learn: true gives
+    clearLearn(db);
+    assert.deepEqual(runAttribution(db, { since: '2026-10-15', learn: 'ask' }, NOW).learn, runAttribution(db, { since: '2026-10-15', learn: true }, NOW).learn);
   } finally {
     db.close();
   }

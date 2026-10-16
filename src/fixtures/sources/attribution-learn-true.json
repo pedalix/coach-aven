@@ -1,0 +1,431 @@
+{
+  "fragment": {
+    "subject": "me",
+    "since": "2026-10-14",
+    "until": "2026-10-15",
+    "tz": "UTC",
+    "computed_at": "2026-10-15T16:00:00.000Z",
+    "horizon": {
+      "since": "2026-10-01",
+      "until": "2026-10-15"
+    },
+    "counts": {
+      "decided": 1,
+      "escalated": 0,
+      "rule": 1,
+      "open": 1
+    },
+    "fragments": [
+      {
+        "id": "frag-a",
+        "kind": "call",
+        "day": "2026-10-14",
+        "start": "2026-10-14T09:00:00.000Z",
+        "end": "2026-10-14T09:30:00.000Z",
+        "title": "Shop weekly",
+        "state": "decided",
+        "decided_by": "owner",
+        "attributions": [
+          {
+            "initiative": "acme/retainer",
+            "share": 1
+          }
+        ],
+        "rationale": "the owner said retainer",
+        "participants": [
+          "ana"
+        ],
+        "refs": [
+          "meeting:granola:m1"
+        ]
+      },
+      {
+        "id": "frag-d",
+        "kind": "work",
+        "day": "2026-10-14",
+        "start": "2026-10-14T13:00:00.000Z",
+        "end": "2026-10-14T15:00:00.000Z",
+        "title": "acme/shop-web",
+        "state": "rule",
+        "container": "acme/shop-web",
+        "weight": 0.5,
+        "candidates": [
+          "acme/shop"
+        ],
+        "hint": "repo acme/shop-web",
+        "decided_by": "rule",
+        "attributions": [
+          {
+            "initiative": "acme/shop",
+            "share": 1
+          }
+        ],
+        "rule_id": "r1",
+        "rationale": "repo acme/shop-web",
+        "pinned": {
+          "at": "2026-10-15T00:05:00.000Z",
+          "rules_version": "v1"
+        },
+        "participants": [],
+        "refs": [
+          "session:s1"
+        ]
+      },
+      {
+        "id": "frag-b",
+        "kind": "run",
+        "day": "2026-10-15",
+        "start": "2026-10-15T10:00:00.000Z",
+        "end": "2026-10-15T10:40:00.000Z",
+        "title": "#shop — 3 messages",
+        "state": "open",
+        "container": "#shop",
+        "candidates": [
+          "acme/shop",
+          "acme/retainer"
+        ],
+        "hint": "channel #shop",
+        "participants": [
+          "ana"
+        ],
+        "refs": [
+          "slack:T1:C0SHOP0001:1.1",
+          "slack:T1:C0SHOP0001:1.2"
+        ]
+      }
+    ],
+    "proposals": [],
+    "learn": {
+      "mode": "shadow",
+      "note": "shadow: what the loop would decide — the plan, the pins and the timelog do not use it; below tau it is a question, never a decision",
+      "computed_at": "2026-10-15T16:00:00.000Z",
+      "today": "2026-10-15",
+      "tau": 0.95,
+      "counts": {
+        "units": {
+          "fragment": 4,
+          "item": 1
+        },
+        "floor_decided": 3,
+        "would_decide": 3,
+        "promoted": 0,
+        "held": 0,
+        "relabelled": 0,
+        "asked": 2,
+        "questions": 2,
+        "audits": 2,
+        "evidence": {
+          "units": 1,
+          "answers": 1,
+          "audits": 0,
+          "outside": 0,
+          "malformed": 0,
+          "unknown_labels": 0
+        },
+        "rule_candidates": 0,
+        "trials": {
+          "success": 0,
+          "failure": 0
+        }
+      },
+      "agreement": {
+        "answered": 1,
+        "floor": {
+          "decided": 1,
+          "agree": 0
+        },
+        "loop": {
+          "decided": 1,
+          "agree": 0
+        }
+      },
+      "calibration": [
+        {
+          "instance": "key:SH",
+          "a": 19.4,
+          "b": 1.6,
+          "mean": 0.9238,
+          "demoted": true,
+          "prior": 0.97,
+          "right": 0,
+          "wrong": 1,
+          "clientMean": 0.97
+        }
+      ],
+      "key_types": [
+        {
+          "type": "host",
+          "a": 19,
+          "b": 1,
+          "mean": 0.95,
+          "deciding": true
+        }
+      ],
+      "questions": [
+        {
+          "group": "client:acme:2026-10-15",
+          "units": [
+            "frag-b"
+          ],
+          "value": 7.1235,
+          "guess": "acme/shop",
+          "form": "confirm",
+          "unit": "fragment"
+        },
+        {
+          "group": "case:frag-c",
+          "units": [
+            "frag-c",
+            "ghost"
+          ],
+          "value": 1,
+          "guess": null,
+          "form": "choose",
+          "unit": "fragment"
+        }
+      ],
+      "audits": [
+        "frag-d",
+        "slack:T1:C0OPS00001:1.1"
+      ],
+      "rule_candidates": [],
+      "units": [
+        {
+          "id": "frag-a",
+          "day": "2026-10-14",
+          "label": "acme/shop",
+          "conf": 0.95,
+          "rung": "key:SH"
+        },
+        {
+          "id": "frag-d",
+          "day": "2026-10-14",
+          "label": "acme/shop",
+          "conf": 0.96,
+          "rung": "rule:r1",
+          "audit": true
+        },
+        {
+          "id": "frag-b",
+          "day": "2026-10-15",
+          "label": "acme/shop",
+          "conf": 0.85,
+          "rung": "title:Shop weekly",
+          "ask": {
+            "group": "client:acme:2026-10-15",
+            "value": 7.1235,
+            "guess": "acme/shop",
+            "form": "confirm"
+          }
+        },
+        {
+          "id": "frag-c",
+          "day": "2026-10-15",
+          "label": null,
+          "rung": "abstain",
+          "ask": {
+            "group": "case:frag-c",
+            "value": 1,
+            "guess": null,
+            "form": "choose"
+          }
+        }
+      ]
+    }
+  },
+  "item": {
+    "unit": "item",
+    "since": "2026-10-14",
+    "until": "2026-10-15",
+    "tz": "UTC",
+    "computed_at": "2026-10-15T16:00:00.000Z",
+    "window": {
+      "since": "2026-10-09",
+      "until": "2026-10-15",
+      "days": 7
+    },
+    "counts": {
+      "items": 3,
+      "human": 1,
+      "bot": 2,
+      "bulk": 0,
+      "system": 0,
+      "decided": 2,
+      "open": 1,
+      "repeats": 1,
+      "noise": 1
+    },
+    "items": [
+      {
+        "ref": "slack:T1:C0OPS00001:1.1",
+        "day": "2026-10-14",
+        "type": "message",
+        "source": "slack",
+        "container": "#ops",
+        "sender": "bot",
+        "repeats": 1,
+        "cluster_conf": 0.97,
+        "initiative": "acme/shop",
+        "conf": 0.95,
+        "rung": "host:shop.acme.example",
+        "kind": null,
+        "kind_rung": "auto:firing",
+        "addressee": [],
+        "addressee_conf": 0.95,
+        "addressee_rung": "auto:none",
+        "case": "family:fam-000000000001:2026-10-14"
+      },
+      {
+        "ref": "slack:T1:C0OPS00001:1.2",
+        "day": "2026-10-14",
+        "type": "message",
+        "source": "slack",
+        "container": "#ops",
+        "sender": "bot",
+        "cluster": "slack:T1:C0OPS00001:1.1",
+        "cluster_conf": 0.95,
+        "cluster_via": "flap",
+        "initiative": "acme/shop",
+        "conf": 0.95,
+        "rung": "host:shop.acme.example",
+        "kind": "noise",
+        "kind_conf": 0.95,
+        "kind_rung": "auto:resolved",
+        "addressee": [],
+        "addressee_conf": 0.95,
+        "addressee_rung": "auto:none",
+        "case": "family:fam-000000000001:2026-10-14"
+      },
+      {
+        "ref": "slack:T1:D0DM000001:2.1",
+        "day": "2026-10-15",
+        "type": "message",
+        "source": "slack",
+        "container": "dm:@Ana Berg",
+        "sender": "human",
+        "family": "fam-000000000003",
+        "cluster_conf": 0.97,
+        "initiative": null,
+        "candidates": [
+          "acme/retainer",
+          "acme/shop"
+        ],
+        "hint": "narrow via ana",
+        "rung": "abstain",
+        "kind": null,
+        "kind_rung": "abstain",
+        "addressee": [
+          "me"
+        ],
+        "addressee_conf": 0.9,
+        "addressee_rung": "explicit:dm",
+        "case": "thread:slack:T1/D0DM000001/2.1"
+      }
+    ],
+    "learn": {
+      "mode": "shadow",
+      "note": "shadow: what the loop would decide — the plan, the pins and the timelog do not use it; below tau it is a question, never a decision",
+      "computed_at": "2026-10-15T16:00:00.000Z",
+      "today": "2026-10-15",
+      "tau": 0.95,
+      "counts": {
+        "units": {
+          "fragment": 4,
+          "item": 1
+        },
+        "floor_decided": 3,
+        "would_decide": 3,
+        "promoted": 0,
+        "held": 0,
+        "relabelled": 0,
+        "asked": 2,
+        "questions": 2,
+        "audits": 2,
+        "evidence": {
+          "units": 1,
+          "answers": 1,
+          "audits": 0,
+          "outside": 0,
+          "malformed": 0,
+          "unknown_labels": 0
+        },
+        "rule_candidates": 0,
+        "trials": {
+          "success": 0,
+          "failure": 0
+        }
+      },
+      "agreement": {
+        "answered": 1,
+        "floor": {
+          "decided": 1,
+          "agree": 0
+        },
+        "loop": {
+          "decided": 1,
+          "agree": 0
+        }
+      },
+      "calibration": [
+        {
+          "instance": "key:SH",
+          "a": 19.4,
+          "b": 1.6,
+          "mean": 0.9238,
+          "demoted": true,
+          "prior": 0.97,
+          "right": 0,
+          "wrong": 1,
+          "clientMean": 0.97
+        }
+      ],
+      "key_types": [
+        {
+          "type": "host",
+          "a": 19,
+          "b": 1,
+          "mean": 0.95,
+          "deciding": true
+        }
+      ],
+      "questions": [
+        {
+          "group": "client:acme:2026-10-15",
+          "units": [
+            "frag-b"
+          ],
+          "value": 7.1235,
+          "guess": "acme/shop",
+          "form": "confirm",
+          "unit": "fragment"
+        },
+        {
+          "group": "case:frag-c",
+          "units": [
+            "frag-c",
+            "ghost"
+          ],
+          "value": 1,
+          "guess": null,
+          "form": "choose",
+          "unit": "fragment"
+        }
+      ],
+      "audits": [
+        "frag-d",
+        "slack:T1:C0OPS00001:1.1"
+      ],
+      "rule_candidates": [],
+      "units": [
+        {
+          "id": "slack:T1:C0OPS00001:1.1",
+          "day": "2026-10-14",
+          "label": "acme/shop",
+          "conf": 0.96,
+          "rung": "host:shop.acme.example",
+          "audit": true
+        }
+      ]
+    }
+  }
+}
