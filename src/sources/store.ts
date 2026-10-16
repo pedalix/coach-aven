@@ -191,6 +191,21 @@ CREATE TABLE IF NOT EXISTS att_commitments (
 );
 CREATE INDEX IF NOT EXISTS att_commitments_start ON att_commitments(call_start);
 CREATE TABLE IF NOT EXISTS att_pins (id TEXT PRIMARY KEY, pinned_at TEXT NOT NULL, rules_version TEXT NOT NULL DEFAULT '');
+-- Item mode (attribution/items.ts, tenant key "items" in attribution.json): the stage-0 floor per stream item of the last
+-- N local days — sender class, family, duplicate cluster, initiative, kind, addressee, each with its graded confidence.
+-- Empty unless the tenant turns it on; candidates and addressee are JSON arrays (addressee NULL: undecided).
+CREATE TABLE IF NOT EXISTS att_items (
+  ref TEXT PRIMARY KEY, day TEXT NOT NULL, ts TEXT NOT NULL, type TEXT NOT NULL, source TEXT NOT NULL DEFAULT '', container TEXT,
+  sender_class TEXT NOT NULL, family TEXT NOT NULL, cluster TEXT NOT NULL, cluster_conf REAL NOT NULL, cluster_via TEXT NOT NULL DEFAULT 'single',
+  initiative TEXT, conf REAL NOT NULL DEFAULT 0, rung TEXT NOT NULL DEFAULT 'abstain', candidates TEXT NOT NULL DEFAULT '[]', hint TEXT NOT NULL DEFAULT '',
+  kind TEXT, kind_conf REAL NOT NULL DEFAULT 0, kind_rung TEXT NOT NULL DEFAULT '',
+  addressee TEXT, addressee_conf REAL NOT NULL DEFAULT 0, addressee_rung TEXT NOT NULL DEFAULT '', case_key TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS att_items_day ON att_items(day, ts);
+CREATE INDEX IF NOT EXISTS att_items_cluster ON att_items(cluster);
+-- The learning loop in shadow (attribution/learn-load.ts, tenant key "learn" in attribution.json): per fragment or item what
+-- the loop WOULD decide, its question (ask: JSON) and whether it is in the day's audit sample. Never read by the plan.
+CREATE TABLE IF NOT EXISTS att_learn (id TEXT PRIMARY KEY, unit TEXT, day TEXT, label TEXT, conf REAL, rung TEXT, ask TEXT, audit INTEGER);
 -- Task trackers (youtrack/jira/asana) share one shape (trackers/task.ts). comments is a JSON
 -- array; comments_text is its flattened text, kept only so FTS can index it.
 CREATE TABLE IF NOT EXISTS tasks (

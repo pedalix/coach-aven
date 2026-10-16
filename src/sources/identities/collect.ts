@@ -6,8 +6,9 @@
 //   3. a unique first name that co-occurs with the person (shared container/thread, or an email domain/company the
 //      person is known under).
 // Real ambiguity becomes a yes/no question with the best guesses; an unknown with no match is asked about only when
-// seen ≥ 5× with the subject. System senders are counted and dropped; opaque ids (Slack U…, Jira account ids) are
-// counted as unresolved because they cannot be judged by name at all. Pure: no I/O.
+// seen ≥ 5× with the subject. System senders are counted and dropped; opaque ids (Slack U…, Jira account ids) and the
+// unknown remainder of a glued attendee line are counted as unresolved because they cannot be judged by name at all.
+// Pure: no I/O.
 import { domainLabel, guessPeople, verdict, type Guess, type KnownPerson } from './match.js';
 import { isFullName, isSystem, normaliseName, parseIdentity, type ParsedIdentity } from './normalise.js';
 
@@ -18,7 +19,16 @@ export interface Observation {
   thread?: string | null;
   /** Seen in a conversation with the subject. */
   withSubject: boolean;
+  /**
+   * What is left of a glued attendee line once the known names are split off (observations.ts): an unknown stretch that
+   * may hold several people or a name cut in half. Mapped if it is an exact identity, otherwise counted as unresolved —
+   * never guessed at, merged or asked about.
+   */
+  glued?: boolean;
 }
+
+/** DMs and small group chats (`mpim:` is how the store writes a Slack group DM): everyone in them talked with the subject. */
+export const isDirect = (container: string) => /^(dm:|mpim:|mpdm|chat:)/i.test(container);
 
 export interface IdentityMerge {
   person_id: string;
@@ -79,9 +89,14 @@ export function collectIdentities(people: readonly KnownPerson[], obs: readonly 
   const personPlaces = new Map<string, Set<string>>();
   const groups = new Map<string, { parsed: ParsedIdentity; sources: Set<string>; places: Set<string>; withSubject: boolean; n: number; direct: boolean }>();
   const mappedKeys = new Set<string>();
+  const gluedKeys = new Set<string>();
+  // The subject's own full name is the subject even when their people entry does not list it: name-only invitees are
+  // observed now, the subject is on nearly every invite list, and the subject is never a guess — it would be a
+  // "who is <you>?" question.
+  const selfName = normaliseName(people.find((x) => x.person_id === self)?.name);
   for (const o of obs) {
     const p = parseIdentity(o.raw);
-    const who = resolveParsed(ix, p);
+    const who = resolveParsed(ix, p) ?? (!p.email && isFullName(selfName) && p.name === selfName ? self : null);
     const places = [o.container, o.thread].filter((x): x is string => !!x);
     if (who) {
       mappedKeys.add(p.email ?? p.name ?? p.raw);
@@ -91,15 +106,20 @@ export function collectIdentities(people: readonly KnownPerson[], obs: readonly 
       continue;
     }
     const key = p.email ?? (p.name ? `name:${p.name}` : `opaque:${p.raw}`);
+    if (o.glued) {
+      gluedKeys.add(key);
+      continue;
+    }
     const g = groups.get(key) ?? { parsed: p, sources: new Set<string>(), places: new Set<string>(), withSubject: false, n: 0, direct: false };
     g.sources.add(o.source);
     places.forEach((x) => g.places.add(x));
     g.withSubject ||= o.withSubject;
-    g.direct ||= o.withSubject && /^(dm:|mpdm|chat:)/i.test(o.container);
+    g.direct ||= o.withSubject && isDirect(o.container);
     g.n++;
     groups.set(key, g);
   }
   counts.mapped = mappedKeys.size;
+  counts.unresolved = [...gluedKeys].filter((k) => !groups.has(k)).length;
 
   const byId = new Map(people.map((p) => [p.person_id, p]));
   const knownDomains = (pid: string): Set<string> => {

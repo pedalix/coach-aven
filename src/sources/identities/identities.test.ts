@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { isSystem, parseIdentity } from './normalise.js';
 import { guessPeople, localTokens, verdict, type KnownPerson } from './match.js';
 import { collectIdentities, type Observation } from './collect.js';
-import { attendeeObservations, parseAttendees } from './observations.js';
+import { attendeeForms, attendeeObservations, isDirect, knownForms, parseAttendees } from './observations.js';
 
 const people: KnownPerson[] = [
   { person_id: 'olga-owner', name: 'Olga Owner', identities: ['olga@home.example', 'Olga Owner'] },
@@ -84,9 +84,52 @@ test('collect: certain and domain merges; an unknown under five sightings is dor
 
 test('observations: attendee lists prefer addresses; a crowd is observed but never "with the subject"', () => {
   assert.deepEqual(parseAttendees(JSON.stringify([{ email: 'a@x.example', name: 'A' }, 'B', { name: 'C' }])), ['a@x.example', 'B', 'C']);
-  assert.deepEqual(parseAttendees(JSON.stringify([{ email: '', name: 'ana berg rui rosa' }])), [], 'an empty address drops the entry: name-only recorders glue attendees');
+  // A glued name-only line that no known name covers is never a form to judge (it used to be dropped with every other
+  // name-only entry; now only the glued remainder stays out — see the next test).
+  assert.deepEqual(parseAttendees(JSON.stringify([{ email: '', name: 'ana berg rui rosa' }])), []);
   assert.ok(attendeeObservations(['a@x', 'b@x'], 'gcal', 'ev1').every((x) => x.withSubject));
   const crowd = attendeeObservations(Array.from({ length: 107 }, (_, i) => `p${i}@x`), 'gcal', 'webinar');
   assert.equal(crowd.length, 107);
   assert.ok(crowd.every((x) => !x.withSubject));
+});
+
+test('observations: name-only invitees are kept; a glued line gives every address and the known full names, the rest is co-occurrence only', () => {
+  const known = knownForms(people);
+  // Gemini and Wispr write an EMPTY email: the name is the identity (display form, company and parentheticals off).
+  assert.deepEqual(attendeeForms([{ email: '', name: 'Tess North' }, { email: '', name: 'Bo Dommer | Dommer AG' }, { email: '', name: 'Ana Berg (External)' }], known), [{ raw: 'Tess North' }, { raw: 'Bo Dommer' }, { raw: 'Ana Berg' }]);
+  assert.deepEqual(attendeeForms([{ name: 'Bo Dommer | Dommer AG' }], known), [{ raw: 'Bo Dommer | Dommer AG' }], 'no email at all was always kept, as stored');
+  assert.deepEqual(attendeeForms([{ email: '', name: 'tess@partner.example' }], known), [{ raw: 'tess@partner.example' }], 'an address in the name field');
+  // One person with an address: the stored address, as before.
+  assert.deepEqual(attendeeForms([{ email: 'Tess.North@partner.example', name: 'Tess North' }, 'Rory <rory@mail.example>'], known), [{ raw: 'Tess.North@partner.example' }, { raw: 'Rory <rory@mail.example>' }]);
+  // Glued chips split against the roster's full names (each observed as that person's own form); the unknown rest is kept apart.
+  assert.deepEqual(attendeeForms([{ email: '', name: 'Chris Dorn Vera Lindqvist Bo Dommer' }], known), [{ raw: 'Chris Dorn' }, { raw: 'Vera Lindqvist' }, { raw: 'bo dommer', glued: true }]);
+  // A line in the email field: every address (not only the first), then the names between them.
+  assert.deepEqual(attendeeForms([{ email: 'olga@home.example nikolai brandt rui@x.example', name: '' }], known), [{ raw: 'olga@home.example' }, { raw: 'rui@x.example' }, { raw: 'Nikolai Brandt' }]);
+  assert.deepEqual(attendeeForms('not json'), []);
+  assert.deepEqual(knownForms([{ person_id: 'a', name: 'Ana Berg', identities: ['slack:Ana Berg', 'ana@x.example', 'Ana B'] }]).map((k) => k.names[0]), ['Ana Berg', 'Ana B'], 'one form per folded name, addresses never');
+});
+
+test('collect: a split full name merges as that person\'s name; a glued remainder is never asked or merged; group DMs are direct', () => {
+  const obs = [
+    ...attendeeObservations(attendeeForms([{ email: '', name: 'Nikolai Brandt Tess Norton' }], knownForms(people)), 'gmeet', 'doc1'),
+    // seen with the subject many times, but only as the remainder of glued lines: still never a question
+    ...Array.from({ length: 6 }, (_, i) => attendeeObservations(attendeeForms([{ email: '', name: 'Olga Owner Tess Norton Hal' }], knownForms(people)), 'gmeet', `doc${i + 2}`)).flat(),
+  ];
+  const r = collectIdentities(people, obs, 'olga-owner');
+  assert.deepEqual(r.merges, [{ person_id: 'nikolai-brandt', identity: 'Nikolai Brandt', reason: 'same full name' }]);
+  assert.deepEqual(r.questions, []);
+  assert.equal(r.counts.unresolved, 2, 'two distinct glued remainders');
+  assert.equal(r.counts.mapped, 1, 'the subject, split off the line');
+  assert.ok(isDirect('mpim:@vera+@olga'), 'the store writes Slack group DMs as mpim:');
+  const dm = collectIdentities(people, [o('Vera', 'slack', 'mpim:@vera+@olga')], 'olga-owner');
+  assert.equal(dm.questions.length, 1, 'once in a group DM is enough for a yes/no');
+});
+
+test('collect: the subject\'s own full name is the subject, even unlisted — never a "who is <you>?"', () => {
+  const roster: KnownPerson[] = [{ person_id: 'mia', name: 'Mia Maple', identities: ['mia@home.example'] }, { person_id: 'rui', name: 'Rui Rosa', identities: ['rui@x.example'] }];
+  const seen = Array.from({ length: 6 }, (_, i) => attendeeObservations(attendeeForms([{ email: '', name: 'Mia Maple' }, { email: '', name: 'Rui Rosa' }]), 'gmeet', `doc${i}`)).flat();
+  const r = collectIdentities(roster, seen, 'mia');
+  assert.deepEqual([r.questions, r.counts.mapped], [[], 1]);
+  assert.deepEqual(r.merges, [{ person_id: 'rui', identity: 'Rui Rosa', reason: 'same full name' }], 'anyone else\'s name still merges as before');
+  assert.equal(collectIdentities(roster, [o('Mia', 'slack', 'dm:@mia')], 'mia').counts.mapped, 0, 'a first name alone is not the subject');
 });

@@ -44,3 +44,12 @@ test('attendeeNames: names win, addresses when a recorder has none', () => {
   assert.deepEqual(attendeeNames(JSON.stringify([{ email: 'nina@x.example' }])), ['nina@x.example']);
   assert.deepEqual(attendeeNames('not json'), []);
 });
+
+test('attendeeNames: read by the one attendee parser — no company in a name, a Gemini line split into names and addresses', () => {
+  assert.deepEqual(attendeeNames([{ email: '', name: 'Nina Lomb | Lomb AG' }, { email: '', name: 'Olga Owner' }]), ['Nina Lomb', 'Olga Owner']);
+  assert.deepEqual(attendeeNames([{ email: 'olga owner nina@x.example', name: '' }]), ['olga owner'], 'the name run, not the whole line');
+  assert.deepEqual(attendeeNames([{ email: 'olga@home.example nina@x.example', name: '' }]), ['olga@home.example', 'nina@x.example'], 'no names: every address');
+  // `to` is still the single other attendee — now without the company suffix in its slug
+  const rows = extractCommitments([{ call_id: 'call:2', start: '2026-10-13T12:00:00Z', title: 'Sync', copies: [{ source: 'wispr', ref: 'wispr:me:c', next_steps: ['(Olga Owner) Send the mapping'], attendees: attendeeNames([{ name: 'Olga Owner' }, { name: 'Nina Lomb | Lomb AG' }]) }] }], subjectNames({ name: 'Olga Owner', identities: [] }), 'olga-owner');
+  assert.deepEqual(rows.map((r) => [r.owner, r.to]), [['olga-owner', 'nina-lomb']]);
+});
