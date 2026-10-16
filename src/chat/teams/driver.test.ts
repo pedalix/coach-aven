@@ -113,16 +113,22 @@ test('an answer that replaces the status card edits the text in place and posts 
   assert.equal(api.calls[2].conv, `${CH};messageid=100`);
 });
 
-test('a long answer is split and the card rides on the last part', async () => {
+test('a long answer is split into text messages, then the card as its own message; the reference is the first text', async () => {
   const api = new Recorder();
   const d = teamsDriver(api, { tenantId: TENANT });
   const ref = await d.post({ conv: CH, thread: '100' }, { kind: 'answer', markdown: 'x'.repeat(30_000), opts: { trail: { turnId: 't1', steps: 2, elapsedMs: 1 } } });
   const sends = api.calls.filter((c) => c.op === 'send');
-  assert.equal(sends.length, 2);
+  assert.equal(sends.length, 3);
   assert.equal(ref.id, 'm1');
-  assert.equal(sends[0].activity!.attachments, undefined);
-  assert.ok(sends[1].activity!.attachments);
-  assert.equal(sends.map((s) => s.activity!.text).join(''), 'x'.repeat(30_000));
+  assert.deepEqual(
+    sends.map((s) => [s.activity!.text !== undefined, !!s.activity!.attachments]),
+    [
+      [true, false],
+      [true, false],
+      [false, true],
+    ],
+  );
+  assert.equal(sends.slice(0, 2).map((s) => s.activity!.text).join(''), 'x'.repeat(30_000));
 });
 
 test('private replies go to the 1:1 chat with a pointer, or stay in place when already there', async () => {

@@ -104,7 +104,7 @@
     "activity": {
       "type": "message",
       "text": "🚫 Canceled",
-      "textFormat": "markdown"
+      "textFormat": "extendedmarkdown"
     }
   },
   {
@@ -113,7 +113,14 @@
     "activity": {
       "type": "message",
       "text": "Done — see https://github.com/Org/alpha/pull/7",
-      "textFormat": "markdown",
+      "textFormat": "extendedmarkdown"
+    }
+  },
+  {
+    "op": "send",
+    "conv": "19:CHANNEL1@thread.tacv2;messageid=100",
+    "activity": {
+      "type": "message",
       "attachments": [
         {
           "contentType": "application/vnd.microsoft.card.adaptive",

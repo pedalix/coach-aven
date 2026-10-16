@@ -46,23 +46,12 @@ export function mrkdwnToTeams(s: string): string {
   );
 }
 
-// GitHub markdown as the agent wrote it, with the few things Teams does not render fixed up:
-// tables become code blocks (Teams shows raw pipes otherwise); everything else passes through.
+// GitHub markdown as the agent wrote it. Teams renders tables, headings, fenced code, lists and
+// links as written (checked in the tenant 2026-10-16 with `textFormat: extendedmarkdown`), so
+// nothing is rewritten; the function stays as the one place to add a fix-up if a construct turns
+// out to misrender.
 export function markdownToTeams(md: string): string {
-  const lines = md.split('\n');
-  const out: string[] = [];
-  let i = 0;
-  while (i < lines.length) {
-    const isRow = (l: string) => /^\s*\|.*\|\s*$/.test(l);
-    if (isRow(lines[i]) && i + 1 < lines.length && /^\s*\|[\s:|-]+\|\s*$/.test(lines[i + 1])) {
-      const rows: string[] = [];
-      while (i < lines.length && isRow(lines[i])) rows.push(lines[i++]);
-      out.push('```', ...rows, '```');
-      continue;
-    }
-    out.push(lines[i++]);
-  }
-  return out.join('\n');
+  return md;
 }
 
 // Split at paragraph, then line, then hard boundaries; the parts concatenate to the input.

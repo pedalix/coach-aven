@@ -23,7 +23,9 @@ import { log } from '../../log.js';
 export interface OutActivity {
   type: 'message' | 'typing';
   text?: string;
-  textFormat?: 'markdown';
+  // `extendedmarkdown`: tables, fenced code with syntax highlighting and a copy button, headings
+  // (verified in the tenant 2026-10-16 — plain `markdown` renders them too, without the extras).
+  textFormat?: 'extendedmarkdown';
   attachments?: { contentType: 'application/vnd.microsoft.card.adaptive'; content: AdaptiveCard }[];
   // Everything else the Connector accepts and we never set (summary, entities, …) is omitted.
 }
@@ -68,7 +70,7 @@ export interface TeamsChatDriver extends ChatDriver {
 function toActivity(m: { text?: string; card?: AdaptiveCard }): OutActivity {
   return {
     type: 'message',
-    ...(m.text !== undefined ? { text: m.text, textFormat: 'markdown' } : {}),
+    ...(m.text !== undefined ? { text: m.text, textFormat: 'extendedmarkdown' } : {}),
     ...(m.card ? { attachments: [{ contentType: 'application/vnd.microsoft.card.adaptive', content: m.card }] } : {}),
   };
 }
@@ -92,10 +94,9 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
     });
     await p.inflight;
   }
-  // Teams accepts text + card in a NEW message but rejects the pair in an edit ("Activity
-  // resulted into multiple skype activities", probed 2026-10-16). So an edit that carries
-  // both — the answer replacing the status card, with its Show steps / PR buttons — becomes
-  // the text in place and the buttons as a follow-up message in the same chain.
+  // An edit that carries both text and a card — the answer replacing the status card, with its
+  // Show steps / PR buttons — becomes the text in place and the buttons as a follow-up message
+  // in the same chain (the pair in one edit is "Activity resulted into multiple skype activities").
   async function edit(msg: MsgRef, thread: string | undefined, m: { text?: string; card?: AdaptiveCard }): Promise<void> {
     const target = targetId(msg.conv, thread);
     if (m.text !== undefined && m.card) {
@@ -110,15 +111,24 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
   const msgThread = new Map<string, string | undefined>();
   const keyOf = (m: MsgRef) => `${m.conv}#${m.id}`;
 
+  // Text and card go as SEPARATE messages: Teams splits a text+card activity into two on its
+  // side and answers with no usable id (and rejects the pair outright on an edit) — probed
+  // 2026-10-16. The reference is the first text message (the card's when there is no text);
+  // long text is split under the message limit, parts in order.
   async function sendTo(conv: string, thread: string | undefined, m: { text?: string; card?: AdaptiveCard }): Promise<MsgRef> {
-    const parts = m.text ? splitText(m.text) : [undefined];
+    const target = targetId(conv, thread);
     let first: { id: string } | undefined;
-    for (const [i, part] of parts.entries()) {
-      const last = i === parts.length - 1;
-      const sent = await api.send(targetId(conv, thread), toActivity({ text: part, card: last ? m.card : undefined }));
+    if (m.text !== undefined) {
+      for (const part of splitText(m.text)) {
+        const sent = await api.send(target, toActivity({ text: part }));
+        first ??= sent;
+      }
+    }
+    if (m.card) {
+      const sent = await api.send(target, toActivity({ card: m.card }));
       first ??= sent;
     }
-    const ref = { conv, id: first!.id };
+    const ref = { conv, id: first?.id ?? '' };
     msgThread.set(keyOf(ref), thread);
     return ref;
   }

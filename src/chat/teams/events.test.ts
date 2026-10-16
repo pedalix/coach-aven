@@ -118,4 +118,8 @@ test('the tenant gate drops a foreign tenant before any handler and logs it once
   await routes.get('message')!({ activity: load('message-channel-mention'), next: () => {} });
   await routes.get('message')!({ activity: load('message-personal-command'), next: () => {} });
   assert.deepEqual(seen.filter((s) => !s.startsWith('url:')), ['mention:hello', 'command:status']);
+  // Teams re-delivers an activity it had to wait on: the same id again acts at most once.
+  // (The mention core claims per kind at the moment it acts; a command claims up front.)
+  await routes.get('message')!({ activity: load('message-personal-command'), next: () => {} });
+  assert.deepEqual(seen.filter((s) => s.startsWith('command:')), ['command:status']);
 });
