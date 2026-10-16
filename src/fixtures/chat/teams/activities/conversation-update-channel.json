@@ -1,0 +1,43 @@
+{
+  "membersAdded": [
+    {
+      "id": "28:00000000-0000-4000-8000-0000000000bb"
+    }
+  ],
+  "type": "conversationUpdate",
+  "timestamp": "2026-10-16T11:08:33.808Z",
+  "id": "f:08ee3694-be45-bbdd-aba5-f67404ebf8d6",
+  "channelId": "msteams",
+  "serviceUrl": "https://smba.trafficmanager.net/xx/00000000-0000-4000-8000-00000000000a/",
+  "from": {
+    "id": "29:USER1",
+    "aadObjectId": "00000000-0000-4000-8000-0000000000u1"
+  },
+  "conversation": {
+    "isGroup": true,
+    "conversationType": "channel",
+    "tenantId": "00000000-0000-4000-8000-00000000000a",
+    "id": "19:CHANNEL1@thread.tacv2",
+    "name": "Bn Suite"
+  },
+  "recipient": {
+    "id": "28:00000000-0000-4000-8000-0000000000bb",
+    "name": "Aven"
+  },
+  "channelData": {
+    "team": {
+      "aadGroupId": "00000000-0000-4000-8000-0000000000g1",
+      "name": "Pedalix GmbH",
+      "id": "19:TEAM1@thread.tacv2"
+    },
+    "eventType": "teamMemberAdded",
+    "tenant": {
+      "id": "00000000-0000-4000-8000-00000000000a"
+    },
+    "settings": {
+      "selectedChannel": {
+        "id": "19:CHANNEL1@thread.tacv2"
+      }
+    }
+  }
+}

@@ -1,0 +1,64 @@
+{
+  "type": "message",
+  "id": "1792148920804",
+  "serviceUrl": "https://smba.trafficmanager.net/xx/00000000-0000-4000-8000-00000000000a/",
+  "timestamp": "2026-10-16T11:08:40.8952487Z",
+  "locale": "en-US",
+  "localTimestamp": "2026-10-16T14:08:40.8952487+03:00",
+  "channelId": "msteams",
+  "from": {
+    "id": "29:USER1",
+    "name": "Example User",
+    "aadObjectId": "00000000-0000-4000-8000-0000000000u1"
+  },
+  "conversation": {
+    "isGroup": true,
+    "conversationType": "channel",
+    "tenantId": "00000000-0000-4000-8000-00000000000a",
+    "id": "19:CHANNEL1@thread.tacv2;messageid=1792148920804"
+  },
+  "recipient": {
+    "id": "28:00000000-0000-4000-8000-0000000000bb",
+    "name": "Aven"
+  },
+  "entities": [
+    {
+      "mentioned": {
+        "id": "28:00000000-0000-4000-8000-0000000000bb",
+        "name": "Aven"
+      },
+      "text": "<at>Aven</at>",
+      "type": "mention"
+    },
+    {
+      "locale": "en-US",
+      "country": "US",
+      "platform": "Windows",
+      "timezone": "Europe/Zurich",
+      "type": "clientInfo"
+    }
+  ],
+  "channelData": {
+    "teamsChannelId": "19:CHANNEL1@thread.tacv2",
+    "teamsTeamId": "19:TEAM1@thread.tacv2",
+    "channel": {
+      "id": "19:CHANNEL1@thread.tacv2"
+    },
+    "team": {
+      "aadGroupId": "00000000-0000-4000-8000-0000000000g1",
+      "id": "19:TEAM1@thread.tacv2"
+    },
+    "tenant": {
+      "id": "00000000-0000-4000-8000-00000000000a"
+    }
+  },
+  "text": "hello",
+  "textFormat": "plain",
+  "attachments": [
+    {
+      "contentType": "text/html",
+      "content": "<p><span itemtype=\"http://schema.skype.com/Mention\" itemscope=\"\" itemid=\"0\">Aven</span>&nbsp;hello</p>"
+    }
+  ],
+  "localTimezone": "Europe/Zurich"
+}

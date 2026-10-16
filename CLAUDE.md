@@ -43,12 +43,17 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 ## Architecture pointers
 
 - `src/chat/` — the **chat driver** layer (OpenSpec `chat-driver-interface`). One installation
-  runs ONE chat driver, chosen by the run command (`orch slack`; `src/chat/drivers.ts`). The
+  runs ONE chat driver, chosen by the run command (`orch slack` / `orch teams`; `src/chat/drivers.ts`). The
   platform-neutral core (`src/chat/core/`: `messages.ts` mentions/DMs/thread replies,
   `commands.ts` the `/aven` router, `interactions.ts` buttons/dialogs/home, `gates.ts` who may
   drive) and the engine-side code (`src/turn.ts`, `src/pollers.ts`, `src/dispatchrun.ts`) talk
   to `ChatDriver` (`src/chat/driver.ts`) with view models (`src/chat/views.ts`) — never to a
   platform SDK (`src/chat/imports.test.ts` enforces it).
+- `src/chat/teams/` — the Teams driver (`orch teams`; OpenSpec `teams-chat-driver`): `app.ts`
+  composition root over the Teams SDK (`@microsoft/teams.apps`, the ONLY directory allowed to
+  import it), `driver.ts` (the `TeamsApi` seam + edit coalescing + private-reply routing),
+  `events.ts` (activity normalizers, pure, tested over `src/fixtures/chat/teams/activities/`),
+  `cards.ts` (Adaptive Cards, golden-tested), `format.ts`, `keys.ts`. See `docs/teams.md`.
 - `src/chat/slack/` — the Slack driver: `app.ts` is the **composition root** (builds the turn
   engine + channel resolver, registers the Slack surfaces, starts the pollers), `driver.ts`
   (rendering + Web API), `events.ts` / `commands.ts` (Bolt wiring, payload normalization),

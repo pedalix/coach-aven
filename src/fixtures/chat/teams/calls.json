@@ -1,0 +1,156 @@
+[
+  {
+    "op": "send",
+    "conv": "a:PERSONAL1",
+    "activity": {
+      "type": "typing"
+    }
+  },
+  {
+    "op": "send",
+    "conv": "19:CHANNEL1@thread.tacv2;messageid=100",
+    "activity": {
+      "type": "message",
+      "attachments": [
+        {
+          "contentType": "application/vnd.microsoft.card.adaptive",
+          "content": {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.5",
+            "body": [
+              {
+                "type": "TextBlock",
+                "text": "**Working** — 0:01",
+                "wrap": true
+              }
+            ],
+            "actions": [
+              {
+                "type": "Action.Submit",
+                "title": "🧭 Show steps",
+                "data": {
+                  "msteams": {
+                    "type": "task/fetch"
+                  },
+                  "action": "show_trail",
+                  "value": "t1"
+                }
+              },
+              {
+                "type": "Action.Execute",
+                "title": "✖ Cancel",
+                "data": {
+                  "action": "cancel_turn",
+                  "value": "t1"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "op": "update",
+    "conv": "19:CHANNEL1@thread.tacv2;messageid=100",
+    "id": "m2",
+    "activity": {
+      "type": "message",
+      "attachments": [
+        {
+          "contentType": "application/vnd.microsoft.card.adaptive",
+          "content": {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.5",
+            "body": [
+              {
+                "type": "TextBlock",
+                "text": "**Working** — 0:02",
+                "wrap": true
+              }
+            ],
+            "actions": [
+              {
+                "type": "Action.Submit",
+                "title": "🧭 Show steps",
+                "data": {
+                  "msteams": {
+                    "type": "task/fetch"
+                  },
+                  "action": "show_trail",
+                  "value": "t1"
+                }
+              },
+              {
+                "type": "Action.Execute",
+                "title": "✖ Cancel",
+                "data": {
+                  "action": "cancel_turn",
+                  "value": "t1"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "op": "update",
+    "conv": "19:CHANNEL1@thread.tacv2;messageid=100",
+    "id": "m2",
+    "activity": {
+      "type": "message",
+      "text": "🚫 Canceled",
+      "textFormat": "markdown"
+    }
+  },
+  {
+    "op": "send",
+    "conv": "19:CHANNEL1@thread.tacv2;messageid=100",
+    "activity": {
+      "type": "message",
+      "text": "Done — see https://github.com/Org/alpha/pull/7",
+      "textFormat": "markdown",
+      "attachments": [
+        {
+          "contentType": "application/vnd.microsoft.card.adaptive",
+          "content": {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.5",
+            "body": [
+              {
+                "type": "TextBlock",
+                "text": "🧭 3 steps · 5s",
+                "wrap": true,
+                "isSubtle": true,
+                "size": "Small"
+              }
+            ],
+            "actions": [
+              {
+                "type": "Action.OpenUrl",
+                "title": "🔗 View PR",
+                "url": "https://github.com/Org/alpha/pull/7"
+              },
+              {
+                "type": "Action.Submit",
+                "title": "🧭 Show steps",
+                "data": {
+                  "msteams": {
+                    "type": "task/fetch"
+                  },
+                  "action": "show_trail",
+                  "value": "t1"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

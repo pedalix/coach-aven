@@ -2,6 +2,7 @@
 import { Command } from 'commander';
 import { loadConfig } from './config.js';
 import { runSlack } from './chat/slack/app.js';
+import { runTeams } from './chat/teams/app.js';
 import { log } from './log.js';
 import { initSentry, captureError, flushSentry } from './sentry.js';
 import { registerSourcesCommands } from './sources/cli.js';
@@ -22,6 +23,15 @@ program
     const cfg = loadConfig();
     initSentry(cfg); // no-op unless SENTRY_DSN is set
     await runSlack(cfg);
+  });
+
+program
+  .command('teams')
+  .description('Run the Microsoft Teams bot (HTTPS endpoint behind your reverse proxy): channel→project, reply chain→Claude session')
+  .action(async () => {
+    const cfg = loadConfig();
+    initSentry(cfg);
+    await runTeams(cfg);
   });
 
 registerSourcesCommands(program);

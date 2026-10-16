@@ -143,6 +143,9 @@ interface StateShape {
   // Stored opaquely (@slack/oauth Installation objects) — state.ts doesn't interpret them.
   // ⚠️ These carry live bot tokens, which is why save() writes state.json with mode 0600.
   installations?: Record<string, unknown>;
+  // Teams installations: the Bot Connector base URL the tenant's activities come from — the
+  // one thing a proactive send (routines, recovery) needs that no inbound activity provides.
+  teams?: { serviceUrl?: string };
   // Per-workspace actor access (who may drive the agent), keyed by raw tenant id.
   // Absent = the access.ts defaults (home open; client teams installer-allowlisted).
   teamAccess?: Record<string, TeamAccess>;
@@ -240,6 +243,16 @@ export class Store {
     }
     if (!teamId) delete next.teamId; // home stays field-less (uniform with bare keys)
     chats[threadTs] = next;
+    this.save();
+  }
+
+  // ── Teams: the service URL seen on the last inbound activity ──
+  getTeamsServiceUrl(): string | undefined {
+    return this.data.teams?.serviceUrl;
+  }
+  setTeamsServiceUrl(url: string): void {
+    if (this.data.teams?.serviceUrl === url) return;
+    (this.data.teams ??= {}).serviceUrl = url;
     this.save();
   }
 

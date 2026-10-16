@@ -17,6 +17,14 @@ function tsFiles(dir: string): string[] {
   });
 }
 
+test('only src/chat/teams/ imports the Teams SDK', () => {
+  const offenders = tsFiles(SRC)
+    .map((p) => relative(SRC, p))
+    .filter((rel) => !rel.startsWith('chat/teams/'))
+    .filter((rel) => /from ['"]@microsoft\/teams\./.test(readFileSync(join(SRC, rel), 'utf8')));
+  assert.deepEqual(offenders, []);
+});
+
 test('only src/chat/slack/ imports the Slack SDK', () => {
   const offenders = tsFiles(SRC)
     .map((p) => relative(SRC, p))

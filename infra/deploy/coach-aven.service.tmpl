@@ -1,9 +1,10 @@
-# CoachAven — the Slack coding-agent orchestrator (Socket Mode singleton).
-# Rendered by infra/deploy/deploy.sh (placeholders __USER__/__REMOTE_DIR__/__NODE__
-# substituted at install). All heavy work runs on Daytona sandboxes; this is just
-# the control plane, so it's tiny. No ports: Socket Mode dials OUT to Slack.
+# CoachAven — the coding-agent orchestrator, one chat driver per installation.
+# Rendered by infra/deploy/deploy.sh (placeholders __USER__/__REMOTE_DIR__/__NODE__/__DRIVER__
+# substituted at install; __DRIVER__ = CHAT_DRIVER from the overlay's deploy.env, default
+# slack). All heavy work runs in sandboxes; this is just the control plane, so it's tiny.
+# Slack: no ports, Socket Mode dials OUT. Teams: a loopback port behind the host's nginx.
 [Unit]
-Description=CoachAven — per-project Claude Code sandboxes (Slack bot)
+Description=CoachAven — per-project Claude Code sandboxes (__DRIVER__ bot)
 After=network-online.target
 Wants=network-online.target
 # Don't hammer Daytona/Slack if it crash-loops: cap restarts in a window, then fail.
@@ -18,7 +19,7 @@ Group=__USER__
 WorkingDirectory=__REMOTE_DIR__
 # tsx as a Node loader → the service's main PID is node, so systemd's SIGTERM
 # reaches the app directly (clean shutdown, no npm/tsx fork in between).
-ExecStart=__NODE__ --import tsx src/cli.ts slack
+ExecStart=__NODE__ --import tsx src/cli.ts __DRIVER__
 Environment=NODE_ENV=production
 # Runtime secrets/config are loaded by the app via dotenv from __REMOTE_DIR__/.env
 Restart=always

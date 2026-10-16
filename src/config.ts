@@ -177,6 +177,11 @@ export interface Config {
   // required (Socket Mode); botToken is optional once `oauth` is set — the home workspace's
   // token then comes from the installation store (botToken, when present, seeds it).
   slack?: { botToken?: string; appToken: string; oauth?: SlackOauthConfig };
+  // Teams is only needed for the `teams` command; undefined otherwise (OpenSpec
+  // teams-chat-driver). The three ids are the `infra/teams` module's outputs; `operators` are
+  // Entra object ids allowed the operator-only verbs; `targeted` turns on targeted (private)
+  // channel messages once the tenant has them (PR 2).
+  teams?: TeamsConfig;
   // YouTrack support-ticket investigation pilot; undefined (off) unless YOUTRACK_URL +
   // YOUTRACK_TOKEN are set. `label` is the trigger tag; `ping` is the Slack user ids to
   // @-mention with each finding. The token is a read-only YouTrack permanent token.
@@ -223,6 +228,36 @@ function slackConfig(): Config['slack'] {
   return { botToken, appToken, oauth };
 }
 
+export interface TeamsConfig {
+  appId: string;
+  appPassword: string;
+  tenantId: string;
+  port: number;
+  statusMinMs: number;
+  operators: string[];
+  targeted: boolean;
+}
+
+// Any of the three TEAMS_* ids set → all three must be (a half-configured Teams installation
+// should fail loudly at boot, not answer 401 to every activity); none → no Teams.
+function teamsConfig(): TeamsConfig | undefined {
+  const appId = process.env.TEAMS_APP_ID;
+  const appPassword = process.env.TEAMS_APP_PASSWORD;
+  const tenantId = process.env.TEAMS_TENANT_ID;
+  if (!appId && !appPassword && !tenantId) return undefined;
+  const missing = [!appId && 'TEAMS_APP_ID', !appPassword && 'TEAMS_APP_PASSWORD', !tenantId && 'TEAMS_TENANT_ID'].filter(Boolean);
+  if (missing.length) throw new Error(`Partial Teams config: missing ${missing.join(', ')} (set all three TEAMS_* ids, or none).`);
+  return {
+    appId: appId!,
+    appPassword: appPassword!,
+    tenantId: tenantId!,
+    port: num('TEAMS_PORT', 3978),
+    statusMinMs: num('TEAMS_STATUS_MIN_MS', 2000),
+    operators: (process.env.TEAMS_OPERATORS || '').split(',').map((s) => s.trim()).filter(Boolean),
+    targeted: process.env.TEAMS_TARGETED === '1',
+  };
+}
+
 export function loadConfig(): Config {
   const driver = process.env.SANDBOX_DRIVER || 'daytona';
   if (driver !== 'daytona' && driver !== 'ssh-docker') {
@@ -264,6 +299,7 @@ export function loadConfig(): Config {
     claudeCliVersion: cliVersionEnv(),
     github: githubAuth(),
     slack: slackConfig(),
+    teams: teamsConfig(),
     youtrack:
       process.env.YOUTRACK_URL && process.env.YOUTRACK_TOKEN
         ? {

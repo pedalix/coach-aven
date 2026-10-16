@@ -1088,6 +1088,6 @@ export function errText(err: unknown): string {
 }
 
 export function summary(reg: ProjectsRegistry): string {
-  const bound = reg.projects.filter((p) => p.slackChannel).length;
+  const bound = reg.projects.filter((p) => p.slackChannel || p.teamsChannel).length;
   return `${reg.projects.length} project(s), ${bound} channel-bound`;
 }

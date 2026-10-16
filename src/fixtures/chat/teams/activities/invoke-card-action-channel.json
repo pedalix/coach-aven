@@ -1,0 +1,65 @@
+{
+  "name": "adaptiveCard/action",
+  "type": "invoke",
+  "timestamp": "2026-10-16T11:21:32.907Z",
+  "localTimestamp": "2026-10-16T14:21:32.907+03:00",
+  "id": "f:43b1e3a8-f74f-b6e1-ec0d-18e957175c30",
+  "channelId": "msteams",
+  "serviceUrl": "https://smba.trafficmanager.net/xx/00000000-0000-4000-8000-00000000000a/",
+  "from": {
+    "id": "29:USER1",
+    "name": "Example User",
+    "aadObjectId": "00000000-0000-4000-8000-0000000000u1"
+  },
+  "conversation": {
+    "isGroup": true,
+    "conversationType": "channel",
+    "tenantId": "00000000-0000-4000-8000-00000000000a",
+    "id": "19:CHANNEL1@thread.tacv2;messageid=1792149613962",
+    "name": "Bn Suite"
+  },
+  "recipient": {
+    "id": "28:00000000-0000-4000-8000-0000000000bb",
+    "name": "Aven"
+  },
+  "entities": [
+    {
+      "locale": "en-US",
+      "country": "US",
+      "platform": "Windows",
+      "timezone": "Europe/Zurich",
+      "type": "clientInfo"
+    }
+  ],
+  "channelData": {
+    "channel": {
+      "id": "19:CHANNEL1@thread.tacv2"
+    },
+    "team": {
+      "id": "19:TEAM1@thread.tacv2"
+    },
+    "tenant": {
+      "id": "00000000-0000-4000-8000-00000000000a"
+    },
+    "source": {
+      "name": "message"
+    },
+    "legacy": {
+      "replyToId": "1:1IavGUzCOkj4_E-VsWP1oP77bNlcsiiYRKPIgqc4sNlY"
+    }
+  },
+  "replyToId": "1792149681825",
+  "value": {
+    "action": {
+      "type": "Action.Execute",
+      "title": "Execute ping",
+      "data": {
+        "action": "ping",
+        "n": 1
+      }
+    },
+    "trigger": "manual"
+  },
+  "locale": "en-US",
+  "localTimezone": "Europe/Zurich"
+}
