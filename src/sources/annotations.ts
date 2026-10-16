@@ -6,7 +6,9 @@
 //   annotations/fragments.jsonl   append-only; the last line per `id` wins; `superseded` is ignored
 //   annotations/people.json       people + identities + markers (people.ts)
 //
-// Who decided: `rule` | `model` | `owen` (the owner, the CLI's literal) | `human:<person_id>` (a person, any tenant).
+// Who decided: `rule` | `model` | `owner` (the tenant's owner) | `human:<person_id>` (a person, any tenant). A tenant
+// whose own tooling writes another literal for the owner names it in attribution.json (`ownerDecider`); lines carrying
+// that literal parse as `owner` (DeciderOpts) — the code knows no owner name of its own.
 // A `human:<id>` line keeps parsing as `model` for the plan, exactly as before; its decider rides in `decider`, which
 // only the learning loop reads (attribution/learn-load.ts) — as it reads what the machine said BEFORE the answer
 // (`guess`, `conf`, `rung`), the question's `answer` id (lines of one answer are one observation) and `audit: true`
@@ -16,9 +18,10 @@
 // counted (a tenant mistake must not take the bot's build down), a malformed people file is not
 // (people.ts throws — identity resolution silently going wrong is worse than a visible failure).
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 export type FragmentKind = 'call' | 'thread' | 'work';
-export type DecidedBy = 'rule' | 'model' | 'owen';
+export type DecidedBy = 'rule' | 'model' | 'owner';
 export type FragmentStatus = 'decided' | 'escalated' | 'superseded';
 
 export interface Attribution {
@@ -59,20 +62,51 @@ export interface AttributionRow {
 }
 
 const KINDS: readonly string[] = ['call', 'thread', 'work'];
-const DECIDERS: readonly string[] = ['rule', 'model', 'owen'];
+export const OWNER: DecidedBy = 'owner';
+const DECIDERS: readonly string[] = ['rule', 'model', OWNER];
 const STATUSES: readonly string[] = ['decided', 'escalated', 'superseded'];
 /** A person as decider: `human:<person_id>` (people.json's id shape). */
 const HUMAN_DECIDER = /^human:[a-z0-9][a-z0-9._-]{0,63}$/;
 
-/** Is this decider a person — the owner (`owen`) or `human:<id>`? Only a person's lines are evidence for the learning loop. */
-export const isHumanDecider = (d: string | null | undefined): boolean => d === 'owen' || HUMAN_DECIDER.test(d ?? '');
+/** How a tenant's ledger names its owner: `ownerDecider` (attribution.json) is read as `owner`. Absent: only `owner` is. */
+export interface DeciderOpts {
+  ownerDecider?: string;
+}
+
+/** A usable `ownerDecider`: a plain lowercase literal, not one of the canonical deciders and never `human:…`. */
+export const isOwnerDeciderAlias = (v: unknown): v is string => typeof v === 'string' && /^[a-z0-9][a-z0-9._-]{0,63}$/.test(v) && !DECIDERS.includes(v);
+
+/** A raw decider as the code reads it: the tenant's owner literal becomes `owner`, anything else is unchanged. */
+export const canonicalDecider = (d: string, o: DeciderOpts = {}): string => (o.ownerDecider && d === o.ownerDecider ? OWNER : d);
+
+/**
+ * The tenant's owner literal from `<annotationsDir>/attribution.json`, for the readers that parse the ledger before (or
+ * without) the attribution config: undefined when there is no file, no field, or anything unreadable — the config parse
+ * (attribution/config.ts) is where a bad value is reported.
+ */
+export function readOwnerDecider(annotationsDir: string | undefined): string | undefined {
+  if (!annotationsDir) return undefined;
+  const p = join(annotationsDir, 'attribution.json');
+  try {
+    if (!existsSync(p)) return undefined;
+    const raw = JSON.parse(readFileSync(p, 'utf8')) as unknown;
+    const v = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>).ownerDecider : undefined;
+    return isOwnerDeciderAlias(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Is this decider a person — the owner (`owner`, or the tenant's literal for it) or `human:<id>`? Only a person's lines are evidence for the learning loop. */
+export const isHumanDecider = (d: string | null | undefined, o: DeciderOpts = {}): boolean => (d != null && canonicalDecider(d, o) === OWNER) || HUMAN_DECIDER.test(d ?? '');
 
 /** Did a person decide this ledger line? */
 export const isHumanLine = (f: Pick<Fragment, 'decided_by' | 'decider'>): boolean => isHumanDecider(f.decider ?? f.decided_by);
 
-export function parseFragment(raw: unknown): Fragment | undefined {
+export function parseFragment(raw: unknown, o: DeciderOpts = {}): Fragment | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
   const r = raw as Record<string, unknown>;
+  const by = typeof r.decided_by === 'string' ? canonicalDecider(r.decided_by, o) : undefined;
   if (typeof r.id !== 'string' || !r.id) return undefined;
   const status = typeof r.status === 'string' && STATUSES.includes(r.status) ? (r.status as FragmentStatus) : 'decided';
   const refs = Array.isArray(r.refs) ? r.refs.filter((x): x is string => typeof x === 'string' && !!x) : [];
@@ -87,7 +121,7 @@ export function parseFragment(raw: unknown): Fragment | undefined {
     end: typeof r.end === 'string' ? r.end : '',
     refs,
     attributions,
-    decided_by: typeof r.decided_by === 'string' && DECIDERS.includes(r.decided_by) ? (r.decided_by as DecidedBy) : 'model',
+    decided_by: by !== undefined && DECIDERS.includes(by) ? (by as DecidedBy) : 'model',
     ...(typeof r.rule_id === 'string' ? { rule_id: r.rule_id } : {}),
     ...(typeof r.rationale === 'string' ? { rationale: r.rationale } : {}),
     ...(typeof r.decided_at === 'string' ? { decided_at: r.decided_at } : {}),
@@ -103,14 +137,14 @@ export function parseFragment(raw: unknown): Fragment | undefined {
 }
 
 /** Last line per id wins; superseded fragments are dropped. Returns live fragments + the number of unusable lines. */
-export function parseFragments(text: string): { fragments: Fragment[]; malformed: number } {
+export function parseFragments(text: string, o: DeciderOpts = {}): { fragments: Fragment[]; malformed: number } {
   const byId = new Map<string, Fragment>();
   let malformed = 0;
   for (const line of text.split('\n')) {
     if (!line.trim()) continue;
     let f: Fragment | undefined;
     try {
-      f = parseFragment(JSON.parse(line));
+      f = parseFragment(JSON.parse(line), o);
     } catch {
       f = undefined;
     }
@@ -124,9 +158,9 @@ export function parseFragments(text: string): { fragments: Fragment[]; malformed
   return { fragments: [...byId.values()].filter((f) => f.status !== 'superseded'), malformed };
 }
 
-export function loadFragments(path: string | undefined): { fragments: Fragment[]; malformed: number } {
+export function loadFragments(path: string | undefined, o: DeciderOpts = {}): { fragments: Fragment[]; malformed: number } {
   if (!path || !existsSync(path)) return { fragments: [], malformed: 0 };
-  return parseFragments(readFileSync(path, 'utf8'));
+  return parseFragments(readFileSync(path, 'utf8'), o);
 }
 
 /**

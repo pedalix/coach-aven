@@ -32,7 +32,7 @@
 // live file, is what the sandbox mounts: a bind-mounted FILE would pin an inode and never
 // see the swap: the bot (hostrouter.ts) and `serve` open the file per call and pick up the new one.
 import { createHash } from 'node:crypto';
-import { attributionRows, loadFragments, type Fragment } from './annotations.js';
+import { attributionRows, loadFragments, readOwnerDecider, type Fragment } from './annotations.js';
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, statSync } from 'node:fs';
 import { join, relative, basename } from 'node:path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
@@ -720,8 +720,10 @@ export function resetIfOldSchema(path: string, log: Logger): boolean {
 }
 
 /** Fingerprint of everything the derived tables depend on besides raw. */
-export function derivedFingerprint(peopleText: string, fragmentsText: string, slackUsersText = ''): string {
-  return createHash('sha256').update(`v${SCHEMA_VERSION}.${LABEL_RULES_VERSION}\0${peopleText}\0${fragmentsText}\0${slackUsersText}`).digest('hex');
+export function derivedFingerprint(peopleText: string, fragmentsText: string, slackUsersText = '', ownerDecider?: string): string {
+  // The owner's ledger literal changes how the same ledger text parses: part of the print only when set, so a tenant
+  // without one keeps its fingerprint (and skips a needless recompute).
+  return createHash('sha256').update(`v${SCHEMA_VERSION}.${LABEL_RULES_VERSION}\0${peopleText}\0${fragmentsText}\0${slackUsersText}${ownerDecider ? `\0owner=${ownerDecider}` : ''}`).digest('hex');
 }
 
 /**
@@ -919,9 +921,11 @@ export function buildStore(ctx: BuildContext): BuildSummary {
         }
       }
     }
-    const fp = derivedFingerprint(peopleText, fragmentsText, slackUsersText);
+    // The tenant's literal for the owner decider (attribution.json `ownerDecider`) — the ledger is read with it.
+    const ownerDecider = readOwnerDecider(ctx.attribution?.annotationsDir);
+    const fp = derivedFingerprint(peopleText, fragmentsText, slackUsersText, ownerDecider);
     const prevFp = (st.syncGet.get('derived_fingerprint') as { value?: string } | undefined)?.value;
-    const { fragments, malformed } = loadFragments(ctx.fragmentsPath);
+    const { fragments, malformed } = loadFragments(ctx.fragmentsPath, { ownerDecider });
     sum.fragments = fragments.length;
     sum.malformedFragments = malformed;
     if (fp !== prevFp) {

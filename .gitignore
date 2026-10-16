@@ -42,3 +42,4 @@ data/
 
 # prod-box cache of scripts/mirror.ts (bare repos + log)
 /mirrors/
+/mirrors.json

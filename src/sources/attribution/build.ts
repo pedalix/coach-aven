@@ -72,14 +72,14 @@ function parseRules(raw: unknown, where = 'annotations/rules.json'): RuleRecord[
 }
 
 /**
- * attribution.json as a pin's rules version hashes it: parsed, without `items` and `learn`. Item mode and the shadow loop
- * decide nothing in the plan, so switching them on or off must not change the version the pins of closed days record
+ * attribution.json as a pin's rules version hashes it: parsed, without `items`, `learn` and `ownerDecider`. Item mode,
+ * the shadow loop and the owner's ledger literal (a spelling, read as `owner`) decide nothing in the plan, so switching them on or off must not change the version the pins of closed days record
  * (the shadow promise: pins identical with the loop on or off); hashing the parsed object, formatting no longer moves
  * it either. (The raw text still feeds the build's fingerprint: any edit recomputes.)
  */
 export function versionConfig(raw: unknown): string {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return JSON.stringify(raw);
-  return JSON.stringify(Object.fromEntries(Object.entries(raw).filter(([k]) => k !== 'items' && k !== 'learn')));
+  return JSON.stringify(Object.fromEntries(Object.entries(raw).filter(([k]) => k !== 'items' && k !== 'learn' && k !== 'ownerDecider')));
 }
 
 /**

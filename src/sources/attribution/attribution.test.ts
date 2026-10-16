@@ -247,8 +247,8 @@ test('plan: a call answers to its own id, then to its copies\' ids — a judgmen
   const pin = (id: string, ini: string): Pin => ({ id, attributions: [{ initiative: ini, share: 1 }], rule_id: 'marker:hana', rationale: 'pinned', rules_version: 'v1', pinned_at: '2026-10-14T00:00:00.000Z' });
   const plan = (ledger: LedgerRecord[], pins: Pin[] = []) => planFragments([call], new Map(ledger.map((r) => [r.id, r])), ctx(), new Map(pins.map((p) => [p.id, p])))[0]!;
   assert.deepEqual([plan([]).state, plan([]).attributions[0]!.initiative], ['rule', 'acme/p5'], 'nothing recorded: the ladder (Hana is exclusive)');
-  const judged = plan([rec('frag-c-gmeet', 'initech/a', { kind: 'call', decided_by: 'owen' })]);
-  assert.deepEqual([judged.state, judged.decided_by, judged.ledger_id, judged.attributions[0]!.initiative], ['decided', 'owen', 'frag-c-gmeet', 'initech/a'], 'judged under the twin\'s id');
+  const judged = plan([rec('frag-c-gmeet', 'initech/a', { kind: 'call', decided_by: 'owner' })]);
+  assert.deepEqual([judged.state, judged.decided_by, judged.ledger_id, judged.attributions[0]!.initiative], ['decided', 'owner', 'frag-c-gmeet', 'initech/a'], 'judged under the twin\'s id');
   assert.equal(plan([rec('frag-c-gmeet', 'initech/a', { kind: 'call' }), rec('frag-c-granola', 'initech/b', { kind: 'call' })]).ledger_id, 'frag-c-granola', 'its own id first');
   assert.equal(plan([rec('frag-c-gmeet', 'initech/a', { kind: 'call', status: 'superseded' })]).state, 'rule', 'a superseded line is no decision');
   const pinned = plan([], [pin('frag-c-gmeet', 'globex/shop')]);
@@ -264,6 +264,8 @@ test('config: subject required; defaults; bad values fail with the file named', 
   assert.deepEqual(parseAttributionConfig({ subject: 'owner', since: '2026-10-01', threadGapMinutes: 30, substance: false, pinAfterDays: 0, parallelSessions: 'wallclock', admin: { acme: 'acme/admin' } }), { subject: 'owner', since: '2026-10-01', threadGapMinutes: 30, substance: false, pinAfterDays: 0, parallelSessions: 'wallclock', admin: { acme: 'acme/admin' } });
   assert.throws(() => parseAttributionConfig({ subject: 'owner', pinAfterDays: -1 }), /"pinAfterDays" must be an integer/);
   assert.throws(() => parseAttributionConfig({ subject: 'owner', parallelSessions: 'max' }), /"parallelSessions" must be/);
+  assert.equal(parseAttributionConfig({ subject: 'owner', ownerDecider: 'olga' }).ownerDecider, 'olga');
+  for (const bad of ['owner', 'model', 'rule', 'human:olga', 'Olga', '', 7]) assert.throws(() => parseAttributionConfig({ subject: 'owner', ownerDecider: bad }), /"ownerDecider" must be/);
   const budgets = [{ umbrella: 'acme', unit: 'half_day', perMonth: 24, by: 'billing_code' }, { umbrella: 'globex', unit: 'hour', perMonth: 100, overrides: { '2026-10': 70 } }, { umbrella: 'initech', unit: 'hour' }];
   assert.deepEqual(parseAttributionConfig({ subject: 'owner', budgets }).budgets, budgets);
   for (const [b, re] of [

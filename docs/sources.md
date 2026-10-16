@@ -589,7 +589,9 @@ failure keeps the previous checkout and is logged, never fatal. The bot only **r
 - `annotations/people.json` — people, identities, markers (above);
 - `annotations/fragments.jsonl` — append-only, last line per `id` wins, `superseded` ignored:
   `{ id, kind: call|thread|work, start, end, refs: [...], attributions: [{initiative, share}],
-  decided_by: rule|model|owen, rule_id?, rationale, decided_at, status: decided|escalated|superseded }`.
+  decided_by: rule|model|owner|human:<person_id>, rule_id?, rationale, decided_at, status: decided|escalated|superseded }`.
+  `owner` is the tenant's owner. A tenant whose own tooling writes another literal for the owner declares it as
+  `ownerDecider` in `annotations/attribution.json` (below); without it, an unknown literal reads as `model`.
   `refs` are store refs (`source:account:id`) or the account-free shorthand `meeting:<source>:<id>`.
 
 Decided fragments become `attributions(ref, initiative, share, fragment_id, decided_by)`.
@@ -609,8 +611,15 @@ and what is left for a judgment. No tenant code runs on the host and no file rea
 
 ```json
 { "subject": "<person_id>", "since": "2026-10-01",
-  "threadGapMinutes": 45, "substance": true, "admin": { "<umbrella>": "<umbrella>/<umbrella>/admin" } }
+  "threadGapMinutes": 45, "substance": true, "admin": { "<umbrella>": "<umbrella>/<umbrella>/admin" },
+  "ownerDecider": "<literal>" }
 ```
+
+`ownerDecider` (optional): the literal the tenant's own tooling writes for the owner in `decided_by`
+(`annotations/fragments.jsonl`) and `by` (`annotations/labels.jsonl`) — lowercase `[a-z0-9._-]`, not `rule`,
+`model`, `owner` or `human:…`. Lines with it are read as `owner` everywhere (store, plan, learning loop, lab). Without
+it only `owner` is the owner and any other literal reads as `model` (fragments) or nobody (labels). It names, it
+decides nothing: the pins' rules version ignores it; the store's derived tables recompute when it changes.
 
 **Inputs** (all tenant data): `initiatives.json` at the tenant root — routing keys per initiative
 (`repos`, `local_paths`, `calendar_title_patterns`, `slack_channels`, `teams_channels`, `jira_keys`,
@@ -663,8 +672,8 @@ the current rules — and is pinned once the day has closed (`pinAfterDays` full
 1): decided once, with the rule id and the rules version (hash of rules, registry and people markers), in
 `data/<slug>/attribution/pins.jsonl` on the bot host — outside the store, which is rebuilt at will. A rule
 changed later does not move a pinned day; a judgment in the ledger still wins over a pin. The readout marks
-pinned rows (`pinned: {at, rules_version}`). The rules version hashes attribution.json without `items` and
-`learn` (parsed, so formatting does not move it either): switching item mode or the loop on or off leaves the pins
+pinned rows (`pinned: {at, rules_version}`). The rules version hashes attribution.json without `items`,
+`learn` and `ownerDecider` (parsed, so formatting does not move it either): switching item mode or the loop on or off leaves the pins
 byte-identical. `orch sources attribution redo <slug> --since D [--until D]` unpins a window (days in the tenant's
 zone; a call's pins under its copies' own ids too); the next build decides it with the current rules.
 
@@ -752,8 +761,8 @@ No model anywhere: a model may word a question or pre-fill its guess in the sand
 
 **What an answer becomes.** One line in the tenant repo, nothing else — the store keeps no learning state:
 
-- **Fragments**: a line of `annotations/fragments.jsonl` a person decided — `decided_by: "owen"` (the owner's
-  literal) or `"human:<person_id>"` — with `status: "decided"`. Optional fields record the question:
+- **Fragments**: a line of `annotations/fragments.jsonl` a person decided — `decided_by: "owner"` (or the
+  tenant's `ownerDecider` literal) or `"human:<person_id>"` — with `status: "decided"`. Optional fields record the question:
   `answer` (its id: the lines of one answer are ONE observation, however many units it covered), `guess` (what the
   machine proposed before the answer, or null), `conf` and `rung` (its confidence and rung instance), `audit: true`
   (a re-check of an auto-decision). Without `answer`, a call's topic lines decided at the same `decided_at` count as
@@ -763,7 +772,7 @@ No model anywhere: a model may word a question or pre-fill its guess in the sand
   The CLI should write `answer` (the escalation id) anyway: two answers of one session with the same label merge. The
   plan reads a `human:<id>` line exactly as before (as `model`); only the loop reads the decider.
 - **Items** (item mode): a new file `annotations/labels.jsonl`, one line per answered item:
-  `{ref, task: "t1-item", label, by: "human:<person_id>", answer, audit?, guess?, conf?, rung?, at}`. A person's last
+  `{ref, task: "t1-item", label, by: "human:<person_id>" | "owner" (or the ownerDecider literal), answer, audit?, guess?, conf?, rung?, at}`. A person's last
   line per task × ref wins; `status: "superseded"` withdraws it. A line by anyone but a person (`by: "model"`,
   `"rule"`) is kept in the file and is neither evidence nor a withdrawal — machine output never deletes a person's
   answer (nor does a machine's `superseded`); a `human:` decider that is no person id (`"human:Ana"`) counts as

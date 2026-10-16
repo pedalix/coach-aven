@@ -300,7 +300,7 @@ test('judged, then a twin copy lands (earlier start, zero length): the judgment 
     mt.run('granola:me:n3', 'granola', 'me', 'n3', 'Platform review', '2026-10-13T13:02:00.000Z', '2026-10-13T13:40:00.000Z', JSON.stringify([{ email: 'olga@example.com', name: 'Olga Owner' }]), notes, 'Me: so\nThem: yes\n'.repeat(50));
     recomputeCalls(db);
     const judged = `frag-2026-10-13-call-granola-${hash('n3')}`;
-    const ledger: Fragment[] = [{ id: judged, kind: 'call', start: '2026-10-13T13:02:00.000Z', end: '2026-10-13T13:40:00.000Z', refs: ['meeting:granola:n3'], attributions: [{ initiative: 'initech/a', share: 1 }], decided_by: 'owen', status: 'decided' }];
+    const ledger: Fragment[] = [{ id: judged, kind: 'call', start: '2026-10-13T13:02:00.000Z', end: '2026-10-13T13:40:00.000Z', refs: ['meeting:granola:n3'], attributions: [{ initiative: 'initech/a', share: 1 }], decided_by: 'owner', status: 'decided' }];
     const pinsPath = join(mkdtempSync(join(tmpdir(), 'pins-')), 'pins.jsonl');
     const t = tenant({ 'initiatives.json': registry, 'annotations/attribution.json': { subject: 'owner', since: '2026-10-13' } });
     const inputs = readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow', pinsPath })!.inputs;
@@ -313,7 +313,7 @@ test('judged, then a twin copy lands (earlier start, zero length): the judgment 
     recomputeCalls(db);
     recomputeAttribution(db, inputs, people, ledger, NOW);
     const calls = db.prepare("SELECT id, refs, state, decided_by, attributions, ledger_id FROM att_fragments WHERE kind = 'call' AND start LIKE '2026-10-13%'").all() as Record<string, string>[];
-    assert.deepEqual(calls.map((c) => [c.id, c.state, c.decided_by, c.ledger_id, (JSON.parse(c.attributions!) as { initiative: string }[])[0]!.initiative]), [[judged, 'decided', 'owen', judged, 'initech/a']], 'one call: the judged id, the judgment');
+    assert.deepEqual(calls.map((c) => [c.id, c.state, c.decided_by, c.ledger_id, (JSON.parse(c.attributions!) as { initiative: string }[])[0]!.initiative]), [[judged, 'decided', 'owner', judged, 'initech/a']], 'one call: the judged id, the judgment');
     assert.deepEqual(JSON.parse(calls[0]!.refs!), ['meeting:granola:n3', 'meeting:gmeet:doc1']);
     assert.equal(pins(), before, 'nothing new is pinned');
     const indexed = db.prepare("SELECT ref, initiative FROM attributions WHERE ref IN ('meeting:granola:n3', 'meeting:gmeet:doc1') ORDER BY ref, initiative").all() as { ref: string; initiative: string }[];

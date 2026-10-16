@@ -1,24 +1,24 @@
 {
   "workspaces": {
     "T0YOURHOME1": [
-      "caldora",
-      "cms-general",
-      "dorfberg-monitoring",
+      "acme-shop",
+      "acme-cms",
+      "acme-monitoring",
       "ops-plain"
     ],
     "T0CLIENT001": [
-      "dorfberg-monitoring"
+      "acme-monitoring"
     ]
   },
   "projects": [
     {
-      "slug": "caldora",
+      "slug": "acme-shop",
       "repos": [
-        "BluefinOrg/REPLACE-caldora-repo"
+        "your-org/acme-shop-api"
       ],
       "youtrackProjects": [
-        "CG",
-        "CB"
+        "SHOP",
+        "CMS"
       ],
       "driver": "daytona",
       "systemPrompt": "Project context goes here (appended after the base prompt): domain, what each repo is and how they relate, merge/deploy-order rules, doc links. Repo coding conventions belong in each repo's own CLAUDE.md, not here.",
@@ -35,7 +35,7 @@
           "name": "youtrack",
           "url": "https://observe.example.com/yt-mcp",
           "headers": {
-            "Authorization": "Basic ${YT_MCP_BASIC_AUTH_CALDORA}"
+            "Authorization": "Basic ${YT_MCP_BASIC_AUTH_ACME_SHOP}"
           }
         },
         {
@@ -58,18 +58,18 @@
       ]
     },
     {
-      "slug": "cms-general",
+      "slug": "acme-cms",
       "repos": [
-        "BluefinOrg/REPLACE-cms-repo-a",
-        "BluefinOrg/REPLACE-cms-repo-b"
+        "your-org/acme-cms-studio",
+        "your-org/acme-cms-sync"
       ],
       "env": {},
       "mcp": []
     },
     {
-      "slug": "dorfberg-monitoring",
+      "slug": "acme-monitoring",
       "repos": [
-        "BluefinOrg/REPLACE-dorfberg-repo"
+        "your-org/acme-monitoring"
       ],
       "env": {},
       "mcp": []

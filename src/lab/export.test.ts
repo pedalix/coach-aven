@@ -109,7 +109,7 @@ function fixture(): { root: string; storePath: string; tenantDir: string; pinsPa
   writeFileSync(join(ann, 'people.json'), JSON.stringify(people));
   const L = (o: Record<string, unknown>) => ({ kind: 'thread', start: '', end: '', refs: [], rule_id: null, rationale: '', decided_at: '2026-10-15T15:00:00.000Z', status: 'decided', ...o });
   writeFileSync(join(ann, 'fragments.jsonl'), jsonl([
-    L({ id: ids.general, refs: ['slack:T/C2/4'], attributions: [{ initiative: 'acme/old-shop', share: 1 }], decided_by: 'owen' }),
+    L({ id: ids.general, refs: ['slack:T/C2/4'], attributions: [{ initiative: 'acme/old-shop', share: 1 }], decided_by: 'owner' }),
     L({ id: ids.dm, refs: ['slack:T/D1/2'], attributions: [{ initiative: 'globex/ab', share: 1 }], decided_by: 'model' }),
     // an earlier cut of the #shop run: covers today's fragment by its ref (plan.ts), not by id
     L({ id: 'frag-2026-10-15-thread-oldcut', refs: ['slack:T/C1/1'], attributions: [{ initiative: 'acme/shop', share: 1 }], decided_by: 'rule', rule_id: 'registry:channel' }),

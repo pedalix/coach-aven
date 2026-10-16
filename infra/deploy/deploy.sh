@@ -59,6 +59,9 @@ RUNTIME_FILES=(.env github-app-private-key.pem projects.config.json)
 # Note export copies over (scp, not rsync --delete): a file deleted locally lingers on
 # the box, which is harmless — the loader ignores files for unknown slugs.
 RUNTIME_DIRS=(projects.d)
+# Optional runtime FILES, uploaded/pulled only when present: mirrors.json is the repo-mirror
+# list scripts/mirror.ts reads (docs/runtime-config.md → *Repo mirrors*).
+OPTIONAL_RUNTIME_FILES=(mirrors.json)
 
 usage() { grep -E '^#( |$)' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 # Installations present = infra/*/ directories that carry a deploy.env (an overlay without
@@ -189,6 +192,9 @@ cmd_export() {
   for f in "${RUNTIME_FILES[@]}"; do
     scp "${SSH_OPTS[@]}" -q "$RUNTIME_DIR/$f" "$DEPLOYER:$REMOTE_DIR/$f"
   done
+  for f in "${OPTIONAL_RUNTIME_FILES[@]}"; do
+    if [[ -f "$RUNTIME_DIR/$f" ]]; then scp "${SSH_OPTS[@]}" -q "$RUNTIME_DIR/$f" "$DEPLOYER:$REMOTE_DIR/$f"; fi
+  done
   for d in "${RUNTIME_DIRS[@]}"; do
     if [[ -d "$RUNTIME_DIR/$d" ]]; then
       # tar over ssh, not `scp -r dir/.` — modern scp rejects the trailing `/.` form.
@@ -210,6 +216,11 @@ cmd_import() {
       scp "${SSH_OPTS[@]}" -q "$DEPLOYER:$REMOTE_DIR/$f" "$RUNTIME_DIR/$f"
     else
       warn "no $REMOTE_DIR/$f on the box — skipped"
+    fi
+  done
+  for f in "${OPTIONAL_RUNTIME_FILES[@]}"; do
+    if dssh "test -f $REMOTE_DIR/$f" </dev/null; then
+      scp "${SSH_OPTS[@]}" -q "$DEPLOYER:$REMOTE_DIR/$f" "$RUNTIME_DIR/$f"
     fi
   done
   for d in "${RUNTIME_DIRS[@]}"; do
@@ -250,6 +261,7 @@ cmd_deploy() {
     --exclude='./projects.config.json' \
     --exclude='./state.json' \
     --exclude='./mirrors' \
+    --exclude='./mirrors.json' \
     --exclude='./memory' \
     --exclude='./feedback' \
     --exclude='./events' \

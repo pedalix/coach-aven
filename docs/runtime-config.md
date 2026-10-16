@@ -139,8 +139,15 @@ agent not to push or open PRs there.
   `contents` + `workflows` write. Failures go to Sentry (tag `mirror`) and `mirrors/mirror.log`.
 - **Adding a mirror:** create the private repo in BluefinOrg, **disable its Actions**
   (`gh api -X PUT repos/<mirror>/actions/permissions -F enabled=false` — upstream deploy
-  workflows would otherwise run on every sync), add the entry to `MIRRORS` in the script, add
-  the repo to the owner's PAT (or a new `MIRROR_SRC_*` + `.env.example` line), deploy.
+  workflows would otherwise run on every sync), add an entry to the installation's
+  `mirrors.json`, add the repo to the owner's PAT (or a new `MIRROR_SRC_*` line in the runtime
+  `.env`), export.
+- **The list is data:** `mirrors.json` in the installation's ops overlay (`infra/<slug>/mirrors.json`,
+  uploaded beside `.env` by `npm run ops -- <slug> export`, pulled back by `import`) — an array of
+  `{"src": "<owner>/<repo>", "dst": "<your-org>/<repo>", "srcTokenEnv": "MIRROR_SRC_<OWNER>", "note": "…"}`
+  (`note` is a comment; example: `infra/deploy/ops.example/mirrors.example.json`). The script reads
+  `MIRRORS_CONFIG` (a path) when set, else `./mirrors.json` in its working directory. A missing or
+  malformed list fails the run (exit 1, Sentry tag `mirror: config`) — it never mirrors nothing quietly.
 - **No token → snapshot:** a mirror whose `MIRROR_SRC_*` is unset is skipped (logged, no alert).
   `BluefinAG` is a *user* account where we're only collaborators — fine-grained PATs can't
   target it — so the HSX mirror stays a manual snapshot until those repos move into the org.

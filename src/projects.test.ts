@@ -196,3 +196,8 @@ test('gitFlow: "pr" | "direct" accepted, absent stays undefined (→ pr); anythi
     assert.throws(() => loadProjects(cfg), /gitFlow must be one of/);
   });
 });
+
+test('the shipped projects.config.example.json loads', () => {
+  const reg = loadProjects(new URL('../projects.config.example.json', import.meta.url).pathname);
+  assert.deepEqual(reg.projects.map((p) => p.slug), ['acme-shop', 'acme-cms', 'acme-monitoring', 'ops-plain']);
+});

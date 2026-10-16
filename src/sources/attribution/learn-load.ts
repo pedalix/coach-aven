@@ -9,7 +9,7 @@
 //                typed keys (ported from the bench's K, src/lab/variants/keys/extract.ts, so the measured priors hold),
 //                its case key, its text (cue matching) and minutes
 //   evidence     the contract (docs/sources.md → "Learning loop (shadow)"): a fragment's ledger line a PERSON decided
-//                ('owen' or 'human:<id>', status decided) and an item's annotations/labels.jsonl line by a person, with a
+//                ('owner' or 'human:<id>', status decided) and an item's annotations/labels.jsonl line by a person, with a
 //                label of the label space (a typo is dropped and counted), one answer id per answer. Never the machine's
 //                own output — rule/model lines, pins, the floor, the learner's decisions, a model's guess: fed back as
 //                evidence it froze its own errors in (poisoning test: weekly precision 100% → 81%)
@@ -27,7 +27,7 @@ import { topics, type FragmentDraft } from './fragment.js';
 import { loadItems, type ItemIn } from './items-load.js';
 import { hostsApps } from './items-text.js';
 import { itemWindow } from './items.js';
-import { isHumanDecider, isHumanLine, type Fragment } from '../annotations.js';
+import { canonicalDecider, isHumanDecider, isHumanLine, type DeciderOpts, type Fragment } from '../annotations.js';
 import type { Person } from '../people.js';
 import { senderKey, templateOf } from '../fingerprint.js';
 import { BOT_NAMES, isMailItem, parseSender, type SenderClass } from '../sender.js';
@@ -519,7 +519,7 @@ export interface LabelLine {
   ref: string;
   task: string; // 't1-item' — the only task the loop reads so far
   label: string;
-  by: string; // 'human:<id>' | 'owen' — anything else is recorded but never evidence
+  by: string; // 'human:<id>' | 'owner' (the tenant's ownerDecider literal reads as 'owner') — anything else is recorded but never evidence
   answer?: string;
   audit?: boolean;
   guess?: string | null;
@@ -535,7 +535,7 @@ export interface LabelLine {
  * `superseded`). Junk is counted and changes nothing: unreadable JSON, no ref or `at`, a person's line without a label, a
  * `human:` decider that is no person id ("human:Ana").
  */
-export function parseLabels(text: string): { labels: LabelLine[]; malformed: number } {
+export function parseLabels(text: string, o: DeciderOpts = {}): { labels: LabelLine[]; malformed: number } {
   const byKey = new Map<string, LabelLine>();
   let malformed = 0;
   for (const line of text.split('\n')) {
@@ -553,7 +553,7 @@ export function parseLabels(text: string): { labels: LabelLine[]; malformed: num
       malformed++;
       continue;
     }
-    const by = typeof r.by === 'string' ? r.by : '';
+    const by = typeof r.by === 'string' ? canonicalDecider(r.by, o) : '';
     if (by && !isHumanDecider(by)) {
       if (by.startsWith('human:')) malformed++;
       continue;
@@ -806,7 +806,7 @@ export function loadLearnInputs(db: DatabaseSync, inputs: AttributionInputs, peo
     .map((r) => ({ id: str(r.id), ledger_id: str(r.ledger_id), day: byId.get(str(r.id))!.day }));
   const space = labelSpace(reg, inputs.config.admin);
   const frag = fragmentEvidence(cover, ledger, reg, tz, space);
-  const { labels, malformed } = parseLabels(inputs.labelsText ?? '');
+  const { labels, malformed } = parseLabels(inputs.labelsText ?? '', { ...(inputs.config.ownerDecider ? { ownerDecider: inputs.config.ownerDecider } : {}) });
   const items = itemEvidence(labels, new Map(units.filter((u) => u.unit === 'item').map((u) => [u.id, u])), reg, tz, space);
   const today = localDay(now.toISOString(), tz);
   return {

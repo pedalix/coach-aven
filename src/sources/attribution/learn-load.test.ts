@@ -116,11 +116,11 @@ const L = (o: object) => JSON.stringify(o);
 // (two topic lines, one decided_at), the model's judgment (never evidence) and a person's line outside the horizon.
 const ledgerText = [
   L({ id: id.dm, kind: 'thread', start: '2026-10-15T08:00:00.000Z', end: '2026-10-15T08:00:00.000Z', refs: [REF.dm], attributions: [{ initiative: 'northwind/erp-sync', share: 1 }], decided_by: 'human:ana', decided_at: '2026-10-15T14:00:00.000Z', status: 'decided', answer: 'q-1', guess: 'northwind/shop', conf: 0.3, rung: 'guess:candidate' }),
-  L({ id: `${id.call}#1`, kind: 'call', start: '2026-10-15T10:00:00.000Z', end: '2026-10-15T10:30:00.000Z', refs: ['meeting:granola:n1'], attributions: [{ initiative: 'northwind/erp-sync', share: 0.6 }], decided_by: 'owen', decided_at: '2026-10-15T15:00:00.000Z', status: 'decided' }),
-  L({ id: `${id.call}#2`, kind: 'call', start: '2026-10-15T10:00:00.000Z', end: '2026-10-15T10:30:00.000Z', refs: ['meeting:granola:n1'], attributions: [{ initiative: 'northwind/legacy', share: 0.4 }], decided_by: 'owen', decided_at: '2026-10-15T15:00:00.000Z', status: 'decided' }),
-  L({ id: id.work, kind: 'work', start: '2026-10-15T09:00:00.000Z', end: '2026-10-15T09:50:00.000Z', refs: ['activity:git:a1'], attributions: [{ initiative: 'northwind/erp-sync', share: 1 }], decided_by: 'owen', decided_at: '2026-10-15T15:30:00.000Z', status: 'decided', audit: true, guess: 'northwind/erp-sync', conf: 0.99, rung: 'repo:github.com/northwind/erp-bridge' }),
+  L({ id: `${id.call}#1`, kind: 'call', start: '2026-10-15T10:00:00.000Z', end: '2026-10-15T10:30:00.000Z', refs: ['meeting:granola:n1'], attributions: [{ initiative: 'northwind/erp-sync', share: 0.6 }], decided_by: 'owner', decided_at: '2026-10-15T15:00:00.000Z', status: 'decided' }),
+  L({ id: `${id.call}#2`, kind: 'call', start: '2026-10-15T10:00:00.000Z', end: '2026-10-15T10:30:00.000Z', refs: ['meeting:granola:n1'], attributions: [{ initiative: 'northwind/legacy', share: 0.4 }], decided_by: 'owner', decided_at: '2026-10-15T15:00:00.000Z', status: 'decided' }),
+  L({ id: id.work, kind: 'work', start: '2026-10-15T09:00:00.000Z', end: '2026-10-15T09:50:00.000Z', refs: ['activity:git:a1'], attributions: [{ initiative: 'northwind/erp-sync', share: 1 }], decided_by: 'owner', decided_at: '2026-10-15T15:30:00.000Z', status: 'decided', audit: true, guess: 'northwind/erp-sync', conf: 0.99, rung: 'repo:github.com/northwind/erp-bridge' }),
   L({ id: id.shop, kind: 'thread', start: '2026-10-15T07:00:00.000Z', end: '2026-10-15T07:00:00.000Z', refs: [REF.shop], attributions: [{ initiative: 'globex/portal', share: 1 }], decided_by: 'model', decided_at: '2026-10-15T12:00:00.000Z', status: 'decided' }),
-  L({ id: 'frag-2026-09-01-thread-old', kind: 'thread', start: '2026-09-01T09:00:00.000Z', end: '2026-09-01T09:00:00.000Z', refs: ['slack:T1:C0OLD00001:1'], attributions: [{ initiative: 'globex/portal', share: 1 }], decided_by: 'owen', decided_at: '2026-09-02T09:00:00.000Z', status: 'decided' }),
+  L({ id: 'frag-2026-09-01-thread-old', kind: 'thread', start: '2026-09-01T09:00:00.000Z', end: '2026-09-01T09:00:00.000Z', refs: ['slack:T1:C0OLD00001:1'], attributions: [{ initiative: 'globex/portal', share: 1 }], decided_by: 'owner', decided_at: '2026-09-02T09:00:00.000Z', status: 'decided' }),
 ].join('\n');
 const ledger = (): Fragment[] => parseFragments(ledgerText).fragments;
 
@@ -318,14 +318,14 @@ test('the ledger: a person\'s line parses its decider, answer, guess, conf, rung
   const { fragments } = parseFragments(
     [
       L({ id: 'a', refs: ['r'], attributions: [{ initiative: 'x' }], decided_by: 'human:ana', answer: 'q-7', guess: null, conf: 0.6, rung: 'cue:key:NW', audit: true, decided_at: '2026-10-15T10:00:00Z' }),
-      L({ id: 'b', refs: ['r'], attributions: [{ initiative: 'x' }], decided_by: 'owen', guess: 'y', conf: 7, rung: '', audit: 'yes' }),
+      L({ id: 'b', refs: ['r'], attributions: [{ initiative: 'x' }], decided_by: 'owner', guess: 'y', conf: 7, rung: '', audit: 'yes' }),
       L({ id: 'c', refs: ['r'], attributions: [{ initiative: 'x' }], decided_by: 'human:Not An Id' }),
       L({ id: 'd', refs: ['r'], attributions: [{ initiative: 'x' }], decided_by: 'rule' }),
     ].join('\n'),
   );
   const [a, b, c, d] = fragments;
   assert.deepEqual([a!.decided_by, a!.decider, a!.answer, a!.guess, a!.conf, a!.rung, a!.audit], ['model', 'human:ana', 'q-7', null, 0.6, 'cue:key:NW', true], 'the plan still reads it as before; the loop reads the decider');
-  assert.deepEqual(b, { id: 'b', kind: 'thread', start: '', end: '', refs: ['r'], attributions: [{ initiative: 'x', share: 1 }], decided_by: 'owen', status: 'decided', guess: 'y' }, 'out-of-range conf, empty rung and a non-boolean audit are dropped');
+  assert.deepEqual(b, { id: 'b', kind: 'thread', start: '', end: '', refs: ['r'], attributions: [{ initiative: 'x', share: 1 }], decided_by: 'owner', status: 'decided', guess: 'y' }, 'out-of-range conf, empty rung and a non-boolean audit are dropped');
   assert.deepEqual([c!.decided_by, c!.decider], ['model', undefined], 'not a person id');
   assert.deepEqual(Object.keys(d!), ['id', 'kind', 'start', 'end', 'refs', 'attributions', 'decided_by', 'status'], 'an older line: exactly the fields it always had');
 });
@@ -337,6 +337,10 @@ test('labels.jsonl: last line per task × ref wins, superseded withdraws, junk i
   assert.deepEqual(labels[0], { ref: REF.bot, task: 't1-item', label: 'northwind/shop', by: 'human:ana', at: '2026-10-15T15:00:00.000Z', answer: 'qi-1', audit: true, guess: 'northwind/shop', conf: 0.95, rung: 'host:shop.northwind.example' });
   const again = parseLabels([L({ ref: 'r', label: 'a', by: 'human:ana', at: '2026-10-15T01:00:00Z' }), L({ ref: 'r', label: 'b', by: 'human:ana', at: '2026-10-15T02:00:00Z' }), L({ ref: 'r', task: 't4-kind', label: 'noise', by: 'human:ana', at: '2026-10-15T03:00:00Z' }), L({ ref: 'r', label: 'c', at: '2026-10-15T04:00:00Z' })].join('\n'));
   assert.deepEqual([again.labels.map((l) => [l.task, l.label]), again.malformed], [[['t1-item', 'b'], ['t4-kind', 'noise']], 1], 'a task defaults to t1-item; a line without `by` is junk');
+  // The owner: `owner`, or the tenant's own literal (attribution.json ownerDecider) read as `owner`; unknown otherwise.
+  const owner = [L({ ref: 'r1', label: 'a', by: 'owner', at: '2026-10-15T01:00:00Z' }), L({ ref: 'r2', label: 'b', by: 'olga', at: '2026-10-15T02:00:00Z' })].join('\n');
+  assert.deepEqual(parseLabels(owner).labels.map((l) => [l.ref, l.by]), [['r1', 'owner']], 'no alias: `olga` is nobody');
+  assert.deepEqual(parseLabels(owner, { ownerDecider: 'olga' }).labels.map((l) => [l.ref, l.by]), [['r1', 'owner'], ['r2', 'owner']]);
 });
 
 test('rung instances, structure, labels and triggers', () => {
@@ -430,7 +434,7 @@ test('a route never vouches for itself through its own place: a run\'s channel l
 test('one answer is one observation without an answer id: a person\'s lines of one apply (instant, label) are one answer, a call\'s topics too', () => {
   const reg = new Registry({ initiatives: registry.initiatives as never });
   const T = '2026-10-15T15:00:00.000Z';
-  const line = (fid: string, label: string, over: Partial<Fragment> = {}): Fragment => ({ id: fid, kind: 'thread', start: '2026-10-15T08:00:00.000Z', end: '2026-10-15T08:00:00.000Z', refs: [], attributions: [{ initiative: label, share: 1 }], decided_by: 'owen', decided_at: T, status: 'decided', ...over });
+  const line = (fid: string, label: string, over: Partial<Fragment> = {}): Fragment => ({ id: fid, kind: 'thread', start: '2026-10-15T08:00:00.000Z', end: '2026-10-15T08:00:00.000Z', refs: [], attributions: [{ initiative: label, share: 1 }], decided_by: 'owner', decided_at: T, status: 'decided', ...over });
   const ledger = [
     // The owen-ops CLI applies one escalation answer to every fragment it covers: one line each, one decided_at, no answer id.
     line('r1', 'northwind/erp-sync'),
@@ -445,9 +449,9 @@ test('one answer is one observation without an answer id: a person\'s lines of o
   ];
   const cover = ledger.map((f) => ({ id: f.id, ledger_id: f.id, day: '2026-10-15' }));
   const a = Object.fromEntries(fragmentEvidence(cover, ledger, reg, TZ).evidence.map((e) => [e.id, e.answer]));
-  assert.equal(a.r1, `owen@${T}@northwind/erp-sync`);
+  assert.equal(a.r1, `owner@${T}@northwind/erp-sync`);
   assert.equal(a.r2, a.r1, 'two runs, one answer');
-  assert.equal(a.r3, `owen@${T}@northwind/shop`, 'another label: another answer (alias-resolved)');
+  assert.equal(a.r3, `owner@${T}@northwind/shop`, 'another label: another answer (alias-resolved)');
   assert.deepEqual([a.r4 !== a.r1, a.r5 !== a.r1, a.r7 !== a.r1], [true, true, true], 'another instant, another person, no instant');
   assert.deepEqual([a['c#1'], a['c#2']], [`c@${T}`, `c@${T}`]);
   assert.equal(a.r6, 'q-6');
@@ -472,7 +476,7 @@ test('labels.jsonl: only a person\'s line is evidence — machine output never r
       L({ ref: 'r1', label: 'globex/portal', by: 'human:Ana', at: '2026-10-15T03:00:00Z' }), // not a person id
       L({ ref: 'r1', status: 'superseded', by: 'rule', at: '2026-10-15T04:00:00Z' }), // a machine cannot withdraw it either
       L({ ref: 'r2', label: 'globex/portal', by: 'model', at: '2026-10-15T05:00:00Z' }),
-      L({ ref: 'r3', label: 'globex/portal', by: 'owen', at: '2026-10-15T05:00:00Z' }),
+      L({ ref: 'r3', label: 'globex/portal', by: 'owner', at: '2026-10-15T05:00:00Z' }),
       L({ ref: 'r3', status: 'superseded', at: '2026-10-15T06:00:00Z' }), // the tenant withdraws it
       L({ ref: 'r4', label: 'globex/portal', by: 'human:ana', at: '2026-10-15T05:00:00Z' }),
       L({ ref: 'r4', label: 'northwind/shop', by: 'human:rui', at: '2026-10-15T07:00:00Z' }), // a later person's line corrects it
@@ -486,7 +490,7 @@ test('evidence outside the label space is dropped and counted: a typo never beco
   const reg = new Registry({ initiatives: registry.initiatives as never });
   const space = labelSpace(reg, { northwind: 'northwind/admin', globex: 'globex/admin' });
   assert.deepEqual([...space].sort(), ['globex/admin', 'globex/portal', 'none', 'northwind/admin', 'northwind/archive', 'northwind/erp-sync', 'northwind/shop', 'personal', 'unregistered'], 'registry labels (no alias), admin buckets, none, unregistered, personal');
-  const line = (fid: string, label: string): Fragment => ({ id: fid, kind: 'thread', start: '', end: '', refs: [], attributions: [{ initiative: label, share: 1 }], decided_by: 'owen', decided_at: '2026-10-15T15:00:00.000Z', status: 'decided' });
+  const line = (fid: string, label: string): Fragment => ({ id: fid, kind: 'thread', start: '', end: '', refs: [], attributions: [{ initiative: label, share: 1 }], decided_by: 'owner', decided_at: '2026-10-15T15:00:00.000Z', status: 'decided' });
   const ledger = [line('a', 'northwind/shpo'), line('b', 'northwind/legacy'), line('c', 'none'), line('d', 'globex/admin'), line('e', 'unregistered')];
   const f = fragmentEvidence(ledger.map((x) => ({ id: x.id, ledger_id: x.id, day: '2026-10-15' })), ledger, reg, TZ, space);
   assert.deepEqual([f.evidence.map((e) => [e.id, e.label]), f.unknown, f.outside], [[['b', 'northwind/shop'], ['c', 'none'], ['d', 'globex/admin'], ['e', 'unregistered']], 1, 0]);

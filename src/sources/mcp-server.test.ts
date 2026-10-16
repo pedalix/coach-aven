@@ -200,7 +200,7 @@ function fixtureReplica(timezone?: string): { dbPath: string } {
   writeFileSync(
     fragments,
     line({ id: 'f1', kind: 'thread', start: '2026-10-01T09:00:00Z', end: '2026-10-02T09:00:00Z', refs: ['gmail:me@x.com:m1', 'gmail:me@x.com:m2'], attributions: [{ initiative: 'hcg/p1', share: 1 }], decided_by: 'rule', status: 'decided' }) +
-      line({ id: 'f2', kind: 'call', start: '2026-10-08T17:00:00Z', end: '2026-10-08T17:40:00Z', refs: ['meeting:granola:g1'], attributions: [{ initiative: 'hcg/p1/fo-cloud', share: 1 }], decided_by: 'owen', rationale: 'incident call', status: 'decided' }) +
+      line({ id: 'f2', kind: 'call', start: '2026-10-08T17:00:00Z', end: '2026-10-08T17:40:00Z', refs: ['meeting:granola:g1'], attributions: [{ initiative: 'hcg/p1/fo-cloud', share: 1 }], decided_by: 'owner', rationale: 'incident call', status: 'decided' }) +
       line({ id: 'f3', kind: 'thread', start: '2026-10-05T12:00:00Z', refs: ['slack:T1:T1:C1:1700000000.000100'], attributions: [{ initiative: 'bluefin/lumora', share: 1 }], decided_by: 'model', status: 'decided' }) +
       line({ id: 'f3', kind: 'thread', start: '2026-10-05T12:00:00Z', refs: ['slack:T1:T1:C1:1700000000.000100'], attributions: [{ initiative: 'bluefin/lumora', share: 1 }], decided_by: 'model', status: 'superseded' }) +
       'not json\n',

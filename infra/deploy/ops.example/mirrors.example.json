@@ -1,0 +1,14 @@
+[
+  {
+    "note": "a studio repo in an org the GitHub App is not installed on; the project lists the mirror",
+    "src": "upstream-co/web-studio",
+    "dst": "your-org/web-studio",
+    "srcTokenEnv": "MIRROR_SRC_UPSTREAM_CO"
+  },
+  {
+    "note": "a partner's multi-tenant repo; leave its token unset to keep the mirror a snapshot",
+    "src": "partner-labs/shared-cms",
+    "dst": "your-org/shared-cms",
+    "srcTokenEnv": "MIRROR_SRC_PARTNER_LABS"
+  }
+]

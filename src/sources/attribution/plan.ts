@@ -13,7 +13,7 @@ import type { FragmentDraft } from './fragment.js';
 import { attribute, type Attribution, type LadderCtx, type RuleRecord } from './ladder.js';
 import type { Pin } from './pins.js';
 
-export type DecidedBy = 'rule' | 'model' | 'owen';
+export type DecidedBy = 'rule' | 'model' | 'owner';
 export interface LedgerRecord {
   id: string;
   kind: string;
@@ -97,7 +97,7 @@ export const PROPOSAL_PURITY = 0.9;
 export const PROPOSAL_MAX_COMPETING = 1;
 
 /**
- * Rule proposals from recorded judgments (model/owen) joined with the fragments' context: a person (not a broad
+ * Rule proposals from recorded judgments (model/owner) joined with the fragments' context: a person (not a broad
  * marker) or a container whose judged fragments are ≥ 90 % one initiative, at least three of them, no competitor
  * with two, and no existing rule on the same subject. Initiatives are counted after alias resolution.
  */
@@ -106,7 +106,7 @@ export function proposeRules(drafts: FragmentDraft[], ledger: ReadonlyMap<string
   const bySubject = new Map<string, { label: string; when: RuleRecord['when']; counts: Map<string, string[]> }>();
   for (const d of drafts) {
     const rec = ledger.get(d.id);
-    if (!rec || rec.status !== 'decided' || (rec.decided_by !== 'model' && rec.decided_by !== 'owen')) continue;
+    if (!rec || rec.status !== 'decided' || (rec.decided_by !== 'model' && rec.decided_by !== 'owner')) continue;
     const inis = [...new Set(rec.attributions.map((a) => resolve(a.initiative)))];
     if (inis.length !== 1) continue;
     const ini = inis[0]!;
