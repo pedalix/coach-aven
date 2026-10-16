@@ -41,7 +41,7 @@ The App Home tab of the bot is the user-facing cheat-sheet for every command and
 
 ## Self-host quickstart
 
-You need: Node 22, a Slack workspace where you can create apps, a GitHub App (or token) for
+You need: Node 24 (22.12+ works), a Slack workspace where you can create apps, a GitHub App (or token) for
 the repos, a Claude Code token, and a place to run sandboxes.
 
 1. **Slack app** — create it from [`slack-app-manifest.json`](slack-app-manifest.json)

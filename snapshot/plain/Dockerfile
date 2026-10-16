@@ -1,5 +1,5 @@
 # The PLAIN sandbox image: Claude Code + git tooling + a small general toolchain (bash, git,
-# gh, curl, jq, ssh, ripgrep, node 22/npm, python3/pip, make, unzip, rsync), no dockerd, no Sail.
+# gh, curl, jq, ssh, ripgrep, node 24/npm, python3/pip, make, unzip, rsync), no dockerd, no Sail.
 # This list is the contract (OpenSpec `sandbox-image`): a project that needs more — PHP, say —
 # gets it added HERE and the image rebuilt, never installed by hand into a running sandbox
 # (housekeeping recycles containers; hand-installed packages vanish with them).
@@ -8,13 +8,13 @@
 # nor --privileged: an unprivileged `docker run` is enough, which is what makes this
 # variant fit a personal CoachAven instance on a Mac mini (containers live in the macOS
 # Linux VM) and any plain-code project. Multi-arch (amd64 + arm64): nothing here is
-# arch-specific — node:22-alpine ships both, Claude Code installs from npm.
+# arch-specific — node:24-alpine ships both, Claude Code installs from npm.
 #
 # Kept deliberately parallel to ../Dockerfile (same ARG, same apk set minus docker-only
 # bits) so build-and-push.sh bakes one CLAUDE_CLI_VERSION into both variants and
 # provisionTooling() finds the same layout. No ENTRYPOINT: the drivers start the
 # container with their own `sleep` command and exec into it.
-FROM node:22-alpine
+FROM node:24-alpine
 
 RUN apk add --no-cache \
       bash \

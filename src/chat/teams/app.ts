@@ -54,14 +54,16 @@ export async function runTeams(cfg: Config): Promise<void> {
   const apiFor = () => (serviceUrl ? app.api.clone({ serviceUrl }) : app.api);
   const api: TeamsApi = {
     async send(conversationId, activity) {
-      const sent = await apiFor().conversations.createActivity(conversationId, activity as never);
+      const sent = await connector('send', conversationId, () => apiFor().conversations.createActivity(conversationId, activity as never));
       return { id: (sent as { id?: string }).id ?? '' };
     },
     async update(conversationId, activityId, activity) {
-      await apiFor().conversations.updateActivity(conversationId, activityId, activity as never);
+      await connector('update', conversationId, () => apiFor().conversations.updateActivity(conversationId, activityId, activity as never));
     },
     async openPersonal(userId) {
-      const res = await apiFor().conversations.create({ tenantId, isGroup: false, bot: { id: `28:${teams.appId}` }, members: [{ id: userId }] } as never);
+      const res = await connector('openPersonal', userId, () =>
+        apiFor().conversations.create({ tenantId, isGroup: false, bot: { id: `28:${teams.appId}` }, members: [{ id: userId }] } as never),
+      );
       return (res as { id?: string }).id;
     },
   };
@@ -149,6 +151,20 @@ export async function runTeams(cfg: Config): Promise<void> {
   };
   process.once('SIGTERM', () => shutdown('SIGTERM'));
   process.once('SIGINT', () => shutdown('SIGINT'));
+}
+
+// A Connector call with its failure made legible: the SDK throws axios errors whose message is
+// "Request failed with status code 400" and whose actual reason sits in the response body —
+// which is what an operator (and the thread) needs to see.
+async function connector<T>(call: string, target: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    const r = (e as { response?: { status?: number; data?: unknown } }).response;
+    if (!r) throw e;
+    const body = typeof r.data === 'string' ? r.data : JSON.stringify(r.data);
+    throw new Error(`Teams ${call} → ${target.slice(0, 60)}: HTTP ${r.status} ${body?.slice(0, 500) ?? ''}`.trim());
+  }
 }
 
 // The SDK logs through its own logger; route it into ours so the journal has one voice.

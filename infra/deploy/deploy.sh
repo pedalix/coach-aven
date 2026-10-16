@@ -235,7 +235,10 @@ cmd_deploy() {
   log "Uploading repo (code only) to $DEPLOYER:$REMOTE_DIR"
   dssh "mkdir -p $REMOTE_DIR"
   # Ship code + lockfile; NEVER ship runtime secrets, server-owned state, or junk — and no
-  # overlay: every infra/<slug>/ checkout (yours and anyone else's) stays off the box.
+  # overlay: every infra/<slug>/ checkout (yours and anyone else's) stays off the box. The
+  # state list mirrors .gitignore's runtime entries (events/, data/, usage/, drafts/, facts/,
+  # queue.jsonl): a laptop that also runs a bot has them, and they must never land on another
+  # installation's box (2026-10-16: a home checkout's event journal did).
   local -a overlay_excludes=()
   for d in "$REPO_ROOT"/infra/*/; do
     case "$(basename "$d")" in deploy|teams) ;; *) overlay_excludes+=("--exclude=./infra/$(basename "$d")") ;; esac
@@ -249,6 +252,13 @@ cmd_deploy() {
     --exclude='./mirrors' \
     --exclude='./memory' \
     --exclude='./feedback' \
+    --exclude='./events' \
+    --exclude='./data' \
+    --exclude='./usage' \
+    --exclude='./drafts' \
+    --exclude='./facts' \
+    --exclude='./queue.jsonl' \
+    --exclude='./.claude' \
     --exclude='./.release' \
     "${overlay_excludes[@]}" \
     . \
