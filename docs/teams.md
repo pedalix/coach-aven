@@ -65,7 +65,7 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 
 | files on a message | 1:1 uploads (needs `supports_files` in the module → `supportsFiles`), pasted images anywhere, documents shared in a channel (through Microsoft Graph — the module's `supports_files` adds `Files.Read.All`, an admin consents once). A file the bot cannot reach is named in the reply as "file access not granted" |
 
-Arriving later: team owners as admins (3.5a).
+Admins are the installation's operators, full stop: there is no automatic promotion of team owners (considered and dropped — an installation's operators are the whole role model it needs; `open` mode lets everyone in a bound channel drive the agent anyway).
 
 ## Operations notes
 
