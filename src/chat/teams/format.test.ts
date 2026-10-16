@@ -1,6 +1,25 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { markdownToTeams, mrkdwnToTeams, splitText, stripBotMention } from './format.js';
+import { markdownToTeams, mrkdwnToTeams, rewriteMentions, splitText, stripBotMention, teamsMentions } from './format.js';
+
+test('inbound mentions: the bot’s is dropped, a person’s becomes <@id>', () => {
+  const entities = [
+    { type: 'mention', mentioned: { id: '28:BOT', name: 'Aven' }, text: '<at>Aven</at>' },
+    { type: 'mention', mentioned: { id: '29:USER2', name: 'Example Admin' }, text: '<at>Example Admin</at>' },
+    { type: 'clientInfo' },
+  ];
+  assert.equal(rewriteMentions('<at>Aven</at> /users allow <at>Example Admin</at>', entities, '28:BOT'), ' /users allow <@29:USER2>');
+  assert.equal(rewriteMentions('no entities', undefined, '28:BOT'), 'no entities');
+});
+
+test('outbound mentions: <@id> → <at>Name</at> + entity when the name is known', () => {
+  const names: Record<string, string> = { '29:USER2': 'Example Admin' };
+  assert.deepEqual(teamsMentions('ask <@29:USER2> or <@29:USER9|x>', (id) => names[id]), {
+    text: 'ask <at>Example Admin</at> or @29:USER9',
+    entities: [{ type: 'mention', mentioned: { id: '29:USER2', name: 'Example Admin' }, text: '<at>Example Admin</at>' }],
+  });
+  assert.deepEqual(teamsMentions('plain', () => undefined), { text: 'plain' });
+});
 
 test('mrkdwn → Teams markdown: bold, links, shortcodes', () => {
   assert.equal(mrkdwnToTeams(':information_source: *Config reloaded* — see <https://x.y/z|the log>'), 'ℹ️ **Config reloaded** — see [the log](https://x.y/z)');

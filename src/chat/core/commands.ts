@@ -44,6 +44,11 @@ export interface CommandDeps {
   // The home tenant id (resolved at boot). Every subcommand scopes to the CALLING
   // workspace's project subset; operator commands (reload, usage) are home-only.
   homeTeamId?: string;
+  // Who, on the home tenant, is an operator: may run the operator verbs and manage access.
+  // Absent (Slack): everyone in the home workspace, as always. Teams sets it from
+  // TEAMS_OPERATORS — the one tenant is "home" there, and a client's whole tenant must not
+  // hold the operator keys.
+  isOperator?: (user: string | undefined) => boolean;
 }
 
 // Read a file from a project's Claude Code auto-memory dir (the sandbox copy). By default
@@ -99,7 +104,7 @@ function sourcesStatus(p: ProjectConfig, intervalMin: number): string {
 }
 
 export function createCommands(deps: CommandDeps) {
-  const { cfg, store, reg, engine, channels, pollers, homeTeamId } = deps;
+  const { cfg, store, reg, engine, channels, pollers, homeTeamId, isOperator } = deps;
 
   // Gather a live snapshot for `/aven status`, scoped to ONE tenant (tid: undefined =
   // home): its projects, its sessions/turns (a shared slug must not reveal the other
@@ -385,6 +390,7 @@ export function createCommands(deps: CommandDeps) {
     const tid = normalizeTenant(tenant, homeTeamId);
     const myProjects = teamProjects(reg.current, tenant, homeTeamId);
     const isHome = tid === undefined;
+    const operator = isHome && (isOperator ? isOperator(cmd.actor.user) : true);
     // guardTeam (the ack-capable half of the tenant gate): an installed-but-unmapped
     // workspace gets one clear ephemeral instead of Slack's dispatch timeout.
     // FAIL CLOSED when home is unresolved (first OAuth boot, empty store): teamProjects
@@ -413,14 +419,14 @@ export function createCommands(deps: CommandDeps) {
     if (verb === 'users') {
       const parsed = parseUsersCmd(cmdText.slice(verb.length).trim());
       if (parsed.action === 'list') {
-        await say(usersListText(access, isHome));
+        await say(usersListText(access, isHome, isOperator ? 'the installation’s operators' : undefined));
         return;
       }
       if (parsed.action === 'error') {
         await say(parsed.message);
         return;
       }
-      if (!isAdmin(access, cmd.actor.user, isHome)) {
+      if (!isAdmin(access, cmd.actor.user, operator)) {
         await say('🔒 Only this workspace’s admins can change agent access.');
         return;
       }
@@ -462,7 +468,7 @@ export function createCommands(deps: CommandDeps) {
     // `/aven usage [days]` → token/cost/turn attribution per project/workspace over the
     // last N days (default 30, max 90). OPERATOR data (fleet-wide costs) → home-only.
     if (verb === 'usage') {
-      if (!isHome) {
+      if (!operator) {
         await say(':lock: Usage reporting is operator-only.');
         return;
       }
@@ -483,7 +489,7 @@ export function createCommands(deps: CommandDeps) {
     // A parse/validation failure leaves the old registry in place.
     if (verb === 'reload') {
       // Swaps the GLOBAL registry — strictly an operator action, never a client team's.
-      if (!isHome) {
+      if (!operator) {
         await say(':lock: Config reload is operator-only.');
         return;
       }

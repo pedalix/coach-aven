@@ -47,7 +47,7 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 | `@Aven <task>` in a project channel → a thread | the same → a reply chain; replies there continue the session (no re-mention needed) |
 | DM | 1:1 chat; a project picker when several projects are served |
 | `/aven <verb>` | `@Aven /<verb>` in a channel, `/<verb>` in a 1:1 or in a reply chain |
-| ephemeral replies (status, help, denials) | sent to your 1:1 chat with the bot, with a one-line pointer in the thread |
+| ephemeral replies (status, help, denials) | with `TEAMS_TARGETED=1`: a targeted message in the thread that only you see (Teams removes it after 24 h); otherwise, or when Teams refuses it (no personal install, a guest), your 1:1 chat with the bot with a one-line pointer in the thread |
 | 👀 / ✅ / ❌ reactions | the same (bots may react since 2026); a queued message gets only 👀 until its turn starts |
 | live status message, ✖ Cancel, 🧭 Show steps | a status card (edited at most every `TEAMS_STATUS_MIN_MS`), the same buttons; Show steps opens a dialog. When the answer is ready the card becomes a one-line receipt ("✅ Done — answer below") and the answer is posted after it |
 | `!` note | the same (no turn, nothing posted) |
@@ -56,9 +56,11 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 | App Home tab | a Home card in your 1:1 chat, on install and on `/home` |
 | restart recovery into the thread | the same |
 
-Arriving with PR 2: feedback buttons and the reason dialog, the Session panel, files, routines
-and the other pollers' deliveries, YouTrack and dispatch cards, `/users`, targeted (truly
-private) channel replies, operator-only verbs via `TEAMS_OPERATORS`.
+| `/aven users allow @user` | `@Aven /users allow @user` with a real mention; ids are Teams user ids (`29:…`). Admins: the installation's operators (`TEAMS_OPERATORS`) and whoever they add. Operator-only verbs (`/usage`, `/reload`) are theirs alone |
+| `@user` mentions in bot text | rendered as Teams mentions for people the bot has seen in this run (sender or mentioned); others appear as `@<id>` |
+
+Arriving with PR 2: files, routines and the other pollers' deliveries, YouTrack and dispatch
+cards, team owners as admins.
 
 ## Operations notes
 

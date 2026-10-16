@@ -45,6 +45,17 @@ test('parseUsersCmd — grammar incl. Slack mention escaping', () => {
   assert.equal(parseUsersCmd('frobnicate').action, 'error');
 });
 
+test('parseUsersCmd — a Teams id in the same <@id> form', () => {
+  assert.deepEqual(parseUsersCmd('allow <@29:1a2b-cD_3>'), { action: 'allow', userId: '29:1a2b-cD_3' });
+  assert.equal(parseUsersCmd('deny @someone').action, 'error');
+});
+
+test('usersListText — the home admins label is the caller’s (operators on Teams)', () => {
+  const a = { mode: 'open' as const, users: [], admins: [] };
+  assert.match(usersListText(a, true), /everyone in the home workspace/);
+  assert.match(usersListText(a, true, 'the installation’s operators'), /the installation’s operators/);
+});
+
 test('applyUsersCmd — allow is idempotent, deny strips admin, lockout is refused', () => {
   const base = { mode: 'allowlist' as const, users: ['U_A'], admins: ['U_A'] };
   const allowed = applyUsersCmd(base, { action: 'allow', userId: 'U_B' });

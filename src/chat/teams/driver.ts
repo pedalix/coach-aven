@@ -20,7 +20,7 @@ import type { ChatAction, ChatDriver, ConvTarget, DialogRef, Interaction, Mark, 
 import type { DialogView, HomeView, MessageView, PrivateView } from '../views.js';
 import type { Tally } from '../../feedback.js';
 import { answerCard, renderDialogView, renderHomeView, renderMessageView, renderPrivateView, type AdaptiveCard } from './cards.js';
-import { splitText } from './format.js';
+import { splitText, teamsMentions, type MentionEntity } from './format.js';
 import { deepLink, targetId } from './keys.js';
 import { log } from '../../log.js';
 
@@ -32,13 +32,18 @@ export interface OutActivity {
   // (verified in the tenant 2026-10-16 — plain `markdown` renders them too, without the extras).
   textFormat?: 'extendedmarkdown';
   attachments?: { contentType: 'application/vnd.microsoft.card.adaptive'; content: AdaptiveCard }[];
-  // Everything else the Connector accepts and we never set (summary, entities, …) is omitted.
+  entities?: MentionEntity[]; // one per `<at>…</at>` in `text`
+  // A targeted message: shown to this one person only, in a channel or group chat (24 h).
+  recipient?: { id: string; isTargeted: true };
+  // Everything else the Connector accepts and we never set (summary, …) is omitted.
 }
 
 // The Bot Connector surface the driver needs. app.ts binds it to the SDK's ApiClient
 // (conversations.createActivity / updateActivity / create); the tests to a recorder.
 export interface TeamsApi {
   send(conversationId: string, activity: OutActivity): Promise<{ id: string }>;
+  // A targeted send (`activity.recipient` set): `…/activities?isTargetedActivity=true`.
+  sendTargeted(conversationId: string, activity: OutActivity): Promise<{ id: string }>;
   update(conversationId: string, activityId: string, activity: OutActivity): Promise<void>;
   // Open (or find) the 1:1 chat with a person; undefined when the platform refuses.
   openPersonal(userId: string): Promise<string | undefined>;
@@ -57,6 +62,9 @@ const REACTION: Record<Mark, string> = {
 export interface TeamsDriverOpts {
   tenantId: string;
   statusMinMs?: number; // coalescing window for updates of one message (D6); default 2000
+  // Private replies in channels as targeted messages (TEAMS_TARGETED=1); the 1:1 chat stays
+  // the fallback when a targeted send is refused (not installed for that person, a guest, …).
+  targeted?: boolean;
   now?: () => number;
   setTimeout?: typeof setTimeout;
   clearTimeout?: typeof clearTimeout;
@@ -86,14 +94,9 @@ export interface TeamsChatDriver extends ChatDriver {
   // The chain an inbound channel message belongs to (its root), so a reaction on it can be
   // addressed; called by events.ts for every message it hands to the core.
   remember(msg: MsgRef, thread: string | undefined): void;
-}
-
-function toActivity(m: { text?: string; card?: AdaptiveCard }): OutActivity {
-  return {
-    type: 'message',
-    ...(m.text !== undefined ? { text: m.text, textFormat: 'extendedmarkdown' } : {}),
-    ...(m.card ? { attachments: [{ contentType: 'application/vnd.microsoft.card.adaptive', content: m.card }] } : {}),
-  };
+  // A person's display name as an activity carried it (sender or mention), for rendering
+  // `<@id>` as a Teams mention; events.ts feeds it.
+  knowPerson(id: string, name: string | undefined): void;
 }
 
 export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriver {
@@ -101,6 +104,15 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
   const now = opts.now ?? Date.now;
   const schedule = opts.setTimeout ?? setTimeout;
   const unschedule = opts.clearTimeout ?? clearTimeout;
+  const people = new Map<string, string>();
+  function toActivity(m: { text?: string; card?: AdaptiveCard }): OutActivity {
+    const t = m.text !== undefined ? teamsMentions(m.text, (id) => people.get(id)) : undefined;
+    return {
+      type: 'message',
+      ...(t ? { text: t.text, textFormat: 'extendedmarkdown', ...(t.entities ? { entities: t.entities } : {}) } : {}),
+      ...(m.card ? { attachments: [{ contentType: 'application/vnd.microsoft.card.adaptive', content: m.card }] } : {}),
+    };
+  }
 
   // Per-message coalescing: the newest view wins, one edit per window, the last always lands.
   const pending = new Map<string, { view: MessageView; timer?: ReturnType<typeof setTimeout>; last: number; inflight?: Promise<void> }>();
@@ -190,13 +202,26 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
     return d.ref;
   }
 
-  // A private answer: the person's 1:1 chat, or in place when it already is one (or the chat
-  // cannot be opened — better visible than lost).
+  // A private answer: a targeted message in place (only that person sees it) when the
+  // installation has them on; else — or when Teams refuses the targeted send — the person's
+  // 1:1 chat with a pointer; in place when it already is a 1:1 (or no chat can be opened —
+  // better visible than lost).
   async function privately(c: TeamsActionCtx, view: PrivateView): Promise<void> {
     const m = renderPrivateView(view);
     if (c.direct || !c.user) {
       await sendTo(c.conv, c.thread, m);
       return;
+    }
+    if (opts.targeted) {
+      try {
+        const target = targetId(c.conv, c.thread);
+        const recipient = { id: c.user, isTargeted: true as const };
+        if (m.text !== undefined) for (const part of splitText(m.text)) await api.sendTargeted(target, { ...toActivity({ text: part }), recipient });
+        if (m.card) await api.sendTargeted(target, { ...toActivity({ card: m.card }), recipient });
+        return;
+      } catch (e) {
+        log.warn(`teams targeted reply to ${c.user} refused — answering in the 1:1 chat instead: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
     const personal = await api.openPersonal(c.user).catch(() => undefined);
     if (!personal) {
@@ -212,6 +237,9 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
     capabilities: { reactions: true, privateReplies: 'fallback', threadRepliesNeedMention: opts.threadRepliesNeedMention ?? false },
     remember(msg, thread) {
       msgThread.set(keyOf(msg), thread);
+    },
+    knowPerson(id, name) {
+      if (name) people.set(id, name);
     },
 
     async post(to: ConvTarget, view: MessageView): Promise<MsgRef> {

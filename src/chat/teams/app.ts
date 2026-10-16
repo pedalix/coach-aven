@@ -58,6 +58,10 @@ export async function runTeams(cfg: Config): Promise<void> {
       const sent = await connector('send', conversationId, () => apiFor().conversations.createActivity(conversationId, activity as never));
       return { id: (sent as { id?: string }).id ?? '' };
     },
+    async sendTargeted(conversationId, activity) {
+      const sent = await connector('sendTargeted', conversationId, () => apiFor().conversations.createTargetedActivity(conversationId, activity as never));
+      return { id: (sent as { id?: string }).id ?? '' };
+    },
     async update(conversationId, activityId, activity) {
       await connector('update', conversationId, () => apiFor().conversations.updateActivity(conversationId, activityId, activity as never));
     },
@@ -75,7 +79,12 @@ export async function runTeams(cfg: Config): Promise<void> {
       return (res as { id?: string }).id;
     },
   };
-  const driver = teamsDriver(api, { tenantId, statusMinMs: teams.statusMinMs });
+  const driver = teamsDriver(api, { tenantId, statusMinMs: teams.statusMinMs, targeted: teams.targeted });
+  // Operators (TEAMS_OPERATORS): Teams user ids (`29:…`, as `/users` lists them) or Entra object
+  // ids — the latter matched through the `aadObjectId` every activity of that person carries.
+  const operators = new Set(teams.operators);
+  const aadOf = new Map<string, string>();
+  const isOperator = (user: string | undefined) => !!user && (operators.has(user) || operators.has(aadOf.get(user) ?? ''));
   const driverFor = () => driver; // one tenant: every record resolves to the same driver
 
   // Operator error alerts → a Teams channel (AVEN_ALERT_CHANNEL = a channel id the app is in).
@@ -111,7 +120,7 @@ export async function runTeams(cfg: Config): Promise<void> {
   const servedTenant = (t: string | undefined) => t === tenantId;
   const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', dispatcher });
   const messages = createMessages({ store, reg, engine, channels, homeTeamId: tenantId, actor, parkDmPick: core.parkDmPick });
-  const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId });
+  const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator });
 
   registerEvents(app as unknown as TeamsAppLike, {
     tenantId,
@@ -123,6 +132,10 @@ export async function runTeams(cfg: Config): Promise<void> {
       if (url === serviceUrl) return;
       serviceUrl = url;
       store.setTeamsServiceUrl(url);
+    },
+    onPerson: (id, name, aad) => {
+      driver.knowPerson(id, name);
+      if (aad) aadOf.set(id, aad);
     },
   });
 
