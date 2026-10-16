@@ -16,6 +16,8 @@ export const VARIANTS: Record<string, () => Promise<Variant>> = {
   k2b: () => import('./keys2b.js').then((m) => m.k2b),
   // iteration 3: the hybrid — K2a spine, J residue (notes/30-iter3.md)
   hybrid: () => import('./hybrid.js').then((m) => m.hybrid),
+  // iteration 3b: the guarded hybrid — the model decides only where it agrees with structure or has earned it on random checks
+  'hybrid-g': () => import('./hybrid-guarded.js').then((m) => m.hybridG),
   // the PRODUCTION code (stage-0 item floor + learn.ts), replayed on the bench — the port's parity check
   prodlearn: () => import('./prodlearn.js').then((m) => m.prodlearn),
 };
