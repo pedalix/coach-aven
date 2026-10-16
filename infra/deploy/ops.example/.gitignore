@@ -14,3 +14,5 @@ queue.jsonl
 drafts/
 usage/
 feedback/
+# Terraform build output of a Teams root (the app package; apply rebuilds it)
+build/
