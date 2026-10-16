@@ -20,6 +20,19 @@ resource "azuread_application" "bot" {
   display_name     = "${var.display_name} (Teams bot)"
   sign_in_audience = "AzureADMyOrg"
   owners           = [data.azuread_client_config.me.object_id]
+
+  # Channel documents are SharePoint links the bot reads through Graph (driver files.ts):
+  # Files.Read.All as an application permission, granted by an admin's consent after apply.
+  dynamic "required_resource_access" {
+    for_each = var.supports_files ? [1] : []
+    content {
+      resource_app_id = "00000003-0000-0000-c000-000000000000" # Microsoft Graph
+      resource_access {
+        id   = "01d4889c-1287-42c6-ac1f-5d1e02578ef6" # Files.Read.All (application)
+        type = "Role"
+      }
+    }
+  }
 }
 
 resource "azuread_service_principal" "bot" {
@@ -76,6 +89,7 @@ resource "local_file" "manifest" {
     bot_id         = azuread_application.bot.client_id
     version        = var.app_version
     display_name   = var.display_name
+    supports_files = var.supports_files
     developer_name = var.developer_name
     website_url    = var.website_url
     privacy_url    = local.privacy_url

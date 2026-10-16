@@ -9,6 +9,7 @@ import {
   planIngest,
   attachmentPreamble,
   skippedNotice,
+  downloadHeaders,
   MAX_BYTES,
   MAX_FILES,
   MAX_IMAGE_DIM,
@@ -159,4 +160,11 @@ test('attachmentPreamble: lists kept paths and skipped reasons', () => {
   assert.ok(out.includes('/root/inbox/t1/1-a.png'));
   assert.ok(out.includes('Read them'));
   assert.ok(out.includes('b.mov — unsupported type'));
+});
+
+test('downloadHeaders: the bearer goes with every ref except a pre-authorized one', () => {
+  const ref = { name: 'a.pdf', url: 'https://files.example/a', mime: 'application/pdf', size: 1 };
+  assert.deepEqual(downloadHeaders(ref, 'tok'), { Authorization: 'Bearer tok' });
+  assert.deepEqual(downloadHeaders({ ...ref, auth: 'bearer' }, 'tok'), { Authorization: 'Bearer tok' });
+  assert.deepEqual(downloadHeaders({ ...ref, auth: 'none' }, 'tok'), {});
 });

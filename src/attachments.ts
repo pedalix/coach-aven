@@ -16,6 +16,9 @@ export interface AttachmentRef {
   url: string;
   mime: string;
   size: number; // bytes; 0 when the source didn't report it
+  // 'none': the URL is pre-authorized (a Teams 1:1 upload, a Graph download URL) and MUST be
+  // fetched without the bearer — SharePoint refuses a tempauth URL that also carries one.
+  auth?: 'bearer' | 'none';
 }
 
 // Caps — deliberately generous but bounded. A per-file byte cap keeps one giant upload from
@@ -193,8 +196,11 @@ export async function normalizeImage(
 // if the payload exceeds MAX_BYTES (checked both via Content-Length and the actual body, since
 // the header can lie or be absent) — the caller records it as skipped and carries on, mirroring
 // the "degrade quietly" philosophy of listComments.
+export function downloadHeaders(ref: AttachmentRef, bearer: string): Record<string, string> {
+  return ref.auth === 'none' ? {} : { Authorization: `Bearer ${bearer}` };
+}
 export async function downloadAttachment(ref: AttachmentRef, bearer: string): Promise<Buffer | null> {
-  const res = await fetch(ref.url, { headers: { Authorization: `Bearer ${bearer}` } });
+  const res = await fetch(ref.url, { headers: downloadHeaders(ref, bearer) });
   if (!res.ok) return null;
   const declared = Number(res.headers.get('content-length') ?? '');
   if (Number.isFinite(declared) && declared > MAX_BYTES) return null;

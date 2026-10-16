@@ -1,0 +1,60 @@
+{
+  "type": "message",
+  "id": "1760600000011",
+  "serviceUrl": "https://smba.trafficmanager.net/xx/00000000-0000-4000-8000-00000000000a/",
+  "timestamp": "2026-10-16T11:13:16.0520499Z",
+  "locale": "en-US",
+  "localTimestamp": "2026-10-16T14:13:16.0520499+03:00",
+  "channelId": "msteams",
+  "from": {
+    "id": "29:USER1",
+    "name": "Example User",
+    "aadObjectId": "00000000-0000-4000-8000-0000000000u1"
+  },
+  "conversation": {
+    "conversationType": "personal",
+    "tenantId": "00000000-0000-4000-8000-00000000000a",
+    "id": "a:PERSONAL1"
+  },
+  "recipient": {
+    "id": "28:00000000-0000-4000-8000-0000000000bb",
+    "name": "Aven"
+  },
+  "entities": [
+    {
+      "locale": "en-US",
+      "country": "US",
+      "platform": "Windows",
+      "timezone": "Europe/Zurich",
+      "type": "clientInfo"
+    }
+  ],
+  "channelData": {
+    "tenant": {
+      "id": "00000000-0000-4000-8000-00000000000a"
+    },
+    "app": {
+      "id": "80e61df3-8c04-4406-9150-92caddb410ed",
+      "version": "1.0.0"
+    }
+  },
+  "text": "have a look",
+  "textFormat": "plain",
+  "attachments": [
+    {
+      "contentType": "application/vnd.microsoft.teams.file.download.info",
+      "contentUrl": "https://example-my.sharepoint.example/personal/user_example/Documents/Microsoft Teams Chat Files/spec.pdf",
+      "name": "spec.pdf",
+      "content": {
+        "downloadUrl": "https://example-my.sharepoint.example/personal/user_example/_layouts/15/download.aspx?UniqueId=0000&Translate=false&tempauth=TEMPAUTH",
+        "uniqueId": "00000000-0000-4000-8000-0000000000f1",
+        "fileType": "pdf"
+      }
+    },
+    {
+      "contentType": "text/html",
+      "content": "<p>have a look</p>"
+    }
+  ],
+  "localTimezone": "Europe/Zurich"
+}
