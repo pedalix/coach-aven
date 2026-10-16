@@ -87,10 +87,23 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
     p.timer = undefined;
     const view = p.view;
     p.last = now();
-    p.inflight = api.update(targetId(msg.conv, msgThread.get(key)), msg.id, toActivity(renderMessageView(view))).finally(() => {
+    p.inflight = edit(msg, msgThread.get(key), renderMessageView(view)).finally(() => {
       p.inflight = undefined;
     });
     await p.inflight;
+  }
+  // Teams accepts text + card in a NEW message but rejects the pair in an edit ("Activity
+  // resulted into multiple skype activities", probed 2026-10-16). So an edit that carries
+  // both — the answer replacing the status card, with its Show steps / PR buttons — becomes
+  // the text in place and the buttons as a follow-up message in the same chain.
+  async function edit(msg: MsgRef, thread: string | undefined, m: { text?: string; card?: AdaptiveCard }): Promise<void> {
+    const target = targetId(msg.conv, thread);
+    if (m.text !== undefined && m.card) {
+      await api.update(target, msg.id, toActivity({ text: m.text }));
+      await sendTo(msg.conv, thread, { card: m.card });
+      return;
+    }
+    await api.update(target, msg.id, toActivity(m));
   }
   // Where a message we posted lives (the chain it was posted into) — needed to edit it: the
   // Connector addresses an activity by conversation id (chain included) + activity id.
