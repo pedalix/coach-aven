@@ -80,7 +80,7 @@
       "text": "🌙 Answered below\n\n🧭 42 steps · 20m00s"
     },
     "answerPlain": {
-      "text": "Done.\n\n```\n| a | b |\n|---|---|\n| 1 | 2 |\n```"
+      "text": "Done.\n\n| a | b |\n|---|---|\n| 1 | 2 |"
     },
     "answerDecorated": {
       "text": "Opened https://github.com/Org/alpha/pull/7 for review.\n\n_⚠️ auto-post failed_",

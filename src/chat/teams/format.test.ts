@@ -10,10 +10,9 @@ test('mrkdwn → Teams markdown: bold, links, shortcodes', () => {
   assert.equal(mrkdwnToTeams(':unknown_code: stays'), ':unknown_code: stays');
 });
 
-test('markdown tables become code blocks, the rest passes through', () => {
-  const md = 'Intro\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\nAfter **bold**';
-  assert.equal(markdownToTeams(md), 'Intro\n\n```\n| a | b |\n|---|---|\n| 1 | 2 |\n```\n\nAfter **bold**');
-  assert.equal(markdownToTeams('no | table | here'), 'no | table | here');
+test('GitHub markdown passes through unchanged (Teams renders tables, code and headings)', () => {
+  const md = '# Title\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```ts\nx\n```\n\nAfter **bold**';
+  assert.equal(markdownToTeams(md), md);
 });
 
 test('split parts concatenate to the input and prefer paragraph boundaries', () => {

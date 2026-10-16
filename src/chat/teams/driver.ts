@@ -23,7 +23,9 @@ import { log } from '../../log.js';
 export interface OutActivity {
   type: 'message' | 'typing';
   text?: string;
-  textFormat?: 'markdown';
+  // `extendedmarkdown`: tables, fenced code with syntax highlighting and a copy button, headings
+  // (verified in the tenant 2026-10-16 — plain `markdown` renders them too, without the extras).
+  textFormat?: 'extendedmarkdown';
   attachments?: { contentType: 'application/vnd.microsoft.card.adaptive'; content: AdaptiveCard }[];
   // Everything else the Connector accepts and we never set (summary, entities, …) is omitted.
 }
@@ -68,7 +70,7 @@ export interface TeamsChatDriver extends ChatDriver {
 function toActivity(m: { text?: string; card?: AdaptiveCard }): OutActivity {
   return {
     type: 'message',
-    ...(m.text !== undefined ? { text: m.text, textFormat: 'markdown' } : {}),
+    ...(m.text !== undefined ? { text: m.text, textFormat: 'extendedmarkdown' } : {}),
     ...(m.card ? { attachments: [{ contentType: 'application/vnd.microsoft.card.adaptive', content: m.card }] } : {}),
   };
 }
