@@ -1,9 +1,9 @@
-# Spec Delta
+# public-repo-hygiene Specification
 
 ## Purpose
 Keeps the public repository free of tenant and personal identifiers and keeps production deploy secrets reachable only from protected tags, so publishing the code never publishes a customer, a person, or a host.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: No tenant identifiers in tracked files
 CI SHALL fail when any tracked file matches a pattern in `scripts/public-guard.txt` (third-party e-mail domains, tenant ids, host IPs and hostnames). Product defaults (channel-name prefixes, example slugs) are not identifiers and SHALL NOT be listed.
@@ -39,3 +39,7 @@ The `production` GitHub environment SHALL require a reviewer and SHALL allow dep
 
 ### Requirement: License and public scaffolding
 The repository SHALL carry `LICENSE` (Apache-2.0), `CONTRIBUTING.md` and `SECURITY.md`, and `README.md` SHALL describe a self-host path without naming any tenant.
+
+#### Scenario: A stranger opens the repository
+- **WHEN** someone without access to our installation reads the repository root
+- **THEN** they find `LICENSE` (Apache-2.0), `CONTRIBUTING.md`, `SECURITY.md` and a README whose quickstart names no tenant, host or person of ours
