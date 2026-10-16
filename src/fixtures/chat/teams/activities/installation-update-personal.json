@@ -1,0 +1,45 @@
+{
+  "action": "add",
+  "type": "installationUpdate",
+  "timestamp": "2026-10-16T11:06:11.327Z",
+  "id": "f:9351e2cf-c30d-e8f7-517b-c174d8b8f734",
+  "channelId": "msteams",
+  "serviceUrl": "https://smba.trafficmanager.net/xx/00000000-0000-4000-8000-00000000000a/",
+  "from": {
+    "id": "29:USER1",
+    "aadObjectId": "00000000-0000-4000-8000-0000000000u1"
+  },
+  "conversation": {
+    "conversationType": "personal",
+    "tenantId": "00000000-0000-4000-8000-00000000000a",
+    "id": "a:PERSONAL1"
+  },
+  "recipient": {
+    "id": "28:00000000-0000-4000-8000-0000000000bb",
+    "name": "Aven"
+  },
+  "entities": [
+    {
+      "locale": "en-US",
+      "type": "clientInfo"
+    }
+  ],
+  "channelData": {
+    "settings": {
+      "selectedChannel": {
+        "id": "19:00000000-0000-4000-8000-0000000000u1_00000000-0000-4000-8000-0000000000bb@unq.gbl.spaces"
+      }
+    },
+    "tenant": {
+      "id": "00000000-0000-4000-8000-00000000000a"
+    },
+    "source": {
+      "name": "message"
+    },
+    "app": {
+      "id": "80e61df3-8c04-4406-9150-92caddb410ed",
+      "version": "1.0.0"
+    }
+  },
+  "locale": "en-US"
+}

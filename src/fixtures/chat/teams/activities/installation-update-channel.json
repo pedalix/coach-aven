@@ -1,0 +1,51 @@
+{
+  "action": "add",
+  "type": "installationUpdate",
+  "timestamp": "2026-10-16T11:08:33.808Z",
+  "id": "f:87d77e6d-c9a9-f3e9-7e9c-1e37b4fc2927",
+  "channelId": "msteams",
+  "serviceUrl": "https://smba.trafficmanager.net/xx/00000000-0000-4000-8000-00000000000a/",
+  "from": {
+    "id": "29:USER1",
+    "aadObjectId": "00000000-0000-4000-8000-0000000000u1"
+  },
+  "conversation": {
+    "isGroup": true,
+    "conversationType": "channel",
+    "tenantId": "00000000-0000-4000-8000-00000000000a",
+    "id": "19:CHANNEL1@thread.tacv2",
+    "name": "Bn Suite"
+  },
+  "recipient": {
+    "id": "28:00000000-0000-4000-8000-0000000000bb",
+    "name": "Aven"
+  },
+  "entities": [
+    {
+      "locale": "en-US",
+      "type": "clientInfo"
+    }
+  ],
+  "channelData": {
+    "settings": {
+      "selectedChannel": {
+        "id": "19:CHANNEL1@thread.tacv2"
+      }
+    },
+    "channel": {
+      "id": "19:CHANNEL1@thread.tacv2"
+    },
+    "team": {
+      "aadGroupId": "00000000-0000-4000-8000-0000000000g1",
+      "name": "Pedalix GmbH",
+      "id": "19:TEAM1@thread.tacv2"
+    },
+    "tenant": {
+      "id": "00000000-0000-4000-8000-00000000000a"
+    },
+    "source": {
+      "name": "message"
+    }
+  },
+  "locale": "en-US"
+}

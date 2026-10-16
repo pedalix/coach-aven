@@ -1,7 +1,7 @@
 // The chat drivers this build can run — one per installation, chosen by the run command
-// (`orch slack`). A deferred driver (Teams, web) is simply absent until it exists.
+// (`orch slack`, `orch teams`). A deferred driver (web) is simply absent until it exists.
 
-export const CHAT_DRIVERS = ['slack'] as const;
+export const CHAT_DRIVERS = ['slack', 'teams'] as const;
 export type ChatDriverName = (typeof CHAT_DRIVERS)[number];
 
 // The CLI's answer to an unknown command: the usual error plus the run modes, so `orch teams`

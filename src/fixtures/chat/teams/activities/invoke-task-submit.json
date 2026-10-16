@@ -1,0 +1,58 @@
+{
+  "name": "task/submit",
+  "type": "invoke",
+  "timestamp": "2026-10-16T11:16:15.083Z",
+  "localTimestamp": "2026-10-16T14:16:15.083+03:00",
+  "id": "f:424fa1a8-bc43-a423-0108-f6706c8d8335",
+  "channelId": "msteams",
+  "serviceUrl": "https://smba.trafficmanager.net/xx/00000000-0000-4000-8000-00000000000a/",
+  "from": {
+    "id": "29:USER1",
+    "name": "Example User",
+    "aadObjectId": "00000000-0000-4000-8000-0000000000u1"
+  },
+  "conversation": {
+    "conversationType": "personal",
+    "tenantId": "00000000-0000-4000-8000-00000000000a",
+    "id": "a:PERSONAL1"
+  },
+  "recipient": {
+    "id": "28:00000000-0000-4000-8000-0000000000bb",
+    "name": "Aven"
+  },
+  "entities": [
+    {
+      "locale": "en-US",
+      "country": "US",
+      "platform": "Windows",
+      "timezone": "Europe/Zurich",
+      "type": "clientInfo"
+    }
+  ],
+  "channelData": {
+    "tenant": {
+      "id": "00000000-0000-4000-8000-00000000000a"
+    },
+    "source": {
+      "name": "compose"
+    },
+    "app": {
+      "id": "80e61df3-8c04-4406-9150-92caddb410ed",
+      "version": "1.0.0"
+    },
+    "legacy": {
+      "replyToId": "1:1CLCzRLXpPdZla5MVa__OW1tCba68ItF6z1ICI9YzZwY"
+    }
+  },
+  "replyToId": "1792149196841",
+  "value": {
+    "data": {
+      "ok": true
+    },
+    "context": {
+      "theme": "default"
+    }
+  },
+  "locale": "en-US",
+  "localTimezone": "Europe/Zurich"
+}

@@ -65,6 +65,9 @@ the repos, a Claude Code token, and a place to run sandboxes.
    `SLACK_CHANNEL_PREFIX`) auto-binds to the project; `@mention` the bot there. Project
    prompts go in `projects.d/<slug>.md` beside the config (`docs/runtime-config.md`).
 
+Microsoft Teams instead of Slack: the same bot with `orch teams` — [`docs/teams.md`](docs/teams.md)
+(one chat driver per installation; the bot identity comes from the `infra/teams/` Terraform module).
+
 Production: a systemd unit on any Linux box, deployed by `npm run ops -- <slug> deploy` or by
 your ops repo's GitHub Action; each installation's config lives in a private **ops repo**
 checked out at `infra/<slug>/` — [`infra/README.md`](infra/README.md), [`infra/deploy/README.md`](infra/deploy/README.md).

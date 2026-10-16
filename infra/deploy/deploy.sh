@@ -35,7 +35,8 @@
 # Sync from box:    import   (pull the box's runtime back into infra/<slug>/)
 #
 # Config: infra/<slug>/deploy.env (DEPLOY_HOST, DEPLOY_USER, ROOT_USER, REMOTE_DIR,
-# SERVICE_NAME — copy from ops.example/deploy.env.example). SSH uses your default keys/
+# SERVICE_NAME, optional CHAT_DRIVER=slack|teams — copy from ops.example/deploy.env.example).
+# CHAT_DRIVER is the run command the unit executes (`orch <driver>`); absent = slack. SSH uses your default keys/
 # agent (deployer@HOST and root@HOST must both work). Needs: ssh, scp, tar.
 set -euo pipefail
 
@@ -92,6 +93,14 @@ load_env() {
   set -a; # shellcheck disable=SC1090
   source "$ENV_FILE"; set +a
   : "${DEPLOY_HOST:?}" "${DEPLOY_USER:?}" "${ROOT_USER:?}" "${REMOTE_DIR:?}" "${SERVICE_NAME:?}"
+  # The chat driver this installation runs — one of the build's (src/chat/drivers.ts). The
+  # unit's ExecStart and the deploy health check follow it; absent = slack, today's shape.
+  CHAT_DRIVER="${CHAT_DRIVER:-slack}"
+  case "$CHAT_DRIVER" in
+    slack) HEALTH_LINE='Slack bot running' ;;
+    teams) HEALTH_LINE='Teams bot running' ;;
+    *) die "CHAT_DRIVER must be one of: slack, teams (got '$CHAT_DRIVER')" ;;
+  esac
   DEPLOYER="${DEPLOY_USER}@${DEPLOY_HOST}"
   ROOT="${ROOT_USER}@${DEPLOY_HOST}"
   # Keepalive: `npm ci` on the box runs ~5 min with no output, and an idle SSH session can
@@ -115,6 +124,16 @@ preflight_root() {
   rssh "echo ok" </dev/null >/dev/null 2>&1 || die "cannot SSH as $ROOT (need root for the systemd unit)"
 }
 
+# The unit, rendered for this installation (node path from the box; the rest from deploy.env).
+render_unit() {
+  sed -e "s#__USER__#${DEPLOY_USER}#g" \
+      -e "s#__REMOTE_DIR__#${REMOTE_DIR}#g" \
+      -e "s#__NODE__#${1}#g" \
+      -e "s#__SERVICE__#${SERVICE_NAME}#g" \
+      -e "s#__DRIVER__#${CHAT_DRIVER}#g" \
+      "$HERE/coach-aven.service.tmpl"
+}
+
 # ---- commands ---------------------------------------------------------------
 cmd_install() {
   preflight_root
@@ -129,13 +148,9 @@ cmd_install() {
   node_path="$(dssh 'command -v node' </dev/null)" || die "node not found on the box"
   systemctl_path="$(dssh 'command -v systemctl' </dev/null)" || die "systemctl not found on the box"
   [[ -n "$node_path" && -n "$systemctl_path" ]] || die "node/systemctl not found on the box"
-  log "Rendering systemd unit (User=$DEPLOY_USER, node=$node_path)"
+  log "Rendering systemd unit (User=$DEPLOY_USER, node=$node_path, driver=$CHAT_DRIVER)"
   local unit
-  unit="$(sed -e "s#__USER__#${DEPLOY_USER}#g" \
-              -e "s#__REMOTE_DIR__#${REMOTE_DIR}#g" \
-              -e "s#__NODE__#${node_path}#g" \
-              -e "s#__SERVICE__#${SERVICE_NAME}#g" \
-              "$HERE/coach-aven.service.tmpl")"
+  unit="$(render_unit "$node_path")"
 
   log "Root stage: installing /etc/systemd/system/${SERVICE_NAME}.service"
   printf '%s\n' "$unit" | rssh "cat > /etc/systemd/system/${SERVICE_NAME}.service && systemctl daemon-reload && systemctl enable ${SERVICE_NAME}.service"
@@ -263,15 +278,15 @@ REMOTE
     dssh "sudo systemctl restart ${SERVICE_NAME}-sources-daemon.service" </dev/null || warn "the sources daemon did not restart — check: journalctl -u ${SERVICE_NAME}-sources-daemon"
   fi
 
-  log "Health check: waiting for the Socket-Mode connection"
+  log "Health check: waiting for '$HEALTH_LINE'"
   if dssh "for i in \$(seq 1 20); do
              systemctl is-active --quiet ${SERVICE_NAME}.service || exit 2
-             journalctl -u ${SERVICE_NAME}.service --since '-60s' --no-pager 2>/dev/null | grep -q 'Slack bot running' && exit 0
+             journalctl -u ${SERVICE_NAME}.service --since '-60s' --no-pager 2>/dev/null | grep -q '$HEALTH_LINE' && exit 0
              sleep 2
            done; exit 1" </dev/null; then
-    ok "CoachAven is live and connected to Slack."
+    ok "CoachAven is live ($CHAT_DRIVER)."
   else
-    warn "Service did not report 'Slack bot running' in ~40s — check: infra/deploy/deploy.sh $SLUG logs"
+    warn "Service did not report '$HEALTH_LINE' in ~40s — check: infra/deploy/deploy.sh $SLUG logs"
   fi
   dssh "journalctl -u ${SERVICE_NAME}.service --since '-60s' --no-pager 2>/dev/null | tail -12" </dev/null || true
 }
@@ -312,5 +327,6 @@ case "${2:-}" in
   restart)      cmd_restart ;;
   ssh)          cmd_ssh ;;
   down)         cmd_down ;;
+  render-unit)  render_unit "${3:-/usr/bin/node}" ;;   # no ssh: the unit as install would write it (tests)
   *) usage; exit 1 ;;
 esac

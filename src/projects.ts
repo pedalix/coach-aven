@@ -41,6 +41,9 @@ export interface ProjectConfig {
   slug: string; // short id + sandbox suffix (proj-<slug>); channel = bluefin-aven-<slug>
   repos: string[]; // ["Org/name", ...]; repos[0] is primary (v1 clones/uses it)
   slackChannel?: string; // optional explicit channel-id override (else bound by name)
+  // A Teams installation binds by id only (channels have no name wildcard there): the channel's
+  // `19:…@thread.tacv2` id, exactly as Teams delivers it (OpenSpec teams-chat-driver).
+  teamsChannel?: string;
   // Project-specific system-prompt layer, APPENDED after the orchestrator's base prompt
   // (never overrides it). Project context the orchestrator can't know: domain, what each
   // repo is + how they relate, merge/deploy-order rules, docs links. Repo CODING
@@ -214,7 +217,7 @@ export function resolveByChannel(
   reg: ProjectsRegistry,
   channelId: string,
 ): ProjectConfig | undefined {
-  return reg.projects.find((p) => p.slackChannel === channelId);
+  return reg.projects.find((p) => p.slackChannel === channelId || p.teamsChannel === channelId);
 }
 
 export function resolveBySlug(reg: ProjectsRegistry, slug: string): ProjectConfig | undefined {
