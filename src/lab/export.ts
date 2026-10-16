@@ -21,7 +21,7 @@ import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import type { DatabaseSync } from 'node:sqlite';
-import { parseFragments, type Attribution } from '../sources/annotations.js';
+import { OWNER, parseFragments, type Attribution, type DeciderOpts } from '../sources/annotations.js';
 import { loadAttributionDrafts, localDay, plusDays, readAttributionInputs } from '../sources/attribution/build.js';
 import { hash, topics, type FragmentDraft, type MeetingIn } from '../sources/attribution/fragment.js';
 import type { LadderCtx } from '../sources/attribution/ladder.js';
@@ -585,10 +585,10 @@ function fragmentUnits(db: DatabaseSync, drafts: readonly FragmentDraft[], meeti
   });
 }
 
-const TIER: Record<string, GoldTier> = { owen: 'human', model: 'model', rule: 'rule' };
+const TIER: Record<string, GoldTier> = { [OWNER]: 'human', model: 'model', rule: 'rule' };
 
 /** Gold for t1-fragment from what the tenant and the platform already decided — ledger > pin, plus answered escalations. */
-function t1Gold(units: readonly FragmentUnit[], drafts: readonly FragmentDraft[], ctx: LadderCtx, reg: Registry, ann: string, pinsPath: string | undefined, stats: Record<string, number>): GoldRow[] {
+function t1Gold(units: readonly FragmentUnit[], drafts: readonly FragmentDraft[], ctx: LadderCtx, reg: Registry, ann: string, pinsPath: string | undefined, stats: Record<string, number>, deciders: DeciderOpts = {}): GoldRow[] {
   const rows = new Map<string, GoldRow>(); // one per (unit, tier): the first source wins
   const put = (id: string, atts: readonly Attribution[], tier: GoldTier, note: string): boolean => {
     const k = `${id}\0${tier}`;
@@ -599,7 +599,7 @@ function t1Gold(units: readonly FragmentUnit[], drafts: readonly FragmentDraft[]
   };
   const unitIds = new Set(units.map((u) => u.id));
   const path = join(ann, 'fragments.jsonl');
-  const { fragments: live, malformed } = parseFragments(existsSync(path) ? readFileSync(path, 'utf8') : ''); // last line per id, superseded dropped
+  const { fragments: live, malformed } = parseFragments(existsSync(path) ? readFileSync(path, 'utf8') : '', deciders); // last line per id, superseded dropped
   stats.ledger_malformed = malformed;
   const ledger = new Map<string, LedgerRecord>(live.map((f) => [f.id, { id: f.id, kind: f.kind, refs: f.refs, attributions: f.attributions, decided_by: f.decided_by, rule_id: f.rule_id ?? null, rationale: f.rationale ?? '', status: f.status }]));
   // The plan's own precedence and matching (by id; a thread by any overlapping ref), without pins.
@@ -645,10 +645,10 @@ function t1Gold(units: readonly FragmentUnit[], drafts: readonly FragmentDraft[]
         continue;
       }
       // The answer is free text. In order: the registry id it names; the option it picks; else the ledger line written
-      // after the question (the answer as applied — an `owen` line, or the rule it was turned into).
+      // after the question (the answer as applied — an owner line, or the rule it was turned into).
       const named = idsIn(answer);
       const applied = byId.get(target);
-      const appliedOk = applied && applied.status === 'decided' && (applied.decided_by === 'owen' || applied.decided_by === 'rule') && !!applied.decided_at && applied.decided_at >= str(e.asked_at);
+      const appliedOk = applied && applied.status === 'decided' && (applied.decided_by === OWNER || applied.decided_by === 'rule') && !!applied.decided_at && applied.decided_at >= str(e.asked_at);
       const appliedLabel = appliedOk ? t1Label(applied.attributions, reg)?.label : undefined;
       const picked = options.find((o, i) => o.trim().toLowerCase() === answer.toLowerCase() || answer === String(i + 1));
       let label: string | undefined;
@@ -809,7 +809,7 @@ export async function exportDataset(opts: ExportOptions): Promise<DatasetMeta> {
         ...(loaded.ctx.admin ? { admin: loaded.ctx.admin } : {}),
       };
       fragments = fragmentUnits(db, drafts, loaded.meetings, frozen, tz);
-      t1 = t1Gold(fragments, drafts, loaded.ctx, reg, ann, opts.source.pinsPath ? resolve(opts.source.pinsPath) : undefined, report.t1);
+      t1 = t1Gold(fragments, drafts, loaded.ctx, reg, ann, opts.source.pinsPath ? resolve(opts.source.pinsPath) : undefined, report.t1, att.inputs.config.ownerDecider ? { ownerDecider: att.inputs.config.ownerDecider } : {});
     }
     const w = windowOf(itemsSince, opts.until, tz);
     const index = new Map((db.prepare('SELECT identity, person_id FROM identities').all() as Row[]).map((r) => [str(r.identity), str(r.person_id)]));

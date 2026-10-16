@@ -23,6 +23,7 @@ never in the product repo.
 ```
 projects.config.json  projects.d/        the bot's config
 deploy.env                               deploy target (tracked)
+mirrors.json                             repo mirrors (optional; scripts/mirror.ts, see mirrors.example.json)
 .env  github-app-private-key.pem         secrets (ignored; travel by scp)
 docs/                                    your notes and plans
 teams/                                   a Terraform root calling infra/teams (a Teams installation)

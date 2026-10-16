@@ -11,6 +11,8 @@
 //       { "umbrella": "x", "unit": "hour" | "half_day", "unitMinutes": 240, "perMonth": 24,
 //         "overrides": { "YYYY-MM": 20 }, "by": "initiative" | "billing_code" } ]
 //     "admin": { "<umbrella>": "<initiative>" },   each umbrella's non-billable admin bucket (optional)
+//     "ownerDecider": "<literal>",       the `decided_by` (and labels.jsonl `by`) literal the tenant's own tooling writes
+//                                        for the owner; read as `owner` (optional — without it only "owner" is the owner)
 //     "items": { "days": 30 },           item mode (attribution/items.ts): the stage-0 floor per stream item — every
 //                                        message, ticket, comment, recording — of the last `days` local days (1–90,
 //                                        default 30); absent = off
@@ -22,6 +24,8 @@
 //                                        auditShare 0–1 (.15: that share of the budget re-asks auto-decided units),
 //                                        siblingAware (true: a structural rung of a client with sibling initiatives
 //                                        decides the umbrella, not the initiative — notes/20-iter2.md K2a)
+import { isOwnerDeciderAlias } from '../annotations.js';
+
 export interface AttributionConfig {
   subject: string;
   since?: string;
@@ -30,6 +34,8 @@ export interface AttributionConfig {
   pinAfterDays: number;
   parallelSessions: 'sum' | 'wallclock';
   admin?: Record<string, string>;
+  /** The tenant's literal for the owner decider in its ledgers (annotations.ts DeciderOpts); absent: only `owner`. */
+  ownerDecider?: string;
   budgets?: Budget[];
   items?: { days: number };
   learn?: LearnConfig;
@@ -116,6 +122,10 @@ export function parseAttributionConfig(raw: unknown, where = 'annotations/attrib
     const a = r.admin;
     if (!a || typeof a !== 'object' || Array.isArray(a) || Object.values(a).some((v) => typeof v !== 'string' || !v)) throw new Error(`${where}: "admin" must map umbrellas to initiative ids`);
     out.admin = { ...(a as Record<string, string>) };
+  }
+  if (r.ownerDecider !== undefined) {
+    if (!isOwnerDeciderAlias(r.ownerDecider)) throw new Error(`${where}: "ownerDecider" must be a lowercase literal like "jane" (not rule, model, owner or human:…)`);
+    out.ownerDecider = r.ownerDecider;
   }
   if (r.items !== undefined) {
     const it = r.items;

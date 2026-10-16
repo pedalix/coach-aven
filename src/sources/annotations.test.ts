@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { attributionRows, parseFragments } from './annotations.js';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { attributionRows, isHumanDecider, isHumanLine, parseFragments, readOwnerDecider } from './annotations.js';
 import { authConfigArgs, cloneArgs, fetchArgs } from './tenant.js';
 import { validateSourcesConfig } from './config.js';
 import { validatePeople } from './people.js';
@@ -20,6 +23,33 @@ test('parseFragments: last line per id wins, superseded dropped, junk counted, d
   assert.equal(malformed, 2);
   assert.deepEqual(fragments.map((f) => [f.id, f.kind, f.status, f.decided_by]), [['b', 'thread', 'decided', 'model']]);
   assert.deepEqual(fragments[0]!.attributions, [{ initiative: 'y', share: 1 }]);
+});
+
+test('owner decider: `owner` by default; a tenant\'s own literal (ownerDecider) reads as `owner`, nowhere else', () => {
+  const text = [
+    L({ id: 'a', refs: ['r1'], attributions: [{ initiative: 'x' }], decided_by: 'owner' }),
+    L({ id: 'b', refs: ['r2'], attributions: [{ initiative: 'x' }], decided_by: 'olga' }), // a tenant CLI's legacy literal
+    L({ id: 'c', refs: ['r3'], attributions: [{ initiative: 'x' }], decided_by: 'human:mara' }),
+  ].join('\n');
+  const plain = parseFragments(text).fragments;
+  assert.deepEqual(plain.map((f) => [f.id, f.decided_by, isHumanLine(f)]), [['a', 'owner', true], ['b', 'model', false], ['c', 'model', true]], 'no alias: an unknown literal is the model, as any unknown decider always was');
+  const aliased = parseFragments(text, { ownerDecider: 'olga' }).fragments;
+  assert.deepEqual(aliased.map((f) => [f.id, f.decided_by, isHumanLine(f)]), [['a', 'owner', true], ['b', 'owner', true], ['c', 'model', true]]);
+  assert.equal(isHumanDecider('olga'), false);
+  assert.equal(isHumanDecider('olga', { ownerDecider: 'olga' }), true);
+  assert.equal(isHumanDecider('owner'), true);
+  assert.equal(isHumanDecider('model', { ownerDecider: 'olga' }), false);
+
+  const ann = mkdtempSync(join(tmpdir(), 'ann-owner-'));
+  assert.equal(readOwnerDecider(ann), undefined, 'no attribution.json');
+  writeFileSync(join(ann, 'attribution.json'), JSON.stringify({ subject: 'olga' }));
+  assert.equal(readOwnerDecider(ann), undefined, 'no field');
+  writeFileSync(join(ann, 'attribution.json'), JSON.stringify({ subject: 'olga', ownerDecider: 'olga' }));
+  assert.equal(readOwnerDecider(ann), 'olga');
+  writeFileSync(join(ann, 'attribution.json'), JSON.stringify({ subject: 'olga', ownerDecider: 'model' }));
+  assert.equal(readOwnerDecider(ann), undefined, 'a canonical decider is no alias');
+  writeFileSync(join(ann, 'attribution.json'), '{not json');
+  assert.equal(readOwnerDecider(ann), undefined, 'unreadable: the config parse reports it, not this');
 });
 
 test('attributionRows: one row per ref × initiative, only decided fragments, resolver applied', () => {

@@ -49,7 +49,7 @@ the repos, a Claude Code token, and a place to run sandboxes.
 2. **Sandboxes** — pick a driver (`docs/sandbox-drivers.md`):
    - `SANDBOX_DRIVER=sshdocker`: containers on a Docker host you own (also `local`).
    - `SANDBOX_DRIVER=daytona`: a self-hosted [Daytona](https://www.daytona.io) with the image
-     from [`snapshot/`](snapshot/) (build with `snapshot/build-and-push.sh`; the `plain` variant
+     from [`snapshot/`](snapshot/) (build with `IMAGE=ghcr.io/<your-org>/coach-aven-sandbox-laravel snapshot/build-and-push.sh`; the `plain` variant
      needs no privileged containers and runs on arm64).
 3. **GitHub** — a GitHub App installed on the org/repos with *Contents* + *Pull requests*
    read & write and *Metadata* read; set `GITHUB_APP_ID` + the private key path. (A plain

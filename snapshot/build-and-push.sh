@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Build a sandbox image VARIANT and push it to GHCR.
 #
-# Variants (one directory per Dockerfile; `laravel` is the historical default and keeps
-# its old image name, platform and tags so nothing that exists today changes):
+# Variants (one directory per Dockerfile; `laravel` is the historical default):
 #   laravel  — snapshot/Dockerfile: docker:28-dind + Sail shims, linux/amd64 only (the
 #              Daytona runner / Hetzner sandbox host are amd64; dind needs sysbox or
 #              --privileged on the host).
@@ -18,14 +17,17 @@
 #   - logged in to GHCR:  echo "$GHCR_PAT" | docker login ghcr.io -u <user> --password-stdin
 #     (PAT needs write:packages; or a GitHub App token with packages:write)
 #
+# The image repo is the installation's, never this repo's: IMAGE is required for a push (no
+# default — each installation pushes to its own registry and pins its own copy).
+#
 # Usage:
-#   ./build-and-push.sh                   # laravel: builds + pushes :<gitsha> and :latest
-#   ./build-and-push.sh plain             # plain variant (or VARIANT=plain)
-#   IMAGE=ghcr.io/foo/bar ./build-and-push.sh plain          # your registry (ECR, GHCR of another org…)
+#   IMAGE=ghcr.io/<your-org>/coach-aven-sandbox-laravel ./build-and-push.sh        # laravel: builds + pushes :<gitsha> and :latest
+#   IMAGE=ghcr.io/<your-org>/coach-aven-sandbox-plain ./build-and-push.sh plain    # plain variant (or VARIANT=plain)
 #   ENV_FILE=../infra/<slug>/.env ./build-and-push.sh plain  # take CLAUDE_CLI_VERSION from that installation
 #   PLATFORMS=linux/arm64 ./build-and-push.sh plain    # override the variant's platforms
 #   PUSH=0 ./build-and-push.sh plain      # build only (validates the Dockerfile on every
-#                                         # platform; nothing is pushed or loaded)
+#                                         # platform; nothing is pushed or loaded; IMAGE may
+#                                         # stay unset — a local name is used)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -33,12 +35,10 @@ VARIANT="${1:-${VARIANT:-laravel}}"
 case "$VARIANT" in
   laravel)
     CONTEXT="."
-    DEFAULT_IMAGE="ghcr.io/bluefinorg/bluefin-sandbox-laravel"
     DEFAULT_PLATFORMS="linux/amd64"
     ;;
   plain)
     CONTEXT="./plain"
-    DEFAULT_IMAGE="ghcr.io/bluefinorg/bluefin-sandbox-plain"
     DEFAULT_PLATFORMS="linux/amd64,linux/arm64"
     ;;
   *)
@@ -47,9 +47,17 @@ case "$VARIANT" in
     ;;
 esac
 
-IMAGE="${IMAGE:-$DEFAULT_IMAGE}"
 PLATFORMS="${PLATFORMS:-$DEFAULT_PLATFORMS}"
 PUSH="${PUSH:-1}"
+if [ -z "${IMAGE:-}" ]; then
+  if [ "$PUSH" = 1 ]; then
+    echo "IMAGE is not set: name the image repo to push to, e.g." >&2
+    echo "  IMAGE=ghcr.io/<your-org>/coach-aven-sandbox-${VARIANT} $0 ${VARIANT}" >&2
+    echo "(or PUSH=0 for a build-only run)" >&2
+    exit 2
+  fi
+  IMAGE="coach-aven-sandbox-${VARIANT}" # build-only: a local name, never pushed
+fi
 TAG="${TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo manual)}"
 # The Claude Code pin baked into the image: CLAUDE_CLI_VERSION from the environment, else
 # from ENV_FILE (an installation's runtime .env, e.g. ENV_FILE=../infra/<slug>/.env), else the

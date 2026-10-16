@@ -15,24 +15,26 @@
 // work branch) are left alone, and branches deleted upstream linger until removed by hand.
 // Every mirror repo must have Actions DISABLED, or upstream's deploy workflows would run there.
 //
-// Usage: node --import tsx scripts/mirror.ts      (from REMOTE_DIR; reads ./.env)
+// The list is data, not code: `MIRRORS_CONFIG` (a path), else ./mirrors.json — the installation's ops overlay
+// (infra/<slug>/mirrors.json, uploaded by `npm run ops -- <slug> export`; format in src/mirrors.ts, example in
+// infra/deploy/ops.example/mirrors.example.json). No file is an error: a crontab that runs this expects mirrors.
+//
+// Usage: node --import tsx scripts/mirror.ts      (from REMOTE_DIR; reads ./.env and ./mirrors.json)
 import 'dotenv/config';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createAppAuth } from '@octokit/auth-app';
 import { loadConfig } from '../src/config.js';
 import { initSentry, captureError, flushSentry } from '../src/sentry.js';
 import { log } from '../src/log.js';
+import { mirrorsPath, parseMirrors, type Mirror } from '../src/mirrors.js';
 
-const MIRRORS = [
-  // HSX Sanity studio — its devs still work in BluefinAG, a USER account where we are only
-  // collaborators, so no fine-grained PAT can target it (and a classic PAT would reach everything).
-  // Token left unset → skipped: the mirror stays a snapshot until BluefinAG moves into the org.
-  { src: 'BluefinAG/dev-hsx-cms', dst: 'BluefinOrg/dev-hsx-cms', srcTokenEnv: 'MIRROR_SRC_BLUEFINAG' },
-  // vendor-labs' multi-tenant studio; ours is projects/mia-vallora.
-  { src: 'vendor-labs/omni-cms-v2', dst: 'BluefinOrg/omni-cms-v2', srcTokenEnv: 'MIRROR_SRC_INSIDELABS' },
-];
+function loadMirrors(): Mirror[] {
+  const path = mirrorsPath(process.env, process.cwd());
+  if (!existsSync(path)) throw new Error(`no mirror list at ${path} — put the installation's mirrors.json there (npm run ops -- <slug> export) or set MIRRORS_CONFIG`);
+  return parseMirrors(JSON.parse(readFileSync(path, 'utf8')) as unknown, path);
+}
 
 // Bare repos are cached between runs so each sync only fetches the delta.
 const CACHE = join(process.cwd(), 'mirrors');
@@ -77,10 +79,19 @@ async function main(): Promise<void> {
   initSentry(cfg);
   if (cfg.github.kind !== 'app') throw new Error('mirror needs GitHub App auth (GITHUB_APP_ID + key)');
   const { appId, privateKey } = cfg.github;
+  let mirrors: Mirror[];
+  try {
+    mirrors = loadMirrors();
+  } catch (err) {
+    log.error(`mirror: ${err instanceof Error ? err.message : String(err)}`);
+    captureError(err, { mirror: 'config' });
+    await flushSentry();
+    process.exit(1);
+  }
   mkdirSync(CACHE, { recursive: true });
 
   let failed = 0;
-  for (const m of MIRRORS) {
+  for (const m of mirrors) {
     const srcToken = process.env[m.srcTokenEnv];
     if (!srcToken) {
       // Deliberately unset (see above) is a state, not an incident: log, don't page.

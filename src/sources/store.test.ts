@@ -286,13 +286,13 @@ test('build: fragments.jsonl → fragments + attributions, last line per id, sup
   const s1 = buildStore(c);
   assert.equal(s1.fragments, 1);
   assert.equal(s1.attributions, 2);
-  appendFileSync(frag, line({ id: 'f1', kind: 'thread', refs: ['gmail:acc@x.com:a1', 'gmail:acc@x.com:a2'], attributions: [{ initiative: 'hcg/p3', share: 1 }], decided_by: 'owen', status: 'decided' }) + line({ id: 'f9', refs: ['x'], attributions: [{ initiative: 'y' }], status: 'escalated' }));
+  appendFileSync(frag, line({ id: 'f1', kind: 'thread', refs: ['gmail:acc@x.com:a1', 'gmail:acc@x.com:a2'], attributions: [{ initiative: 'hcg/p3', share: 1 }], decided_by: 'owner', status: 'decided' }) + line({ id: 'f9', refs: ['x'], attributions: [{ initiative: 'y' }], status: 'escalated' }));
   const s2 = buildStore(c);
   assert.equal(s2.recomputed, true);
   const db = openReadOnly(ctx.storePath);
   assert.deepEqual(plain(db.prepare('SELECT ref, initiative, share, decided_by FROM attributions ORDER BY ref').all()), [
-    { ref: 'gmail:acc@x.com:a1', initiative: 'hcg/p3', share: 1, decided_by: 'owen' },
-    { ref: 'gmail:acc@x.com:a2', initiative: 'hcg/p3', share: 1, decided_by: 'owen' },
+    { ref: 'gmail:acc@x.com:a1', initiative: 'hcg/p3', share: 1, decided_by: 'owner' },
+    { ref: 'gmail:acc@x.com:a2', initiative: 'hcg/p3', share: 1, decided_by: 'owner' },
   ]);
   // escalated fragments are stored (the review session lists them) but attribute nothing
   assert.deepEqual(plain(db.prepare('SELECT id, status FROM fragments ORDER BY id').all()), [{ id: 'f1', status: 'decided' }, { id: 'f9', status: 'escalated' }]);
@@ -381,6 +381,31 @@ test('build v4: a better users map relabels rows already in the store', () => {
   const row = db.prepare('SELECT container, author_raw FROM messages').get() as { container: string; author_raw: string };
   assert.deepEqual([row.container, row.author_raw], ['dm:@guest', 'Guest Person']);
   db.close();
+});
+
+test('build: the tenant\'s owner literal (attribution.json ownerDecider) reads as `owner`; changing it recomputes', () => {
+  const { root, raw, ctx } = scaffold();
+  writeFileSync(join(raw, 'google', 'acc@x.com', 'messages.jsonl'), gmail('a1', 'one'));
+  const tenantRoot = join(root, 'tenant');
+  const ann = join(tenantRoot, 'annotations');
+  mkdirSync(ann, { recursive: true });
+  writeFileSync(join(tenantRoot, 'initiatives.json'), JSON.stringify({ initiatives: [{ id: 'acme/shop', umbrella: 'acme', sources: {} }] }));
+  const cfg = (extra: object) => writeFileSync(join(ann, 'attribution.json'), JSON.stringify({ subject: 'olga', since: '2026-10-01', ...extra }));
+  const fragmentsPath = join(ann, 'fragments.jsonl');
+  writeFileSync(fragmentsPath, line({ id: 'f1', kind: 'thread', refs: ['gmail:acc@x.com:a1'], attributions: [{ initiative: 'acme/shop', share: 1 }], decided_by: 'olga', status: 'decided' }));
+  const c: BuildContext = { ...ctx, fragmentsPath, attribution: { tenantRoot, annotationsDir: ann, timezone: 'UTC' } };
+  const decider = () => {
+    const db = openReadOnly(c.storePath);
+    const r = db.prepare("SELECT decided_by FROM fragments WHERE id = 'f1'").get() as { decided_by: string };
+    db.close();
+    return r.decided_by;
+  };
+  cfg({ ownerDecider: 'olga' });
+  buildStore(c);
+  assert.equal(decider(), 'owner');
+  cfg({});
+  assert.equal(buildStore(c).recomputed, true, 'the alias is part of the derived fingerprint');
+  assert.equal(decider(), 'model', 'without it the literal is unknown: read as the model, as any unknown decider');
 });
 
 test('build: with the attribution layer the initiative index follows the plan — a live rule decision is searchable, a later judgment takes over', () => {

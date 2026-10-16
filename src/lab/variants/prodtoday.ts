@@ -10,18 +10,18 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isHumanLine, parseFragment, type Attribution } from '../../sources/annotations.js';
+import { isHumanLine, parseFragment, readOwnerDecider, type Attribution, type DeciderOpts } from '../../sources/annotations.js';
 import type { DayCtx, Prediction, TaskId, Unit, Variant } from '../types.js';
 import { baseline, tenantLadder } from './baseline.js';
 
 /** fragment id → the attributions of the review agent's last decided line for it (raw ledger text in, every line read). */
-export function modelDecisions(ledgerText: string): Map<string, Attribution[]> {
+export function modelDecisions(ledgerText: string, deciders: DeciderOpts = {}): Map<string, Attribution[]> {
   const out = new Map<string, Attribution[]>();
   for (const line of ledgerText.split('\n')) {
     if (!line.trim()) continue;
     let f: ReturnType<typeof parseFragment>;
     try {
-      f = parseFragment(JSON.parse(line));
+      f = parseFragment(JSON.parse(line), deciders); // the owner's own literal is the owner's, never the agent's
     } catch {
       continue; // a torn or malformed line is nobody's decision
     }
@@ -41,9 +41,11 @@ export const prodToday: Variant = {
     let model = ctx.state.get('model') as Map<string, string> | undefined;
     if (!model) {
       const lad = tenantLadder(join(ctx.dir, 'tenant'), ctx.dataset.tz, ctx.dataset.subject);
-      const ledger = join(ctx.dir, 'tenant', 'annotations', 'fragments.jsonl');
+      const ann = join(ctx.dir, 'tenant', 'annotations');
+      const ledger = join(ann, 'fragments.jsonl');
+      const ownerDecider = readOwnerDecider(ann);
       model = new Map();
-      for (const [id, atts] of modelDecisions(existsSync(ledger) ? readFileSync(ledger, 'utf8') : '')) {
+      for (const [id, atts] of modelDecisions(existsSync(ledger) ? readFileSync(ledger, 'utf8') : '', ownerDecider ? { ownerDecider } : {})) {
         const top = [...atts].sort((a, b) => b.share - a.share)[0]!;
         model.set(id, lad.reg.resolveAlias(top.initiative));
       }
