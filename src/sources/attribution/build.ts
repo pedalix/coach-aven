@@ -241,8 +241,10 @@ export function loadAttributionDrafts(db: DatabaseSync, inputs: AttributionInput
 export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs, people: readonly Person[], ledgerRecords: readonly Fragment[], now: Date = new Date()): AttributionSummary {
   const { config } = inputs;
   const tz = inputs.timezone;
+  const team = config.subject === ''; // team mode (config.ts): no subject — items and the loop only
   const loaded = loadAttributionDrafts(db, inputs, people, now);
-  const { since, until, lo, hi, drafts, ctx } = loaded;
+  const { since, until, lo, hi, ctx } = loaded;
+  const drafts = team ? [] : loaded.drafts;
   const ledger = new Map<string, LedgerRecord>(ledgerRecords.map((f) => [f.id, { id: f.id, kind: f.kind, refs: f.refs, attributions: f.attributions, decided_by: f.decided_by, rule_id: f.rule_id ?? null, rationale: f.rationale ?? '', status: f.status }]));
   // Ledger > pin > ladder. Rule decisions of closed days (before `cutoff`) are pinned now, with the rules
   // version that decided them, and count as decided from this build on.
@@ -259,7 +261,7 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
   }
   const proposals = proposeRules(drafts, ledger, ctx);
   // Identities and the subject's promised steps: the review's other two inputs, from the same store and people file.
-  const identities = collectIdentities(people, loadObservations(db, config.subject, people), config.subject);
+  const identities = team ? collectIdentities(people, [], config.subject) : collectIdentities(people, loadObservations(db, config.subject, people), config.subject);
   const calls = new Map<string, CallIn>();
   // In copy order: the first copy gives the call its start and title, and wins a step two copies share.
   for (const r of db.prepare(`SELECT ref, source, title, start, attendees, next_steps, call_id FROM meetings WHERE deleted = 0 AND start >= ? AND start < ? ORDER BY ${COPY_ORDER}`).all(lo, hi) as Row[]) {
@@ -270,7 +272,7 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
     if (!cur.title && str(r.title)) cur.title = str(r.title);
     calls.set(id, cur);
   }
-  const commitments = extractCommitments([...calls.values()], subjectNames(people.find((p) => p.person_id === config.subject)), config.subject);
+  const commitments = team ? [] : extractCommitments([...calls.values()], subjectNames(people.find((p) => p.person_id === config.subject)), config.subject);
 
   const states = Object.fromEntries(STATES.map((s) => [s, 0])) as Record<State, number>;
   db.exec('BEGIN');

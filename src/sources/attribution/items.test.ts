@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from '../store.js';
 import type { Person } from '../people.js';
-import type { AttributionInputs } from './build.js';
+import { recomputeAttribution, type AttributionInputs } from './build.js';
 import { parseAttributionConfig } from './config.js';
 import type { RuleRecord } from './ladder.js';
 import { parseRegistry } from './registry.js';
@@ -266,6 +266,23 @@ test('writeItems / recomputeItems: the rows and the "att:items" meta the readout
     assert.deepEqual([count(), meta()], [0, undefined]);
     writeItems(db, computeItems(db, inputs({ days: 7 }), PEOPLE, NOW));
     assert.deepEqual([count(), JSON.parse(meta()!.value).since], [17, '2026-10-12'], 'without a window the rows\' own days stand for it');
+  } finally {
+    db.close();
+  }
+});
+
+test('team mode: with "items" the subject may be left out — no fragments, items still computed; without "items" it stays required', () => {
+  assert.throws(() => parseAttributionConfig({}), /subject/);
+  assert.throws(() => parseAttributionConfig({ learn: { mode: 'shadow' } }), /subject/);
+  const team = parseAttributionConfig({ items: { days: 7 } });
+  assert.equal(team.subject, '');
+  const db = store();
+  try {
+    const sum = recomputeAttribution(db, { config: team, registry: REGISTRY, rules: [], timezone: 'Europe/Zurich', versionText: '' }, PEOPLE, [], NOW);
+    assert.equal(sum.fragments, 0, 'nobody whose day is fragmented');
+    assert.equal(sum.commitments, 0);
+    assert.equal(Number((db.prepare('SELECT count(*) AS n FROM att_fragments').get() as { n: number }).n), 0);
+    assert.ok(sum.items && 'items' in sum.items && sum.items.items > 0, 'the item floor runs');
   } finally {
     db.close();
   }

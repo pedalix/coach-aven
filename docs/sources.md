@@ -697,7 +697,9 @@ just after local midnight that the CLI's UTC-day load window never saw — is th
 
 `"items": {"days": 30}` in attribution.json turns on the **item floor**: every message, task, comment and
 meeting of the last N local days gets a row in `att_items` (`items.ts`), read with
-`attribution({unit: 'item', since, until})` — the call without `unit` answers exactly as before. Per item:
+`attribution({unit: 'item', since, until})` — the call without `unit` answers exactly as before. A team tenant,
+whose days nobody fragments, may leave `subject` out when `items` is set (**team mode**: no fragments, pins,
+identities or commitments — the items and the learning loop over them only). Per item:
 
 - **sender class** — human, bot, bulk (one-way mail from an unresolved sender the subject never wrote to) or
   system (role mailboxes), one merged list instead of `bots.ts` and the identities collector disagreeing;

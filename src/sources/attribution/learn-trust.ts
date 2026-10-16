@@ -84,7 +84,11 @@ export function keyCue(prefix: string): Cue | null {
 export function channelCue(name: string): Cue | null {
   const ps = parts(name.replace(/^(?:#|channel:)/i, ''));
   if (!ps.length) return null;
-  return { norm: `#${ps.join('-')}`, re: new RegExp(`(?<!${L})#?${ps.map(esc).join('[\\s_\\-.]+')}(?!${L})`, 'u') };
+  // A one-word channel needs its '#': a bare 'booker' is a word, and a word two siblings share was dropped on purpose —
+  // an optional '#' let it back in as one sibling's channel cue (the parity replay froze 14 errors on it). A compound
+  // name ('ext-acme') is specific enough to count bare.
+  const hash = ps.length > 1 ? '#?' : '#';
+  return { norm: `#${ps.join('-')}`, re: new RegExp(`(?<!${L})${hash}${ps.map(esc).join('[\\s_\\-.]+')}(?!${L})`, 'u') };
 }
 
 const idCue = (id: string): Cue => ({ norm: `id:${fold(id)}`, re: new RegExp(`(?<!${L})${esc(fold(id))}(?!${L})`, 'u') });

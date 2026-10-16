@@ -70,3 +70,10 @@ test('K2a §1: own cue keeps, a sibling’s cue guesses the sibling, both or nei
   assert.equal(siblingTrust('acme/shop', 0.9, 'key:AC', S.hits('acme/shop', 'nothing', trig)!).conf, 0.85);
   assert.equal(siblingTrust('acme/shop', 0.8, 'key:AC', S.hits('acme/shop', 'nothing', trig)!).conf, 0.8, 'never above what calibration left');
 });
+
+test('a channel cue needs its #: the bare word is a word cue, and a word two siblings share stays out', async () => {
+  const { channelCue } = await import('./learn-trust.js');
+  const c = channelCue('#booker')!;
+  assert.ok(c.re.test('see #booker for the thread'));
+  assert.equal(c.re.test('a customer of the booker widget'), false);
+});

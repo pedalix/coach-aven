@@ -63,8 +63,11 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/;
 export function parseAttributionConfig(raw: unknown, where = 'annotations/attribution.json'): AttributionConfig {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`${where}: expected an object`);
   const r = raw as Record<string, unknown>;
-  if (typeof r.subject !== 'string' || !PERSON_RE.test(r.subject)) throw new Error(`${where}: "subject" must be a person id from people.json`);
-  const out: AttributionConfig = { subject: r.subject, threadGapMinutes: 45, substance: true, pinAfterDays: 1, parallelSessions: 'sum' };
+  // A team tenant has nobody whose day is fragmented: with item mode on, the subject may be absent ('' = team mode —
+  // no fragments, pins, identities or commitments; the items and the loop over them still run).
+  const team = r.subject === undefined && r.items !== undefined;
+  if (!team && (typeof r.subject !== 'string' || !PERSON_RE.test(r.subject))) throw new Error(`${where}: "subject" must be a person id from people.json (it may be left out only with "items")`);
+  const out: AttributionConfig = { subject: team ? '' : (r.subject as string), threadGapMinutes: 45, substance: true, pinAfterDays: 1, parallelSessions: 'sum' };
   if (r.since !== undefined) {
     if (typeof r.since !== 'string' || !DAY_RE.test(r.since) || Number.isNaN(Date.parse(r.since))) throw new Error(`${where}: "since" must be YYYY-MM-DD`);
     out.since = r.since;
