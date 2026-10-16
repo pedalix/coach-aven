@@ -77,8 +77,11 @@ export function normalizeMessage(a: InboundActivity, tenant: string): Normalized
     files: async () => undefined,
     claim: () => true, // one delivery per activity on Teams — nothing to dedupe
   };
+  // In a 1:1 the client may still attach a mention entity (typing "@Aven …"); the chat has no
+  // reply chains, so it is a direct message, never a mention that would open a thread.
+  if (direct) return { kind: 'message', msg };
   if (mentioned) return { kind: 'mention', msg };
-  if (direct || thread) return { kind: 'message', msg };
+  if (thread) return { kind: 'message', msg };
   // A top-level channel message that does not name the bot: not ours (RSC delivers every
   // channel message once consent is granted).
   return { kind: 'ignore', why: 'channel message without a mention' };

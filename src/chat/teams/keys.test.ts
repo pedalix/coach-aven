@@ -11,10 +11,13 @@ test('a channel reply chain splits into the channel and the root; a 1:1 id stays
   assert.deepEqual(splitConversation('a:PERSONAL1'), { conv: 'a:PERSONAL1' });
 });
 
-test('the send target rebuilds the chain only for a thread', () => {
+test('the send target rebuilds the chain only for a thread in a channel', () => {
   assert.equal(targetId(CH, '100'), `${CH};messageid=100`);
   assert.equal(targetId(CH), CH);
   assert.equal(targetId('a:PERSONAL1'), 'a:PERSONAL1');
+  // 1:1 and group chats have no reply chains: a thread there is ignored, never appended
+  assert.equal(targetId('a:PERSONAL1', '100'), 'a:PERSONAL1');
+  assert.equal(targetId('19:GROUP1@thread.v2', '100'), '19:GROUP1@thread.v2');
 });
 
 test('a message that starts its chain has no thread; a reply names the root', () => {
