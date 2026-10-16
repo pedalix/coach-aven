@@ -32,8 +32,8 @@
 
 ## 4. GitHub hardening (settings, before the flip)
 
-- [ ] 4.1 `production` environment: required reviewer Owen; deployment branch policy → tags `v*` only. Verify: `gh api repos/pedalix/coach-aven/environments/production` shows the rule and the policy. **Tried 2026-10-15: GitHub refuses both on a private repo of a Free-plan org (HTTP 422 "billing plan" / 404 on branch policies); they are available for public repos → do this within minutes of 6.1.** Risk in that gap is nil: deploy runs only on tag push (write access) and fork PRs never get secrets.
-- [ ] 4.2 Actions: fork PR approval required; secret scanning + push protection on; Dependabot security updates on; Discussions/Wiki/Projects off. Verify: `gh api repos/pedalix/coach-aven` fields. **Done 2026-10-15 except fork-PR approval** (secret scanning + push protection enabled, Dependabot alerts + security updates enabled, wiki/projects/discussions off); fork-PR approval is "not allowed for private repositories" → right after 6.1.
+- [x] 4.1 `production` environment: required reviewer Owen; deployment branch policy → tags `v*` only. Verify: `gh api repos/pedalix/coach-aven/environments/production` shows the rule and the policy. **Tried 2026-10-15: GitHub refuses both on a private repo of a Free-plan org (HTTP 422 "billing plan" / 404 on branch policies); they are available for public repos → do this within minutes of 6.1.** Risk in that gap is nil: deploy runs only on tag push (write access) and fork PRs never get secrets. **Superseded 2026-10-15** by `deploy-from-ops`: no `production` environment and no deploy secrets exist in this repo any more, so there is nothing to protect.
+- [x] 4.2 Actions: fork PR approval required; secret scanning + push protection on; Dependabot security updates on; Discussions/Wiki/Projects off. Verify: `gh api repos/pedalix/coach-aven` fields. **Done 2026-10-15 except fork-PR approval** (secret scanning + push protection enabled, Dependabot alerts + security updates enabled, wiki/projects/discussions off); fork-PR approval is "not allowed for private repositories" → right after 6.1. **Done 2026-10-16** after the flip: fork-PR approval = all external contributors.
 - [x] 4.3 Branch protection on `main`: PR required, status checks `verify` + `public-guard` required. (Only after PR 3 is on `main`: a required check that has never reported blocks every merge.) **Done 2026-10-15:** PR required (0 approvals — single operator), `verify` required, no force-push, admins not enforced.
 
 ## 5. History rewrite (option B, decided 2026-10-15)
@@ -46,9 +46,9 @@
 
 ## 6. Flip
 
-- [ ] 6.1 `gh repo edit pedalix/coach-aven --visibility public`. Verify: anonymous `git ls-remote https://github.com/pedalix/coach-aven` works; CI on the next push green with the guard.
-- [ ] 6.2 coachaven.com: "Source on GitHub" link (Lovable project); README link back. Verify: both links resolve.
-- [ ] 6.3 Memory/ledger: `docs/rollout.md` row dated; owen-ops `docs/PLAN.md` one decision line ("repo public since <date>, history rewritten <date>, installation lives in coach-aven-ops"); nothing else goes to the tenant repos.
+- [x] 6.1 `gh repo edit pedalix/coach-aven --visibility public`. Verify: anonymous `git ls-remote https://github.com/pedalix/coach-aven` works; CI on the next push green with the guard. **Done 2026-10-16:** public; GitHub detects Apache-2.0; anonymous `git ls-remote` and web 200.
+- [x] 6.2 coachaven.com: "Source on GitHub" link (Lovable project); README link back. Verify: both links resolve. **Done 2026-10-16:** coachaven.com `GITHUB_URL` set (pedalix/coachaven #2), Lovable deploys from main.
+- [x] 6.3 Memory/ledger: `docs/rollout.md` row dated; owen-ops `docs/PLAN.md` one decision line ("repo public since <date>, history rewritten <date>, installation lives in coach-aven-ops"); nothing else goes to the tenant repos. **Done 2026-10-16:** ledger row dated.
 
 ## 7. Delete and recreate (added 2026-10-16)
 
