@@ -10,6 +10,7 @@ set -euo pipefail
 root="${1:?usage: publish.sh <terraform root dir, e.g. infra/<slug>/teams>}"
 command -v pwsh >/dev/null || { echo "pwsh not found — PowerShell 7 + Install-Module MicrosoftTeams" >&2; exit 1; }
 pkg=$(terraform -chdir="$root" output -raw package)
+[[ "$pkg" = /* ]] || pkg="$root/$pkg"   # the module builds under path.root → relative to the root dir
 ext=$(terraform -chdir="$root" output -raw teams_app_id)
 tenant=$(terraform -chdir="$root" output -raw bot_tenant_id)
 [[ -f "$pkg" ]] || { echo "no package at $pkg — run terraform apply in $root first" >&2; exit 1; }
