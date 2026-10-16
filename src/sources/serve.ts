@@ -18,7 +18,7 @@
 //
 // Auth: a static bearer from SOURCES_SERVE_TOKEN (the gateway's .env holds the same value and sets
 // the header on its target). Bound to loopback by default — TLS and the public name are nginx's
-// job on the bot host (infra/prod/). Requests without the right bearer get 401 and no body.
+// job on the bot host (infra/deploy/). Requests without the right bearer get 401 and no body.
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
 import { existsSync } from 'node:fs';

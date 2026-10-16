@@ -57,9 +57,9 @@ Not wired (yet): the `GET https://api.anthropic.com/api/oauth/usage` endpoint th
 ## Enabling on prod
 
 1. Create a Sentry project (Node), get the DSN.
-2. Add to `infra/prod/runtime/.env`: `SENTRY_DSN=…` (optionally `SENTRY_TRACES_SAMPLE_RATE`,
+2. Add to the installation's `infra/<slug>/.env`: `SENTRY_DSN=…` (optionally `SENTRY_TRACES_SAMPLE_RATE`,
    `SENTRY_LOGS=1`, `SENTRY_RELEASE=vX.Y.Z`).
-3. `npm run prod:export && npm run prod:restart`.
+3. `npm run ops -- <slug> export && npm run ops -- <slug> restart`.
 
 `SENTRY_RELEASE` ties issues to a version. It's a static env today; wiring it from the
 release tag (CI) is an easy follow-up.

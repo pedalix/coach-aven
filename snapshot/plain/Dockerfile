@@ -1,4 +1,8 @@
-# The PLAIN sandbox image: Claude Code + git tooling, no dockerd, no Sail.
+# The PLAIN sandbox image: Claude Code + git tooling + a small general toolchain (bash, git,
+# gh, curl, jq, ssh, ripgrep, node 22/npm, python3/pip, make, unzip, rsync), no dockerd, no Sail.
+# This list is the contract (OpenSpec `sandbox-image`): a project that needs more — PHP, say —
+# gets it added HERE and the image rebuilt, never installed by hand into a running sandbox
+# (housekeeping recycles containers; hand-installed packages vanish with them).
 #
 # For sandboxes that never run containers of their own and therefore need neither sysbox
 # nor --privileged: an unprivileged `docker run` is enough, which is what makes this
@@ -20,7 +24,12 @@ RUN apk add --no-cache \
       jq \
       openssh-client \
       ca-certificates \
-      ripgrep
+      ripgrep \
+      python3 \
+      py3-pip \
+      make \
+      unzip \
+      rsync
 
 # Claude Code (the CLI). npm is the reliable install path on Alpine/musl (the native
 # installer wants extra libs + a settings flag there, for no gain). Pinned to the fleet's

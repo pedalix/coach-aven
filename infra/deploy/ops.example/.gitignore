@@ -1,0 +1,16 @@
+# Secrets never enter the ops repo — they travel by scp (infra/deploy/deploy.sh export|import).
+.env
+.env.*
+!.env.example
+*.pem
+# Terraform state holds the Teams bot's client secret — local to the operator's machine.
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.tfstate.lock.info
+# server-owned runtime state, never here
+state.json
+queue.jsonl
+drafts/
+usage/
+feedback/

@@ -4,10 +4,11 @@
 # manual: no credential of the installation lives in this public repo — the person who tags
 # starts the deploy with their own `gh` login (needs write access to OPS_REPO).
 #
-#   npm run release -- vX.Y.Z            # OPS_REPO=<owner/ops-repo> to target another installation
+#   OPS_REPO=<owner/ops-repo> npm run release -- vX.Y.Z   # the ops repo of the installation to deploy (no default:
+#                                                        # several installations, each its own repo)
 set -euo pipefail
 TAG="${1:-}"
-OPS_REPO="${OPS_REPO:-pedalix/coach-aven-ops}"
+OPS_REPO="${OPS_REPO:?set OPS_REPO=<owner/ops-repo> — the installation to deploy}"
 [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "usage: npm run release -- vX.Y.Z" >&2; exit 2; }
 [[ "$(git rev-parse --abbrev-ref HEAD)" == "main" ]] || { echo "release from main, not $(git rev-parse --abbrev-ref HEAD)" >&2; exit 2; }
 git fetch -q origin main

@@ -6,11 +6,12 @@
 #   scripts/pull-fixtures.sh 2026-09-02 | ...     # only that day's file(s)
 #
 # Needs the prod journal in FULL mode (AVEN_EVENT_LOG=full — metadata-only lines have no
-# `raw` and are skipped). Uses the deploy env for the host, same as infra/prod/deploy.sh.
+# `raw` and are skipped). The host comes from the installation's deploy.env, same as
+# infra/deploy/deploy.sh: name it with OPS=<slug> (the overlay at infra/<slug>/).
 # stdout is UNSCRUBBED — message text, ids, tokens. Never redirect it into the repo.
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ENV_FILE="$HERE/../infra/prod/.env"
+ENV_FILE="$HERE/../infra/${OPS:?set OPS=<slug> — the installation (infra/<slug>/deploy.env)}/deploy.env"
 [[ -f "$ENV_FILE" ]] || { echo "no $ENV_FILE" >&2; exit 1; }
 set -a; # shellcheck disable=SC1090
 source "$ENV_FILE"; set +a

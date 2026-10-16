@@ -8,14 +8,14 @@ and let admins edit safe fields (the project system prompt) from Slack.
 > reads `.current` per use); a parse failure keeps the old config. System prompts now
 > live as markdown files beside the config — `projects.d/<slug>.md` (a non-empty file
 > wins over the JSON `systemPrompt` field, kept as fallback) — synced by
-> `prod:export`/`import`. Prompts/MCP bake into a session at `openChat`, so running
+> `npm run ops -- <slug> export`/`import`. Prompts/MCP bake into a session at `openChat`, so running
 > conversations keep their setup until their persistent claude process ends.
 > Still open below: the Slack **editing** half (modal + state-overrides).
 
 ## Why
 
 Today `projects.config.json` is read **once at boot** (`loadProjects`), so any change needs
-`prod:export` + `restart`. Two pains:
+`export` + `restart` (`npm run ops -- <slug> …`). Two pains:
 
 - restart latency for any config tweak;
 - no self-serve — only an operator with the deploy machinery can change anything.
@@ -55,7 +55,7 @@ The soft/instructional needs are largely already covered by [project memory](mem
 - **File config = structural base** (deploy-managed). **Slack edits = overrides in
   `state.json`** (server-owned, *not* touched by `export`/`import`).
 - Effective config = `fileConfig ⊕ stateOverride`. This is why Slack edits must NOT write
-  `projects.config.json`: the next `prod:export` would clobber them.
+  `projects.config.json`: the next `export` would clobber them.
 - `/aven prompt` → modal (`views.open`) prefilled with the current prompt → save → write
   override + apply.
 - `/aven prompt reset` → drop the override, fall back to the file value (so a later
@@ -112,7 +112,7 @@ A project can reach all its MCP sources through the gateway (bluefin-infra `engi
 - Name the entry `gw` — `steps.ts` renders `mcp__gw__<target>_<tool>` by target.
 
 **Rollback** (one edit): in `projects.config.json` move the project's `mcpDirectBackup` list back
-to `mcp` (caldora keeps its pre-gateway list there), `prod:export`, `/aven reload`; running
+to `mcp` (a project may keep its pre-gateway list there), `npm run ops -- <slug> export`, `/aven reload`; running
 conversations keep the old config until their claude process ends (or restart the bot to recycle).
 
 ### A `sources` entry with a `url`

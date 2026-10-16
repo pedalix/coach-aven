@@ -11,7 +11,7 @@ usage/
 feedback/
 .release
 projects.config.json
-# local-dev per-project prompt files (prod's live in infra/prod/runtime/projects.d/):
+# local-dev per-project prompt files (an installation's live in its overlay, infra/<slug>/projects.d/):
 /projects.d/
 # per-project memory journals (server-owned git repos; like state.json, never committed):
 memory/
@@ -23,9 +23,18 @@ facts/
 .env.*
 !.env.example
 github-app-private-key.pem
-# prod runtime truth = your private ops repo checked out here (infra/prod/README.md); template
-# in infra/prod/runtime.example/. Never part of this repo:
-infra/prod/runtime/
+# infra/ is an ALLOW-LIST: every installation's ops repo is checked out at infra/<slug>/
+# (infra/deploy/README.md; template in infra/deploy/ops.example/) and must never be staged —
+# whatever the slug, so this file names no installation. Only the public tooling is tracked:
+infra/*
+!infra/README.md
+!infra/deploy/
+!infra/teams/
+# Terraform working files anywhere (a module's init cache, a root's state — state holds secrets):
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
 /.claude/worktrees/transparency-trail/
 /.claude/worktrees/youtrack-rich-context/
 events/

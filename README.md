@@ -65,9 +65,9 @@ the repos, a Claude Code token, and a place to run sandboxes.
    `SLACK_CHANNEL_PREFIX`) auto-binds to the project; `@mention` the bot there. Project
    prompts go in `projects.d/<slug>.md` beside the config (`docs/runtime-config.md`).
 
-Production: a systemd unit on any Linux box, deployed by `infra/prod/deploy.sh` or by the
-tag-triggered GitHub Action; your installation's config lives in a private **ops repo**
-checked out at `infra/prod/runtime/` — [`infra/prod/README.md`](infra/prod/README.md).
+Production: a systemd unit on any Linux box, deployed by `npm run ops -- <slug> deploy` or by
+your ops repo's GitHub Action; each installation's config lives in a private **ops repo**
+checked out at `infra/<slug>/` — [`infra/README.md`](infra/README.md), [`infra/deploy/README.md`](infra/deploy/README.md).
 Local dev beside a prod bot: [`docs/local-dev.md`](docs/local-dev.md).
 
 ## What goes where
@@ -105,7 +105,7 @@ src/
   sources/          # ingestion of mail/chat/calendar/files + trackers into a per-project store
   …plus pure logic modules with tests beside them
 snapshot/           # sandbox images: `laravel` (dind + Sail shims) and `plain` (multi-arch)
-infra/prod/         # systemd deploy script, unit templates, runtime.example/ for your ops repo
+infra/              # deploy/ (deploy.sh, unit templates, ops.example/), teams/ (Terraform module), <slug>/ = your ops repos (ignored)
 docs/               # runtime config, sandbox drivers, sources, rollout ledger, …
 openspec/           # change proposals (specs, design, tasks) — how work is planned here
 ```

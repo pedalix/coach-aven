@@ -55,7 +55,7 @@ not the first pull.
 
 `XDG_CONFIG_HOME` is honoured. Files are mode 600 in a 700 directory, written atomically.
 They are deliberately **not** beside `state.json`: `state.json` is deploy-synced and exportable
-(`infra/prod/deploy.sh export|import`), and a tenant purge may delete `data/<slug>` — an OAuth
+(`infra/deploy/deploy.sh <slug> export|import`), and a tenant purge may delete `data/<slug>` — an OAuth
 grant must survive both and never travel in an export. They are also not `${ENV}` references
 like MCP secrets, because refresh tokens rotate and must be rewritten in place.
 
@@ -427,8 +427,8 @@ orch sources daemon [--listen 127.0.0.1:3416] [--only <slug,…>]       # SOURCE
   daemon is away; a call it cannot forward is a tool error the agent reports in one line), and reads
   `<url>/status/<slug>` every minute for `/aven status`, the empty-slot skip and the ops alerts. A
   status older than three minutes is not trusted: the slot fires.
-- `infra/prod/coach-aven-sources-daemon.service.tmpl` is the unit (it replaces the per-slug
-  `coach-aven-sources.service.tmpl`); `infra/prod/nginx-sources.conf.example` the TLS snippet when the
+- `infra/deploy/coach-aven-sources-daemon.service.tmpl` is the unit (it replaces the per-slug
+  `coach-aven-sources.service.tmpl`); `infra/deploy/nginx-sources.conf.example` the TLS snippet when the
   bot reaches the daemon over a public name.
 
 ## Task trackers

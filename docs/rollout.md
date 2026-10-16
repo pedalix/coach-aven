@@ -32,7 +32,7 @@ go in as `CREATE TABLE IF NOT EXISTS` (no `SCHEMA_VERSION` bump, so no prod rebu
   channel. `git log $(git describe --tags --abbrev=0)..main --oneline` is the list of what is
   waiting; the ledger below says what to watch for.
 - **Flag lifecycle**: (a) merged, off, canary has it on → (b) proved on the canary → turn on
-  in prod `.env` (`prod:import` first, see `infra/prod/`) as its own deliberate step, note the
+  in prod `.env` (`npm run ops -- <slug> import` first, see `infra/deploy/`) as its own deliberate step, note the
   date below → (c) one release later with no complaints → PR that makes it the default and
   removes the flag, row moves to *Retired*.
 - **Start of every work session**: look at the untagged commits and this ledger; anything

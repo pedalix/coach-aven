@@ -1,19 +1,20 @@
 ---
 name: manage-project
-description: Add a new project to CoachAven prod OR edit an existing one (add/remove repos, change the system prompt, MCP / gateway route, YouTrack prefixes, sandbox driver, CLI pin, workspace membership) — sync from the box, edit infra/prod/runtime/projects.config.json + projects.d/<slug>.md, wire the bluefin-infra side (gateway route, Auth0 bot client) when needed, then export + /aven reload and verify. Use when the user wants to onboard, change, or remove a project/repo of the Slack coding agent.
+description: Add a new project to CoachAven prod OR edit an existing one (add/remove repos, change the system prompt, MCP / gateway route, YouTrack prefixes, sandbox driver, CLI pin, workspace membership) — sync from the box, edit infra/<slug>/projects.config.json + projects.d/<slug>.md, wire the bluefin-infra side (gateway route, Auth0 bot client) when needed, then export + /aven reload and verify. Use when the user wants to onboard, change, or remove a project/repo of the Slack coding agent.
 ---
 
-> Instance values (gateway host, team ids, slugs, YouTrack prefixes) live in your ops repo at `infra/prod/runtime/README.md`; this skill only knows the mechanics.
+> Instance values (gateway host, team ids, slugs, YouTrack prefixes) live in your ops repo at `infra/<slug>/README.md`; this skill only knows the mechanics.
 
 # Add or edit a CoachAven project (prod)
 
-A project is one entry in **`infra/prod/runtime/projects.config.json`** (gitignored **prod
+A project is one entry in **`infra/<slug>/projects.config.json`** (gitignored **prod
 truth**, NOT the repo-root `projects.config.json`, which is local dev) plus its system
-prompt in **`infra/prod/runtime/projects.d/<slug>.md`**. `prod:export` uploads both;
+prompt in **`infra/<slug>/projects.d/<slug>.md`**. `npm run ops -- <slug> export` uploads both;
 `/aven reload` in Slack re-reads them without a restart. This skill drives the whole
 loop: sync → gather → edit → (bluefin-infra side) → confirm → export → reload → verify.
 
-Work against `infra/prod/runtime/` only. NEVER edit the repo-root files for this.
+Work against `infra/<slug>/` only — `<slug>` is the INSTALLATION being edited (its ops repo is checked
+out there; `ls infra/` shows the ones present — ask when several exist). NEVER edit the repo-root files for this.
 
 ## Step 0 — make sure local runtime == the box (mandatory, before ANY edit)
 
@@ -21,18 +22,18 @@ An export uploads the whole runtime dir, so a stale local copy would silently ov
 newer prod config (someone edited prod, or another session exported). Compare first:
 
 ```bash
-source infra/prod/.env
+source infra/<slug>/deploy.env
 tmp=$(mktemp -d)
 ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${DEPLOY_HOST}" \
   "tar -C ${REMOTE_DIR} -cf - .env projects.config.json projects.d" | tar -C "$tmp" -xf -
-diff -q "$tmp/.env" infra/prod/runtime/.env          # -q: never print secrets
-diff -u "$tmp/projects.config.json" infra/prod/runtime/projects.config.json
-diff -ru "$tmp/projects.d" infra/prod/runtime/projects.d
+diff -q "$tmp/.env" infra/<slug>/.env          # -q: never print secrets
+diff -u "$tmp/projects.config.json" infra/<slug>/projects.config.json
+diff -ru "$tmp/projects.d" infra/<slug>/projects.d
 rm -rf "$tmp"
 ```
 
 - **No differences** → proceed.
-- **Differences and local has NO unexported work of ours** → `npm run prod:import`
+- **Differences and local has NO unexported work of ours** → `npm run ops -- <slug> import`
   (pulls `.env`, `projects.config.json`, `projects.d/`, github key) and proceed.
 - **Local has changes not on the box** (a half-finished earlier edit) → STOP, show the
   diff, ask the user which side wins. Never import over it or export it blindly.
@@ -60,7 +61,7 @@ then gather only what changes. The field reference (shape in `src/projects.ts`):
 | `slackChannel` | explicit channel id override — avoid, name binding is the default. | reload |
 | `sources` | mail/chat/calendar archive the bot pulls (`docs/sources.md`); needs `orch sources auth` on the host. Rare — follow that doc. | partly |
 | `env` | reserved, keep `{}`. | — |
-| top-level `workspaces` | tenant → slugs. When present, membership is **explicit-only**: a new slug MUST be added to a tenant (the home team id unless told otherwise — see `infra/prod/runtime/README.md`), and a removed slug MUST be removed there too (unknown slug = reload error). | reload |
+| top-level `workspaces` | tenant → slugs. When present, membership is **explicit-only**: a new slug MUST be added to a tenant (the home team id unless told otherwise — see `infra/<slug>/README.md`), and a removed slug MUST be removed there too (unknown slug = reload error). | reload |
 
 Not config any more (don't ask for them): `composerAuth` — gone. Private composer deps
 are found by the dependency scanner (`docs/project-facts.md`): `facts/<slug>.json`
@@ -103,7 +104,7 @@ For an edit, show the prompt diff, not the whole file. Don't belabor variants.
 
 ## Step 3 — edit the prod config
 
-Edit `infra/prod/runtime/projects.config.json` (+ `projects.d/<slug>.md`). Minimal new entry:
+Edit `infra/<slug>/projects.config.json` (+ `projects.d/<slug>.md`). Minimal new entry:
 
 ```json
 {
@@ -118,10 +119,10 @@ Validate with the real loader (same checks the bot runs on reload — workspaces
 gateway entry shape, sandbox options):
 
 ```bash
-npx tsx -e "import('./src/projects.ts').then(m=>{const r=m.loadProjects('infra/prod/runtime/projects.config.json');console.log(r.projects.length,'projects:',r.projects.map(p=>p.slug).join(', '))})"
+npx tsx -e "import('./src/projects.ts').then(m=>{const r=m.loadProjects('infra/<slug>/projects.config.json');console.log(r.projects.length,'projects:',r.projects.map(p=>p.slug).join(', '))})"
 ```
 
-Must not throw. For direct `${VAR}` MCP refs, check each `VAR` is in `runtime/.env`; if a
+Must not throw. For direct `${VAR}` MCP refs, check each `VAR` is in `infra/<slug>/.env`; if a
 secret is missing ask for it (never invent one), append, keep `chmod 600`.
 
 ## Step 4 — the other side: GitHub, gateway, identity (only what this change needs)
@@ -150,7 +151,7 @@ unless asked:
    the scope = poller fires, agent can't read the ticket.
 4. **CoachAven runtime `.env`:** `AUTH0_M2M_<SLUG>_ID` / `_SECRET` (slug upper-cased,
    `-`→`_`) from `.env.clients`; `AUTH0_M2M_TOKEN_URL` is already there. Any `.env`
-   change means **`prod:restart`, not just `/aven reload`** — env is read at boot.
+   change means **`npm run ops -- <slug> restart`, not just `/aven reload`** — env is read at boot.
 
 Verify the route before switching the bot to it (expect 200 + instructions; token
 request in `engine/README.md` → *Bot identity*):
@@ -176,23 +177,23 @@ Do not proceed to Step 6 without an explicit yes.
 ## Step 6 — deploy
 
 ```bash
-npm run prod:export     # upload infra/prod/runtime/ (incl. projects.d/) → the box
+npm run ops -- <slug> export     # upload infra/<slug>/ (incl. projects.d/) → the box
 ```
 
 - **Only `projects.config.json` / `projects.d/` changed** → ask the user to run
   `/aven reload` in Slack (home workspace, operator-only). No restart. New sessions get
   the new prompt/MCP; running conversations keep theirs until their claude process ends.
 - **`.env` changed** (new M2M secrets, new `${VAR}`) or deployment-wide vars
-  (`SNAPSHOT_*`, `SANDBOX_*`, `CLAUDE_CLI_VERSION`…) → `npm run prod:restart`
+  (`SNAPSHOT_*`, `SANDBOX_*`, `CLAUDE_CLI_VERSION`…) → `npm run ops -- <slug> restart`
   (interrupts in-flight turns — say so).
 
 ## Step 7 — verify
 
 - `/aven reload` reply: `Config reloaded — N project(s) (added: <slug> / removed: …)`.
-- After a restart: `npm run prod:status` (active/running), then the startup line:
+- After a restart: `npm run ops -- <slug> status` (active/running), then the startup line:
 
   ```bash
-  source infra/prod/.env
+  source infra/<slug>/deploy.env
   ssh "${DEPLOY_USER}@${DEPLOY_HOST}" \
     "journalctl -u ${SERVICE_NAME}.service --since '-90s' --no-pager | grep -E 'Slack bot running|project\\(s\\)' | tail -3"
   ```

@@ -164,7 +164,7 @@ So dreaming is framed around *quality*, with persistence as a secondary safety n
   (only that prefix is loaded into every session).
 - **Side effect — a host-side duplicate.** Each dream writes a copy of the consolidated
   memory into **`state.json`** (server-owned, survives `export`/`import`). Not
-  `projects.config.json` — that's deploy-managed and would be clobbered by `prod:export`.
+  `projects.config.json` — that's deploy-managed and would be clobbered by the next `export`.
 - **The duplicate is a disaster-recovery backup**, restored (re-seeded into a fresh
   sandbox) **only on the rare rebuild**. No per-turn or per-rebuild snapshotting in the hot
   path.
