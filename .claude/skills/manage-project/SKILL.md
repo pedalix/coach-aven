@@ -1,6 +1,6 @@
 ---
 name: manage-project
-description: Add a new project to CoachAven prod OR edit an existing one (add/remove repos, change the system prompt, MCP / gateway route, YouTrack prefixes, sandbox driver, CLI pin, workspace membership) — sync from the box, edit infra/<slug>/projects.config.json + projects.d/<slug>.md, wire the bluefin-infra side (gateway route, Auth0 bot client) when needed, then export + /aven reload and verify. Use when the user wants to onboard, change, or remove a project/repo of the Slack coding agent.
+description: Add a new project to CoachAven prod OR edit an existing one (add/remove repos, change the system prompt, MCP / gateway route, YouTrack prefixes, sandbox driver, CLI pin, workspace membership) — sync from the box, edit infra/<slug>/projects.config.json + projects.d/<slug>.md, wire the gateway/identity side (your infra repo: gateway route, Auth0 bot client) when needed, then export + /aven reload and verify. Use when the user wants to onboard, change, or remove a project/repo of the Slack coding agent.
 ---
 
 > Instance values (gateway host, team ids, slugs, YouTrack prefixes) live in your ops repo at `infra/<slug>/README.md`; this skill only knows the mechanics.
@@ -11,7 +11,7 @@ A project is one entry in **`infra/<slug>/projects.config.json`** (gitignored **
 truth**, NOT the repo-root `projects.config.json`, which is local dev) plus its system
 prompt in **`infra/<slug>/projects.d/<slug>.md`**. `npm run ops -- <slug> export` uploads both;
 `/aven reload` in Slack re-reads them without a restart. This skill drives the whole
-loop: sync → gather → edit → (bluefin-infra side) → confirm → export → reload → verify.
+loop: sync → gather → edit → (gateway/identity side) → confirm → export → reload → verify.
 
 Work against `infra/<slug>/` only — `<slug>` is the INSTALLATION being edited (its ops repo is checked
 out there; `ls infra/` shows the ones present — ask when several exist). NEVER edit the repo-root files for this.
@@ -53,7 +53,7 @@ then gather only what changes. The field reference (shape in `src/projects.ts`):
 | prompt | `projects.d/<slug>.md` — a non-empty file **wins** over the legacy JSON `systemPrompt` (only `coach-aven` still uses the JSON field). Step 2 generates it. | new sessions |
 | `mcp` | Gateway projects: exactly `[{"name":"gw","url":"https://<gateway-host>/gw/<slug>/mcp","auth":"gateway-m2m"}]` (name MUST be `gw`). No MCP → `[]`. Direct entries (`url`+`headers` or `command`/`args`/`env`, secrets as `${VAR}` from runtime `.env`) are legacy. | new sessions |
 | `mcpDirectBackup` | Not read by the code — the pre-gateway direct list parked for rollback (move it back into `mcp` to bypass the gateway). Keep it when switching a project to `gw`. | — |
-| `youtrackProjects` | `["CG","CAR",…]` — YouTrack prefixes whose tagged tickets the investigation poller routes here. A new prefix ALSO needs the bot's read scope in bluefin-infra (`YT_MCP_SCOPES`, see Step 4) or the agent can't read the ticket (CAR-14 lesson). | reload |
+| `youtrackProjects` | `["CG","CAR",…]` — YouTrack prefixes whose tagged tickets the investigation poller routes here. A new prefix ALSO needs the bot's read scope in your YouTrack proxy (`YT_MCP_SCOPES`, see Step 4) or the agent can't read the ticket (CAR-14 lesson). | reload |
 | `driver` | `"ssh-docker"` or omitted (= `SANDBOX_DRIVER`, daytona). Changing it means a fresh sandbox on the other provider (`docs/sandbox-drivers.md`). | next turn |
 | `sandbox` | ssh-docker only: `{privileged, dind, mounts}` — container-creation flags; existing `proj-<slug>` must be `docker rm`'d to pick them up. | new container |
 | `cliVersion` | per-project Claude Code CLI pin (canary over `CLAUDE_CLI_VERSION`). | next chat prep |
@@ -85,14 +85,14 @@ Offer to generate/update `projects.d/<slug>.md` from the repos themselves:
    each repo's own CLAUDE.md — the sandbox reads it as the 3rd prompt layer.
 2. **Gateway project →** add a tool map: tool names arrive as `mcp__gw__<target>_<tool>`
    (e.g. `youtrack_search_issues`, `grafana_query_loki_logs`, `sentry_search_issues`).
-   List which targets this project's route has (bluefin-infra `engine/config.yaml`, the
-   project's backend `targets`) and what each is for. Model it on `projects.d/caldora.md`
-   / `holidayshop-hsx.md`.
+   List which targets this project's route has (the gateway config in your infra repo, the
+   project's backend `targets`) and what each is for. Model it on an existing gateway
+   project's prompt in `infra/<slug>/projects.d/`.
 3. **Grafana on the shared stack →** every query must be scoped to this project and exclude
    siblings. Mine the real labels first (works before any sandbox exists):
 
    ```bash
-   scripts/grafana-probe.sh '<selector>' '<metric_prefix>'   # e.g. 'app="holidayshop-dorfberg"' 'holidayshop_'
+   scripts/grafana-probe.sh '<selector>' '<metric_prefix>'   # e.g. 'app="my-app"' 'myapp_'
    ```
 
    Bake in: datasource catalog (Loki UID is `Loki`), this project's exact selectors,
@@ -109,7 +109,7 @@ Edit `infra/<slug>/projects.config.json` (+ `projects.d/<slug>.md`). Minimal new
 ```json
 {
   "slug": "my-project",
-  "repos": ["BluefinOrg/my-repo"],
+  "repos": ["your-org/my-repo"],
   "env": {},
   "mcp": [{ "name": "gw", "url": "https://<gateway-host>/gw/my-project/mcp", "auth": "gateway-m2m" }]
 }
@@ -130,11 +130,10 @@ secret is missing ask for it (never invent one), append, keep `chmod 600`.
 **GitHub (new repos):** `gh api repos/<Org>/<repo> --jq .full_name` for each. A 404 means
 the GitHub App isn't installed on it — warn, let the user decide.
 
-**Gateway + identity (new `gw` project, or new/changed MCP sources)** live in the
-bluefin-infra repo (`/home/ubuntu/phpstorm/bluefin/bluefin-infra`; `engine/README.md` → *Adding
-things*, `id/auth0/README.md`). Prepare the change there (on a branch, as a bluefin-infra PR)
-and tell the user what to apply — don't apply Terraform or deploy bluefin-infra yourself
-unless asked:
+**Gateway + identity (new `gw` project, or new/changed MCP sources)** live in your
+infra repo (its path and runbooks are in `infra/<slug>/README.md`). Prepare the change there
+(on a branch, as a PR in that repo) and tell the user what to apply — don't apply Terraform or
+deploy the gateway yourself unless asked. The shape, for an Auth0 + agentgateway setup:
 
 1. **Auth0** (`id/auth0/main.tf`): add the slug to `local.projects` → `terraform apply`
    creates the API (identifier = the route URL) + M2M client `coach-aven-<slug>` + grant.
@@ -143,7 +142,7 @@ unless asked:
    first — instructions are cut at 2048 chars) + a route `/gw/<slug>/mcp` with its
    `mcpAuthorization` policy block (copy an existing one; `<slug>:bot` must get the tools
    the bot needs, e.g. `youtrack`). Upstream credentials → `engine/.env`. Then
-   `./dep env:upload bluefin-engine && ./dep deploy bluefin-engine`.
+   deploy the gateway (your infra repo's command).
 3. **YouTrack prefix** (new project or new `youtrackProjects` entry): the bot's `youtrack`
    target is our read-only mcp-youtrack, scoped per basic-auth user via `YT_MCP_SCOPES`
    in the observability `.env` — add the prefix there (and an htpasswd user +
@@ -168,7 +167,7 @@ Order matters: the gateway route + Auth0 client + `.env` secrets must exist BEFO
 ## Step 5 — show the diff and confirm deploy
 
 Show what changed: config diff vs the Step 0 box copy (or the added block), the prompt
-diff, `.env` keys added (names only), and anything still pending in bluefin-infra. Then ask:
+diff, `.env` keys added (names only), and anything still pending in the infra repo. Then ask:
 
 > Выкатываем на прод сейчас? (export + reload)
 
@@ -200,7 +199,7 @@ npm run ops -- <slug> export     # upload infra/<slug>/ (incl. projects.d/) → 
 
   If it failed to start, show the last ~15 journal lines and stop.
 - Gateway project: a test turn in the channel should show `mcp__gw__…` tool calls; the
-  gateway audit (`./dep logs bluefin-engine` in bluefin-infra) shows `coach-aven-<slug>@bot`.
+  gateway's audit log shows `coach-aven-<slug>@bot`.
 
 ## Step 8 — Slack channel (new project, manual — tell the user)
 
@@ -212,6 +211,6 @@ npm run ops -- <slug> export     # upload infra/<slug>/ (incl. projects.d/) → 
 ## Done
 
 Summarize: project added/changed (fields), new project count, deploy path (reload vs
-restart), bluefin-infra changes made or still pending (PR link, `terraform apply`,
-`./dep deploy`), and any manual Slack step. Remind that the repo-root local-dev config
+restart), infra-repo changes made or still pending (PR link, `terraform apply`,
+gateway deploy), and any manual Slack step. Remind that the repo-root local-dev config
 was untouched.
