@@ -14,7 +14,10 @@ pkg=$(terraform -chdir="$root" output -raw package)
 ext=$(terraform -chdir="$root" output -raw teams_app_id)
 tenant=$(terraform -chdir="$root" output -raw bot_tenant_id)
 [[ -f "$pkg" ]] || { echo "no package at $pkg — run terraform apply in $root first" >&2; exit 1; }
+# `Stop` so an expired device code (or any cmdlet error) fails the script instead of falling
+# through to New-TeamsApp without a session and exiting 0.
 pwsh -NoLogo -Command "
+  \$ErrorActionPreference = 'Stop'
   Import-Module MicrosoftTeams
   Connect-MicrosoftTeams -UseDeviceAuthentication -TenantId '$tenant' | Out-Null
   \$app = Get-TeamsApp -ExternalId '$ext'
