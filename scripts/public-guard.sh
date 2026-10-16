@@ -11,6 +11,7 @@
 #
 #   scripts/public-guard.sh            # tracked files of the current tree (CI runs this)
 #   scripts/public-guard.sh --history  # every blob reachable from any ref (before a visibility flip)
+#   scripts/public-guard.sh --text LABEL < file  # free text: a PR's title and body, commit messages
 #
 # PUBLIC_GUARD_REQUIRE_PRIVATE=1 fails when no private list is given (CI on main and tags), so a
 # missing secret can never pass as "clean".
@@ -34,7 +35,12 @@ if [[ -z "$PATTERNS" ]]; then echo "public-guard: no patterns to check"; exit 0;
 SKIP='^(LICENSE|NOTICE|scripts/public-guard\.(txt|sh))$'
 # Hits inside one gzip stream on stdin, as `<label>:<line>:<text>` (grep -nH's shape for a plain file).
 gz_hits() { gzip -dc 2>/dev/null | grep -nEi -e "$PATTERNS" | sed "s|^|$1:|" || true; }
-if [[ "${1:-}" == "--history" ]]; then
+if [[ "${1:-}" == "--text" ]]; then
+  # Text that never becomes a tracked file but is just as public: a pull request's title and body
+  # (release notes are built from titles) and its commit messages. Labelled `<label>:<line>`.
+  hits="$(grep -nEi -e "$PATTERNS" | sed "s|^|${2:-text}:|" || true)"
+  gz=""
+elif [[ "${1:-}" == "--history" ]]; then
   # One pass over every added line of every commit on every ref, and every commit/tag message.
   hits="$(git log --all -p --format='commit %h%n%B' -- . ':!LICENSE' ':!NOTICE' ':!scripts/public-guard.txt' ':!scripts/public-guard.sh' \
     | grep -nEi -e "$PATTERNS" | grep -vE '^[0-9]+:-' || true)"
