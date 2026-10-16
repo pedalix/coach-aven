@@ -59,9 +59,14 @@ Owen asked for a bench, two concepts, the better one in two variants, and a thir
   `src/sources/{sender,fingerprint}.ts` (new pure modules); `snapshot/plain/sources-mcp.mjs` 1.11.0 (additive params).
 - **Rollout:** bucket 1 for the ladder/participant fixes and bucket 2 for item mode and the loop — all of it runs only for a
   tenant with `annotations/attribution.json`, and no prod tenant has one, so prod (bluefin-ops' daemon) builds byte-identically
-  apart from two new empty tables. Home canary: owen-ops' open days may change (closed days are pinned); `items` and
-  `learn` are switched on in its attribution.json by hand. `docs/rollout.md` rows; the stale "no prod project has
-  `sources`" note is corrected.
+  apart from two new empty tables. Home canary (measured on the frozen owen-ops corpus, origin/main vs this branch):
+  once the ledger and the pins apply no decision changes and no pin is written; open days take the ladder fixes. Closed
+  days change in identity and length only, once: a zero-length Gemini copy becomes a twin of its call (2 fragment ids,
+  0 minutes; their ledger lines are held by the call), and a merged call lasts until its last copy ends (2 calls, +4
+  and +18 min: the 10-01..13 timelog moves on 2 days, Σ|Δ| 40 min, October's bluefin reconciliation +0.3 h). A call keeps
+  the id main gave it, and a decision under any copy's own id stays attached. `items` and `learn` are switched on in
+  its attribution.json by hand and change no pin. `docs/rollout.md` rows; the stale "no prod project has `sources`"
+  note is corrected.
 - **Out of scope:** the model step of the winning hybrid in production (J judging the residue inside the evening review;
   its queue readout and two-pass protocol), the tenant CLI's support for audit questions and `guess` fields (owen-ops repo),
   store-level adoption of the sender class / attendee parser (readouts such as `unanswered` would change for prod bluefin-ops:

@@ -94,6 +94,29 @@ test('pairedBootstrap — a clearly better variant wins every resample; identica
   assert.equal(same.pBetter, 0);
 });
 
+test('pairedBootstrap — whole cases are resampled: units that move together widen the interval', () => {
+  // 20 cases of 10 units; within a case both variants are right or wrong together, and b's edge sits in 5 cases.
+  const a: Scored[] = [];
+  const b: Scored[] = [];
+  for (let c = 0; c < 20; c++) {
+    for (let i = 0; i < 10; i++) {
+      a.push({ ...u(`${c}-${i}`, c % 2 ? 'x' : 'y', 1, 'x'), case: `case-${c}` });
+      b.push({ ...u(`${c}-${i}`, c % 2 || c % 4 === 0 ? 'x' : 'y', 1, 'x'), case: `case-${c}` });
+    }
+  }
+  const acc = (us: Scored[]) => us.filter((x) => x.pred === x.gold).length / us.length;
+  const strip = (us: Scored[]) => us.map(({ case: _c, ...rest }) => rest);
+  const byCase = pairedBootstrap(a, b, acc, 500);
+  const byUnit = pairedBootstrap(strip(a), strip(b), acc, 500);
+  assert.equal(byCase.delta, 0.25);
+  assert.equal(byUnit.delta, 0.25);
+  // 200 "independent" units vs 20 cases: the honest interval is about three times as wide
+  assert.ok(byCase.hi - byCase.lo > 2 * (byUnit.hi - byUnit.lo), `case [${byCase.lo}, ${byCase.hi}] vs unit [${byUnit.lo}, ${byUnit.hi}]`);
+  // without case keys every unit is its own case: the plain unit bootstrap, draw for draw
+  const single = a.map((x, i) => ({ ...x, case: `solo-${i}` }));
+  assert.deepEqual(pairedBootstrap(single, b, acc, 200), pairedBootstrap(strip(a), strip(b), acc, 200));
+});
+
 test('rng — seeded and reproducible', () => {
   const a = rng(42);
   const b = rng(42);

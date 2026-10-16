@@ -18,7 +18,7 @@
 //              said BEFORE that answer — the honest "agrees with your answers" check — with `answered` beside it.
 //   ask        today's open units, grouped per client-day / best key / case, valued and ranked (learn-ask.ts) — a
 //              structural unit's yield counts its route's reach too (its answer calibrates the whole route); a seeded
-//              audit sample of today's auto-decided units.
+//              audit sample of today's units as the loop auto-decided them before today's answers (stable all day).
 //
 // Shadow only (attribution.json `learn.mode`): L2 stores and shows this; the plan, the pins and the timelog never read it.
 // No model, no clock (today comes in), no I/O.
@@ -66,6 +66,7 @@ export interface InitiativeInfo {
   // `channel:C0…`, `repo:org/r`, `app:a`, `title:p`.
   cues: string[];
   admin?: boolean; // an admin bucket (attribution.json `admin`); ids ending in '/admin' are taken as one anyway
+  segments?: string[]; // the id's last-segment words that may be cues (L2 drops a client's or a person's name); absent: all
 }
 
 export interface LearnOpts {
@@ -109,7 +110,7 @@ export interface LearnResult {
   calibration: CalibrationRow[];
   keyTypes: { type: string; a: number; b: number; mean: number; deciding: boolean }[];
   questions: { group: string; units: string[]; value: number; guess: string | null; form: 'choose' | 'confirm'; unit?: 'fragment' | 'item' }[];
-  audits: string[]; // today's audit sample: auto-decided unit ids, seeded by (seed, today), size = floor(credit) where credit accrues questionsPerDay*auditShare per day since the first evidence day
+  audits: string[]; // today's audit sample: unit ids auto-decided before today's answers, seeded by (seed, today), size = the day's whole part of a credit accruing questionsPerDay*auditShare per day since the first evidence day before today
   ruleCandidates: { key: string; label: string; support: number }[];
   stats?: { evidence: number; used: number; superseded: number; unknown: number; answers: number; trials: { success: number; failure: number } };
 }
@@ -227,11 +228,19 @@ export function learn(units: LearnUnit[], evidence: Evidence[], opts: LearnOpts)
     return c ? reg.client(answer) === c : answer === label;
   };
   const before = new Map<string, Decision>();
+  // Today's units as the loop decided them BEFORE any of today's answers — the pool the day's audits are drawn from, so an
+  // answer given today (an audit, a question that teaches a key or demotes a rung) never changes today's draw. Null when
+  // nobody answered today: the final state is that state.
+  let morning: Map<string, Decision> | null = null;
   for (let i = 0; i < used.length; ) {
     const day = used[i]!.day;
     const rows: Evidence[] = [];
     for (; i < used.length && used[i]!.day === day; i++) rows.push(used[i]!);
-    advance(day);
+    // (evidence is never from the future, so today's rows are the last group: advance(null) = every unit noted, as below)
+    if (day === today) {
+      advance(null);
+      morning = new Map(list.filter((u) => u.day === today).map((u) => [u.id, decide(u)]));
+    } else advance(day);
     for (const r of rows) before.set(r.id, decide(byId.get(r.id)!));
     // Trials: one per key × answer — right only if every unit of the answer the key predicted got its label.
     const trials = new Map<string, { key: string; answer: string; ok: boolean }>();
@@ -257,11 +266,19 @@ export function learn(units: LearnUnit[], evidence: Evidence[], opts: LearnOpts)
   for (const u of list) final.set(u.id, before.get(u.id) ?? decide(u));
   const auto = (d: Decision): boolean => d.label !== null && d.conf >= tau;
 
-  // Questions: today's open units nobody answered yet.
+  // Audits: today's units the loop auto-decided before today's answers, the credit counted from the first day anyone
+  // answered BEFORE today — every build of the day draws the same sample however the day's answers go (a morning build
+  // and an evening build agree; only a unit that is new since can enter, by its hash).
+  const firstDay = valid.reduce<string | null>((m, r) => (r.day < today && (m === null || r.day < m) ? r.day : m), null);
+  const candidates = list.filter((u) => u.day === today && auto((morning ?? final).get(u.id)!)).map((u) => u.id);
+  const audits = auditSample(candidates, opts.seed ?? '', today, Math.min(candidates.length, auditSize(firstDay, today, Math.max(0, opts.questionsPerDay) * Math.max(0, opts.auditShare))));
+  const audited = new Set(audits);
+
+  // Questions: today's open units nobody answered yet — a sampled unit a later answer took below τ is asked as its audit.
   const qs: QuestionUnit[] = [];
   for (const u of list) {
     const d = final.get(u.id)!;
-    if (u.day !== today || answered.has(u.id) || auto(d)) continue;
+    if (u.day !== today || answered.has(u.id) || auto(d) || audited.has(u.id)) continue;
     // The answer's yield: what the unit's best learnable key would then decide — preferring types that decide after
     // their k answers alone (an answer about a .80 channel teaches a key that still cannot decide anything).
     const keys = keysOf.get(u.id)!.filter((k) => typeOf(k) !== 'ctx' && isActive(pools[kindOf(u)], k) && !KEY_TYPES[typeOf(k)].direct && !learner.contradicted(k));
@@ -303,12 +320,6 @@ export function learn(units: LearnUnit[], evidence: Evidence[], opts: LearnOpts)
   // weeks and froze 27 errors instead of 7): the kinds take turns, each in its own value order.
   const questions = interleave(ranked, (q) => q.unit);
   const askOf = new Map(questions.flatMap((q) => q.units.map((id) => [id, q] as const)));
-
-  // Audits: today's auto-decided units (an audited one keeps its pre-answer decision, so the sample is stable all day).
-  const firstDay = valid.reduce<string | null>((m, r) => (m === null || r.day < m ? r.day : m), null);
-  const candidates = list.filter((u) => u.day === today && auto(final.get(u.id)!)).map((u) => u.id);
-  const audits = auditSample(candidates, opts.seed ?? '', today, Math.min(candidates.length, auditSize(firstDay, today, Math.max(0, opts.questionsPerDay) * Math.max(0, opts.auditShare))));
-  const audited = new Set(audits);
 
   const calibration: CalibrationRow[] = [...prior]
     .map(([instance, p]) => {

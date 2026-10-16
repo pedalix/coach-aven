@@ -71,6 +71,20 @@ test('K2a §1: own cue keeps, a sibling’s cue guesses the sibling, both or nei
   assert.equal(siblingTrust('acme/shop', 0.8, 'key:AC', S.hits('acme/shop', 'nothing', trig)!).conf, 0.8, 'never above what calibration left');
 });
 
+test('the id’s words: L2 may say which of them are cues — a client’s or a person’s name in the id is none', () => {
+  const ini = (segments?: string[]): TrustInitiative[] => [
+    { id: 'velonord/nord-shop', umbrella: 'velonord', company: 'velonord', active: true, cues: ['webshop'], ...(segments ? { segments } : {}) },
+    { id: 'velonord/erp-sync', umbrella: 'velonord', company: 'velonord', active: true, cues: ['ERP stock sync'] },
+  ];
+  const text = 'VN-31 Velo Nord asked again about the delivery';
+  const trig = triggerNorms('key:VN');
+  assert.deepEqual(new Siblings(ini()).hits('velonord/nord-shop', text, trig)!.own, ['nord'], 'without the list every word of the id is a cue');
+  const h = new Siblings(ini(['shop'])).hits('velonord/nord-shop', text, trig)!;
+  assert.deepEqual(h.own, [], '"nord" names the client (Velo Nord), not the shop');
+  assert.deepEqual([siblingTrust('velonord/nord-shop', 0.97, 'key:VN', h).conf, siblingTrust('velonord/nord-shop', 0.97, 'key:VN', h).kept], [0.85, false]);
+  assert.deepEqual(new Siblings(ini(['shop'])).hits('velonord/nord-shop', 'VN-32 the shop checkout fails', trig)!.own, ['shop']);
+});
+
 test('a channel cue needs its #: the bare word is a word cue, and a word two siblings share stays out', async () => {
   const { channelCue } = await import('./learn-trust.js');
   const c = channelCue('#booker')!;

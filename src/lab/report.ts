@@ -32,9 +32,14 @@ const table = (head: string[], rows: string[][]): string => [row(head), `|${head
 
 function runLabel(r: RunResult): string {
   const o = r.opts;
-  if (o.mode === 'static') return `static${o.threshold ? ` ≥${o.threshold}` : ''}`;
-  return `replay·${o.memory} q${o.questionsPerDay}${o.threshold ? ` ≥${o.threshold}` : ''}`;
+  // --opt ablations (LAB_OPT_*): two runs of one variant that differ only there must not read the same.
+  const opt = o.opt && Object.keys(o.opt).length ? ` · ${Object.entries(o.opt).map(([k, v]) => `${k}=${v}`).join(' ')}` : '';
+  if (o.mode === 'static') return `static${o.threshold ? ` ≥${o.threshold}` : ''}${opt}`;
+  return `replay·${o.memory} q${o.questionsPerDay}${o.threshold ? ` ≥${o.threshold}` : ''}${opt}`;
 }
+
+// τ as the headers print it: .95
+const tauLabel = (t: number): string => t.toFixed(2).replace(/^0(?=\.)/, '');
 
 // "share of test decided, at what precision (Wilson 95% CI), threshold picked on dev"
 function autoCell(a: AutoShare): string {
@@ -77,13 +82,15 @@ function mainTable(group: ReportEntry[]): string {
       }),
     );
   }
-  const head = ['variant', 'run', 'n (dev/test)', 'auto@95 test', 'auto@95 conservative', 'auto at τ .95 (P)', 'oracle', 'acc (test)'];
-  if (task === 't1-fragment') head.push('auto@95 by minutes');
+  // The floor names the auto@ columns; the τ column is the fixed cut autoTau was measured at, whatever the floor.
+  const at = `auto@${Math.round((group[0].score.floor ?? 0.95) * 100)}`;
+  const head = ['variant', 'run', 'n (dev/test)', `${at} test`, `${at} conservative`, `auto at τ ${tauLabel(group[0].score.tau ?? 0.95)} (P)`, 'oracle', 'acc (test)'];
+  if (task === 't1-fragment') head.push(`${at} by minutes`);
   if (task === 't4-kind') head.push('macroF1');
   if (task === 't4-addressee') head.push('Jaccard');
   head.push('cost/unit · /auto', 'q/day (answered)');
   return table(
-    head.map((h) => h.replace('95', String(Math.round((group[0].score.floor ?? 0.95) * 100)))),
+    head,
     group.map(({ result: r, score: s }) => {
       const cells = [r.variant, runLabel(r), `${s.n} (${s.split.dev}/${s.split.test})${s.answered ? ` +${s.answered} answered` : ''}`, autoCell(s.auto), autoCell(s.autoConservative), s.autoTau ? `${pct(s.autoTau.coverage)} (${pct(s.autoTau.precision)}, n ${s.autoTau.decided})` : '—', pct(s.auto.oracle.coverage), pct(s.auto.accuracyAll)];
       if (task === 't1-fragment') cells.push(s.autoMinutes ? pct(s.autoMinutes.test.coverage) : '—');
@@ -106,7 +113,7 @@ function bootstrapLines(group: ReportEntry[], iters: number): string[] {
   const a = test(ref.score);
   const ids = new Set(a.map((u) => u.id));
   const what = ref.result.task === 't2-dedup' ? 'exact-family share' : 'accuracy';
-  const lines = [`Paired bootstrap vs **${ref.result.variant}** (${runLabel(ref.result)}), test split, ${iters} resamples — Δ in points [95% interval], P(better):`];
+  const lines = [`Paired bootstrap vs **${ref.result.variant}** (${runLabel(ref.result)}), test split, ${iters} resamples of whole cases — Δ in points [95% interval], P(better):`];
   for (const e of rest) {
     const b = test(e.score);
     const shared = b.filter((u) => ids.has(u.id)).length;

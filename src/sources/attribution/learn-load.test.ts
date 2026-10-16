@@ -17,12 +17,15 @@ import { runAttribution } from '../../../snapshot/plain/sources-mcp.mjs';
 import {
   activeKeys,
   clearLearn,
+  fragmentEvidence,
   fragmentRung,
   initiativesOf,
   isStructural,
+  itemEvidence,
   itemKeys,
   keyRecord,
   labelOf,
+  labelSpace,
   loadLearnInputs,
   nameVocab,
   parseLabels,
@@ -33,7 +36,8 @@ import {
   topicTokens,
   type Learner,
 } from './learn-load.js';
-import type { Evidence, LearnOpts, LearnResult, LearnUnit } from './learn.js';
+import { learn, type Evidence, type LearnOpts, type LearnResult, type LearnUnit } from './learn.js';
+import { Siblings } from './learn-trust.js';
 import type { ItemIn } from './items-load.js';
 
 const NOW = new Date('2026-10-15T16:00:00.000Z'); // 19:00 in Europe/Moscow
@@ -173,6 +177,8 @@ test('recomputeAttribution with learn shadow: the learner gets the floor, people
     const shop = u.get(id.shop)!;
     assert.deepEqual([shop.label, shop.conf, shop.rung, shop.structural, shop.caseKey], ['northwind/shop', 0.95, 'channel:C0NWSHOP01', true, 'run:#nw-shop:2026-10-15'], 'the channel by its id, though the model judged it otherwise');
     assert.equal(shop.keys.run, '#nw-shop');
+    assert.equal(shop.text, 'Olga Owner: The NW-12 import failed on staging again, looking into it', 'a channel route\'s run is its messages: the channel label is the route, not the run\'s words');
+    assert.deepEqual(shop.trigger, ['channel:nw-shop'], 'the name the registry lists for the id is the route\'s own too');
     const dm = u.get(id.dm)!;
     assert.deepEqual([dm.label, dm.conf, dm.rung, dm.structural, dm.candidates], [null, 0, 'abstain', false, ['northwind/shop', 'northwind/erp-sync']], 'Rui narrows; nothing decided');
     assert.deepEqual([dm.keys.run, dm.keys.cpset], ['dm:@rui rosa', 'rui']);
@@ -207,7 +213,7 @@ test('recomputeAttribution with learn shadow: the learner gets the floor, people
     assert.equal(ev.get(`${id.call}#2`)!.label, 'northwind/shop', 'an alias answer is its target');
     assert.deepEqual([ev.get(id.work)!.audit, ev.get(id.work)!.guess], [true, 'northwind/erp-sync']);
     assert.deepEqual(ev.get(REF.bot), { id: REF.bot, day: '2026-10-15', label: 'northwind/shop', source: 'human', answer: 'qi-1', audit: true, guess: 'northwind/shop' });
-    assert.deepEqual([ev.get(REF.dm)!.label, ev.get(REF.dm)!.answer], ['northwind/shop', `${REF.dm}@2026-10-15T15:10:00.000Z`]);
+    assert.deepEqual([ev.get(REF.dm)!.label, ev.get(REF.dm)!.answer], ['northwind/shop', 'human:ana@2026-10-15T15:10:00.000Z@northwind/shop'], 'no answer id: the person, the instant and the label name it');
 
     // --- options and the registry as the sibling-aware learner reads it
     assert.deepEqual([opts.tau, opts.today, opts.questionsPerDay, opts.auditShare, opts.siblingAware, opts.seed], [0.95, '2026-10-15', 3, 0.15, true, 'att:owner']);
@@ -215,8 +221,9 @@ test('recomputeAttribution with learn shadow: the learner gets the floor, people
     assert.deepEqual([...ini.keys()], ['northwind/shop', 'northwind/erp-sync', 'northwind/archive', 'northwind/admin', 'globex/portal'], 'a plain alias is no label');
     assert.deepEqual([ini.get('northwind/shop')!.active, ini.get('northwind/archive')!.active, ini.get('northwind/admin')!.admin], [true, false, true]);
     assert.equal(ini.get('northwind/shop')!.company, 'northwind');
-    assert.deepEqual(ini.get('northwind/shop')!.cues, ['Northwind', 'shop', 'relaunch', 'title:Shop weekly', '#nw-shop', 'C0NWSHOP01', 'host:shop.northwind.example', 'title:Legacy shop'], 'typed, the alias\'s pattern on its target');
-    assert.deepEqual(ini.get('northwind/erp-sync')!.cues, ['Northwind', 'ERP', 'repo:github.com/northwind/erp-bridge'], 'meeting words ("sync") are no topic; the id\'s segments the learner adds');
+    assert.deepEqual(ini.get('northwind/shop')!.cues, ['shop', 'relaunch', 'title:Shop weekly', '#nw-shop', 'C0NWSHOP01', 'host:shop.northwind.example', 'title:Legacy shop'], 'typed, the alias\'s pattern on its target; the client\'s name is none');
+    assert.deepEqual(ini.get('northwind/erp-sync')!.cues, ['repo:github.com/northwind/erp-bridge'], '"ERP" is too short, meeting words ("sync") are no topic');
+    assert.deepEqual(ini.get('northwind/erp-sync')!.segments, ['erp', 'sync'], 'the id\'s words, for the learner to add (3 letters suffice there: erp, app, hub)');
 
     // --- the writes: one row per unit, the meta, the summary
     const rows = db.prepare('SELECT * FROM att_learn ORDER BY id').all() as { id: string; unit: string; day: string; label: string | null; conf: number; rung: string; ask: string | null; audit: number }[];
@@ -226,7 +233,7 @@ test('recomputeAttribution with learn shadow: the learner gets the floor, people
     assert.equal(rows.filter((r) => r.audit === 1).length, 1);
     const meta = JSON.parse((db.prepare("SELECT value FROM sync_state WHERE key = 'att:learn'").get() as { value: string }).value);
     assert.deepEqual([meta.mode, meta.today, meta.tau, meta.questions_ranked[0].value, meta.calibration_table[0].instance], ['shadow', '2026-10-15', 0.95, 1.2346, 'title:Shop weekly']);
-    assert.deepEqual(out.evidence, { units: 6, answers: 5, audits: 2, outside: 2, malformed: 1 }, 'six rows, five answers (the call is one), two outside (a ledger line, a label line), one junk line');
+    assert.deepEqual(out.evidence, { units: 6, answers: 5, audits: 2, outside: 2, malformed: 1, unknown_labels: 0 }, 'six rows, five answers (the call is one), two outside (a ledger line, a label line), one junk line');
     assert.equal(out.floor_decided, units.filter((x) => x.label !== null && x.conf >= 0.95).length);
     assert.deepEqual([out.promoted, out.held, out.relabelled], [0, 0, 0], 'the stand-in only echoes the floor');
 
@@ -326,7 +333,7 @@ test('the ledger: a person\'s line parses its decider, answer, guess, conf, rung
 test('labels.jsonl: last line per task × ref wins, superseded withdraws, junk is counted', () => {
   const { labels, malformed } = parseLabels(labelsText);
   assert.equal(malformed, 1);
-  assert.deepEqual(labels.map((l) => [l.ref, l.by]), [[REF.bot, 'human:ana'], [REF.dm, 'human:ana'], [REF.shop, 'model'], ['slack:T1:C0GONE0001:1', 'human:ana']]);
+  assert.deepEqual(labels.map((l) => [l.ref, l.by]), [[REF.bot, 'human:ana'], [REF.dm, 'human:ana'], ['slack:T1:C0GONE0001:1', 'human:ana']], 'the model\'s line stays in the file, never in the evidence');
   assert.deepEqual(labels[0], { ref: REF.bot, task: 't1-item', label: 'northwind/shop', by: 'human:ana', at: '2026-10-15T15:00:00.000Z', answer: 'qi-1', audit: true, guess: 'northwind/shop', conf: 0.95, rung: 'host:shop.northwind.example' });
   const again = parseLabels([L({ ref: 'r', label: 'a', by: 'human:ana', at: '2026-10-15T01:00:00Z' }), L({ ref: 'r', label: 'b', by: 'human:ana', at: '2026-10-15T02:00:00Z' }), L({ ref: 'r', task: 't4-kind', label: 'noise', by: 'human:ana', at: '2026-10-15T03:00:00Z' }), L({ ref: 'r', label: 'c', at: '2026-10-15T04:00:00Z' })].join('\n'));
   assert.deepEqual([again.labels.map((l) => [l.task, l.label]), again.malformed], [[['t1-item', 'b'], ['t4-kind', 'noise']], 1], 'a task defaults to t1-item; a line without `by` is junk');
@@ -382,13 +389,152 @@ test('the real learner runs over the loader\'s units end to end (smoke)', () => 
     const rows = db.prepare('SELECT count(*) AS n FROM att_learn').get() as { n: number };
     assert.equal(rows.n, li.units.length);
     assert.equal(sum.learn.agreement.answered, 6, 'every answered unit is checked against what the loop said before the answer');
-    // A route of a client with siblings decides the initiative only with a cue of its own: the #nw-shop run names NW-12.
+    // A route of a client with siblings decides the initiative only with a cue of its own, and the #nw-shop run has none:
+    // a tracker key is a route, not a cue, and the channel's own name is the route itself — the client is decided, the
+    // initiative is a question for the client and day.
     const section = runAttribution(db, { since: '2026-10-15', learn: true }, NOW).learn!;
     const shop = section.units!.find((x) => x.id === id.shop)!;
-    assert.deepEqual([shop.label, shop.rung], ['northwind/shop', 'channel:C0NWSHOP01']);
-    assert.ok(shop.conf! >= 0.95, JSON.stringify(shop));
+    assert.deepEqual([shop.label, shop.rung, shop.conf, shop.ask?.group, shop.ask?.guess], ['northwind/shop', 'channel:C0NWSHOP01', 0.85, 'client:northwind:2026-10-15', 'northwind/shop'], JSON.stringify(shop));
     assert.ok(section.units!.every((x) => x.conf === undefined || (x.conf >= 0 && x.conf <= 1)));
   } finally {
     db.close();
   }
+});
+
+test('a route never vouches for itself through its own place: a run\'s channel label is no cue of the channel\'s (or a container rule\'s) initiative', () => {
+  const db = store();
+  try {
+    const m = db.prepare('INSERT INTO messages(ref, source, account, container, thread_id, ts, author_person, author_raw, subject, text, is_bot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const cued = 'slack:T1:C0NWSHOP01:1760529600.000100'; // 12:00Z, the owner in #nw-shop again — this time with a word of the shop's
+    const ruled = 'slack:T1:C0SHOPDEV1:1760533200.000100'; // 13:00Z, a channel only a container rule knows; its name holds "shop"
+    m.run(cued, 'slack', 'T1', '#nw-shop', 'slack:T1/C0NWSHOP01/1760529600.000100', '2026-10-15T12:00:00.000Z', 'owner', 'Olga Owner', '', 'The checkout relaunch is blocked on the payment form', 0);
+    m.run(ruled, 'slack', 'T1', '#shop-dev', 'slack:T1/C0SHOPDEV1/1760533200.000100', '2026-10-15T13:00:00.000Z', 'owner', 'Olga Owner', '', 'deploy is stuck again, retrying', 0);
+    const rules = JSON.stringify([{ id: 'r-shop-dev', when: { container: '#shop-dev' }, then: { initiative: 'northwind/shop' } }]);
+    const t = tenant({ subject: 'owner', since: '2026-10-14', learn: { mode: 'shadow' } }, { 'annotations/rules.json': rules });
+    const { inputs } = readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: TZ })!;
+    recomputeAttribution(db, inputs, people, [], NOW);
+    const cuedId = `frag-2026-10-15-thread-${hash(`#nw-shop|${cued}`)}`;
+    const ruledId = `frag-2026-10-15-thread-${hash(`#shop-dev|${ruled}`)}`;
+    const units = new Map(loadLearnInputs(db, inputs, people, [], NOW).units.map((x) => [x.id, x]));
+    assert.deepEqual([units.get(ruledId)!.rung, units.get(ruledId)!.conf, units.get(ruledId)!.text], ['rule:r-shop-dev', 0.97, 'Olga Owner: deploy is stuck again, retrying'], 'the rule rests on the container: its label is not the run\'s words');
+    assert.match(units.get(id.dm)!.text!, /^dm:@Rui Rosa\n/, 'a run no route of its place decided keeps its title');
+    const row = (fid: string) => runAttribution(db, { since: '2026-10-15', learn: true }, NOW).learn!.units!.find((x) => x.id === fid)!;
+    assert.deepEqual([row(id.shop).label, row(id.shop).conf], ['northwind/shop', 0.85], 'neutral words in #nw-shop: asked, not decided');
+    assert.deepEqual([row(ruledId).label, row(ruledId).conf], ['northwind/shop', 0.85], '"#shop-dev" says shop only because the rule keys on it');
+    assert.deepEqual([row(cuedId).label, row(cuedId).conf, row(cuedId).rung], ['northwind/shop', 0.95, 'channel:C0NWSHOP01'], '"relaunch" in the run\'s own words: the channel decides');
+  } finally {
+    db.close();
+  }
+});
+
+test('one answer is one observation without an answer id: a person\'s lines of one apply (instant, label) are one answer, a call\'s topics too', () => {
+  const reg = new Registry({ initiatives: registry.initiatives as never });
+  const T = '2026-10-15T15:00:00.000Z';
+  const line = (fid: string, label: string, over: Partial<Fragment> = {}): Fragment => ({ id: fid, kind: 'thread', start: '2026-10-15T08:00:00.000Z', end: '2026-10-15T08:00:00.000Z', refs: [], attributions: [{ initiative: label, share: 1 }], decided_by: 'owen', decided_at: T, status: 'decided', ...over });
+  const ledger = [
+    // The owen-ops CLI applies one escalation answer to every fragment it covers: one line each, one decided_at, no answer id.
+    line('r1', 'northwind/erp-sync'),
+    line('r2', 'northwind/erp-sync'),
+    line('r3', 'northwind/legacy'), // the shop (an alias): another answer applied in the same session
+    line('r4', 'northwind/erp-sync', { decided_at: '2026-10-15T16:00:00.000Z' }), // a later answer
+    line('r5', 'northwind/erp-sync', { decided_by: 'model', decider: 'human:ana' }), // another person at the same instant
+    line('c#1', 'northwind/erp-sync', { kind: 'call' }),
+    line('c#2', 'northwind/shop', { kind: 'call' }), // one override of a call, whatever each topic got
+    line('r6', 'northwind/erp-sync', { answer: 'q-6' }),
+    line('r7', 'northwind/erp-sync', { decided_at: undefined }), // no instant: its own answer
+  ];
+  const cover = ledger.map((f) => ({ id: f.id, ledger_id: f.id, day: '2026-10-15' }));
+  const a = Object.fromEntries(fragmentEvidence(cover, ledger, reg, TZ).evidence.map((e) => [e.id, e.answer]));
+  assert.equal(a.r1, `owen@${T}@northwind/erp-sync`);
+  assert.equal(a.r2, a.r1, 'two runs, one answer');
+  assert.equal(a.r3, `owen@${T}@northwind/shop`, 'another label: another answer (alias-resolved)');
+  assert.deepEqual([a.r4 !== a.r1, a.r5 !== a.r1, a.r7 !== a.r1], [true, true, true], 'another instant, another person, no instant');
+  assert.deepEqual([a['c#1'], a['c#2']], [`c@${T}`, `c@${T}`]);
+  assert.equal(a.r6, 'q-6');
+
+  // What it is worth: three runs of a route answered by one escalation are ONE confirmation of the route, not three —
+  // the ctx key needs k = 3 independent answers before it vouches for the route's units without a cue.
+  const ini = initiativesOf(registry as never);
+  const run = (fid: string, day: string): LearnUnit => ({ id: fid, unit: 'fragment', day, label: 'northwind/shop', conf: 0.97, rung: 'key:NW', structural: true, candidates: [], caseKey: `run:${fid}`, keys: {}, text: `NW-${fid.length} please have a look` });
+  const answered = ['p1', 'p2', 'p3'].map((fid) => run(fid, '2026-10-15'));
+  const shopLines = answered.map((u) => line(u.id, 'northwind/shop'));
+  const ev = fragmentEvidence(answered.map((u) => ({ id: u.id, ledger_id: u.id, day: u.day })), shopLines, reg, TZ).evidence;
+  const r = learn([...answered, run('today', '2026-10-16')], ev, { tau: 0.95, today: '2026-10-16', questionsPerDay: 3, auditShare: 0.15, seed: 's', initiatives: ini, siblingAware: true });
+  assert.deepEqual([r.stats!.answers, r.units.find((u) => u.id === 'today')!.conf], [1, 0.85], 'one answer: the route stays in doubt');
+  assert.equal(r.calibration.find((c) => c.instance === 'key:NW')!.right, 1);
+});
+
+test('labels.jsonl: only a person\'s line is evidence — machine output never replaces or withdraws one; a "human:" decider that is no person id is junk', () => {
+  const { labels, malformed } = parseLabels(
+    [
+      L({ ref: 'r1', label: 'northwind/shop', by: 'human:ana', answer: 'q-9', at: '2026-10-15T01:00:00Z' }),
+      L({ ref: 'r1', label: 'northwind/erp-sync', by: 'model', at: '2026-10-15T02:00:00Z' }), // the sandbox agent's own label
+      L({ ref: 'r1', label: 'globex/portal', by: 'human:Ana', at: '2026-10-15T03:00:00Z' }), // not a person id
+      L({ ref: 'r1', status: 'superseded', by: 'rule', at: '2026-10-15T04:00:00Z' }), // a machine cannot withdraw it either
+      L({ ref: 'r2', label: 'globex/portal', by: 'model', at: '2026-10-15T05:00:00Z' }),
+      L({ ref: 'r3', label: 'globex/portal', by: 'owen', at: '2026-10-15T05:00:00Z' }),
+      L({ ref: 'r3', status: 'superseded', at: '2026-10-15T06:00:00Z' }), // the tenant withdraws it
+      L({ ref: 'r4', label: 'globex/portal', by: 'human:ana', at: '2026-10-15T05:00:00Z' }),
+      L({ ref: 'r4', label: 'northwind/shop', by: 'human:rui', at: '2026-10-15T07:00:00Z' }), // a later person's line corrects it
+    ].join('\n'),
+  );
+  assert.deepEqual(labels.map((l) => [l.ref, l.label, l.by]), [['r1', 'northwind/shop', 'human:ana'], ['r4', 'northwind/shop', 'human:rui']]);
+  assert.equal(malformed, 1, 'the "human:Ana" line');
+});
+
+test('evidence outside the label space is dropped and counted: a typo never becomes a key', () => {
+  const reg = new Registry({ initiatives: registry.initiatives as never });
+  const space = labelSpace(reg, { northwind: 'northwind/admin', globex: 'globex/admin' });
+  assert.deepEqual([...space].sort(), ['globex/admin', 'globex/portal', 'none', 'northwind/admin', 'northwind/archive', 'northwind/erp-sync', 'northwind/shop', 'personal', 'unregistered'], 'registry labels (no alias), admin buckets, none, unregistered, personal');
+  const line = (fid: string, label: string): Fragment => ({ id: fid, kind: 'thread', start: '', end: '', refs: [], attributions: [{ initiative: label, share: 1 }], decided_by: 'owen', decided_at: '2026-10-15T15:00:00.000Z', status: 'decided' });
+  const ledger = [line('a', 'northwind/shpo'), line('b', 'northwind/legacy'), line('c', 'none'), line('d', 'globex/admin'), line('e', 'unregistered')];
+  const f = fragmentEvidence(ledger.map((x) => ({ id: x.id, ledger_id: x.id, day: '2026-10-15' })), ledger, reg, TZ, space);
+  assert.deepEqual([f.evidence.map((e) => [e.id, e.label]), f.unknown, f.outside], [[['b', 'northwind/shop'], ['c', 'none'], ['d', 'globex/admin'], ['e', 'unregistered']], 1, 0]);
+  const at = '2026-10-15T15:00:00.000Z';
+  const i = itemEvidence([{ ref: 'i1', task: 't1-item', label: 'acme/shpo', by: 'human:ana', at }, { ref: 'i2', task: 't1-item', label: 'globex/portal', by: 'human:ana', at }, { ref: 'i3', task: 't1-item', label: 'globex/portal', by: 'human:ana', at }], new Map(['i1', 'i2', 'i3'].map((r) => [r, { day: '2026-10-15' }])), reg, TZ, space);
+  assert.deepEqual([i.evidence.map((e) => e.id), i.unknown], [['i2', 'i3'], 1]);
+  assert.equal(i.evidence[0]!.answer, i.evidence[1]!.answer, 'one person, one instant, one label: one answer');
+  // the learner's view: one typo'd answer on an alert teaches its family nothing
+  const fam = { family: 'uptime|<n> down|shop.northwind.example' };
+  const alert = (rid: string, day: string): LearnUnit => ({ id: rid, unit: 'item', day, label: null, conf: 0, rung: 'abstain', structural: false, candidates: [], caseKey: rid, keys: fam });
+  const typo = itemEvidence([{ ref: 'a1', task: 't1-item', label: 'northwind/shpo', by: 'human:ana', answer: 'q-1', at }], new Map([['a1', { day: '2026-10-15' }]]), reg, TZ, space).evidence;
+  const r = learn([alert('a1', '2026-10-15'), alert('a2', '2026-10-16')], typo, { tau: 0.95, today: '2026-10-16', questionsPerDay: 3, auditShare: 0.15, seed: 's', initiatives: initiativesOf(registry as never), siblingAware: true });
+  assert.equal(r.units.find((u) => u.id === 'a2')!.label, null);
+});
+
+test('the registry as the trust step reads it, as the bench measured K2a: names without remarks, words of 4+ letters, no client or person names; only active initiatives are siblings, a split none', () => {
+  const reg2 = {
+    companies: [
+      { id: 'acme', umbrella: 'acme', name: 'Acme Bikes' },
+      { id: 'velonord', umbrella: 'velonord', name: 'Velo Nord GmbH' },
+    ],
+    initiatives: [
+      { id: 'acme/retainer', umbrella: 'acme', company: 'acme', name: 'Acme retainer', status: 'active', sources: {} },
+      { id: 'acme/frontend', umbrella: 'acme', company: 'acme', name: 'Front-end rebuild (ad hoc)', status: 'active', sources: {} },
+      { id: 'acme/configurator', umbrella: 'acme', company: 'acme', name: 'Bike configurator', status: 'planned', sources: {} },
+      { id: 'acme/pilot', umbrella: 'acme', company: 'acme', name: 'Pilot', status: 'unknown', sources: {} },
+      { id: 'acme/old-site', umbrella: 'acme', company: 'acme', name: 'Old site [2019]', status: 'active', split_into: { 'acme/retainer': 0.5, 'acme/frontend': 0.5 }, sources: { calendar_title_patterns: ['Legacy portal'] } },
+      { id: 'velonord/nord-shop', umbrella: 'velonord', company: 'velonord', name: 'Velo Nord webshop', status: 'Active', sources: { calendar_title_patterns: ['Velo Nord'], repos: ['github.com/agency/velo-nord'] } },
+      { id: 'velonord/erp-sync', umbrella: 'velonord', company: 'velonord', name: 'ERP sync for Ana Berg', sources: { apps: ['ana'] } },
+    ],
+  };
+  const list = initiativesOf(reg2 as never, {}, people);
+  const ini = new Map(list.map((i) => [i.id, i]));
+  assert.deepEqual(list.map((i) => [i.id, i.active]), [['acme/retainer', true], ['acme/frontend', true], ['acme/configurator', false], ['acme/pilot', false], ['velonord/nord-shop', true], ['velonord/erp-sync', true]], 'a split is no label; planned and unknown are not live; no status is');
+  assert.deepEqual(ini.get('acme/retainer')!.cues, ['retainer', 'site', 'title:Legacy portal'], 'the client\'s name is no cue; a split lends its words to its targets');
+  assert.deepEqual(ini.get('acme/frontend')!.cues, ['Front', 'rebuild', 'site', 'title:Legacy portal'], '"end" is too short, "(ad hoc)" a remark');
+  assert.deepEqual([ini.get('velonord/nord-shop')!.cues, ini.get('velonord/nord-shop')!.segments], [['webshop'], ['shop']], 'the company\'s display name — in a name, a title, a repo, the id — names the client');
+  assert.deepEqual([ini.get('velonord/erp-sync')!.cues, ini.get('velonord/erp-sync')!.segments], [[], ['erp', 'sync']], 'Ana Berg is a person, and so is an app named after her');
+  assert.deepEqual(new Siblings(list).siblings('acme/retainer'), ['acme/frontend']);
+  // What that changes: a generic word is no sibling's cue, the client's name no initiative's.
+  const unit = (uid: string, label: string, rung: string, text: string): LearnUnit => ({ id: uid, unit: 'item', day: '2026-10-15', label, conf: 0.97, rung, structural: true, candidates: [], caseKey: uid, keys: {}, text });
+  const r = learn(
+    [unit('AC-77', 'acme/retainer', 'key:AC', 'AC-77 can we have it by the end of the week?'), unit('VN-31', 'velonord/nord-shop', 'key:VN', 'VN-31 Velo Nord asked again'), unit('VN-32', 'velonord/nord-shop', 'key:VN', 'VN-32 the webshop checkout fails')],
+    [],
+    { tau: 0.95, today: '2026-10-15', questionsPerDay: 3, auditShare: 0.15, seed: 's', initiatives: list, siblingAware: true },
+  );
+  const got = (uid: string) => { const u = r.units.find((x) => x.id === uid)!; return [u.label, u.conf]; };
+  assert.deepEqual(got('AC-77'), ['acme/retainer', 0.85], '"end" does not point at the front-end rebuild');
+  assert.deepEqual(got('VN-31'), ['velonord/nord-shop', 0.85], '"Velo Nord" is the client, not the shop');
+  assert.deepEqual(got('VN-32'), ['velonord/nord-shop', 0.97], 'a word of the shop\'s own');
 });

@@ -331,3 +331,34 @@ test('main: argv → a dataset under --out, pins found beside the store; missing
     rmSync(fx.root, { recursive: true, force: true });
   }
 });
+
+test('exportDataset: the ladder field is main\'s ladder (frozen), and tenant entries dated inside the window are flagged', async () => {
+  const fx = fixture();
+  try {
+    // An object channel entry: this branch's registry routes '#shop' by it, main's dropped it (the key SH decides there).
+    const reg = JSON.parse(JSON.stringify(registry)) as typeof registry;
+    (reg.initiatives[0]!.sources as Record<string, unknown>).slack_channels = [{ id: 'C1', name: '#shop' }];
+    writeFileSync(join(fx.tenantDir, 'initiatives.json'), JSON.stringify(reg));
+    // Answers given inside the window (since 2026-10-14): a rule written from one, a merge, the answered identity questions.
+    writeFileSync(join(fx.tenantDir, 'annotations', 'rules.json'), JSON.stringify([
+      { id: 'r-late', when: { container: '#nowhere' }, then: { initiative: 'acme/shop' }, created: '2026-10-15T09:00:00.000Z' },
+      { id: 'r-early', when: { container: '#nowhere' }, then: { initiative: 'acme/shop' }, created: '2026-10-01T09:00:00.000Z' },
+    ]));
+    writeFileSync(join(fx.tenantDir, 'annotations', 'identity-merges.jsonl'), jsonl([
+      { at: '2026-10-09T21:00:00.000Z', id: 'merge-h.hill@acme.example', identity: 'h.hill@acme.example', merged_by: 'rule', person_id: 'hana', reason: 'same first name' },
+      { at: '2026-10-15T08:00:00.000Z', id: 'merge-rr', identity: 'slack:R. Rosa', merged_by: 'owen', person_id: 'rui', reason: 'answered' },
+    ]));
+    const out = join(fx.root, 'datasets', 'frozen');
+    await exportDataset({ name: 'frozen-real', kind: 'real', source: { store: fx.storePath, tenantDir: fx.tenantDir, pinsPath: fx.pinsPath }, outDir: out, until: '2026-10-15', itemsWindowDays: 2, tz: TZ, now: NOW });
+    const frags = byId(loadDataset(out).units.fragment as FragmentUnit[]);
+    assert.deepEqual(frags.get(ids.shop)!.ladder, { state: 'rule', initiative: 'acme/shop', candidates: ['acme/shop'], rule: 'registry:key', hint: 'registry' });
+    const report = JSON.parse(readFileSync(join(out, 'export.json'), 'utf8')) as { warnings: string[] };
+    assert.deepEqual(report.warnings, [
+      '1 of 2 tenant rules were created on or after 2026-10-14: a replay reads them from its first day',
+      "1 identity merges were made on or after 2026-10-14: people.json and the store's resolution (mention 'production') already hold them",
+      '4 identity questions asked on or after 2026-10-14 were answered: the roster may already hold their answers',
+    ]);
+  } finally {
+    rmSync(fx.root, { recursive: true, force: true });
+  }
+});

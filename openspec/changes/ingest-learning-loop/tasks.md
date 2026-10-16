@@ -9,7 +9,7 @@
 - [x] 1.6 `docs/lab.md`.
 
 ## 2. Stage-0 floor in the attribution layer (bucket 1, prod-inert)
-- [x] 2.1 Ladder/registry: whole-word Unicode admin keywords after exclusive markers and registry; word-bounded short titles; `{id,name}` channels (id first); shared channel → candidates; hosts/apps; narrow ignores broad; graded confidence; verify: `src/sources/attribution/{ladder,registry,attribution}.test.ts`; parity on the frozen owen-ops store: 6 ladder-alone changes, 0 after ledger and pins.
+- [x] 2.1 Ladder/registry: whole-word Unicode admin keywords after exclusive markers and registry; word-bounded short titles; `{id,name}` channels (id first); shared channel → candidates; hosts/apps; narrow ignores broad; graded confidence; verify: `src/sources/attribution/{ladder,registry,attribution}.test.ts`; parity on the frozen owen-ops corpus (origin/main vs the branch, same store, tenant, pins and clock): the ladder alone changes 4 closed-day runs; after ledger and pins 0 decisions and 0 new pins — but closed days are not untouched: 2 zero-minute Gemini fragments become twins of their calls and 2 merged calls end with their last copy (+4/+18 min: the closed-day timelog moves on 2 days, Σ|Δ| 40 min; bluefin reconciliation +0.3 h), once (`docs/rollout.md`).
 - [x] 2.2 Calls by `call_id` with a deterministic copy order; call participants (`participants.ts`: names as identities, glued splits, calendar link, speakers); run recipients; `mpim` direct; the identities collector keeps name-only attendees; tracker keys in work blocks; verify: `src/sources/attribution/{participants,build}.test.ts`, `src/sources/identities/identities.test.ts`.
 
 ## 3. Item mode (bucket 2: `attribution.json` `items`)
@@ -23,5 +23,5 @@
 
 ## 5. Docs and rollout
 - [x] 5.1 `docs/sources.md` → *Learning loop (shadow)*; `docs/lab.md`; `docs/rollout.md` rows and the corrected bucket note.
-- [ ] 5.2 Canary (Owen): add `"items": {"days": 30}` and `"learn": {"mode": "shadow"}` to owen-ops' `annotations/attribution.json`; restart the daemon and the bot; read `attribution({learn:true})` after an evening review for two days.
+- [ ] 5.2 Canary (Owen): add `"items": {"days": 30}` and `"learn": {"mode": "shadow"}` to owen-ops' `annotations/attribution.json` (no pin changes); restart the daemon and the bot; the build log line shows `items …` and `learn shadow: …` (or `FAILED: …`); read `attribution({learn:true})` after an evening review for two days.
 - [ ] 5.3 Follow-ups (own changes): J in the evening review (queue readout, two passes, cells derived by the daemon); the tenant CLI writing `guess`/`audit` on answers and asking the audit sample; store-level adoption of the sender class and attendee parser behind a flag; one attendee resolver for `participants.ts` and `items-people.ts`.

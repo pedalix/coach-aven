@@ -7,6 +7,15 @@
 // Every call is cached by a hash of (model, system, prompt): re-running a variant after a metrics
 // change costs nothing, and a resumed run picks up where it stopped. The cache stores the cost too,
 // so a cached replay still reports what the run WOULD cost — the number a variant is judged on.
+//
+// That key is only honest if (model, system, prompt) is ALL the child sees. `claude -p` also loads the
+// CLAUDE.md / CLAUDE.local.md / AGENTS.md of its working directory and every parent (only --bare skips them,
+// and it cannot run on a subscription token): spawned from a checkout, every bench call — the synth render
+// whose output is committed included — carried the repo's guide and the owner's private local notes, paid
+// their tokens, and depended on which checkout ran it. So the child works in its isolated config dir, and
+// CLAUDE_CODE_DISABLE_CLAUDE_MDS is set after the scrub (the walk up the parents would still reach a checkout
+// while LAB_DIR sits inside one, as the default data/lab does). Cache entries written before this were made
+// with those files in context; the key is left as it was, so the paid cache stays usable.
 
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -167,10 +176,11 @@ export class LlmRunner {
     for (const [k, v] of Object.entries(process.env)) if (!PARENT_VARS.test(k)) env[k] = v;
     env.CLAUDE_CONFIG_DIR = this.opts.configDir;
     env.CLAUDE_CODE_OAUTH_TOKEN = this.opts.token;
+    env.CLAUDE_CODE_DISABLE_CLAUDE_MDS = '1'; // set after the scrub, which drops every CLAUDE_CODE_* of the parent
     const args = ['-p', '--model', c.model, '--output-format', 'json', '--no-session-persistence', '--tools', '', '--max-turns', '1', '--system-prompt', c.system];
     const started = Date.now();
     return new Promise((resolve) => {
-      const child = spawn('claude', args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+      const child = spawn('claude', args, { env, cwd: this.opts.configDir, stdio: ['pipe', 'pipe', 'pipe'] });
       let out = '';
       let err = '';
       const timer = setTimeout(() => child.kill('SIGKILL'), c.timeoutMs ?? 300_000);

@@ -2,7 +2,7 @@
 // (*.example) except the public product relays the rules are about (github.com, google.com, amazonses.com).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BOT_NAMES, isMachine, parseSender, senderClass, type SenderInput } from './sender.js';
+import { BOT_NAMES, bulkMarked, isMachine, isMailItem, isRoleMailbox, ownMailText, parseSender, senderClass, type SenderInput } from './sender.js';
 import { isBotAuthor, KNOWN_BOT_NAMES } from './bots.js';
 import { isSystem, parseIdentity } from './identities/normalise.js';
 
@@ -68,6 +68,8 @@ test('system: role and automated mailboxes, transactional relays — unless the 
   assert.equal(senderClass({ source: 'gmail', author: null }), 'system');
   assert.equal(senderClass(mail('support@acme.example', { authorResolved: true })), 'human', 'the people file wins over the role list, as in the collector');
   assert.equal(isMachine('system') && isMachine('bulk') && isMachine('bot') && !isMachine('human'), true);
+  // Of the system senders, a role mailbox may be a person typing; an automated one never is.
+  assert.deepEqual(['Hotel Acme <office@hotel-acme.example>', 'reservations@hotel-acme.example', 'noreply@bank.example', 'notifications@tool.example', 'info-noreply@vendor.example', 'Ana Berg'].map(isRoleMailbox), [true, true, false, false, false, false]);
 });
 
 test('the merged list covers both old lists', () => {
@@ -110,4 +112,65 @@ test('disagreements between bots.ts and normalise.ts resolve to one class', () =
   assert.equal(isBotAuthor('slack', 'B0123ABCD', dir), false);
   assert.equal(isSystem(parseIdentity('B0123ABCD')), false);
   assert.equal(senderClass(slack('B0123ABCD')), 'bot');
+});
+
+test('isMailItem: every container form the pullers write — a Teams channel post is chat, not mail', () => {
+  // msgraph (normalise.ts): mailbox folders are mail; chats and channel posts are not.
+  for (const c of ['mailbox:lena@agency.example/Inbox', 'mailbox:lena@agency.example/Sent Items', 'mailbox:lena@agency.example/Inbox/Acme']) assert.equal(isMailItem('msgraph', c), true, c);
+  for (const c of ['chat:@Ana Berg', 'chat:group:Shop launch', 'chat:meeting:Acme weekly', 'team:Acme Dev/#shop', 'team:Acme Dev/#General']) assert.equal(isMailItem('msgraph', c), false, c);
+  // gmail (google/normalise.ts gmailContainer): every folder is mail.
+  for (const c of ['inbox', 'sent', 'spam', 'archive', 'draft', 'trash']) assert.equal(isMailItem('gmail', c), true, c);
+  // chat and tracker sources never are.
+  for (const [s, c] of [['slack', '#ops'], ['slack', 'dm:@Ana Berg'], ['slack', 'mpim:ana-lena'], ['youtrack', 'SHOP'], ['granola', null]] as const) assert.equal(isMailItem(s, c), false, `${s} ${c}`);
+  // So a Teams channel post is never bulk, whatever it says (an unresolved colleague's third post included).
+  assert.equal(senderClass({ source: 'msgraph', author: 'Tom Client <tom@acme.example>', container: 'team:Acme Dev/#shop', text: 'Unsubscribe: https://brand.example/u/1' }), 'human');
+});
+
+test('bulk content: a campaign word counts in a campaign\'s form only — never a word in a person\'s sentence', () => {
+  const cold = (text: string, subject = 'Hello') => senderClass(mail('Jan Hofer <jan@client.example>', { subject, text }));
+  // People's sentences with the words a footer uses: log out, in the browser, wrote back, opt out, an unsubscribe link.
+  for (const text of [
+    'Nach dem Abmelden ist der Warenkorb leer.',
+    'В браузере Safari не открывается корзина.',
+    'Я вчера отписал клиенту',
+    'We decided to opt out of the beta.',
+    'Can we add an unsubscribe link to the template?',
+    'Menü:\nProfil\nAbmelden\nDer Button reagiert nicht.', // a log-out button alone on its line is no footer
+    'When I click the unsubscribe button nothing happens.',
+  ])
+    assert.equal(cold(text), 'human', text);
+  assert.equal(cold('See below', 'Re: unsubscribe link broken'), 'human', 'a subject naming the word');
+  // Campaigns: footer sentences, labels with their link, labels between separators or alone at the end.
+  for (const text of [
+    'Autumn sale!\nUnsubscribe: https://brand.example/u/1',
+    'New arrivals. View in browser | Unsubscribe',
+    'Neue Kollektion\nAbbestellen https://brand.example/u/2',
+    'Новинки недели\n[Отписаться](https://brand.example/u/3)',
+    'Новинки недели\nВеб-версия ❌ Отписаться',
+    'If you wish to unsubscribe from all future emails, click here.',
+    'Email Preferences <https://brand.example/prefs>',
+    'Hier geht es zum Newsletter: vom Newsletter abmelden',
+  ])
+    assert.equal(cold(text), 'bulk', text);
+  assert.equal(bulkMarked('Newsletter abbestellen', ''), true, 'a footer sentence in the subject');
+});
+
+test('bulk content: only the mail\'s own text — a quoted campaign footer or one deep inside a long body is not this mail\'s', () => {
+  const footer = 'Brand News — autumn edition\nUnsubscribe: https://brand.example/u/1';
+  // A person answering a newsletter (Outlook, Gmail, German Gmail): the footer is in the quote.
+  const outlook = `Can you check whether the shop totals match this?\n\n________________________________\nFrom: Brand News <news@brand.example>\nSent: Monday, 12 October 2026 09:00\nTo: Jan Hofer\nSubject: Autumn\n\n${footer}`;
+  const gmail = `Totals look fine to me.\n\nOn Mon, 12 Oct 2026 at 09:00, Brand News <news@brand.example> wrote:\n> ${footer.replace('\n', '\n> ')}`;
+  const german = `Bitte prüfen.\n\nAm Mo., 12. Okt. 2026 um 09:00 Uhr schrieb Brand News <news@brand.example>:\n${footer}`;
+  const forwarded = `FYI, see below.\n\n---------- Forwarded message ---------\n${footer}`;
+  for (const text of [outlook, gmail, german, forwarded]) {
+    assert.equal(bulkMarked(null, text), false, text.slice(0, 40));
+    assert.equal(senderClass(mail('Jan Hofer <jan@client.example>', { text })), 'human');
+  }
+  assert.equal(ownMailText(outlook), 'Can you check whether the shop totals match this?\n\n________________________________\n');
+  assert.equal(ownMailText('Our story so far.\nAs we wrote:\nmore\nUnsubscribe: https://brand.example/u'), 'Our story so far.\nAs we wrote:\nmore\nUnsubscribe: https://brand.example/u', "a newsletter's \"as we wrote:\" is no reply header");
+  // The head (what the bench clip read) and the tail (a footer) count; a marker deep inside a long body does not.
+  const filler = (n: number) => 'lorem ipsum dolor sit amet '.repeat(Math.ceil(n / 27)).slice(0, n);
+  assert.equal(bulkMarked(null, `${filler(6000)}\nUnsubscribe: https://brand.example/u`), true, 'a footer beyond the first 2000 characters');
+  assert.equal(bulkMarked(null, `View this email in your browser\n${filler(9000)}`), true, 'a header line');
+  assert.equal(bulkMarked(null, `${filler(3000)}\nUnsubscribe: https://brand.example/u\n${filler(6000)}`), false, 'neither head nor tail');
 });

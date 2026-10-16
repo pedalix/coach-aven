@@ -29,6 +29,8 @@ export interface MeetingIn {
   callId?: string;
   /** The other recorder copies merged into this call (dedupeMeetings), as `meeting:<source>:<id>` refs. */
   twins?: string[];
+  /** Each twin's own id base (callBase), in the same order: what a decision recorded before the merge names (plan.ts). */
+  twinBases?: string[];
 }
 
 export interface MsgIn {
@@ -75,6 +77,12 @@ export interface FragmentDraft {
   /** In memory only (substance threshold, admin rung) — never written anywhere. */
   text?: string;
   route?: Route;
+  /**
+   * Calls of several recorder copies, in memory only: the id this fragment would carry under each other copy's own name
+   * (its callBase, the same `#n` topic suffix). Which copy names a call can change when a copy lands later, so a judgment
+   * or pin recorded under one of these ids still decides the fragment (plan.ts).
+   */
+  aliases?: string[];
 }
 
 export const THREAD_GAP_MIN = 45;
@@ -113,18 +121,25 @@ export function keys(text: string): string[] {
   return [...new Set([...(text ?? '').matchAll(KEY_RE)].map((m) => m[1]!))];
 }
 
+/** The id base of a recorder copy's own call fragments (topic sub-fragments add `#n`): its start day, recorder and id. */
+export function callBase(m: Pick<MeetingIn, 'start' | 'source' | 'id'>): string {
+  return `frag-${day(m.start)}-call-${m.source}-${hash(m.id)}`;
+}
+
 export function meetingFragments(m: MeetingIn): FragmentDraft[] {
   // A recorder that caught nothing (garbled one-liner, empty transcript) is not a call.
   if (isGarbledMeeting(m.summary, m.transcriptChars ?? 0)) return [];
-  const base = `frag-${day(m.start)}-call-${m.source}-${hash(m.id)}`;
+  const base = callBase(m);
   // refs[0] is the call (the copy that names it); its merged twins follow, so a decision indexes every copy.
   const refs = [`meeting:${m.source}:${m.id}`, ...(m.twins ?? [])];
   const common = { kind: 'call' as const, start: m.start, end: m.end, refs, source: m.source, container: null, participants: m.participants, projectKeys: keys(`${m.title}\n${m.summary}`), repo: null, text: m.title };
+  // The ids the twins would have given this fragment (only on merged calls, so a one-copy draft is unchanged).
+  const alias = (suffix: string) => (m.twinBases?.length ? { aliases: m.twinBases.map((b) => b + suffix) } : {});
   const ts = topics(m.summary);
-  if (ts.length <= 1) return [{ ...common, id: base, title: m.title, weight: 1 }];
+  if (ts.length <= 1) return [{ ...common, id: base, title: m.title, weight: 1, ...alias('') }];
   const total = ts.reduce((a, t) => a + t.length, 0);
   // The topic sub-fragments share ONE refs array (as in the CLI): refs a greeting run attaches to the call belong to every topic.
-  return ts.map((t, i) => ({ ...common, id: `${base}#${i + 1}`, title: `${m.title} — ${t.heading}`, weight: Math.round((t.length / total) * 1000) / 1000 }));
+  return ts.map((t, i) => ({ ...common, id: `${base}#${i + 1}`, title: `${m.title} — ${t.heading}`, weight: Math.round((t.length / total) * 1000) / 1000, ...alias(`#${i + 1}`) }));
 }
 
 export function messageFragments(msgs: MsgIn[], gapMin = THREAD_GAP_MIN): FragmentDraft[] {
@@ -240,24 +255,33 @@ export function containerPeople(c: string): string[] {
     .flatMap((x) => [x, `slack:${x}`]);
 }
 
+/** A copy with a window of its own — a Gemini doc has none (no end: end = start). */
+const timed = (m: Pick<MeetingIn, 'start' | 'end'>): boolean => Date.parse(m.end) > Date.parse(m.start);
+
 /**
- * Copy order: start, recorder priority (granola < wispr < gmeet, calls.ts), then id — the first copy of a call names its
- * fragments, so the order must not depend on how the store happened to insert the rows (rowid order flipped call ids
- * between builds).
+ * Copy order: a copy with a window of its own before one without, then start, recorder priority (granola < wispr <
+ * gmeet, calls.ts), id. The first copy of a call names its fragments, so the order must not depend on how the store
+ * happened to insert the rows (rowid order flipped call ids between builds), nor on a copy without a window: a Gemini doc
+ * lands hours after the call, its start cut to the minute — before the live recorder's — and must not rename a call
+ * that was already judged or pinned, nor replace the summary its topics and keys come from with plain text. Among
+ * timed copies it is start order, as main had it (its loader read the copies in start order, and a zero-length copy
+ * never merged), so the ids the ledger and the pins carry stay; ordering by recorder priority instead renamed every
+ * Wispr-first call to its Granola copy, whose topic headings no decision recorded under the old id can follow.
  */
-export function copyOrder(a: Pick<MeetingIn, 'start' | 'source' | 'id'>, b: Pick<MeetingIn, 'start' | 'source' | 'id'>): number {
+export function copyOrder(a: Pick<MeetingIn, 'start' | 'end' | 'source' | 'id'>, b: Pick<MeetingIn, 'start' | 'end' | 'source' | 'id'>): number {
   const ta = Date.parse(a.start);
   const tb = Date.parse(b.start);
-  return (Number.isFinite(ta) && Number.isFinite(tb) ? ta - tb : a.start.localeCompare(b.start)) || (SOURCE_PRIORITY[a.source] ?? 9) - (SOURCE_PRIORITY[b.source] ?? 9) || a.id.localeCompare(b.id) || a.source.localeCompare(b.source);
+  return Number(timed(b)) - Number(timed(a)) || (Number.isFinite(ta) && Number.isFinite(tb) ? ta - tb : a.start.localeCompare(b.start)) || (SOURCE_PRIORITY[a.source] ?? 9) - (SOURCE_PRIORITY[b.source] ?? 9) || a.id.localeCompare(b.id) || a.source.localeCompare(b.source);
 }
 
 /**
  * The same call recorded twice (two recorders) is one call, kept as its first copy in copy order: that copy names the
- * call's fragments, the others become its twins, and the call lasts until the last copy ends (a Gemini doc has no end
- * of its own). Copies the store clustered (meetings.call_id, calls.ts) are one call whatever their windows — a
- * zero-length window overlaps nothing, so overlap alone left those as two calls. Copies the store put in different calls
- * stay apart; without a call id on both sides, windows overlapping more than half of the shorter one are the same call
- * (the ported rule).
+ * call's fragments (its start, title and summary), the others become its twins — their refs and their own id bases
+ * (`twinBases`: a decision recorded under a twin's own id still applies, plan.ts) — and the call lasts until the last
+ * copy ends. Copies the store clustered (meetings.call_id, calls.ts) are one call whatever their windows — a zero-length
+ * window (a Gemini doc has no end) overlaps nothing, so overlap alone left those as two calls. Copies the store put in
+ * different calls stay apart; without a call id on both sides, windows overlapping more than half of the shorter one
+ * are the same call (the ported rule).
  */
 export function dedupeMeetings(ms: MeetingIn[]): MeetingIn[] {
   const kept: MeetingIn[] = [];
@@ -278,6 +302,7 @@ export function dedupeMeetings(ms: MeetingIn[]): MeetingIn[] {
       dup.transcriptChars = Math.max(dup.transcriptChars ?? 0, m.transcriptChars ?? 0);
       dup.participants = [...new Set([...dup.participants, ...m.participants])];
       dup.twins = [...(dup.twins ?? []), `meeting:${m.source}:${m.id}`];
+      dup.twinBases = [...(dup.twinBases ?? []), callBase(m)];
     }
   }
   return kept;

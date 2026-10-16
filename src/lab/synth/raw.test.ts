@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { gunzipSync } from 'node:zlib';
 import { buildStore, openReadOnly } from '../../sources/store.js';
 import { applyDerive, buildPlan, formatCopy, meetingText } from './plan.js';
 import { FIXTURE_DIR, planMismatches, readFixture } from './load.js';
@@ -176,4 +177,17 @@ test('the committed fixture renders the current plan, every slot filled', { skip
   assert.deepEqual(items.filter((i) => !i.rendered).map((i) => i.id), []);
   const lines = [...rawFiles(items).values()].reduce((a, l) => a + l.length, 0);
   assert.equal(lines, plan.items.reduce((a, i) => a + i.lines.length, 0));
+});
+
+// The fixture is public, and model-written: whatever a render slips in ships with the repo (public-guard.sh reads
+// inside the .gz for our own identifiers). Generic shapes are checked here: every e-mail domain and URL host is a
+// reserved .example name (the Gmail permalink is the puller's own shape), and no text holds a phone number.
+test('the committed fixture stays fictional: .example addresses and hosts only, no phone numbers', { skip: !existsSync(join(FIXTURE_DIR, 'plan.rendered.jsonl.gz')) }, () => {
+  const text = `${gunzipSync(readFileSync(join(FIXTURE_DIR, 'plan.rendered.jsonl.gz'))).toString('utf8')}\n${readFileSync(join(FIXTURE_DIR, 'world.json'), 'utf8')}`;
+  const domains = new Set([...text.matchAll(/[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g)].map((m) => m[1]!.toLowerCase()));
+  assert.ok(domains.size > 10);
+  assert.deepEqual([...domains].filter((d) => !d.endsWith('.example')), []);
+  const hosts = new Set([...text.matchAll(/https?:\/\/([A-Za-z0-9.-]+)/g)].map((m) => m[1]!.toLowerCase()));
+  assert.deepEqual([...hosts].filter((h) => !h.endsWith('.example') && h !== 'mail.google.com'), []);
+  assert.deepEqual(text.match(/\+\d{1,3}[ \d]{6,}\d/g) ?? [], []);
 });

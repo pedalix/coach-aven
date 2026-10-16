@@ -72,7 +72,9 @@ pipeline's pre-answer guess.
 
 ## Migration Plan
 
-Merge; prod is untouched (no prod tenant has attribution.json). Home canary: owen-ops' open days pick up the ladder fixes
-on the next build (closed days are pinned); switch on `items` and `learn: {mode: "shadow"}` in its attribution.json and read
+Merge; prod is untouched (no prod tenant has attribution.json). Home canary: owen-ops picks up the ladder fixes on the
+next build — on the frozen corpus, with the ledger and the pins, no decision changes and no pin is written; what does move
+is listed in the rollout row (zero-length Gemini copies become twins of their calls; a merged call lasts until its last
+copy ends, so two closed calls gained 4 and 18 minutes); switch on `items` and `learn: {mode: "shadow"}` and read
 `attribution({learn: true})` after two evening reviews. Live mode, the model step in the review and the tenant CLI's audit
 questions are follow-up changes, each with its own ledger row.

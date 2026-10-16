@@ -16,7 +16,7 @@
 import { join } from 'node:path';
 import { dayOf, goldFor, readJsonl, unitsFor, type Dataset } from './dataset.js';
 import { atThreshold, autoShare, bcubed, jaccard, macroF1, pairwise, perClass, setKey, wilson, type AutoShare, type Operating, type ClassRow, type PairScores, type Scored } from './metrics.js';
-import { splitOfUnit } from './cases.js';
+import { caseKeyOf, splitOfUnit } from './cases.js';
 import { NONE, type FragmentUnit, type GoldRow, type GoldTier, type ItemUnit, type Prediction, type TaskId, type Unit } from './types.js';
 import type { RunResult } from './run.js';
 
@@ -78,6 +78,7 @@ export interface TaskScore {
   level: Level;
   tiers: GoldTier[] | null;
   floor: number;
+  tau?: number; // the fixed cut autoTau is measured at (.95)
   population: number; // units the run decided on
   gold: number; // of those, units with a gold row (in `tiers`)
   answered: number; // of those, resolved by a person during the replay — excluded from everything below
@@ -229,17 +230,20 @@ export function scoreTask(ds: Dataset, result: RunResult, opts: ScoreOpts = {}):
     // and a wrong family that happens to share the gold family's id must not pass as right.
     const scoredGold = correct ? pred! : goldLabel === pred ? `≠${goldLabel}` : goldLabel;
     const minutes = (units.get(p.id) as FragmentUnit | undefined)?.minutes ?? 0;
-    // The split goes by case (cases.ts): the topics of one call never straddle dev and test.
-    const split = splitOfUnit(task, units.get(p.id), p.id);
-    rows.push({ id: p.id, pred, conf: p.conf, gold: scoredGold, weight: 1, rung: p.rung || 'abstain', minutes, correct, split });
+    // The split goes by case (cases.ts): the topics of one call never straddle dev and test; the report's
+    // paired bootstrap resamples the same cases whole.
+    const u = units.get(p.id);
+    const split = splitOfUnit(task, u, p.id);
+    rows.push({ id: p.id, pred, conf: p.conf, gold: scoredGold, weight: 1, rung: p.rung || 'abstain', minutes, correct, split, case: u ? caseKeyOf(task, u) : p.id });
   }
 
-  const scored: Scored[] = rows.map(({ id, pred, conf, gold: g, split }) => ({ id, pred, conf, gold: g, weight: 1, split }));
+  const scored: Scored[] = rows.map(({ id, pred, conf, gold: g, split, case: c }) => ({ id, pred, conf, gold: g, weight: 1, split, case: c }));
   const dev = scored.filter((u) => u.split === 'dev');
   const test = scored.filter((u) => u.split === 'test');
   const auto = autoShare(dev, test, floor);
   const autoConservative = autoShare(dev, test, floor, { lowerBound: true });
-  const autoTau = atThreshold(test, opts.tau ?? 0.95);
+  const tau = opts.tau ?? 0.95;
+  const autoTau = atThreshold(test, tau);
   let autoMinutes: AutoShare | undefined;
   if (task === 't1-fragment') {
     const byMinutes = rows.map(({ id, pred, conf, gold: g, minutes, split }) => ({ id, pred, conf, gold: g, weight: minutes, split }));
@@ -293,6 +297,7 @@ export function scoreTask(ds: Dataset, result: RunResult, opts: ScoreOpts = {}):
     level,
     tiers: opts.tiers ?? null,
     floor,
+    tau,
     population: result.predictions.length,
     gold: withGold,
     answered: withGold - rows.length,

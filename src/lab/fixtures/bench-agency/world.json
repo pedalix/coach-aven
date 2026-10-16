@@ -68,10 +68,10 @@
     },
     {
       "id": "klartext",
-      "name": "KlarText Verlag",
+      "name": "Kieselfeder Verlag",
       "umbrella": "klartext",
       "domains": [
-        "klartext-verlag.example"
+        "kieselfeder-verlag.example"
       ],
       "side": "client"
     },
@@ -389,7 +389,7 @@
       "name": "Tobias Hofer",
       "company": "brightwell",
       "side": "us",
-      "role": "project manager for Stadtwerke Lindquell and KlarText",
+      "role": "project manager for Stadtwerke Lindquell and Kieselfeder",
       "langs": [
         "de",
         "en",
@@ -555,7 +555,7 @@
       "name": "Olga Ivanova",
       "company": "brightwell",
       "side": "us",
-      "role": "frontend developer (KlarText, MedTrack web)",
+      "role": "frontend developer (Kieselfeder, MedTrack web)",
       "langs": [
         "ru",
         "en",
@@ -1981,7 +1981,7 @@
       "name": "Paul Keller",
       "company": "klartext",
       "side": "client",
-      "role": "editor-in-chief at KlarText Verlag; owns the content hub (surname collision with Mara)",
+      "role": "editor-in-chief at Kieselfeder Verlag; owns the content hub (surname collision with Mara)",
       "langs": [
         "de"
       ],
@@ -1989,19 +1989,19 @@
         "register": "formal",
         "typoRate": 0.02,
         "emoji": "none",
-        "signature": "Mit freundlichen Grüssen\nPaul Keller\nChefredaktor · KlarText Verlag",
+        "signature": "Mit freundlichen Grüssen\nPaul Keller\nChefredaktor · Kieselfeder Verlag",
         "notes": "editorial vocabulary"
       },
-      "email": "paul.keller@klartext-verlag.example",
+      "email": "paul.keller@kieselfeder-verlag.example",
       "slack": {
         "id": "U0BWPKEL001",
         "handle": "paul.keller",
-        "label": "Paul Keller | KlarText",
+        "label": "Paul Keller | Kieselfeder",
         "inDirectory": true
       },
       "forms": [
         {
-          "raw": "paul.keller@klartext-verlag.example",
+          "raw": "paul.keller@kieselfeder-verlag.example",
           "form": "email",
           "given": true,
           "expected": "mapped",
@@ -2013,7 +2013,7 @@
           ]
         },
         {
-          "raw": "Paul Keller | KlarText",
+          "raw": "Paul Keller | Kieselfeder",
           "form": "slack_label",
           "given": true,
           "expected": "mapped",
@@ -2044,7 +2044,7 @@
       "name": "Ines Wolf",
       "company": "klartext",
       "side": "client",
-      "role": "content manager at KlarText Verlag",
+      "role": "content manager at Kieselfeder Verlag",
       "langs": [
         "de"
       ],
@@ -2054,16 +2054,16 @@
         "emoji": "rare",
         "notes": "lists of articles, editorial workflow"
       },
-      "email": "ines.wolf@klartext-verlag.example",
+      "email": "ines.wolf@kieselfeder-verlag.example",
       "slack": {
         "id": "U0BWINES001",
         "handle": "ines.wolf",
-        "label": "Ines Wolf | KlarText",
+        "label": "Ines Wolf | Kieselfeder",
         "inDirectory": true
       },
       "forms": [
         {
-          "raw": "ines.wolf@klartext-verlag.example",
+          "raw": "ines.wolf@kieselfeder-verlag.example",
           "form": "email",
           "given": true,
           "expected": "mapped",
@@ -2074,7 +2074,7 @@
           ]
         },
         {
-          "raw": "Ines Wolf | KlarText",
+          "raw": "Ines Wolf | Kieselfeder",
           "form": "slack_label",
           "given": true,
           "expected": "mapped",
@@ -2521,7 +2521,7 @@
       "id": "klartext/admin",
       "umbrella": "klartext",
       "company": "klartext",
-      "name": "KlarText admin",
+      "name": "Kieselfeder admin",
       "status": "active",
       "billing_code": "KT-ADM",
       "registered": true,
@@ -2983,7 +2983,7 @@
       "initiative": "medtrack/app"
     },
     {
-      "name": "hub.klartext-verlag.example",
+      "name": "hub.kieselfeder-verlag.example",
       "kind": "host",
       "initiative": "klartext/content-hub"
     },
@@ -3314,8 +3314,8 @@
     {
       "id": "p-school",
       "kind": "notification",
-      "label": "Schule Hottingen",
-      "address": "sekretariat@schule-hottingen.example"
+      "label": "Schule Wolkenhain",
+      "address": "sekretariat@schule-wolkenhain.example"
     },
     {
       "id": "p-nl-running",
@@ -3641,7 +3641,7 @@
       "is_app_user": false,
       "deleted": false,
       "profile": {
-        "display_name": "Paul Keller | KlarText",
+        "display_name": "Paul Keller | Kieselfeder",
         "real_name": "Paul Keller"
       }
     },
@@ -3653,7 +3653,7 @@
       "is_app_user": false,
       "deleted": false,
       "profile": {
-        "display_name": "Ines Wolf | KlarText",
+        "display_name": "Ines Wolf | Kieselfeder",
         "real_name": "Ines Wolf"
       }
     },

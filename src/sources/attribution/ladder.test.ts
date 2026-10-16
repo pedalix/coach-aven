@@ -38,6 +38,9 @@ test('F1: admin words match whole words only, EN/DE/RU/IT — the substrings tha
     ['оплата прошла', 'оплата'], ['нужна предоплата', 'предоплата'], ['подписали договор', 'договор'], ['чек за такси', 'чек'], ['счёт-фактура', 'счёт-фактура'], ['налоговая', 'налоговая'],
     ['la fattura di ottobre', 'fattura'],
   ]) assert.equal(adminWord(hit), word, hit);
+  // 'iva' (Italian VAT) is not a word of its own: case-blind, it is the first name Iva too; an Italian invoice says fattura
+  assert.equal(adminWord('Hi Iva, can you review the PR?'), null);
+  assert.equal(adminWord('la fattura con IVA'), 'fattura');
 });
 
 test('F1: the admin rung runs after exclusive markers and the registry; alone it still decides (.75) or narrows to the buckets', () => {
@@ -78,6 +81,12 @@ test('F6: a work block in a repo several initiatives share is routed by its own 
   assert.deepEqual(top(work(['SUP'])), ['acme/retainer', 'registry:key', RUNG_CONF.key]);
   const open = attribute(work([]), ctx());
   assert.deepEqual([open.decided, open.candidates, open.hint], [null, ['acme/shop', 'acme/retainer'], route.reason]);
+  // a key of an initiative OUTSIDE the repo's set is a mention ("port the GP-12 fix"), not where the work ran: open, both sides
+  const mention = attribute(work(['GP']), ctx());
+  assert.deepEqual([mention.decided, mention.candidates], [null, ['acme/shop', 'acme/retainer', 'globex/portal']]);
+  assert.match(mention.hint, /key GP is outside the repo's initiatives/);
+  // a shared CHANNEL binds no key that way: a key (.97) outranks a channel (.95), as on main
+  assert.deepEqual(top(draft({ container: '#ext-acme', projectKeys: ['GP'] })), ['globex/portal', 'registry:key', RUNG_CONF.key]);
 });
 
 test('F7: a broad person no longer switches the narrow rung off — they join the hint; exclusive people who disagree still do', () => {

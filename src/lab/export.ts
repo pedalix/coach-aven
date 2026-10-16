@@ -1,6 +1,8 @@
 // The real-store exporter: a frozen production store plus the tenant's files AS GIVEN → a bench dataset (layout in
 // types.ts). Units carry features only — what production knew at the freeze, plus today's ladder's own answer for
-// reference; gold comes only from judgments that already exist (the tenant ledger, the platform's pins, answered
+// reference (MAIN's ladder and registry parse, variants/frozen/: the baseline reads it as today's production, so it
+// must not move when this branch improves the ladder; the fragment drafts are this branch's fragmenter, see
+// docs/lab.md); gold comes only from judgments that already exist (the tenant ledger, the platform's pins, answered
 // escalations, identity merges, the roster), never from this code's reading of the content.
 //
 // Read-only by construction: the store is opened immutable, the tenant and the pins are only read (the attribution
@@ -22,7 +24,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { parseFragments, type Attribution } from '../sources/annotations.js';
 import { loadAttributionDrafts, localDay, plusDays, readAttributionInputs } from '../sources/attribution/build.js';
 import { hash, topics, type FragmentDraft, type MeetingIn } from '../sources/attribution/fragment.js';
-import { attribute, type LadderCtx } from '../sources/attribution/ladder.js';
+import type { LadderCtx } from '../sources/attribution/ladder.js';
 import { planFragments, type LedgerRecord } from '../sources/attribution/plan.js';
 import { readPins } from '../sources/attribution/pins.js';
 import { parseRegistry, Registry } from '../sources/attribution/registry.js';
@@ -30,6 +32,8 @@ import { normaliseName, parseIdentity } from '../sources/identities/normalise.js
 import { identitiesOf, identityIndex, identityKey, resolveIdentity, validatePeople, type Person } from '../sources/people.js';
 import { openReadOnly, resolveAttendee } from '../sources/store.js';
 import { saveMeta, writeJsonl } from './dataset.js';
+import { attribute as frozenAttribute, type LadderCtx as FrozenLadderCtx } from './variants/frozen/ladder.js';
+import { parseRegistry as parseFrozenRegistry, Registry as FrozenRegistry } from './variants/frozen/registry.js';
 import { NONE, SYSTEM, UNKNOWN, type DatasetMeta, type FragmentUnit, type GoldRow, type GoldTier, type ItemUnit, type MentionUnit } from './types.js';
 
 export interface ExportOptions {
@@ -544,7 +548,7 @@ function mentionUnits(s: Stream, w: Win, tz: string, index: ReadonlyMap<string, 
   return out;
 }
 
-function fragmentUnits(db: DatabaseSync, drafts: readonly FragmentDraft[], meetings: readonly MeetingIn[], ctx: LadderCtx, tz: string): FragmentUnit[] {
+function fragmentUnits(db: DatabaseSync, drafts: readonly FragmentDraft[], meetings: readonly MeetingIn[], ctx: FrozenLadderCtx, tz: string): FragmentUnit[] {
   const calls = new Map(meetings.map((m) => [`meeting:${m.source}:${m.id}`, m]));
   const msg = db.prepare('SELECT author_raw, ts, subject, text FROM messages WHERE ref = ?');
   const act = db.prepare('SELECT title, items_text FROM activity WHERE source = ? AND id = ? AND deleted = 0');
@@ -568,7 +572,7 @@ function fragmentUnits(db: DatabaseSync, drafts: readonly FragmentDraft[], meeti
       .join('\n');
   };
   return drafts.map((d) => {
-    const r = attribute(d, ctx); // the ladder ALONE: no ledger, no pins — what the rules decide today
+    const r = frozenAttribute(d, ctx); // main's ladder ALONE: no ledger, no pins — what the rules decide today
     const top = r.decided ? [...r.decided.attributions].sort((a, b) => b.share - a.share)[0]?.initiative : undefined;
     const ladder = r.decided
       ? { state: 'rule', ...(top ? { initiative: top } : {}), candidates: r.candidates, rule: r.decided.rule_id, ...(r.hint ? { hint: r.hint } : {}) }
@@ -713,6 +717,29 @@ function t3Gold(mentions: readonly MentionUnit[], roster: Roster, ann: string, s
   return [...rows.values()].sort((a, b) => a.id.localeCompare(b.id) || a.tier.localeCompare(b.tier));
 }
 
+/**
+ * Tenant entries dated on or after `since` (a local day): answers given INSIDE the window that the tenant as given
+ * already holds — rules written from answers (`created`), identity merges (`at`), identity questions answered
+ * (`asked_at`). A replay hands them to every variant from day one, and the store's own resolution
+ * (MentionUnit.production) already reflects the merges: the bench does not rebuild an as-of tenant (docs/lab.md),
+ * so the export says how much of the window's own answers the given tenant carries.
+ */
+export function lateTenantEntries(ann: string, since: string, tz: string): string[] {
+  const dayOf = (v: unknown): string | null => (typeof v === 'string' && validIso(v) ? localDay(v, tz) : null);
+  const late = (v: unknown): boolean => (dayOf(v) ?? '') >= since;
+  const out: string[] = [];
+  const rulesPath = join(ann, 'rules.json');
+  const raw = existsSync(rulesPath) ? json<unknown>(readFileSync(rulesPath, 'utf8'), []) : [];
+  const rules = (Array.isArray(raw) ? raw : raw && typeof raw === 'object' && Array.isArray((raw as { rules?: unknown }).rules) ? (raw as { rules: unknown[] }).rules : []).filter((r): r is Row => !!r && typeof r === 'object');
+  const lateRules = rules.filter((r) => late(r.created)).length;
+  if (lateRules) out.push(`${lateRules} of ${rules.length} tenant rules were created on or after ${since}: a replay reads them from its first day`);
+  const merges = lines<Row>(join(ann, 'identity-merges.jsonl')).filter((r) => late(r.at)).length;
+  if (merges) out.push(`${merges} identity merges were made on or after ${since}: people.json and the store's resolution (mention 'production') already hold them`);
+  const asked = [...lastById(lines<Row>(join(ann, 'escalations.jsonl'))).values()].filter((e) => e.kind === 'identity_merge' && e.status === 'answered' && late(e.asked_at)).length;
+  if (asked) out.push(`${asked} identity questions asked on or after ${since} were answered: the roster may already hold their answers`);
+  return out;
+}
+
 /** people.json as the tenant ships it; without one, the roster the store was built with (people + identities). */
 function loadRoster(path: string, db: DatabaseSync): Person[] {
   if (existsSync(path)) return validatePeople(JSON.parse(readFileSync(path, 'utf8')), path);
@@ -754,7 +781,8 @@ export async function exportDataset(opts: ExportOptions): Promise<DatasetMeta> {
     const people = loadRoster(join(ann, 'people.json'), db);
     const roster = new Roster(people);
     const regPath = join(tenantDir, 'initiatives.json');
-    const reg = new Registry(existsSync(regPath) ? parseRegistry(JSON.parse(readFileSync(regPath, 'utf8')), regPath) : { initiatives: [] });
+    const regRaw: unknown = existsSync(regPath) ? JSON.parse(readFileSync(regPath, 'utf8')) : null;
+    const reg = new Registry(regRaw !== null ? parseRegistry(regRaw, regPath) : { initiatives: [] });
     // No pinsPath here on purpose: recomputeAttribution is the only writer of pins, and it is never called.
     const att = readAttributionInputs({ tenantRoot: tenantDir, annotationsDir: ann, timezone: tz });
     const subject = att?.inputs.config.subject;
@@ -771,7 +799,16 @@ export async function exportDataset(opts: ExportOptions): Promise<DatasetMeta> {
         const day = localDay(d.start, tz);
         return day >= fragSince && day <= opts.until;
       });
-      fragments = fragmentUnits(db, drafts, loaded.meetings, loaded.ctx, tz);
+      // Main's ladder over this branch's drafts: the same rules, people, subject and admin map; only the ladder code
+      // and the registry parse are main's (an object channel entry, for one, routed nowhere there).
+      const frozen: FrozenLadderCtx = {
+        rules: loaded.ctx.rules,
+        people: loaded.ctx.people,
+        reg: new FrozenRegistry(regRaw !== null ? parseFrozenRegistry(regRaw, regPath) : { initiatives: [] }),
+        self: loaded.ctx.self,
+        ...(loaded.ctx.admin ? { admin: loaded.ctx.admin } : {}),
+      };
+      fragments = fragmentUnits(db, drafts, loaded.meetings, frozen, tz);
       t1 = t1Gold(fragments, drafts, loaded.ctx, reg, ann, opts.source.pinsPath ? resolve(opts.source.pinsPath) : undefined, report.t1);
     }
     const w = windowOf(itemsSince, opts.until, tz);
@@ -792,13 +829,15 @@ export async function exportDataset(opts: ExportOptions): Promise<DatasetMeta> {
 
     for (const [task, rows] of [['t1-fragment', t1], ['t3-identity', t3]] as const) for (const r of rows) bump((report.gold[task] ??= {}), r.tier);
     report.units = { fragment: fragments.length, item: items.length, mention: mentions.length };
+    const since = att && fragSince < itemsSince ? fragSince : itemsSince;
+    report.warnings.push(...lateTenantEntries(ann, since, tz));
     const live = reg.data.initiatives.filter((i) => !i.alias_of && !i.split_into);
     const meta: DatasetMeta = {
       name: opts.name,
       kind: opts.kind,
       tenant: opts.tenant ?? opts.name.replace(/-(real|synthetic)$/, ''),
       tz,
-      since: att && fragSince < itemsSince ? fragSince : itemsSince,
+      since,
       until: opts.until,
       ...(subject ? { subject } : {}),
       createdAt: opts.now.toISOString(),
@@ -810,7 +849,7 @@ export async function exportDataset(opts: ExportOptions): Promise<DatasetMeta> {
         people: people.map((p) => p.person_id),
       },
       counts: { ...report.units },
-      notes: `fragments ${att ? `${fragSince}..${opts.until}` : 'none (no annotations/attribution.json)'}; items and mentions ${itemsSince}..${opts.until} (${tz}); gold from existing judgments only (ledger, pins, answered escalations, merges, roster) — see export.json`,
+      notes: `fragments ${att ? `${fragSince}..${opts.until}` : 'none (no annotations/attribution.json)'}; items and mentions ${itemsSince}..${opts.until} (${tz}); gold from existing judgments only (ledger, pins, answered escalations, merges, roster) — see export.json; a fragment's ladder is main's (variants/frozen), its draft this branch's fragmenter`,
     };
     saveMeta(out, meta);
     writeFileSync(join(out, 'export.json'), `${JSON.stringify(report, null, 2)}\n`);

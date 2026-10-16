@@ -129,10 +129,17 @@ export const SHORT_TITLE_PATTERN = 5;
 const LETTER = '[\\p{L}\\p{M}\\p{N}]';
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const EDGE = new RegExp(`^${LETTER}$`, 'u');
+
 export function titleMatcher(pattern: string): (title: string) => boolean {
   const p = pattern.normalize('NFC').toLowerCase();
   if ([...p].length > SHORT_TITLE_PATTERN) return (t) => (t ?? '').normalize('NFC').toLowerCase().includes(p);
-  const re = new RegExp(`(?<!${LETTER})${escapeRe(p)}(?!${LETTER})`, 'iu');
+  // A word edge only where the pattern's own edge is a letter or digit: under the old substring rule a tenant faked a word
+  // with padding or punctuation (" ST ", "HCG:", "[ST]") — kept as written, those would need a letter-free neighbour
+  // outside their space or bracket and almost never match. Padding is trimmed; punctuation is matched as written.
+  const core = [...p.trim()];
+  if (!core.length) return () => false;
+  const re = new RegExp(`${EDGE.test(core[0]!) ? `(?<!${LETTER})` : ''}${escapeRe(core.join(''))}${EDGE.test(core.at(-1)!) ? `(?!${LETTER})` : ''}`, 'iu');
   return (t) => re.test((t ?? '').normalize('NFC'));
 }
 

@@ -22,8 +22,8 @@ import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { readJsonl, writeJsonl } from '../dataset.js';
 import { benchToken, LlmRunner } from '../llm.js';
-import { buildBenchAgency, FIXTURE_DIR } from './load.js';
-import { writePlan } from './plan.js';
+import { buildBenchAgency, FIXTURE_DIR, planMismatches } from './load.js';
+import { buildPlan, writePlan } from './plan.js';
 import { BATCH_LIMITS, batchPrompt, meetingPrompt, planBatches, renderPlan, SYSTEM_CHAT, SYSTEM_MEETING, type RenderedItem } from './render.js';
 import type { PlannedItem, World } from './types.js';
 
@@ -101,6 +101,12 @@ export async function main(argv: string[]): Promise<void> {
     const rendered = readJsonl<RenderedItem>(join(dir, 'plan.rendered.jsonl'));
     const missing = rendered.filter((i) => !i.rendered).length;
     if (!rendered.length || missing) throw new Error(`${join(dir, 'plan.rendered.jsonl')}: ${rendered.length ? `${missing} items without text` : 'missing'} — render first`);
+    // Only a render of THIS plan and world may become the public fixture: a stale render would bring back whatever
+    // the planner has since changed — a name made fictional, for one.
+    const current = buildPlan(seed);
+    const world = JSON.stringify(JSON.parse(readFileSync(join(dir, 'world.json'), 'utf8')));
+    const stale = [...planMismatches(rendered, current), ...(world === JSON.stringify(current.world) ? [] : ['world.json differs from world.ts'])];
+    if (stale.length) throw new Error(`${dir} does not render the current plan (seed ${seed}) — run \`lab synth plan\` and render again: ${stale.join('; ')}`);
     mkdirSync(FIXTURE_DIR, { recursive: true });
     const gz = join(FIXTURE_DIR, 'plan.rendered.jsonl.gz');
     writeFileSync(gz, gzipSync(readFileSync(join(dir, 'plan.rendered.jsonl')), { level: 9 }));

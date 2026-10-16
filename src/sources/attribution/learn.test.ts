@@ -156,6 +156,33 @@ test('audits: a seeded sample of today’s auto-decided units, sized by the cred
   assert.ok(seeds.size > 1, 'the seed picks the sample');
 });
 
+test('the day’s audit sample is drawn before the day’s answers: an audit answered or a key taught today leaves it as it was', () => {
+  const floor = Array.from({ length: 10 }, (_, i) => unit(`d${i}`, { label: 'globex/portal', conf: 0.97, rung: 'host:portal.globex.example' }));
+  const thread = { thread: 'slack:T0ACME/C0ACMEWEB1/1700000000.000100' };
+  const open = Array.from({ length: 20 }, (_, i) => unit(`x${String(i).padStart(2, '0')}`, { keys: thread }));
+  const units = [...floor, ...open, unit('q0', { keys: thread })];
+  const opts = OPTS({ questionsPerDay: 10, auditShare: 0.2, seed: 'acme-audit' });
+  const yesterday = [ans('gone', 'globex/portal', 'q-old', '2026-03-09')];
+  const morning = learn(units, yesterday, opts);
+  assert.equal(morning.audits.length, 2, 'Q 10 × 20% a day since yesterday: two today');
+  assert.ok(morning.audits.every((id) => id.startsWith('d')), 'only the floor decides anything this morning');
+  const [audited] = morning.audits;
+  // Today: the audit is answered, and q0's answer teaches the thread key — twenty more of today's units now decide.
+  const today = [...yesterday, ans('q0', 'acme/shop', 'q-today', TODAY), ans(audited!, 'globex/portal', 'audit-today', TODAY, { audit: true })];
+  const evening = learn(units, today, opts);
+  assert.ok(open.every((u) => of(evening, u.id).conf >= 0.95), 'the thread now decides every x');
+  assert.deepEqual(evening.audits, morning.audits, 'the same draw all day');
+  assert.equal(of(evening, audited!).audit, true, 'the answered audit keeps its flag');
+  // Answers today that demote the route: its sampled units are still the day's audits, and never questions as well.
+  const others = floor.map((u) => u.id).filter((id) => !morning.audits.includes(id));
+  const late = learn(units, [...today, ...others.slice(0, 2).map((id) => ans(id, 'acme/shop', `q-${id}`, TODAY))], opts);
+  assert.ok(late.calibration.find((c) => c.instance === 'host:portal.globex.example')!.demoted, 'two wrong answers today: the host route is demoted');
+  assert.deepEqual(late.audits, morning.audits);
+  const asked = new Set(late.questions.flatMap((q) => q.units));
+  assert.ok(late.audits.every((id) => !asked.has(id)), 'a sampled unit is asked once, as an audit');
+  assert.ok(floor.some((u) => asked.has(u.id)), 'the demoted route’s other units are questions');
+});
+
 test('rule candidates: keys three independent answers agree on, of a type measured ≥ .9', () => {
   const day = (i: number) => `2026-03-0${5 + i}`;
   const units = [0, 1, 2].map((i) => unit(`h${i}`, { day: day(i), keys: { host: 'shop.acme.example', container: 'C0ACMEWEB1', thread: 'slack:T0ACME/C0ACMEWEB1/1' } }));

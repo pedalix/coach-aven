@@ -2,7 +2,7 @@
 // exact keys, F9 normalisation, alert identities, vocatives, container kinds. Every name, host and company is fictional.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { alertIdentity, containerKind, cuesOf, exactKey, exactTokens, hostOf, hostsApps, isSmallTalk, itemKeys, keyPrefixes, normBody, openingName, stripSubject } from './items-text.js';
+import { alertIdentity, containerKind, cuesOf, exactKey, exactTokens, familyToken, hostOf, hostsApps, isSmallTalk, itemKeys, keyPrefixes, normBody, openingName, stripSubject } from './items-text.js';
 
 test('itemKeys and keyPrefixes: tracker keys and links, the prefixes the registry routes', () => {
   assert.deepEqual(itemKeys('SHOP-12 broke, see <https://tracker.example/issue/SHOP-12|SHOP-12> and https://shop.example/a.'), ['SHOP-12', 'https://tracker.example/issue/SHOP-12', 'https://shop.example/a']);
@@ -108,4 +108,20 @@ test('containerKind: DMs, group chats (Slack mpim: too), channels, mail, tracker
   assert.equal(containerKind('gmail', 'inbox', true, 'message'), 'mail');
   assert.equal(containerKind('youtrack', 'SH', false, 'comment'), 'tracker');
   assert.equal(containerKind('granola', null, false, 'meeting'), 'meeting');
+});
+
+test('familyToken: what an item is about — an alert\'s target, else the first host in text order; never a dashboard', () => {
+  const tok = (text: string, alert = false) => {
+    const u = { text, subject: null, keys: itemKeys(text) };
+    return familyToken(u, hostsApps(u), alert);
+  };
+  // The dashboard link sorts first ("acme.grafana.net" < "www.…"): two sites' alerts must not share it.
+  const down = (site: string) => `CRITICAL: SiteDown: *https://${site}*: Domain https://${site} is down (probe) details https://acme.grafana.net/d/uptime`;
+  assert.deepEqual([tok(down('www.shop-a.example'), true), tok(down('www.portal-b.example'), true)], ['www.shop-a.example', 'www.portal-b.example']);
+  assert.equal(tok('Deploy finished: https://zz.shop.example then https://aa.portal.example'), 'zz.shop.example', 'text order, not sorted');
+  assert.equal(tok('Uptime report https://stats.uptimerobot.com/x https://grafana.acme.example/d/1'), '', 'monitoring and dashboard hosts only: nothing');
+  assert.equal(tok('WARNING: DiskFull: *db-primary* see https://wiki.acme.example/disk', true), 'db-primary', "an alert's target beats any other host");
+  assert.equal(tok('WARNING: DiskFull: *db-primary* see https://wiki.acme.example/disk'), 'wiki.acme.example', 'not an alert: the first host');
+  assert.equal(tok('FIRING: High load on https://node7.acme.example\nGraph: https://acme.grafana.net/d/2 Runbook: https://wiki.acme.example/load', true), 'node7.acme.example', 'no *target*: the first host of the first line');
+  assert.equal(tok('[shop] build failed'), 'shop', 'no host: the first app');
 });

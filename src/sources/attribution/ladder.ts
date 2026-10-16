@@ -21,7 +21,7 @@
 //   F2  calendar title patterns of ≤ 5 characters match whole words (registry.ts titleMatcher).
 //   F6  `{id, name}` channel entries route (the id first); a channel several initiatives list gives them as
 //       candidates instead of falling through; a work block's own tracker keys can still decide when its repo
-//       is shared by several initiatives.
+//       is shared by several initiatives — for one of them only (a key of another initiative leaves it open).
 //   F7  broad people no longer switch the narrow rung off: they only join its hint.
 import { channelIdOf, normChannel, type Registry } from './registry.js';
 import type { FragmentDraft } from './fragment.js';
@@ -111,8 +111,9 @@ const ADMIN_WORDS = [
   '*оплат*', '*оплач*', 'плат[её]ж*', 'перевод денег', 'договор', 'договора', 'договору', 'договором', 'договоре', 'договоры', 'договоров',
   'договорам', 'договорами', 'договорах', 'контракт*', 'виза', 'визы', 'визу', 'визой', 'визе', 'виз', 'визам', 'визами', 'визах', 'налог*',
   'инвойс*', 'чек(?!-)', 'чека', 'чеку', 'чеком', 'чеке', 'чеки', 'чеков', 'квитанци*', 'ндс',
-  // it
-  'fattur*', 'pagament*', 'contratt*', 'bonifico', 'bonifici', 'ricevut*', 'iva',
+  // it ('iva' is not here: case-blind it is also the first name Iva — "Hi Iva, can you review the PR?" wrote billable
+  // work off as admin; an invoice with IVA says fattura anyway)
+  'fattur*', 'pagament*', 'contratt*', 'bonifico', 'bonifici', 'ricevut*',
 ];
 const LETTER = '[\\p{L}\\p{M}\\p{N}]';
 const ADMIN_RE = new RegExp(
@@ -188,11 +189,16 @@ function registryHit(f: FragmentDraft, ctx: LadderCtx): LadderResult {
   const held: string[] = [];
   const why: string[] = [];
   const open = (ids: string[], reason: string): LadderResult => ({ decided: null, candidates: [...new Set([...held, ...ids])], hint: [...why, reason].filter(Boolean).join('; ') });
+  // A shared repo's initiatives (alias-resolved): hard evidence of where the work ran, which a key may pick among but not
+  // leave — "port the GP-12 fix" in an acme repo is a mention, not globex work (main kept such a block open). A shared
+  // channel does not bind a key that way: a key (.97) outranks a channel (.95), and main let it decide there.
+  let repoHeld: string[] = [];
   if (f.kind === 'work' && f.route) {
     if (f.route.initiative && f.route.confidence === 'exact') return decide(f.route.initiative, `repo/path ${f.route.reason}`, RUNG_CONF.repo);
     if (f.route.candidates.length) {
       held.push(...f.route.candidates);
       why.push(f.route.reason);
+      repoHeld = f.route.candidates;
     }
   }
   if (f.container) {
@@ -209,8 +215,8 @@ function registryHit(f: FragmentDraft, ctx: LadderCtx): LadderResult {
   }
   if (f.projectKeys.length) {
     const hits = [...new Set(reg.data.initiatives.filter((i) => f.projectKeys.some((k) => reg.keysOf(i).includes(k))).map((i) => i.id))];
-    if (hits.length === 1) return decide(hits[0]!, `key ${f.projectKeys.join(',')}`, RUNG_CONF.key);
-    if (hits.length > 1) return open(hits, `keys ${f.projectKeys.join(',')} match several`);
+    if (hits.length === 1 && (!repoHeld.length || repoHeld.includes(reg.resolveAlias(hits[0]!)))) return decide(hits[0]!, `key ${f.projectKeys.join(',')}`, RUNG_CONF.key);
+    if (hits.length) return open(hits, hits.length > 1 ? `keys ${f.projectKeys.join(',')} match several` : `key ${f.projectKeys.join(',')} is outside the repo's initiatives`);
   }
   if (f.kind === 'call') {
     const r = reg.routeTitle(f.title.split(' — ')[0]!);

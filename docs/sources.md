@@ -621,7 +621,15 @@ container, title_re, repo, project_key, source}, then: {initiative | candidates}
 **Fragments**: the subject's calls (one per summary topic, weighted by the topic's share), runs of the
 subject's own messages per container (a gap over `threadGapMinutes` ends a run), and work blocks from
 `activity`; greeting-only runs attach to the adjacent call with the same counterpart or drop. Ids depend
-only on the records, so decisions recorded against an id stay attached across rebuilds.
+only on the records, so decisions recorded against an id stay attached across rebuilds. A call recorded by
+several recorders (the copies the store's call clustering joins, `meetings.call_id`) is one call, named by its
+first copy with a window of its own — earliest start, then recorder priority (Granola, Wispr, Gemini), then id —
+and lasting until its last copy ends. A Gemini doc has no end and lands hours late with its start cut to the
+minute: it never names a call another recorder caught, so it cannot rename one that was already judged. A
+judgment or pin recorded under the id one of the other copies would have given the call (the same `#n` topic
+suffix) still decides it, and a redo releases those pins with the call. A rename between copies whose summaries
+cut different topics (a late timed copy that started earlier) still detaches a decision recorded under the old
+id — the exposure main always had.
 
 **The ladder**, strong to weak, stops at the first rung that decides: tenant rules (a `candidates` rule
 stops it with exactly that choice set), exclusive markers, registry routing (repo/path, channel, tracker key,
@@ -629,7 +637,10 @@ calendar title), the admin bucket (money, contracts, visas → the counterpart u
 narrow markers (broad people only add hints), broad markers. It never guesses: several registry hits are
 candidates, and so is a channel two initiatives list. Admin keywords match whole words with explicit
 inflections (`vat` no longer fires on "private", `договор` not on "договорились"); calendar title patterns of
-five characters or fewer match whole words; channel entries may be `{id, name}` objects and match by id first.
+five characters or fewer match whole words (padding trimmed; a word edge only where the pattern itself ends in a
+letter or digit, so `HCG:` and `[ST]` match as written); channel entries may be `{id, name}` objects and match by
+id first. A work block in a repo several initiatives share is decided by its own tracker key only when the key
+belongs to one of them (a key of another initiative is a mention: the block stays open with both sides).
 Each decision carries its rung's graded confidence (repo/path .99, tracker key and tenant rule .97, exclusive
 and channel .95, a single title hit .80, admin .75) — the ladder decides exactly as the rung says; the
 learning loop reads the confidence (OpenSpec `ingest-learning-loop`).
@@ -637,8 +648,10 @@ learning loop reads the confidence (OpenSpec `ingest-learning-loop`).
 **Call participants** (`participants.ts`): every recorder copy of a call — the copies the store's call
 clustering joins (`meetings.call_id`) are one call — contributes its attendees by name as well as by address
 (a person's own name counts as an identity unless two people share it), glued Gemini invitee strings are split
-against the roster, the linked calendar event (start ±15 min, equal title) adds its attendee addresses and the
-transcript adds its speakers. A run of messages adds the recipients the store recorded (`role = 'to'`).
+against the roster, the linked calendar event (start ±15 min, equal title) adds its attendee addresses — unless
+it is a crowd (more than 8 people with the organiser, the identities collector's cut: an all-hands says nothing
+about who talked) — and the transcript adds its speakers. A run of messages adds the recipients the store
+recorded (`role = 'to'`).
 
 **States**: `decided` (the ledger has a decision — it always wins, matched by id or, for message runs,
 by overlapping refs), `escalated` (the ledger has an open question), `rule` (the ladder decides it now),
@@ -650,8 +663,10 @@ the current rules — and is pinned once the day has closed (`pinAfterDays` full
 1): decided once, with the rule id and the rules version (hash of rules, registry and people markers), in
 `data/<slug>/attribution/pins.jsonl` on the bot host — outside the store, which is rebuilt at will. A rule
 changed later does not move a pinned day; a judgment in the ledger still wins over a pin. The readout marks
-pinned rows (`pinned: {at, rules_version}`). `orch sources attribution redo <slug> --since D [--until D]`
-unpins a window (days in the tenant's zone); the next build decides it with the current rules.
+pinned rows (`pinned: {at, rules_version}`). The rules version hashes attribution.json without `items` and
+`learn` (parsed, so formatting does not move it either): switching item mode or the loop on or off leaves the pins
+byte-identical. `orch sources attribution redo <slug> --since D [--until D]` unpins a window (days in the tenant's
+zone; a call's pins under its copies' own ids too); the next build decides it with the current rules.
 
 **Timelog**: `timelog({since, until})` — the subject's minutes per local day and initiative, computed at
 query time from the plan (decided, pinned and rule decisions), with the owen-ops CLI's merge rules: calls
@@ -701,18 +716,31 @@ meeting of the last N local days gets a row in `att_items` (`items.ts`), read wi
 whose days nobody fragments, may leave `subject` out when `items` is set (**team mode**: no fragments, pins,
 identities or commitments — the items and the learning loop over them only). Per item:
 
-- **sender class** — human, bot, bulk (one-way mail from an unresolved sender the subject never wrote to) or
-  system (role mailboxes), one merged list instead of `bots.ts` and the identities collector disagreeing;
+- **sender class** — human, bot, bulk or system (role mailboxes), one merged list instead of `bots.ts` and the
+  identities collector disagreeing. *Bulk* is one-way mail from an unresolved sender the subject never wrote to —
+  judged on threaded mail only (Outlook mail has no thread in the store, so it never proves one-way) — or mail whose
+  own text (quoted history cut) carries a newsletter footer or link label ("unsubscribe", "view in browser",
+  "vom Newsletter abmelden", "отписаться от рассылки"), never an ordinary word such as "abmelden" (log out). Teams
+  channel posts (`team:…`) are chat, not mail;
 - **repeat cluster** with its weakest-edge confidence — exact repeats, alert episodes (a firing, its repeats
   and its resolve), companion bot posts, cross-posts, forwards, tracker mail ↔ ticket — and a **family** (sender
-  + text template + host/app token), the key a label can be reused under. A human item never joins a bot
-  cluster; a scrub placeholder alone never makes two items equal;
-- **initiative** with its rung and confidence, or candidates: the item's own tracker key, a reply inheriting
-  its decided root, a host or app listed in the registry (`sources.hosts`, `sources.apps`), an unknown host in
-  a channel with a closed host list → `unregistered`, keys in the text, tenant rules, registry channels, a
-  bulk sender → `none`;
+  + text template + the alert's target host, else the first host in the text that is not a monitoring or
+  dashboard site), the key a label can be reused under. A human item never joins a bot cluster; a scrub
+  placeholder alone never makes two items equal;
+- **initiative** with its rung and confidence, or candidates: the item's own tracker key (from the tracker's key
+  field — an Asana gid is no key), a reply inheriting its root's TOPICAL decision (never a bulk sender's `none`; a
+  closed channel's `unregistered` only after the reply's own host and key rungs), a host or app listed in the
+  registry (`sources.hosts`, `sources.apps`), an unknown host in a channel with a closed host list →
+  `unregistered`, keys in the text, tenant rules (a person rule matches a machine item through its author only),
+  registry channels, a bulk sender → `none`;
 - **kind** when structure decides it (bot, bulk and system senders, small talk → `noise`) and the
-  **addressee** (explicit, a vocative first name, the parent's author for a reply, `none` for integrations).
+  **addressee** (explicit, a vocative first name, the parent's author for a reply, `none` for integrations; a
+  role mailbox written by a person → `none` below τ, a question rather than a decision).
+
+The store build's log line carries the pass after the plan's counts — `items <since>..<until>: N (D decided, C
+clusters)` and, with the loop on, `learn shadow: …` — or `items FAILED: <error> (previous rows kept)` (likewise
+`learn`). Known limitation: after a failed pass the readout still serves the previous build's item rows, under
+the new build's `computed_at`, without a staleness marker — the log line is where a failure shows.
 
 ## Learning loop (shadow)
 
@@ -729,24 +757,34 @@ No model anywhere: a model may word a question or pre-fill its guess in the sand
   `answer` (its id: the lines of one answer are ONE observation, however many units it covered), `guess` (what the
   machine proposed before the answer, or null), `conf` and `rung` (its confidence and rung instance), `audit: true`
   (a re-check of an auto-decision). Without `answer`, a call's topic lines decided at the same `decided_at` count as
-  one answer (one override of a call), any other line as its own. The plan reads a `human:<id>` line exactly as
-  before (as `model`); only the loop reads the decider.
+  one answer (one override of a call), and so do the lines one person wrote at one `decided_at` with one label — the
+  owen-ops CLI applies an escalation answer as one line per covered fragment, none with an id; counted per line, one
+  answer about three runs of a route was three confirmations of it. A line without `decided_at` is its own answer.
+  The CLI should write `answer` (the escalation id) anyway: two answers of one session with the same label merge. The
+  plan reads a `human:<id>` line exactly as before (as `model`); only the loop reads the decider.
 - **Items** (item mode): a new file `annotations/labels.jsonl`, one line per answered item:
-  `{ref, task: "t1-item", label, by: "human:<person_id>", answer, audit?, guess?, conf?, rung?, at}`. The last line per
-  task × ref wins; `status: "superseded"` withdraws it. A line by anyone but a person (`by: "model"`, `"rule"`) is
-  kept in the file and never read as evidence.
+  `{ref, task: "t1-item", label, by: "human:<person_id>", answer, audit?, guess?, conf?, rung?, at}`. A person's last
+  line per task × ref wins; `status: "superseded"` withdraws it. A line by anyone but a person (`by: "model"`,
+  `"rule"`) is kept in the file and is neither evidence nor a withdrawal — machine output never deletes a person's
+  answer (nor does a machine's `superseded`); a `human:` decider that is no person id (`"human:Ana"`) counts as
+  malformed. Without `answer`, one person's lines of one `at` and label are one answer.
 - **Seeds**: none yet.
 
-Labels are compared alias-resolved, a split alias spread into its targets (the top share is the label). **Never
-evidence**: the ledger's `rule` and `model` lines, pins, the floor's decisions, the loop's own output, a model's guess
-— on the bench, feeding the loop's own decisions back took its weekly precision from 100 % to 81 %.
+Labels are compared alias-resolved, a split alias spread into its targets (the top share is the label), and must be in
+the **label space** — the registry's labels (no alias, no split), the admin buckets, `none`, `unregistered`,
+`personal`: a line with any other label (a typo, a stale id) is dropped and counted (`evidence.unknown_labels`), since a
+key type that decides after one answer (family, thread, host, app) would spread it to every later unit of its key.
+**Never evidence**: the ledger's `rule` and `model` lines, pins, the floor's decisions, the loop's own output, a model's
+guess — on the bench, feeding the loop's own decisions back took its weekly precision from 100 % to 81 %.
 
-**Audits.** Every build draws the day's audit sample from the units the loop would auto-decide today: seeded by the
-day (every build of a day draws the same units), its size accruing `questionsPerDay × auditShare` per day from the
-first answer on (one about every second day at the defaults). The routine re-asks them; the answer line carries
-`audit: true` and what the machine said (`guess`, `conf`, `rung`). Auto-decided units are never asked otherwise, so
-audits are the only unbiased look at the machine's own precision — the one way a stale rule or a registry error
-reaches the calibration.
+**Audits.** Every build draws the day's audit sample from today's units as the loop auto-decided them BEFORE today's
+answers, seeded by the day, its size accruing `questionsPerDay × auditShare` per day from the first day with an answer
+before today (one about every second day at the defaults). So the day's answers never change the draw — an answered
+audit keeps its flag, a key taught or a rung demoted at noon adds no audits and takes none away, and a sampled unit a
+later answer took below τ is asked as its audit, never also as a question; only a unit that arrives later the same day
+can still enter, by its hash. The routine re-asks them; the answer line carries `audit: true` and what the machine
+said (`guess`, `conf`, `rung`). Auto-decided units are never asked otherwise, so audits are the only unbiased look at
+the machine's own precision — the one way a stale rule or a registry error reaches the calibration.
 
 **What the daemon derives, every build, from scratch** (a pure function of the store and the tenant: deleting the
 store and rebuilding reproduces it): per unit — every fragment of the horizon, every item of the item window — the
@@ -765,6 +803,18 @@ route confirm it), else it asks; the ranked question queue (per client and day, 
 audit sample, and rule candidates (keys people confirmed three times). Each answered unit shows what the loop said
 BEFORE its answer, so `agreement` is an honest check.
 
+Siblings and cues follow the bench's measured K2a (`src/lab/variants/keys2a/{siblings,cues}.ts`). A sibling is an
+initiative of the same client (company, else umbrella) whose status is absent or `active` — planned, unknown, done or
+dormant ones take no work today — never an admin bucket, `personal`, an alias or a split (an alias lends its words to
+its target, a split to each target). A cue names a topic: name words of 4+ letters without the name's remarks in
+`(…)`/`[…]`, title patterns, repo/path basenames and apps unless every word of them names a party or says nothing,
+channels, hosts, and the words of the id's last segment; never a company's id or display name, an umbrella id or a
+person of the roster; within a client a cue two initiatives share is dropped. Two deliberate departures from the
+bench: a tracker key prefix is a route, not a cue, and a one-word channel cue needs its `#`. A route never vouches for
+itself: the cues it rests on never count — a key's `VN-…`, a rule's container and project key, a channel route's
+channel by id and by every name the registry lists for that id — and the run of a channel route or container rule is
+read without its container label (its title `#nw-shop — …` would otherwise carry the channel's words into every run).
+
 **Shadow vs live.** Shadow computes all of that, stores it (`att_learn`: per unit label, conf, rung, the question it
 would ask, audit; the `att:learn` meta: counts and tables) and shows it — and nothing else reads it: the plan, the
 pins, the timelog and the initiative index are byte-identical with the loop on or off (checked on the real store),
@@ -778,6 +828,21 @@ on the canary and its own rollout row.
 how many the floor and the loop would decide and how many of those carry the answer), `calibration` per rung instance,
 `key_types`, today's ranked `questions`, the `audits` and `rule_candidates`. Cost on the owner's store (388
 fragments): about 0.1 s per build; with item mode's 7,272 items, about 1 s more.
+
+**Known limitations** (shadow; to fix before live):
+
+- **Answers expire with their units' window.** Evidence joins only the units of this build — the fragments of the
+  horizon (`since`, default 30 days back) and the items of the item window (`items.days`, default 30). A person's line
+  about a unit outside them is only counted (`evidence.outside`), so once answered units leave, what their answers
+  taught lapses with no new evidence: a demoted rung instance decides again at its prior, an earned key or a route's
+  ctx confirmation goes, and with no answer left in the window no audit is drawn to catch it — the frozen-error
+  pattern the loop exists to prevent. Items always slide; fragments only without a fixed `since` (the home tenant sets
+  one). Until the fix — answered units outside the window built for the learner from a wider evidence-only load, today's
+  rules over their records — keep `since` fixed and read a demotion that disappears as expiry, not as repair.
+- **A later ledger line still replaces a person's.** `fragments.jsonl` keeps its last-line-per-`id` rule — the plan's
+  contract, which this layer does not change — so a `model` or `rule` line written after a person's answer for the same
+  fragment replaces that answer for the plan and the loop alike (labels.jsonl no longer has this). A tenant writer must
+  not re-decide a fragment a person decided.
 
 ## What comes next
 

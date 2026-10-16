@@ -1446,7 +1446,7 @@ function s6Internal(g: Gen): void {
     ] },
     { day: wd(10), recorders: ['gmeet', 'granola'], chips: [['dmitry-sokolov', 'Дмитрий Соколов'], ['mara-keller', 'Mara Keller'], ['olga-ivanova', 'Olga I.']], topics: [
       { heading: 'Alpenhof Go-Live', share: 0.25, label: 'alpenhof/relaunch', brief: 'Spa page late, decision tomorrow.' },
-      { heading: 'KlarText Umbenennung', share: 0.15, label: 'klartext/content-hub', brief: 'Rename to content hub on Wednesday.' },
+      { heading: 'Kieselfeder Umbenennung', share: 0.15, label: 'klartext/content-hub', brief: 'Rename to content hub on Wednesday.' },
       { heading: 'Pitch Zermatt', share: 0.2, label: ZP, brief: 'Pitch on 1 October, deck owners.' },
       { heading: 'MedTrack', share: 0.15, label: 'medtrack/app', brief: 'Push fix in review.' },
       { heading: 'Nordhost Migration', share: 0.15, label: HM, brief: 'Staging cluster ready, DNS TTLs.' },
@@ -1789,7 +1789,7 @@ const HOST_RULES: Record<string, string[]> = {
   'erp-bridge.brightwell.example': ['queue', 'synclag', 'cron', 'mem'],
   'portal.stadtwerke-lindquell.example': ['p95', 'http5xx', 'session', 'down'],
   'api.medtrack.example': ['http5xx', 'p95', 'cpu'],
-  'hub.klartext-verlag.example': ['down', 'disk', 'cron'],
+  'hub.kieselfeder-verlag.example': ['down', 'disk', 'cron'],
   'booker.brightwell.example': ['http5xx', 'dbconn', 'p95'],
   'widget.brightwell.example': ['http5xx', 'p95'],
   'ci.brightwell.example': ['disk', 'cpu', 'mem'],
@@ -2150,7 +2150,7 @@ function personalMail(g: Gen): void {
   add('p-bank', 8, () => g.pick(['Belastungsanzeige', 'Gutschrift erhalten', 'Neue Karte unterwegs', 'Kontoauszug verfügbar']), () => `Bank Zürichsee\nIhr Konto wurde mit CHF ${g.int(20, 2400)}.${String(g.int(0, 99)).padStart(2, '0')} belastet.`, 'personal/personal', 'notification', ['notification']);
   add('p-shop', 10, () => g.pick(['Bestellbestätigung 2026-', 'Ihre Rechnung', 'Danke für Ihre Bestellung']) + g.int(1000, 9999), () => `Bergsport Shop\nBestellung über CHF ${g.int(30, 400)}.90 eingegangen.`, 'personal/personal', 'notification', ['receipt', 'notification']);
   add('p-post', 10, () => `Ihre Sendung ${g.int(10_000_000, 99_999_999)} ist unterwegs`, () => 'Paketdienst\nIhre Sendung wird morgen zugestellt.', 'personal/personal', 'notification', ['notification']);
-  add('p-school', 5, () => g.pick(['Elternabend 1. Klasse', 'Schulreise: Informationen', 'Herbstferien Betreuung']), () => 'Schule Hottingen\nLiebe Eltern, anbei die Informationen.', 'personal/personal', 'notification', ['notification']);
+  add('p-school', 5, () => g.pick(['Elternabend 1. Klasse', 'Schulreise: Informationen', 'Herbstferien Betreuung']), () => 'Schule Wolkenhain\nLiebe Eltern, anbei die Informationen.', 'personal/personal', 'notification', ['notification']);
   add('p-nl-running', 4, () => 'Laufclub News September', () => 'Laufclub Zürich – News, Termine, Trainings.', 'none', 'newsletter', ['newsletter']);
   add('p-nl-kultur', 4, () => 'Kulturagenda: Tipps fürs Wochenende', () => 'Kulturagenda – Ausstellungen, Konzerte, Theater.', 'none', 'newsletter', ['newsletter']);
 }
@@ -2196,7 +2196,7 @@ function calendar(g: Gen): void {
   // One-off client calls that were not recorded.
   const ONE: [string, string, string, number, string[], string, string][] = [
     ['Velo Nord Shop Review', wd(2), '15:00', 45, ['mara-keller', 'kai-lund', 'felix-wagner'], 'mara-keller', 'velonord/shop'],
-    ['KlarText Redaktion Check-in', wd(7), '11:00', 30, ['mara-keller', 'tobias-hofer', 'ines-wolf'], 'tobias-hofer', 'klartext/content-hub'],
+    ['Kieselfeder Redaktion Check-in', wd(7), '11:00', 30, ['mara-keller', 'tobias-hofer', 'ines-wolf'], 'tobias-hofer', 'klartext/content-hub'],
     ['Trial day Elena', wd(19), '09:00', 480, ['mara-keller', 'elena-popescu', 'nina-brunner'], 'mara-keller', 'brightwell/hiring'],
     ['Pitch Probe', wd(17), '16:00', 60, ['mara-keller', 'jonas-brandt', 'nina-brunner'], 'jonas-brandt', 'unregistered:zermatt-pitch'],
     ['Steuerberatung Schmid', wd(14), '10:30', 60, ['mara-keller', 'petra-schmid'], 'petra-schmid', 'brightwell/admin'],
@@ -2771,7 +2771,7 @@ const GIVEN_RULES: GivenRule[] = [
 ];
 
 export function givenTenant(world: World): GivenTenant {
-  const umbrellaName: Record<string, string> = { alpenhof: 'Alpenhof Hotels', velonord: 'Velo Nord', swl: 'Stadtwerke Lindquell', medtrack: 'MedTrack', klartext: 'KlarText Verlag', brightwell: 'Brightwell Digital (internal)', personal: 'Private' };
+  const umbrellaName: Record<string, string> = { alpenhof: 'Alpenhof Hotels', velonord: 'Velo Nord', swl: 'Stadtwerke Lindquell', medtrack: 'MedTrack', klartext: 'Kieselfeder Verlag', brightwell: 'Brightwell Digital (internal)', personal: 'Private' };
   const billing: Record<string, string> = { alpenhof: '30 h/month retainer + fixed-price relaunch', velonord: 'hourly, report only', swl: '60 h/month + SLA', medtrack: 'T&M in half-days', klartext: 'fixed price', brightwell: 'non-billable', personal: 'not work' };
   const peopleOf = (id: string) => world.people.filter((p) => p.given && p.marker?.initiatives.includes(id)).map((p) => ({ email_or_name: p.email ?? p.name, role: p.role }));
   const registered = world.initiatives.filter((i) => i.registered);

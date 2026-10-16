@@ -27,6 +27,21 @@ A dataset is a directory (`src/lab/types.ts`):
 frozen copy of a store (`npm run lab -- export …`) and labelled with `npm run lab -- label …` (silver, Opus). Reports of
 real runs contain counts and label pairs only, never unit text.
 
+A fragment unit's `ladder` (what the `baseline` and `prod-today` read as today's production) is **main's** ladder and
+registry parse (`variants/frozen/`), run over the drafts of **this branch's** fragmenter. The fragmenter changed on this
+branch (recorder copies merged by call id, more participants resolved), so a re-export changes fragment ids and counts —
+calls whose copies used to be separate fragments become one — and earlier runs and silver labels of the old export no
+longer line up with the new units: re-export, re-label and re-run together. Main's ladder over these drafts is close to,
+not exactly, main's production: with more participants resolved, its marker and admin rungs fire more often.
+
+**Known limitation — the tenant is the freeze's, not the window start's.** `tenant/` is linked as given, and
+`MentionUnit.production` is the store's resolution at the freeze. Answers given *inside* the window are therefore
+visible from its first day: rules written from them (`created`), identity merges and the `people.json` they rewrote.
+The ladder and `stage0` (whose `rulesAsOf` defaults to `all`) read those rules, the t3 baseline agrees with part of the
+human gold by construction, and the silver labeller's context pack carries the same roster. No as-of tenant is rebuilt
+yet; `export.json` → `warnings` counts the rules, merges and answered identity questions dated on or after `since`, so
+read human-tier t1/t3 numbers of a real dataset with that count in mind.
+
 **The synthetic tenant** (`bench-agency`) is committed: a fictional SMB agency with its own SaaS product, four weeks of
 Slack, mail, tickets, calls (Granola/Gemini/Wispr copies, glued Gemini invitee lines), calendars and work sessions.
 *Plan, then render*: a seeded plan fixes every item and its truth (initiative shares or `none`/`unregistered`, repeat
@@ -34,7 +49,10 @@ clusters, the identity behind every surface form, kind, addressee); Opus only wr
 through the real `buildStore`. The tenant it is given is deliberately imperfect — a tracker project and a client channel
 that span sibling initiatives, a stale channel rule, over-broad title patterns, a renamed project, unregistered topics —
 because that is what real registries look like. `npm run lab -- synth build` rebuilds it from the committed fixture
-(`src/lab/fixtures/bench-agency/`) without calling a model.
+(`src/lab/fixtures/bench-agency/`) without calling a model — or from `$LAB_DIR/synth/bench-agency` when a render lives
+there (`--fixture` forces the fixture). Its people, companies and organisations are invented (the places are real);
+`synth fixture` refuses a render of any other plan or world, and `scripts/public-guard.sh` reads inside the gzipped
+fixture.
 
 ## Tasks and the headline
 
@@ -49,10 +67,11 @@ because that is what real registries look like. `npm run lab -- synth build` reb
 
 **Headline: auto-share at precision ≥ 95%** — the share of units a variant may decide without a person while the decided
 ones stay at least 95% right. The threshold is chosen on a dev split and the share reported on test; the split is by
-**case** (`src/lab/cases.ts`: all topics and recorder copies of one call, the comments of one ticket, one thread), so an
+**case** (`src/lab/cases.ts`: all topics and recorder copies of one call, a ticket and its comments, one thread), so an
 answer Owen gave per call cannot leak across it. Also reported: the conservative variant (the Wilson lower bound must hold
-the floor), the auto-share at the fixed cut τ = .95 (what production does), umbrella-level scoring, minutes-weighted
-scoring (what the timelog bills), cost per unit and per auto-decided unit, a paired bootstrap against the first variant.
+the floor), the auto-share at the fixed cut τ = .95 (what production does; `--floor` renames the auto@ columns, never
+τ), umbrella-level scoring, minutes-weighted scoring (what the timelog bills), cost per unit and per auto-decided unit, a
+paired bootstrap against the first variant — resampling whole cases, since the units of one case move together.
 
 ## Replay: the loop
 
@@ -60,15 +79,19 @@ scoring (what the timelog bills), cost per unit and per auto-decided unit, a pai
 
 - **Questions** below τ go to a person, `--q` per day in *effort* units: a variant groups units into one question
   (`Prediction.ask.group` — a call, a client-day, a repeat family), a `confirm` with the right guess costs half a question,
-  a wrong guess 1.5, every extra distinct gold label in the group one more.
+  a wrong guess 1.5, every extra distinct gold label in the group one more. The person takes the groups in the variant's
+  rank order while budget is left and pays each one's cost after answering it (the last may overrun the day by its own
+  cost): that cost depends on the answer, so it must never decide which questions get asked.
 - **Audits** (`--audit 0.15`): that share of the budget goes to random checks of auto-decided units (credit accrues across
-  days). They are the only unbiased sample of the machine's precision — questions are, by construction, the units it was
-  unsure of.
+  days; what a day carries over is capped at one day's share, at least one audit, so quiet days cannot bank audits that
+  crowd out a later day's questions). They are the only unbiased sample of the machine's precision — questions are, by
+  construction, the units it was unsure of.
 - **Memory** (`--memory`): `none` = the person's answers only; `loop` adds the pipeline's own decisions (the poisoning
   test); `oracle` = every gold label of earlier days (an upper bound). Every memory row keeps what the pipeline said before
   the answer (`predicted`, `conf`, `rung`) — without that pair nothing can be calibrated.
 - **Nightly**: after each day the variant's `nightly` pass runs (recalibration — the deterministic half of a "dream");
-  `--opt nightly=off` is the ablation.
+  `--opt nightly=off` is the ablation. Every `--opt key=value` of a run is saved in the result (`opts.opt`) and named in
+  the report's run label; ablations under one `--run` still share a result path, so give each its own `--run`.
 
 The loop section of a report shows what τ let through and at which precision, the **frozen errors** (wrong auto-decisions
 no audit caught — production pins them after a day), what the audits would have told the owner about precision, the
@@ -79,7 +102,7 @@ person's effort per day and the weekly curve.
 | Name | What |
 | --- | --- |
 | `baseline` | today's production (main before this change): the ladder, exact repeats, the store's resolution, `is_bot`, `role='to'` — frozen copies in `variants/frozen/` |
-| `prod-today` | the ladder plus the review agent's recorded model decisions (owen-ops fragments, static) |
+| `prod-today` | the ladder plus the review agent's recorded model decisions — its last own line per fragment in the ledger history, the ones Owen later overrode included (owen-ops fragments, static) |
 | `stage0` | the deterministic floor both concepts share — the fix pack ported to `src/sources/attribution/` |
 | `keys`, `keys+g` | iteration 1, concept K "Earned Keys": answers label typed keys (thread, family, host, series…); a key type decides once it has earned τ on later answers; `+g` pre-fills question guesses with one cheap model call a day |
 | `judge` | iteration 1, concept J "Case Judge": two model passes over cases against the full closed list; confidence = the measured precision of the agreement × cite cell, learned from answers and audits |
@@ -99,4 +122,6 @@ npm run lab -- label --dataset my-tenant --task t1-fragment     # Opus silver (s
 ```
 
 Model calls are cached by (model, system, prompt) in `LAB_DIR/cache/`, so re-scoring and re-running are free; the cache
-stores what a call cost, so a cached replay still reports the cost of the variant.
+stores what a call cost, so a cached replay still reports the cost of the variant. The `claude -p` child runs in the
+isolated config dir with CLAUDE.md loading off, so no checkout's `CLAUDE.md`/`CLAUDE.local.md`/`AGENTS.md` rides along;
+calls cached before 2026-10-16 were made with the checkout's files in context.

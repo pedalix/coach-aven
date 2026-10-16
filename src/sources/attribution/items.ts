@@ -9,25 +9,32 @@
 //
 // Per item, in time order (a reply finds its thread's root decided):
 //   sender class (F8)  sender.ts senderClass, plus the one-way bulk rule: an unresolved mail sender with ≥ 3 mails by the
-//                      end of the item's day, none in a thread the subject wrote in → bulk. Recordings are people's.
-//   family             a reuse key, not a duplicate: source + sender + 6-token template (fingerprint.ts) + the first
-//                      host/app token — `fam-<hash>`; a bot's question unit is its family-day
+//                      end of the item's day, none in a thread the subject wrote in → bulk. Threaded mail only: the
+//                      store threads gmail, not msgraph (thread = ref), where the subject's answers are their own
+//                      threads and the rule would call every regular Outlook correspondent bulk. Recordings are people's.
+//   family             a reuse key, not a duplicate: source + sender + 6-token template (fingerprint.ts) + the host/app
+//                      token it is about (items-text.ts familyToken: an alert's target, else the first host in text
+//                      order, monitoring and dashboard hosts aside) — `fam-<hash>`; a bot's question unit is its family-day
 //   cluster (F10)      the duplicate cluster (items-dedup.ts): its earliest member's ref, the weakest edge's confidence
 //   initiative         the T1-item rungs, first that decides wins (graded confidences — an operating point may drop one):
-//     1  the ticket's/comment's own key prefix → registry, unique                                .98
-//     2  a reply inherits its thread's decided root                                       root × .99
+//     1  the ticket's/comment's own key prefix (its tracker key field) → registry, unique          .98
+//     2  a reply inherits its thread's decided root — a topical decision only (not a bulk root's `none`,
+//        which says who sent the root; a closed root's `unregistered` waits for 4')         root × .99
 //     2' one-way bulk mail → `none` (no other rung can say none; a third of a mailbox)            .90
 //     3  bot item: host/app token → registry `hosts`/`apps`                                       .95
 //     3' bot item: unknown host/app in a channel whose host list is closed → `unregistered`       .80
 //     4  tracker keys in the text, unique (several: candidates)                                   .95
-//     5  tenant rule: project_key .97 · container .95 — .85 for a bot item (shared bot channels are mixed)
+//     4' a reply whose root is closed-list `unregistered`, when its own key and hosts said nothing root × .99
+//     5  tenant rule: project_key .97 · container .95 — .85 for a bot item (shared bot channels are mixed);
+//        a person rule matches an integration's item through its author only, not whom it mentions
 //     6  registry channel (id first, then name; shared: candidates)              .95 person / .85 bot
 //     7  mail: the counterpart's domain → its company → that umbrella                 prior + candidates
 //     8  author/addressee markers: exclusive .90 · narrow → candidates
 //   kind (F11)         a resolved alert → noise .95; any other bot post → noise .90 unless it fires, reports an error,
 //                      asks or relays somebody (abstain); bulk → noise .95 unless it asks; a role mailbox → noise .85;
 //                      a person's small talk (the strict lexicon) → noise .85; anything else abstains
-//   addressee (F11)    an integration addresses nobody (.95) · mentions .95/.90 · the DM counterpart .90 · group .60/.85
+//   addressee (F11)    an integration addresses nobody (.95; a role mailbox — info@, office@: a person may type there —
+//                      .85) · mentions .95/.90 · the DM counterpart .90 · group .60/.85
 //                      · the mail's first To .60 (later recipients .55: the store keeps no To/Cc split) · a ticket's
 //                      assignee .80 · a vocative "Ana, …" .85 (roster-wide .80) · the author a reply answers .65 · none .70
 //   case               ticket:<ref> | call:<id> | family:<fam>:<day> (bot, bulk) | thread:<thread>
@@ -43,12 +50,12 @@ import { ruleMatches, type RuleRecord } from './ladder.js';
 import type { FragmentDraft } from './fragment.js';
 import type { Person } from '../people.js';
 import { alertOf, headOf, senderKey, templateOf, type AlertState } from '../fingerprint.js';
-import { isMailItem, parseSender, senderClass as baseSenderClass, type SenderClass } from '../sender.js';
+import { isMailItem, isRoleMailbox, parseSender, senderClass as baseSenderClass, type SenderClass } from '../sender.js';
 import { foldName } from '../identities/attendees.js';
 import { dayIn, loadItems, type ItemIn, type ItemsLoad, type ItemType } from './items-load.js';
 import { Dedup, type DedupFeat, type EdgeType } from './items-dedup.js';
 import { formKey, resolveMention, roster, translit, type Resolved, type Roster } from './items-people.js';
-import { alertIdentity, containerKind, cuesOf, exactKey, exactTokens, FORWARD_PREFIX, hostsApps, isSmallTalk, keyPrefixes, normBody, openingName, stripSubject, type ContainerKind, type Cue } from './items-text.js';
+import { alertIdentity, containerKind, cuesOf, exactKey, exactTokens, familyToken, FORWARD_PREFIX, hostsApps, isSmallTalk, keyPrefixes, normBody, openingName, stripSubject, type ContainerKind, type Cue } from './items-text.js';
 
 export type { SenderClass } from '../sender.js';
 
@@ -293,6 +300,7 @@ export interface ItemFacts {
   hosts: string[];
   apps: string[];
   persons: string[]; // the author and the addressees, resolved
+  author: string | null; // the author alone, resolved — whom a person rule may see in an integration's item
   title: string; // the subject line (rules' title_re)
   domains: string[]; // counterpart mail domains
   root: Decision | null; // the decided first item of the thread, when this one is not it
@@ -318,8 +326,14 @@ export function itemFloor(f: ItemFacts, t: ItemTenant): Decision {
     } else if (k.hits.length > 1) L.add(k.hits);
   }
 
-  // 2. a reply inherits its thread's decided root
-  if (f.root?.label) return { ...f.root, conf: f.root.conf * ITEM_CONF.reply, hint: `reply: ${f.root.hint}` };
+  // 2. a reply inherits its thread's decided root — when the root's decision is about the thread's topic. A bulk root's
+  // `none` is about its sender: a reply by anyone else is no campaign (a bulk reply says none itself at 2'), and the
+  // subject answering it is the opposite of one-way. A closed root's `unregistered` is about the host it alerted on:
+  // the reply's own key or host may name what the root could not ("that is the Acme staging box, SHOP-12"), so it
+  // waits below rungs 3–4 (4'), above the container rungs that the root already overruled.
+  const inherit = (d: Decision): Decision => ({ ...d, conf: d.conf * ITEM_CONF.reply, hint: `reply: ${d.hint}` });
+  const rootRung = f.root?.label ? f.root.rung : '';
+  if (f.root?.label && rootRung !== 'sender:bulk' && !rootRung.startsWith('closed:')) return inherit(f.root);
 
   // 2'. one-way bulk mail (newsletters, campaigns) is nothing to attribute: a guess below τ (.90)
   if (f.sender === 'bulk') return { label: 'none', conf: ITEM_CONF.bulk, rung: 'sender:bulk', candidates: [], hint: 'one-way bulk mail' };
@@ -349,8 +363,14 @@ export function itemFloor(f: ItemFacts, t: ItemTenant): Decision {
     }
   }
 
-  // 5. tenant rules: project_key .97; container .95 — .85 for bot items (shared bot channels carry mixed traffic)
-  const draft: FragmentDraft = { id: '', kind: 'thread', start: '', end: '', refs: [], title: f.title, source: f.source, container: f.container, participants: f.persons, projectKeys: uniq([...(f.ownKey ? [f.ownKey] : []), ...f.keys]), repo: null, weight: 1 };
+  // 4'. a reply to a closed-list alert whose own key and hosts decided nothing: the root's `unregistered`
+  if (f.root?.label && rootRung.startsWith('closed:')) return inherit(f.root);
+
+  // 5. tenant rules: project_key .97; container .95 — .85 for bot items (shared bot channels carry mixed traffic). A
+  // person rule sees an integration's item through its author only: Sentry "assigned to @Ana" in beta's alert channel
+  // is not Ana's work on her rule's initiative (.97 would beat the channel's .85).
+  const participants = machine ? (f.author ? [f.author] : []) : f.persons;
+  const draft: FragmentDraft = { id: '', kind: 'thread', start: '', end: '', refs: [], title: f.title, source: f.source, container: f.container, participants, projectKeys: uniq([...(f.ownKey ? [f.ownKey] : []), ...f.keys]), repo: null, weight: 1 };
   for (const r of t.rules) {
     if (!ruleMatches(r, draft)) continue;
     if (r.then?.initiative) {
@@ -512,6 +532,7 @@ export function kindOf(i: KindInput): Out {
 
 export interface AddresseeInput {
   human: boolean;
+  role?: boolean; // a role mailbox (sender.ts isRoleMailbox): maybe a person typing, so its `none` stays below τ
   type: ItemType;
   author: string | null; // the author's person id
   subject: string | null; // the account owner
@@ -537,6 +558,9 @@ export function addresseeOf(i: AddresseeInput): Out {
   if (!i.human) {
     // A machine mail that asks for action (assigned to you, verify, action required) is the account owner's to-do.
     if (i.asks && i.where === 'mail' && i.subject) return { label: null, conf: 0, rung: 'auto:asks', candidates: [i.subject], hint: 'a notification asking for action' };
+    // info@, office@, reservations@: a small client's shared mailbox is often somebody writing ("Hi Lena, …") — a guess
+    // (the synthetic tenant: 32 of 35 right, under τ). noreply@ and notifications@ keep their .95 (15 of 15).
+    if (i.role) return to([], 0.85, 'auto:role', 'role mailbox');
     return to([], 0.95, 'auto:none', 'integration');
   }
   if (i.smallTalk) return to([], 0.8, 'smalltalk', 'small talk');
@@ -614,22 +638,26 @@ export function floorItems(load: ItemsLoad, tenant: ItemsTenant): ItemRow[] {
   };
   const authorOf = (u: ItemIn): string => u.authorPerson || personOf(u.author);
 
-  // F8: the sender class, causal — what was known by the end of the item's local day.
+  // F8: the sender class, causal — what was known by the end of the item's local day. The one-way rule reads replies by
+  // thread, so it needs threaded mail: an msgraph mail is its own thread (store.ts threadIdOf threads slack and gmail
+  // only), the subject's answer from Sent Items is another one, and every unresolved correspondent with three mails
+  // would turn bulk. Unthreaded mail is bulk by its markers (sender.ts) alone.
   const senderOf = (u: ItemIn): SenderClass => {
     if (u.type === 'meeting') return 'human';
     const isMail = isMailItem(u.source, u.container);
     const author = authorOf(u);
     const at = dayEnd(u.day);
     const wrote = isMail && !!u.thread && mail.subjectWroteIn(u.thread, at);
+    const threaded = !!u.thread && u.thread !== u.ref;
     const c = baseSenderClass({ source: u.source, author: u.author, container: u.container, isBotFlag: u.isBot, subject: u.subject, text: u.body, subjectWroteInThread: wrote, authorResolved: !!author });
-    return c === 'human' && isMail && !author && !wrote && mail.oneWay(senderKey(u.author ?? ''), at) ? 'bulk' : c;
+    return c === 'human' && isMail && threaded && !author && !wrote && mail.oneWay(senderKey(u.author ?? ''), at) ? 'bulk' : c;
   };
 
   // Features every rung reads, once per item.
   const feats = load.items.map((u) => {
     const isMail = isMailItem(u.source, u.container);
     const ha = hostsApps(u);
-    const familyKey = JSON.stringify([u.source, senderKey(u.author ?? ''), templateOf(headOf({ subject: isMail ? u.subject : null, text: u.text })), ha.hosts[0] ?? ha.apps[0] ?? '']);
+    const familyKey = JSON.stringify([u.source, senderKey(u.author ?? ''), templateOf(headOf({ subject: isMail ? u.subject : null, text: u.text })), familyToken(u, ha, !!alertOf(u.text))]);
     return { u, isMail, sender: senderOf(u), hosts: ha.hosts, apps: ha.apps, familyKey, family: familyId(familyKey) };
   });
 
@@ -640,7 +668,9 @@ export function floorItems(load: ItemsLoad, tenant: ItemsTenant): ItemRow[] {
     const { u } = x;
     const first = !!u.thread && !roots.has(u.thread);
     const root = u.thread && !first ? (roots.get(u.thread) ?? null) : null;
-    const own = u.type === 'task' || u.type === 'comment' ? (u.keys.map((k) => OWN_KEY.exec(k)?.[1]).find(Boolean) ?? (u.container && PROJECT.test(u.container) ? u.container : null)) : null;
+    // Its own key field only: an Asana gid is no key, and a key its text names is a cross-reference (rung 4), not its own.
+    const own = u.type === 'task' || u.type === 'comment' ? (OWN_KEY.exec(u.ownKey ?? '')?.[1] ?? (u.container && PROJECT.test(u.container) ? u.container : null)) : null;
+    const author = u.authorPerson || (u.isBot ? '' : personOf(u.author));
     const ds = x.isMail ? (u.fromSubject ? u.participants.map((p) => parseSender(p).domain) : [parseSender(u.author ?? '').domain]) : [];
     const d = itemFloor(
       {
@@ -653,7 +683,8 @@ export function floorItems(load: ItemsLoad, tenant: ItemsTenant): ItemRow[] {
         keys: keyPrefixes(...u.keys, u.subject, u.text),
         hosts: x.hosts,
         apps: x.apps,
-        persons: uniq([u.authorPerson || (u.isBot ? '' : personOf(u.author)), ...u.toPersons].filter(Boolean)),
+        persons: uniq([author, ...u.toPersons].filter(Boolean)),
+        author: author || null,
         title: u.subject ?? '',
         domains: uniq(ds.filter((dm) => dm && !FREE_MAIL.has(dm) && !subjectDomains.has(dm))),
         root,
@@ -695,7 +726,7 @@ export function floorItems(load: ItemsLoad, tenant: ItemsTenant): ItemRow[] {
       trackerKeys,
       trackerMail: x.isMail && !human && (TRACKER_MAIL_DOMAIN.test(domain) || TRACKER_SUBJECT.test(u.subject ?? '')),
       trackerCreated: TRACKER_CREATED.test(`${u.subject ?? ''}\n${u.text.slice(0, 400)}`),
-      ownKey: u.type === 'task' && u.keys[0] && TRACKER_KEY.test(u.keys[0]) ? u.keys[0] : '',
+      ownKey: u.type === 'task' && u.ownKey && TRACKER_KEY.test(u.ownKey) ? u.ownKey : '',
       callId: u.type === 'meeting' && u.thread && u.thread !== u.ref ? u.thread : '',
       family: human ? '' : x.familyKey,
     };
@@ -771,6 +802,7 @@ export function floorItems(load: ItemsLoad, tenant: ItemsTenant): ItemRow[] {
     }
     const a = addresseeOf({
       human,
+      role: x.sender === 'system' && isRoleMailbox(u.author),
       type: u.type,
       author,
       subject,

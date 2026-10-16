@@ -100,6 +100,15 @@ test('callParticipants: attendees ∪ the event\'s attendees and organiser ∪ t
   assert.deepEqual(callParticipants({ attendees: [{ email: '', name: 'Ana Berg Tess North' }], speakers: ['Tess North'] }, null, R), ['ana-berg']);
 });
 
+test('callParticipants: a crowd event (an all-hands: more than MASS_ATTENDEES invitees) adds nobody and covers no glued run', () => {
+  const invitees = (n: number) => ['jo@gamma.example', ...Array.from({ length: n - 1 }, (_, i) => `guest${i}@x.example`)];
+  const granola = { attendees: [{ email: 'olga@home.example', name: 'Olga Owner' }], speakers: [] as string[] };
+  assert.deepEqual(callParticipants(granola, ev('All hands', '2026-10-08T10:00:00Z', invitees(7), 'olga@home.example'), R).sort(), ['jo-muller', 'olga-owner'], 'seven invitees and the organiser: a meeting');
+  assert.deepEqual(callParticipants(granola, ev('All hands', '2026-10-08T10:00:00Z', invitees(8), 'olga@home.example'), R), ['olga-owner'], 'nine people: a crowd');
+  assert.deepEqual(callParticipants(granola, ev('All hands', '2026-10-08T10:00:00Z', invitees(30), 'olga@home.example'), R), ['olga-owner'], 'thirty: nobody from the event');
+  assert.deepEqual(callParticipants({ attendees: [{ email: '', name: 'Ana Berg Tess North' }], speakers: [] }, ev('All hands', '2026-10-08T10:00:00Z', [...invitees(29), 'Tess North <tess@partner.example>']), R), [], 'its names fill no gap');
+});
+
 test('loaders: events around the window (a day of margin for zone offsets); recipients are message_people \'to\'', () => {
   const db = openStore(':memory:');
   try {

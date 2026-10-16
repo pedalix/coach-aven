@@ -12,7 +12,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseAttributionConfig, type AttributionConfig } from './config.js';
 import { parseRegistry, Registry, type RegistryData } from './registry.js';
-import { containerPeople, dedupeMeetings, meetingFragments, messageFragments, settleLowSubstance, workFragments, type FragmentDraft, type MeetingIn, type MsgIn, type WorkBlock } from './fragment.js';
+import { callBase, containerPeople, dedupeMeetings, meetingFragments, messageFragments, settleLowSubstance, workFragments, type FragmentDraft, type MeetingIn, type MsgIn, type WorkBlock } from './fragment.js';
 import { buildResolver, callParticipants, indexEvents, linkedEvent, loadEvents, recipientsOf, speakerLabels } from './participants.js';
 import { planFragments, proposeRules, STATES, type LedgerRecord, type Planned, type State } from './plan.js';
 import { appendPinLines, pinsToAdd, readPins, rulesVersion } from './pins.js';
@@ -45,7 +45,7 @@ export interface AttributionInputs {
   /** The tenant's zone: the horizon's days are cut here; nothing local is stored. */
   timezone: string;
   pinsPath?: string;
-  /** The rules, registry and attribution texts — with the people markers, the rules version a pin records. */
+  /** The rules and registry texts and the config without items/learn (versionConfig) — with the people markers, the rules version a pin records. */
   versionText: string;
   /** annotations/labels.jsonl — people's answers about items; read only while the learning loop is on. */
   labelsText?: string;
@@ -72,6 +72,17 @@ function parseRules(raw: unknown, where = 'annotations/rules.json'): RuleRecord[
 }
 
 /**
+ * attribution.json as a pin's rules version hashes it: parsed, without `items` and `learn`. Item mode and the shadow loop
+ * decide nothing in the plan, so switching them on or off must not change the version the pins of closed days record
+ * (the shadow promise: pins identical with the loop on or off); hashing the parsed object, formatting no longer moves
+ * it either. (The raw text still feeds the build's fingerprint: any edit recomputes.)
+ */
+export function versionConfig(raw: unknown): string {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return JSON.stringify(raw);
+  return JSON.stringify(Object.fromEntries(Object.entries(raw).filter(([k]) => k !== 'items' && k !== 'learn')));
+}
+
+/**
  * The tenant's inputs, or undefined when it ships no `annotations/attribution.json` (the layer is off).
  * `text` is everything the result depends on besides the store, for the build's fingerprint. Throws on a
  * malformed file — the build logs it and keeps the previous tables.
@@ -83,14 +94,15 @@ export function readAttributionInputs(f: AttributionFiles): { inputs: Attributio
   const cfgText = read(cfgPath, '{}');
   const regText = read(join(f.tenantRoot, 'initiatives.json'), '[]');
   const rulesText = read(join(f.annotationsDir, 'rules.json'), '[]');
-  const config = parseAttributionConfig(JSON.parse(cfgText));
+  const cfgRaw = JSON.parse(cfgText) as unknown;
+  const config = parseAttributionConfig(cfgRaw);
   // Pins change the result too: a redo between builds must recompute even when nothing else moved.
   const pinsText = f.pinsPath && existsSync(f.pinsPath) ? readFileSync(f.pinsPath, 'utf8') : '';
   // People's item answers move the loop's keys and calibration: part of the fingerprint, but only while the loop is on —
   // a tenant without `learn` keeps its fingerprint (and its builds) exactly as before.
   const labelsText = config.learn ? read(join(f.annotationsDir, 'labels.jsonl'), '') : undefined;
   return {
-    inputs: { config, registry: parseRegistry(JSON.parse(regText)), rules: parseRules(JSON.parse(rulesText)), timezone: f.timezone ?? 'UTC', ...(f.pinsPath ? { pinsPath: f.pinsPath } : {}), versionText: [rulesText, regText, cfgText].join('\0'), ...(labelsText !== undefined ? { labelsText } : {}) },
+    inputs: { config, registry: parseRegistry(JSON.parse(regText)), rules: parseRules(JSON.parse(rulesText)), timezone: f.timezone ?? 'UTC', ...(f.pinsPath ? { pinsPath: f.pinsPath } : {}), versionText: [rulesText, regText, versionConfig(cfgRaw)].join('\0'), ...(labelsText !== undefined ? { labelsText } : {}) },
     text: [cfgText, regText, rulesText, f.timezone ?? 'UTC', pinsText, ...(labelsText !== undefined ? [labelsText] : [])].join('\0'),
   };
 }
@@ -104,8 +116,10 @@ export function plusDays(day: string, n: number): string {
 }
 
 /**
- * Recorder copies in copy order — start, recorder priority (calls.ts SOURCE_PRIORITY: granola < wispr < gmeet), id —
- * as dedupeMeetings orders them: the first copy names a call, and rowid order flipped that between builds.
+ * Recorder copies by start, then recorder priority (calls.ts SOURCE_PRIORITY: granola < wispr < gmeet), then id — never
+ * rowid order, which flipped results between builds. The commitments take a call's start and title from its first copy
+ * in this order (main's `ORDER BY start`); the fragmenter re-sorts by its own copy order (dedupeMeetings: a copy with a
+ * window of its own before a Gemini doc without one).
  */
 const COPY_ORDER = `start, CASE source ${Object.entries(SOURCE_PRIORITY).map(([s, n]) => `WHEN '${s}' THEN ${n}`).join(' ')} ELSE 9 END, id`;
 
@@ -134,7 +148,7 @@ export interface AttributionDrafts {
   hi: string;
   /** The subject's fragments starting in the horizon, low-substance runs already attached to a call or dropped. */
   drafts: FragmentDraft[];
-  /** The calls as the fragmenter saw them (recorder copies merged by overlap): the summaries topic sub-fragments were cut from. */
+  /** The calls as the fragmenter saw them (recorder copies merged: dedupeMeetings): the summaries topic sub-fragments were cut from. */
   meetings: MeetingIn[];
   ctx: LadderCtx;
 }
@@ -191,8 +205,8 @@ export function loadAttributionDrafts(db: DatabaseSync, inputs: AttributionInput
     .map((r) => ({ ref: str(r.ref), source: str(r.source), container: str(r.container), thread_id: str(r.thread_id), ts: str(r.ts), subject: str(r.subject), text: str(r.text), participants: [...new Set([...participants(str(r.container), localDay(str(r.ts), tz)), ...recipients(str(r.ref))])] }));
 
   // Recorder copies, each with its people: attendee entries read by the one parser, its calendar event (same title,
-  // ±15 min), its transcript's speakers. Which copy names a call is dedupeMeetings' copy order (start, recorder
-  // priority, id) — never the rows' insertion order.
+  // ±15 min), its transcript's speakers. Which copy names a call is dedupeMeetings' copy order (a copy with a window
+  // first, then start, recorder priority, id) — never the rows' insertion order.
   const calendar = indexEvents(loadEvents(db, lo, hi));
   const meetings: MeetingIn[] = (db.prepare(`SELECT source, id, ref, title, start, "end", attendees, summary, transcript, call_id FROM meetings WHERE deleted = 0 AND start >= ? AND start < ? ORDER BY ${COPY_ORDER}`).all(lo, hi) as Row[])
     .map((r) => {
@@ -297,6 +311,8 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
     for (const p of planned) {
       held.add(p.draft.id);
       if (p.ledger_id) held.add(p.ledger_id);
+      // A line under a merged twin's own id is this call's too: the plan indexes the twin's ref — a second row would give it two initiatives.
+      for (const a of p.draft.aliases ?? []) held.add(a);
       if (p.state !== 'decided' && p.state !== 'rule') continue;
       for (const ref of p.draft.refs) for (const a of p.attributions) aIns.run(ref, a.initiative, a.share, p.ledger_id ?? p.draft.id, p.decided_by ?? 'rule');
     }
@@ -321,7 +337,7 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
     throw e;
   }
   // The item floor runs in its own transaction after the fragments are safe: a failure there is reported in the
-  // summary (the build logs it) and leaves the fragment tables of this build intact.
+  // summary (the build line logs it: attributionLine) and leaves the fragment tables of this build intact.
   let items: ItemsSummary | { error: string } | null;
   try {
     items = recomputeItems(db, inputs, people, now);
@@ -334,7 +350,8 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
   let learn: LearnSummary | { error: string } | undefined;
   if (config.learn?.mode === 'shadow') {
     try {
-      learn = recomputeLearn(db, inputs, people, ledgerRecords, now, { drafts: loaded });
+      // The plan's own drafts: none in team mode, which has no fragments — the loop then runs over items only.
+      learn = recomputeLearn(db, inputs, people, ledgerRecords, now, { drafts: { ...loaded, drafts } });
     } catch (e) {
       learn = { error: e instanceof Error ? e.message : String(e) };
     }
@@ -359,7 +376,37 @@ export function clearAttribution(db: DatabaseSync, ledgerRecords: readonly Fragm
   }
 }
 
-/** The pinned ids among the store's fragments whose start lies in [loIso, hiIso] — what a redo releases. */
+/**
+ * What a redo of [loIso, hiIso] releases: the pinned fragments starting there, and for a pinned call also the ids its
+ * recorder copies would have given it (plan.ts: a pin under a copy's own id still decides the call — left in place, it
+ * would decide the call again on the next build and the redo would change nothing). Candidates: unpinLines keeps those
+ * that are pinned.
+ */
 export function pinnedIdsBetween(db: DatabaseSync, loIso: string, hiIso: string): string[] {
-  return (db.prepare('SELECT p.id FROM att_pins p JOIN att_fragments f ON f.id = p.id WHERE f.start >= ? AND f.start <= ?').all(loIso, hiIso) as { id: string }[]).map((r) => r.id);
+  const rows = db.prepare('SELECT f.id, f.kind, f.refs FROM att_pins p JOIN att_fragments f ON f.id = p.id WHERE f.start >= ? AND f.start <= ? ORDER BY f.start, f.id').all(loIso, hiIso) as { id: string; kind: string; refs: string }[];
+  const copy = db.prepare('SELECT start FROM meetings WHERE source = ? AND id = ? AND deleted = 0');
+  const out: string[] = [];
+  for (const r of rows) {
+    out.push(r.id);
+    if (r.kind !== 'call') continue;
+    const suffix = /#\d+$/.exec(r.id)?.[0] ?? '';
+    for (const ref of JSON.parse(r.refs) as string[]) {
+      const m = /^meeting:([^:]+):(.*)$/.exec(ref);
+      const start = m ? str((copy.get(m[1]!, m[2]!) as Row | undefined)?.start) : '';
+      if (m && start) out.push(callBase({ source: m[1]!, id: m[2]!, start }) + suffix);
+    }
+  }
+  return [...new Set(out)];
+}
+
+/**
+ * The attribution part of the store build's log line (run.ts): the plan's counts, then — only while they are on — the
+ * item pass and the learning loop, or their error (each runs in its own try after the plan: a failure costs the plan
+ * nothing, keeps the previous build's item/loop rows, and is reported nowhere else).
+ */
+export function attributionLine(a: AttributionSummary): string {
+  const fail = (what: string, e: { error: string }) => `; ${what} FAILED: ${e.error} (previous rows kept)`;
+  const items = !a.items ? '' : 'error' in a.items ? fail('items', a.items) : `; items ${a.items.since}..${a.items.until}: ${a.items.items} (${a.items.decided} decided, ${a.items.clusters} clusters)`;
+  const learn = !a.learn ? '' : 'error' in a.learn ? fail('learn', a.learn) : `; learn ${a.learn.mode}: ${a.learn.units.fragment} fragments + ${a.learn.units.item} items, would decide ${a.learn.would_decide} (floor ${a.learn.floor_decided}), ${a.learn.questions} questions, ${a.learn.audits} audits`;
+  return `attribution ${a.since}..${a.until}: ${a.fragments} fragments (${Object.entries(a.states).map(([k, v]) => `${k} ${v}`).join(', ')}), ${a.proposals} proposals${items}${learn}`;
 }

@@ -6,7 +6,9 @@
 //   open      — the ledger has nothing and the ladder only narrows: candidates + hint for a judgment
 // The ledger wins: the ladder never re-decides what is recorded. A fragment is covered by a record with its
 // id or — for message runs — by a record whose refs overlap (a review window that cut a run elsewhere
-// produced another id for the same messages). Rule proposals: ported from the owen-ops CLI (plan.ts).
+// produced another id for the same messages), and a call also by a record or pin under the id one of its other
+// recorder copies would have given it (fragment.ts aliases: a copy that lands later may rename the call). Rule
+// proposals: ported from the owen-ops CLI (plan.ts).
 import type { FragmentDraft } from './fragment.js';
 import { attribute, type Attribution, type LadderCtx, type RuleRecord } from './ladder.js';
 import type { Pin } from './pins.js';
@@ -35,7 +37,7 @@ export interface Planned {
   rationale: string;
   candidates: string[];
   hint: string;
-  /** The ledger record covering this fragment (its own id, or an overlapping run's). */
+  /** The ledger record covering this fragment (its own id, an overlapping run's, or a call's alias). */
   ledger_id: string | null;
   /** Set when a pinned rule decision is in effect (no ledger record covers the fragment). */
   pinned_at?: string;
@@ -60,7 +62,11 @@ export function planFragments(drafts: FragmentDraft[], ledger: ReadonlyMap<strin
   const threadByRef = new Map<string, LedgerRecord>();
   for (const r of records.values()) if (r.kind === 'thread') for (const ref of r.refs) threadByRef.set(ref, r);
   return drafts.map((d) => {
-    const rec = records.get(d.id) ?? (d.kind === 'thread' ? d.refs.map((ref) => threadByRef.get(ref)).find((r) => !!r) : undefined);
+    // A call answers to its own id, then to the ids its other recorder copies would have given it: a copy that lands after
+    // the review but started earlier renames the call (fragment.ts copyOrder), and the judgment or pin under the old name
+    // must not detach — else the ladder re-decides a judged call and, its day closed, pins that over the person's answer.
+    const ids = d.kind === 'call' && d.aliases?.length ? [d.id, ...d.aliases] : [d.id];
+    const rec = ids.map((id) => records.get(id)).find((r) => !!r) ?? (d.kind === 'thread' ? d.refs.map((ref) => threadByRef.get(ref)).find((r) => !!r) : undefined);
     if (rec) {
       return {
         draft: d,
@@ -74,7 +80,7 @@ export function planFragments(drafts: FragmentDraft[], ledger: ReadonlyMap<strin
         ledger_id: rec.id,
       } satisfies Planned;
     }
-    const pin = pins.get(d.id);
+    const pin = ids.map((id) => pins.get(id)).find((p) => !!p);
     if (pin) {
       return { draft: d, state: 'decided', decided_by: 'rule', attributions: pin.attributions, rule_id: pin.rule_id, rationale: pin.rationale, candidates: [], hint: '', ledger_id: null, pinned_at: pin.pinned_at, rules_version: pin.rules_version } satisfies Planned;
     }

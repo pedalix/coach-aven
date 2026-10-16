@@ -82,3 +82,15 @@ test('F2: title patterns of ≤ 5 characters are whole words (Unicode-aware); lo
   assert.deepEqual(reg.routeTitle('Acme support call').candidates, ['acme/shop', 'acme/retainer']);
   assert.equal(reg.routeTitle('   ').reason, 'empty title');
 });
+
+test('F2: a short pattern padded or punctuated the way the substring rule needed still matches — word edges only at its letters', () => {
+  assert.equal(titleMatcher(' ST ')('Weekly ST sync'), true, 'padding is trimmed');
+  assert.equal(titleMatcher(' ST ')('ST Weekly'), true);
+  assert.equal(titleMatcher('ST ')('ST Weekly'), true);
+  assert.equal(titleMatcher(' ST ')('Strategy'), false, 'still a word');
+  assert.equal(titleMatcher('HCG:')('HCG:Weekly'), true, 'no edge needed after the colon');
+  assert.equal(titleMatcher('HCG:')('XLHS:Weekly'), false, '…but before the L');
+  assert.equal(titleMatcher('[ST]')('[ST]Weekly'), true);
+  assert.equal(titleMatcher('[ST]')('Sync [st] notes'), true);
+  assert.equal(titleMatcher('   ')('Any title at all'), false, 'a blank pattern names nothing');
+});

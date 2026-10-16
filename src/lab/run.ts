@@ -3,9 +3,10 @@
 //
 //   static — every day decided cold: memory is always empty and nobody answers anything. What the pipeline
 //            does with no learning at all (and the only fair mode for a variant without memory).
-//   replay — after each day the person answers up to `questionsPerDay` of the day's questions (abstentions
-//            and labels under the run's threshold; the costliest fragments first, then the least sure) with
-//            the gold label. What later days may remember is the `memory` policy:
+//   replay — after each day the person answers the day's questions (abstentions and labels under the run's
+//            threshold; the costliest fragments first, then the least sure) in that order until the
+//            `questionsPerDay` effort budget is spent, with the gold label. What later days may remember is
+//            the `memory` policy:
 //              none   — the person's answers only (source 'human'): learning from people alone
 //              loop   — the answers plus the pipeline's own auto-decisions (source 'machine', their PREDICTED
 //                       label, wrong ones included on purpose: does the loop amplify its own mistakes?)
@@ -57,6 +58,18 @@ export interface SavedOpts {
   tiers: GoldTier[] | null;
   runName: string;
   llm: boolean;
+  // The --opt ablation settings the variants read (LAB_OPT_<key> → key: value), as they stood when the run
+  // started; absent when there were none. Without them two ablations of one variant read the same.
+  opt?: Record<string, string>;
+}
+
+// The LAB_OPT_* settings in force (cli.ts sets one per --opt key=value), sorted by key.
+export function labOpts(env: NodeJS.ProcessEnv = process.env): Record<string, string> | undefined {
+  const pairs = Object.entries(env)
+    .filter((e): e is [string, string] => e[0].startsWith('LAB_OPT_') && e[0].length > 8 && typeof e[1] === 'string')
+    .map(([k, v]) => [k.slice(8), v] as const)
+    .sort(([a], [b]) => a.localeCompare(b));
+  return pairs.length ? Object.fromEntries(pairs) : undefined;
 }
 
 export interface DayStat {
@@ -141,6 +154,7 @@ function byDay(units: Unit[]): Map<string, Unit[]> {
 export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts: RunOpts): Promise<RunResult> {
   if (!variant.tasks.includes(task)) throw new Error(`variant ${variant.name} does not do ${task} (it does ${variant.tasks.join(', ')})`);
   const t0 = Date.now();
+  const opt = labOpts();
   const budget = opts.questionsPerDay ?? 10;
   // τ, the decide/ask cut: a replay asks below .95 by default (design §0); a static run counts every label.
   const thr = opts.threshold ?? (opts.mode === 'replay' ? 0.95 : 0);
@@ -193,7 +207,11 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
       );
       // The person's effort, in questions: a group whose members share one gold label is one question; a
       // 'confirm' with the right guess is half of one, a wrong guess one and a half; every further gold label
-      // in the group is one more. The budget is filled greedily in this unit (design §5.1 — an assumption).
+      // in the group is one more (design §5.1 — an assumption). That cost depends on the ANSWER, so it may never
+      // choose what gets asked: the person takes the groups in the variant's rank order while budget is left and
+      // pays each group's cost after answering it — the last one may overrun the day by at most its own cost.
+      // Skipping a group because its answer would be dear held back exactly the answers that contradict a guess
+      // or split a group: learners and calibrations then fed on outcome-selected rows no real person could give.
       const effort = (ps: Prediction[]): number => {
         const labels = new Set(ps.map((p) => gold.get(p.id)?.label).filter((l): l is string => !!l));
         const form = ps[0].ask?.form ?? 'choose';
@@ -202,15 +220,18 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
         return 1 + Math.max(0, labels.size - 1);
       };
       // Audit credit accrues across days (Q × share per day): at Q=3 and 15% that is one audit every ~2.2 days,
-      // not floor(0.45) = none at all.
-      auditCredit += Math.max(0, budget) * (opts.auditShare ?? 0);
+      // not floor(0.45) = none at all. What a day carries over is capped at one day's share (at least one audit,
+      // so a fractional share still adds up): days with nothing auto-decided to check must not bank audits that
+      // the first busy day then spends at once, crowding out its questions — a cold start's early learning days.
+      const allot = Math.max(0, budget) * (opts.auditShare ?? 0);
+      auditCredit = Math.min(auditCredit, Math.max(1, allot)) + allot;
       const audits = Math.min(auto.length, Math.floor(auditCredit + 1e-9));
       auditCredit -= audits;
       let left = Math.max(0, budget - audits);
       const asks: [string, Prediction[]][] = [];
       for (const g of ranked) {
+        if (left <= 1e-9) break;
         const e = effort(g[1]);
-        if (e > left) continue;
         asks.push(g);
         left -= e;
         effortToday += e;
@@ -276,7 +297,7 @@ export async function runTask(ds: Dataset, variant: Variant, task: TaskId, opts:
     datasetDir: ds.dir,
     variant: variant.name,
     task,
-    opts: { mode: opts.mode, memory: opts.memory, questionsPerDay: budget, auditShare: opts.auditShare ?? 0, threshold: thr, population, tiers: opts.tiers ?? null, runName: opts.runName, llm: !!opts.llm },
+    opts: { mode: opts.mode, memory: opts.memory, questionsPerDay: budget, auditShare: opts.auditShare ?? 0, threshold: thr, population, tiers: opts.tiers ?? null, runName: opts.runName, llm: !!opts.llm, ...(opt ? { opt } : {}) },
     predictions,
     answered,
     audited,

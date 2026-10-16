@@ -9,17 +9,19 @@
 //                typed keys (ported from the bench's K, src/lab/variants/keys/extract.ts, so the measured priors hold),
 //                its case key, its text (cue matching) and minutes
 //   evidence     the contract (docs/sources.md → "Learning loop (shadow)"): a fragment's ledger line a PERSON decided
-//                ('owen' or 'human:<id>', status decided) and an item's annotations/labels.jsonl line by a person. Never
-//                the machine's own output — rule/model lines, pins, the floor, the learner's decisions, a model's guess:
-//                fed back as evidence it froze its own errors in (poisoning test: weekly precision 100% → 81%)
+//                ('owen' or 'human:<id>', status decided) and an item's annotations/labels.jsonl line by a person, with a
+//                label of the label space (a typo is dropped and counted), one answer id per answer. Never the machine's
+//                own output — rule/model lines, pins, the floor, the learner's decisions, a model's guess: fed back as
+//                evidence it froze its own errors in (poisoning test: weekly precision 100% → 81%)
 //   initiatives  the registry as the sibling-aware rungs read it: umbrella, company, whether it can be a sibling, cues
+//                (the bench's K2a rules: topic words only, never a party's or a person's name)
 //
 // Out: att_learn (one row per unit: label, conf, rung, ask, audit) and the `att:learn` meta (calibration, key types,
 // today's ranked questions, the audit sample, rule candidates, counts) — the `attribution` tool shows them on
 // `learn: true`. Shadow: the plan, the pins and the timelog never read either.
 import type { DatabaseSync } from 'node:sqlite';
 import { attribute, type Attribution, type RuleRecord } from './ladder.js';
-import { channelIdOf, normaliseRepo, normChannel, Registry, titleMatcher, type RegistryData } from './registry.js';
+import { CHANNEL_ID, channelIdOf, normaliseRepo, normChannel, Registry, titleMatcher, type RegistryData } from './registry.js';
 import { loadAttributionDrafts, localDay, type AttributionDrafts, type AttributionInputs } from './build.js';
 import { topics, type FragmentDraft } from './fragment.js';
 import { loadItems, type ItemIn } from './items-load.js';
@@ -357,6 +359,29 @@ export function ruleTrigger(rung: string, rules: readonly RuleRecord[]): string[
   return [...(w.container ? [`channel:${w.container}`] : []), ...(w.project_key ? [`key:${w.project_key}`] : []), ...(w.repo ? [`repo:${w.repo}`] : [])];
 }
 
+/**
+ * A channel route keyed by id rests on that channel whatever it is called: the names the registry lists for the id join
+ * the trigger (`channel:C0NWSHOP01` → `#nw-shop`), so a mention of the channel is no cue of its own initiative — as for a
+ * route keyed by name, whose name the learner excludes itself (learn-trust.ts triggerNorms).
+ */
+export function channelTrigger(rung: string, reg: Registry): string[] {
+  const id = rung.startsWith('channel:') ? rung.slice('channel:'.length) : '';
+  if (!CHANNEL_ID.test(id)) return [];
+  return uniq(reg.data.initiatives.flatMap((i) => reg.channels(i).filter((c) => c.id === id && !!c.name).map((c) => `channel:${c.name}`)));
+}
+
+/** Does the rung instance rest on the unit's own container — a channel route, a tenant rule keyed on the container? */
+export function restsOnContainer(rung: string, rules: readonly RuleRecord[]): boolean {
+  if (rung.startsWith('channel:')) return true;
+  return rung.startsWith('rule:') && !!rules.find((r) => r.id === rung.slice('rule:'.length))?.when?.container;
+}
+
+/** A run's title without its container label (fragment.ts: `#nw-shop — Invoice 118` → `Invoice 118`; a chat run → ''). */
+export function runHead(d: Pick<FragmentDraft, 'title' | 'container'>): string {
+  const c = d.container ?? '';
+  return c && d.title.startsWith(c) ? d.title.slice(c.length).replace(/^\s*—\s*/, '') : d.title;
+}
+
 // --- units ------------------------------------------------------------------------------------------------------
 
 /** The summary section of topic #n (1-based), as topics() numbers them — a topic fragment's own text. */
@@ -393,7 +418,10 @@ export function fragmentUnits(db: DatabaseSync, loaded: Pick<AttributionDrafts, 
   for (const m of loaded.meetings) for (const r of [`meeting:${m.source}:${m.id}`, ...(m.twins ?? [])]) calls.set(r, { ...(m.callId ? { callId: m.callId } : {}), summary: m.summary });
   const msg = db.prepare('SELECT author_raw, ts, subject, text FROM messages WHERE ref = ?');
   const act = db.prepare('SELECT title, items_text FROM activity WHERE source = ? AND id = ? AND deleted = 0');
-  const textOf = (d: FragmentDraft): string => {
+  // `place`: may the run's container label count as its words? Not when the rung rests on that container (a channel route,
+  // a container rule): the label IS the route, and a route cannot vouch for itself — `#nw-shop` (or any word of it, "shop")
+  // found in every run of the channel kept each one at the route's confidence, its siblings notwithstanding.
+  const textOf = (d: FragmentDraft, place: boolean): string => {
     if (d.kind === 'call') {
       const n = /#(\d+)$/.exec(d.id);
       const summary = calls.get(d.refs[0] ?? '')?.summary ?? '';
@@ -404,13 +432,15 @@ export function fragmentUnits(db: DatabaseSync, loaded: Pick<AttributionDrafts, 
       const r = m ? (act.get(m[1]!, m[2]!) as Row | undefined) : undefined;
       return `${d.title}\n${str(r?.items_text)}`.trim();
     }
-    // A run is the subject's own messages; a call's attached greeting refs are not part of its text.
+    // A run is the subject's own messages; a call's attached greeting refs are not part of its text. Its title is the
+    // container label and the subjects, which the lines carry as well.
     const lines = d.refs
       .map((ref) => msg.get(ref) as Row | undefined)
       .filter((r): r is Row => !!r)
       .sort((a, b) => str(a.ts).localeCompare(str(b.ts)))
       .map((r) => `${str(r.author_raw)}: ${str(r.subject) ? `${str(r.subject)} — ` : ''}${str(r.text)}`);
-    return [d.title, ...lines].join('\n');
+    const head = place ? d.title : runHead(d);
+    return [...(place || head ? [head] : []), ...lines].join('\n');
   };
   const said = loaded.drafts.map((d) => {
     const r = attribute(d, loaded.ctx);
@@ -436,8 +466,8 @@ export function fragmentUnits(db: DatabaseSync, loaded: Pick<AttributionDrafts, 
       caseKey,
       minutes: Math.round((Number.isFinite(wall) ? wall : 0) * d.weight * 10) / 10,
       keys: fragmentKeys(d, coworkOf(d, work), subject, vocab),
-      text: clip(textOf(d), TEXT_FRAGMENT),
-      trigger: ruleTrigger(rung, loaded.ctx.rules),
+      text: clip(textOf(d, !(d.kind === 'thread' && restsOnContainer(rung, loaded.ctx.rules))), TEXT_FRAGMENT),
+      trigger: [...ruleTrigger(rung, loaded.ctx.rules), ...channelTrigger(rung, reg)],
     };
   });
   const active = activeKeys(base);
@@ -455,6 +485,7 @@ export function itemUnits(db: DatabaseSync, inputs: AttributionInputs, vocab: Vo
   if (!rows.length) return [];
   const load = loadItems(db, { since: w.since, until: w.until, tz: inputs.timezone }, inputs.config.subject || null);
   const byRef = new Map(load.items.map((u) => [u.ref, u]));
+  const reg = new Registry(inputs.registry);
   const base = rows.flatMap((r) => {
     const u = byRef.get(str(r.ref));
     if (!u) return [];
@@ -473,7 +504,7 @@ export function itemUnits(db: DatabaseSync, inputs: AttributionInputs, vocab: Vo
         caseKey: str(r.case_key),
         keys: itemKeys(u, { senderClass: str(r.sender_class) as SenderClass, family: str(r.family) }, vocab),
         text: clip(`${u.subject ? `${u.subject}\n` : ''}${u.text}`, TEXT_ITEM),
-        trigger: ruleTrigger(rung, inputs.rules),
+        trigger: [...ruleTrigger(rung, inputs.rules), ...channelTrigger(rung, reg)],
       },
     ];
   });
@@ -497,7 +528,13 @@ export interface LabelLine {
   at: string;
 }
 
-/** labels.jsonl → the live lines: the last line per (task, ref) wins, `status: "superseded"` withdraws it; junk is counted. */
+/**
+ * labels.jsonl → the live PERSON lines: per (task, ref) a person's latest line wins and `status: "superseded"` withdraws
+ * it. A line by anyone else (`by: "model"`, `"rule"` …) stays in the file and is neither evidence nor a withdrawal — the
+ * sandbox agent labelling an item after a person did must not delete the person's answer (nor may a machine's
+ * `superseded`). Junk is counted and changes nothing: unreadable JSON, no ref or `at`, a person's line without a label, a
+ * `human:` decider that is no person id ("human:Ana").
+ */
 export function parseLabels(text: string): { labels: LabelLine[]; malformed: number } {
   const byKey = new Map<string, LabelLine>();
   let malformed = 0;
@@ -516,12 +553,17 @@ export function parseLabels(text: string): { labels: LabelLine[]; malformed: num
       malformed++;
       continue;
     }
+    const by = typeof r.by === 'string' ? r.by : '';
+    if (by && !isHumanDecider(by)) {
+      if (by.startsWith('human:')) malformed++;
+      continue;
+    }
     const key = `${task}\0${r.ref}`;
     if (r.status === 'superseded') {
       byKey.delete(key);
       continue;
     }
-    if (typeof r.label !== 'string' || !r.label || typeof r.by !== 'string' || !r.by) {
+    if (typeof r.label !== 'string' || !r.label || !by) {
       malformed++; // junk never withdraws the line before it
       continue;
     }
@@ -530,7 +572,7 @@ export function parseLabels(text: string): { labels: LabelLine[]; malformed: num
       ref: r.ref as string,
       task,
       label: r.label,
-      by: r.by,
+      by,
       at: r.at as string,
       ...(typeof r.answer === 'string' && r.answer ? { answer: r.answer } : {}),
       ...(r.audit === true ? { audit: true } : {}),
@@ -544,38 +586,76 @@ export function parseLabels(text: string): { labels: LabelLine[]; malformed: num
 
 const dayOrElse = (iso: string | undefined, tz: string, fallback: string): string => (iso && Number.isFinite(Date.parse(iso)) ? localDay(iso, tz) : fallback);
 
+/** Labels a person may give that no registry entry carries. */
+export const SPECIAL_LABELS: readonly string[] = ['none', 'unregistered', 'personal'];
+
+/**
+ * The labels evidence may carry: the registry's (no alias, no split — answers are alias-resolved and spread first), the
+ * admin buckets of attribution.json (the admin rung decides them, listed or not) and none, unregistered, personal. A label
+ * outside it is a typo or a stale id: learned as is, a one-answer key type (family, thread, host, app) would decide every
+ * later unit of its key as an initiative the registry does not have.
+ */
+export function labelSpace(reg: Registry, admin: Readonly<Record<string, string>> = {}): Set<string> {
+  const out = new Set<string>();
+  for (const i of reg.data.initiatives) if (!i.alias_of && !i.split_into) out.add(i.id);
+  for (const b of Object.values(admin)) for (const l of labelsOf(b, reg)) out.add(l);
+  for (const s of SPECIAL_LABELS) out.add(s);
+  return out;
+}
+
+/**
+ * The answer a person's ledger line belongs to — lines of one answer are ONE observation: its `answer` id; else a call's
+ * topic lines decided together (the id without `#n` + decided_at: one override of a call, whatever each topic got); else
+ * the lines one person applied at one instant with one label (the owen-ops CLI writes a line per fragment an escalation
+ * answer covered — one decided_at, no answer id; counted per line, one answer about three runs of a route was three
+ * confirmations of it, enough for the ctx key's k = 3); a line without decided_at is its own.
+ */
+export function answerOfLine(f: Pick<Fragment, 'id' | 'answer' | 'decided_at' | 'decided_by' | 'decider'>, label: string): string {
+  if (f.answer) return f.answer;
+  if (/#\d+$/.test(f.id)) return `${f.id.replace(/#\d+$/, '')}@${f.decided_at ?? ''}`;
+  return f.decided_at ? `${f.decider ?? f.decided_by}@${f.decided_at}@${label}` : `${f.id}@`;
+}
+
 /**
  * Fragments' evidence: the ledger lines a person decided (status decided), on the unit each covers — by its own id or,
- * for a message run, by overlapping refs (att_fragments.ledger_id says which). The answer id is the line's `answer`;
- * without one, a call's topic lines decided together are ONE answer (the id without `#n` + decided_at: one override
- * of a call is one observation, not one per topic), any other line its own.
+ * for a message run, by overlapping refs (att_fragments.ledger_id says which); answer ids by answerOfLine. `space`: the
+ * label space — a line whose label is outside it is dropped and counted (`unknown`), never learned.
  */
-export function fragmentEvidence(cover: readonly { id: string; ledger_id: string; day: string }[], ledger: readonly Fragment[], reg: Registry, tz: string): { evidence: Evidence[]; outside: number } {
+export function fragmentEvidence(cover: readonly { id: string; ledger_id: string; day: string }[], ledger: readonly Fragment[], reg: Registry, tz: string, space?: ReadonlySet<string>): { evidence: Evidence[]; outside: number; unknown: number } {
   const human = new Map(ledger.filter((f) => f.status === 'decided' && isHumanLine(f)).map((f) => [f.id, f]));
   const used = new Set<string>();
+  const unknown = new Set<string>();
   const evidence: Evidence[] = [];
   for (const c of cover) {
     const f = human.get(c.ledger_id);
     const label = f ? labelOf(f.attributions, reg) : null;
     if (!f || !label) continue;
     used.add(f.id);
+    if (space && !space.has(label)) {
+      unknown.add(f.id);
+      continue;
+    }
     evidence.push({
       id: c.id,
       day: dayOrElse(f.decided_at, tz, c.day),
       label,
       source: 'human',
-      answer: f.answer ?? `${f.id.replace(/#\d+$/, '')}@${f.decided_at ?? ''}`,
+      answer: answerOfLine(f, label),
       ...(f.audit ? { audit: true } : {}),
       ...(f.guess !== undefined ? { guess: f.guess } : {}),
     });
   }
-  return { evidence, outside: [...human.keys()].filter((id) => !used.has(id)).length };
+  return { evidence, outside: [...human.keys()].filter((id) => !used.has(id)).length, unknown: unknown.size };
 }
 
-/** Items' evidence: a person's t1-item lines (labels.jsonl) on units of the item window; labels alias-resolved. */
-export function itemEvidence(labels: readonly LabelLine[], units: ReadonlyMap<string, { day: string }>, reg: Registry, tz: string): { evidence: Evidence[]; outside: number } {
+/**
+ * Items' evidence: a person's t1-item lines (labels.jsonl) on units of the item window; labels alias-resolved, a label
+ * outside `space` dropped and counted. Without an `answer` id, one person's lines of one instant and label are one answer.
+ */
+export function itemEvidence(labels: readonly LabelLine[], units: ReadonlyMap<string, { day: string }>, reg: Registry, tz: string, space?: ReadonlySet<string>): { evidence: Evidence[]; outside: number; unknown: number } {
   const evidence: Evidence[] = [];
   let outside = 0;
+  let unknown = 0;
   for (const l of labels) {
     if (l.task !== 't1-item' || !isHumanDecider(l.by)) continue;
     const u = units.get(l.ref);
@@ -583,42 +663,77 @@ export function itemEvidence(labels: readonly LabelLine[], units: ReadonlyMap<st
       outside++;
       continue;
     }
+    const label = labelsOf(l.label, reg)[0] ?? l.label;
+    if (space && !space.has(label)) {
+      unknown++;
+      continue;
+    }
     evidence.push({
       id: l.ref,
       day: dayOrElse(l.at, tz, u.day),
-      label: labelsOf(l.label, reg)[0] ?? l.label,
+      label,
       source: 'human',
-      answer: l.answer ?? `${l.ref}@${l.at}`,
+      answer: l.answer ?? `${l.by}@${l.at}@${label}`,
       ...(l.audit ? { audit: true } : {}),
       ...(l.guess !== undefined ? { guess: l.guess } : {}),
     });
   }
-  return { evidence, outside };
+  return { evidence, outside, unknown };
 }
 
 // --- initiatives --------------------------------------------------------------------------------------------------
 
-// Statuses that end an initiative's life: it is no sibling anymore (a done relaunch does not split a client's traffic).
-const ENDED = new Set(['done', 'dormant', 'archived', 'closed', 'inactive', 'cancelled', 'canceled', 'paused', 'alias']);
-// Words of a name as written: the learner folds a cue itself (a person-name fold would bend "Aerospace" to "arospace").
-const nameTokens = (s: string): string[] => s.split(/[^\p{L}\p{N}]+/u).filter((t) => letters(t) >= 3 && !STOP.has(t.toLowerCase()));
+// The bench's K2a rules (src/lab/variants/keys2a/cues.ts, siblings.ts — what iteration 2 measured), ported:
+// Live statuses: none given, or 'active'. A planned, unknown, proposed, done or dormant initiative takes no work today, so
+// it splits no client's traffic — the looser "not ended" rule gave 14 sibling-scoped initiatives on the home registry
+// instead of the bench's 8, each new sibling a doubt (.85, a question) and a source of relabelling cues.
+const LIVE = /^(?:active)?$/i;
+// A parenthesised or bracketed remark is not a name: "(fixed price, go-live W3→W4)", "(Alpenhof is the pilot)", "(ad hoc)".
+const noRemarks = (s: string): string => s.replace(/\([^)]*\)/g, ' ').replace(/\[[^\]]*\]/g, ' ');
+const wordsOf = (s: string): string[] => s.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+const folded = (s: string): string => s.normalize('NFKD').replace(/\p{M}+/gu, '').toLowerCase();
+const basename = (p: string): string => p.replace(/\.git$/, '').replace(/[/*]+$/, '').split(/[/:]/).filter(Boolean).pop() ?? '';
 
 /**
- * The registry as the sibling-aware learner reads it (notes 20, K2a): one entry per label id (a plain alias folds into
- * its target, cues included), with
+ * The registry as the sibling-aware learner reads it (notes 20, K2a): one entry per label id — a plain alias lends its
+ * cues to its target and a split to each of its targets, neither is an entry (a unit's label never is one) — with
  *   umbrella  the initiative's umbrella (else its id's first segment); company when the registry names one
- *   active    still running: not done, dormant, archived … — an ended initiative is no sibling (a done relaunch does
- *             not split a client's traffic)
+ *   active    live: no status or `active` — anything else is no sibling (a done relaunch, a planned app do not split a
+ *             client's traffic)
  *   admin     the umbrella's admin bucket (attribution.json `admin`): neither has nor is a sibling (`personal` the
  *             learner recognises itself)
  *   cues      typed where the type matters, so the learner matches each its own way (learn-trust.ts parseCue): name
- *             tokens as words, `title:<pattern>`, `#<channel>` and channel ids, `key:<PREFIX>` (matches `VN-12`, never
- *             the bare letters), `repo:`/`path:` (their basename), `host:`, `app:`. The id's last segment split on '-'
- *             (K2a's last cue) the learner adds itself.
+ *             tokens as words, `title:<pattern>`, `#<channel>` and channel ids, `repo:`/`path:` (their basename),
+ *             `host:`, `app:`
+ *   segments  the words of the id's last segment the learner may add as cues (K2a's last cue)
+ * A cue names a TOPIC: name tokens are words of 4+ letters of the name without its remarks ("end" of "Front-end" and
+ * "hoc" of "(ad hoc)" relabelled units on the home registry), never a function or meeting word; a title, repo or app
+ * whose every word names a party or says nothing is none; and nowhere a party's name — a company's id or display name,
+ * an umbrella id ("Velo Nord" is the client, not the shop) — or a person's from the roster (`people`).
  */
-export function initiativesOf(data: RegistryData, admin: Readonly<Record<string, string>> = {}): InitiativeInfo[] {
+export function initiativesOf(data: RegistryData, admin: Readonly<Record<string, string>> = {}, people: readonly { person_id: string; name?: string; identities?: readonly string[] }[] = []): InitiativeInfo[] {
   const reg = new Registry(data);
   const buckets = new Set(Object.values(admin).map((b) => reg.resolveAlias(b)));
+  const parties = new Set<string>();
+  const companies: unknown[] = Array.isArray(data.companies) ? data.companies : [];
+  for (const c of companies) {
+    if (!c || typeof c !== 'object') continue;
+    for (const s of [(c as Row).id, (c as Row).name]) if (typeof s === 'string') for (const w of wordsOf(s)) parties.add(folded(w));
+  }
+  for (const i of data.initiatives) {
+    for (const s of [typeof i.umbrella === 'string' && i.umbrella ? i.umbrella : i.id.split('/')[0]!, i.company]) if (typeof s === 'string') for (const w of wordsOf(s)) parties.add(folded(w));
+  }
+  const names = nameVocab(people).names;
+  const party = (w: string): boolean => {
+    const f = folded(w);
+    return parties.has(f) || names.has(f) || names.has(foldName(f));
+  };
+  // A word that says nothing about a topic: a party's or a person's name, a function or meeting word, a number.
+  const silent = (w: string): boolean => party(w) || STOP.has(folded(w)) || /^\d+$/.test(w);
+  const topical = (s: string): boolean => wordsOf(s).some((w) => !silent(w));
+  // Words of a name as written: the learner folds a cue itself (a person-name fold would bend "Aerospace" to "arospace").
+  const nameTokens = (s: string): string[] => wordsOf(noRemarks(s)).filter((t) => [...t].length >= 4 && letters(t) >= 3 && !silent(t));
+
   const cues = new Map<string, Map<string, string>>(); // id → lower-cased cue → the cue as written (first spelling wins)
   const add = (id: string, xs: readonly string[]) => {
     const m = cues.get(id) ?? new Map<string, string>();
@@ -630,29 +745,31 @@ export function initiativesOf(data: RegistryData, admin: Readonly<Record<string,
   };
   for (const i of data.initiatives) {
     const s = i.sources;
-    add(i.alias_of && !i.split_into ? reg.resolveAlias(i.id) : i.id, [
+    const own = [
       ...(typeof i.name === 'string' ? nameTokens(i.name) : []),
-      ...strs(s.calendar_title_patterns).map((p) => `title:${p}`),
+      ...strs(s.calendar_title_patterns).filter(topical).map((p) => `title:${p}`),
       ...reg.channels(i).flatMap((c) => [c.name ? `#${c.name}` : '', c.id ?? '']),
       // Tracker key prefixes are ROUTES, not content cues: registries share them across sibling initiatives (one
       // project for a client's shop and its ERP sync), so a `VN-24` in the text would only repeat the registry's guess.
-      ...strs(s.repos).map((r) => `repo:${r}`),
-      ...strs(s.local_paths).map((p) => `path:${p}`),
+      ...strs(s.repos).filter((r) => topical(basename(r))).map((r) => `repo:${r}`),
+      ...strs(s.local_paths).filter((p) => topical(basename(p))).map((p) => `path:${p}`),
       ...strs(s.hosts).map((h) => `host:${h}`),
-      ...strs(s.apps).map((a) => `app:${a}`),
-    ]);
+      ...strs(s.apps).filter(topical).map((a) => `app:${a}`),
+    ];
+    for (const owner of labelsOf(i.id, reg)) add(owner, own);
   }
   return data.initiatives
-    .filter((i) => !(i.alias_of && !i.split_into))
+    .filter((i) => !i.alias_of && !i.split_into)
     .map((i) => {
       const umbrella = typeof i.umbrella === 'string' && i.umbrella ? i.umbrella : i.id.split('/')[0]!;
-      const status = typeof i.status === 'string' ? i.status.toLowerCase() : '';
+      const status = typeof i.status === 'string' ? i.status.trim() : '';
       return {
         id: i.id,
         umbrella,
         ...(typeof i.company === 'string' && i.company ? { company: i.company } : {}),
-        active: !ENDED.has(status),
+        active: LIVE.test(status),
         cues: [...(cues.get(i.id)?.values() ?? [])],
+        segments: (i.id.split('/').pop() ?? i.id).split('-').filter((t) => !!t && !wordsOf(t).every(party)),
         ...(buckets.has(i.id) ? { admin: true } : {}),
       };
     });
@@ -671,6 +788,8 @@ export interface LearnInputs {
   outside: number;
   /** labels.jsonl lines that could not be read. */
   malformed: number;
+  /** A person's lines whose label is outside the label space (labelSpace: a typo, a stale id) — dropped, never learned. */
+  unknownLabels?: number;
 }
 
 export function loadLearnInputs(db: DatabaseSync, inputs: AttributionInputs, people: readonly Person[], ledger: readonly Fragment[], now: Date = new Date(), drafts?: AttributionDrafts): LearnInputs {
@@ -685,9 +804,10 @@ export function loadLearnInputs(db: DatabaseSync, inputs: AttributionInputs, peo
   const cover = (db.prepare('SELECT id, ledger_id FROM att_fragments WHERE ledger_id IS NOT NULL ORDER BY start, id').all() as Row[])
     .filter((r) => byId.has(str(r.id)))
     .map((r) => ({ id: str(r.id), ledger_id: str(r.ledger_id), day: byId.get(str(r.id))!.day }));
-  const frag = fragmentEvidence(cover, ledger, reg, tz);
+  const space = labelSpace(reg, inputs.config.admin);
+  const frag = fragmentEvidence(cover, ledger, reg, tz, space);
   const { labels, malformed } = parseLabels(inputs.labelsText ?? '');
-  const items = itemEvidence(labels, new Map(units.filter((u) => u.unit === 'item').map((u) => [u.id, u])), reg, tz);
+  const items = itemEvidence(labels, new Map(units.filter((u) => u.unit === 'item').map((u) => [u.id, u])), reg, tz, space);
   const today = localDay(now.toISOString(), tz);
   return {
     units,
@@ -699,11 +819,12 @@ export function loadLearnInputs(db: DatabaseSync, inputs: AttributionInputs, peo
       auditShare: cfg.auditShare,
       // The learner draws the day's audit sample by a hash of (seed, today, unit): every build of a day draws the same.
       seed: `att:${inputs.config.subject}`,
-      initiatives: initiativesOf(inputs.registry, inputs.config.admin),
+      initiatives: initiativesOf(inputs.registry, inputs.config.admin, people),
       siblingAware: cfg.siblingAware,
     },
     outside: frag.outside + items.outside,
     malformed,
+    unknownLabels: frag.unknown + items.unknown,
   };
 }
 
@@ -722,8 +843,11 @@ export interface LearnSummary {
   promoted: number;
   held: number;
   relabelled: number;
-  /** Rows handed to the learner, distinct answers, audits; a person's lines outside the window; unreadable label lines. */
-  evidence: { units: number; answers: number; audits: number; outside: number; malformed: number };
+  /**
+   * Rows handed to the learner, distinct answers, audits; a person's lines outside the window; unreadable label lines; a
+   * person's lines whose label is outside the label space (dropped).
+   */
+  evidence: { units: number; answers: number; audits: number; outside: number; malformed: number; unknown_labels: number };
   /**
    * On units a person answered: how many the floor / the loop would decide and how many of those carry the answer —
    * the loop's side as it stood BEFORE that answer (learn.ts replays the evidence in day order), the honest check.
@@ -794,7 +918,7 @@ export function writeLearn(db: DatabaseSync, li: LearnInputs, result: LearnResul
     promoted,
     held,
     relabelled,
-    evidence: { units: li.evidence.length, answers: new Set(li.evidence.map((e) => e.answer)).size, audits: li.evidence.filter((e) => e.audit).length, outside: li.outside, malformed: li.malformed },
+    evidence: { units: li.evidence.length, answers: new Set(li.evidence.map((e) => e.answer)).size, audits: li.evidence.filter((e) => e.audit).length, outside: li.outside, malformed: li.malformed, unknown_labels: li.unknownLabels ?? 0 },
     agreement,
     ...(result.stats ? { trials: { ...result.stats.trials } } : {}),
     asked,

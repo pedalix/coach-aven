@@ -18,7 +18,7 @@ Each fragment the ledger does not decide SHALL go through the ladder in order �
 - **THEN** the exclusive marker decides it, not the admin bucket
 
 ### Requirement: Fragments are deterministic and stable
-The layer SHALL cut the subject's days into fragments — one per call (one per summary topic when there are several), one per run of the subject's own messages in a container with gaps of at most the configured minutes, one per work block — with ids that depend only on the underlying records, so the same inputs always yield the same ids and decisions recorded against an id stay attached. The recorder copies of one call SHALL be one call: the copies the store's call clustering joins (`meetings.call_id`) never become two calls, and the copy kept is chosen by start, recorder priority and id, never by row order.
+The layer SHALL cut the subject's days into fragments — one per call (one per summary topic when there are several), one per run of the subject's own messages in a container with gaps of at most the configured minutes, one per work block — with ids that depend only on the underlying records, so the same inputs always yield the same ids and decisions recorded against an id stay attached. The recorder copies of one call SHALL be one call: the copies the store's call clustering joins (`meetings.call_id`) never become two calls; the call is named by its first copy that has a window of its own (by start, then recorder priority, then id — a zero-length Gemini doc, which lands late, never renames a call), never by row order; and a ledger record or pin recorded under any one copy's own id SHALL stay attached to the merged call.
 
 #### Scenario: Rebuild
 - **WHEN** the store is rebuilt from raw with the same records
@@ -27,6 +27,10 @@ The layer SHALL cut the subject's days into fragments — one per call (one per 
 #### Scenario: Two recorders, a zero-length Gemini window
 - **WHEN** a call was recorded by Granola and by Gemini, whose copy has no end time
 - **THEN** the layer cuts one call from them, as the store's call clustering does
+
+#### Scenario: Judged, then a twin copy lands
+- **WHEN** a person judged a call and later a Gemini doc of the same call lands with an earlier start
+- **THEN** the call keeps its id and the judgment, and nothing new is pinned
 
 ## ADDED Requirements
 

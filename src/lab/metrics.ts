@@ -16,6 +16,7 @@ export interface Scored {
   gold: string;
   weight?: number; // minutes for timelog fragments; 1 by default
   split?: 'dev' | 'test'; // set by the scorer (by case, see cases.ts); consumers fall back to splitOf(id)
+  case?: string; // the unit's case key (cases.ts), set by the scorer: the paired bootstrap resamples whole cases
 }
 
 const w = (s: Scored): number => s.weight ?? 1;
@@ -175,8 +176,11 @@ export interface Paired {
   pBetter: number; // share of resamples where b beats a
 }
 
-// Paired bootstrap over units: both variants are scored on the SAME resample, so the per-unit
-// correlation (both fail on the same hard units) is kept and the interval is honest.
+// Paired bootstrap over CASES: both variants are scored on the SAME resample, so the per-unit correlation
+// (both fail on the same hard units) is kept; and a resample draws whole cases (a cluster bootstrap), because
+// the units of one case — a call's topics, a ticket and its comments, a thread — share their label and their
+// evidence: drawn one by one they pass for independent and the interval comes out too narrow for a claim.
+// A unit without a case key is a case of its own (then this is the plain unit bootstrap, draw for draw).
 export function pairedBootstrap(
   a: Scored[],
   b: Scored[],
@@ -186,15 +190,24 @@ export function pairedBootstrap(
 ): Paired {
   const byId = new Map(b.map((u) => [u.id, u]));
   const pairs = a.filter((u) => byId.has(u.id)).map((u) => [u, byId.get(u.id)!] as const);
+  const byCase = new Map<string, (typeof pairs)[number][]>();
+  for (const p of pairs) {
+    const k = p[0].case ?? p[0].id;
+    const c = byCase.get(k);
+    if (c) c.push(p);
+    else byCase.set(k, [p]);
+  }
+  const cases = [...byCase.values()];
   const r = rng(seed);
   const deltas: number[] = [];
   for (let i = 0; i < iters; i++) {
     const sa: Scored[] = [];
     const sb: Scored[] = [];
-    for (let j = 0; j < pairs.length; j++) {
-      const p = pairs[Math.floor(r() * pairs.length)];
-      sa.push(p[0]);
-      sb.push(p[1]);
+    for (let j = 0; j < cases.length; j++) {
+      for (const p of cases[Math.floor(r() * cases.length)]) {
+        sa.push(p[0]);
+        sb.push(p[1]);
+      }
     }
     deltas.push(metric(sb) - metric(sa));
   }

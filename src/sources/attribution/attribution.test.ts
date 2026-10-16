@@ -211,18 +211,52 @@ test('F3: recorder copies of one call (the store\'s call id) are one call, named
   assert.equal(dedupeMeetings([{ ...gmeet, callId: undefined }, { ...granola, callId: undefined }]).length, 2, 'without call ids: two calls, as before');
   const [call, ...rest] = dedupeMeetings([granola, gmeet]);
   assert.equal(rest.length, 0);
-  assert.deepEqual([call!.source, call!.id, call!.start, call!.end], ['gmeet', 'doc1', '2026-10-08T10:00:00Z', '2026-10-08T10:40:00Z'], 'the earliest copy names it; it lasts until the last copy ends');
-  assert.deepEqual([call!.participants, call!.twins], [['rui', 'owner'], ['meeting:granola:n1']]);
+  assert.deepEqual([call!.source, call!.id, call!.start, call!.end], ['granola', 'n1', '2026-10-08T10:02:00Z', '2026-10-08T10:40:00Z'], 'the copy with a window names it, though the Gemini doc (cut to the minute) starts earlier');
+  assert.deepEqual([call!.participants, call!.twins, call!.twinBases], [['owner', 'rui'], ['meeting:gmeet:doc1'], [`frag-2026-10-08-call-gmeet-${hash('doc1')}`]]);
   assert.deepEqual(dedupeMeetings([gmeet, granola]), dedupeMeetings([granola, gmeet]), 'input order (rowid) does not matter');
-  assert.deepEqual(gmeet.twins, undefined, 'the inputs are not mutated');
+  assert.deepEqual([gmeet.twins, granola.twins], [undefined, undefined], 'the inputs are not mutated');
   const frag = meetingFragments(call!)[0]!;
-  assert.equal(frag.id, `frag-2026-10-08-call-gmeet-${hash('doc1')}`);
-  assert.deepEqual(frag.refs, ['meeting:gmeet:doc1', 'meeting:granola:n1'], 'refs[0] is the call; its twin is indexed with it');
+  assert.equal(frag.id, `frag-2026-10-08-call-granola-${hash('n1')}`);
+  assert.deepEqual(frag.refs, ['meeting:granola:n1', 'meeting:gmeet:doc1'], 'refs[0] is the call; its twin is indexed with it');
+  assert.deepEqual(frag.aliases, [`frag-2026-10-08-call-gmeet-${hash('doc1')}`], 'the id the twin would have given it');
+  assert.equal(meetingFragments(granola)[0]!.aliases, undefined, 'a one-copy call has none');
+  // timed copies by start (as main read them), the call lasting until the last copy ends; a zero-length copy comes last
+  const three = dedupeMeetings([copy('gmeet', 'g', '2026-10-08T09:59:00Z', '2026-10-08T09:59:00Z', 'call:b'), copy('granola', 'z', '2026-10-08T10:01:00Z', '2026-10-08T10:45:00Z', 'call:b'), copy('wispr', 'w', '2026-10-08T10:00:00Z', '2026-10-08T10:30:00Z', 'call:b')]);
+  assert.deepEqual(three.map((x) => [x.source, x.start, x.end, x.twins]), [['wispr', '2026-10-08T10:00:00Z', '2026-10-08T10:45:00Z', ['meeting:granola:z', 'meeting:gmeet:g']]]);
   // the same start: recorder priority (granola < wispr < gmeet), then id
-  const same = dedupeMeetings([copy('gmeet', 'g', '2026-10-08T10:00:00Z', '2026-10-08T10:00:00Z', 'call:b'), copy('wispr', 'w', '2026-10-08T10:00:00Z', '2026-10-08T10:30:00Z', 'call:b'), copy('granola', 'z', '2026-10-08T10:00:00Z', '2026-10-08T10:30:00Z', 'call:b')]);
-  assert.deepEqual(same.map((x) => [x.source, x.twins]), [['granola', ['meeting:wispr:w', 'meeting:gmeet:g']]]);
+  const same = dedupeMeetings([copy('wispr', 'w', '2026-10-08T10:00:00Z', '2026-10-08T10:30:00Z', 'call:e'), copy('granola', 'z', '2026-10-08T10:00:00Z', '2026-10-08T10:30:00Z', 'call:e')]);
+  assert.deepEqual(same.map((x) => [x.source, x.twins]), [['granola', ['meeting:wispr:w']]]);
+  // only zero-length copies (Gemini alone, twice): start order among them
+  assert.deepEqual(dedupeMeetings([copy('gmeet', 'b', '2026-10-08T10:01:00Z', '2026-10-08T10:01:00Z', 'call:f'), copy('gmeet', 'a', '2026-10-08T10:00:00Z', '2026-10-08T10:00:00Z', 'call:f')]).map((x) => x.id), ['a']);
   // copies the store put in different calls stay apart, however much they overlap
   assert.equal(dedupeMeetings([copy('granola', 'n1', '2026-10-08T10:00:00Z', '2026-10-08T11:00:00Z', 'call:c'), copy('granola', 'n2', '2026-10-08T10:05:00Z', '2026-10-08T10:55:00Z', 'call:d')]).length, 2);
+});
+
+test('F3: a late Gemini copy keeps the Granola copy\'s topics and keys; each topic answers to the twin\'s id with its suffix', () => {
+  const summary = '## Shop checkout (SHOP-41)\n' + 'Totals were off for coupons; fixed the rounding and the tax line. '.repeat(3) + '\n## Hosting\n' + 'Moved the staging box and renewed the certificate. '.repeat(3);
+  const granola: MeetingIn = { source: 'granola', id: 'g-1', title: 'Weekly', start: '2026-10-14T09:00:52Z', end: '2026-10-14T09:40:00Z', attendees: [], summary, participants: [], callId: 'call:x' };
+  const gmeet: MeetingIn = { source: 'gmeet', id: 'doc-9', title: 'Weekly', start: '2026-10-14T09:00:00Z', end: '2026-10-14T09:00:00Z', attendees: [], summary: 'Plain notes without headings. '.repeat(10), participants: [], callId: 'call:x' };
+  const alone = meetingFragments(granola);
+  const merged = dedupeMeetings([gmeet, granola]).flatMap(meetingFragments);
+  assert.deepEqual(merged.map((f) => [f.id, f.weight, f.projectKeys]), alone.map((f) => [f.id, f.weight, f.projectKeys]), 'what Granola alone gave: the same ids, topics and keys');
+  assert.deepEqual(merged.map((f) => f.aliases), [[`frag-2026-10-14-call-gmeet-${hash('doc-9')}#1`], [`frag-2026-10-14-call-gmeet-${hash('doc-9')}#2`]]);
+});
+
+test('plan: a call answers to its own id, then to its copies\' ids — a judgment or pin under either stays attached; the ledger before a pin', () => {
+  const call = draft({ id: 'frag-c-granola', kind: 'call', refs: ['meeting:granola:n1', 'meeting:gmeet:d1'], participants: ['owner', 'hana'], aliases: ['frag-c-gmeet'] });
+  const pin = (id: string, ini: string): Pin => ({ id, attributions: [{ initiative: ini, share: 1 }], rule_id: 'marker:hana', rationale: 'pinned', rules_version: 'v1', pinned_at: '2026-10-14T00:00:00.000Z' });
+  const plan = (ledger: LedgerRecord[], pins: Pin[] = []) => planFragments([call], new Map(ledger.map((r) => [r.id, r])), ctx(), new Map(pins.map((p) => [p.id, p])))[0]!;
+  assert.deepEqual([plan([]).state, plan([]).attributions[0]!.initiative], ['rule', 'acme/p5'], 'nothing recorded: the ladder (Hana is exclusive)');
+  const judged = plan([rec('frag-c-gmeet', 'initech/a', { kind: 'call', decided_by: 'owen' })]);
+  assert.deepEqual([judged.state, judged.decided_by, judged.ledger_id, judged.attributions[0]!.initiative], ['decided', 'owen', 'frag-c-gmeet', 'initech/a'], 'judged under the twin\'s id');
+  assert.equal(plan([rec('frag-c-gmeet', 'initech/a', { kind: 'call' }), rec('frag-c-granola', 'initech/b', { kind: 'call' })]).ledger_id, 'frag-c-granola', 'its own id first');
+  assert.equal(plan([rec('frag-c-gmeet', 'initech/a', { kind: 'call', status: 'superseded' })]).state, 'rule', 'a superseded line is no decision');
+  const pinned = plan([], [pin('frag-c-gmeet', 'globex/shop')]);
+  assert.deepEqual([pinned.state, pinned.pinned_at, pinned.attributions[0]!.initiative], ['decided', '2026-10-14T00:00:00.000Z', 'globex/shop'], 'pinned under the twin\'s id');
+  assert.deepEqual(plan([], [pin('frag-c-gmeet', 'globex/shop'), pin('frag-c-granola', 'initech/b')]).attributions[0]!.initiative, 'initech/b', 'its own pin first');
+  assert.equal(plan([rec('frag-c-gmeet', 'initech/a', { kind: 'call' })], [pin('frag-c-granola', 'initech/b')]).ledger_id, 'frag-c-gmeet', 'a judgment under any copy\'s id beats a pin');
+  // only calls have aliases; a run never matches by them
+  assert.equal(planFragments([draft({ id: 'frag-t', aliases: ['frag-x'] })], new Map([['frag-x', rec('frag-x', 'initech/a')]]), ctx())[0]!.state, 'open');
 });
 
 test('config: subject required; defaults; bad values fail with the file named', () => {

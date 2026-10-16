@@ -29,7 +29,7 @@ const PEOPLE: Person[] = [
   { person_id: 'bob', name: 'Bob Rye', identities: ['bob@acme.example'], marker: { type: 'broad', initiatives: ['acme/shop', 'beta/portal'] } },
 ];
 const tenant = (rules: RuleRecord[] = []) => itemTenant({ registry: REGISTRY, rules, people: PEOPLE, subject: 'me', tz: 'UTC' });
-const item = (o: Partial<ItemFacts> = {}): ItemFacts => ({ type: 'message', source: 'slack', container: null, channelId: null, sender: 'human', ownKey: null, keys: [], hosts: [], apps: [], persons: [], title: '', domains: [], root: null, ...o });
+const item = (o: Partial<ItemFacts> = {}): ItemFacts => ({ type: 'message', source: 'slack', container: null, channelId: null, sender: 'human', ownKey: null, keys: [], hosts: [], apps: [], persons: [], author: null, title: '', domains: [], root: null, ...o });
 
 test('T1-item: own key .98, a reply ×.99 under its root\'s rung, bulk → none .90, host .95, closed channel → unregistered .80', () => {
   const t = tenant();
@@ -286,4 +286,148 @@ test('team mode: with "items" the subject may be left out — no fragments, item
   } finally {
     db.close();
   }
+});
+
+// --- the review's scenarios: each one as it was found, on a store of its own -------------------------------------
+
+// The fixture registry plus what these scenarios route on: a Teams channel, two sites' hosts.
+const MORE = parseRegistry({
+  companies: [{ id: 'acme', umbrella: 'acme', name: 'Acme Hotels', domains: ['acme.example'] }],
+  initiatives: [
+    { id: 'acme/shop', umbrella: 'acme', company: 'acme', sources: { youtrack_prefixes: ['SHOP'], slack_channels: [{ id: 'C0SHOP0001', name: '#ext-acme' }], teams_channels: ['team:Acme Dev/#shop'], hosts: ['shop.acme.example', 'www.shop-a.example'] } },
+    { id: 'beta/portal', umbrella: 'beta', sources: { jira_keys: ['BP'], slack_channels: [{ id: 'C0BETA0001', name: '#beta-alerts' }], hosts: ['www.portal-b.example'] } },
+  ],
+});
+const moreInputs = (): AttributionInputs => ({ ...inputs({ days: 7 }), registry: MORE });
+
+interface Put {
+  ref: string;
+  source?: string;
+  container: string;
+  thread?: string; // default: its own ref (an unthreaded message, as msgraph stores every one)
+  ts: string;
+  person?: string | null;
+  author: string;
+  subject?: string;
+  text: string;
+  participants?: string[];
+  bot?: boolean;
+}
+function blank(): { db: ReturnType<typeof openStore>; put: (o: Put) => void } {
+  const db = openStore(join(mkdtempSync(join(tmpdir(), 'items-review-')), 'store.sqlite'));
+  const m = db.prepare('INSERT INTO messages(ref, source, account, container, thread_id, ts, author_person, author_raw, subject, text, participants, is_bot) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  const put = (o: Put) => void m.run(o.ref, o.source ?? 'msgraph', 'lena@agency.example', o.container, o.thread ?? o.ref, o.ts, o.person ?? null, o.author, o.subject ?? '', o.text, JSON.stringify(o.participants ?? [o.author]), o.bot ? 1 : 0);
+  return { db, put };
+}
+const rowsOf = (db: ReturnType<typeof openStore>, inp: AttributionInputs = moreInputs()) => new Map(computeItems(db, inp, PEOPLE, NOW).map((r) => [r.ref, r]));
+
+test('one-way bulk needs threads: an Outlook correspondent answered every day stays a person (msgraph stores no threads)', () => {
+  const { db, put } = blank();
+  try {
+    const TOM = 'Tom Client <tom@client.example>';
+    for (const [i, day] of ['10', '11', '12', '13'].entries()) {
+      put({ ref: `msgraph:in${i}`, container: 'mailbox:lena@agency.example/Inbox', ts: `2026-10-${day}T08:00:00.000Z`, author: TOM, subject: `SHOP-12 price import ${i}`, text: `The price import fails again for SHOP-12 (${i}).`, participants: [TOM, 'lena@agency.example'] });
+      put({ ref: `msgraph:out${i}`, container: 'mailbox:lena@agency.example/Sent Items', ts: `2026-10-${day}T09:00:00.000Z`, person: 'me', author: 'Lena Park <lena@agency.example>', subject: `RE: SHOP-12 price import ${i}`, text: 'Looking into it.', participants: ['Lena Park <lena@agency.example>', TOM] });
+    }
+    put({ ref: 'msgraph:news', container: 'mailbox:lena@agency.example/Inbox', ts: '2026-10-13T07:00:00.000Z', author: 'Brand <hello@brand.example>', subject: 'Autumn', text: 'New arrivals.\nUnsubscribe: https://brand.example/u/1' });
+    // The same client writes to the Gmail mailbox once: the Outlook mails show no answers, so they are no evidence.
+    put({ ref: 'gmail:a:tom1', source: 'gmail', container: 'inbox', thread: 'gmail:a/tom1', ts: '2026-10-14T08:00:00.000Z', author: TOM, subject: 'SHOP-12 once more', text: 'Same issue on SHOP-12.', participants: [TOM, 'lena@agency.example'] });
+    const by = rowsOf(db);
+    for (const i of [0, 1, 2, 3]) assert.deepEqual([by.get(`msgraph:in${i}`)!.sender_class, by.get(`msgraph:in${i}`)!.initiative, by.get(`msgraph:in${i}`)!.rung], ['human', 'acme/shop', 'key:SHOP'], `mail ${i + 1}`);
+    assert.equal(by.get('msgraph:in3')!.kind, null, 'not noise');
+    assert.equal(by.get('gmail:a:tom1')!.sender_class, 'human', 'threaded, but its sender\'s unthreaded mails count for nothing');
+    assert.equal(by.get('msgraph:news')!.sender_class, 'bulk', 'unthreaded mail is still bulk by its footer');
+  } finally {
+    db.close();
+  }
+});
+
+test('a Teams channel post is chat: never bulk, small talk is noise, the registered channel routes it', () => {
+  const { db, put } = blank();
+  try {
+    const KAI = 'Kai Moss <kai@client.example>';
+    for (const [i, day] of ['10', '11', '12'].entries()) put({ ref: `msgraph:ch${i}`, container: 'team:Acme Dev/#shop', ts: `2026-10-${day}T10:00:00.000Z`, author: KAI, subject: 're: Release', text: `Build ${i} is on staging; the template footer now reads\nUnsubscribe: https://brand.example/u/${i}` });
+    put({ ref: 'msgraph:ch3', container: 'team:Acme Dev/#shop', ts: '2026-10-13T10:00:00.000Z', author: KAI, subject: 're: Release', text: 'Thanks!' });
+    const by = rowsOf(db);
+    for (const i of [0, 1, 2]) assert.deepEqual([by.get(`msgraph:ch${i}`)!.sender_class, by.get(`msgraph:ch${i}`)!.initiative, by.get(`msgraph:ch${i}`)!.rung], ['human', 'acme/shop', 'channel:team:acme dev/#shop'], `post ${i + 1}`);
+    assert.deepEqual([by.get('msgraph:ch3')!.kind, by.get('msgraph:ch3')!.kind_rung], ['noise', 'smalltalk']);
+  } finally {
+    db.close();
+  }
+});
+
+test('a reply inherits only a topical root decision: never a bulk root\'s none; a closed root\'s unregistered after its own key', () => {
+  const t = tenant();
+  const bulkRoot = itemFloor(item({ sender: 'bulk', source: 'gmail', keys: ['SHOP'] }), t);
+  const lena = itemFloor(item({ source: 'gmail', keys: ['SHOP'], root: bulkRoot }), t);
+  assert.deepEqual([lena.label, lena.rung, lena.conf], ['acme/shop', 'key:SHOP', ITEM_CONF.textKey], '"fixed the price index for SHOP-14"');
+  assert.equal(itemFloor(item({ source: 'gmail', root: bulkRoot }), t).label, null, 'nothing of its own: open, not the root\'s none');
+  const again = itemFloor(item({ sender: 'bulk', source: 'gmail', root: bulkRoot }), t);
+  assert.deepEqual([again.label, again.rung, again.conf], ['none', 'sender:bulk', ITEM_CONF.bulk], 'a bulk reply says none itself');
+  const closedRoot = itemFloor(item({ sender: 'bot', hosts: ['db.elsewhere.example'], container: '#ops', channelId: 'C0OPS00001' }), t);
+  const keyed = itemFloor(item({ container: '#ops', channelId: 'C0OPS00001', keys: ['SHOP'], root: closedRoot }), t);
+  assert.deepEqual([keyed.label, keyed.rung], ['acme/shop', 'key:SHOP'], '"that is the Acme staging box, tracked in SHOP-12"');
+  const plain = itemFloor(item({ container: '#ops', channelId: 'C0OPS00001', root: closedRoot }), t);
+  assert.deepEqual([plain.label, plain.rung], ['unregistered', 'closed:C0OPS00001'], "no key of its own: the root's unregistered, not the channel's beta/portal at .95");
+  assert.ok(Math.abs(plain.conf - ITEM_CONF.closed * ITEM_CONF.reply) < 1e-9);
+});
+
+test('a ticket\'s own key is its tracker key field: an Asana gid is none, a key its text names is a cross-reference', () => {
+  const { db } = blank();
+  try {
+    const task = db.prepare('INSERT INTO tasks(ref, source, account, key, title, assignee_raw, assignee_person, reporter_raw, reporter_person, created, updated, project, url, text, comments) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    task.run('asana:agency:1205812345678977', 'asana', 'agency', '1205812345678977', 'Port the checkout fix', '', null, 'Lena Park', 'me', '2026-10-12T09:00:00.000Z', '2026-10-13T09:00:00.000Z', 'Agency board', 'https://app.asana.com/0/1/1205812345678977', 'Port the fix from SHOP-7 to BP-3 and check both.', '[]');
+    task.run('asana:agency:1205812345678988', 'asana', 'agency', '1205812345678988', 'Portal session cookie', '', null, 'Lena Park', 'me', '2026-10-12T09:00:00.000Z', '2026-10-13T09:30:00.000Z', 'Agency board', 'https://app.asana.com/0/1/1205812345678988', 'The portal logs people out early, see BP-3.', JSON.stringify([{ id: '9', author: 'Lena Park', ts: '2026-10-14T10:00:00.000Z', text: 'Not related to SHOP-7 after all, it is the portal session cookie.' }]));
+    const by = rowsOf(db);
+    const both = by.get('asana:agency:1205812345678977')!;
+    assert.deepEqual([both.initiative, both.candidates.sort()], [null, ['acme/shop', 'beta/portal']], 'two keys in its text: candidates, not SHOP at .98');
+    const comment = by.get('asana:agency:1205812345678988#c9')!;
+    assert.deepEqual([comment.initiative, comment.rung], ['beta/portal', 'key:BP'], "the comment inherits its ticket's decision");
+    assert.ok(Math.abs(comment.conf - ITEM_CONF.textKey * ITEM_CONF.reply) < 1e-9);
+  } finally {
+    db.close();
+  }
+});
+
+test('two sites\' alerts linking one dashboard are two families and two question units', () => {
+  const { db, put } = blank();
+  try {
+    const down = (site: string) => `CRITICAL: SiteDown: *https://${site}*: Domain https://${site} is down (probe) details https://acme.grafana.net/d/uptime`;
+    put({ ref: 'slack:T1:C0BETA0001:400.1', source: 'slack', container: '#beta-alerts', thread: 'slack:T1/C0BETA0001/400.1', ts: '2026-10-14T08:00:00.000Z', author: 'Site Monitor Bot', text: down('www.shop-a.example'), bot: true });
+    put({ ref: 'slack:T1:C0BETA0001:400.2', source: 'slack', container: '#beta-alerts', thread: 'slack:T1/C0BETA0001/400.2', ts: '2026-10-14T08:05:00.000Z', author: 'Site Monitor Bot', text: down('www.portal-b.example'), bot: true });
+    const by = rowsOf(db);
+    const [a, b] = [by.get('slack:T1:C0BETA0001:400.1')!, by.get('slack:T1:C0BETA0001:400.2')!];
+    assert.deepEqual([a.initiative, b.initiative], ['acme/shop', 'beta/portal']);
+    assert.notEqual(a.family, b.family);
+    assert.notEqual(a.case_key, b.case_key);
+  } finally {
+    db.close();
+  }
+});
+
+test('a role mailbox may be a person writing: its addressee none stays a guess below τ', () => {
+  assert.deepEqual([a({ human: false, role: true }).label, a({ human: false, role: true }).conf, a({ human: false, role: true }).rung], ['none', 0.85, 'auto:role']);
+  assert.deepEqual([a({ human: false }).conf, a({ human: false }).rung], [0.95, 'auto:none'], 'integrations, campaigns and noreply@ still address nobody');
+  const { db, put } = blank();
+  try {
+    put({ ref: 'gmail:a:o1', source: 'gmail', container: 'inbox', thread: 'gmail:a/o1', ts: '2026-10-14T08:00:00.000Z', author: 'Hotel Acme <office@hotel-acme.example>', subject: 'Website', text: 'Hi Lena, the opening hours on the website are still the summer ones. Best, Maria', participants: ['Hotel Acme <office@hotel-acme.example>', 'lena@agency.example'] });
+    put({ ref: 'gmail:a:n1', source: 'gmail', container: 'inbox', thread: 'gmail:a/n1', ts: '2026-10-14T09:00:00.000Z', author: 'Bank <noreply@bank.example>', subject: 'Statement', text: 'Your statement is ready.', participants: ['Bank <noreply@bank.example>', 'lena@agency.example'] });
+    const by = rowsOf(db);
+    const r = by.get('gmail:a:o1')!;
+    assert.deepEqual([r.sender_class, r.addressee, r.addressee_conf, r.addressee_rung], ['system', [], 0.85, 'auto:role']);
+    const n = by.get('gmail:a:n1')!;
+    assert.deepEqual([n.sender_class, n.addressee, n.addressee_conf, n.addressee_rung], ['system', [], 0.95, 'auto:none'], 'an automated mailbox addresses nobody');
+  } finally {
+    db.close();
+  }
+});
+
+test('a person rule sees an integration\'s item through its author only, never whom it mentions', () => {
+  const t = itemTenant({ registry: MORE, rules: [{ id: 'p-ana', when: { person: 'ana' }, then: { initiative: 'acme/shop' } }], people: PEOPLE, subject: 'me', tz: 'UTC' });
+  const sentry = itemFloor(item({ sender: 'bot', container: '#beta-alerts', channelId: 'C0BETA0001', persons: ['ana'] }), t);
+  assert.deepEqual([sentry.label, sentry.conf, sentry.rung], ['beta/portal', ITEM_CONF.channelBot, 'channel:C0BETA0001'], '"TypeError in portal login — assigned to @Ana Berg"');
+  const own = itemFloor(item({ sender: 'bot', container: '#beta-alerts', channelId: 'C0BETA0001', persons: ['ana'], author: 'ana' }), t);
+  assert.deepEqual([own.label, own.rung], ['acme/shop', 'rule:p-ana'], 'a bot the people file maps to Ana');
+  const person = itemFloor(item({ container: '#beta-alerts', channelId: 'C0BETA0001', persons: ['me', 'ana'], author: 'me' }), t);
+  assert.deepEqual([person.label, person.rung], ['acme/shop', 'rule:p-ana'], "a person's item: everyone in it, as before");
 });

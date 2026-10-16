@@ -14,7 +14,7 @@ export const UNTIL = '2026-10-04';
 export const TZ = 'Europe/Zurich';
 export const NOW = '2026-10-04T18:00:00.000Z'; // the loader's fixed clock (window end)
 export const REBRAND_DAY = '2026-09-16'; // Velo Nord: velonord.example → velo-nord.example, Connect labels change
-export const RENAME_DAY = '2026-09-23'; // KlarText: initiative alias, channel, YouTrack key KT → KH, repo
+export const RENAME_DAY = '2026-09-23'; // Kieselfeder: initiative alias, channel, YouTrack key KT → KH, repo
 export const RENAME_AT = '2026-09-23T07:30:00.000Z';
 export const SUBJECT = 'mara-keller';
 
@@ -39,7 +39,7 @@ export const COMPANIES: Company[] = [
   { id: 'velonord', name: 'Velo Nord', umbrella: 'velonord', domains: ['velonord.example', 'velo-nord.example'], side: 'client' },
   { id: 'swl', name: 'Stadtwerke Lindquell', umbrella: 'swl', domains: ['stadtwerke-lindquell.example'], side: 'client' },
   { id: 'medtrack', name: 'MedTrack', umbrella: 'medtrack', domains: ['medtrack.example'], side: 'client' },
-  { id: 'klartext', name: 'KlarText Verlag', umbrella: 'klartext', domains: ['klartext-verlag.example'], side: 'client' },
+  { id: 'klartext', name: 'Kieselfeder Verlag', umbrella: 'klartext', domains: ['kieselfeder-verlag.example'], side: 'client' },
   { id: 'treuhand', name: 'Treuhand Schmid', umbrella: null, domains: ['treuhand-schmid.example'], side: 'vendor' },
   { id: 'nordhost', name: 'Nordhost', umbrella: null, domains: ['nordhost.example'], side: 'vendor' },
   { id: 'kuehne', name: 'Kühne Versicherungen', umbrella: null, domains: ['kuehne-vers.example'], side: 'vendor' },
@@ -75,7 +75,7 @@ export const INITIATIVES: WorldInitiative[] = [
   ini('medtrack/app', 'medtrack', 'Patient app iOS/Android (T&M, half-days)', 'MT-APP'),
   ini('medtrack/admin', 'medtrack', 'MedTrack admin', 'MT-ADM', { admin: true }),
   ini('klartext/content-hub', 'klartext', 'Content hub (formerly CMS migration)', 'KT-HUB'),
-  ini('klartext/admin', 'klartext', 'KlarText admin', 'KT-ADM', { admin: true }),
+  ini('klartext/admin', 'klartext', 'Kieselfeder admin', 'KT-ADM', { admin: true }),
   ini('brightwell/booker', 'brightwell', 'Booker — own booking SaaS (Alpenhof is the pilot)', 'BW-BKR'),
   ini('brightwell/booker-support', 'brightwell', 'Booker customer support', 'BW-SUP'),
   ini('brightwell/infra', 'brightwell', 'Internal infrastructure', 'BW-INF'),
@@ -190,7 +190,7 @@ export const PEOPLE: Person[] = [
     ],
   ),
   person(
-    { id: 'tobias-hofer', name: 'Tobias Hofer', company: 'brightwell', side: 'us', role: 'project manager for Stadtwerke Lindquell and KlarText', langs: ['de', 'en', 'it'],
+    { id: 'tobias-hofer', name: 'Tobias Hofer', company: 'brightwell', side: 'us', role: 'project manager for Stadtwerke Lindquell and Kieselfeder', langs: ['de', 'en', 'it'],
       persona: { register: 'formal', typoRate: 0.02, emoji: 'none', greeting: 'Guten Tag', swiss: true, signature: 'Freundliche Grüsse\nTobias Hofer\nProjektleiter · Brightwell Digital', notes: 'formal with clients, references ticket keys' },
       email: 'tobias.hofer@brightwell.example', slack: sl('U0BWTOBI001', 'tobias', 'Tobias Hofer'), marker: { type: 'narrow', initiatives: ['swl/portal', 'klartext/content-hub'] }, given: true },
     [
@@ -214,7 +214,7 @@ export const PEOPLE: Person[] = [
     ],
   ),
   person(
-    { id: 'olga-ivanova', name: 'Olga Ivanova', company: 'brightwell', side: 'us', role: 'frontend developer (KlarText, MedTrack web)', langs: ['ru', 'en', 'de'],
+    { id: 'olga-ivanova', name: 'Olga Ivanova', company: 'brightwell', side: 'us', role: 'frontend developer (Kieselfeder, MedTrack web)', langs: ['ru', 'en', 'de'],
       persona: { register: 'casual', typoRate: 0.06, emoji: 'often', translit: 0.2, notes: 'friendly, emoji, switches to German with clients' },
       email: 'olga.ivanova@brightwell.example', slack: sl('U0BWOLGA001', 'olga', 'Olga Ivanova'), marker: { type: 'broad', initiatives: [] }, given: true },
     [
@@ -380,7 +380,7 @@ export const PEOPLE: Person[] = [
       email: 'jan.peters@velo-nord.example', given: false },
     [['jan.peters@velo-nord.example', 'email', 0, 'mail cal granola', AB]],
   ),
-  // ── Stadtwerke Lindquell ───────────────────────────────────────────────────────────────────────
+  // ── Stadtwerke Lindquell ────────────────────────────────────────────────────────────────────
   person(
     { id: 'marco-bernasconi', name: 'Marco Bernasconi', company: 'swl', side: 'client', role: 'head of IT at Stadtwerke Lindquell (the second "Marco")', langs: ['de', 'it'],
       persona: { register: 'neutral', typoRate: 0.04, emoji: 'none', signature: 'Marco Bernasconi\nLeiter IT · Stadtwerke Lindquell', notes: 'Lakora-born, German with occasional Italian' },
@@ -444,24 +444,24 @@ export const PEOPLE: Person[] = [
       ['jira:712020:5c3d9a7e-8b1f-4e2a-9c6d-2f4b8e1a7c3d', 'login', 0, 'jira'],
     ],
   ),
-  // ── KlarText Verlag (rename in W3) ──────────────────────────────────────────────────────────
+  // ── Kieselfeder Verlag (rename in W3) ───────────────────────────────────────────────────────
   person(
-    { id: 'paul-keller', name: 'Paul Keller', company: 'klartext', side: 'client', role: 'editor-in-chief at KlarText Verlag; owns the content hub (surname collision with Mara)', langs: ['de'],
-      persona: { register: 'formal', typoRate: 0.02, emoji: 'none', signature: 'Mit freundlichen Grüssen\nPaul Keller\nChefredaktor · KlarText Verlag', notes: 'editorial vocabulary' },
-      email: 'paul.keller@klartext-verlag.example', slack: sl('U0BWPKEL001', 'paul.keller', 'Paul Keller | KlarText'), marker: { type: 'narrow', initiatives: ['klartext/content-hub'] }, given: true },
+    { id: 'paul-keller', name: 'Paul Keller', company: 'klartext', side: 'client', role: 'editor-in-chief at Kieselfeder Verlag; owns the content hub (surname collision with Mara)', langs: ['de'],
+      persona: { register: 'formal', typoRate: 0.02, emoji: 'none', signature: 'Mit freundlichen Grüssen\nPaul Keller\nChefredaktor · Kieselfeder Verlag', notes: 'editorial vocabulary' },
+      email: 'paul.keller@kieselfeder-verlag.example', slack: sl('U0BWPKEL001', 'paul.keller', 'Paul Keller | Kieselfeder'), marker: { type: 'narrow', initiatives: ['klartext/content-hub'] }, given: true },
     [
-      ['paul.keller@klartext-verlag.example', 'email', 1, 'mail cal granola'],
-      ['Paul Keller | KlarText', 'slack_label', 1, 'slack'],
+      ['paul.keller@kieselfeder-verlag.example', 'email', 1, 'mail cal granola'],
+      ['Paul Keller | Kieselfeder', 'slack_label', 1, 'slack'],
       ['Paul Keller', 'full_name', 0, 'gmeet'],
     ],
   ),
   person(
-    { id: 'ines-wolf', name: 'Ines Wolf', company: 'klartext', side: 'client', role: 'content manager at KlarText Verlag', langs: ['de'],
+    { id: 'ines-wolf', name: 'Ines Wolf', company: 'klartext', side: 'client', role: 'content manager at Kieselfeder Verlag', langs: ['de'],
       persona: { register: 'neutral', typoRate: 0.04, emoji: 'rare', notes: 'lists of articles, editorial workflow' },
-      email: 'ines.wolf@klartext-verlag.example', slack: sl('U0BWINES001', 'ines.wolf', 'Ines Wolf | KlarText'), marker: { type: 'broad', initiatives: ['klartext/content-hub'] }, given: true },
+      email: 'ines.wolf@kieselfeder-verlag.example', slack: sl('U0BWINES001', 'ines.wolf', 'Ines Wolf | Kieselfeder'), marker: { type: 'broad', initiatives: ['klartext/content-hub'] }, given: true },
     [
-      ['ines.wolf@klartext-verlag.example', 'email', 1, 'mail cal granola'],
-      ['Ines Wolf | KlarText', 'slack_label', 1, 'slack'],
+      ['ines.wolf@kieselfeder-verlag.example', 'email', 1, 'mail cal granola'],
+      ['Ines Wolf | Kieselfeder', 'slack_label', 1, 'slack'],
       ['youtrack:iwolf@KLARTEXT', 'login_org_suffix', 0, 'yt'],
     ],
   ),
@@ -597,7 +597,7 @@ export const ASSETS: Asset[] = [
   { name: 'erp-bridge.brightwell.example', kind: 'host', initiative: 'velonord/erp-sync' },
   { name: 'portal.stadtwerke-lindquell.example', kind: 'host', initiative: 'swl/portal' },
   { name: 'api.medtrack.example', kind: 'host', initiative: 'medtrack/app' },
-  { name: 'hub.klartext-verlag.example', kind: 'host', initiative: 'klartext/content-hub' },
+  { name: 'hub.kieselfeder-verlag.example', kind: 'host', initiative: 'klartext/content-hub' },
   { name: 'booker.brightwell.example', kind: 'host', initiative: 'brightwell/booker' },
   { name: 'widget.brightwell.example', kind: 'host', initiative: 'brightwell/booker' },
   { name: 'ci.brightwell.example', kind: 'host', initiative: 'brightwell/infra' },
@@ -666,7 +666,7 @@ export const BOTS: BotSender[] = [
   { id: 'p-bank', kind: 'notification', label: 'Bank Zürichsee', address: 'notices@bank-zsee.example' },
   { id: 'p-shop', kind: 'receipt', label: 'Bergsport Shop', address: 'orders@bergsport-shop.example' },
   { id: 'p-post', kind: 'notification', label: 'Paketdienst', address: 'versand@paket-post.example' },
-  { id: 'p-school', kind: 'notification', label: 'Schule Hottingen', address: 'sekretariat@schule-hottingen.example' },
+  { id: 'p-school', kind: 'notification', label: 'Schule Wolkenhain', address: 'sekretariat@schule-wolkenhain.example' },
   { id: 'p-nl-running', kind: 'newsletter', label: 'Running Club', address: 'news@laufclub-zh.example' },
   { id: 'p-nl-kultur', kind: 'newsletter', label: 'Kulturagenda', address: 'newsletter@kulturagenda.example' },
   // lists (system addresses in participants)
@@ -677,7 +677,7 @@ export const BOT = new Map(BOTS.map((b) => [b.id, b]));
 // --- GIVEN registry sources (what the tenant's initiatives.json lists, imperfect on purpose) ----------
 // - ALP is listed under relaunch AND retainer → a key alone cannot decide (the 70 % tag decides by content);
 // - VN is listed under shop only and #ext-velonord routes to shop → erp-sync / dealer-portal items misroute;
-// - KlarText: the content hub still lists the PRE-rename channel; the old key, repo and id live on the alias;
+// - Kieselfeder: the content hub still lists the PRE-rename channel; the old key, repo and id live on the alias;
 // - erp-sync carries the over-broad title pattern "sync" (fires on "Weekly sync", "Booker sync" …);
 // - "Pitch" routes every pitch to sales and "Hosting" every hosting call to infra (the unregistered topics hide there).
 export interface GivenSources {
@@ -700,7 +700,7 @@ export const GIVEN_SOURCES: Record<string, GivenSources> = {
   'swl/admin': src({}),
   'medtrack/app': src({ repos: ['medtrack/app'], jira_keys: ['MT'], slack_channels: ['#ext-medtrack'], calendar_title_patterns: ['MedTrack', 'Sprint Review'] }),
   'medtrack/admin': src({}),
-  'klartext/content-hub': src({ repos: ['brightwell/klartext-hub'], youtrack_prefixes: ['KH'], slack_channels: ['#ext-klartext-cms'], calendar_title_patterns: ['KlarText'] }),
+  'klartext/content-hub': src({ repos: ['brightwell/klartext-hub'], youtrack_prefixes: ['KH'], slack_channels: ['#ext-klartext-cms'], calendar_title_patterns: ['Kieselfeder'] }),
   'klartext/cms-migration': src({ repos: ['brightwell/klartext-cms'], youtrack_prefixes: ['KT'], calendar_title_patterns: ['CMS'] }),
   'klartext/admin': src({}),
   'brightwell/booker': src({ repos: ['brightwell/booker'], youtrack_prefixes: ['BKR'], slack_channels: ['#booker'], calendar_title_patterns: ['Booker'] }),

@@ -8,7 +8,9 @@
 //   isSmallTalk(text)   greetings, thanks, acknowledgements, emoji and mentions only — the strict small-talk rung
 //                       (substance.ts's "under 12 letters" also eats answers like "only hotels")
 //   hostsApps(item)     hostnames (tool hosts dropped) and app tokens (deploy project, repo, bracketed project, alert
-//                       target): the host/app rung and the family's token
+//                       target): the host/app rung
+//   familyToken(…)      the one host or app a family keys on: an alert's target, else the first host in text order —
+//                       never a monitoring or dashboard host
 //   alertIdentity(text) a monitor alert's rule + target with values kept — the re-fire edge
 //   exactKey / exactTokens / normBody   the value-preserving key (exact and bump edges) and the F9 normalisation
 //                       (cross-posts, forwards); a scrub placeholder alone never matches anything
@@ -180,6 +182,9 @@ function repoOf(url: string): string {
   return `${org}/${repo.replace(/\.git$/, '')}`.toLowerCase();
 }
 
+// An alert's first line "STATE: Rule: *target*" — the target between asterisks.
+const ALERT_TARGET = /^\s*(?::[a-z_]+:\s*)?(?:[A-Z]+:\s*)?[\w.-]+:\s*\*([^*\s]{2,60})\*/;
+
 /**
  * Hosts and apps an item names. Hosts: every URL's host plus bare hostnames ("api.shop.example:443") in the text,
  * keys and subject, minus the tools' own hosts. Apps: a deploy notice's project ("Shopfront: Deploy to *production*",
@@ -220,11 +225,46 @@ export function hostsApps(u: { text?: string | null; subject?: string | null; ke
   const head = /^\s*\[([a-z][\w.-]{1,40})\]\s/i.exec(u.text ?? '');
   if (head && !ALERT_STATE.has(head[1]!.toLowerCase()) && !/^firing:\d+$/i.test(head[1]!)) apps.add(head[1]!.toLowerCase());
   // An alert's target between asterisks that is not a URL or host: an instance or job name.
-  const target = /^\s*(?::[a-z_]+:\s*)?(?:[A-Z]+:\s*)?[\w.-]+:\s*\*([^*\s]{2,60})\*/.exec(u.text ?? '');
+  const target = ALERT_TARGET.exec(u.text ?? '');
   if (target && !/^https?:/i.test(target[1]!) && !target[1]!.includes('.')) apps.add(target[1]!.toLowerCase());
   const counterpart = /\bwith_?\s+_?([A-Z][\w .'-]{1,40}?)_?\s*\((?:https?:|<)/.exec(u.text ?? '');
   if (counterpart) apps.add(slugOf(counterpart[1]!));
   return { hosts: [...hosts].sort(), apps: [...apps].filter(Boolean).sort() };
+}
+
+/** Monitoring and dashboard hosts: an alert links its own stack (a Grafana panel, the pager, a status page). */
+const MONITORING = [
+  'grafana.net', 'grafana.com', 'uptimerobot.com', 'pagerduty.com', 'statuspage.io', 'status.io', 'datadoghq.com', 'datadoghq.eu',
+  'newrelic.com', 'opsgenie.com', 'pingdom.com', 'betteruptime.com', 'betterstack.com', 'uptime.com', 'statuscake.com', 'site24x7.com',
+  'freshping.io', 'cronitor.io', 'healthchecks.io', 'hetrixtools.com', 'checklyhq.com', 'instatus.com', 'honeybadger.io', 'bugsnag.com', 'rollbar.com',
+];
+// A self-hosted stack says what it is in its first label (grafana.acme.example).
+const MONITORING_LABEL = /^(?:grafana|kibana|prometheus|alertmanager|zabbix|nagios|icinga)\./;
+
+/**
+ * The one host or app a family keys on (items.ts): what an item is ABOUT, not what reports it — an alert's target (its
+ * "*target*", else the first host its first line names), else the first host in text order, else the first app;
+ * '' when it names neither. Monitoring and dashboard hosts count as the tools' own: "SiteDown: *https://www.shop-a…*"
+ * and the same alert for www.portal-b… both link https://acme.grafana.net/d/uptime, and hostsApps' sorted first host
+ * keyed both families on the dashboard — one question unit over two initiatives.
+ */
+export function familyToken(u: { text?: string | null; subject?: string | null; keys?: readonly string[] }, ha: { hosts: readonly string[]; apps: readonly string[] }, alert: boolean): string {
+  const blob = `${u.subject ?? ''}\n${u.text ?? ''}\n${(u.keys ?? []).join('\n')}`.toLowerCase();
+  const at = (h: string): number => {
+    const i = blob.indexOf(h);
+    return i < 0 ? Infinity : i; // an unwrapped safelink's host: after the ones the text spells out
+  };
+  const hosts = ha.hosts.filter((h) => !underAny(h, MONITORING) && !MONITORING_LABEL.test(h)).sort((a, b) => at(a) - at(b) || (a < b ? -1 : a > b ? 1 : 0));
+  if (alert) {
+    // "STATE: Rule: *target*": a URL's host or an instance name; else the first host its first line names.
+    const target = ALERT_TARGET.exec(u.text ?? '')?.[1]?.toLowerCase() ?? '';
+    const host = /^https?:/.test(target) ? hostOf(target) : target;
+    if (host && (hosts.includes(host) || ha.apps.includes(host))) return host;
+    const line = ((u.text ?? '').split('\n').find((l) => l.trim()) ?? '').toLowerCase();
+    const named = hosts.find((h) => line.includes(h));
+    if (named) return named;
+  }
+  return hosts[0] ?? ha.apps[0] ?? '';
 }
 
 // --- alert identity (values kept) ---------------------------------------------------------------------------

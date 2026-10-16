@@ -13,12 +13,13 @@
 //     names we know — the roster's, plus the names the linked calendar event and the transcript's speakers carry — and
 //     counts only when the split covers the WHOLE run; a partial cover resolves nobody (never a guess);
 //   - the recording's calendar event (the same normalised title, starting within ±15 min) adds its attendees and
-//     organiser: Granola lists only the subject, Gemini glues;
+//     organiser: Granola lists only the subject, Gemini glues — unless the event is a crowd (an all-hands);
 //   - the transcript's "Name:" speaker labels add whoever spoke.
 // Store-exact first: whatever the store's index resolves keeps resolving the same way. Pure except the two loaders at
 // the end (read-only SQL).
 import type { DatabaseSync } from 'node:sqlite';
 import { foldName, foldTokens, parseAttendee, splitGlued } from '../identities/attendees.js';
+import { MASS_ATTENDEES } from '../identities/observations.js';
 import { resolveIdentity } from '../people.js';
 
 export interface PersonLike {
@@ -207,9 +208,16 @@ export function linkedEvent(m: { title: string; start: string }, events: Readonl
   return best?.e ?? null;
 }
 
-/** The people of one recording: its attendee entries (glued runs covered by the event and the speakers), its event's attendees and organiser, its speakers. */
+/**
+ * The people of one recording: its attendee entries (glued runs covered by the event and the speakers), its event's
+ * attendees and organiser — unless the event is a crowd — and its speakers.
+ */
 export function callParticipants(m: { attendees: readonly unknown[]; speakers: readonly string[] }, event: CalEvent | null, r: Resolver): string[] {
-  const fromEvent = event ? [...event.attendees, event.organizer].filter(Boolean) : [];
+  const listed = event ? [...new Set([...event.attendees, event.organizer].filter(Boolean))] : [];
+  // An all-hands or a webinar (more invitees than MASS_ATTENDEES, as the identities collector counts a crowd) says nothing
+  // about who talked on this recording: none of its invitees joins — one contractor's exclusive marker would decide the
+  // whole call (.95, a rung above the registry) — and its names cover no glued run.
+  const fromEvent = listed.length > MASS_ATTENDEES ? [] : listed;
   const cover = [...fromEvent, ...m.speakers];
   const out = new Set<string>();
   for (const a of m.attendees) for (const p of r.attendee(a, cover)) out.add(p);

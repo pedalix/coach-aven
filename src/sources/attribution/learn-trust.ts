@@ -15,12 +15,15 @@
 //
 // Cues of an initiative are its registry card as L2 hands them over (InitiativeInfo.cues): name tokens, title patterns,
 // channels, key prefixes, repo basenames, hosts/apps — plus the id's last segment split on '-' (`velonord/erp-sync` →
-// erp, sync), added here. Plain strings are words or phrases; `#name` a channel, a dotted name a host; typed forms
-// (`key:VN`, `host:h`, `channel:C0…`, `repo:org/r`, `app:a`, `title:p`) say what they are. Dropped, so a cue names a topic
-// and not a party: cues that are only a client's name (an umbrella or company id: "Velo Nord" names the client, not the
-// shop), function words, and within one client every cue two of its initiatives share ("booker" of booker and booker
-// support). The cue the rung itself rests on (`key:VN` → `VN-…`, a channel rule's channel, a title pattern) never
-// counts: a route cannot corroborate itself (`trigger` adds what only L2 knows, e.g. a rule's container).
+// erp, sync), added here; L2 may hand over which of those words may be cues (`segments`: a word of the id that names the
+// client or a person — "nord" of `velonord/nord-shop` names Velo Nord — is none). Plain strings are words or phrases;
+// `#name` a channel, a dotted name a host; typed forms (`key:VN`, `host:h`, `channel:C0…`, `repo:org/r`, `app:a`,
+// `title:p`) say what they are. Dropped, so a cue names a topic and not a party: cues that are only a client's name (an
+// umbrella or company id: "Velo Nord" names the client, not the shop; L2 drops a company's display name and the roster's
+// names before), function words, and within one client every cue two of its initiatives share ("booker" of booker and
+// booker support). The cue the rung itself rests on (`key:VN` → `VN-…`, a channel rule's channel, a title pattern) never
+// counts: a route cannot corroborate itself (`trigger` adds what only L2 knows: a rule's container, the names the
+// registry lists for a channel id).
 //
 // Matching is on the folded text (NFKD, marks dropped, lower case) with Unicode-aware word edges (JS \b is ASCII-only): a
 // word of ≤ 4 letters is whole ("erp", "sync", "shop"/"shops"), a longer one a word start ("relaunch" also finds
@@ -37,6 +40,8 @@ export interface TrustInitiative {
   active: boolean;
   cues: readonly string[];
   admin?: boolean;
+  /** The words of the id's last segment that may be cues (L2 drops a client's or a person's name); absent: all of them. */
+  segments?: readonly string[];
 }
 
 export interface Cue {
@@ -225,7 +230,7 @@ export class Siblings {
       out!.push(c);
     };
     for (const s of i?.cues ?? []) if (typeof s === 'string') add(parseCue(s));
-    for (const t of lastSegment(id).split('-')) if ([...t].length >= 3 && letters(t) >= 2) add(wordCue(t));
+    for (const t of i?.segments ?? lastSegment(id).split('-')) if (typeof t === 'string' && [...t].length >= 3 && letters(t) >= 2) add(wordCue(t));
     this.raw.set(id, out);
     return out;
   }

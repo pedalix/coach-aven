@@ -8,7 +8,9 @@
 //   comments   each comment written in the window, `<task ref>#c<id>`, in its ticket's thread
 //   meetings   each recording of the window, threaded by its call (calls.ts call_id), with its resolved people
 // The text the rungs read is clipped (TEXT_MAX, as the bench measured it); keys come from the whole text, and so does
-// the sender class's campaign-footer check (`body`). Nothing is written.
+// the sender class's campaign-footer check (`body`: sender.ts bulkMarked reads the head and tail of the mail's own text,
+// quoted history cut off). A ticket's own key is its tracker key field (`ownKey`), never a key its text names. Nothing
+// is written.
 
 import type { DatabaseSync } from 'node:sqlite';
 import { resolveIdentity } from '../people.js';
@@ -35,6 +37,9 @@ export interface ItemIn {
   text: string; // clipped to TEXT_MAX
   body: string; // the whole text
   keys: string[]; // tracker keys and URLs in the whole text (a ticket: its own key first)
+  // A ticket's or comment's own key as the tracker wrote it (`SHOP-7`; an Asana gid is no key) — never one found in the
+  // text: "port the fix from SHOP-7" in another tracker's ticket is a cross-reference, not its key. Absent otherwise.
+  ownKey?: string | null;
   context: { author: string | null }[]; // authors of the earlier messages of the thread, oldest first (≤ 3)
   fromSubject: boolean; // authored by the subject
 }
@@ -129,7 +134,7 @@ export function loadItems(db: DatabaseSync, w: { since: string; until: string; t
     const reporterPerson = str(t.reporter_person);
     // A ticket and its comments share a thread (the ticket ref) and the ticket's own key: one case, one key rung.
     const keys = (body: string) => [...new Set([...(str(t.key) ? [str(t.key)] : []), ...itemKeys(body), ...(str(t.url) ? [str(t.url)] : [])])].slice(0, 20);
-    const base = { source: str(t.source), container: str(t.project) || null, thread: ref, isBot: false, subject: title || null };
+    const base = { source: str(t.source), container: str(t.project) || null, thread: ref, isBot: false, subject: title || null, ownKey: str(t.key) || null };
     if (inWindow(str(t.updated))) {
       const body = `${title}\n${str(t.text)}`.trim();
       items.push({
@@ -172,9 +177,11 @@ export function loadItems(db: DatabaseSync, w: { since: string; until: string; t
   items.sort((a, b) => (Date.parse(a.ts) || 0) - (Date.parse(b.ts) || 0) || (a.ref < b.ref ? -1 : a.ref > b.ref ? 1 : 0));
 
   // Store-wide, not windowed: whether a sender is one-way and who belongs where is history, counted up to each item's day.
+  // Threaded mail only: an unthreaded one (msgraph's thread is its own ref) can show no answer, so counting it would
+  // make a client the subject answers in Outlook one-way the day they also write to Gmail.
   const mail: MailRow[] = [];
-  for (const r of db.prepare('SELECT source, container, thread_id, ts, author_raw, author_person FROM messages WHERE deleted = 0').all() as Row[]) {
-    if (!isMailItem(str(r.source), str(r.container))) continue;
+  for (const r of db.prepare('SELECT ref, source, container, thread_id, ts, author_raw, author_person FROM messages WHERE deleted = 0').all() as Row[]) {
+    if (!isMailItem(str(r.source), str(r.container)) || !str(r.thread_id) || str(r.thread_id) === str(r.ref)) continue;
     mail.push({ thread: str(r.thread_id), t: Date.parse(str(r.ts)), sender: senderKey(str(r.author_raw)), subjectWrote: !!subject && str(r.author_person) === subject });
   }
   const members: MemberRow[] = [];

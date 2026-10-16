@@ -2,16 +2,17 @@
 // computed by the build and served by the sources table's `attribution` tool.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore, recomputeCalls } from '../store.js';
-import { clearAttribution, localDay, plusDays, readAttributionInputs, recomputeAttribution } from './build.js';
+import { attributionLine, clearAttribution, localDay, pinnedIdsBetween, plusDays, readAttributionInputs, recomputeAttribution, versionConfig, type AttributionSummary } from './build.js';
 import { hash } from './fragment.js';
 import { runAttribution, runCommitments, runIdentities, runTimelog } from '../../../snapshot/plain/sources-mcp.mjs';
 import { appendPinLines, readPins, unpinLines } from './pins.js';
 import type { Person } from '../people.js';
 import type { Fragment } from '../annotations.js';
+import type { LearnSummary } from './learn-load.js';
 
 const NOW = new Date('2026-10-15T16:00:00.000Z'); // 19:00 in Europe/Moscow
 
@@ -235,9 +236,9 @@ test('calls and runs get their people: copies of one call are one fragment; name
     assert.equal(review.length, 1, 'one call, not two');
     assert.deepEqual(of('meeting:gmeet:doc1'), review);
     const call = review[0]!;
-    assert.equal(call.id, `frag-2026-10-15-call-gmeet-${hash('doc1')}`, 'named by its first copy (start, then recorder priority)');
-    assert.deepEqual(JSON.parse(call.refs!), ['meeting:gmeet:doc1', 'meeting:granola:n3']);
-    assert.deepEqual([call.start, call.end], ['2026-10-15T13:00:00.000Z', '2026-10-15T13:40:00.000Z'], 'it lasts until the last copy ends');
+    assert.equal(call.id, `frag-2026-10-15-call-granola-${hash('n3')}`, 'named by its first copy (recorder priority, then start): Granola, though the Gemini doc starts earlier');
+    assert.deepEqual(JSON.parse(call.refs!), ['meeting:granola:n3', 'meeting:gmeet:doc1']);
+    assert.deepEqual([call.start, call.end], ['2026-10-15T13:02:00.000Z', '2026-10-15T13:40:00.000Z'], 'the naming copy\'s window; the Gemini doc has no end to add');
     assert.deepEqual(JSON.parse(call.participants!).sort(), ['hana', 'owner'], 'the glued Gemini invitees, split against the people file');
     assert.deepEqual([call.state, call.rule_id], ['rule', 'marker:hana']);
     const indexed = db.prepare("SELECT ref, initiative FROM attributions WHERE fragment_id = ? ORDER BY ref").all(call.id!) as { ref: string; initiative: string }[];
@@ -288,4 +289,123 @@ test('identities and commitments: computed with the plan, served by their tools;
   } finally {
     db.close();
   }
+});
+
+test('judged, then a twin copy lands (earlier start, zero length): the judgment stays attached, nothing new is pinned', () => {
+  const db = store();
+  try {
+    const mt = db.prepare('INSERT INTO meetings(ref, source, account, id, title, start, "end", attendees, summary, transcript) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const notes = 'Walked through the release checklist, the open risks and who owns which follow-up. '.repeat(3);
+    // 10-13, a closed day at NOW: Granola's copy lists only the subject — the ladder cannot decide it; the evening review did.
+    mt.run('granola:me:n3', 'granola', 'me', 'n3', 'Platform review', '2026-10-13T13:02:00.000Z', '2026-10-13T13:40:00.000Z', JSON.stringify([{ email: 'olga@example.com', name: 'Olga Owner' }]), notes, 'Me: so\nThem: yes\n'.repeat(50));
+    recomputeCalls(db);
+    const judged = `frag-2026-10-13-call-granola-${hash('n3')}`;
+    const ledger: Fragment[] = [{ id: judged, kind: 'call', start: '2026-10-13T13:02:00.000Z', end: '2026-10-13T13:40:00.000Z', refs: ['meeting:granola:n3'], attributions: [{ initiative: 'initech/a', share: 1 }], decided_by: 'owen', status: 'decided' }];
+    const pinsPath = join(mkdtempSync(join(tmpdir(), 'pins-')), 'pins.jsonl');
+    const t = tenant({ 'initiatives.json': registry, 'annotations/attribution.json': { subject: 'owner', since: '2026-10-13' } });
+    const inputs = readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow', pinsPath })!.inputs;
+    const pins = () => (existsSync(pinsPath) ? readFileSync(pinsPath, 'utf8') : '');
+    recomputeAttribution(db, inputs, people, ledger, NOW);
+    const before = pins();
+    // The Gemini notes doc lands later: its start is the scheduled 13:00 (before Granola's), it has no end, and its glued
+    // invitee line names Hana (exclusive → acme/p5) — renamed after it, the call would be re-decided and pinned that way.
+    mt.run('gmeet:me:doc1', 'gmeet', 'me', 'doc1', 'Platform review', '2026-10-13T13:00:00.000Z', '2026-10-13T13:00:00.000Z', JSON.stringify([{ email: '', name: 'Olga Owner Hana Hill' }]), notes, '');
+    recomputeCalls(db);
+    recomputeAttribution(db, inputs, people, ledger, NOW);
+    const calls = db.prepare("SELECT id, refs, state, decided_by, attributions, ledger_id FROM att_fragments WHERE kind = 'call' AND start LIKE '2026-10-13%'").all() as Record<string, string>[];
+    assert.deepEqual(calls.map((c) => [c.id, c.state, c.decided_by, c.ledger_id, (JSON.parse(c.attributions!) as { initiative: string }[])[0]!.initiative]), [[judged, 'decided', 'owen', judged, 'initech/a']], 'one call: the judged id, the judgment');
+    assert.deepEqual(JSON.parse(calls[0]!.refs!), ['meeting:granola:n3', 'meeting:gmeet:doc1']);
+    assert.equal(pins(), before, 'nothing new is pinned');
+    const indexed = db.prepare("SELECT ref, initiative FROM attributions WHERE ref IN ('meeting:granola:n3', 'meeting:gmeet:doc1') ORDER BY ref, initiative").all() as { ref: string; initiative: string }[];
+    assert.deepEqual(indexed.map((r) => [r.ref, r.initiative]), [['meeting:gmeet:doc1', 'initech/a'], ['meeting:granola:n3', 'initech/a']], 'both copies under the judgment, and no second initiative');
+  } finally {
+    db.close();
+  }
+});
+
+test('a pin under a copy\'s own id stays attached when a later copy that started earlier renames the call; a redo releases it too', () => {
+  const db = store();
+  try {
+    const mt = db.prepare('INSERT INTO meetings(ref, source, account, id, title, start, "end", attendees, summary, transcript) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const notes = 'Walked through the release checklist, the open risks and who owns which follow-up. '.repeat(3);
+    // 10-13 (closed): Wispr alone, whose transcript names Hana (exclusive → acme/p5) — the first build pins that.
+    mt.run('wispr:me:w2', 'wispr', 'me', 'w2', 'Quick check', '2026-10-13T09:00:00.000Z', '2026-10-13T09:30:00.000Z', '[]', notes, 'Hana Hill: the release is ready\nOlga Owner: great\n'.repeat(20));
+    recomputeCalls(db);
+    const pinsPath = join(mkdtempSync(join(tmpdir(), 'pins-')), 'pins.jsonl');
+    const t = tenant({ 'initiatives.json': registry, 'annotations/attribution.json': { subject: 'owner', since: '2026-10-13' } });
+    const read = () => readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow', pinsPath })!.inputs;
+    recomputeAttribution(db, read(), people, [], NOW);
+    const wispr = `frag-2026-10-13-call-wispr-${hash('w2')}`;
+    assert.deepEqual([...readPins(pinsPath).keys()], [wispr]);
+    const pinned = readFileSync(pinsPath, 'utf8');
+    // Then the tenant moves Hana's calls elsewhere, and Granola's copy of the same call syncs (it started 30 s earlier):
+    // Granola names the call now — the closed day must keep its pinned decision, not take the new rule.
+    writeFileSync(join(t.ann, 'rules.json'), JSON.stringify([{ id: 'r-hana', when: { person: 'hana' }, then: { initiative: 'initech/a' } }]));
+    mt.run('granola:me:n5', 'granola', 'me', 'n5', 'Quick check', '2026-10-13T08:59:30.000Z', '2026-10-13T09:30:00.000Z', JSON.stringify([{ email: 'olga@example.com', name: 'Olga Owner' }]), notes, 'Me: so\nThem: yes\n'.repeat(50));
+    recomputeCalls(db);
+    recomputeAttribution(db, read(), people, [], NOW);
+    const granola = `frag-2026-10-13-call-granola-${hash('n5')}`;
+    const calls = () => (db.prepare("SELECT f.id, f.state, f.attributions, p.pinned_at FROM att_fragments f LEFT JOIN att_pins p ON p.id = f.id WHERE f.kind = 'call' AND f.start LIKE '2026-10-13%'").all() as Record<string, string | null>[]).map((c) => [c.id, c.state, (JSON.parse(c.attributions!) as { initiative: string }[])[0]!.initiative, !!c.pinned_at]);
+    assert.deepEqual(calls(), [[granola, 'decided', 'acme/p5', true]], 'renamed, and still the pinned decision');
+    assert.equal(readFileSync(pinsPath, 'utf8'), pinned, 'nothing new is pinned');
+    // `orch sources attribution redo` for 10-13 (Moscow): the pin under the Wispr copy's id is released with the call
+    const ids = pinnedIdsBetween(db, '2026-10-12T21:00:00.000Z', '2026-10-13T20:59:59.999Z');
+    assert.deepEqual(ids, [granola, wispr]);
+    appendPinLines(pinsPath, unpinLines(readPins(pinsPath), ids, 'redo'));
+    recomputeAttribution(db, read(), people, [], NOW);
+    assert.deepEqual(calls(), [[granola, 'decided', 'initech/a', true]], 'the current rule decides it, pinned again');
+    assert.deepEqual([...readPins(pinsPath).keys()], [granola]);
+  } finally {
+    db.close();
+  }
+});
+
+test('team mode: the loop gets the plan\'s drafts — none — so it builds no fragment units next to the items', () => {
+  const db = store();
+  try {
+    const t = tenant({ 'initiatives.json': registry, 'annotations/attribution.json': { items: { days: 2 }, learn: { mode: 'shadow' } } });
+    const sum = recomputeAttribution(db, readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow' })!.inputs, people, [], NOW);
+    assert.equal(sum.fragments, 0);
+    const learn = sum.learn as LearnSummary;
+    assert.ok(learn && !('error' in learn), JSON.stringify(sum.learn));
+    assert.equal(learn.units.fragment, 0, 'the store has a call and a work block: a tenant without a subject fragments neither');
+    assert.ok(learn.units.item > 0);
+    assert.equal((db.prepare("SELECT count(*) AS n FROM att_learn WHERE unit = 'fragment'").get() as { n: number }).n, 0);
+  } finally {
+    db.close();
+  }
+});
+
+test('item mode and the loop leave the pins alone: the rules version ignores `items` and `learn`', () => {
+  assert.equal(versionConfig({ subject: 'owner', since: '2026-10-12' }), versionConfig({ subject: 'owner', items: { days: 30 }, since: '2026-10-12', learn: { mode: 'shadow' } }));
+  assert.notEqual(versionConfig({ subject: 'owner' }), versionConfig({ subject: 'owner', admin: { acme: 'acme/admin' } }), 'what decides still moves it');
+  const pinsOf = (cfg: object): string => {
+    const db = store();
+    try {
+      // a message on 10-12 in #shop: a closed day's registry decision, pinned by the build
+      db.prepare('INSERT INTO messages(ref, source, account, container, thread_id, ts, author_person, author_raw, subject, text) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+        'slack:T/C1/0', 'slack', 'T', '#shop', 't0', '2026-10-12T07:00:00.000Z', 'owner', 'Olga Owner', '', 'Checked the SH-11 export, all rows are there now',
+      );
+      const pinsPath = join(mkdtempSync(join(tmpdir(), 'pins-')), 'pins.jsonl');
+      const t = tenant({ 'initiatives.json': registry, 'annotations/attribution.json': cfg });
+      recomputeAttribution(db, readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow', pinsPath })!.inputs, people, [], NOW);
+      return readFileSync(pinsPath, 'utf8');
+    } finally {
+      db.close();
+    }
+  };
+  const off = pinsOf({ subject: 'owner', since: '2026-10-12' });
+  assert.match(off, /"rules_version":"[0-9a-f]{12}"/);
+  assert.equal(pinsOf({ subject: 'owner', since: '2026-10-12', items: { days: 30 }, learn: { mode: 'shadow' } }), off, 'byte-identical pins with item mode and the loop on');
+});
+
+test('attributionLine: the plan\'s counts as before; the item pass and the loop only while on, and their errors spelled out', () => {
+  const base: AttributionSummary = { since: '2026-10-01', until: '2026-10-15', fragments: 3, states: { decided: 1, escalated: 0, rule: 1, open: 1 }, proposals: 2, identities: { merges: 0, questions: 0 }, commitments: 0, items: null };
+  const plan = 'attribution 2026-10-01..2026-10-15: 3 fragments (decided 1, escalated 0, rule 1, open 1), 2 proposals';
+  assert.equal(attributionLine(base), plan, 'off: the line as it always was');
+  assert.equal(
+    attributionLine({ ...base, items: { since: '2026-09-16', until: '2026-10-15', items: 120, senders: { human: 80, bot: 30, bulk: 6, system: 4 }, decided: 90, clusters: 12 }, learn: { mode: 'shadow', units: { fragment: 3, item: 120 }, would_decide: 70, floor_decided: 64, questions: 3, audits: 1 } as unknown as LearnSummary }),
+    `${plan}; items 2026-09-16..2026-10-15: 120 (90 decided, 12 clusters); learn shadow: 3 fragments + 120 items, would decide 70 (floor 64), 3 questions, 1 audits`,
+  );
+  assert.equal(attributionLine({ ...base, items: { error: 'no such table: tasks' }, learn: { error: 'boom' } }), `${plan}; items FAILED: no such table: tasks (previous rows kept); learn FAILED: boom (previous rows kept)`);
 });

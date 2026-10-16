@@ -331,3 +331,81 @@ test('end to end — run, score, report: numbers and labels, never a unit text, 
   assert.doesNotMatch(md, /TEXT-|SUBJ-/);
   assert.doesNotMatch(md, /\bi[1-9]\b/, 'unit ids stay out of the report');
 });
+
+// --- the person's side of a replay: what gets asked and audited ------------------------------------------
+
+// One day, two question groups ranked by the variant: g1 asks to confirm a guess for a1+a2, g2 is b1 alone.
+function askDataset(goldOfA: string): Dataset {
+  const dir = mkdtempSync(join(tmpdir(), 'lab-ask-'));
+  saveMeta(dir, { ...loadDataset(makeDataset().dir).meta, name: 'ask-bench' });
+  writeJsonl(join(dir, 'units', 'item.jsonl'), [item('a1', D1), item('a2', D1), item('b1', D1)]);
+  writeJsonl(join(dir, 'gold', 't4-kind.jsonl'), [gold('t4-kind', 'a1', goldOfA), gold('t4-kind', 'a2', goldOfA), gold('t4-kind', 'b1', 'question')]);
+  return loadDataset(dir);
+}
+
+const asker: Variant = {
+  name: 'asker',
+  description: 'two ranked question groups: a confirm of a guess, then a plain question',
+  tasks: ['t4-kind'],
+  decide: async (_t, units) =>
+    units.map((u) =>
+      u.id.startsWith('a')
+        ? { id: u.id, label: null, conf: 0, rung: 'abstain', ask: { group: 'g1', value: 2, form: 'confirm' as const, guess: 'request' } }
+        : { id: u.id, label: null, conf: 0, rung: 'abstain', ask: { group: 'g2', value: 1 } },
+    ),
+};
+
+test('replay — questions go in rank order and are paid after the answer: whether one is asked never depends on its gold', async () => {
+  // g1's guess is wrong (1.5 questions) on a budget of 1: it is still asked first, and it uses the day up
+  const wrong = await runTask(askDataset('noise'), asker, 't4-kind', opts(tmpLab(), { mode: 'replay', questionsPerDay: 1 }));
+  assert.deepEqual(wrong.answered, ['a1', 'a2']);
+  assert.deepEqual([wrong.perDay[0].asked, wrong.perDay[0].effort], [1, 1.5]);
+  // the same guess right (half a question): g1 again, and the half left over buys g2 — the day may overrun by one group
+  const right = await runTask(askDataset('request'), asker, 't4-kind', opts(tmpLab(), { mode: 'replay', questionsPerDay: 1 }));
+  assert.deepEqual(right.answered, ['a1', 'a2', 'b1']);
+  assert.deepEqual([right.perDay[0].asked, right.perDay[0].effort], [2, 1.5]);
+  // no budget, no questions
+  const none = await runTask(askDataset('noise'), asker, 't4-kind', opts(tmpLab(), { mode: 'replay', questionsPerDay: 0 }));
+  assert.deepEqual(none.answered, []);
+});
+
+test('replay — audit credit banked on days with nothing to check is capped: the first busy day keeps its questions', async () => {
+  // Eight quiet days (one abstention each, nothing auto-decided), then a day with four confident units and a question.
+  const days = Array.from({ length: 9 }, (_, i) => `2026-01-${String(5 + i).padStart(2, '0')}`);
+  const dir = mkdtempSync(join(tmpdir(), 'lab-audit-'));
+  saveMeta(dir, { ...loadDataset(makeDataset().dir).meta, name: 'audit-bench', until: days[8]! });
+  const units = [...days.slice(0, 8).map((d, i) => item(`q${i + 1}`, d)), ...['a1', 'a2', 'a3', 'a4', 'q9'].map((id) => item(id, days[8]!))];
+  writeJsonl(join(dir, 'units', 'item.jsonl'), units);
+  writeJsonl(join(dir, 'gold', 't4-kind.jsonl'), units.map((u) => gold('t4-kind', u.id, 'request')));
+  const plan: Record<string, [string | null, number]> = Object.fromEntries(units.map((u) => [u.id, u.id.startsWith('a') ? ['request', 0.99] : [null, 0]]));
+  const r = await runTask(loadDataset(dir), stub('quiet', plan), 't4-kind', opts(tmpLab(), { mode: 'replay', questionsPerDay: 3, auditShare: 0.15 }));
+  const last = r.perDay.at(-1)!;
+  // 8 × 0.45 banked would be 3.6 + 0.45 → four audits and no question; carried credit is capped at one audit
+  assert.deepEqual([last.decided, last.audited, last.answered, last.effort], [4, 1, 1, 2]);
+  assert.ok(r.answered.includes('q9'));
+  assert.ok(r.perDay.every((d) => d.effort <= 3), 'audits never take more than the day');
+});
+
+test('--opt settings are saved with the result and named in the report; a run without them saves none', async () => {
+  const ds = makeDataset();
+  const lab = tmpLab();
+  process.env.LAB_OPT_machineWeight = '0';
+  try {
+    const r = await runTask(ds, stub(), 't4-kind', opts(lab, { mode: 'replay', questionsPerDay: 1 }));
+    assert.deepEqual(r.opts.opt, { machineWeight: '0' });
+    assert.deepEqual(loadResult(join(resultDir(r, lab), 't4-kind.result.json')).opts.opt, { machineWeight: '0' });
+    const md = renderReport([{ result: r, score: scoreTask(ds, r) }], { iters: 10 });
+    assert.match(md, /\| stub \| replay·none q1 ≥0\.5 · machineWeight=0 \|/);
+  } finally {
+    delete process.env.LAB_OPT_machineWeight;
+  }
+  assert.equal((await runTask(ds, stub(), 't4-kind', opts(tmpLab()))).opts.opt, undefined);
+});
+
+test('report — the floor names the auto@ columns; the τ column keeps the cut it was measured at', async () => {
+  const ds = makeDataset();
+  const result = await runTask(ds, stub(), 't4-kind', opts(tmpLab()));
+  const md = renderReport([{ result, score: scoreTask(ds, result, { floor: 0.9 }) }], { iters: 10 });
+  assert.match(md, /\| auto@90 test \| auto@90 conservative \| auto at τ \.95 \(P\) \|/);
+  assert.match(renderReport([{ result, score: scoreTask(ds, result) }], { iters: 10 }), /\| auto@95 test \| auto@95 conservative \| auto at τ \.95 \(P\) \|/);
+});

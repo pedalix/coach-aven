@@ -14,7 +14,10 @@ export function caseKeyOf(task: TaskId, u: Unit): string {
   if (kind === 'fragment') return (u as FragmentUnit).case ?? (u as FragmentUnit).id.replace(/#\d+$/, '');
   if (kind === 'item') {
     const it = u as ItemUnit;
-    if (it.type === 'comment') return it.id.replace(/#c[^#]*$/, '');
+    // A ticket and its comments are ONE case, keyed by the ticket's ref (a comment's id is `<ref>#c<id>`): its
+    // comments nearly always share its label, so split apart they leak the ticket's answer across dev and test.
+    if (it.type === 'task') return `ticket:${it.id}`;
+    if (it.type === 'comment') return `ticket:${it.id.replace(/#c[^#]*$/, '')}`;
     return it.thread ? `thread:${it.thread}` : it.id;
   }
   return u.id;
