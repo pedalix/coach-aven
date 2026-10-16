@@ -123,8 +123,9 @@ export async function runTeams(cfg: Config): Promise<void> {
   engine.resumeQueuedTurns(driverFor, recovering);
 
   await app.initialize();
-  await new Promise<void>((resolve, reject) => {
-    server.listen(teams.port, '127.0.0.1', () => resolve()).once('error', reject);
+  const listener = await new Promise<import('node:http').Server>((resolve, reject) => {
+    const l = server.listen(teams.port, '127.0.0.1', () => resolve(l));
+    l.once('error', reject);
   });
   log.info(`Teams bot running (:${teams.port}) — ${summary(reg.current)}`);
   pollers.startAll();
@@ -143,10 +144,9 @@ export async function runTeams(cfg: Config): Promise<void> {
     if (stopping) return;
     stopping = true;
     log.info(`${sig} — closing the Teams listener and exiting (in-flight turns recover on the next boot)`);
-    void app
-      .stop()
-      .catch(() => {})
-      .finally(() => process.exit(0));
+    // The listener is ours (ExpressAdapter), so it is ours to close — app.stop() would only
+    // complain that the server lifecycle is managed externally.
+    listener.close(() => process.exit(0));
     setTimeout(() => process.exit(0), 5000).unref();
   };
   process.once('SIGTERM', () => shutdown('SIGTERM'));
@@ -163,7 +163,11 @@ async function connector<T>(call: string, target: string, fn: () => Promise<T>):
     const r = (e as { response?: { status?: number; data?: unknown } }).response;
     if (!r) throw e;
     const body = typeof r.data === 'string' ? r.data : JSON.stringify(r.data);
-    throw new Error(`Teams ${call} → ${target.slice(0, 60)}: HTTP ${r.status} ${body?.slice(0, 500) ?? ''}`.trim());
+    // What we sent, for the journal only: the thread gets the Connector's verdict, the operator
+    // gets the payload that earned it.
+    const sent = (e as { config?: { data?: unknown } }).config?.data;
+    if (sent) log.error(`teams ${call} rejected payload: ${String(sent).slice(0, 1500)}`);
+    throw new Error(`Teams ${call} → ${target}: HTTP ${r.status} ${body?.slice(0, 500) ?? ''}`.trim());
   }
 }
 

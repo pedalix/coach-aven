@@ -22,6 +22,12 @@ class Recorder implements TeamsApi {
     return { id: `m${++this.seq}` };
   }
   async update(conv: string, id: string, activity: OutActivity) {
+    // The Connector's rule, learnt on the real tenant: an edit may carry text or a card, not both.
+    if (activity.text !== undefined && activity.attachments?.length) {
+      const err = new Error('Request failed with status code 400') as Error & { response?: unknown };
+      err.response = { status: 400, data: { error: { code: 'BadSyntax', message: 'Activity resulted into multiple skype activities' } } };
+      throw err;
+    }
     this.calls.push({ op: 'update', conv, id, activity });
   }
   async openPersonal(user: string) {
@@ -90,6 +96,21 @@ test('status edits coalesce to one per window and the final one always lands', a
   assert.ok(edits.length <= 2, `expected ≤ 2 edits, got ${edits.length}`);
   const last = edits.at(-1)!.activity!.attachments![0].content.body[0] as { text: string };
   assert.equal(last.text, 's50');
+});
+
+test('an answer that replaces the status card edits the text in place and posts the buttons after it', async () => {
+  const api = new Recorder();
+  const d = teamsDriver(api, { tenantId: TENANT });
+  const status = await d.post({ conv: CH, thread: '100' }, { kind: 'status', line: 'working', turnId: 't1', notify: 'w' });
+  await d.update(status, { kind: 'answer', markdown: 'Done, see https://github.com/Org/alpha/pull/7', opts: { trail: { turnId: 't1', steps: 3, elapsedMs: 1 } } });
+  assert.deepEqual(
+    api.calls.slice(1).map((c) => [c.op, c.activity!.text !== undefined, !!c.activity!.attachments]),
+    [
+      ['update', true, false],
+      ['send', false, true],
+    ],
+  );
+  assert.equal(api.calls[2].conv, `${CH};messageid=100`);
 });
 
 test('a long answer is split and the card rides on the last part', async () => {
