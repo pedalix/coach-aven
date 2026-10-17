@@ -272,7 +272,8 @@ inside a project's sandbox.
 - **The caller is the session.** A tool call is attributed to the project and conversation of the
   session it arrived on; a project or thread named in the input is ignored.
 - **`host`** — while `DISPATCH=1`: `propose` (below) and `registry` (the projects this conversation may
-  address, with their bound channel and `self`). Absent otherwise.
+  address, with their bound channel and `self`). For a project with a `messaging` block also the
+  messaging tools (below); a shadow conversation never gets `propose` or `registry`. Absent otherwise.
 - **`sources`** — for a project with a `sources` block: the same twelve tools as before, answered
   from the replica on the bot host's disk on a worker thread (`src/sources/worker.mjs` — a heavy
   `unanswered` over a 200 MB personal store takes about a second and must not stall Slack acks).
@@ -297,6 +298,22 @@ A project's sources can live with a daemon instead of the bot (`orch sources dae
   reads its own copy from `SOURCES_DAEMON_TOKEN`).
 
 Without either, everything is as before: the bot ingests and answers from its own replica.
+
+## Agent messaging (`messaging`, `INSTALLATION_ID`, `HUB_URL`, `HUB_KEY_PATH`)
+
+Agents asking agents — `docs/agent-messaging.md` (what it does, the `messaging` block), `docs/hub.md`
+(between installations). Off unless configured:
+
+| Setting | Where | What |
+|---|---|---|
+| `messaging` | per project, `projects.config.json` | `send`, `accept`, `description`, daily caps, `maxRounds`, `costWarnUsd`. Read at call time; `/aven reload` applies it (open tasks whose asker is no longer accepted end `canceled: not accepted`). Refused on a project several tenants share. |
+| `INSTALLATION_ID` | `.env` | This installation's id in every address (default `local`, enough inside one installation; must be explicit for the hub). Invalid → the boot fails. |
+| `HUB_URL` | `.env` | `wss://<hub>` — the bot keeps one outbound connection to the hub. Unset: no connection. Set without an explicit `INSTALLATION_ID` or `HUB_KEY_PATH`: a loud error, and messaging inside the installation only. |
+| `HUB_KEY_PATH` | `.env` | The installation's key file (`orch hub keygen`, mode 0600). |
+| `hub.peers.json` | beside `projects.config.json` | The peer installations this one may reach and their pinned public keys (lists, for rotation). `/aven reload` re-reads it; `deploy.sh export`/`import` carry it. |
+
+Sessions are spawned with the message ledger (`--replay-user-messages`) only for projects with a
+`messaging` block; a session opened before a reload keeps the mode it was spawned with.
 
 ## Dispatch (`DISPATCH`)
 

@@ -172,23 +172,29 @@
 
 ## 7. Docs, rollout, ops
 
-- [ ] 7.1 `docs/agent-messaging.md` from this change's `overview.md`: mermaid, high level, including what an accept entry grants and what a domain is — review
-- [ ] 7.2 `docs/hub.md`, plus `docs/runtime-config.md` rows for `INSTALLATION_ID`, `HUB_URL`, `HUB_KEY_PATH` and `messaging` — review. `docs/hub.md` covers:
+- [x] 7.1 `docs/agent-messaging.md` from this change's `overview.md`: mermaid, high level, including what an accept entry grants and what a domain is — review
+  Done: `docs/agent-messaging.md` — the overview’s diagrams and rules, plus turning it on, what an accept entry grants, a domain, and what people see.
+- [x] 7.2 `docs/hub.md`, plus `docs/runtime-config.md` rows for `INSTALLATION_ID`, `HUB_URL`, `HUB_KEY_PATH` and `messaging` — review. `docs/hub.md` covers:
   - deploying the hub from an ops repo;
   - enrolment and removal; key rotation (lists on both sides);
   - keeping the host clock in sync (NTP; the WSL sleep case);
   - data at rest (`shadow/`, task records, marks)
-- [ ] 7.3 `docs/rollout.md` ledger row — review:
+  Done: `docs/hub.md` (deploy, enrolment, removal, rotation, clocks, data at rest, watching it) and the `docs/runtime-config.md` section.
+- [x] 7.3 `docs/rollout.md` ledger row — review:
   - bucket 2 (per-project `messaging`, the routine-guard retry rule) + bucket 3 (`HUB_URL`);
   - canary on three installations;
   - existing sessions need `🔄 Restart session`
+  Done: the rollout row in `docs/rollout.md`, beside the rows of each PR.
 - [ ] 7.4 Failure-path test: every path in D16 emits its event, and warnings and errors reach Sentry without `SENTRY_LOGS`; the hub reports through `@sentry/cloudflare` when a DSN is set — `src/messaging/events.test.ts` ("process lost a message"), hub test for the reporter
-- [ ] 7.5 `scripts/public-guard.sh` clean on the branch — CI
-- [ ] 7.6 Operator steps in the ops repos — checklist in the PR body:
+  Bot side done: `src/messaging/events.paths.test.ts` (every catalogued event has an emitter) and “process lost a message” in `src/messaging/service.test.ts` (captured at error level without `SENTRY_LOGS`). **Open:** the hub reports to Workers logs; `@sentry/cloudflare` comes with the hub’s deploy, when it has a DSN secret.
+- [x] 7.5 `scripts/public-guard.sh` clean on the branch — CI
+  Done: every PR of the change passed CI’s guard (`scripts/public-guard.sh`) and gitleaks.
+- [x] 7.6 Operator steps in the ops repos — checklist in the PR body:
   - deploy the hub;
   - enrol home, prod and the Teams staging installation;
   - `.env` and `hub.peers.json` on all three;
   - `messaging` on the canary projects
+  Done: the checklist is in the body of #32; the steps themselves are the operator’s (they need the Cloudflare account and the ops repos).
 - [ ] 7.7 End-to-end on the canary — recorded in the PR:
   - a local ask on home;
   - owen-ops asks a prod project while idle and while busy;

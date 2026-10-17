@@ -87,6 +87,11 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 - `src/schedule.ts` — pure cron/schedule logic for scheduled report jobs; `src/routineguard.ts` —
   the routine delivery guard (missed-fire catch-up, outcome + one retry, "previous run" preamble),
   behind `ROUTINE_GUARD=1` — see `docs/runtime-config.md`.
+- `src/messaging/` — agent messaging (OpenSpec `agent-messaging`, `docs/agent-messaging.md`): `service.ts` (the tools,
+  the deliverer, the answering side), `protocol.ts`/`a2a.ts` (wire format, shared with the hub; no `node:` imports),
+  `seal.ts` (E2E), `local.ts`/`hubclient.ts` (transports), `marks.ts`, `wrap.ts`, `runtime.ts` (the composition roots'
+  half); shadow conversations journal through `src/chat/shadow/driver.ts`. `hub/` is the relay — a Cloudflare Worker with
+  its own package and tests (`docs/hub.md`).
 - `src/gwtoken.ts` — Auth0 M2M tokens for the MCP gateway (`mcp` entry with `auth: "gateway-m2m"`):
   cached/single-flight mint in the orchestrator, only the token goes into the sandbox — see
   `docs/runtime-config.md` → *MCP gateway*.
