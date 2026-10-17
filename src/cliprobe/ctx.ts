@@ -84,6 +84,9 @@ export class ProbeCtx {
   onCanUseTool?: (frame: Frame) => unknown | Promise<unknown>;
   /** Lines on stdout that were not JSON (the bot skips them too). */
   noise = 0;
+  /** Lines on stdout that were the transport's copy of what the probe wrote (see RecordLine `echo`). */
+  transportEchoes = 0;
+  private readonly written: string[] = [];
 
   private readonly t0 = Date.now();
   private proc?: ProbeProcess;
@@ -152,6 +155,18 @@ export class ProbeCtx {
   }
 
   private onLine(line: string): void {
+    // The transport's copy of a line the probe wrote: recorded as such, never taken for the CLI's.
+    const mine = this.written.indexOf(line.trim());
+    if (mine >= 0) {
+      this.written.splice(mine, 1);
+      this.transportEchoes++;
+      try {
+        this.recording.push({ t: this.now(), dir: 'echo', frame: JSON.parse(line) as Frame });
+      } catch {
+        /* not JSON: nothing to record */
+      }
+      return;
+    }
     let f: unknown;
     try {
       f = JSON.parse(line);
@@ -200,7 +215,10 @@ export class ProbeCtx {
     if (!this.proc || !this.alive) throw new Error('no CLI process to write to');
     this.cursor = this.frames.length;
     this.recording.push({ t: this.now(), dir: 'in', frame });
-    await this.proc.write(JSON.stringify(frame) + '\n');
+    const text = JSON.stringify(frame);
+    this.written.push(text);
+    if (this.written.length > 200) this.written.shift();
+    await this.proc.write(text + '\n');
   }
 
   /** A user message exactly as the bot writes it; the optional fields are the protocol's own. */

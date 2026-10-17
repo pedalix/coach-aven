@@ -421,6 +421,7 @@ Since task 0.2 the rows the delivery relies on are `cli-probe` contract scenario
 | written right after the **last** tool result (0 or 400 ms later, before the final text starts) | not folded in: its own turn after the running one; the fold-in window closes with the last tool result | 2 |
 | stdin through the **ssh-docker FIFO** (`cli-probe` sandbox transport) | `fold-in`, `echo-at-take-up`, `interrupt-after-inject` and `kill-resume` hold as on a local process, three runs each | as local |
 | a long turn on **Opus 5.5** (a 2500-line tool output in context, then a chain of five tools) | folded in at the next tool boundary, one result | 1 |
+| stdin through the **Daytona session** (prod's driver; `cli-probe` sandbox transport, prod's organization and snapshot) | `fold-in`, `echo-at-take-up`, `interrupt-after-inject` and `kill-resume` hold as on a local process, three runs each. The session's **output also carries every line written to stdin**, as written, ~200 ms after the write (no `isReplay`, so it is not the CLI's echo). The snapshot bakes CLI 2.1.260 and relies on the in-place upgrade at chat prep; the upgrade failed once in 13 runs, and the run stayed on 2.1.260 | as local |
 | a background task that ends mid-turn (claude-code#102220) | reported into the running turn: a `<task-notification>` user message, queued with `origin: {kind: "task-notification"}`, echoed at a tool boundary before the turn's result — the issue does not reproduce on 2.1.282 | 1 |
 
 **What Anthropic documents.** There is no formal wire spec; claude-code#102880, "Emit a JSON Schema for the stream-json protocol", is open.
@@ -456,7 +457,9 @@ Since task 0.2 the rows the delivery relies on are `cli-probe` contract scenario
   - `--replay-user-messages`: the echo, used here.
 
   The echo is enough for delivery; the other two are probe instruments.
-- **Not yet measured:** stdin through the Daytona session (prod's driver), with `cli-probe`'s sandbox transport, before the canary (task 0.2). The ssh-docker FIFO, the race with the final text, a long Opus turn and claude-code#102220 are measured (rows above).
+- **Measured, all of task 0.2:** the ssh-docker FIFO, the Daytona session, the race with the final text, a long Opus turn and claude-code#102220 (rows above).
+- **The Daytona copy of stdin** means a frame the bot wrote, uuid included, shows up on the session's output before the CLI has taken it up. Only the CLI's own echo (`isReplay: true`) may confirm delivery (D13).
+- **A failed in-place upgrade** leaves a session on the image's CLI. The per-session check below then turns injection off for it (`ask.inject.disabled`), loudly.
 - **A message that misses the last tool boundary** gets its own turn even before the final text starts. That is the case D13 already covers: the ledger answers it as a delivery, not as a background update.
 
 **Mechanisms considered and not used:**
@@ -478,6 +481,8 @@ Today `ClaudeSession` keeps one pending turn and settles it with the first `resu
 
 The new accounting:
 - **The ledger.** Every write carries a `uuid`, and the session runs with `--replay-user-messages`. `ClaudeSession` keeps a ledger: **sent → taken up (echo) → settled (`result`)**.
+  - Only a `user` frame with `isReplay: true` and the write's `uuid` is the echo.
+  - A Daytona session's output also carries the bot's own written line, uuid included, ~200 ms after the write and before take-up (D12). That copy confirms nothing.
 - **Settling.**
   - A pending turn is settled only by a `result` that follows the echo of **its own** message.
   - An injected message folded into a running turn is settled by that turn's `result`.

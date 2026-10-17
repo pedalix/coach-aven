@@ -14,7 +14,7 @@ import type { RateLimitInfo } from './ratelimit.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
-type Line = { t: number; dir?: 'out' | 'in'; frame?: Any; proc?: 'start' | 'exit'; argv?: string[] };
+type Line = { t: number; dir?: 'out' | 'in' | 'echo'; frame?: Any; proc?: 'start' | 'exit'; argv?: string[] };
 
 const FIXTURES = new URL('./fixtures/cli/', import.meta.url).pathname;
 const tick = (): Promise<void> => new Promise((r) => setImmediate(r));
@@ -107,7 +107,8 @@ async function replay(lines: Line[], o: { hostServers?: HostServerRoute[]; answe
         ac?.abort();
       }
       await ticks();
-    } else if (l.dir === 'out') {
+    } else if (l.dir === 'out' || l.dir === 'echo') {
+      // A transport's copy of stdin (a Daytona session) reaches the bot's parser like any line.
       proc!.push(l.frame);
       await ticks();
     }
