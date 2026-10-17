@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
-import { ClaudeSession, type AskQuestion, type OnQuestion, type TurnResult } from './claudeSession.js';
+import { ClaudeSession, type AskQuestion, type InjectOutcome, type OnQuestion, type TurnResult } from './claudeSession.js';
 import { PROBED_CLI_VERSIONS } from './cliversion.js';
 import type { SandboxHandle } from './driver.js';
 import { mcpServer, type HostServerRoute } from './hosttools.js';
@@ -64,12 +64,20 @@ interface Replay {
   rate: RateLimitInfo[];
   steps: string[];
   questions: { qs: AskQuestion[]; aborted: boolean }[];
+  // Messages written while a turn was pending (a session with the ledger): what became of each.
+  injects: { text: string; outcome?: InjectOutcome }[];
+  // The background-task list's length after every background_tasks_changed.
+  bg: number[];
+  mismatches: number;
 }
+
+const FOLD = '↩ injected message folded in';
 
 // Drive the bot's session through a recording: a process start opens a session (with --resume when the
 // probe resumed), the probe's user message becomes the bot's send(), its interrupt the bot's cancel.
 async function replay(lines: Line[], o: { hostServers?: HostServerRoute[]; answers?: (qs: AskQuestion[]) => Record<string, string> } = {}): Promise<Replay> {
-  const r: Replay = { sessions: [], writes: [], recordedIn: [], turns: [], idle: [], rate: [], steps: [], questions: [] };
+  const r: Replay = { sessions: [], writes: [], recordedIn: [], turns: [], idle: [], rate: [], steps: [], questions: [], injects: [], bg: [], mismatches: 0 };
+  let turnPending = false;
   const procs: ReturnType<typeof fakeProcess>[] = [];
   const collect = (): void => {
     for (const p of procs) r.writes.push(...p.writes.splice(0));
@@ -90,8 +98,11 @@ async function replay(lines: Line[], o: { hostServers?: HostServerRoute[]; answe
       const i = l.argv?.indexOf('--resume') ?? -1;
       proc = fakeProcess();
       procs.push(proc);
-      session = new ClaudeSession(proc.handle, { cwd: '/probe/work', resumeSessionId: i >= 0 ? l.argv![i + 1] : undefined, hostServers: o.hostServers });
+      // A process spawned with the ledger's flags is a session with the message ledger (agent-messaging D13).
+      const ledger = l.argv?.includes('--replay-user-messages') ?? false;
+      session = new ClaudeSession(proc.handle, { cwd: '/probe/work', resumeSessionId: i >= 0 ? l.argv![i + 1] : undefined, hostServers: o.hostServers, ledger });
       session.onIdleResult = (t) => r.idle.push(t);
+      session.onLedgerMismatch = () => void r.mismatches++;
       session.onRateLimit = (x) => r.rate.push(x);
       r.sessions.push(session);
       await session.open();
@@ -100,9 +111,20 @@ async function replay(lines: Line[], o: { hostServers?: HostServerRoute[]; answe
       await ticks();
     } else if (l.dir === 'in') {
       r.recordedIn.push(l.frame);
-      if (l.frame.type === 'user') {
+      if (l.frame.type === 'user' && turnPending && session!.hasLedger()) {
+        // Written while a turn runs: the deliverer's inject(), with the uuid the probe wrote.
+        const inj: Replay['injects'][number] = { text: l.frame.message.content };
+        r.injects.push(inj);
+        pending.push(session!.inject(l.frame.message.content, { uuid: l.frame.uuid, label: FOLD }).then((x) => void (inj.outcome = x)));
+      } else if (l.frame.type === 'user') {
         ac = new AbortController();
-        pending.push(session!.send(l.frame.message.content, (s) => r.steps.push(s), ac.signal, onQuestion).then((t) => void r.turns.push(t)));
+        turnPending = true;
+        pending.push(
+          session!.send(l.frame.message.content, (s) => r.steps.push(s), ac.signal, onQuestion, undefined, l.frame.uuid).then((t) => {
+            turnPending = false;
+            r.turns.push(t);
+          }),
+        );
       } else if (l.frame.type === 'control_request' && l.frame.request?.subtype === 'interrupt') {
         ac?.abort();
       }
@@ -111,6 +133,7 @@ async function replay(lines: Line[], o: { hostServers?: HostServerRoute[]; answe
       // A transport's copy of stdin (a Daytona session) reaches the bot's parser like any line.
       proc!.push(l.frame);
       await ticks();
+      if (l.frame.type === 'system' && l.frame.subtype === 'background_tasks_changed') r.bg.push(session!.backgroundTasks().length);
     }
     collect();
   }
@@ -196,16 +219,54 @@ const ASSERT: Record<string, (version: string, lines: Line[]) => Promise<void>> 
   },
 };
 
-// Contract rows of agent-messaging's delivery (agent-messaging task 0.2): what the bot makes of them is the
-// message ledger's job — their replay assertions come with it (agent-messaging tasks 4.1/4.2).
-const WITH_THE_LEDGER = 'replayed once the session ledger reads echoes and background task lists (agent-messaging 4.1/4.2)';
-const PENDING: Record<string, string> = {
-  'fold-in': WITH_THE_LEDGER,
-  'echo-at-take-up': WITH_THE_LEDGER,
-  'interrupt-after-inject': WITH_THE_LEDGER,
-  'kill-resume': WITH_THE_LEDGER,
-  'background-tasks-changed': WITH_THE_LEDGER,
+// The delivery rows (agent-messaging D12, task 0.2) through the message ledger (D13, tasks 4.1/4.2).
+const folded = (r: Replay, capital: RegExp): void => {
+  assert.equal(r.turns.length, 1, 'one turn');
+  assert.equal(r.turns[0]!.status, 'ok');
+  assert.match(r.turns[0]!.resultText, capital, 'the turn’s one result answers both');
+  assert.deepEqual(r.injects.map((i) => i.outcome), [{ kind: 'folded', into: 'turn' }], 'the injected message is folded into the person’s turn');
+  assert.ok(r.steps.includes(FOLD), 'the fold shows in the turn’s trail');
+  assert.deepEqual(r.idle, [], 'nothing posted as a background update');
+  assert.equal(r.mismatches, 0);
 };
+Object.assign(ASSERT, {
+  async 'fold-in'(_v: string, lines: Line[]) {
+    const r = await replay(lines);
+    folded(r, /Paris/);
+    assert.deepEqual(ofType(r.writes, isUser), ofType(r.recordedIn, isUser), 'the bot writes both messages as the probe did, uuids included');
+  },
+  async 'echo-at-take-up'(_v: string, lines: Line[]) {
+    const r = await replay(lines);
+    assert.equal(r.turns.length, 1);
+    assert.deepEqual(r.injects.map((i) => i.outcome), [{ kind: 'folded', into: 'turn' }], 'taken up after the tool result, inside the turn');
+    assert.deepEqual(r.idle, []);
+  },
+  async 'echo-carries-uuid'(_v: string, lines: Line[]) {
+    const r = await replay(lines);
+    folded(r, /Madrid/);
+    assert.deepEqual(ofType(r.writes, isUser), ofType(r.recordedIn, isUser));
+  },
+  async 'interrupt-after-inject'(_v: string, lines: Line[]) {
+    const r = await replay(lines);
+    assert.equal(r.turns[0]?.status, 'canceled', 'the interrupted turn settles canceled');
+    const o = r.injects[0]?.outcome;
+    assert.equal(o?.kind, 'answered', 'the kept message gets a turn of its own');
+    assert.match((o as Extract<InjectOutcome, { kind: 'answered' }>).result.resultText, /Paris/);
+    assert.deepEqual(r.idle, [], 'its answer is the delivery’s, not a background update');
+  },
+  async 'kill-resume'(_v: string, lines: Line[]) {
+    const r = await replay(lines);
+    assert.deepEqual(r.injects.map((i) => i.outcome), [{ kind: 'lost', takenUp: false }], 'unechoed when the process died: lost, to be delivered again');
+    assert.equal(r.turns[0]?.status, 'error');
+    assert.equal(r.turns.at(-1)?.status, 'ok', 'the resumed session takes the next turn');
+  },
+  async 'background-tasks-changed'(_v: string, lines: Line[]) {
+    const r = await replay(lines);
+    assert.ok(r.bg.some((n) => n > 0), `a running background task is seen (${JSON.stringify(r.bg)})`);
+    assert.equal(r.bg.at(-1), 0, 'and the list is empty when it ends');
+  },
+});
+const PENDING: Record<string, string> = {};
 
 for (const version of PROBED_CLI_VERSIONS) {
   const reportPath = `${FIXTURES}${version}/report.json`;

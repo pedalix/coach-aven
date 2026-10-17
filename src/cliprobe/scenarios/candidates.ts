@@ -1,5 +1,6 @@
 // Exploratory candidates from the SDK's declarations, not observed before this probe (design D7):
 // facts a design may want (withdrawing a message, the interrupt's receipt, peer messages, compaction).
+import { LEDGER_ARGS } from '../../claudeSession.js';
 import type { ProbeCtx } from '../ctx.js';
 import type { Scenario } from '../types.js';
 import { answeredIn, CHAIN, SIDE } from './lib.js';
@@ -7,7 +8,8 @@ import { answeredIn, CHAIN, SIDE } from './lib.js';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const S = 1000;
-const ECHO = { args: ['--replay-user-messages'] };
+// The message ledger's flags: what a session with the ledger runs (claudeSession.ts LEDGER_ARGS).
+const ECHO = { args: [...LEDGER_ARGS] };
 // A message uuid the probe chooses (the normalizer maps it like any UUID).
 const SIDE_UUID = '7f3c1d2e-4b5a-4c6d-8e9f-0a1b2c3d4e5f';
 

@@ -12,7 +12,7 @@
   "claude-haiku-5-5",
   "claude-opus-5-5"
  ],
- "totalCostUsd": 3.5292592000000003,
+ "totalCostUsd": 3.6799241999999994,
  "scenarios": [
   {
    "id": "ask-user-question",
@@ -338,35 +338,80 @@
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 8184,
-      "echoAfterToolResultMs": 5
+      "echoAfterSendMs": 8339,
+      "echoAfterToolResultMs": 10
      },
-     "costUsd": 0.0483744,
-     "durationMs": 15712
+     "costUsd": 0.0489044,
+     "durationMs": 15587
     },
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 8428,
-      "echoAfterToolResultMs": 8
+      "echoAfterSendMs": 8276,
+      "echoAfterToolResultMs": 6
      },
      "costUsd": 0.0486244,
-     "durationMs": 16246
+     "durationMs": 15276
     },
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 8277,
-      "echoAfterToolResultMs": 5
+      "echoAfterSendMs": 8311,
+      "echoAfterToolResultMs": 6
      },
-     "costUsd": 0.0488744,
-     "durationMs": 15627
+     "costUsd": 0.0486718,
+     "durationMs": 17471
     }
    ],
-   "costUsd": 0.14587319999999998,
+   "costUsd": 0.14620060000000001,
    "recording": {
     "file": "echo-at-take-up.jsonl",
-    "sha256": "64180e4404b70171a9b92c348b289a1a5847beac9db8098cf43c0f104c974c16"
+    "sha256": "53b715dc7fc7b3950134a2ef917d2b08d4f5786acd28d1274fdfbd22ef3f70c5"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "echo-carries-uuid",
+   "contract": true,
+   "hypothesis": "A message written with a `uuid` is echoed with that `uuid`: the message that starts a turn when the CLI starts it, and a message written mid-tool when it is taken up. The message ledger tells its messages apart by it (agent-messaging D13).",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "turnEchoCarriesUuid": true,
+      "sideEchoCarriesUuid": true
+     },
+     "costUsd": 0.048567,
+     "durationMs": 12301
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "turnEchoCarriesUuid": true,
+      "sideEchoCarriesUuid": true
+     },
+     "costUsd": 0.0484818,
+     "durationMs": 11483
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "turnEchoCarriesUuid": true,
+      "sideEchoCarriesUuid": true
+     },
+     "costUsd": 0.049127,
+     "durationMs": 11531
+    }
+   ],
+   "costUsd": 0.1461758,
+   "recording": {
+    "file": "echo-carries-uuid.jsonl",
+    "sha256": "d20566b5e8ef0fcd29e46913707e031dba359056c93ca31064f75cd327c1a702"
    },
    "transport": "local"
   },
@@ -585,38 +630,38 @@
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 4337,
+      "echoAfterSendMs": 4303,
       "toolResultsBeforeEcho": 1,
       "answeredInTurn": true
      },
-     "costUsd": 0.0632528,
-     "durationMs": 38128
+     "costUsd": 0.06435439999999999,
+     "durationMs": 38412
     },
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 4275,
+      "echoAfterSendMs": 4163,
       "toolResultsBeforeEcho": 1,
       "answeredInTurn": true
      },
-     "costUsd": 0.06457,
-     "durationMs": 38244
+     "costUsd": 0.06431479999999999,
+     "durationMs": 37827
     },
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 4286,
+      "echoAfterSendMs": 4235,
       "toolResultsBeforeEcho": 1,
       "answeredInTurn": true
      },
-     "costUsd": 0.0662348,
-     "durationMs": 38988
+     "costUsd": 0.0632948,
+     "durationMs": 38844
     }
    ],
-   "costUsd": 0.1940576,
+   "costUsd": 0.19196399999999997,
    "recording": {
     "file": "fold-in.jsonl",
-    "sha256": "f9f45ea7cb3ae6fe03db9cd52426071e7b5da924ac17ec58369010e4bdf562d9"
+    "sha256": "39a1c046ad1cd8de9d4e6ff26b3dd5863a64f7c513ba5a712c1ad3dbac1903ac"
    },
    "transport": "local"
   },
@@ -774,8 +819,8 @@
       ],
       "answeredInOwnTurn": true
      },
-     "costUsd": 0.0488418,
-     "durationMs": 7267
+     "costUsd": 0.050572599999999995,
+     "durationMs": 7333
     },
     {
      "verdict": "holds",
@@ -787,8 +832,8 @@
       ],
       "answeredInOwnTurn": true
      },
-     "costUsd": 0.04894659999999999,
-     "durationMs": 6437
+     "costUsd": 0.049121200000000004,
+     "durationMs": 7381
     },
     {
      "verdict": "holds",
@@ -800,14 +845,14 @@
       ],
       "answeredInOwnTurn": true
      },
-     "costUsd": 0.0489092,
-     "durationMs": 7731
+     "costUsd": 0.049789200000000006,
+     "durationMs": 7312
     }
    ],
-   "costUsd": 0.14669759999999998,
+   "costUsd": 0.149483,
    "recording": {
     "file": "interrupt-after-inject.jsonl",
-    "sha256": "578fcb6599d4eec3358fc153bfc2892e85d9dc0fed3aa5e0d6845b9ae4eb02bb"
+    "sha256": "70b37cb78ee5d881ece0b0d4857ba3c3f30c08fd2f9b2ca7c63572aeef7b2a00"
    },
    "transport": "local"
   },
@@ -857,32 +902,32 @@
     {
      "verdict": "holds",
      "observations": {
-      "answer": "NONE\n\nThe earlier sleep/echo task was interrupted before any output came back, so I haven't run it yet. Say the word and"
+      "answer": "NONE\n\nThe three sequential Bash commands did not finish. The first call was interrupted and its outcome is unknown, so A"
      },
-     "costUsd": 0.0114192,
-     "durationMs": 9426
+     "costUsd": 0.0116952,
+     "durationMs": 10910
     },
     {
      "verdict": "holds",
      "observations": {
-      "answer": "NONE\n\nThe earlier sleep-and-echo task did not finish: the first Bash call was interrupted, so A1, A2, and A3 have not be"
+      "answer": "NONE\n\nThe earlier `sleep 5; echo A1` call was interrupted before a result came back, so the three-step sequence hasn't c"
      },
-     "costUsd": 0.0117692,
-     "durationMs": 9613
+     "costUsd": 0.0128752,
+     "durationMs": 11370
     },
     {
      "verdict": "holds",
      "observations": {
-      "answer": "NONE\n\nThe earlier three-command task is still incomplete. The first `sleep 5; echo A1` call was interrupted with an unkn"
+      "answer": "NONE\n\nThe earlier three-step `sleep` task was interrupted during its first call, so none of the three echoes ran. I can "
      },
-     "costUsd": 0.0111212,
-     "durationMs": 11413
+     "costUsd": 0.013209199999999999,
+     "durationMs": 10369
     }
    ],
-   "costUsd": 0.034309599999999996,
+   "costUsd": 0.037779599999999997,
    "recording": {
     "file": "kill-resume.jsonl",
-    "sha256": "5aa2b9a2c7595f56bbc0f6d9db77aa7f7e51f7a2b9e5d49725e81d3683d24cc0"
+    "sha256": "589bb6f6c6f45df31b66f084606950d9ec8f4741c76c18439ace95c8fc39d7e1"
    },
    "transport": "local"
   },
@@ -1333,7 +1378,7 @@
  ],
  "catalogue": {
   "assistant": {
-   "count": 164,
+   "count": 174,
    "fields": [
     "message",
     "parent_tool_use_id",
@@ -1351,7 +1396,7 @@
    ]
   },
   "command_lifecycle": {
-   "count": 5,
+   "count": 35,
    "fields": [
     "command_uuid",
     "session_id",
@@ -1391,7 +1436,7 @@
    ]
   },
   "rate_limit_event": {
-   "count": 38,
+   "count": 39,
    "fields": [
     "rate_limit_info",
     "session_id",
@@ -1421,11 +1466,13 @@
     "total_cost_usd",
     "type",
     "usage",
+    "user_message_uuid",
+    "user_message_uuids",
     "uuid"
    ]
   },
   "result/success": {
-   "count": 46,
+   "count": 47,
    "fields": [
     "api_error_status",
     "duration_api_ms",
@@ -1571,7 +1618,7 @@
    ]
   },
   "system/init": {
-   "count": 51,
+   "count": 52,
    "fields": [
     "agents",
     "analytics_disabled",
@@ -1613,7 +1660,7 @@
    ]
   },
   "system/task_notification": {
-   "count": 52,
+   "count": 53,
    "fields": [
     "output_file",
     "session_id",
@@ -1643,7 +1690,7 @@
    ]
   },
   "system/task_started": {
-   "count": 53,
+   "count": 54,
    "fields": [
     "description",
     "is_backgrounded",
@@ -1672,7 +1719,7 @@
    ]
   },
   "system/thinking_tokens": {
-   "count": 83,
+   "count": 89,
    "fields": [
     "estimated_tokens",
     "estimated_tokens_delta",
@@ -1684,7 +1731,7 @@
    ]
   },
   "user": {
-   "count": 75,
+   "count": 76,
    "fields": [
     "isReplay",
     "isSynthetic",
@@ -1701,7 +1748,7 @@
    ]
   },
   "user (replay)": {
-   "count": 51,
+   "count": 53,
    "fields": [
     "isReplay",
     "message",
@@ -1735,7 +1782,7 @@
    "frameKind": "assistant",
    "path": "$.wire_tool_inputs",
    "detail": "not declared",
-   "count": 65,
+   "count": 66,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 8
@@ -1748,7 +1795,7 @@
    "frameKind": "rate_limit_event",
    "path": "$.rate_limit_info.unifiedWindows",
    "detail": "not declared",
-   "count": 38,
+   "count": 39,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 9
@@ -1764,7 +1811,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 12
+    "line": 19
    }
   },
   {
@@ -1774,7 +1821,7 @@
    "frameKind": "result/success",
    "path": "$.subagent_stats",
    "detail": "not declared",
-   "count": 46,
+   "count": 47,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 16
@@ -1813,7 +1860,7 @@
    "frameKind": "system/init",
    "path": "$.analytics_disabled",
    "detail": "not declared",
-   "count": 51,
+   "count": 52,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1826,7 +1873,7 @@
    "frameKind": "system/init",
    "path": "$.memory_paths",
    "detail": "not declared",
-   "count": 51,
+   "count": 52,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1839,7 +1886,7 @@
    "frameKind": "system/init",
    "path": "$.messaging_socket_path",
    "detail": "not declared",
-   "count": 51,
+   "count": 52,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1852,7 +1899,7 @@
    "frameKind": "system/init",
    "path": "$.per_turn_effort_active",
    "detail": "not declared",
-   "count": 51,
+   "count": 52,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1865,7 +1912,7 @@
    "frameKind": "system/init",
    "path": "$.plugins[].source",
    "detail": "not declared",
-   "count": 102,
+   "count": 104,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1878,7 +1925,7 @@
    "frameKind": "system/init",
    "path": "$.product_feedback_disabled",
    "detail": "not declared",
-   "count": 51,
+   "count": 52,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1920,7 +1967,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 10
+    "line": 17
    }
   },
   {
@@ -1930,7 +1977,7 @@
    "frameKind": "command_lifecycle",
    "path": "$",
    "detail": "no declared kind matches its literal fields",
-   "count": 5,
+   "count": 35,
    "first": {
     "file": "cancel-async-message.jsonl",
     "line": 12
@@ -1943,7 +1990,7 @@
    "frameKind": "assistant",
    "path": "$.message.content[].citations",
    "detail": "required, missing",
-   "count": 59,
+   "count": 64,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 7
@@ -1956,7 +2003,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.fallback_credit",
    "detail": "required, missing",
-   "count": 164,
+   "count": 174,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1969,7 +2016,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.iterations",
    "detail": "required, missing",
-   "count": 164,
+   "count": 174,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1982,7 +2029,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.output_tokens_details",
    "detail": "required, missing",
-   "count": 164,
+   "count": 174,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1995,7 +2042,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.server_tool_use",
    "detail": "required, missing",
-   "count": 164,
+   "count": 174,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -2011,7 +2058,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 12
+    "line": 19
    }
   },
   {
@@ -2024,7 +2071,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 12
+    "line": 19
    }
   },
   {
@@ -2034,7 +2081,7 @@
    "frameKind": "result/success",
    "path": "$.usage.fallback_credit",
    "detail": "required, missing",
-   "count": 46,
+   "count": 47,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 16
@@ -2047,7 +2094,7 @@
    "frameKind": "result/success",
    "path": "$.usage.iterations[].model",
    "detail": "required, missing",
-   "count": 45,
+   "count": 46,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 16
@@ -2164,7 +2211,7 @@
    "frameKind": "user",
    "path": "$.parent_tool_use_id",
    "detail": "required, missing",
-   "count": 66,
+   "count": 68,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 2

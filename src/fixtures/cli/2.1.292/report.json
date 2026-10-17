@@ -12,7 +12,7 @@
   "claude-haiku-5-5",
   "claude-opus-5-5"
  ],
- "totalCostUsd": 3.756900600000001,
+ "totalCostUsd": 3.898575,
  "scenarios": [
   {
    "id": "ask-user-question",
@@ -347,35 +347,80 @@
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 8377,
-      "echoAfterToolResultMs": 7
+      "echoAfterSendMs": 8184,
+      "echoAfterToolResultMs": 8
      },
-     "costUsd": 0.052025,
-     "durationMs": 16793
+     "costUsd": 0.0502282,
+     "durationMs": 16522
     },
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 8202,
-      "echoAfterToolResultMs": 14
+      "echoAfterSendMs": 8291,
+      "echoAfterToolResultMs": 17
      },
-     "costUsd": 0.0504756,
-     "durationMs": 17590
+     "costUsd": 0.0495356,
+     "durationMs": 15513
     },
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 8288,
-      "echoAfterToolResultMs": 0
+      "echoAfterSendMs": 8426,
+      "echoAfterToolResultMs": 13
      },
-     "costUsd": 0.0511702,
-     "durationMs": 17333
+     "costUsd": 0.049778199999999995,
+     "durationMs": 15856
     }
    ],
-   "costUsd": 0.1536708,
+   "costUsd": 0.149542,
    "recording": {
     "file": "echo-at-take-up.jsonl",
-    "sha256": "8c538714fe6b076131e438fe41e213ec5451f0206944b74ee785a7bd3de3fe18"
+    "sha256": "73a074cb583b711cca978d692467c3d1e2075074dd7e52ed900a23e1fae1e344"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "echo-carries-uuid",
+   "contract": true,
+   "hypothesis": "A message written with a `uuid` is echoed with that `uuid`: the message that starts a turn when the CLI starts it, and a message written mid-tool when it is taken up. The message ledger tells its messages apart by it (agent-messaging D13).",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "turnEchoCarriesUuid": true,
+      "sideEchoCarriesUuid": true
+     },
+     "costUsd": 0.0516056,
+     "durationMs": 12018
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "turnEchoCarriesUuid": true,
+      "sideEchoCarriesUuid": true
+     },
+     "costUsd": 0.0499456,
+     "durationMs": 11501
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "turnEchoCarriesUuid": true,
+      "sideEchoCarriesUuid": true
+     },
+     "costUsd": 0.0497856,
+     "durationMs": 11864
+    }
+   ],
+   "costUsd": 0.1513368,
+   "recording": {
+    "file": "echo-carries-uuid.jsonl",
+    "sha256": "eb807414a3429da30ba9fdff06c66faad255748d977090a3a5d6dd730adfe8ad"
    },
    "transport": "local"
   },
@@ -594,38 +639,38 @@
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 4342,
+      "echoAfterSendMs": 4258,
       "toolResultsBeforeEcho": 1,
       "answeredInTurn": true
      },
-     "costUsd": 0.0677624,
-     "durationMs": 38795
+     "costUsd": 0.0673162,
+     "durationMs": 38405
     },
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 4204,
+      "echoAfterSendMs": 4193,
       "toolResultsBeforeEcho": 1,
       "answeredInTurn": true
      },
-     "costUsd": 0.0648802,
-     "durationMs": 39274
+     "costUsd": 0.066284,
+     "durationMs": 40509
     },
     {
      "verdict": "holds",
      "observations": {
-      "echoAfterSendMs": 4361,
+      "echoAfterSendMs": 4185,
       "toolResultsBeforeEcho": 1,
       "answeredInTurn": true
      },
-     "costUsd": 0.06544119999999999,
-     "durationMs": 39687
+     "costUsd": 0.0667098,
+     "durationMs": 38648
     }
    ],
-   "costUsd": 0.19808379999999998,
+   "costUsd": 0.20031,
    "recording": {
     "file": "fold-in.jsonl",
-    "sha256": "4efba43c677918ea332d59410a524de7c4206c64114dfc3d317a088307325de1"
+    "sha256": "36148c474000435ea7e8ed44542a40bbae26b37ad947a4319b0d8e8a7b590bd5"
    },
    "transport": "local"
   },
@@ -783,8 +828,8 @@
       ],
       "answeredInOwnTurn": true
      },
-     "costUsd": 0.05122500000000001,
-     "durationMs": 8074
+     "costUsd": 0.0515178,
+     "durationMs": 7149
     },
     {
      "verdict": "holds",
@@ -796,8 +841,8 @@
       ],
       "answeredInOwnTurn": true
      },
-     "costUsd": 0.0513584,
-     "durationMs": 7970
+     "costUsd": 0.0500178,
+     "durationMs": 6879
     },
     {
      "verdict": "holds",
@@ -809,14 +854,14 @@
       ],
       "answeredInOwnTurn": true
      },
-     "costUsd": 0.050853800000000005,
-     "durationMs": 6781
+     "costUsd": 0.0515684,
+     "durationMs": 7452
     }
    ],
-   "costUsd": 0.1534372,
+   "costUsd": 0.15310400000000002,
    "recording": {
     "file": "interrupt-after-inject.jsonl",
-    "sha256": "7f47073aef827c979858f69f2d40d70315e1a5da7e700785cb09ce793335af20"
+    "sha256": "04b3a705cfc626c46b937a0a0d29288f92b90e4a21eeb79fc3be86b122596d1c"
    },
    "transport": "local"
   },
@@ -870,32 +915,32 @@
     {
      "verdict": "holds",
      "observations": {
-      "answer": "NONE, in the user and tool messages. The only borderline match is in the system-level skill description, which contains "
+      "answer": "NONE\n\nThe earlier three-step Bash task did not finish: the first call was interrupted and its outcome is unknown. I can "
      },
-     "costUsd": 0.0169312,
-     "durationMs": 14714
+     "costUsd": 0.011431799999999999,
+     "durationMs": 9545
     },
     {
      "verdict": "holds",
      "observations": {
-      "answer": "NONE"
+      "answer": "NONE\n\nThe earlier A1/A2/A3 task is still unfinished. The first Bash call was interrupted, so its outcome is unknown."
      },
-     "costUsd": 0.015917800000000003,
-     "durationMs": 12487
+     "costUsd": 0.012325200000000001,
+     "durationMs": 10661
     },
     {
      "verdict": "holds",
      "observations": {
-      "answer": "NONE"
+      "answer": "NONE\n\nThe earlier sleep/echo task was interrupted before its first command returned a result, so A1, A2, and A3 have not"
      },
-     "costUsd": 0.012739799999999999,
-     "durationMs": 10924
+     "costUsd": 0.0144052,
+     "durationMs": 12290
     }
    ],
-   "costUsd": 0.0455888,
+   "costUsd": 0.0381622,
    "recording": {
     "file": "kill-resume.jsonl",
-    "sha256": "54da0ffef12439a68fac22f5f9ab3fb729e8bbaa6d75b6bbe4ed0f9ecd8719b6"
+    "sha256": "ceac53a92f18ec7a9f0b08309e2837d41cba637bb482ca9b28618a2e09d4f7a1"
    },
    "transport": "local"
   },
@@ -1346,7 +1391,7 @@
  ],
  "catalogue": {
   "assistant": {
-   "count": 184,
+   "count": 187,
    "fields": [
     "agent_id",
     "message",
@@ -1366,7 +1411,7 @@
    ]
   },
   "command_lifecycle": {
-   "count": 5,
+   "count": 35,
    "fields": [
     "command_uuid",
     "session_id",
@@ -1406,7 +1451,7 @@
    ]
   },
   "rate_limit_event": {
-   "count": 40,
+   "count": 41,
    "fields": [
     "rate_limit_info",
     "session_id",
@@ -1437,11 +1482,13 @@
     "total_cost_usd",
     "type",
     "usage",
+    "user_message_uuid",
+    "user_message_uuids",
     "uuid"
    ]
   },
   "result/success": {
-   "count": 46,
+   "count": 47,
    "fields": [
     "api_error_status",
     "duration_api_ms",
@@ -1592,7 +1639,7 @@
    ]
   },
   "system/init": {
-   "count": 51,
+   "count": 52,
    "fields": [
     "agents",
     "analytics_disabled",
@@ -1634,7 +1681,7 @@
    ]
   },
   "system/task_notification": {
-   "count": 52,
+   "count": 53,
    "fields": [
     "output_file",
     "run_id",
@@ -1666,7 +1713,7 @@
    ]
   },
   "system/task_started": {
-   "count": 53,
+   "count": 54,
    "fields": [
     "description",
     "is_backgrounded",
@@ -1710,7 +1757,7 @@
    ]
   },
   "user": {
-   "count": 74,
+   "count": 75,
    "fields": [
     "agent_id",
     "isReplay",
@@ -1728,7 +1775,7 @@
    ]
   },
   "user (replay)": {
-   "count": 51,
+   "count": 53,
    "fields": [
     "isReplay",
     "message",
@@ -1749,7 +1796,7 @@
    "frameKind": "assistant",
    "path": "$.thinking_duration_ms",
    "detail": "not declared",
-   "count": 42,
+   "count": 43,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1775,7 +1822,7 @@
    "frameKind": "assistant",
    "path": "$.wire_tool_inputs",
    "detail": "not declared",
-   "count": 64,
+   "count": 65,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 8
@@ -1788,7 +1835,7 @@
    "frameKind": "rate_limit_event",
    "path": "$.rate_limit_info.unifiedWindows",
    "detail": "not declared",
-   "count": 40,
+   "count": 41,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 9
@@ -1804,7 +1851,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 16
+    "line": 19
    }
   },
   {
@@ -1817,7 +1864,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 16
+    "line": 19
    }
   },
   {
@@ -1827,10 +1874,10 @@
    "frameKind": "result/success",
    "path": "$.first_request_input_tokens",
    "detail": "not declared",
-   "count": 1,
+   "count": 6,
    "first": {
-    "file": "interrupt-receipt.jsonl",
-    "line": 25
+    "file": "echo-at-take-up.jsonl",
+    "line": 21
    }
   },
   {
@@ -1853,7 +1900,7 @@
    "frameKind": "result/success",
    "path": "$.safety_stops",
    "detail": "not declared",
-   "count": 46,
+   "count": 47,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 16
@@ -1866,7 +1913,7 @@
    "frameKind": "result/success",
    "path": "$.subagent_stats",
    "detail": "not declared",
-   "count": 46,
+   "count": 47,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 16
@@ -1944,7 +1991,7 @@
    "frameKind": "system/init",
    "path": "$.analytics_disabled",
    "detail": "not declared",
-   "count": 51,
+   "count": 52,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1957,7 +2004,7 @@
    "frameKind": "system/init",
    "path": "$.memory_paths",
    "detail": "not declared",
-   "count": 51,
+   "count": 52,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1970,7 +2017,7 @@
    "frameKind": "system/init",
    "path": "$.messaging_socket_path",
    "detail": "not declared",
-   "count": 51,
+   "count": 52,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1983,7 +2030,7 @@
    "frameKind": "system/init",
    "path": "$.per_turn_effort_active",
    "detail": "not declared",
-   "count": 51,
+   "count": 52,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1996,7 +2043,7 @@
    "frameKind": "system/init",
    "path": "$.plugins[].source",
    "detail": "not declared",
-   "count": 153,
+   "count": 156,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -2009,7 +2056,7 @@
    "frameKind": "system/init",
    "path": "$.product_feedback_disabled",
    "detail": "not declared",
-   "count": 51,
+   "count": 52,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -2064,7 +2111,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 14
+    "line": 17
    }
   },
   {
@@ -2074,7 +2121,7 @@
    "frameKind": "command_lifecycle",
    "path": "$",
    "detail": "no declared kind matches its literal fields",
-   "count": 5,
+   "count": 35,
    "first": {
     "file": "cancel-async-message.jsonl",
     "line": 10
@@ -2087,7 +2134,7 @@
    "frameKind": "assistant",
    "path": "$.message.content[].citations",
    "detail": "required, missing",
-   "count": 74,
+   "count": 75,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 7
@@ -2100,7 +2147,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.fallback_credit",
    "detail": "required, missing",
-   "count": 184,
+   "count": 187,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -2113,7 +2160,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.iterations",
    "detail": "required, missing",
-   "count": 184,
+   "count": 187,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -2126,7 +2173,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.output_tokens_details",
    "detail": "required, missing",
-   "count": 184,
+   "count": 187,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -2139,7 +2186,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.server_tool_use",
    "detail": "required, missing",
-   "count": 184,
+   "count": 187,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -2155,7 +2202,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 16
+    "line": 19
    }
   },
   {
@@ -2165,7 +2212,7 @@
    "frameKind": "result/success",
    "path": "$.usage.iterations[].model",
    "detail": "required, missing",
-   "count": 45,
+   "count": 46,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 16
@@ -2282,7 +2329,7 @@
    "frameKind": "user",
    "path": "$.parent_tool_use_id",
    "detail": "required, missing",
-   "count": 66,
+   "count": 68,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 2

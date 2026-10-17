@@ -70,7 +70,7 @@
 
 ## 4. Bot: accounting and delivery
 
-- [ ] 4.1 `ClaudeSession` ledger (D13), only for projects with `messaging` — `src/claudeSession.test.ts` with a fake CLI, and `src/claudeSession.recorded.test.ts` over `cli-probe`'s contract recordings of the delivery rows (test cases: one result for two messages, turn already over → unsolicited turn, result for the wrong message, missed injection answered as a delivery, background task list; scenarios "restart mid-call", "several calls pending"); `src/chat/slack/turn.record.test.ts` byte-identical for unconfigured projects:
+- [x] 4.1 `ClaudeSession` ledger (D13), only for projects with `messaging` — `src/claudeSession.test.ts` with a fake CLI, and `src/claudeSession.recorded.test.ts` over `cli-probe`'s contract recordings of the delivery rows (test cases: one result for two messages, turn already over → unsolicited turn, result for the wrong message, missed injection answered as a delivery, background task list; scenarios "restart mid-call", "several calls pending"); `src/chat/slack/turn.record.test.ts` byte-identical for unconfigured projects:
   - a `uuid` per write; `--replay-user-messages`;
   - settle a pending turn only by the `result` after its own echo; an injected message that missed its turn is answered as a delivery, not as `🔔 Background update`;
   - unsolicited results as today; a mismatch → event;
@@ -79,13 +79,16 @@
   - every unanswered `mcp_message` of the turn served again after reattach, not only the last event;
   - the spawn mode recorded per session;
   - the background-task list cleared when the process ends
-- [ ] 4.2 `ClaudeSession.inject(text)` — `src/claudeSession.test.ts` ("process dies before the next tool step", "a long tool", "message stuck on an idle process", "bot restarts after the write"):
+  Done: `ClaudeSession` with `ledger` (`LEDGER_ARGS`, `onLedgerResult`, `McpCallBook`), `--replay-user-messages` only for projects with `messaging`; the chat record keeps the spawn mode (`ledger`) and the turn’s uuid (`inflight.uuid`). The recordings of the delivery rows are replayed through it, with a new contract row `echo-carries-uuid` (the echo carries the written uuid; holds on 2.1.282 and 2.1.292). Rendering an `answered` delivery and the `ask.*` events for it are the deliverer’s (4.4).
+- [x] 4.2 `ClaudeSession.inject(text)` — `src/claudeSession.test.ts` ("process dies before the next tool step", "a long tool", "message stuck on an idle process", "bot restarts after the write"):
   - write without a pending turn; echo → delivered;
   - no echo after 10 min → warning, keep waiting;
   - an idle process without the echo after 2 min → restart the session, requeue;
   - process died → requeue;
   - after a bot restart the snapshot decides
-- [ ] 4.3 Per-session contract check: from the session's `system/init` (a capability if the CLI reports one, else the version), inject only on a CLI in the passed set kept in `src/cliversion.ts`; otherwise queued turns + `ask.inject.disabled` — `src/cliversion.test.ts`
+  Done: `ClaudeSession.inject` / `recoverInjected` → `folded` · `answered` · `lost` · `stuck` · `refused`; the requeue and the session restart on `stuck` are the deliverer’s (4.4).
+- [x] 4.3 Per-session contract check: from the session's `system/init` (a capability if the CLI reports one, else the version), inject only on a CLI in the passed set kept in `src/cliversion.ts`; otherwise queued turns + `ask.inject.disabled` — `src/cliversion.test.ts`
+  Done: `injectRefusal()` (the ledger, an open session, the version from `system/init` in `PROBED_CLI_VERSIONS`; no capability names fold-in yet); `ask.inject.disabled` is emitted by the deliverer when it falls back to a queued turn (4.4).
 - [ ] 4.4 Deliverer (`src/messaging/deliver.ts`), both transports — `src/messaging/deliver.test.ts` (scenarios "answer while the asker is idle", "answer while the asker is working", "people keep talking while the task is open", "turn ends just as the message arrives", "automatic turn running", "asker in a direct message or a Teams chat", "the person sees the fold", "fan-out", "answer after the asker's bot restarted", "nowhere to deliver", "answer from someone else", "late answer"):
   - the counterpart check; messages for ended tasks acked and logged;
   - the explicit reply target (chat or shadow);

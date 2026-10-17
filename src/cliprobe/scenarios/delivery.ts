@@ -1,8 +1,12 @@
 // How a message written to a busy session reaches it (agent-messaging design D12). The rows its delivery
 // relies on are contract scenarios, judged on the frames (agent-messaging task 0.2): `fold-in`,
-// `echo-at-take-up`, `interrupt-after-inject`, `kill-resume`, `background-tasks-changed`. Their replay
-// tests through ClaudeSession come with the session's message ledger (agent-messaging 4.1/4.2). The rest
-// are exploratory: they record facts for decisions and gate nothing.
+// `echo-at-take-up`, `echo-carries-uuid`, `interrupt-after-inject`, `kill-resume`,
+// `background-tasks-changed`. Their replay tests through ClaudeSession come with the session's message
+// ledger (agent-messaging 4.1/4.2). The rest are exploratory: they record facts for decisions and gate
+// nothing. With `--replay-user-messages` every message the probe writes carries a fresh `uuid`, as the
+// bot's ledger writes them.
+import { randomUUID } from 'node:crypto';
+import { LEDGER_ARGS } from '../../claudeSession.js';
 import type { ProbeCtx } from '../ctx.js';
 import type { Frame, Scenario } from '../types.js';
 import { answeredIn, CAPITAL, CHAIN, kindOf, resultTextOf, SIDE, toolResults, toolUses } from './lib.js';
@@ -10,7 +14,8 @@ import { answeredIn, CAPITAL, CHAIN, kindOf, resultTextOf, SIDE, toolResults, to
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
 const S = 1000;
-const ECHO = { args: ['--replay-user-messages'] };
+// The message ledger's flags: what a session with the ledger runs (claudeSession.ts LEDGER_ARGS).
+const ECHO = { args: [...LEDGER_ARGS] };
 
 /** The echo of the side message (and when it came), and when the last tool result before it came. */
 function echoOf(ctx: ProbeCtx, country: string): { echoAt?: number; lastToolResultBefore?: number } {
@@ -346,6 +351,33 @@ const echoAtTakeUp: Scenario<ProbeCtx> = {
   },
 };
 
+const echoCarriesUuid: Scenario<ProbeCtx> = {
+  meta: {
+    id: 'echo-carries-uuid',
+    contract: true,
+    runs: 3,
+    extras: ECHO,
+    hypothesis:
+      'A message written with a `uuid` is echoed with that `uuid`: the message that starts a turn when the CLI starts it, and a message written mid-tool when it is taken up. The message ledger tells its messages apart by it (agent-messaging D13).',
+  },
+  async run(ctx) {
+    const first = randomUUID();
+    const side = randomUUID();
+    await ctx.send('Run exactly one Bash command: `sleep 6; echo DONE`. Then reply with its output.', { uuid: first });
+    const e1 = (await ctx.expect(ctx.is.replayOf('sleep 6; echo DONE'), 60 * S, 'the turn’s message is echoed')) as Any;
+    ctx.check(e1.uuid === first, `the turn’s echo carries the written uuid (got ${String(e1.uuid)})`);
+    await ctx.precondition(ctx.is.toolUse('Bash'), 90 * S, 'the model runs the command', { past: true });
+    await ctx.sleep(1000);
+    await ctx.send(SIDE('Spain'), { uuid: side });
+    const e2 = (await ctx.expect(ctx.is.replayOf('Spain'), 60 * S, 'the side message is echoed')) as Any;
+    ctx.check(e2.uuid === side, `the side message’s echo carries its uuid (got ${String(e2.uuid)})`);
+    const others = ctx.replays.filter((f) => (f as Any).uuid === first || (f as Any).uuid === side).length;
+    ctx.check(others === 2, `each uuid is echoed once (got ${others} echoes with them)`);
+    await ctx.precondition(ctx.is.result, 120 * S, 'the turn finishes');
+    return { turnEchoCarriesUuid: e1.uuid === first, sideEchoCarriesUuid: e2.uuid === side };
+  },
+};
+
 const finalTextRace: Scenario<ProbeCtx> = {
   meta: {
     id: 'final-text-race',
@@ -476,6 +508,7 @@ const HOOKS = {
 export const DELIVERY: Scenario<ProbeCtx>[] = [
   foldIn,
   echoAtTakeUp,
+  echoCarriesUuid,
   chainPriority,
   longTool,
   twoInjects,

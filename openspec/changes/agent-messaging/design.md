@@ -400,7 +400,7 @@ The stream-json input accepts an optional `priority` on a user message (`now` | 
 - Haiku 5.5 and Opus 5.5;
 - 1–3 runs per case, the same behaviour in every run.
 
-Since task 0.2 the rows the delivery relies on are `cli-probe` contract scenarios on 2.1.282, three runs each, judged on the frames: `fold-in`, `echo-at-take-up`, `interrupt-after-inject`, `kill-resume`, `background-tasks-changed`. Their report is `src/fixtures/cli/2.1.282/REPORT.md`.
+Since task 0.2 the rows the delivery relies on are `cli-probe` contract scenarios, three runs each, judged on the frames: `fold-in`, `echo-at-take-up`, `echo-carries-uuid` (since task 4.1: a message written with a `uuid` is echoed with it, also mid-tool), `interrupt-after-inject`, `kill-resume`, `background-tasks-changed`. They hold on 2.1.282 and 2.1.292 (`src/fixtures/cli/<version>/REPORT.md`), and their recordings are replayed through the ledger (D13).
 
 | Case | Observed | `result` events |
 |---|---|---|

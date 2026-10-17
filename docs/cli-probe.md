@@ -17,7 +17,7 @@ makes sure the repository only pins versions whose contract was probed (OpenSpec
   - `background-report`: the unsolicited result of a background task;
   - `subagent-parent`: `parent_tool_use_id`;
   - `rate-limit-event`;
-  - the delivery facts of `agent-messaging`: `fold-in`, `echo-at-take-up`, `interrupt-after-inject`, `kill-resume`, `background-tasks-changed`. Their replay tests come with the session's message ledger (agent-messaging tasks 4.1/4.2). Until then they are `todo` in `src/claudeSession.recorded.test.ts`.
+  - the delivery facts of `agent-messaging`: `fold-in`, `echo-at-take-up`, `echo-carries-uuid`, `interrupt-after-inject`, `kill-resume`, `background-tasks-changed`. Their replay tests run the recordings through the session's message ledger (`ClaudeSession` with `ledger`). With `--replay-user-messages` every message the probe writes carries a fresh `uuid`, as the ledger writes them.
 
   Every one of them must hold on every version in `PROBED_CLI_VERSIONS` (`src/cliversion.ts`). Each also has a replay test that feeds its recording through `ClaudeSession` (`src/claudeSession.recorded.test.ts`). That test asserts what the bot makes of the frames, and that the frames the bot writes back equal the ones the probe wrote.
 - **Exploratory scenarios** record facts without gating anything:
