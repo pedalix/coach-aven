@@ -46,7 +46,7 @@
   - input frames listed, never failed.
 
   Verified by `src/cliprobe/typecheck.test.ts` over a small fictional declaration file, with two members sharing a `type`, a nested union, and a frame with both a missing and two extra fields (scenarios "A field of the wrong type", "Several findings in one frame", "A mismatch in the API message model", "A field the declarations lack", "A kind the declarations lack", "The bot's own message differs from the declaration")
-- [ ] 3.5 CI changes:
+- [x] 3.5 CI changes:
   - `npm run cli-probe -- check` becomes a step of the `verify` job in `.github/workflows/ci.yml`, with an Actions cache per SDK release and no credential;
   - the gitleaks allowlist entry is anchored (`src/fixtures/.*\.json$`), and existing `.jsonl` fixtures that hold deliberate secret shapes are listed by name.
 
