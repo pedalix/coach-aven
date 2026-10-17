@@ -7,6 +7,7 @@
 
 import type bolt from '@slack/bolt';
 import type { ChatAction, ChatDriver, ConvTarget, DialogRef, Interaction, Mark, MsgRef } from '../driver.js';
+import { MARKED_EVENT } from '../driver.js';
 import type { DialogView, HomeView, MessageView, PrivateView } from '../views.js';
 import type { Tally } from '../../feedback.js';
 import {
@@ -184,21 +185,25 @@ export interface SlackChatDriver extends ChatDriver {
   readonly client: bolt.webApi.WebClient;
 }
 
+// A marked post (agent-messaging D14) carries message metadata the Slack source skips at ingest; an
+// unmarked one carries nothing — its calls stay byte-identical (the recorded-call snapshots).
+const marker = (marked: boolean | undefined) => (marked ? { metadata: { event_type: MARKED_EVENT, event_payload: {} } } : {});
+
 export function slackDriver(client: bolt.webApi.WebClient): SlackChatDriver {
   return {
     client,
     capabilities: { reactions: true, privateReplies: 'native', threadRepliesNeedMention: false },
     async post(to: ConvTarget, view: MessageView): Promise<MsgRef> {
       const { text, blocks } = renderMessageView(view);
-      const posted = await client.chat.postMessage({ channel: to.conv, thread_ts: to.thread, text, blocks });
-      return { conv: to.conv, id: posted.ts as string };
+      const posted = await client.chat.postMessage({ channel: to.conv, thread_ts: to.thread, text, blocks, ...marker(to.marked) });
+      return { conv: to.conv, id: posted.ts as string, ...(to.marked ? { marked: true as const } : {}) };
     },
     async update(msg: MsgRef, view: MessageView): Promise<void> {
       const { text, blocks } = renderMessageView(view);
       // A text-only headline ('line') never had blocks: change the text alone. Any other update
       // without blocks must clear the old ones (buttons included) — [] does that.
-      if (view.kind === 'line') await client.chat.update({ channel: msg.conv, ts: msg.id, text });
-      else await client.chat.update({ channel: msg.conv, ts: msg.id, text, blocks: blocks ?? [] });
+      if (view.kind === 'line') await client.chat.update({ channel: msg.conv, ts: msg.id, text, ...marker(msg.marked) });
+      else await client.chat.update({ channel: msg.conv, ts: msg.id, text, blocks: blocks ?? [], ...marker(msg.marked) });
     },
     async mark(msg: MsgRef, mark: Mark, op: 'add' | 'remove'): Promise<void> {
       const args = { channel: msg.conv, timestamp: msg.id, name: REACTION[mark] };

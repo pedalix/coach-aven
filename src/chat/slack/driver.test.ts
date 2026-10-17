@@ -93,3 +93,16 @@ test('driver golden: a headline rewrite changes only the text', async () => {
   await d.update({ conv: 'C1', id: '9.9' }, { kind: 'line', text: '📊 Digest — shipped 3 PRs' });
   assert.deepEqual(api.calls[0].payload, { channel: 'C1', ts: '9.9', text: '📊 Digest — shipped 3 PRs' });
 });
+
+test('driver golden: a post and an update in a marked conversation carry the aven_marked metadata; an unmarked one carries none (agent-messaging D14)', async () => {
+  const view = { kind: 'answer' as const, markdown: 'Orders dropped because …' };
+  const marked = (await newPayload(() => d.post({ conv: 'C1', thread: '100.1', marked: true }, view))) as Record<string, unknown>;
+  assert.deepEqual(JSON.parse(String(marked.metadata)), { event_type: 'aven_marked', event_payload: {} });
+  const plain = (await newPayload(() => d.post({ conv: 'C1', thread: '100.1' }, view))) as Record<string, unknown>;
+  assert.equal('metadata' in plain, false);
+  api.reset();
+  const ref = await d.post({ conv: 'C1', thread: '100.1', marked: true }, view);
+  assert.equal(ref.marked, true, 'the message keeps the mark, so its updates carry it');
+  const updated = (await newPayload(() => d.update(ref, { kind: 'text', text: 'canceled' }))) as Record<string, unknown>;
+  assert.deepEqual(JSON.parse(String(updated.metadata)), { event_type: 'aven_marked', event_payload: {} });
+});

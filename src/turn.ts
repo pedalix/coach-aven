@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { avenSessionValue } from './gwtoken.js';
-import type { ChatDriver, DriverForTenant } from './chat/driver.js';
+import type { ChatDriver, ConvTarget, DriverForTenant, MsgRef } from './chat/driver.js';
 import type { MessageView } from './chat/views.js';
 import type { Config } from './config.js';
 import type { Store } from './state.js';
@@ -520,6 +520,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       }
     }
     store.patchChat(key, project.slug, { sessionId: undefined, sessionKey: undefined, cmdId: undefined, ledger: undefined });
+    // A fresh session has none of the old session's data in its context: its marks end here
+    // (agent-messaging D14 "Fresh session"). A no-op for a conversation that was never marked.
+    store.setMarks(key, {});
   }
 
   // A message starting with this prefix is a human-only NOTE: the bot stays out entirely
@@ -639,6 +642,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     queued.delete(turnId);
     const status = { conv: channel, id: ts }; // this turn's working message
     const where = { conv: channel, thread: threadTs }; // its thread, for new messages
+    // While the conversation holds another domain's data (agent-messaging D14), every post and
+    // update of this turn carries the marker, so the project's own chat sources skip it. Read at
+    // each call: an answer folded in mid-turn marks the rest of it. Unmarked → the same objects.
+    const mark = <T extends ConvTarget | MsgRef>(x: T): T => (Object.keys(store.getMarks(key)).length ? { ...x, marked: true } : x);
     const userMsg = msgTs ? { conv: channel, id: msgTs } : undefined;
     const clearEyes = async () => {
       if (userMsg) await chat.mark(userMsg, 'working', 'remove');
@@ -647,7 +654,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     // retirement, whether it was canceled before doTurn started or while waiting for a slot.
     const settleCanceled = async (): Promise<void> => {
       journal.done(turnId);
-      await chat.update(status, { kind: 'text', text: '🚫 Canceled' });
+      await chat.update(mark(status), { kind: 'text', text: '🚫 Canceled' });
       await clearEyes();
       if (opts?.onSettle) await opts.onSettle('canceled').catch(() => {});
     };
@@ -709,7 +716,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       lastRendered = text;
       lastUpdateAt = now;
       try {
-        await chat.update(status, { kind: 'status', line: text, turnId, notify: text });
+        await chat.update(mark(status), { kind: 'status', line: text, turnId, notify: text });
       } catch {
         /* rate limit / transient — next tick retries */
       }
@@ -750,10 +757,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     // pings; chat.update does not) and collapse the card to a pointer at it.
     const deliver = async (view: MessageView, label: string): Promise<void> => {
       if (!background) {
-        await chat.update(status, view);
+        await chat.update(mark(status), view);
         return;
       }
-      await chat.post(where, view);
+      await chat.post(mark(where), view);
       await chat
         .update(status, { kind: 'backgroundDone', label, steps: steps.length, elapsedMs: Date.now() - start })
         .catch(() => {});
@@ -796,7 +803,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
           // so a background result that lands during a LATER turn would be attributed to that
           // later turn — a rating on it would land on the wrong turnId. Ratings come back
           // once onIdleResult carries the turn that actually launched the work.
-          .post(where, { kind: 'answer', markdown: msg })
+          .post(mark(where), { kind: 'answer', markdown: msg })
           .catch((e) => log.error(`idle-notify ${key}: ${e instanceof Error ? e.message : String(e)}`));
       });
       // Download any inbound files into the sandbox first, then prepend a preamble naming their
@@ -813,7 +820,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
           // notice must not sink the turn.
           if (skipped.length) {
             await chat
-              .post(where, { kind: 'text', text: skippedNotice(skipped) })
+              .post(mark(where), { kind: 'text', text: skippedNotice(skipped) })
               .catch((e) => log.error(`skip notice ${turnId}: ${e instanceof Error ? e.message : String(e)}`));
           }
         } catch (e) {
@@ -845,7 +852,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       persist(key, project.slug, live);
       if (live.contextLost()) {
         await chat
-          .post(where, {
+          .post(mark(where), {
             kind: 'text',
             text: '⚠️ Lost the previous session context (the sandbox was rebuilt) — starting fresh.',
           })
@@ -908,7 +915,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       outcome = ac.signal.aborted ? 'canceled' : 'error';
       if (ac.signal.aborted) {
         // Cancel always lands in place: the user just clicked ✖ on this very message.
-        await chat.update(status, { kind: 'text', text: '🚫 Canceled' });
+        await chat.update(mark(status), { kind: 'text', text: '🚫 Canceled' });
         await clearEyes();
       } else {
         failure = err instanceof Error ? err.message : String(err);

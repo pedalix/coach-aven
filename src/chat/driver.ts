@@ -16,13 +16,21 @@ import type { DialogView, HomeView, MessageView, PrivateView } from './views.js'
 export interface ConvTarget {
   conv: string;
   thread?: string;
+  // The conversation holds another domain's data (agent-messaging D14): the driver marks the post
+  // so the project's own chat sources skip it at ingest (Slack: message metadata `aven_marked`).
+  marked?: true;
 }
 
-// A message the driver posted (or the user's message the core reacts to).
+// A message the driver posted (or the user's message the core reacts to). `marked`: as on
+// ConvTarget — an update of the message carries the marker too.
 export interface MsgRef {
   conv: string;
   id: string;
+  marked?: true;
 }
+
+/** The Slack message-metadata event type of a marked post (agent-messaging D14); the Slack source skips it. */
+export const MARKED_EVENT = 'aven_marked';
 
 // Who acted, in which tenant (undefined = home or unknown — the gates decide).
 export interface Actor {
