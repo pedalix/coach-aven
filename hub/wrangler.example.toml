@@ -1,0 +1,20 @@
+# The messaging hub (OpenSpec agent-messaging, messaging-hub). Copy to the operator's ops repo as
+# wrangler.toml, set the route to the hub's own domain, and put the enrolment in the HUB_CONFIG secret:
+#   wrangler secret put HUB_CONFIG   # {"installations": {"<id>": {"sign": [{"key": "<orch hub keygen output>"}]}}}
+# Adding or removing an installation: edit HUB_CONFIG, then `wrangler deploy`.
+name = "coach-aven-hub"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+# routes = [{ pattern = "hub.example.com", custom_domain = true }]
+
+[[durable_objects.bindings]]
+name = "HUB"
+class_name = "Hub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Hub"]
+
+[vars]
+HUB_EXPIRY_DAYS = "7"

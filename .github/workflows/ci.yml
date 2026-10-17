@@ -57,3 +57,20 @@ jobs:
           git log --format='commit %h%n%B' "$BASE..$HEAD" | bash scripts/public-guard.sh --text commits
       - name: gitleaks (no secret-shaped strings in the tree)
         run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 detect --source /repo --no-git --config /repo/.gitleaks.toml --redact --verbose
+
+  # The messaging hub (hub/, a Cloudflare Worker): its own package, tested in workerd. No secrets.
+  hub:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hub
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: hub/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test

@@ -1,0 +1,18 @@
+{
+  "name": "coach-aven-hub",
+  "private": true,
+  "description": "The messaging hub between CoachAven installations: a Cloudflare Worker with one Durable Object (OpenSpec agent-messaging, messaging-hub).",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.4",
+    "@cloudflare/workers-types": "5.20261016.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.12",
+    "wrangler": "4.151.1"
+  }
+}

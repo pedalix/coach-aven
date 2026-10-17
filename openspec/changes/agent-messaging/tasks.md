@@ -30,18 +30,18 @@
 
 ## 2. Hub (`hub/`)
 
-- [ ] 2.1 Package skeleton: `hub/package.json`, `tsconfig`, `wrangler.example.toml`, vitest with `@cloudflare/vitest-pool-workers`; root `npm test` unaffected — `cd hub && npm test`
-- [ ] 2.2 Challenge auth in the object — hub tests "enrolled installation", "unknown or wrong key", "clocks do not matter", "second connection":
+- [x] 2.1 Package skeleton: `hub/package.json`, `tsconfig`, `wrangler.example.toml`, vitest with `@cloudflare/vitest-plugin` (the renamed `@cloudflare/vitest-pool-workers`, which is deprecated); root `npm test` unaffected; a `hub` job in CI — `cd hub && npm test`
+- [x] 2.2 Challenge auth in the object — hub tests "enrolled installation", "unknown or wrong key", "clocks do not matter", "second connection":
   - the challenge carries the hub's time;
   - verify against the installation's keys valid now (a list, for rotation);
   - one socket per installation (the older one closed `replaced`);
   - anything before `auth` refused;
   - the alarm closes silent sockets
-- [ ] 2.3 Durable Object: hibernatable accept with attachment, auto-response ping/pong, SQLite schema with `schema_version` and migrations — hub test "wake on message"
-- [ ] 2.4 Routing: overwrite the `from` installation; both installations enrolled; outbox append; deliver; `routed`/`rejected`; backlog cap — hub tests "routed", "unknown recipient", "backlog cap"
-- [ ] 2.5 Durable delivery: ack deletes; ordered replay on reconnect; same seq on redelivery; alarm expiry (7 days) with an `expired` frame to the sender, now or on its next connection — hub tests "recipient offline", "duplicate after reconnect", "expired undelivered"
-- [ ] 2.6 Removal and presence: tombstones; `removed` in `hello` and `presence`; outbox dropped on the first request after the deploy — hub tests "peer goes away", "installation removed"
-- [ ] 2.7 Storage holds ciphertext and routing fields only — hub test "stored envelope"
+- [x] 2.3 Durable Object: hibernatable accept with attachment, auto-response ping/pong, SQLite schema with `schema_version` and migrations — hub test "wake on message"
+- [x] 2.4 Routing: overwrite the `from` installation; both installations enrolled; outbox append; deliver; `routed`/`rejected`; backlog cap — hub tests "routed", "unknown recipient", "backlog cap"
+- [x] 2.5 Durable delivery: ack deletes; ordered replay on reconnect; same seq on redelivery; alarm expiry (7 days) with an `expired` frame to the sender, now or on its next connection — hub tests "recipient offline", "duplicate after reconnect", "expired undelivered"
+- [x] 2.6 Removal and presence: tombstones; `removed` in `hello` and `presence`; outbox dropped on the first request after the deploy — hub tests "peer goes away", "installation removed"
+- [x] 2.7 Storage holds ciphertext and routing fields only — hub test "stored envelope"
 
 ## 3. Bot: configuration, state, hub client
 
