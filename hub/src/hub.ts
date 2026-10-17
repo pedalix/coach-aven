@@ -52,13 +52,22 @@ export class Hub extends DurableObject<Env> {
     void ctx.blockConcurrencyWhile(async () => {
       const migrated = this.store.migrate();
       if (migrated) log('info', 'hub.schema.migrated', migrated);
-      const gone = this.store.syncEnrolment(Object.keys(this.config().installations), new Date().toISOString());
-      for (const i of gone) {
-        log('warn', 'hub.installation.removed', { installation: i });
-        for (const ws of this.ctx.getWebSockets()) if (this.att(ws).installation === i) ws.close(4003, 'removed');
-      }
-      if (gone.length) this.broadcastPresence();
+      this.alignEnrolment(Object.keys(this.config().installations));
     });
+  }
+
+  /** Tombstone whoever left the configuration: close its connection, drop its outbox, tell everyone. */
+  alignEnrolment(configured: string[]): void {
+    const gone = this.store.syncEnrolment(configured, new Date().toISOString());
+    for (const i of gone) {
+      log('warn', 'hub.installation.removed', { installation: i });
+      for (const ws of this.ctx.getWebSockets()) {
+        if (this.att(ws).installation !== i) continue;
+        ws.serializeAttachment({ ...this.att(ws), installation: undefined });
+        ws.close(4003, 'removed');
+      }
+    }
+    if (gone.length) this.broadcastPresence();
   }
 
   private config(): HubConfig {

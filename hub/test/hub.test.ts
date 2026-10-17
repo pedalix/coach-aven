@@ -211,15 +211,19 @@ describe('Presence and removal', () => {
 
   it('Installation removed: refused, its outbox dropped, envelopes for it rejected, reported to everyone', async () => {
     const home = await login('home');
+    const northwind = await login('northwind');
     const e = envelope('home/owen-ops', 'northwind/ledger');
     home.send({ t: 'send', env: e });
     await home.next((f) => f.t === 'routed' && f.id === e.id);
-    // A deploy without northwind in HUB_CONFIG: the first request aligns the enrolment.
-    await inHub((instance) => {
-      instance.store.syncEnrolment(['home', 'bluefin'], '2026-10-17T00:00:00.000Z');
-      instance.broadcastPresence();
-    });
-    expect(await home.next((f) => f.t === 'presence' && f.removed?.some((r: Any) => r.installation === 'northwind'))).toBeTruthy();
+    northwind.ws.close(); // offline, so the envelope waits in its outbox
+    await home.next((f) => f.t === 'presence' && !f.online.includes('northwind'));
+    const live = await login('northwind'); // ...and back, without acking it
+    await live.next((f) => f.t === 'deliver' && f.env.id === e.id);
+    // A deploy without northwind in HUB_CONFIG: what the constructor runs on the first request after it.
+    await inHub((instance) => instance.alignEnrolment(['home', 'bluefin']));
+    expect(await waitClosed(live)).toEqual({ code: 4003, reason: 'removed' });
+    const p = await home.next((f) => f.t === 'presence' && f.removed?.some((r: Any) => r.installation === 'northwind'));
+    expect(p.online).not.toContain('northwind');
     expect(await sql(`SELECT * FROM outbox WHERE installation = 'northwind'`)).toEqual([]);
     const gone = await login('northwind');
     expect(await waitClosed(gone)).toEqual({ code: 4003, reason: 'unknown' });
@@ -227,8 +231,9 @@ describe('Presence and removal', () => {
     home.send({ t: 'send', env: e2 });
     expect(await home.next((f) => f.t === 'rejected' && f.id === e2.id)).toEqual({ t: 'rejected', id: e2.id, reason: 'unknown installation' });
     const later = await login('bluefin');
-    expect(later.frames.find((f) => f.t === 'hello')?.removed).toEqual([{ installation: 'northwind', at: '2026-10-17T00:00:00.000Z' }]);
+    expect(later.frames.find((f) => f.t === 'hello')?.removed).toMatchObject([{ installation: 'northwind' }]);
     // Re-enrolment lifts the tombstone (and keeps other tests independent).
-    await inHub((instance) => instance.store.syncEnrolment(['home', 'bluefin', 'northwind'], 'x'));
+    await inHub((instance) => instance.alignEnrolment(['home', 'bluefin', 'northwind']));
+    expect(await sql(`SELECT * FROM removed`)).toEqual([]);
   });
 });
