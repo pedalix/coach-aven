@@ -90,6 +90,11 @@ export class ProbeCtx {
   private alive = false;
   private fatal?: Error;
   private seq = 0;
+  // Where the next wait starts: just after the frame the previous wait matched, or at the end of the
+  // frames when the probe last wrote something. So chained waits never miss a frame that arrived in the
+  // same burst as the one before it (the sandbox transport streams in bursts), and a wait after an
+  // action never matches a frame from before that action.
+  private cursor = 0;
   private hostRoutes: readonly HostServerRoute[] = [];
   private readonly waiters = new Set<() => void>();
   private spentClosed = 0; // cost of processes that exited
@@ -193,6 +198,7 @@ export class ProbeCtx {
   /** Write one frame to the CLI's stdin (recorded as `in`). */
   async write(frame: Frame): Promise<void> {
     if (!this.proc || !this.alive) throw new Error('no CLI process to write to');
+    this.cursor = this.frames.length;
     this.recording.push({ t: this.now(), dir: 'in', frame });
     await this.proc.write(JSON.stringify(frame) + '\n');
   }
@@ -236,9 +242,10 @@ export class ProbeCtx {
     return this.write({ type: 'control_response', response: { subtype: 'success', request_id: (f as Any).request_id, response } });
   }
 
-  // Wait for a frame matching `pred` — after this call, or over every frame so far with `past`.
+  // Wait for a frame matching `pred` — from the cursor (after the previous match or the last write), or
+  // over every frame so far with `past`.
   private wait(pred: Pred, ms: number, past: boolean, miss: (why: string) => Error): Promise<Frame> {
-    let i = past ? 0 : this.frames.length;
+    let i = past ? 0 : this.cursor;
     return new Promise((resolve, reject) => {
       const done = (): void => {
         clearTimeout(timer);
@@ -253,6 +260,7 @@ export class ProbeCtx {
           const f = this.frames[i]!;
           if (pred(f)) {
             done();
+            this.cursor = Math.max(this.cursor, i + 1);
             return resolve(f);
           }
         }

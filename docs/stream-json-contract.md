@@ -77,6 +77,15 @@ Permission / question answer (reply to a `can_use_tool` request, same id):
    from CLI ≈2.1.2xx (2.1.183 sends status + reset only). Parsed by `src/ratelimit.ts` →
    alert channel on warning/rejected transitions, `/aven status` quota line.
 
+**Queued messages** (measured per CLI version by the CLI probe, `docs/cli-probe.md`): a user message written while a
+turn runs is queued.
+- **No priority / `next`:** it is folded into the running turn at the next tool boundary.
+- **Echo:** with `--replay-user-messages` it is echoed when the CLI takes it up, after that tool's result, not when it is written.
+- **Last tool result:** a message written after it gets its own turn after the running one.
+- **Interrupt:** a message still queued at an interrupt is kept and runs as its own turn.
+- **Kill:** a message written but not yet taken up is lost when the process is killed.
+- **Background tasks:** the CLI reports one that ends mid-turn the same way, as a queued user message (`origin: {"kind": "task-notification"}`).
+
 Parsing notes: stdout arrives in arbitrary chunks (not lines) — buffer and split on `\n`,
 keep the partial tail. Wrap `JSON.parse` in try/catch and skip non-JSON lines (the CLI
 interleaves noise). Read `session_id` from both `system/init` and `result`.

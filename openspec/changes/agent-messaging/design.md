@@ -399,6 +399,8 @@ The stream-json input accepts an optional `priority` on a user message (`now` | 
 - Haiku 5.5 and Opus 5.5;
 - 1–3 runs per case, the same behaviour in every run.
 
+Since task 0.2 the rows the delivery relies on are `cli-probe` contract scenarios on 2.1.282, three runs each, judged on the frames: `fold-in`, `echo-at-take-up`, `interrupt-after-inject`, `kill-resume`, `background-tasks-changed`. Their report is `src/fixtures/cli/2.1.282/REPORT.md`.
+
 | Case | Observed | `result` events |
 |---|---|---|
 | no priority / `next`, chain of tools | folded in right after the current tool's result; answered in the same final text | 1 |
@@ -416,6 +418,10 @@ The stream-json input accepts an optional `priority` on a user message (`now` | 
 | echo (`--replay-user-messages`) of a message written mid-tool | comes right after that tool's result, when the message is taken up, not when it is written (2.1.282 and 2.1.302) | — |
 | background task bookkeeping | `system/background_tasks_changed` lists the running background tasks, then `[]` when the last one ends (`task_progress`, `task_updated` in between) | — |
 | hooks at take-up (`--include-hook-events`, a `UserPromptSubmit` hook) | the hook fires for an injected message at the tool boundary, right before its echo; every Bash call also shows as `system/task_started` / `task_notification` (`local_bash`, not backgrounded) | 1 |
+| written right after the **last** tool result (0 or 400 ms later, before the final text starts) | not folded in: its own turn after the running one; the fold-in window closes with the last tool result | 2 |
+| stdin through the **ssh-docker FIFO** (`cli-probe` sandbox transport) | `fold-in`, `echo-at-take-up`, `interrupt-after-inject` and `kill-resume` hold as on a local process, three runs each | as local |
+| a long turn on **Opus 5.5** (a 2500-line tool output in context, then a chain of five tools) | folded in at the next tool boundary, one result | 1 |
+| a background task that ends mid-turn (claude-code#102220) | reported into the running turn: a `<task-notification>` user message, queued with `origin: {kind: "task-notification"}`, echoed at a tool boundary before the turn's result — the issue does not reproduce on 2.1.282 | 1 |
 
 **What Anthropic documents.** There is no formal wire spec; claude-code#102880, "Emit a JSON Schema for the stream-json protocol", is open.
 - **The de facto schema** is `sdk.d.ts` in `@anthropic-ai/claude-agent-sdk`, whose release numbers follow the CLI's (0.3.302 ↔ 2.1.302). It declares:
@@ -450,13 +456,8 @@ The stream-json input accepts an optional `priority` on a user message (`now` | 
   - `--replay-user-messages`: the echo, used here.
 
   The echo is enough for delivery; the other two are probe instruments.
-- **Not yet measured:**
-  - stdin through the ssh-docker FIFO and the Daytona session;
-  - the race between the last tool result and the start of the final text (`--include-partial-messages` shows the exact start of a text block);
-  - long Opus turns with a large context;
-  - claude-code#102220 (mid-turn task notifications never reaching the model) on the pinned CLI.
-
-  `cli-probe` covers them before the canary (task 0.2).
+- **Not yet measured:** stdin through the Daytona session (prod's driver), with `cli-probe`'s sandbox transport, before the canary (task 0.2). The ssh-docker FIFO, the race with the final text, a long Opus turn and claude-code#102220 are measured (rows above).
+- **A message that misses the last tool boundary** gets its own turn even before the final text starts. That is the case D13 already covers: the ledger answers it as a delivery, not as a background update.
 
 **Mechanisms considered and not used:**
 - **Interrupt** (`control_request {subtype: "interrupt"}`): throws away the running turn's work.
