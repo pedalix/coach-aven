@@ -201,3 +201,28 @@ test('the shipped projects.config.example.json loads', () => {
   const reg = loadProjects(new URL('../projects.config.example.json', import.meta.url).pathname);
   assert.deepEqual(reg.projects.map((p) => p.slug), ['acme-shop', 'acme-cms', 'acme-monitoring', 'ops-plain']);
 });
+
+test('messaging: a valid block loads; an invalid one fails the boot naming the project', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ projects: [{ ...BASE.projects[0], messaging: { send: true, accept: ['home/owen-ops', '*'] } }, BASE.projects[1]] }));
+    const reg = loadProjects(cfg);
+    assert.deepEqual(reg.projects[0]!.messaging, { send: true, accept: ['home/owen-ops', '*'] });
+    assert.equal(reg.projects[1]!.messaging, undefined, 'a project without the block keeps none');
+    writeFileSync(cfg, JSON.stringify({ projects: [{ ...BASE.projects[0], messaging: { accept: ['bluefin/*'] } }] }));
+    assert.throws(() => loadProjects(cfg), /project "alpha" messaging\.accept: "bluefin\/\*" is not/);
+  });
+});
+
+test('messaging — shared project: the block is refused at load with an error naming the project, and the project behaves as before', () => {
+  withConfigDir((_dir, cfg) => {
+    const shared = {
+      projects: [{ ...BASE.projects[0], messaging: { accept: ['*'] } }, { ...BASE.projects[1], messaging: { send: true } }],
+      workspaces: { T0HOME0001: ['alpha', 'beta'], T0CLIENT01: ['alpha'] },
+    };
+    writeFileSync(cfg, JSON.stringify(shared));
+    const reg = loadProjects(cfg);
+    assert.equal(reg.projects[0]!.messaging, undefined, 'alpha is shared by two tenants: no messaging');
+    assert.equal(reg.projects[0]!.systemPrompt, 'json prompt', 'and otherwise loads as before');
+    assert.deepEqual(reg.projects[1]!.messaging, { send: true }, 'beta has one tenant: kept');
+  });
+});

@@ -8,7 +8,8 @@
   - claude-code#102220 (mid-turn task notifications) on the pinned CLI
 
   Done on 2.1.282: every item above is measured and recorded in D12 (#22). The Daytona session was measured with prod's organization and snapshot: the four delivery rows hold. Its output carries a copy of stdin, so D13 confirms delivery only by `isReplay` echoes. `cli-probe` records such a copy as `echo`.
-- [ ] 0.3 Bump the fleet's Claude Code pin to a version in `PROBED_CLI_VERSIONS`, on every installation (sandbox image + pin, home, prod, Teams staging), as its own PR with a ledger row — `src/cliprobe/gate.test.ts`; the upgrade notice (`Claude Code <old> → <new>`) on each installation
+- [x] 0.3 Bump the fleet's Claude Code pin to a version in `PROBED_CLI_VERSIONS`, on every installation (sandbox image + pin, home, prod, Teams staging), as its own PR with a ledger row — `src/cliprobe/gate.test.ts`; the upgrade notice (`Claude Code <old> → <new>`) on each installation
+  Done 2026-10-17: the fleet runs 2.1.292 (probed in full, #25) — home, the Teams staging installation and prod, each `.env` edited on its box and checked at restart.
 
 ## 1. Messaging core (pure, shared)
 
@@ -45,21 +46,27 @@
 
 ## 3. Bot: configuration, state, hub client
 
-- [ ] 3.1 Project config `messaging: { send, accept, description, sendPerDay, acceptPerDay, maxRounds, costWarnUsd }`, read at call time. Refused on a project shared by several tenants. `.env` `INSTALLATION_ID` (explicit for the hub) / `HUB_URL` / `HUB_KEY_PATH` — `src/projects.test.ts` ("shared project")
-- [ ] 3.2 `state.json` — `src/state.test.ts`, `src/housekeeping.test.ts` ("task outlives the hub"):
+- [x] 3.1 Project config `messaging: { send, accept, description, sendPerDay, acceptPerDay, maxRounds, costWarnUsd }`, read at call time. Refused on a project shared by several tenants. `.env` `INSTALLATION_ID` (explicit for the hub) / `HUB_URL` / `HUB_KEY_PATH` — `src/projects.test.ts` ("shared project")
+  Done: `src/messaging/config.ts` (the block, its defaults and `messagingEnv`), validated in `src/projects.ts`; a shared project’s block is dropped with an error, the project unchanged.
+- [x] 3.2 `state.json` — `src/state.test.ts`, `src/housekeeping.test.ts` ("task outlives the hub"):
   - outgoing tasks by task id, incoming ones by (origin installation, task id); a local task has both;
   - marks per conversation key (domain → holders);
   - domains learned per peer agent;
   - held messages;
   - 30-day pruning; local expiry
-- [ ] 3.3 `src/messaging/peers.ts`: `hub.peers.json` with key lists; a reload that drops a peer ends its open tasks — `src/messaging/peers.test.ts`
-- [ ] 3.4 `src/messaging/hubclient.ts` (`PeerTransport` over the hub) — `src/messaging/hubclient.test.ts` ("peer removed"):
+  Done: `src/messaging/records.ts` (shapes) and the `Store` methods, tested in `src/state.test.ts`; the expiry pass is `src/messaging/expiry.ts` ("task outlives the hub" in `expiry.test.ts`); the 30-day pruning runs in both composition roots’ daily retention. Telling a conversation that its task expired comes with the deliverer (4.4).
+- [x] 3.3 `src/messaging/peers.ts`: `hub.peers.json` with key lists; a reload that drops a peer ends its open tasks — `src/messaging/peers.test.ts`
+  Done: `parsePeers`/`loadPeers`, `validKeys`, `droppedPeers` and `endTasksWithPeer` (tested). `/aven reload` calls them from 3.5, where the composition root holds the peers.
+- [x] 3.4 `src/messaging/hubclient.ts` (`PeerTransport` over the hub) — `src/messaging/hubclient.test.ts` ("peer removed"):
   - challenge auth; skew warning above 30 s, once per connection, no correction;
   - backoff, keep-alive, persisted outbox;
   - ack only after the handler's durable record; dedupe;
   - `replaced` logged; `expired` → `failed: expired`; `removed` → `failed: peer removed`
+  Done: `applyHubReports` turns expiries, removals and rejections into task states; telling the conversations comes with the deliverer (4.4). The composition root starts the client with 3.5.
 - [ ] 3.5 Composition roots (Slack, Teams): start the transports; register `host` with `DISPATCH=1` or a `messaging` configuration; never `propose`/`registry` in a shadow conversation — `src/hostrouter.test.ts` ("installation without configuration", "project not configured", "nothing is registered without the gate", "messaging without dispatch", "shadow conversation", "a host tool call needs no transport"; host list and spawn line byte-identical for unconfigured projects)
-- [ ] 3.6 `deploy.sh export`/`import` carry `hub.peers.json` beside the projects config — `src/chat/teams/deploy.test.ts` (extended) + a dry run of `npm run ops -- <slug> export`
+  Lands with section 5: the composition roots start the transports once the deliverer (4.4) and the incoming-task handler (5.4) exist to take their deliveries, and `host` is registered once there are messaging tools to list. It also re-reads `hub.peers.json` on `/aven reload` and ends the dropped peers’ tasks (`droppedPeers` + `endTasksWithPeer`).
+- [x] 3.6 `deploy.sh export`/`import` carry `hub.peers.json` beside the projects config — `src/chat/teams/deploy.test.ts` (extended) + a dry run of `npm run ops -- <slug> export`
+  Done: `hub.peers.json` is an optional runtime file of `infra/deploy/deploy.sh`; `deploy.sh <slug> runtime-files` lists what export and import carry (export has no dry run).
 
 ## 4. Bot: accounting and delivery
 

@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Store } from './state.js';
+import type { InTask, OutTask } from './messaging/records.js';
 
 // A Store backed by a throwaway temp file (path injection keeps the real state.json safe).
 function freshStore(): { store: Store; path: string } {
@@ -189,4 +190,153 @@ test('exportTenant/purgeTenant slice records by the explicit field', () => {
   assert.equal(store.getChat(`${T}:thread:2.2`), undefined);
   assert.equal(store.getChat('thread:1.1')?.slug, 'alpha'); // home untouched
   assert.equal(store.listRoutines().length, 1);
+});
+
+// ── agent messaging records (OpenSpec agent-messaging task 3.2) ─────────────────────────────────
+const DAY_MS = 86_400_000;
+const TENANT = 'T0CLIENT01';
+const outTask = (over: Partial<OutTask> = {}): OutTask => ({
+  id: 'a'.repeat(24),
+  slug: 'owen-ops',
+  key: 'thread:1700000000.000100',
+  reply: { key: 'thread:1700000000.000100', driver: 'slack', channel: 'C1', thread: '1700000000.000100' },
+  target: 'bluefin/caldora',
+  question: 'Why did orders drop on 2026-10-16?',
+  state: 'submitted',
+  depth: 0,
+  rounds: 0,
+  replies: [],
+  seen: [],
+  createdAt: '2026-10-17T08:00:00.000Z',
+  updatedAt: '2026-10-17T08:00:00.000Z',
+  ...over,
+});
+const inTask = (over: Partial<InTask> = {}): InTask => ({
+  id: 'a'.repeat(24),
+  origin: 'home',
+  from: 'home/owen-ops',
+  fromDomain: 'home',
+  slug: 'caldora',
+  key: `a2a:home:${'a'.repeat(24)}:caldora`,
+  question: 'Why did orders drop on 2026-10-16?',
+  state: 'working',
+  depth: 0,
+  rounds: 0,
+  seen: ['e'.repeat(24)],
+  createdAt: '2026-10-17T08:00:00.000Z',
+  updatedAt: '2026-10-17T08:00:00.000Z',
+  ...over,
+});
+
+test('messaging — tasks both ways: a local task has an outgoing and an incoming record; the tenant comes from the key; they persist', () => {
+  const { store, path } = freshStore();
+  store.putOutTask(outTask());
+  store.putInTask(inTask({ origin: 'home' }));
+  store.putInTask(inTask({ origin: 'northwind', from: 'northwind/ledger', fromDomain: 'northwind' }));
+  const clientIn = store.putInTask(inTask({ id: 'b'.repeat(24), key: `${TENANT}:a2a:home:${'b'.repeat(24)}:caldora`, teamId: 'T0FORGED01' }));
+  assert.equal(clientIn.teamId, TENANT, 'stamped from the key, never trusted from the caller');
+  assert.equal(store.getInTask('home', 'a'.repeat(24))?.from, 'home/owen-ops');
+  assert.equal(store.getInTask('northwind', 'a'.repeat(24))?.from, 'northwind/ledger', 'two senders’ ids never meet');
+  store.patchOutTask('a'.repeat(24), { state: 'working', last: { at: '2026-10-17T08:01:00.000Z', role: 'agent', state: 'working', text: '' } });
+  const reloaded = new Store(path);
+  assert.equal(reloaded.getOutTask('a'.repeat(24))?.state, 'working');
+  assert.equal(reloaded.getOutTask('a'.repeat(24))?.teamId, undefined, 'home stays field-less');
+  assert.equal(reloaded.messagingTasks().in.length, 3);
+});
+
+test('messaging — task outlives the hub: open tasks idle past the expiry plus a day are found on both sides; ended ones are not', () => {
+  const { store } = freshStore();
+  const now = Date.parse('2026-10-26T09:00:00.000Z');
+  store.putOutTask(outTask({ updatedAt: '2026-10-17T08:00:00.000Z' })); // 9 days idle, open
+  store.putOutTask(outTask({ id: 'c'.repeat(24), state: 'completed', updatedAt: '2026-10-17T08:00:00.000Z' }));
+  store.putOutTask(outTask({ id: 'd'.repeat(24), updatedAt: '2026-10-25T08:00:00.000Z' })); // fresh
+  store.putInTask(inTask({ state: 'input-required', updatedAt: '2026-10-17T08:00:00.000Z' }));
+  const idle = store.idleOpenTasks(8 * DAY_MS, now);
+  assert.deepEqual(idle.out.map((t) => t.id), ['a'.repeat(24)]);
+  assert.deepEqual(idle.in.map((t) => t.origin), ['home']);
+});
+
+test('messaging — marks per conversation: set, read as a copy, removed when empty, and pruned only with the conversation’s record', () => {
+  const { store } = freshStore();
+  const key = 'thread:1700000000.000100';
+  store.setMarks(key, { bluefin: ['bluefin'] });
+  const m = store.getMarks(key);
+  m.bluefin!.push('northwind');
+  assert.deepEqual(store.getMarks(key), { bluefin: ['bluefin'] }, 'a copy');
+  assert.deepEqual(store.getMarks('thread:other'), {});
+  store.setChat({ threadTs: key, slug: 'owen-ops', updatedAt: '2026-08-01T00:00:00.000Z' });
+  store.setChat({ threadTs: 'thread:fresh', slug: 'owen-ops', updatedAt: new Date().toISOString() });
+  store.setMarks('thread:fresh', { bluefin: ['bluefin'] });
+  assert.equal(store.pruneChats(45 * DAY_MS), 1);
+  assert.deepEqual(store.getMarks(key), {}, 'gone with its conversation');
+  assert.deepEqual(store.getMarks('thread:fresh'), { bluefin: ['bluefin'] }, 'age alone never ends marks');
+  store.setMarks('thread:fresh', {});
+  assert.deepEqual(store.getMarks('thread:fresh'), {});
+});
+
+test('messaging — learned domains, held messages, daily caps', () => {
+  const { store } = freshStore();
+  store.learnDomain('bluefin/caldora', 'bluefin~1a2b3c4d');
+  assert.equal(store.peerDomain('bluefin/caldora'), 'bluefin~1a2b3c4d');
+  const held = store.putHeld({ id: 'f'.repeat(24), task: 'f'.repeat(24), kind: 'task', slug: 'owen-ops', key: `${TENANT}:thread:1.2`, target: 'northwind/ledger', text: 'q', why: 'bluefin data', createdAt: '2026-10-17T08:00:00.000Z' });
+  assert.equal(held.teamId, TENANT);
+  store.patchHeld(held.id, { card: { channel: 'C1', ts: '1.3' } });
+  assert.deepEqual(store.getHeld(held.id)?.card, { channel: 'C1', ts: '1.3' });
+  assert.equal(store.listHeld().length, 1);
+  assert.equal(store.deleteHeld(held.id), true);
+  assert.equal(store.deleteHeld(held.id), false);
+  assert.equal(store.bumpAskCount('send|owen-ops|2026-10-16', '2026-10-15'), 1);
+  assert.equal(store.bumpAskCount('send|owen-ops|2026-10-17', '2026-10-16'), 1);
+  assert.equal(store.bumpAskCount('accept|caldora|home/owen-ops|2026-10-17', '2026-10-17'), 1, 'yesterday’s counter dropped on the way');
+  assert.equal(store.askCount('send|owen-ops|2026-10-16'), 0);
+  assert.equal(store.askCount('send|owen-ops|2026-10-17'), 1);
+});
+
+test('messaging — the transports’ records live in state.json; an installation that never used messaging gets no block', () => {
+  const { store, path } = freshStore();
+  const hub = store.messagingRecords('hub');
+  hub.save([]);
+  store.getMarks('thread:x');
+  store.idleOpenTasks(1);
+  store.setChat({ threadTs: 'thread:x', slug: 'owen-ops', updatedAt: new Date().toISOString() });
+  assert.equal('messaging' in JSON.parse(readFileSync(path, 'utf8')), false, 'reads and empty saves leave state.json as it was');
+  hub.save([{ seq: 1, env: { v: 1, id: '1'.repeat(24), from: 'home/owen-ops', to: 'bluefin/caldora', method: 'ask', task: 'a'.repeat(24) }, at: '2026-10-17T08:00:00.000Z' }]);
+  assert.equal(new Store(path).messagingRecords('hub').load().length, 1);
+  assert.equal(new Store(path).messagingRecords('local').load().length, 0);
+});
+
+test('messaging — housekeeping drops ended tasks and held messages after 30 days, never an open task', () => {
+  const { store } = freshStore();
+  const now = Date.parse('2026-11-20T00:00:00.000Z');
+  store.putOutTask(outTask({ state: 'completed', updatedAt: '2026-10-17T08:00:00.000Z' }));
+  store.putOutTask(outTask({ id: 'c'.repeat(24), state: 'working', updatedAt: '2026-10-17T08:00:00.000Z' }));
+  store.putInTask(inTask({ state: 'failed', reason: 'expired', updatedAt: '2026-10-17T08:00:00.000Z' }));
+  store.putInTask(inTask({ origin: 'northwind', state: 'completed', updatedAt: '2026-11-15T08:00:00.000Z' }));
+  store.putHeld({ id: 'f'.repeat(24), task: 'f'.repeat(24), kind: 'task', slug: 'owen-ops', key: 'thread:1.2', target: 'northwind/ledger', text: 'q', why: 'w', createdAt: '2026-10-17T08:00:00.000Z' });
+  assert.equal(store.pruneMessaging(30 * DAY_MS, now), 3);
+  const left = store.messagingTasks();
+  assert.deepEqual(left.out.map((t) => t.state), ['working']);
+  assert.deepEqual(left.in.map((t) => t.origin), ['northwind']);
+  assert.equal(store.listHeld().length, 0);
+});
+
+test('messaging — per-tenant export and purge cover tasks, held messages and marks', () => {
+  const { store } = freshStore();
+  store.putOutTask(outTask({ key: `${TENANT}:thread:1.2`, reply: { key: `${TENANT}:thread:1.2`, driver: 'slack' } }));
+  store.putOutTask(outTask({ id: 'c'.repeat(24) }));
+  store.putInTask(inTask({ key: `${TENANT}:a2a:home:${'a'.repeat(24)}:caldora` }));
+  store.putHeld({ id: 'f'.repeat(24), task: 'f'.repeat(24), kind: 'task', slug: 'owen-ops', key: `${TENANT}:thread:1.2`, target: 'northwind/ledger', text: 'q', why: 'w', createdAt: '2026-10-17T08:00:00.000Z' });
+  store.setMarks(`${TENANT}:thread:1.2`, { bluefin: ['bluefin'] });
+  store.setMarks('thread:home', { bluefin: ['bluefin'] });
+  const exp = store.exportTenant(TENANT);
+  assert.equal(exp.tasks.out.length, 1);
+  assert.equal(exp.tasks.in.length, 1);
+  assert.equal(exp.held.length, 1);
+  assert.deepEqual(Object.keys(exp.marks), [`${TENANT}:thread:1.2`]);
+  const counts = store.purgeTenant(TENANT);
+  assert.equal(counts.tasks, 2);
+  assert.equal(counts.held, 1);
+  assert.equal(counts.marks, 1);
+  assert.equal(store.messagingTasks().out.length, 1, 'home’s task stays');
+  assert.deepEqual(store.getMarks('thread:home'), { bluefin: ['bluefin'] });
 });

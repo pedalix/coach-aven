@@ -15,7 +15,8 @@
 #   install        Root stage: create REMOTE_DIR (deployer-owned), render + install
 #                  the systemd unit, daemon-reload, enable (NOT start). Idempotent.
 #   export         Upload the runtime files the app needs at REMOTE_DIR: .env,
-#                  github-app-private-key.pem, projects.config.json, projects.d/ — read
+#                  github-app-private-key.pem, projects.config.json, projects.d/, and when
+#                  present mirrors.json and hub.peers.json — read
 #                  from infra/<slug>/. Refuses while that checkout is dirty, pushes it
 #                  first, then uploads. Run once, and again on any change. NEVER touches
 #                  state.json.
@@ -60,8 +61,10 @@ RUNTIME_FILES=(.env github-app-private-key.pem projects.config.json)
 # the box, which is harmless — the loader ignores files for unknown slugs.
 RUNTIME_DIRS=(projects.d)
 # Optional runtime FILES, uploaded/pulled only when present: mirrors.json is the repo-mirror
-# list scripts/mirror.ts reads (docs/runtime-config.md → *Repo mirrors*).
-OPTIONAL_RUNTIME_FILES=(mirrors.json)
+# list scripts/mirror.ts reads (docs/runtime-config.md → *Repo mirrors*); hub.peers.json pins the
+# public keys of the installations this one messages through the hub (agent messaging,
+# src/messaging/peers.ts). The installation's own private key (HUB_KEY_PATH) never travels.
+OPTIONAL_RUNTIME_FILES=(mirrors.json hub.peers.json)
 
 usage() { grep -E '^#( |$)' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
 # Installations present = infra/*/ directories that carry a deploy.env (an overlay without
@@ -350,5 +353,6 @@ case "${2:-}" in
   ssh)          cmd_ssh ;;
   down)         cmd_down ;;
   render-unit)  render_unit "${3:-/usr/bin/node}" ;;   # no ssh: the unit as install would write it (tests)
+  runtime-files) printf 'required %s\noptional %s\ndirs %s\n' "${RUNTIME_FILES[*]}" "${OPTIONAL_RUNTIME_FILES[*]}" "${RUNTIME_DIRS[*]}" ;;   # no ssh: what export/import carry (tests)
   *) usage; exit 1 ;;
 esac
