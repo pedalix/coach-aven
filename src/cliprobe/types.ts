@@ -4,9 +4,13 @@
 /** One stdout or stdin line of the stream-json protocol, parsed. */
 export type Frame = Record<string, unknown>;
 
-/** One line of a recording. `t` is milliseconds since the run started. */
+/**
+ * One line of a recording. `t` is milliseconds since the run started. `echo`: a line on the CLI's
+ * output that is, byte for byte, a line the probe wrote — the transport's copy of stdin (a Daytona
+ * session's output carries it, ~200 ms after the write), not the CLI's: never a CLI frame, never checked.
+ */
 export type RecordLine =
-  | { t: number; dir: 'out' | 'in'; frame: Frame }
+  | { t: number; dir: 'out' | 'in' | 'echo'; frame: Frame }
   | { t: number; proc: 'start'; argv: string[] }
   | { t: number; proc: 'exit'; code: number | null; signal: string | null };
 

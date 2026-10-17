@@ -91,6 +91,7 @@ test('the bot’s own message differs from the declaration: an input finding, li
         { t: 1, dir: 'in', frame: { type: 'user', message: { role: 'user', content: 'hello' } } },
         { t: 2, dir: 'out', frame: { ...init, capabilities: [] } },
         { t: 3, dir: 'out', frame: { type: 'keep_alive' } },
+        { t: 4, dir: 'echo', frame: { type: 'user', message: { role: 'user', content: 'hello' } } },
       ],
     },
   ]);

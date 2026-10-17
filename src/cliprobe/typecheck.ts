@@ -227,7 +227,7 @@ export function checkRecordings(checker: FrameChecker, recordings: { file: strin
   const out: Finding[] = [];
   for (const { file, lines } of recordings) {
     lines.forEach((l, i) => {
-      if (!('frame' in l)) return;
+      if (!('frame' in l) || l.dir === 'echo') return; // a transport's copy of stdin is nobody's frame
       const r = checker.check(l.frame, l.dir);
       if (r.undeclaredKind) {
         out.push({ dir: l.dir, file, line: i + 1, kind: 'undeclared-kind', frameKind: r.kind, path: '$', detail: 'no declared kind matches its literal fields', origin: 'protocol' });

@@ -167,3 +167,22 @@ test('ProbeCtx — chained waits catch frames that arrived in one burst; a wait 
   await assert.rejects(ctx.expect(ctx.is.result, 100, 'a result after the second write'), PredictionMissed, 'the earlier result is not matched again');
 });
 
+test('ProbeCtx — a transport that copies stdin to stdout (a Daytona session): the copy is recorded as `echo`, never as a CLI frame', async () => {
+  const { transport } = fakeTransport((w, emit) => {
+    emit(w); // the transport's copy, byte for byte
+    if (w.type === 'user') {
+      emit(init());
+      emit({ type: 'user', isReplay: true, uuid: 'u', message: { role: 'user', content: 'go' } });
+      emit(result('ok', 0.01));
+    }
+  });
+  const ctx = new ProbeCtx({ transport, launch: {} });
+  await ctx.start();
+  await ctx.send('go');
+  await ctx.expect(ctx.is.result, 500, 'a result');
+  assert.equal(ctx.transportEchoes, 1);
+  assert.deepEqual(ctx.recording.filter((l) => 'dir' in l).map((l) => (l as { dir: string }).dir), ['in', 'echo', 'out', 'out', 'out']);
+  assert.ok(!ctx.frames.some((f) => f.type === 'user' && !(f as { isReplay?: boolean }).isReplay), 'the copy is not among the CLI frames');
+  assert.equal(ctx.replays.length, 1, 'only the CLI’s own echo counts as a replay');
+});
+
