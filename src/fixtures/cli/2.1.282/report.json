@@ -9,9 +9,10 @@
  "transport": "local",
  "date": "2026-10-17",
  "models": [
-  "claude-haiku-5-5"
+  "claude-haiku-5-5",
+  "claude-opus-5-5"
  ],
- "totalCostUsd": 2.1910301,
+ "totalCostUsd": 3.5291823000000004,
  "scenarios": [
   {
    "id": "ask-user-question",
@@ -96,7 +97,7 @@
   },
   {
    "id": "background-tasks-changed",
-   "contract": false,
+   "contract": true,
    "hypothesis": "`system/background_tasks_changed` lists the running background tasks, then `[]` when the last one ends.",
    "model": "claude-haiku-5-5",
    "verdict": "holds",
@@ -112,14 +113,14 @@
        0
       ]
      },
-     "costUsd": 0.05950499999999999,
-     "durationMs": 13157
+     "costUsd": 0.0672196,
+     "durationMs": 13972
     }
    ],
-   "costUsd": 0.05950499999999999,
+   "costUsd": 0.0672196,
    "recording": {
     "file": "background-tasks-changed.jsonl",
-    "sha256": "b2f7dd12b82a3d85a48988644fbd5fd6ac6feeb369be56dc16cdfec08cc95cd6"
+    "sha256": "6423829628ba2918fc5a4127cb828de1c8449f58c994f7bc2e7ae2edbf0074e9"
    },
    "transport": "local"
   },
@@ -325,6 +326,51 @@
    "transport": "local"
   },
   {
+   "id": "echo-at-take-up",
+   "contract": true,
+   "hypothesis": "The echo (`--replay-user-messages`) of a message written while a tool runs comes when the CLI takes it up — after that tool’s result — not when it is written.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 8184,
+      "echoAfterToolResultMs": 5
+     },
+     "costUsd": 0.0483744,
+     "durationMs": 15712
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 8428,
+      "echoAfterToolResultMs": 8
+     },
+     "costUsd": 0.0486244,
+     "durationMs": 16246
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 8277,
+      "echoAfterToolResultMs": 5
+     },
+     "costUsd": 0.0488744,
+     "durationMs": 15627
+    }
+   ],
+   "costUsd": 0.14587319999999998,
+   "recording": {
+    "file": "echo-at-take-up.jsonl",
+    "sha256": "64180e4404b70171a9b92c348b289a1a5847beac9db8098cf43c0f104c974c16"
+   },
+   "transport": "local"
+  },
+  {
    "id": "event-kinds",
    "contract": false,
    "hypothesis": "The echo of a message written mid-tool comes after that tool’s result.",
@@ -417,6 +463,215 @@
    "transport": "local"
   },
   {
+   "id": "final-text-race",
+   "variant": "0ms",
+   "contract": false,
+   "hypothesis": "A message written right after the last tool result is not folded into that turn, even before the final text starts: it gets its own turn after the running one.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": false,
+      "sentAfterToolResultMs": 3
+     },
+     "costUsd": 0.054806600000000004,
+     "durationMs": 28039
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": false,
+      "sentAfterToolResultMs": 2
+     },
+     "costUsd": 0.052994200000000005,
+     "durationMs": 28275
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": false,
+      "sentAfterToolResultMs": 1
+     },
+     "costUsd": 0.052994200000000005,
+     "durationMs": 27606
+    }
+   ],
+   "costUsd": 0.16079500000000002,
+   "recording": {
+    "file": "final-text-race.0ms.jsonl",
+    "sha256": "503ac282fea1e91caa1dd7d8528ba0ed81da87b8aa273b8c6d8d0fc3b17afb9a"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "final-text-race",
+   "variant": "400ms",
+   "contract": false,
+   "hypothesis": "A message written right after the last tool result is not folded into that turn, even before the final text starts: it gets its own turn after the running one.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": false,
+      "sentAfterToolResultMs": 401
+     },
+     "costUsd": 0.05298099999999999,
+     "durationMs": 28452
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": true,
+      "sentAfterToolResultMs": 401
+     },
+     "costUsd": 0.0546352,
+     "durationMs": 29575
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": false,
+      "sentAfterToolResultMs": 401
+     },
+     "costUsd": 0.0544242,
+     "durationMs": 28565
+    }
+   ],
+   "costUsd": 0.1620404,
+   "recording": {
+    "file": "final-text-race.400ms.jsonl",
+    "sha256": "8eb03553e398d4853e91fc56044939de4aa745e45fd1e1ff85385e9febbc5f20"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "fold-in",
+   "contract": true,
+   "hypothesis": "A message written (no priority) while a tool of a chain runs is folded into the running turn at the next tool boundary: its echo comes between a tool result and the turn’s only `result`.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 4337,
+      "toolResultsBeforeEcho": 1,
+      "answeredInTurn": true
+     },
+     "costUsd": 0.0632528,
+     "durationMs": 38128
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 4275,
+      "toolResultsBeforeEcho": 1,
+      "answeredInTurn": true
+     },
+     "costUsd": 0.06457,
+     "durationMs": 38244
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 4286,
+      "toolResultsBeforeEcho": 1,
+      "answeredInTurn": true
+     },
+     "costUsd": 0.0662348,
+     "durationMs": 38988
+    }
+   ],
+   "costUsd": 0.1940576,
+   "recording": {
+    "file": "fold-in.jsonl",
+    "sha256": "f9f45ea7cb3ae6fe03db9cd52426071e7b5da924ac17ec58369010e4bdf562d9"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "fold-in-opus",
+   "contract": false,
+   "hypothesis": "On the fleet’s model, in a long turn over a grown context, a message written mid-chain still folds in at the next tool boundary (one result).",
+   "model": "claude-opus-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoAfterSendMs": 3147
+     },
+     "costUsd": 0.1047802,
+     "durationMs": 54680
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoAfterSendMs": 3049
+     },
+     "costUsd": 0.103937,
+     "durationMs": 60266
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoAfterSendMs": 3070
+     },
+     "costUsd": 0.09999500000000001,
+     "durationMs": 54269
+    }
+   ],
+   "costUsd": 0.3087122,
+   "recording": {
+    "file": "fold-in-opus.jsonl",
+    "sha256": "30e33392a7a86d161fef653ee3c156eb61ddb5017c97b5c91491f58efa93a16d"
+   },
+   "transport": "local"
+  },
+  {
    "id": "host-tool",
    "contract": true,
    "hypothesis": "After `initialize` with `sdkMcpServers`, the MCP handshake and the model’s call of a host tool come as `control_request {mcp_message}`, and the host’s `control_response` reaches the model as the tool result.",
@@ -501,11 +756,11 @@
   },
   {
    "id": "interrupt-after-inject",
-   "contract": false,
+   "contract": true,
    "hypothesis": "A message written just before an interrupt is kept: the interrupted turn ends with `error_during_execution`, and the message runs as its own turn.",
    "model": "claude-haiku-5-5",
    "verdict": "holds",
-   "holds": 1,
+   "holds": 3,
    "fails": 0,
    "inconclusive": 0,
    "runs": [
@@ -516,16 +771,43 @@
       "subtypes": [
        "error_during_execution",
        "success"
-      ]
+      ],
+      "answeredInOwnTurn": true
      },
-     "costUsd": 0.049308,
-     "durationMs": 7557
+     "costUsd": 0.0488418,
+     "durationMs": 7267
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "subtypes": [
+       "error_during_execution",
+       "success"
+      ],
+      "answeredInOwnTurn": true
+     },
+     "costUsd": 0.04894659999999999,
+     "durationMs": 6437
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "subtypes": [
+       "error_during_execution",
+       "success"
+      ],
+      "answeredInOwnTurn": true
+     },
+     "costUsd": 0.0489092,
+     "durationMs": 7731
     }
    ],
-   "costUsd": 0.049308,
+   "costUsd": 0.14669759999999998,
    "recording": {
     "file": "interrupt-after-inject.jsonl",
-    "sha256": "bc2e7607c29e21575d994634bd0d91019cc7fde45544e845c1e148124474fc89"
+    "sha256": "578fcb6599d4eec3358fc153bfc2892e85d9dc0fed3aa5e0d6845b9ae4eb02bb"
    },
    "transport": "local"
   },
@@ -564,27 +846,43 @@
   },
   {
    "id": "kill-resume",
-   "contract": false,
+   "contract": true,
    "hypothesis": "A message written but not yet taken up is lost when the process is killed: after `--resume` it is not in the conversation.",
    "model": "claude-haiku-5-5",
    "verdict": "holds",
-   "holds": 1,
+   "holds": 3,
    "fails": 0,
    "inconclusive": 0,
    "runs": [
     {
      "verdict": "holds",
      "observations": {
-      "answer": "NONE\n\nThe earlier three-step Bash task also never finished. The first call (`sleep 5; echo A1`) was interrupted, so A2 a"
+      "answer": "NONE\n\nThe earlier sleep/echo task was interrupted before any output came back, so I haven't run it yet. Say the word and"
      },
-     "costUsd": 0.0109792,
-     "durationMs": 9425
+     "costUsd": 0.0114192,
+     "durationMs": 9426
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "answer": "NONE\n\nThe earlier sleep-and-echo task did not finish: the first Bash call was interrupted, so A1, A2, and A3 have not be"
+     },
+     "costUsd": 0.0117692,
+     "durationMs": 9613
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "answer": "NONE\n\nThe earlier three-command task is still incomplete. The first `sleep 5; echo A1` call was interrupted with an unkn"
+     },
+     "costUsd": 0.0111212,
+     "durationMs": 11413
     }
    ],
-   "costUsd": 0.0109792,
+   "costUsd": 0.034309599999999996,
    "recording": {
     "file": "kill-resume.jsonl",
-    "sha256": "3f98c9dcb0b8bcd12857eb1115da2ac39fa6cccc0c664137b833523aa692cfd0"
+    "sha256": "5aa2b9a2c7595f56bbc0f6d9db77aa7f7e51f7a2b9e5d49725e81d3683d24cc0"
    },
    "transport": "local"
   },
@@ -914,6 +1212,66 @@
    "transport": "local"
   },
   {
+   "id": "task-notification-mid-turn",
+   "contract": false,
+   "hypothesis": "A background task that ends while the turn still runs is reported into that turn: a `<task-notification>` message is taken up at a tool boundary before the turn’s result (claude-code#102220 reports that in headless mode it never is).",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "notificationsBeforeResult": 4,
+      "takenUpAfterToolResult": true,
+      "echoed": true,
+      "origin": {
+       "kind": "task-notification"
+      },
+      "modelQuotedOutput": true
+     },
+     "costUsd": 0.0813526,
+     "durationMs": 39186
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "notificationsBeforeResult": 4,
+      "takenUpAfterToolResult": true,
+      "echoed": true,
+      "origin": {
+       "kind": "task-notification"
+      },
+      "modelQuotedOutput": true
+     },
+     "costUsd": 0.08174399999999998,
+     "durationMs": 37895
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "notificationsBeforeResult": 4,
+      "takenUpAfterToolResult": true,
+      "echoed": true,
+      "origin": {
+       "kind": "task-notification"
+      },
+      "modelQuotedOutput": true
+     },
+     "costUsd": 0.0751426,
+     "durationMs": 31572
+    }
+   ],
+   "costUsd": 0.23823919999999998,
+   "recording": {
+    "file": "task-notification-mid-turn.jsonl",
+    "sha256": "4ba19bc2661d8c9664ada7ed78ba961410218129d3cfe3584bc5c619ed2abb3e"
+   },
+   "transport": "local"
+  },
+  {
    "id": "turn",
    "contract": true,
    "hypothesis": "`system/init` comes first (the rate-limit event aside), with `session_id` and only the CLI’s built-in plugins; `assistant` events carry `text` and `tool_use` blocks; the turn ends with one `result` carrying `result`, `is_error`, `session_id`, `total_cost_usd`, `usage` and `duration_ms`.",
@@ -975,7 +1333,7 @@
  ],
  "catalogue": {
   "assistant": {
-   "count": 129,
+   "count": 163,
    "fields": [
     "message",
     "parent_tool_use_id",
@@ -1033,7 +1391,7 @@
    ]
   },
   "rate_limit_event": {
-   "count": 32,
+   "count": 38,
    "fields": [
     "rate_limit_info",
     "session_id",
@@ -1067,7 +1425,7 @@
    ]
   },
   "result/success": {
-   "count": 38,
+   "count": 46,
    "fields": [
     "api_error_status",
     "duration_api_ms",
@@ -1102,7 +1460,7 @@
    ]
   },
   "stream_event:content_block_delta": {
-   "count": 8,
+   "count": 16,
    "fields": [
     "event",
     "parent_tool_use_id",
@@ -1112,7 +1470,7 @@
    ]
   },
   "stream_event:content_block_start": {
-   "count": 6,
+   "count": 13,
    "fields": [
     "event",
     "parent_tool_use_id",
@@ -1122,7 +1480,7 @@
    ]
   },
   "stream_event:content_block_stop": {
-   "count": 6,
+   "count": 13,
    "fields": [
     "event",
     "parent_tool_use_id",
@@ -1132,7 +1490,7 @@
    ]
   },
   "stream_event:message_delta": {
-   "count": 4,
+   "count": 10,
    "fields": [
     "event",
     "parent_tool_use_id",
@@ -1142,7 +1500,7 @@
    ]
   },
   "stream_event:message_start": {
-   "count": 4,
+   "count": 10,
    "fields": [
     "event",
     "parent_tool_use_id",
@@ -1153,7 +1511,7 @@
    ]
   },
   "stream_event:message_stop": {
-   "count": 4,
+   "count": 10,
    "fields": [
     "event",
     "parent_tool_use_id",
@@ -1163,7 +1521,7 @@
    ]
   },
   "system/background_tasks_changed": {
-   "count": 5,
+   "count": 7,
    "fields": [
     "session_id",
     "subtype",
@@ -1213,7 +1571,7 @@
    ]
   },
   "system/init": {
-   "count": 43,
+   "count": 51,
    "fields": [
     "agents",
     "analytics_disabled",
@@ -1244,7 +1602,7 @@
    ]
   },
   "system/status": {
-   "count": 6,
+   "count": 12,
    "fields": [
     "compact_result",
     "session_id",
@@ -1255,7 +1613,7 @@
    ]
   },
   "system/task_notification": {
-   "count": 37,
+   "count": 52,
    "fields": [
     "output_file",
     "session_id",
@@ -1285,7 +1643,7 @@
    ]
   },
   "system/task_started": {
-   "count": 38,
+   "count": 53,
    "fields": [
     "description",
     "is_backgrounded",
@@ -1303,7 +1661,7 @@
    ]
   },
   "system/task_updated": {
-   "count": 4,
+   "count": 5,
    "fields": [
     "patch",
     "session_id",
@@ -1314,7 +1672,7 @@
    ]
   },
   "system/thinking_tokens": {
-   "count": 68,
+   "count": 83,
    "fields": [
     "estimated_tokens",
     "estimated_tokens_delta",
@@ -1326,7 +1684,7 @@
    ]
   },
   "user": {
-   "count": 57,
+   "count": 75,
    "fields": [
     "isReplay",
     "isSynthetic",
@@ -1343,10 +1701,11 @@
    ]
   },
   "user (replay)": {
-   "count": 39,
+   "count": 51,
    "fields": [
     "isReplay",
     "message",
+    "origin",
     "parent_tool_use_id",
     "session_id",
     "timestamp",
@@ -1376,7 +1735,7 @@
    "frameKind": "assistant",
    "path": "$.wire_tool_inputs",
    "detail": "not declared",
-   "count": 47,
+   "count": 65,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 8
@@ -1389,7 +1748,7 @@
    "frameKind": "rate_limit_event",
    "path": "$.rate_limit_info.unifiedWindows",
    "detail": "not declared",
-   "count": 32,
+   "count": 38,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 9
@@ -1405,7 +1764,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 14
+    "line": 12
    }
   },
   {
@@ -1415,7 +1774,7 @@
    "frameKind": "result/success",
    "path": "$.subagent_stats",
    "detail": "not declared",
-   "count": 38,
+   "count": 46,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 16
@@ -1454,7 +1813,7 @@
    "frameKind": "system/init",
    "path": "$.analytics_disabled",
    "detail": "not declared",
-   "count": 43,
+   "count": 51,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1467,7 +1826,7 @@
    "frameKind": "system/init",
    "path": "$.memory_paths",
    "detail": "not declared",
-   "count": 43,
+   "count": 51,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1480,7 +1839,7 @@
    "frameKind": "system/init",
    "path": "$.messaging_socket_path",
    "detail": "not declared",
-   "count": 43,
+   "count": 51,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1493,7 +1852,7 @@
    "frameKind": "system/init",
    "path": "$.per_turn_effort_active",
    "detail": "not declared",
-   "count": 43,
+   "count": 51,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1506,7 +1865,7 @@
    "frameKind": "system/init",
    "path": "$.plugins[].source",
    "detail": "not declared",
-   "count": 86,
+   "count": 102,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1519,7 +1878,7 @@
    "frameKind": "system/init",
    "path": "$.product_feedback_disabled",
    "detail": "not declared",
-   "count": 43,
+   "count": 51,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 3
@@ -1561,7 +1920,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 12
+    "line": 10
    }
   },
   {
@@ -1584,7 +1943,7 @@
    "frameKind": "assistant",
    "path": "$.message.content[].citations",
    "detail": "required, missing",
-   "count": 48,
+   "count": 58,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 7
@@ -1597,7 +1956,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.fallback_credit",
    "detail": "required, missing",
-   "count": 129,
+   "count": 163,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1610,7 +1969,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.iterations",
    "detail": "required, missing",
-   "count": 129,
+   "count": 163,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1623,7 +1982,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.output_tokens_details",
    "detail": "required, missing",
-   "count": 129,
+   "count": 163,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1636,7 +1995,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.server_tool_use",
    "detail": "required, missing",
-   "count": 129,
+   "count": 163,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1652,7 +2011,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 14
+    "line": 12
    }
   },
   {
@@ -1665,7 +2024,7 @@
    "count": 4,
    "first": {
     "file": "interrupt-after-inject.jsonl",
-    "line": 14
+    "line": 12
    }
   },
   {
@@ -1675,7 +2034,7 @@
    "frameKind": "result/success",
    "path": "$.usage.fallback_credit",
    "detail": "required, missing",
-   "count": 38,
+   "count": 46,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 16
@@ -1688,7 +2047,7 @@
    "frameKind": "result/success",
    "path": "$.usage.iterations[].model",
    "detail": "required, missing",
-   "count": 37,
+   "count": 45,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 16
@@ -1701,7 +2060,7 @@
    "frameKind": "stream_event:content_block_start",
    "path": "$.event.content_block.citations",
    "detail": "required, missing",
-   "count": 3,
+   "count": 7,
    "first": {
     "file": "during-final-text.jsonl",
     "line": 27
@@ -1714,7 +2073,7 @@
    "frameKind": "stream_event:message_delta",
    "path": "$.event.usage.fallback_credit",
    "detail": "required, missing",
-   "count": 4,
+   "count": 10,
    "first": {
     "file": "during-final-text.jsonl",
     "line": 32
@@ -1727,7 +2086,7 @@
    "frameKind": "stream_event:message_delta",
    "path": "$.event.usage.iterations[].model",
    "detail": "required, missing",
-   "count": 4,
+   "count": 10,
    "first": {
     "file": "during-final-text.jsonl",
     "line": 32
@@ -1740,7 +2099,7 @@
    "frameKind": "stream_event:message_delta",
    "path": "$.event.usage.server_tool_use",
    "detail": "required, missing",
-   "count": 4,
+   "count": 10,
    "first": {
     "file": "during-final-text.jsonl",
     "line": 32
@@ -1753,7 +2112,7 @@
    "frameKind": "stream_event:message_start",
    "path": "$.event.message.usage.fallback_credit",
    "detail": "required, missing",
-   "count": 4,
+   "count": 10,
    "first": {
     "file": "during-final-text.jsonl",
     "line": 6
@@ -1766,7 +2125,7 @@
    "frameKind": "stream_event:message_start",
    "path": "$.event.message.usage.iterations",
    "detail": "required, missing",
-   "count": 4,
+   "count": 10,
    "first": {
     "file": "during-final-text.jsonl",
     "line": 6
@@ -1779,7 +2138,7 @@
    "frameKind": "stream_event:message_start",
    "path": "$.event.message.usage.output_tokens_details",
    "detail": "required, missing",
-   "count": 4,
+   "count": 10,
    "first": {
     "file": "during-final-text.jsonl",
     "line": 6
@@ -1792,7 +2151,7 @@
    "frameKind": "stream_event:message_start",
    "path": "$.event.message.usage.server_tool_use",
    "detail": "required, missing",
-   "count": 4,
+   "count": 10,
    "first": {
     "file": "during-final-text.jsonl",
     "line": 6
@@ -1805,7 +2164,7 @@
    "frameKind": "user",
    "path": "$.parent_tool_use_id",
    "detail": "required, missing",
-   "count": 55,
+   "count": 66,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 2

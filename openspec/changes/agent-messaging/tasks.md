@@ -1,11 +1,13 @@
 ## 0. Prerequisites: Claude Code behaviour, pinned
 
-- [ ] 0.1 Separate change `cli-probe` merged: the harness (`src/cliprobe/`, scenarios with verdicts, a report and recordings per CLI version in `src/fixtures/cli/`), event checks against the declarations of `@anthropic-ai/claude-agent-sdk` (`sdk.d.ts`, the de facto schema), the probed set `PROBED_CLI_VERSIONS` and its CI gates — that change's own tests
+- [x] 0.1 Separate change `cli-probe` merged: the harness (`src/cliprobe/`, scenarios with verdicts, a report and recordings per CLI version in `src/fixtures/cli/`), event checks against the declarations of `@anthropic-ai/claude-agent-sdk` (`sdk.d.ts`, the de facto schema), the probed set `PROBED_CLI_VERSIONS` and its CI gates — that change's own tests
 - [ ] 0.2 Make the rows the delivery relies on contract scenarios of `cli-probe`, judged on the frames: fold-in at the tool boundary, the echo at take-up, an interrupt keeps the message, a kill before take-up loses it, `background_tasks_changed` (their replay tests through `ClaudeSession` come with the ledger, 4.1/4.2). Then probe what D12 has not measured yet, at least three runs each — the report in the PR, rows added to D12:
   - stdin through the ssh-docker FIFO and through the Daytona session (`cli-probe`'s sandbox transport);
   - the race between the last tool result and the final text (with `--include-partial-messages`);
   - a long Opus turn;
   - claude-code#102220 (mid-turn task notifications) on the pinned CLI
+
+  State on 2.1.282: every item above is measured and recorded in D12, except the Daytona session, which needs a probe run against prod's Daytona organization.
 - [ ] 0.3 Bump the fleet's Claude Code pin to a version in `PROBED_CLI_VERSIONS`, on every installation (sandbox image + pin, home, prod, Teams staging), as its own PR with a ledger row — `src/cliprobe/gate.test.ts`; the upgrade notice (`Claude Code <old> → <new>`) on each installation
 
 ## 1. Messaging core (pure, shared)

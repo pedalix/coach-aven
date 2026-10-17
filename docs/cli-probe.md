@@ -16,11 +16,12 @@ makes sure the repository only pins versions whose contract was probed (OpenSpec
   - `interrupt` and `resume`;
   - `background-report`: the unsolicited result of a background task;
   - `subagent-parent`: `parent_tool_use_id`;
-  - `rate-limit-event`.
+  - `rate-limit-event`;
+  - the delivery facts of `agent-messaging`: `fold-in`, `echo-at-take-up`, `interrupt-after-inject`, `kill-resume`, `background-tasks-changed`. Their replay tests come with the session's message ledger (agent-messaging tasks 4.1/4.2). Until then they are `todo` in `src/claudeSession.recorded.test.ts`.
 
   Every one of them must hold on every version in `PROBED_CLI_VERSIONS` (`src/cliversion.ts`). Each also has a replay test that feeds its recording through `ClaudeSession` (`src/claudeSession.recorded.test.ts`). That test asserts what the bot makes of the frames, and that the frames the bot writes back equal the ones the probe wrote.
 - **Exploratory scenarios** record facts without gating anything:
-  - the delivery rows of `agent-messaging` (priority, fold-in, echo, hooks, kill before take-up);
+  - priority, parallel tools, subagents, hooks, the race with the final text, a long turn on the fleet's model, background tasks ending mid-turn;
   - candidates from the SDK's declarations (`still_queued`, `cancel_async_message`, `origin`, `/compact`).
 - **Type checks.** Every recorded frame is checked against the type declarations of the Claude Agent SDK release whose `claudeCodeVersion` is the probed CLI version (`sdk.d.ts`, the de facto schema). The declarations are fetched at check time with `npm pack` and never committed: the package is proprietary, and as a dependency it would pull CLI binaries.
 - **CI** (`.github/workflows/ci.yml`) needs no model credential, because it never runs the CLI.

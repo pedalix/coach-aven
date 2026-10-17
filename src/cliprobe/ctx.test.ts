@@ -146,3 +146,24 @@ test('ProbeCtx — restart with --resume records the boundary; cost sums each pr
   await ctx.close();
   assert.equal(ctx.running, false);
 });
+
+test('ProbeCtx — chained waits catch frames that arrived in one burst; a wait after a write starts after it', async () => {
+  const { transport } = fakeTransport((w, emit) => {
+    if (w.type === 'user' && (w as { message: { content: string } }).message.content === 'go') {
+      emit(init());
+      // The echo and the result in one burst, as the sandbox transport delivers them.
+      emit({ type: 'user', isReplay: true, message: { role: 'user', content: 'go' } });
+      emit(result('done', 0.01));
+    }
+  });
+  const ctx = new ProbeCtx({ transport, launch: {} });
+  await ctx.start();
+  await ctx.send('go');
+  await ctx.sleep(20); // both frames are in before the first wait is even called
+  await ctx.expect(ctx.is.replayOf('go'), 500, 'the echo');
+  const r = await ctx.expect(ctx.is.result, 500, 'the result after the echo');
+  assert.equal(r.result, 'done');
+  await ctx.send('again'); // nothing answers this one
+  await assert.rejects(ctx.expect(ctx.is.result, 100, 'a result after the second write'), PredictionMissed, 'the earlier result is not matched again');
+});
+

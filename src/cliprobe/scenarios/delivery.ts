@@ -1,6 +1,8 @@
-// Exploratory: how a message written to a busy session reaches it (the measured rows of agent-messaging
-// design D12, ported from the scratchpad harness). They gate nothing here; agent-messaging promotes the
-// rows its delivery relies on to contract scenarios in its own task 0.2.
+// How a message written to a busy session reaches it (agent-messaging design D12). The rows its delivery
+// relies on are contract scenarios, judged on the frames (agent-messaging task 0.2): `fold-in`,
+// `echo-at-take-up`, `interrupt-after-inject`, `kill-resume`, `background-tasks-changed`. Their replay
+// tests through ClaudeSession come with the session's message ledger (agent-messaging 4.1/4.2). The rest
+// are exploratory: they record facts for decisions and gate nothing.
 import type { ProbeCtx } from '../ctx.js';
 import type { Frame, Scenario } from '../types.js';
 import { answeredIn, CAPITAL, CHAIN, kindOf, resultTextOf, SIDE, toolResults, toolUses } from './lib.js';
@@ -228,8 +230,8 @@ const pendingPermission: Scenario<ProbeCtx> = {
 const interruptAfterInject: Scenario<ProbeCtx> = {
   meta: {
     id: 'interrupt-after-inject',
-    contract: false,
-    runs: 1,
+    contract: true,
+    runs: 3,
     extras: ECHO,
     hypothesis: 'A message written just before an interrupt is kept: the interrupted turn ends with `error_during_execution`, and the message runs as its own turn.',
   },
@@ -241,17 +243,20 @@ const interruptAfterInject: Scenario<ProbeCtx> = {
     await ctx.sleep(300);
     await ctx.interrupt();
     const first = (await ctx.expect(ctx.is.result, 30 * S, 'the interrupted turn ends')) as Any;
-    await ctx.expect((f) => ctx.is.result(f) && f !== first && resultTextOf(f).includes(CAPITAL.France!), 60 * S, 'the message runs as its own turn');
+    const firstAt = ctx.timeOf(first) ?? 0;
+    // Kept: taken up after the interrupt (its echo), and answered by a turn of its own.
+    await ctx.expect((f) => ctx.is.replayOf('France')(f) && (ctx.timeOf(f) ?? 0) >= firstAt, 60 * S, 'the message is taken up after the interrupt');
+    const own = await ctx.expect((f) => ctx.is.result(f) && f !== first, 90 * S, 'the message runs as its own turn');
     ctx.check(first.subtype === 'error_during_execution', `the interrupted turn ends with error_during_execution (got ${String(first.subtype)})`);
-    return { results: ctx.results.length, subtypes: ctx.results.map((r) => (r as Any).subtype) };
+    return { results: ctx.results.length, subtypes: ctx.results.map((r) => (r as Any).subtype), answeredInOwnTurn: resultTextOf(own).includes(CAPITAL.France!) };
   },
 };
 
 const killResume: Scenario<ProbeCtx> = {
   meta: {
     id: 'kill-resume',
-    contract: false,
-    runs: 1,
+    contract: true,
+    runs: 3,
     extras: ECHO,
     hypothesis: 'A message written but not yet taken up is lost when the process is killed: after `--resume` it is not in the conversation.',
   },
@@ -276,7 +281,7 @@ const killResume: Scenario<ProbeCtx> = {
 const backgroundTasksChanged: Scenario<ProbeCtx> = {
   meta: {
     id: 'background-tasks-changed',
-    contract: false,
+    contract: true,
     runs: 1,
     hypothesis: '`system/background_tasks_changed` lists the running background tasks, then `[]` when the last one ends.',
   },
@@ -287,6 +292,146 @@ const backgroundTasksChanged: Scenario<ProbeCtx> = {
     await ctx.expect((f) => (tasks(f)?.length ?? 0) > 0, 30 * S, 'a list with the running task', { past: true });
     await ctx.expect((f) => Array.isArray(tasks(f)) && tasks(f)!.length === 0, 60 * S, 'an empty list when it ends', { past: true });
     return { changes: ctx.frames.filter((f) => tasks(f)).map((f) => tasks(f)!.length) };
+  },
+};
+
+const foldIn: Scenario<ProbeCtx> = {
+  meta: {
+    id: 'fold-in',
+    contract: true,
+    runs: 3,
+    extras: ECHO,
+    hypothesis:
+      'A message written (no priority) while a tool of a chain runs is folded into the running turn at the next tool boundary: its echo comes between a tool result and the turn’s only `result`.',
+  },
+  async run(ctx) {
+    await ctx.send(CHAIN);
+    await ctx.precondition(ctx.is.toolUse('Bash'), 90 * S, 'the model starts the chain');
+    await ctx.sleep(1000);
+    const sentAt = ctx.elapsed();
+    await ctx.send(SIDE('France'));
+    const echo = await ctx.expect(ctx.is.replayOf('France'), 60 * S, 'the message is taken up (echoed)');
+    const echoAt = ctx.timeOf(echo) ?? 0;
+    const result = await ctx.precondition(ctx.is.result, 150 * S, 'the turn finishes');
+    await ctx.sleep(15 * S);
+    const toolResultsBefore = ctx.frames.filter((f) => ctx.is.toolResult(f) && (ctx.timeOf(f) ?? Infinity) <= echoAt).length;
+    ctx.check(toolResultsBefore >= 1, 'the echo comes at a tool boundary (after a tool result)');
+    ctx.check(echoAt <= (ctx.timeOf(result) ?? 0), 'the echo comes before the turn’s result');
+    ctx.check(ctx.results.length === 1, `the turn has one result (got ${ctx.results.length})`);
+    return { echoAfterSendMs: echoAt - sentAt, toolResultsBeforeEcho: toolResultsBefore, answeredInTurn: resultTextOf(result).includes(CAPITAL.France!) };
+  },
+};
+
+const echoAtTakeUp: Scenario<ProbeCtx> = {
+  meta: {
+    id: 'echo-at-take-up',
+    contract: true,
+    runs: 3,
+    extras: ECHO,
+    hypothesis: 'The echo (`--replay-user-messages`) of a message written while a tool runs comes when the CLI takes it up — after that tool’s result — not when it is written.',
+  },
+  async run(ctx) {
+    await ctx.send('Run exactly one Bash command: `sleep 10; echo DONE`. Then reply with its output.');
+    await ctx.precondition(ctx.is.toolUse('Bash'), 90 * S, 'the model runs the command');
+    await ctx.sleep(2000);
+    const sentAt = ctx.elapsed();
+    await ctx.send(SIDE('Italy'));
+    const echo = await ctx.expect(ctx.is.replayOf('Italy'), 60 * S, 'the message is echoed');
+    const echoAt = ctx.timeOf(echo) ?? 0;
+    const toolResultAt = ctx.timeOf(ctx.frames.find((f) => ctx.is.toolResult(f)));
+    ctx.check(toolResultAt !== undefined && toolResultAt <= echoAt, 'the echo comes after the running tool’s result');
+    ctx.check(echoAt - sentAt > 3000, `the echo does not come at write time (it came ${echoAt - sentAt} ms after the write)`);
+    await ctx.precondition(ctx.is.result, 120 * S, 'the turn finishes');
+    return { echoAfterSendMs: echoAt - sentAt, echoAfterToolResultMs: toolResultAt === undefined ? null : echoAt - toolResultAt };
+  },
+};
+
+const finalTextRace: Scenario<ProbeCtx> = {
+  meta: {
+    id: 'final-text-race',
+    contract: false,
+    runs: 3,
+    variants: ['0ms', '400ms'],
+    extras: { args: ['--replay-user-messages', '--include-partial-messages'] },
+    hypothesis:
+      'A message written right after the last tool result is not folded into that turn, even before the final text starts: it gets its own turn after the running one.',
+  },
+  async run(ctx, v) {
+    await ctx.send('Run exactly one Bash command: `sleep 3; echo ONE`. Then reply with only its output.');
+    await ctx.precondition(ctx.is.toolUse('Bash'), 90 * S, 'the model runs the command');
+    const tr = await ctx.precondition(ctx.is.toolResult, 60 * S, 'the tool result');
+    await ctx.sleep(Number.parseInt(v ?? '0', 10));
+    const sentAt = ctx.elapsed();
+    await ctx.send(SIDE('Spain'));
+    await ctx.precondition(ctx.is.result, 90 * S, 'the turn finishes');
+    await ctx.sleep(20 * S);
+    const textStarted = ctx.frames.some((f) => f.type === 'stream_event' && (f as Any).event?.delta?.type === 'text_delta' && (ctx.timeOf(f) ?? Infinity) < sentAt);
+    const w = answeredIn(ctx.results, 'Spain');
+    ctx.check(w.results === 2 && w.answeredIn === 2, `its own turn after the running one (results ${w.results}, answered in #${w.answeredIn})`);
+    return { ...w, textStartedBeforeSend: textStarted, sentAfterToolResultMs: sentAt - (ctx.timeOf(tr) ?? 0) };
+  },
+};
+
+const foldInOpus: Scenario<ProbeCtx> = {
+  meta: {
+    id: 'fold-in-opus',
+    contract: false,
+    runs: 3,
+    model: 'fleet',
+    extras: ECHO,
+    timeoutMs: 6 * 60 * S,
+    hypothesis: 'On the fleet’s model, in a long turn over a grown context, a message written mid-chain still folds in at the next tool boundary (one result).',
+  },
+  async run(ctx) {
+    await ctx.send(
+      'First run the Bash command `seq 1 2500 | sed "s/^/context line /"` and read its output. Then run these Bash commands strictly one after another: `sleep 4; echo B1`, `sleep 4; echo B2`, `sleep 4; echo B3`, `sleep 4; echo B4`, `sleep 4; echo B5`. Then reply with the five outputs and the last context line number.',
+    );
+    await ctx.precondition((f) => ctx.is.toolUse('Bash')(f) && JSON.stringify(f).includes('sleep 4; echo B2'), 180 * S, 'the model reaches the second step of the chain');
+    await ctx.sleep(1000);
+    const sentAt = ctx.elapsed();
+    await ctx.send(SIDE('Japan'));
+    const echo = await ctx.expect(ctx.is.replayOf('Japan'), 90 * S, 'the message is taken up');
+    await ctx.precondition(ctx.is.result, 240 * S, 'the turn finishes');
+    await ctx.sleep(15 * S);
+    const w = answeredIn(ctx.results, 'Japan');
+    ctx.check(w.results === 1, `the turn has one result (got ${w.results})`);
+    return { ...w, echoAfterSendMs: (ctx.timeOf(echo) ?? 0) - sentAt };
+  },
+};
+
+const taskNotificationMidTurn: Scenario<ProbeCtx> = {
+  meta: {
+    id: 'task-notification-mid-turn',
+    contract: false,
+    runs: 3,
+    extras: ECHO,
+    hypothesis:
+      'A background task that ends while the turn still runs is reported into that turn: a `<task-notification>` message is taken up at a tool boundary before the turn’s result (claude-code#102220 reports that in headless mode it never is).',
+  },
+  async run(ctx) {
+    await ctx.send(
+      'Start the Bash command `sleep 4; echo BG-NOTE-77` in the background (run_in_background: true). Do not check on it with any tool. Then run these Bash commands strictly one after another: `sleep 5; echo F1`, `sleep 5; echo F2`, `sleep 5; echo F3`. Then reply with all outputs you have seen, including any output of the background command.',
+    );
+    await ctx.precondition((f) => toolUses(f).some((b) => b.name === 'Bash' && b.input?.run_in_background === true), 90 * S, 'the model starts the background command');
+    const result = await ctx.precondition(ctx.is.result, 150 * S, 'the turn finishes');
+    await ctx.sleep(10 * S);
+    const resultAt = ctx.timeOf(result) ?? 0;
+    const notified = ctx.frames.filter((f) => f.type === 'system' && f.subtype === 'task_notification' && (ctx.timeOf(f) ?? Infinity) < resultAt).length;
+    const checkedWithTool = ctx.frames.flatMap(toolUses).some((b) => /BashOutput|TaskOutput/.test(String(b.name)));
+    ctx.require(!checkedWithTool, 'the model did not check on the task with a tool');
+    // The CLI's own frame, not the model's reply: the notification queued as a user message of the turn,
+    // echoed when it is taken up (on 2.1.282 it comes as a replay, with an `origin`).
+    const injected = ctx.frames.find((f) => f.type === 'user' && typeof (f as Any).message?.content === 'string' && (f as Any).message.content.includes('<task-notification>'));
+    const injectedAt = ctx.timeOf(injected);
+    ctx.check(injectedAt !== undefined && injectedAt < resultAt, 'a <task-notification> message is taken up before the turn’s result');
+    const afterToolResult = ctx.frames.some((f) => ctx.is.toolResult(f) && (ctx.timeOf(f) ?? Infinity) <= (injectedAt ?? -1));
+    return {
+      notificationsBeforeResult: notified,
+      takenUpAfterToolResult: afterToolResult,
+      echoed: Boolean((injected as Any)?.isReplay),
+      origin: (injected as Any)?.origin ?? null,
+      modelQuotedOutput: resultTextOf(result).includes('BG-NOTE-77'),
+    };
   },
 };
 
@@ -329,6 +474,8 @@ const HOOKS = {
 };
 
 export const DELIVERY: Scenario<ProbeCtx>[] = [
+  foldIn,
+  echoAtTakeUp,
   chainPriority,
   longTool,
   twoInjects,
@@ -340,6 +487,9 @@ export const DELIVERY: Scenario<ProbeCtx>[] = [
   interruptAfterInject,
   killResume,
   backgroundTasksChanged,
+  finalTextRace,
+  foldInOpus,
+  taskNotificationMidTurn,
   eventKinds('event-kinds', ECHO, 'The echo of a message written mid-tool comes after that tool’s result.', false),
   eventKinds(
     'event-kinds-hooks',
