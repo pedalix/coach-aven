@@ -7,6 +7,7 @@ import { log } from './log.js';
 import { initSentry, captureError, flushSentry } from './sentry.js';
 import { registerSourcesCommands } from './sources/cli.js';
 import { registerRoutinesCommands } from './routinescli.js';
+import { registerHubCommands } from './messaging/cli.js';
 import { UsageError } from './sources/errors.js';
 import { unknownCommandText } from './chat/drivers.js';
 
@@ -36,6 +37,7 @@ program
 
 registerSourcesCommands(program);
 registerRoutinesCommands(program);
+registerHubCommands(program);
 
 // An unknown command (e.g. a chat driver this build doesn't have) lists the run modes.
 program.on('command:*', (operands: string[]) => {
