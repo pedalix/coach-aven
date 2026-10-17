@@ -1,6 +1,6 @@
 # CoachAven
 
-A coding agent that lives in Slack. One bot, many channels; each channel is bound to a project,
+A coding agent that lives in Slack (Microsoft Teams in canary). One bot, many channels; each channel is bound to a project,
 and each project gets its own warm, isolated sandbox running a persistent **Claude Code**
 process. The agent reads the repos, answers questions, runs builds and tests, and opens pull
 requests — your team reviews and merges. The bot itself is a small TypeScript control plane
@@ -10,6 +10,9 @@ Website: [coachaven.com](https://coachaven.com). Status: a single-operator proje
 two installations for real users; self-hosting is supported and documented, support is
 best-effort (see [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md)).
 Licence: Apache-2.0.
+
+**Start here:** [Why CoachAven](docs/why.md) · [How it is built and run](docs/how-we-work.md) ·
+[all docs](docs/README.md).
 
 ## How it works
 
@@ -29,7 +32,7 @@ Licence: Apache-2.0.
 - **Three-layer system prompt**: orchestrator base → the project's `projects.d/<slug>.md` →
   the repo's own `CLAUDE.md` (`src/prompt.ts`, golden-tested).
 - **Secrets never reach the model**: the GitHub App token is scoped per project and
-  re-minted every turn; every user turn and every ingested document is scrubbed
+  minted fresh when a session opens; every user turn and every ingested document is scrubbed
   (`src/scrub.ts`) before it is sent.
 - **Git flow per project**: `pr` (default — the agent never pushes to the default branch)
   or `direct`.
@@ -53,7 +56,7 @@ the repos, a Claude Code token, and a place to run sandboxes.
      from [`snapshot/`](snapshot/) (build with `IMAGE=ghcr.io/<your-org>/coach-aven-sandbox-laravel snapshot/build-and-push.sh`; the `plain` variant
      needs no privileged containers and runs on arm64).
 3. **GitHub** — a GitHub App installed on the org/repos with *Contents* + *Pull requests*
-   read & write and *Metadata* read; set `GITHUB_APP_ID` + the private key path. (A plain
+   read & write, *Checks* read and *Metadata* read; set `GITHUB_APP_ID` + the private key path. (A plain
    `GITHUB_TOKEN` works for a quick trial.)
 4. **Claude Code** — `claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`.
 5. **Config**
@@ -154,8 +157,8 @@ the owning team — admit a client workspace only after this version runs
   change is a bug fix, default-preserving with a test, or behind a flag canaried first
   (`docs/rollout.md`).
 - Work is planned as OpenSpec changes (`openspec/`); PR titles become the release notes.
-- Releases: `git tag vX.Y.Z && git push origin vX.Y.Z` — CI typechecks, tests, publishes
-  the GitHub Release and deploys.
+- Releases: `git tag vX.Y.Z && git push origin vX.Y.Z` — CI typechecks, tests and publishes
+  the GitHub Release; your ops repo deploys the tag (`infra/deploy/`).
 
 ## Gotchas
 
