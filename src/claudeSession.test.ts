@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ClaudeSession, CostDelta } from './claudeSession.js';
+import { ClaudeSession, CostDelta, claudeLaunch } from './claudeSession.js';
 import type { SandboxHandle } from './driver.js';
+import { ATTRIBUTION_SETTINGS, GIT_EMAIL, GIT_NAME, gitIdentityEnv } from './gitidentity.js';
 
 // A fake sandbox driving the persistent-process protocol entirely in memory: `push`
 // feeds a raw NDJSON event straight into ClaudeSession's stdout demux, the same way a
@@ -268,3 +269,58 @@ test('ClaudeSession — a reattach whose snapshot ends on an unanswered mcp_mess
   push({ type: 'result', result: 'done', is_error: false, session_id: 's1' });
   assert.equal((await adopted).status, 'ok');
 });
+
+// The spawn command pinned byte for byte: it is what every production session runs, and the CLI
+// probe (src/cliprobe/) runs the same command line — so a change here is a change on purpose.
+async function spawnCommand(opts: ConstructorParameters<typeof ClaudeSession>[1]): Promise<string> {
+  const { handle } = fakeSandbox();
+  let command = '';
+  const session = new ClaudeSession(
+    { ...handle, startSessionCommand: async (_k: string, c: string) => ((command = c), { cmdId: 'cmd1' }) },
+    opts,
+  );
+  await session.open();
+  return command;
+}
+
+test('ClaudeSession — the spawn command, byte for byte (no options, all options)', async () => {
+  const env = `PATH=/root/.local/bin:$PATH CLAUDE_CODE_OAUTH_TOKEN=$(cat /root/.cc-token) ${gitIdentityEnv()} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 `;
+  const flags =
+    `claude --output-format stream-json --input-format stream-json --verbose ` +
+    `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ` +
+    `--settings '${JSON.stringify(ATTRIBUTION_SETTINGS)}' `;
+  assert.equal(await spawnCommand({ cwd: '/root/work/caldora' }), `cd '/root/work/caldora' && ${env}${flags}`);
+  assert.equal(
+    await spawnCommand({
+      cwd: '/root/work/caldora',
+      model: 'claude-opus-5-5',
+      mcpConfigPath: '/root/.mcp-config.json',
+      resumeSessionId: '00000000-0000-4000-8000-000000000001',
+      systemPrompt: "You are Nora's agent.",
+      avenSession: 'owen-ops:C0123ABCD',
+    }),
+    `cd '/root/work/caldora' && ${env}AVEN_SESSION='owen-ops:C0123ABCD' ${flags}` +
+      `--model 'claude-opus-5-5' --mcp-config '/root/.mcp-config.json' --resume 00000000-0000-4000-8000-000000000001 ` +
+      `--append-system-prompt 'You are Nora'\\''s agent.' `,
+  );
+});
+
+test('claudeLaunch — argv, env and command agree; probe extras merge into the one --settings', () => {
+  const hooks = { Stop: [{ hooks: [{ type: 'command', command: 'true' }] }] };
+  const l = claudeLaunch({ model: 'claude-haiku-5-5', resumeSessionId: 'sess-1', settings: { hooks }, extraArgs: ['--replay-user-messages'] });
+  assert.equal(l.args.filter((a) => a === '--settings').length, 1);
+  assert.deepEqual(JSON.parse(l.args[l.args.indexOf('--settings') + 1]!), { ...ATTRIBUTION_SETTINGS, hooks });
+  assert.deepEqual(l.args.slice(-5), ['--model', 'claude-haiku-5-5', '--resume', 'sess-1', '--replay-user-messages']);
+  assert.deepEqual(l.env, {
+    GIT_AUTHOR_NAME: GIT_NAME,
+    GIT_AUTHOR_EMAIL: GIT_EMAIL,
+    GIT_COMMITTER_NAME: GIT_NAME,
+    GIT_COMMITTER_EMAIL: GIT_EMAIL,
+    IS_SANDBOX: '1',
+    DISABLE_AUTOUPDATER: '1',
+  });
+  const cmd = l.command('/w');
+  assert.ok(cmd.includes(`--settings '${JSON.stringify({ ...ATTRIBUTION_SETTINGS, hooks })}' --model 'claude-haiku-5-5' --resume sess-1 '--replay-user-messages' `));
+  assert.equal(claudeLaunch({ avenSession: 'a:b' }).env.AVEN_SESSION, 'a:b');
+});
+

@@ -66,6 +66,20 @@ TAG="${TAG:-$(git rev-parse --short HEAD 2>/dev/null || echo manual)}"
 # one pin serves the whole fleet.
 CLI_PIN="${CLAUDE_CLI_VERSION:-$(grep -E '^CLAUDE_CLI_VERSION=' "${ENV_FILE:-/dev/null}" 2>/dev/null | cut -d= -f2- || true)}"
 
+# The images run only PROBED Claude Code versions (OpenSpec cli-probe, docs/cli-probe.md): a pin
+# outside src/cliversion.ts PROBED_CLI_VERSIONS — a version with no committed probe report where
+# everything the bot relies on holds — is refused before anything is built.
+EFFECTIVE_PIN="${CLI_PIN:-$(sed -nE 's/^ARG CLAUDE_CLI_VERSION=([0-9.]+)$/\1/p' "$CONTEXT/Dockerfile" | head -1)}"
+PROBED="$(cd .. && node --import tsx -e "import('./src/cliversion.ts').then((m) => console.log(m.PROBED_CLI_VERSIONS.join(' ')))" 2>/dev/null)" ||
+  { echo "cannot read the probed CLI versions (run npm ci in the repo first)" >&2; exit 2; }
+case " $PROBED " in
+  *" $EFFECTIVE_PIN "*) ;;
+  *)
+    echo "refusing to bake Claude Code ${EFFECTIVE_PIN:-?}: not a probed version (probed: ${PROBED:-none}) — probe it first: npm run cli-probe -- run --cli ${EFFECTIVE_PIN:-x.y.z}" >&2
+    exit 2
+    ;;
+esac
+
 echo ">> building ${IMAGE}:${TAG} [variant=${VARIANT} platforms=${PLATFORMS}] (Claude Code ${CLI_PIN:-Dockerfile default})"
 # Without --push buildx keeps the result in the build cache only: that is the point of
 # PUSH=0 — prove the Dockerfile builds on every platform before touching the registry.

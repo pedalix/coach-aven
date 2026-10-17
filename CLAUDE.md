@@ -94,6 +94,10 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   into a scrubbed store the agent queries over MCP (`docs/sources.md`); `src/sources/attribution/` is the
   attribution layer — the ladder, the item floor, the shadow learning loop — architecture, status and
   roadmap in `docs/attribution.md`, the bench in `src/lab/` (`docs/lab.md`).
+- `src/cliprobe/` — the **CLI probe** (`npm run cli-probe`, `docs/cli-probe.md`): what the bot relies on
+  in the headless Claude Code CLI, as scenarios with verdicts per CLI version; recordings and reports in
+  `src/fixtures/cli/<version>/`, replayed through `ClaudeSession` in `npm test`; the repo pins only
+  versions in `PROBED_CLI_VERSIONS` (`src/cliversion.ts`).
 - `src/facts.ts` / `src/deps.ts` — project **facts** (`facts/<slug>.json`): derived, machine-written
   state with provenance. Today one writer (the composer dependency scanner) and readers (GitHub
   token scope, composer `auth.json`, system prompt) — see `docs/project-facts.md`.

@@ -76,3 +76,21 @@ export function isDefaultSandbox(o: ResolvedSandboxOptions): boolean {
 // lists them by. An installation whose sandboxes already carry another value keeps it with
 // SANDBOX_MANAGED_BY (a change orphans nothing — the label is only read for the status listing).
 export const sandboxManagedBy = (): string => process.env.SANDBOX_MANAGED_BY || 'coach-aven';
+
+// Throwaway sandboxes a tool creates for itself and deletes when it is done — today only the CLI
+// probe's (`cli-probe-<run>`, src/cliprobe/). Nothing else is ever deleted by code.
+export const DISPOSABLE_SANDBOX_PREFIX = 'cli-probe-';
+
+// Code never deletes a project's sandbox (it holds the repos, transcripts and memory of a
+// conversation): SandboxDriver.deleteSandbox accepts only a throwaway sandbox's name and refuses
+// anything that carries the project prefix. A driver's listing can hold every sandbox of an
+// account (Daytona's does), so the name is the only safe key.
+export function assertDeletable(name: string, namePrefix: string): void {
+  const disposable = name.startsWith(DISPOSABLE_SANDBOX_PREFIX) && /^[a-z0-9-]+$/.test(name);
+  if (!disposable || (namePrefix !== '' && name.startsWith(namePrefix))) {
+    throw new Error(
+      `refusing to delete sandbox ${JSON.stringify(name)}: code deletes only throwaway sandboxes (${DISPOSABLE_SANDBOX_PREFIX}…), never a project's`,
+    );
+  }
+}
+

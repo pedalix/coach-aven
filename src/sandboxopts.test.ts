@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_SANDBOX_OPTIONS, isDefaultSandbox, parseMount, resolveSandboxOptions } from './sandboxopts.js';
+import { DEFAULT_SANDBOX_OPTIONS, assertDeletable, isDefaultSandbox, parseMount, resolveSandboxOptions } from './sandboxopts.js';
 
 test('resolveSandboxOptions — absent/empty → fleet defaults (privileged dind, no mounts)', () => {
   assert.deepEqual(resolveSandboxOptions(undefined), DEFAULT_SANDBOX_OPTIONS);
@@ -37,5 +37,15 @@ test('parseMount — relative paths, "..", spaces, shell chars and "/" itself ar
 
 test('resolveSandboxOptions — duplicate container targets are rejected', () => {
   assert.throws(() => resolveSandboxOptions({ mounts: ['/a:/data', '/b:/data'] }), /duplicate mount target/);
+});
+
+test('assertDeletable — only throwaway sandboxes; a project sandbox is refused whatever the prefix', () => {
+  assert.doesNotThrow(() => assertDeletable('cli-probe-20261017-a1b2', 'proj-'));
+  assert.doesNotThrow(() => assertDeletable('cli-probe-x', ''));
+  for (const name of ['proj-caldora', 'dev-proj-caldora', 'caldora', '', 'cli-probe', 'cli-probe-X', 'cli-probe-a;rm']) {
+    assert.throws(() => assertDeletable(name, 'proj-'), /refusing to delete sandbox/, name);
+  }
+  // A deployment whose project prefix is itself a throwaway-looking name deletes nothing at all.
+  assert.throws(() => assertDeletable('cli-probe-1', 'cli-probe-'), /refusing/);
 });
 

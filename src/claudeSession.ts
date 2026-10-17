@@ -15,8 +15,136 @@ import { parseRateLimitEvent, type RateLimitInfo } from './ratelimit.js';
 import { CLI_PATH_ENV } from './cliversion.js';
 import { log } from './log.js';
 import { scrubSummary, scrubText } from './scrub.js';
-import { ATTRIBUTION_SETTINGS, gitIdentityEnv } from './gitidentity.js';
+import { ATTRIBUTION_SETTINGS, GIT_EMAIL, GIT_NAME, gitIdentityEnv } from './gitidentity.js';
 import type { HostServerRoute, JsonRpc } from './hosttools.js';
+
+// The CLI's command line for one session — the ONE place the bot's flags live. ClaudeSession runs
+// `command(cwd)` in the sandbox; the CLI probe (src/cliprobe/, OpenSpec `cli-probe`) spawns the same
+// `args` with the same `env` locally, or runs the same `command(cwd)` in a throwaway sandbox, so a
+// probe always tests what the bot runs. `settings` and `extraArgs` are the probe's instruments (hooks,
+// --replay-user-messages, …); the bot passes neither, and its command stays byte-identical
+// (claudeSession.test.ts pins it).
+export interface ClaudeLaunchOpts {
+  model?: string;
+  mcpConfigPath?: string;
+  resumeSessionId?: string;
+  systemPrompt?: string;
+  avenSession?: string;
+  // Merged into the single --settings JSON beside the attribution settings.
+  settings?: Record<string, unknown>;
+  // Appended after the bot's own flags.
+  extraArgs?: readonly string[];
+}
+export interface ClaudeLaunch {
+  // The variables every spawn sets besides PATH and the token: behaviour + git identity (+ AVEN_SESSION).
+  env: Record<string, string>;
+  // The flags, as argv (no binary).
+  args: string[];
+  // The sandbox command line: cd, the pinned CLI first on PATH, the token from its file, env, claude + flags.
+  command(cwd: string): string;
+}
+export function claudeLaunch(o: ClaudeLaunchOpts): ClaudeLaunch {
+  const settings = o.settings ? { ...ATTRIBUTION_SETTINGS, ...o.settings } : ATTRIBUTION_SETTINGS;
+  const extra = o.extraArgs ?? [];
+  // No positional prompt → persistent mode (turns stream in via stdin). --verbose is
+  // mandatory with stream-json. --strict-mcp-config ignores the repo's own .mcp.json;
+  // --mcp-config adds ONLY our per-project servers (e.g. Grafana). Without it,
+  // --strict-mcp-config = no servers.
+  // BOTH --dangerously-skip-permissions AND --permission-prompt-tool stdio: verified
+  // to coexist — normal tools auto-run (bypass, no round-trip) while AskUserQuestion
+  // STILL fires a can_use_tool control_request we answer (→ Slack buttons).
+  // --settings attribution: commits and PRs credit coach-aven[bot] (gitidentity.ts).
+  const args = [
+    '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose',
+    '--dangerously-skip-permissions', '--permission-prompt-tool', 'stdio', '--strict-mcp-config',
+    '--settings', JSON.stringify(settings),
+    ...(o.model ? ['--model', o.model] : []),
+    ...(o.mcpConfigPath ? ['--mcp-config', o.mcpConfigPath] : []),
+    ...(o.resumeSessionId ? ['--resume', o.resumeSessionId] : []),
+    ...(o.systemPrompt ? ['--append-system-prompt', o.systemPrompt] : []),
+    ...extra,
+  ];
+  const env: Record<string, string> = {
+    GIT_AUTHOR_NAME: GIT_NAME,
+    GIT_AUTHOR_EMAIL: GIT_EMAIL,
+    GIT_COMMITTER_NAME: GIT_NAME,
+    GIT_COMMITTER_EMAIL: GIT_EMAIL,
+    IS_SANDBOX: '1',
+    DISABLE_AUTOUPDATER: '1',
+    ...(o.avenSession ? { AVEN_SESSION: o.avenSession } : {}),
+  };
+  const command = (cwd: string): string => {
+    const resume = o.resumeSessionId ? `--resume ${o.resumeSessionId} ` : '';
+    const sys = o.systemPrompt ? `--append-system-prompt ${sq(o.systemPrompt)} ` : '';
+    const mcp = o.mcpConfigPath ? `--mcp-config ${sq(o.mcpConfigPath)} ` : '';
+    const model = o.model ? `--model ${sq(o.model)} ` : '';
+    return (
+      // CLI_PATH_ENV: the pinned per-sandbox Claude Code (cliversion.ts) wins over the image's.
+      // gitIdentityEnv + --settings attribution: commits are authored by and credit
+      // coach-aven[bot], whatever identity the agent tries to pass (gitidentity.ts).
+      `cd ${sq(cwd)} && ${CLI_PATH_ENV} ${CC_TOKEN_ENV} ${gitIdentityEnv()} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
+      (o.avenSession ? `AVEN_SESSION=${sq(o.avenSession)} ` : '') +
+      `claude --output-format stream-json --input-format stream-json --verbose ` +
+      `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ` +
+      `--settings ${sq(JSON.stringify(settings))} ${model}${mcp}${resume}${sys}` +
+      extra.map((a) => `${sq(a)} `).join('')
+    );
+  };
+  return { env, args, command };
+}
+
+// The frames the bot writes to the CLI's stdin, as pure functions: ClaudeSession writes them, and the
+// CLI probe writes the very same ones, so a probe's recording shows what the bot sends (key order
+// included — JSON.stringify keeps it, and the probe's recordings are compared as text).
+export const userFrame = (content: string) => ({ type: 'user', message: { role: 'user', content } });
+export const interruptFrame = (requestId = `int-${Date.now()}`) => ({
+  request_id: requestId,
+  type: 'control_request',
+  request: { subtype: 'interrupt' },
+});
+// Register the bot-served MCP servers (`initialize` with `sdkMcpServers`), exactly as the Agent SDK does.
+export function initializeFrame(servers: readonly HostServerRoute[], requestId = `init-${Date.now()}`) {
+  const sdkMcpServerConfigs: Record<string, { timeout: number }> = {};
+  for (const s of servers) if (s.timeoutMs) sdkMcpServerConfigs[s.name] = { timeout: s.timeoutMs };
+  return {
+    type: 'control_request',
+    request_id: requestId,
+    request: { subtype: 'initialize', sdkMcpServers: servers.map((s) => s.name), sdkMcpServerConfigs },
+  };
+}
+// Answer a can_use_tool request: allow, with the (possibly answered) input.
+export const allowFrame = (requestId: unknown, updatedInput: unknown) => ({
+  type: 'control_response',
+  response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow', updatedInput } },
+});
+// Answer a control_request{mcp_message} for a bot-served server: the server's JSON-RPC reply in
+// `mcp_response`; a notification is acknowledged the way the SDK does; an unknown server is an error.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function mcpAnswerFrame(ev: any, routes: readonly HostServerRoute[]): Promise<Record<string, unknown>> {
+  const requestId = ev.request_id;
+  const serverName = String(ev.request?.server_name ?? '');
+  const message = ev.request?.message as JsonRpc | undefined;
+  const route = routes.find((s) => s.name === serverName);
+  const success = (mcp_response: unknown) => ({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response: { mcp_response } } });
+  if (!route || !message || typeof message !== 'object') {
+    return { type: 'control_response', response: { subtype: 'error', request_id: requestId, error: `no host server "${serverName}" in this session` } };
+  }
+  if (message.id === undefined || message.id === null) {
+    try {
+      await route.handle(message);
+    } catch {
+      /* a notification has no error channel */
+    }
+    return success({ jsonrpc: '2.0', result: {}, id: 0 });
+  }
+  let reply: JsonRpc | undefined;
+  try {
+    reply = await route.handle(message);
+  } catch (e) {
+    reply = { jsonrpc: '2.0', id: message.id, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } };
+  }
+  return success(reply ?? { jsonrpc: '2.0', id: message.id, result: {} });
+}
 
 export interface AskQuestion {
   question: string;
@@ -181,8 +309,8 @@ export class ClaudeSession {
   // never set on no-UI asks/dreams), while metering must hold for every session from the
   // moment it opens, or background work burns tokens no usage record ever sees.
   onIdleUsage?: (info: { usage?: TurnUsage; isError: boolean; durationMs: number }) => void;
-  // Fires on every `rate_limit_event` (subscription quota state, emitted right before
-  // system/init at the start of each turn) — see ratelimit.ts. Mutable like onIdleResult.
+  // Fires on every `rate_limit_event` (subscription quota state, once per turn — on 2.1.282 after
+  // system/init and the first assistant message, per the CLI probe) — see ratelimit.ts. Mutable like onIdleResult.
   onRateLimit?: (info: RateLimitInfo) => void;
 
   constructor(
@@ -266,26 +394,8 @@ export class ClaudeSession {
       return;
     }
     await this.sandbox.createSession(this.sessionKey);
-    const resume = this.opts.resumeSessionId ? `--resume ${this.opts.resumeSessionId} ` : '';
-    const sys = this.opts.systemPrompt ? `--append-system-prompt ${sq(this.opts.systemPrompt)} ` : '';
-    // --strict-mcp-config ignores the repo's own .mcp.json; --mcp-config adds ONLY our
-    // per-project servers (e.g. Grafana). Without it, --strict-mcp-config = no servers.
-    const mcp = this.opts.mcpConfigPath ? `--mcp-config ${sq(this.opts.mcpConfigPath)} ` : '';
-    const model = this.opts.model ? `--model ${sq(this.opts.model)} ` : '';
-    // No positional prompt → persistent mode (turns stream in via stdin). --verbose is
-    // mandatory with stream-json. --strict-mcp-config ignores the repo's own .mcp.json.
-    // BOTH --dangerously-skip-permissions AND --permission-prompt-tool stdio: verified
-    // to coexist — normal tools auto-run (bypass, no round-trip) while AskUserQuestion
-    // STILL fires a can_use_tool control_request we answer (→ Slack buttons).
-    const command =
-      // CLI_PATH_ENV: the pinned per-sandbox Claude Code (cliversion.ts) wins over the image's.
-      // gitIdentityEnv + --settings attribution: commits are authored by and credit
-      // coach-aven[bot], whatever identity the agent tries to pass (gitidentity.ts).
-      `cd ${sq(this.opts.cwd)} && ${CLI_PATH_ENV} ${CC_TOKEN_ENV} ${gitIdentityEnv()} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
-      (this.opts.avenSession ? `AVEN_SESSION=${sq(this.opts.avenSession)} ` : '') +
-      `claude --output-format stream-json --input-format stream-json --verbose ` +
-      `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ` +
-      `--settings ${sq(JSON.stringify(ATTRIBUTION_SETTINGS))} ${model}${mcp}${resume}${sys}`;
+    const { model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession } = this.opts;
+    const command = claudeLaunch({ model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession }).command(this.opts.cwd);
     const started = await this.sandbox.startSessionCommand(this.sessionKey, command);
     this.cmdId = started.cmdId;
     // Stream stdout until the process exits; resolution/rejection both mean "process gone".
@@ -305,13 +415,7 @@ export class ClaudeSession {
   private async registerHostServers(): Promise<void> {
     const servers = this.opts.hostServers ?? [];
     if (!servers.length) return;
-    const sdkMcpServerConfigs: Record<string, { timeout: number }> = {};
-    for (const s of servers) if (s.timeoutMs) sdkMcpServerConfigs[s.name] = { timeout: s.timeoutMs };
-    await this.write({
-      type: 'control_request',
-      request_id: `init-${Date.now()}`,
-      request: { subtype: 'initialize', sdkMcpServers: servers.map((s) => s.name), sdkMcpServerConfigs },
-    });
+    await this.write(initializeFrame(servers));
   }
 
   // Arm the two-stage watchdog on a pending turn (see the STREAM_*_MS comment): soft
@@ -376,7 +480,7 @@ export class ClaudeSession {
 
       // The last hop before the API: whatever a person typed in Slack (plus the attachment
       // preamble) becomes model input here, so this is where pasted secrets get redacted.
-      const line = JSON.stringify({ type: 'user', message: { role: 'user', content: this.scrub(text, 'turn') } }) + '\n';
+      const line = JSON.stringify(userFrame(this.scrub(text, 'turn'))) + '\n';
       void this.input(line)
         .catch((e: unknown) =>
           this.settle({
@@ -513,11 +617,7 @@ export class ClaudeSession {
 
   // Write a control_request{interrupt} to stdin — aborts the current turn cleanly.
   async interrupt(): Promise<void> {
-    await this.write({
-      request_id: `int-${Date.now()}`,
-      type: 'control_request',
-      request: { subtype: 'interrupt' },
-    });
+    await this.write(interruptFrame());
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -632,11 +732,7 @@ export class ClaudeSession {
     const input = ev.request?.input ?? {};
     const ac = new AbortController(); // aborted by a control_cancel_request for this id
     this.inflightTools.set(requestId, ac);
-    const allow = (updatedInput: unknown) =>
-      this.write({
-        type: 'control_response',
-        response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow', updatedInput } },
-      });
+    const allow = (updatedInput: unknown) => this.write(allowFrame(requestId, updatedInput));
 
     try {
       if (ev.request.tool_name === 'AskUserQuestion' && this.pending?.onQuestion) {
@@ -669,32 +765,7 @@ export class ClaudeSession {
   // the CLI turns into a failed tool call the agent can read.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async handleMcpMessage(ev: any): Promise<void> {
-    const requestId = ev.request_id;
-    const serverName = String(ev.request?.server_name ?? '');
-    const message = ev.request?.message as JsonRpc | undefined;
-    const route = (this.opts.hostServers ?? []).find((s) => s.name === serverName);
-    const respond = (mcp_response: unknown) =>
-      this.write({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response: { mcp_response } } });
-    if (!route || !message || typeof message !== 'object') {
-      await this.write({ type: 'control_response', response: { subtype: 'error', request_id: requestId, error: `no host server "${serverName}" in this session` } });
-      return;
-    }
-    if (message.id === undefined || message.id === null) {
-      try {
-        await route.handle(message);
-      } catch {
-        /* a notification has no error channel */
-      }
-      await respond({ jsonrpc: '2.0', result: {}, id: 0 });
-      return;
-    }
-    let reply: JsonRpc | undefined;
-    try {
-      reply = await route.handle(message);
-    } catch (e) {
-      reply = { jsonrpc: '2.0', id: message.id, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } };
-    }
-    await respond(reply ?? { jsonrpc: '2.0', id: message.id, result: {} });
+    await this.write(await mcpAnswerFrame(ev, this.opts.hostServers ?? []));
   }
 
   private onExit(): void {

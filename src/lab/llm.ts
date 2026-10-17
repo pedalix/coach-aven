@@ -21,6 +21,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { isolatedClaudeEnv } from '../clienv.js';
 import { utf8Chunks } from '../utf8.js';
 
 export interface LlmCall {
@@ -108,10 +109,6 @@ export interface RunnerOpts {
   retries?: number;
 }
 
-// Strip the variables a parent Claude Code session sets, so the child neither reports to nor waits
-// on the session that launched the bench.
-const PARENT_VARS = /^(CLAUDECODE|CLAUDE_CODE_|CLAUDE_PID$|CLAUDE_EFFORT$|CLAUDE_CONFIG_DIR$|AI_AGENT$|ANTHROPIC_)/;
-
 export class LlmRunner {
   private cache = new Map<string, LlmResult>();
   private active = 0;
@@ -173,10 +170,8 @@ export class LlmRunner {
   }
 
   private spawnOnce(c: LlmCall): Promise<LlmResult> {
-    const env: NodeJS.ProcessEnv = {};
-    for (const [k, v] of Object.entries(process.env)) if (!PARENT_VARS.test(k)) env[k] = v;
-    env.CLAUDE_CONFIG_DIR = this.opts.configDir;
-    env.CLAUDE_CODE_OAUTH_TOKEN = this.opts.token;
+    // The parent session's variables stripped, the isolated config dir and the token (clienv.ts).
+    const env = isolatedClaudeEnv(process.env, { configDir: this.opts.configDir, token: this.opts.token });
     env.CLAUDE_CODE_DISABLE_CLAUDE_MDS = '1'; // set after the scrub, which drops every CLAUDE_CODE_* of the parent
     const args = ['-p', '--model', c.model, '--output-format', 'json', '--no-session-persistence', '--tools', '', '--max-turns', '1', '--system-prompt', c.system];
     const started = Date.now();

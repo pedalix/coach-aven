@@ -73,6 +73,10 @@ export interface SandboxDriver {
   getSandbox(name: string): Promise<SandboxHandle | undefined>;
   // name → provider state string (e.g. 'started'/'stopped'), for /aven status.
   listStates(): Promise<Map<string, string>>;
+  // Delete a THROWAWAY sandbox (the CLI probe's `cli-probe-<run>`); a missing one is not an error.
+  // Every implementation refuses any other name first (sandboxopts.ts assertDeletable): code never
+  // deletes a project's sandbox. The bot itself never calls this.
+  deleteSandbox(name: string): Promise<void>;
 }
 
 // The provider switch. `kind` is the per-project override (projects.config.json's
