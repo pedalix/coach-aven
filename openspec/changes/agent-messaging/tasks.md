@@ -94,8 +94,9 @@
   - the explicit reply target (chat or shadow);
   - inject only into a started turn of a person, routine or task, younger than the soft deadline, with fewer than 5 injections, in a session spawned with the ledger on a checked CLI; else `liveTurn`;
   - a trail step for a fold; state written before the ack
-- [ ] 4.5 `wrapAnswer` / `wrapReply` / `wrapTask` (pure; golden fixtures `src/fixtures/messaging/{answer,reply,task}.txt`): the original question, the never-forward sentence, the still-open line, the no-writes frame — `src/messaging/wrap.test.ts` ("session gone")
-- [ ] 4.6 Marks (D14) — `src/messaging/marks.test.ts` ("forwarding waits for a person", "a released message can be answered", "second message to the same domain", "two clients in one installation", "no laundering through a local agent", "a peer claims another domain", "compaction keeps the marks", "fresh session"):
+- [x] 4.5 `wrapAnswer` / `wrapReply` / `wrapTask` (pure; golden fixtures `src/fixtures/messaging/{answer,reply,task}.txt`): the original question, the never-forward sentence, the still-open line, the no-writes frame — `src/messaging/wrap.test.ts` ("session gone")
+  Done: `src/messaging/wrap.ts`; every line of foreign text is quoted (`> `), so it cannot close its quote or pass for a person.
+- [x] 4.6 Marks (D14) — `src/messaging/marks.test.ts` ("forwarding waits for a person", "a released message can be answered", "second message to the same domain", "two clients in one installation", "no laundering through a local agent", "a peer claims another domain", "compaction keeps the marks", "fresh session"):
   - domains (installation, and a tenant tag);
   - marks with holders, from messages with content only (a task's question included);
   - holders gain the target on every message that goes out or is released;
@@ -103,7 +104,9 @@
   - the rule for every outgoing message; an unknown remote domain has nothing;
   - held in chat, refused in shadow (a refused answer → `failed: refused by marks`);
   - per conversation key, ended by `🔄 Restart session` or with the conversation's record
+  Done: `src/messaging/marks.ts` (`domainOf`, `markArrival`, `markSent`, `mayGo`, `heldWhy`), the store’s per-conversation marks, their end with `🔄 Restart session` or the conversation’s record, and the domain claim in the hub client. Where the rule is applied — held in chat and refused in shadow (5.1), the receiver’s `toDomain` check (5.4), a refused answer ending its task (5.5) — lands with those tasks.
 - [ ] 4.6a Posts of a marked conversation carry the marker (Slack message metadata, the Teams equivalent), and the Slack source skips them at ingest — `src/sources/slack/normalise.test.ts` ("answer posted in a thread is not ingested") + driver golden for the metadata
+  Slack done: the driver marks posts and updates of a marked conversation (`metadata.event_type = aven_marked`), the turn engine marks while the conversation has marks, and the Slack source pulls with `include_all_metadata` and skips them. **Teams open:** an answer goes out as a markdown text message, so a marker Graph can see must sit in the text; no Teams installation ingests its own workspace for a messaging project yet.
 - [ ] 4.7 The held-message card — `src/chat/slack/events.record.test.ts` + Teams cards golden ("held message without the flag", "flag off"; existing byte-identical):
   - a `heldAsk` view for a new task or a reply;
   - Slack blocks and a Teams card with their own action ids;
@@ -125,12 +128,14 @@
   - acceptance checked for every message of a task;
   - depth; the daily cap per sender;
   - a shadow `liveTurn` with the tenant-prefixed key `[<tenant>:]a2a:<origin>/<taskId>`
+  - the `toDomain` the sender assumed checked against the target’s domain (`rejected: domain changed` on a first message, `failed` on a later one); the conversation marked from the task (`markArrival`)
 - [ ] 5.5 `src/chat/shadow/driver.ts` (journal only) and `settleShadowTurn` in `src/messaging/answer.ts` (the one owner of completion) — `src/chat/shadow/driver.test.ts`, `src/messaging/answer.test.ts` ("background subagent", "asked back and ended the turn", "sub-question", "answer arrives during the final text", "nothing outstanding and no turn comes", "nudge gives no answer"):
   - the journal; `working` on start;
   - completion only when nothing is outstanding: an unanswered `request_input`, open sub-tasks, messages not taken up yet, CLI background tasks. Otherwise the answer becomes the status message;
   - at most one nudge turn per task, then `failed: no answer`;
   - `AskUserQuestion` → `request_input` + event; late results → event;
   - expiry on the answering side too
+  - an answer the marks refuse ends its task `failed: refused by marks` (`ask.marks.refused`)
 - [ ] 5.6 Clarifications (at most `maxRounds`, the next ends the task), cancel with cascade to sub-tasks, acceptance withdrawn on reload, a later message bounced → `failed` — `src/messaging/answer.test.ts` ("clarification answered while still working", "clarification needs a person", "agents loop", "asker gives up", "acceptance withdrawn", "reply bounced", "parent canceled")
 - [ ] 5.7 Restart recovery — `src/chat/slack/turn.record.test.ts` byte-identical ("slack mode", "unknown driver" unchanged) + "restart mid-answer", "recovery fails", "incoming burst", "shadow conversations beside slack":
   - keys `[<tenant>:]a2a:<origin>:<taskId>:<slug>` (validated ids; `slugForKey` and `projectBusy` see them);

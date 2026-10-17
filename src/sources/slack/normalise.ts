@@ -119,7 +119,17 @@ export interface RawMessage {
   files?: RawFile[];
   /** Channel-level attachments (unfurls, legacy bot attachments) carry their own text. */
   attachments?: Array<{ title?: string; text?: string; fallback?: string }>;
+  /** Message metadata (pulled with include_all_metadata): a marked post of the bot carries MARKED_EVENT. */
+  metadata?: { event_type?: string };
 }
+
+/**
+ * The metadata event type of the bot's posts in a conversation that holds another domain's data
+ * (agent-messaging D14; chat/driver.ts MARKED_EVENT). Such a post is never ingested: the store would
+ * otherwise carry that data to the project's unmarked conversations.
+ */
+export const MARKED_EVENT = 'aven_marked';
+export const isMarked = (msg: RawMessage): boolean => msg.metadata?.event_type === MARKED_EVENT;
 
 /** What the mapper needs to know about the workspace it is mapping for. */
 export interface WorkspaceContext {
@@ -306,7 +316,7 @@ export function normaliseMessage(
   ctx: WorkspaceContext,
   opts: MapOptions = {},
 ): MessageRecord | null {
-  if (isNoise(msg)) return null;
+  if (isNoise(msg) || isMarked(msg)) return null;
 
   const rawText = messageText(msg);
   const author = authorLabel(msg, ctx.users);

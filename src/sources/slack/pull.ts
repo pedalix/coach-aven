@@ -372,7 +372,8 @@ class WorkspaceSync {
       ? this.opts.since ? isoToTs(this.opts.since) : tsDaysAgo(this.ws.backfill_days)
       : windowOldest && compareTs(windowOldest, cur.last_ts) < 0 ? windowOldest : cur.last_ts;
     const raw: RawMessage[] = [];
-    for await (const page of this.client.paginate('conversations.history', { channel: conv.id, oldest, limit: 999 })) {
+    // include_all_metadata: the bot's marked posts (agent-messaging D14) are recognised and skipped.
+    for await (const page of this.client.paginate('conversations.history', { channel: conv.id, oldest, limit: 999, include_all_metadata: true })) {
       this.stats.calls++;
       raw.push(...((page.messages as RawMessage[]) ?? []));
       // Free-plan truncation: Slack says so explicitly; surface it once per conversation.
@@ -443,7 +444,7 @@ class WorkspaceSync {
     for (const [parentTs, t] of Object.entries(cur.threads)) {
       if (compareTs(parentTs, windowStart) < 0) continue;
       const raw: RawMessage[] = [];
-      for await (const page of this.client.paginate('conversations.replies', { channel: conv.id, ts: parentTs, oldest: t.last_reply_ts, limit: 999 })) {
+      for await (const page of this.client.paginate('conversations.replies', { channel: conv.id, ts: parentTs, oldest: t.last_reply_ts, limit: 999, include_all_metadata: true })) {
         this.stats.calls++;
         raw.push(...((page.messages as RawMessage[]) ?? []));
       }

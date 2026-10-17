@@ -529,3 +529,29 @@ test('turn — after a restart, a ledger session reattaches in its recorded mode
   assert.equal(seen.attachLedger, true);
   assert.equal(seen.adoptUuid, uuid);
 });
+
+test('marks — fresh session: 🔄 Restart session ends the conversation’s marks; compaction (a new session id) keeps them', async () => {
+  const { engine, store, project } = ledgerHarness();
+  store.setChat({ threadTs: 'thread:100.1', slug: 'alpha', sessionId: 'sess-1', updatedAt: '2026-10-17T08:00:00.000Z' });
+  store.setMarks('thread:100.1', { bluefin: ['bluefin'] });
+  store.patchChat('thread:100.1', 'alpha', { sessionId: 'sess-2' }); // compaction forks the CLI session id
+  assert.deepEqual(store.getMarks('thread:100.1'), { bluefin: ['bluefin'] });
+  await engine.restartSession('thread:100.1', project);
+  assert.deepEqual(store.getMarks('thread:100.1'), {});
+});
+
+test('marks — a turn in a marked conversation posts and updates with the marker; an unmarked one does not', async () => {
+  const run = async (marked: boolean) => {
+    const { engine, store, client } = harness({ ask: async () => 'An answer built on bluefin’s data.' });
+    if (marked) store.setMarks('thread:100.1', { bluefin: ['bluefin'] });
+    api.reset();
+    await engine.liveTurn(client, 'C1', '100.1', '100.1', 'thread:100.1', PROJECT, 'go on');
+    await quiesce();
+    return api.calls.filter((c) => c.method === 'chat.update' || c.method === 'chat.postMessage');
+  };
+  const marked = await run(true);
+  const finalUpdate = marked.filter((c) => c.method === 'chat.update').at(-1)!;
+  assert.match(String((finalUpdate.payload as Record<string, unknown>).metadata), /aven_marked/, 'the answer’s update carries the marker');
+  const plain = await run(false);
+  assert.ok(plain.every((c) => !('metadata' in (c.payload as Record<string, unknown>))), 'unmarked: no metadata anywhere');
+});

@@ -270,3 +270,13 @@ test('files: message text lists them, normaliseFiles emits records and skips tom
     },
   ]);
 });
+
+test('answer posted in a thread is not ingested: the bot’s marked post (metadata aven_marked) is skipped, the same post unmarked is not', async () => {
+  const { MARKED_EVENT: CHAT_MARKED_EVENT } = await import('../../chat/driver.js');
+  const { MARKED_EVENT } = await import('./normalise.js');
+  assert.equal(MARKED_EVENT, CHAT_MARKED_EVENT, 'the source skips exactly what the chat driver marks');
+  const post: RawMessage = { type: 'message', subtype: 'bot_message', bot_id: 'B0AVEN0001', text: 'Orders dropped because …', ts: '1759700100.000100', thread_ts: '1759700000.000100', metadata: { event_type: 'aven_marked' } };
+  assert.equal(normaliseMessage(post, channel, ctx), null);
+  assert.ok(normaliseMessage({ ...post, metadata: undefined }, channel, ctx));
+  assert.ok(normaliseMessage({ ...post, metadata: { event_type: 'something_else' } }, channel, ctx));
+});
