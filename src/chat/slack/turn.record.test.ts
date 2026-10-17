@@ -84,6 +84,13 @@ function fakeOpenChat(o: FakeOpts): typeof openChat {
       setIdleNotify: (fn) => {
         idle = fn;
       },
+      // A session of a project without `messaging`: no ledger, nothing injected.
+      hasLedger: () => false,
+      injectRefusal: () => 'spawned without the message ledger',
+      backgroundTasks: () => [],
+      pendingTurnTakenUp: () => false,
+      inject: async () => ({ kind: 'refused', reason: 'spawned without the message ledger' }),
+      recoverInjected: async () => ({ kind: 'refused', reason: 'spawned without the message ledger' }),
     };
     return session;
   }) as unknown as typeof openChat;
@@ -440,4 +447,85 @@ test('turn record: queued turns replayed after a restart (plain reruns, non-plai
       });
     }),
   );
+});
+
+// ── the message ledger (agent-messaging D13, task 4.1): a project with `messaging` ────────────────
+// Not a call snapshot: what the engine hands the session and keeps in state. A project without the
+// block is pinned by every snapshot above.
+function ledgerHarness(seed?: (store: Store) => void) {
+  const dir = mkdtempSync(join(tmpdir(), 'aven-turnledger-'));
+  const store = new Store(join(dir, 'state.json'));
+  seed?.(store);
+  const project = { ...PROJECT, messaging: { send: true } } as ProjectConfig;
+  const seen: { ledger?: boolean; attachLedger?: boolean; askUuid?: string; inflightUuid?: string; adoptUuid?: string } = {};
+  const openChatFake = (async (_cfg: unknown, _store: unknown, opts: { ledger?: boolean; attachLedger?: boolean; attach?: unknown; onOpen?: (i: { sessionKey: string; cmdId: string; ledger: boolean }) => void }) => {
+    seen.ledger = opts.ledger;
+    seen.attachLedger = opts.attachLedger;
+    // As openSession does: a reattach keeps the recorded mode, a fresh spawn follows the configuration.
+    const ledger = (opts.attach ? opts.attachLedger : opts.ledger) === true;
+    opts.onOpen?.({ sessionKey: 'sk-1', cmdId: 'cmd-1', ledger });
+    const session = {
+      ask: async (_p: string, _s: unknown, _sig: unknown, _q: unknown, _l: unknown, uuid?: string) => {
+        seen.askUuid = uuid;
+        seen.inflightUuid = store.getChat('thread:100.1')?.inflight?.uuid;
+        return 'Done.';
+      },
+      adoptInflight: async (_s: unknown, _l: unknown, uuid?: string) => {
+        seen.adoptUuid = uuid;
+        return { ok: true, status: 'ok', text: 'Recovered.' };
+      },
+      sessionId: () => 'sess-1',
+      attachInfo: () => ({ sessionKey: 'sk-1', cmdId: 'cmd-1' }),
+      contextLost: () => false,
+      lastUsage: () => undefined,
+      ingest: async () => ({ preamble: '', skipped: [] }),
+      close: async () => {},
+      setIdleNotify: () => {},
+      hasLedger: () => ledger,
+      injectRefusal: () => undefined,
+      backgroundTasks: () => [],
+      pendingTurnTakenUp: () => false,
+      inject: async () => ({ kind: 'refused', reason: 'n/a' }),
+      recoverInjected: async () => ({ kind: 'refused', reason: 'n/a' }),
+    } as unknown as ChatSession;
+    return session;
+  }) as unknown as typeof openChat;
+  const engine = createTurnEngine(cfg, store, { current: { projects: [project] } } as unknown as RegistryRef, {
+    openChat: openChatFake,
+    journal: new QueueJournal(join(dir, 'queue.jsonl')),
+    usageLog: new UsageLog(join(dir, 'usage')),
+    feedbackLog: new FeedbackLog(join(dir, 'feedback')),
+    drafts: new DraftStore(join(dir, 'drafts')),
+  });
+  const client = slackDriver(new bolt.webApi.WebClient('xoxb-home', { slackApiUrl: url, retryConfig: { retries: 0 } }));
+  return { engine, store, client, project, seen };
+}
+
+test('turn — a project with `messaging`: its session opens with the ledger; the turn’s uuid goes to ask() and is kept with the inflight marker', async () => {
+  const { engine, store, client, project, seen } = ledgerHarness();
+  await engine.liveTurn(client, 'C1', '100.1', '100.1', 'thread:100.1', project, 'hello');
+  await quiesce();
+  assert.equal(seen.ledger, true);
+  assert.equal(seen.attachLedger, false);
+  assert.match(seen.askUuid ?? '', /^[0-9a-f-]{36}$/);
+  assert.equal(seen.inflightUuid, seen.askUuid, 'the inflight marker carries the uuid while the turn runs');
+  assert.equal(store.getChat('thread:100.1')?.ledger, true, 'the spawn mode is recorded with the chat');
+  assert.equal(store.getChat('thread:100.1')?.inflight, undefined, 'cleared when the turn settles');
+});
+
+test('turn — after a restart, a ledger session reattaches in its recorded mode and the recovered turn settles on its own uuid', async () => {
+  const uuid = '00000000-0000-4000-8000-00000000c0de';
+  const { engine, client, seen } = ledgerHarness((store) =>
+    store.patchChat('thread:100.1', 'alpha', {
+      sessionKey: 'sk-1',
+      cmdId: 'cmd-1',
+      ledger: true,
+      inflight: { channel: 'C1', statusTs: '100.5', msgThreadTs: '100.1', startedAt: '1970-01-01T00:00:00.000Z', uuid },
+    }),
+  );
+  const recovering = engine.resumeInflightTurns(() => client);
+  await Promise.all(recovering.values());
+  await quiesce();
+  assert.equal(seen.attachLedger, true);
+  assert.equal(seen.adoptUuid, uuid);
 });

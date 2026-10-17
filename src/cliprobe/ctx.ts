@@ -3,6 +3,7 @@
 // process boundaries, answers the CLI's control requests the way the bot does (allow, the bot's MCP
 // framing), checks that the CLI that answers is the version the run names, and turns a missed
 // precondition into `inconclusive` and a missed prediction into `fails`.
+import { randomUUID } from 'node:crypto';
 import {
   allowFrame,
   claudeLaunch,
@@ -221,15 +222,24 @@ export class ProbeCtx {
     await this.proc.write(text + '\n');
   }
 
-  /** A user message exactly as the bot writes it; the optional fields are the protocol's own. */
+  /**
+   * A user message exactly as the bot writes it; the optional fields are the protocol's own. With
+   * `--replay-user-messages` every message carries a `uuid` (a fresh one unless given), as the bot's
+   * message ledger writes them (agent-messaging D13).
+   */
   async send(content: string, o: { priority?: 'now' | 'next' | 'later'; uuid?: string; origin?: Record<string, unknown> } = {}): Promise<Frame> {
     const frame: Frame = { ...userFrame(content) };
     if (o.priority) frame.priority = o.priority;
-    if (o.uuid) frame.uuid = o.uuid;
+    const uuid = o.uuid ?? (this.replaying() ? randomUUID() : undefined);
+    if (uuid) frame.uuid = uuid;
     if (o.origin) frame.origin = o.origin;
     this.log(`>>> user${o.priority ? ` (${o.priority})` : ''}`);
     await this.write(frame);
     return frame;
+  }
+
+  private replaying(): boolean {
+    return (this.opts.launch.extraArgs ?? []).includes('--replay-user-messages');
   }
 
   /** A control request with a run-local id (never a wall-clock id: recordings carry no time). */

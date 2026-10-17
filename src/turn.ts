@@ -3,6 +3,7 @@
 // agent-question (AskUserQuestion) registry, and post-restart turn recovery. Slack
 // surfaces (events.ts, commands.ts, pollers.ts) call in; rendering comes from blocks.ts.
 
+import { randomUUID } from 'node:crypto';
 import { avenSessionValue } from './gwtoken.js';
 import type { ChatDriver, DriverForTenant } from './chat/driver.js';
 import type { MessageView } from './chat/views.js';
@@ -24,6 +25,7 @@ import { RateLimitTracker, type RateLimitInfo } from './ratelimit.js';
 import { FeedbackLog, joinUsage, feedbackSummaryText, tallyFor, type FeedbackRecord, type Tally } from './feedback.js';
 import { log } from './log.js';
 import { captureError, Sentry } from './sentry.js';
+import { emit } from './messaging/events.js';
 
 // Pending AskUserQuestion prompts: the agent asked, we posted option buttons, and
 // we're waiting for clicks. Keyed by a questionId carried on each button. `picks` maps
@@ -400,7 +402,13 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       // still running), and persist the command coords the moment a session (re)opens so
       // even a crash mid-first-turn leaves a reattachable record.
       attach: prior?.sessionKey && prior?.cmdId ? { sessionKey: prior.sessionKey, cmdId: prior.cmdId } : undefined,
-      onOpen: (info) => store.patchChat(key, project.slug, { sessionKey: info.sessionKey, cmdId: info.cmdId }),
+      onOpen: (info) => store.patchChat(key, project.slug, { sessionKey: info.sessionKey, cmdId: info.cmdId, ...(info.ledger || prior?.ledger ? { ledger: info.ledger ? true : undefined } : {}) }),
+      // The message ledger (agent-messaging D13): a fresh session of a project with a `messaging`
+      // configuration is spawned with it; a reattach follows the mode its process was spawned with.
+      ledger: project.messaging !== undefined,
+      attachLedger: prior?.ledger === true,
+      onLedgerMismatch: ({ expected, actual }) =>
+        emit('ask.inject.result_mismatch', { key, expected: expected ?? 'none', actual: actual.join(',') }),
       onRateLimit: (info) => {
         const alert = rateLimits.observe(info, project.slug);
         if (alert) alertOps(alert.text, alert.level === 'recovered' ? 'info' : 'warning');
@@ -511,7 +519,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         }
       }
     }
-    store.patchChat(key, project.slug, { sessionId: undefined, sessionKey: undefined, cmdId: undefined });
+    store.patchChat(key, project.slug, { sessionId: undefined, sessionKey: undefined, cmdId: undefined, ledger: undefined });
   }
 
   // A message starting with this prefix is a human-only NOTE: the bot stays out entirely
@@ -770,6 +778,13 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     try {
       const live = await sessionFor(key, project, slackUrl); // prepare (warm sandbox + clone) here
       session = live; // `live` keeps the non-undefined narrowing inside the closures below
+      // With the message ledger the turn's message carries a uuid, kept beside the inflight marker,
+      // so a restart's recovery settles this turn only on its own result (agent-messaging D13).
+      const uuid = live.hasLedger() ? randomUUID() : undefined;
+      if (uuid) {
+        const inf = store.getChat(key)?.inflight;
+        if (inf) store.patchChat(key, project.slug, { inflight: { ...inf, uuid } });
+      }
       // A background Task/Agent this turn launches may finish AFTER this turn's own
       // answer is already posted — see ClaudeSession.onIdleResult. Re-registered on every
       // live turn so it always targets the CURRENT channel/thread.
@@ -824,6 +839,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
             // message to the background card instead of erroring out. No extra thread
             // notice: the card says it, and the answer itself will arrive as a new message.
             goBackground,
+            uuid,
           ),
       );
       persist(key, project.slug, live);
@@ -983,17 +999,21 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
           // message. No buttons here — the recovered turn has no AbortController to cancel
           // and its step trail died with the old process, so the card is text only.
           let background = false;
-          const r = await cs.adoptInflight(undefined, () => {
-            background = true;
-            void driver
-              .update(status, {
-                kind: 'text',
-                text:
-                  '🌙 *Working in the background* — the recovered turn is taking longer than usual. ' +
-                  "I'll post the result in this thread as a new message when it's done.",
-              })
-              .catch(() => {});
-          });
+          const r = await cs.adoptInflight(
+            undefined,
+            () => {
+              background = true;
+              void driver
+                .update(status, {
+                  kind: 'text',
+                  text:
+                    '🌙 *Working in the background* — the recovered turn is taking longer than usual. ' +
+                    "I'll post the result in this thread as a new message when it's done.",
+                })
+                .catch(() => {});
+            },
+            inf.uuid, // with the message ledger: settle only on this turn's own result
+          );
           persist(chat.threadTs, project.slug, cs);
           if (r.ok) {
             const capped = r.text.slice(0, MAX_SLACK_TEXT) || '(no output)';

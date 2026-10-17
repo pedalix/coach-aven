@@ -1,6 +1,11 @@
-import { test } from 'node:test';
+import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { ClaudeSession, CostDelta, claudeLaunch } from './claudeSession.js';
+import { ClaudeSession, CostDelta, claudeLaunch, type InjectOutcome } from './claudeSession.js';
+import { PROBED_CLI_VERSIONS } from './cliversion.js';
+import { mcpServer } from './hosttools.js';
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Any = any;
 import type { SandboxHandle } from './driver.js';
 import { ATTRIBUTION_SETTINGS, GIT_EMAIL, GIT_NAME, gitIdentityEnv } from './gitidentity.js';
 
@@ -324,3 +329,213 @@ test('claudeLaunch — argv, env and command agree; probe extras merge into the 
   assert.equal(claudeLaunch({ avenSession: 'a:b' }).env.AVEN_SESSION, 'a:b');
 });
 
+
+// ── the message ledger (agent-messaging D13, tasks 4.1–4.3) ─────────────────────────────────────
+const init = (version = PROBED_CLI_VERSIONS.at(-1)!) => ({ type: 'system', subtype: 'init', session_id: 's1', claude_code_version: version, capabilities: [] });
+const echo = (uuid: string, text = 'm', origin?: Record<string, unknown>) => ({ type: 'user', isReplay: true, uuid, message: { role: 'user', content: text }, ...(origin ? { origin } : {}) });
+const result = (text: string, extra: Record<string, unknown> = {}) => ({ type: 'result', subtype: 'success', result: text, is_error: false, session_id: 's1', ...extra });
+const U1 = '00000000-0000-4000-8000-0000000000a1';
+const U2 = '00000000-0000-4000-8000-0000000000a2';
+const U3 = '00000000-0000-4000-8000-0000000000a3';
+const flushAll = () => new Promise((r) => setImmediate(r));
+
+async function openLedger(log = '', attach = false) {
+  const sb = fakeSandbox(log);
+  const session = new ClaudeSession(sb.handle, { cwd: '/tmp', ledger: true, ...(attach ? { attach: { sessionKey: 'k', cmdId: 'c' } } : {}) });
+  await session.open();
+  return { session, push: sb.push, writes: sb.writes };
+}
+
+test('ledger — the spawn line gains exactly the ledger flags; without the ledger it is unchanged', async () => {
+  const plain = await spawnCommand({ cwd: '/w' });
+  const ledger = await spawnCommand({ cwd: '/w', ledger: true });
+  assert.equal(ledger, `${plain}'--replay-user-messages' `);
+});
+
+test('ledger — every message carries a uuid; a result before the turn’s own echo is not its result (a background report), the one after it is', async () => {
+  const { session, push, writes } = await openLedger();
+  const idle: string[] = [];
+  session.onIdleResult = (t) => idle.push(t);
+  const turn = session.send('hello', undefined, undefined, undefined, undefined, U1);
+  await flushAll();
+  assert.deepEqual(writes, [{ type: 'user', message: { role: 'user', content: 'hello' }, uuid: U1 }]);
+  push(init());
+  push(echo(U3, '<task-notification>…', { kind: 'task-notification' })); // the CLI reports a background task first
+  push(result('Background task finished.'));
+  push(echo(U1, 'hello'));
+  push(result('hi'));
+  const r = await turn;
+  assert.equal(r.resultText, 'hi');
+  assert.deepEqual(idle, ['Background task finished.']);
+});
+
+test('ledger — an injected message while idle gets its own turn: `answered` by the result after its echo, not a background update', async () => {
+  const { session, push } = await openLedger();
+  const idle: string[] = [];
+  session.onIdleResult = (t) => idle.push(t);
+  push(init());
+  push(result('', { subtype: 'success' })); // an earlier turn ended: the process is idle
+  const o = session.inject('Answer from bluefin/caldora …', { uuid: U2 });
+  await flushAll();
+  push(echo(U2));
+  push({ type: 'assistant', message: { content: [{ type: 'text', text: 'Thanks — orders dropped because…' }] } });
+  push(result('Orders dropped because…', { total_cost_usd: 0.2 }));
+  const out = await o;
+  assert.equal(out.kind, 'answered');
+  assert.equal((out as Extract<InjectOutcome, { kind: 'answered' }>).result.resultText, 'Orders dropped because…');
+  assert.equal((out as Extract<InjectOutcome, { kind: 'answered' }>).result.usage?.costUsd, 0.2, 'metered by the caller with the task’s origin');
+  assert.deepEqual(idle, []);
+});
+
+test('ledger — two messages taken up together: the first is answered, the second folded into that turn; one result covers both', async () => {
+  const { session, push } = await openLedger();
+  push(init());
+  const a = session.inject('answer A', { uuid: U1 });
+  const b = session.inject('answer B', { uuid: U2 });
+  await flushAll();
+  push(echo(U1));
+  push(echo(U2));
+  push(result('both'));
+  assert.equal((await a).kind, 'answered');
+  assert.deepEqual(await b, { kind: 'folded', into: 'delivery' });
+});
+
+test('ledger — a result after echoes nobody here wrote is a mismatch: reported, and treated as unsolicited', async () => {
+  const { session, push } = await openLedger();
+  const mismatches: unknown[] = [];
+  const idle: string[] = [];
+  session.onLedgerMismatch = (m) => mismatches.push(m);
+  session.onIdleResult = (t) => idle.push(t);
+  const turn = session.send('hello', undefined, undefined, undefined, undefined, U1);
+  push(init());
+  push(echo(U3, 'a message from nowhere'));
+  push(result('not yours'));
+  assert.deepEqual(mismatches, [{ expected: U1, actual: [U3] }]);
+  assert.deepEqual(idle, ['not yours']);
+  push(echo(U1, 'hello'));
+  push(result('yours'));
+  assert.equal((await turn).resultText, 'yours');
+});
+
+test('ledger — the background-task list follows background_tasks_changed and is cleared when the process ends', async () => {
+  const sb = fakeSandbox();
+  let end!: () => void;
+  const session = new ClaudeSession({ ...sb.handle, streamSessionCommandLogs: (_k, _c, cb) => (sb.handle.streamSessionCommandLogs(_k, _c, cb), new Promise<void>((r) => (end = r))) }, { cwd: '/tmp', ledger: true });
+  await session.open();
+  sb.push({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ id: 'b1' }] });
+  assert.equal(session.backgroundTasks().length, 1);
+  sb.push({ type: 'system', subtype: 'background_tasks_changed', tasks: [] });
+  assert.equal(session.backgroundTasks().length, 0);
+  sb.push({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ id: 'b2' }] });
+  end();
+  await flushAll();
+  assert.deepEqual(session.backgroundTasks(), [], 'background work ends with its process');
+});
+
+test('ledger — the contract check: inject only with the ledger, on a probed CLI; otherwise refused with the reason', async () => {
+  const plain = await openFake();
+  assert.match(plain.session.injectRefusal()!, /without the message ledger/);
+  assert.deepEqual(await plain.session.inject('x', { uuid: U1 }), { kind: 'refused', reason: 'spawned without the message ledger' });
+  const { session, push } = await openLedger();
+  assert.match(session.injectRefusal()!, /not known yet/);
+  push(init('2.1.183'));
+  assert.equal(session.injectRefusal(), 'CLI 2.1.183 is not a probed version');
+  push(init());
+  assert.equal(session.injectRefusal(), undefined);
+  assert.equal(session.cliVersion(), PROBED_CLI_VERSIONS.at(-1));
+});
+
+test('ledger — a long tool: no echo for 10 minutes is a warning once, and the message keeps waiting', async (t: TestContext) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.parse('2026-10-17T08:00:00.000Z') });
+  const { session, push } = await openLedger();
+  push(init());
+  const turn = session.send('run the long thing', undefined, undefined, undefined, undefined, U1);
+  push(echo(U1));
+  push({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'sleep 900' } }] } });
+  let slow = 0;
+  let outcome: InjectOutcome | undefined;
+  void session.inject('answer', { uuid: U2, onSlow: () => void slow++ }).then((o) => (outcome = o));
+  t.mock.timers.tick(11 * 60_000);
+  assert.equal(slow, 1);
+  t.mock.timers.tick(20 * 60_000);
+  assert.equal(slow, 1, 'once');
+  assert.equal(outcome, undefined, 'still waiting: a tool may run that long');
+  push(echo(U2));
+  push(result('done, and the answer folded in'));
+  await turn;
+  await flushAll();
+  assert.deepEqual(outcome, { kind: 'folded', into: 'turn' });
+});
+
+test('ledger — a message stuck on an idle process: not taken up within 2 minutes of idling → `stuck`', async (t: TestContext) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: Date.parse('2026-10-17T08:00:00.000Z') });
+  const { session, push } = await openLedger();
+  push(init());
+  push(result('an earlier turn'));
+  let outcome: InjectOutcome | undefined;
+  void session.inject('answer', { uuid: U2 }).then((o) => (outcome = o));
+  t.mock.timers.tick(60_000);
+  await flushAll();
+  assert.equal(outcome, undefined);
+  t.mock.timers.tick(75_000);
+  await flushAll();
+  assert.deepEqual(outcome, { kind: 'stuck' });
+});
+
+test('ledger — the bot restarts after the write: the reattach snapshot decides what became of each message', async () => {
+  const log = ndjson([
+    init(),
+    echo(U1, 'person'), // a person's turn …
+    echo(U2, 'answer folded into it'), // … with a delivery folded in
+    result('one answer for both'),
+    echo(U3, 'a delivery on its own'),
+    result('the delivery’s own answer'),
+  ]);
+  const { session } = await openLedger(log, true);
+  assert.deepEqual(await session.recoverInjected({ uuid: U2, writtenAt: 0 }), { kind: 'folded', into: 'turn' });
+  const own = await session.recoverInjected({ uuid: U3, writtenAt: 0 });
+  assert.equal(own.kind, 'answered');
+  assert.equal((own as Extract<InjectOutcome, { kind: 'answered' }>).result.resultText, 'the delivery’s own answer');
+  assert.equal(session.injectRefusal(), undefined, 'the CLI version comes from the snapshot');
+});
+
+test('ledger — after a restart, a message the snapshot never echoed on a live process is still waiting; its echo and result come live', async () => {
+  const log = ndjson([init(), echo(U1, 'person'), { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_1', name: 'Bash', input: {} }] } }]);
+  const sb = fakeSandbox(log);
+  const session = new ClaudeSession(sb.handle, { cwd: '/tmp', ledger: true, attach: { sessionKey: 'k', cmdId: 'c' } });
+  await session.open();
+  const adopted = session.adoptInflight(undefined, undefined, undefined, U1);
+  let outcome: InjectOutcome | undefined;
+  void session.recoverInjected({ uuid: U2, writtenAt: Date.now() }).then((o) => (outcome = o));
+  sb.push(echo(U2));
+  sb.push(result('the person’s answer, with the delivery folded in'));
+  assert.equal((await adopted).resultText, 'the person’s answer, with the delivery folded in');
+  await flushAll();
+  assert.deepEqual(outcome, { kind: 'folded', into: 'turn' });
+});
+
+test('restart mid-call, several calls pending: every unanswered host tool call of the turn is served again, an answered one is not', async () => {
+  const use = (id: string, text: string) => ({ type: 'tool_use', id, name: 'mcp__probe__probe_echo', input: { text } });
+  const call = (rid: string, text: string, id: number) => ({ type: 'control_request', request_id: rid, request: { subtype: 'mcp_message', server_name: 'probe', message: { jsonrpc: '2.0', id, method: 'tools/call', params: { name: 'probe_echo', arguments: { text } } } } });
+  const log = ndjson([
+    { type: 'system', subtype: 'init', session_id: 's1' },
+    { type: 'assistant', message: { content: [use('toolu_a', 'A')] } },
+    { type: 'assistant', message: { content: [use('toolu_b', 'B')] } },
+    { type: 'assistant', message: { content: [use('toolu_c', 'C')] } },
+    call('req-a', 'A', 1),
+    call('req-b', 'B', 2),
+    call('req-c', 'C', 3),
+    { type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_b', content: 'echo:B' }] } }, // answered before the restart
+  ]);
+  const sb = fakeSandbox(log);
+  const tools = [{ name: 'probe_echo', description: 'echo', inputSchema: { type: 'object' }, call: (a: Record<string, unknown>) => ({ text: `echo:${String(a.text)}` }) }];
+  const session = new ClaudeSession(sb.handle, { cwd: '/tmp', attach: { sessionKey: 'k', cmdId: 'c' }, hostServers: [{ name: 'probe', handle: mcpServer('probe', tools) }] });
+  await session.open();
+  const adopted = session.adoptInflight();
+  await flushAll();
+  await flushAll();
+  const served = (sb.writes as Any[]).filter((w) => w.type === 'control_response').map((w) => w.response.request_id);
+  assert.deepEqual(served.sort(), ['req-a', 'req-c']);
+  sb.push({ type: 'result', result: 'echo:A echo:B echo:C', is_error: false, session_id: 's1' });
+  assert.equal((await adopted).status, 'ok', 'the adopted turn then finishes');
+});

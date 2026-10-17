@@ -23,7 +23,7 @@ import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import { FactStore } from './facts.js';
 import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './deps.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
-import { ClaudeSession, type OnQuestion, type TurnUsage } from './claudeSession.js';
+import { ClaudeSession, type InjectOutcome, type OnQuestion, type TurnUsage } from './claudeSession.js';
 
 // Project facts (facts/<slug>.json) — derived, machine-written state; today just the
 // `depends_on_repos` fact the deps scanner writes at prepare time and the token mint reads.
@@ -56,12 +56,15 @@ export interface ChatSession {
   // onLongRunning makes the turn's runtime limit SOFT: it fires once at the soft
   // deadline ("still working…" to the thread) and the turn keeps going to the hard cap
   // instead of erroring — without it the old kill-at-soft-deadline applies.
+  // `uuid`: the message's id in a session with the message ledger (agent-messaging D13) — the
+  // turn's inflight record keeps it, so a restart settles this turn on its own result.
   ask(
     prompt: string,
     onStep?: (step: string) => void,
     signal?: AbortSignal,
     onQuestion?: OnQuestion,
     onLongRunning?: () => void,
+    uuid?: string,
   ): Promise<string>;
   // The Claude conversation id, known after the first turn. Persist it so a restarted
   // bot can resume the same thread via openChat({ resumeSessionId }).
@@ -75,7 +78,21 @@ export interface ChatSession {
   adoptInflight(
     onStep?: (step: string) => void,
     onLongRunning?: () => void,
+    uuid?: string,
   ): Promise<{ ok: boolean; status: string; text: string }>;
+  // ── the message ledger (agent-messaging D11–D13; a session spawned with `ledger`) ──────────
+  // Whether the live session has it, why it may not take a message into a running turn (the
+  // per-session contract check), and the CLI's running background tasks. No live session yet →
+  // no ledger, `session not open`, none.
+  hasLedger(): boolean;
+  injectRefusal(): string | undefined;
+  backgroundTasks(): unknown[];
+  // A pending turn the CLI has taken up (its echo came) — a turn a message may fold into.
+  pendingTurnTakenUp(): boolean;
+  // Write a message into the session without a turn of its own (ClaudeSession.inject).
+  inject(text: string, o: { uuid: string; label?: string; onSlow?: () => void }): Promise<InjectOutcome>;
+  // After a restart: what became of a message the previous bot injected (ClaudeSession.recoverInjected).
+  recoverInjected(o: { uuid: string; writtenAt: number; label?: string; onSlow?: () => void }): Promise<InjectOutcome>;
   // One-shot flag: true once if a resume id was set but its transcript was gone (sandbox
   // rebuilt) so we started fresh — the caller should warn the user. Resets on read.
   contextLost(): boolean;
@@ -205,8 +222,16 @@ export async function openChat(
     // of spawning a fresh process (tried once; falls back to --resume if it's gone).
     attach?: { sessionKey: string; cmdId: string };
     // Called whenever a session (re)opens, with its command coords — persist immediately
-    // so even a mid-FIRST-turn crash leaves a reattachable record.
-    onOpen?: (info: { sessionKey: string; cmdId: string }) => void;
+    // so even a mid-FIRST-turn crash leaves a reattachable record. `ledger`: the mode it was
+    // spawned with (or reattached in), for the chat record.
+    onOpen?: (info: { sessionKey: string; cmdId: string; ledger: boolean }) => void;
+    // The message ledger (agent-messaging D13): a fresh session is spawned with it when `ledger`
+    // (the project has a `messaging` configuration); a reattach follows `attachLedger`, the mode the
+    // running process was spawned with (the chat record), never the current configuration.
+    ledger?: boolean;
+    attachLedger?: boolean;
+    // A result after echoes nobody wrote (ClaudeSession.onLedgerMismatch) — the caller logs it.
+    onLedgerMismatch?: ClaudeSession['onLedgerMismatch'];
     // The CLI's per-turn quota signal (ratelimit.ts) — one shared subscription, so the
     // engine funnels every session's events into one tracker.
     onRateLimit?: (info: RateLimitInfo) => void;
@@ -262,7 +287,7 @@ export async function openChat(
   });
   const emitOpen = () => {
     const a = session?.attachInfo();
-    if (a) opts.onOpen?.(a);
+    if (a) opts.onOpen?.({ ...a, ledger: session!.hasLedger() });
   };
 
   // Wake the sandbox (it auto-stops on idle) + re-seed the CC token, the GitHub token, &
@@ -307,12 +332,14 @@ export async function openChat(
             hostServers: opts.hostServers,
             attach: target,
             resumeSessionId: sessionId, // seed claudeSessionId; not used to relaunch
+            ...(opts.attachLedger ? { ledger: true } : {}),
           });
           await reattached.open();
           session = reattached;
           session.onIdleResult = idleNotify;
           session.onRateLimit = opts.onRateLimit;
           session.onIdleUsage = opts.onIdleUsage;
+          session.onLedgerMismatch = opts.onLedgerMismatch;
           emitOpen();
           return session;
         } catch {
@@ -333,10 +360,12 @@ export async function openChat(
         scrubSecrets: opts.scrubSecrets,
         hostServers: opts.hostServers,
         model: cfg.claudeModel,
+        ...(opts.ledger ? { ledger: true } : {}),
       });
       session.onIdleResult = idleNotify;
       session.onRateLimit = opts.onRateLimit;
       session.onIdleUsage = opts.onIdleUsage;
+      session.onLedgerMismatch = opts.onLedgerMismatch;
       await session.open();
       emitOpen();
       return session;
@@ -401,16 +430,17 @@ export async function openChat(
       signal?: AbortSignal,
       onQuestion?: OnQuestion,
       onLongRunning?: () => void,
+      uuid?: string,
     ): Promise<string> => {
       let s = await ensureSession();
-      let r = await s.send(prompt, onStep, signal, onQuestion, onLongRunning);
+      let r = await s.send(prompt, onStep, signal, onQuestion, onLongRunning, uuid);
       // Retry ONLY if the process died before the turn produced any output (started ===
       // false) — re-sending a turn that already ran tools could double-apply (duplicate
       // commits/PRs). A turn that began mutating is surfaced as an error instead.
       if (r.status === 'error' && !r.started && !signal?.aborted) {
         session = undefined;
         s = await ensureSession();
-        r = await s.send(prompt, onStep, signal, onQuestion, onLongRunning);
+        r = await s.send(prompt, onStep, signal, onQuestion, onLongRunning, uuid);
       }
       if (s.sessionId()) sessionId = s.sessionId(); // track from init/result (covers forks)
       lastUsage = r.usage; // recorded even for canceled/errored turns — tokens were burned
@@ -428,14 +458,20 @@ export async function openChat(
       }
       return r.resultText.trim() || '(no output)';
     },
-    adoptInflight: async (onStep?: (step: string) => void, onLongRunning?: () => void) => {
+    adoptInflight: async (onStep?: (step: string) => void, onLongRunning?: () => void, uuid?: string) => {
       const s = await ensureSession(); // reattach (attach path) — parses the snapshot
-      const r = await s.adoptInflight(onStep, undefined, onLongRunning);
+      const r = await s.adoptInflight(onStep, undefined, onLongRunning, uuid);
       if (s.sessionId()) sessionId = s.sessionId();
       lastUsage = r.usage;
       const ok = r.status === 'ok' && !r.isError;
       return { ok, status: r.status, text: r.resultText.trim() || '(no output)' };
     },
     lastUsage: () => lastUsage,
+    hasLedger: () => session?.hasLedger() ?? false,
+    injectRefusal: () => (session ? session.injectRefusal() : 'session not open'),
+    backgroundTasks: () => session?.backgroundTasks() ?? [],
+    pendingTurnTakenUp: () => session?.pendingTurnTakenUp() ?? false,
+    inject: (text, o) => (session ? session.inject(text, o) : Promise.resolve({ kind: 'refused', reason: 'session not open' } as InjectOutcome)),
+    recoverInjected: async (o) => (await ensureSession()).recoverInjected(o),
   };
 }

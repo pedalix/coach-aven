@@ -40,7 +40,18 @@ export interface ChatRecord {
   // A turn whose Slack status message was still "Working…" when the bot last wrote state.
   // On startup the bot reattaches and finalizes this message with the recovered result —
   // see resumeInflightTurns. Cleared when the turn completes.
-  inflight?: { channel: string; statusTs: string; msgThreadTs?: string; startedAt: string };
+  inflight?: {
+    channel: string;
+    statusTs: string;
+    msgThreadTs?: string;
+    startedAt: string;
+    // The turn's message uuid in a session with the message ledger (agent-messaging D13): the
+    // restart's recovery settles the turn only on the result after its echo.
+    uuid?: string;
+  };
+  // The session was spawned with the message ledger (agent-messaging D13). A reattach follows this,
+  // not the current configuration. Absent on every session of a project without `messaging`.
+  ledger?: true;
   // A one-way latch: set true the first turn whose answer contained a PR URL. Shown in the
   // session panel ("has this thread produced a PR?"). Never cleared.
   prCreated?: boolean;
