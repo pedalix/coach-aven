@@ -465,11 +465,11 @@ The stream-json input accepts an optional `priority` on a user message (`now` | 
 - **The Agent SDK as the driver** (`spawnClaudeCodeProcess` runs the CLI in "VMs, containers, or remote environments"): it would replace `ClaudeSession`'s hand-written protocol. But the bot's reattach to a running CLI after its own restart has no counterpart there. That is a separate evaluation, in `cli-probe`'s follow-ups, not part of this change.
 
 **Contract check.** The observed rows are not a published contract. A contract check pins them:
-- `cli-probe` runs the mid-turn scenarios in CI against the fleet's pinned CLI and validates every event against the SDK's declared types. A pin bump that changes the table, or the types, fails CI.
+- `cli-probe` makes the rows the delivery relies on contract scenarios. An operator runs them live against a CLI version and commits the report and the recordings. CI re-checks every recorded event against the SDK's declared types, replays the recordings through `ClaudeSession`, and fails when the images' pin is not a probed version. A pin bump that breaks a contract row, or the types, fails CI.
 - The check is **per session**, because a project can override `cliVersion` and the CLI is upgraded in place at chat prep (`src/cliversion.ts`).
   - The session reads its `system/init`, preferring a capability when the CLI reports one and falling back to the version.
   - Injection is used only on a CLI that `cli-probe` passed; otherwise that session gets queued turns and logs `ask.inject.disabled`.
-  - The passed set lives in `src/cliversion.ts`, beside the fleet pin. The pin-bump PR updates both, with the probe report.
+  - The passed set is `PROBED_CLI_VERSIONS` in `src/cliversion.ts`, beside the fleet pin. The pin-bump PR updates both, with the probe report.
 
 ### D13. Message accounting in `ClaudeSession`
 Today `ClaudeSession` keeps one pending turn and settles it with the first `result` that arrives. That is wrong as soon as two messages can be in flight. It is already subtly wrong with CLI background tasks: a background report that finishes while a person's turn waits to start can settle that turn with the report's text. Injection would make it routine.
@@ -644,7 +644,7 @@ The Home tab cheat-sheet gains the verb and a line on held messages. It is shown
   - Shadow conversations: `wrapTask` forbids writing anything, and the hard read-only permission mode (the next step above) closes this.
   - The automatic path, the bot's own posts coming back through the project's sources, is closed by the marker (D14).
   - What an asking agent deliberately writes down for its person stays that person's decision, and is documented as the limit.
-- **[Undocumented CLI behaviour]** Fold-in timing, the empty `result` of `now`, kill-before-take-up and the hooks' timing are observed, not published. → `cli-probe` pins them in CI against the fleet's pin and the SDK's types, and each session's check falls back to queued turns.
+- **[Undocumented CLI behaviour]** Fold-in timing, the empty `result` of `now`, kill-before-take-up and the hooks' timing are observed, not published. → `cli-probe` records them per probed version and makes the ones the delivery relies on contract scenarios, re-checked in CI against the SDK's types; each session's check falls back to queued turns.
 - **[Shadow data at rest]** `shadow/`, the task records and the marks hold other agents' text for 30 days on the answering installation, outside the ops repo. `docs/hub.md` documents this.
 - **[Answer size]** Long answers in one frame. → The A2A message is capped at 256 KiB on send; answers are truncated with a note, and attachments are out of scope.
 - **[Clock drift]** Out of the system's responsibility: nothing breaks, and the bot warns past 30 s.
