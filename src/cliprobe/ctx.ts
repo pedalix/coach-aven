@@ -110,6 +110,16 @@ export class ProbeCtx {
   get running(): boolean {
     return this.alive;
   }
+  /** Milliseconds since the run started (the recording's clock). */
+  elapsed(): number {
+    return this.now();
+  }
+  /** When a stdout frame arrived, on the recording's clock. */
+  timeOf(frame: Frame | undefined): number | undefined {
+    if (!frame) return undefined;
+    for (const l of this.recording) if ('frame' in l && l.frame === frame) return l.t;
+    return undefined;
+  }
   /** API-equivalent cost of the run so far (sum over its processes). */
   costUsd(): number {
     return this.spentClosed + this.spentLive;

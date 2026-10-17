@@ -122,7 +122,8 @@ image. `laravel` is `docker:28-dind` + Sail shims (needs sysbox or `--privileged
 drops dockerd, builds amd64 + arm64 and runs unprivileged. Point `SNAPSHOT_IMAGE` at the
 `:<gitsha>` tag the build prints. The Claude Code CLI inside sandboxes is pinned by
 `CLAUDE_CLI_VERSION` (warm sandboxes converge in place; `"cliVersion"` per project is the
-canary) — see `src/cliversion.ts`.
+canary) — see `src/cliversion.ts`. Only versions the CLI probe has checked can be pinned: a bump
+starts with `npm run cli-probe -- run --cli <version>` and its report (`docs/cli-probe.md`).
 
 Why no PHP/Composer in the image: with Sail, the Laravel runtime lives in the project's own
 containers at the project's own versions; bare `php`/`composer`/`artisan` are shimmed into

@@ -4,7 +4,8 @@
 //      shape (a UUID stays a UUID, an id keeps its length and alphabet), replaced wherever they occur —
 //      inside paths and text too — so cross-references survive;
 //   2. opaque blobs (thinking signatures) → a fixed string: random base64 can match a deny-list by chance;
-//   3. wall-clock fields and the whole rate-limit information → fixed values;
+//   3. wall-clock fields and the whole rate-limit information → fixed values, and wall-clock times
+//      and dates inside any string (a memory file's frontmatter, a model's text) → the fixed ones;
 //   4. every string, at any depth: the run's paths, the home directory, the probe cache, /run/user/<uid>
 //      and the CLI's own temp root, in their plain and their encoded (`/` → `-`) forms;
 //   5. token-level stream_event deltas collapsed to one per content block (unless kept).
@@ -25,6 +26,8 @@ const PREFIXED_IN = /\b(toolu|msg|req|srvtoolu|file)_[A-Za-z0-9]{8,}\b/g;
 // Fields whose values are CLI-issued ids without a recognizable prefix (run ids encode their start time).
 const ID_KEYS = /^(run_id|task_id|agent_id|parent_task_id|shell_id|bash_id|backgroundTaskId|taskId|agentId)$/;
 const FIXED_TIME = '2000-01-01T00:00:00.000Z';
+const ISO_TIME_IN = /\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?/g;
+const DATE_IN = /\b(?:19|20)\d{2}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\b/g;
 const FIXED_EPOCH_S = 4102444800; // 2100-01-01, in seconds like the CLI's resetsAt
 const FIXED_SIGNATURE = 'probe-signature';
 
@@ -133,10 +136,12 @@ export function makeScrubber(lines: readonly RecordLine[], paths: RunPaths): {
     for (const [from, to] of rules) if (out.includes(from)) out = out.split(from).join(to);
     out = out.replace(UUID_IN, (m) => ids.get(m.toLowerCase()) ?? m);
     for (const [from, to] of idRules) if (out.includes(from)) out = out.split(from).join(to);
-    return out;
+    return out.replace(ISO_TIME_IN, FIXED_TIME).replace(DATE_IN, FIXED_TIME.slice(0, 10));
   };
   // 2–3. fields replaced whole
   const field = (k: string, x: Json): Json | undefined => {
+    // A protocol revision is date-shaped (MCP's `2025-11-25`), not a wall-clock time: kept as is.
+    if (k === 'protocolVersion' && typeof x === 'string') return x;
     if (k === 'signature' && typeof x === 'string') return FIXED_SIGNATURE;
     if (k === 'timestamp' && typeof x === 'string') return FIXED_TIME;
     if (/resetsAt$/i.test(k) && typeof x === 'number') return FIXED_EPOCH_S;

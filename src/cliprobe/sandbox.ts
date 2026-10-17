@@ -6,7 +6,10 @@
 // sandbox of an account — and it is deleted when the run ends, failed runs included.
 import type { ClaudeLaunch } from '../claudeSession.js';
 import { cliUpgradeCmd, parseCliMarkers } from '../cliversion.js';
+import type { Config } from '../config.js';
+import { DaytonaDriver } from '../daytona.js';
 import type { SandboxDriver, SandboxHandle } from '../driver.js';
+import { SshDockerDriver } from '../sshdocker.js';
 import { seedClaudeAuth } from '../project.js';
 import { DISPOSABLE_SANDBOX_PREFIX } from '../sandboxopts.js';
 import type { ProbeProcess, ProcessHandlers, Transport } from './ctx.js';
@@ -102,3 +105,25 @@ export async function sandboxTransport(o: SandboxTransportOptions): Promise<Tran
     },
   };
 }
+
+/**
+ * The bot's driver, from the probe's OWN environment only (never an installation's configuration
+ * files): SANDBOX_DRIVER, SSHDOCKER_HOST / SSHDOCKER_RUNTIME or DAYTONA_API_URL / _API_KEY /
+ * _ORGANIZATION_ID, SNAPSHOT_IMAGE (and SNAPSHOT_NAME on Daytona), SANDBOX_NAME_PREFIX for the delete guard.
+ */
+export function driverFromEnv(env: NodeJS.ProcessEnv): { driver: SandboxDriver; label: string } {
+  const kind = env.SANDBOX_DRIVER;
+  if (kind !== 'ssh-docker' && kind !== 'daytona') throw new Error('--transport sandbox needs SANDBOX_DRIVER=ssh-docker or daytona in the probe’s environment');
+  if (!env.SNAPSHOT_IMAGE) throw new Error('--transport sandbox needs SNAPSHOT_IMAGE (the plain sandbox image) in the probe’s environment');
+  const cfg = {
+    sandboxDriver: kind,
+    sshDocker: env.SSHDOCKER_HOST ? { host: env.SSHDOCKER_HOST, runtime: env.SSHDOCKER_RUNTIME === 'sysbox-runc' ? 'sysbox-runc' : 'privileged' } : undefined,
+    daytona: env.DAYTONA_API_URL
+      ? { apiUrl: env.DAYTONA_API_URL, apiKey: env.DAYTONA_API_KEY ?? '', organizationId: env.DAYTONA_ORGANIZATION_ID ?? '' }
+      : undefined,
+    snapshot: { name: env.SNAPSHOT_NAME || 'unused-under-ssh-docker', image: env.SNAPSHOT_IMAGE, cpu: 2, memory: 4, disk: 20 },
+    sandbox: { autoStopMinutes: 30, workDir: '/root/work', namePrefix: env.SANDBOX_NAME_PREFIX || 'proj-' },
+  } as unknown as Config;
+  return kind === 'ssh-docker' ? { driver: new SshDockerDriver(cfg), label: 'sandbox (ssh-docker)' } : { driver: new DaytonaDriver(cfg), label: 'sandbox (Daytona)' };
+}
+

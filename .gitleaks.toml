@@ -16,7 +16,8 @@ paths = [
   '''node_modules/''',
   '''src/scrub\.test\.ts''',
   '''src/sources/audit\.test\.ts''',
-  '''src/fixtures/.*\.json''',
+  '''src/fixtures/.*\.json$''',              # anchored: .jsonl recordings (src/fixtures/cli/) are scanned
+  '''src/fixtures/scrub-(canary|gold)\.jsonl$''', # the scrub tests' deliberate secret shapes
   '''\.env\.example$''',
   '''infra/deploy/ops\.example/\.env\.example''',
   '''package-lock\.json''',

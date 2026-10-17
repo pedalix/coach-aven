@@ -26,7 +26,7 @@
   - delete in `finally`.
 
   Verified by `src/cliprobe/sandbox.test.ts` with a fake driver whose listing also holds project sandboxes (scenarios "Run in a sandbox", "The run fails midway", "Leftover from a crashed run")
-- [ ] 2.5 `npm run cli-probe` (`src/cliprobe/cli.ts`: `run`, `check`, `report`) in `package.json`. Nothing outside `src/cliprobe/` imports the probe, and the probe imports no state, chat or project module. Verified by `src/cliprobe/imports.test.ts`
+- [x] 2.5 `npm run cli-probe` (`src/cliprobe/cli.ts`: `run`, `check`, `report`) in `package.json`. Nothing outside `src/cliprobe/` imports the probe, and the probe imports no state, chat, sources or project-configuration module. Verified by `src/cliprobe/imports.test.ts`
 
 ## 3. Recordings, report and type checks
 
@@ -54,23 +54,23 @@
 
 ## 4. Scenarios and the first report
 
-- [ ] 4.1 The nine contract scenarios of design D7, each settled on CLI 2.1.282 with the local transport: `npm run cli-probe -- run --cli 2.1.282`. The `turn` recording's `system/init` lists no plugin and no skill from outside the run (scenario "The operator's configuration does not leak")
-- [ ] 4.2 The exploratory set: the scratchpad's scenarios ported, plus the candidates from the declarations (`still_queued`, `cancel_async_message`, `origin`, `compaction`). Run on 2.1.282; their verdicts are in the report and gate nothing
-- [ ] 4.3 `src/claudeSession.recorded.test.ts` replays every contract recording through `ClaudeSession` (design D6). It reads the fixtures only and imports nothing from `src/cliprobe/` (scenarios "A recorded turn", "A recorded host tool call", "A recorded background report")
+- [x] 4.1 The nine contract scenarios of design D7, each settled on CLI 2.1.282 with the local transport: `npm run cli-probe -- run --cli 2.1.282`. The `turn` recording's `system/init` lists no plugin and no skill from outside the run (scenario "The operator's configuration does not leak")
+- [x] 4.2 The exploratory set: the scratchpad's scenarios ported, plus the candidates from the declarations (`still_queued`, `cancel_async_message`, `origin`, `compaction`). Run on 2.1.282; their verdicts are in the report and gate nothing
+- [x] 4.3 `src/claudeSession.recorded.test.ts` replays every contract recording through `ClaudeSession` (design D6). It reads the fixtures only and imports nothing from `src/cliprobe/` (scenarios "A recorded turn", "A recorded host tool call", "A recorded background report")
 - [ ] 4.4 The first report, `src/fixtures/cli/2.1.282/`, must be:
   - normalized;
   - read through once by a person;
   - clean under `scripts/public-guard.sh` with the private deny-list, and under gitleaks with the anchored allowlist.
 
   The PR lists any contract hypothesis that was corrected to what the CLI does (design, Migration Plan) (scenario "Identifiers and secrets in recordings")
-- [ ] 4.5 `PROBED_CLI_VERSIONS = ['2.1.282']` in `src/cliversion.ts`, plus the gates: reports and hashes, contract coverage, both Dockerfiles' `ARG` and `.env.example`. Verified by `src/cliprobe/gate.test.ts` (scenarios "A pin bump without a report", "A contract scenario fails on a new version", "A recording edited after its report")
-- [ ] 4.6 `snapshot/build-and-push.sh` refuses a pin outside the set before building. Verified by a `PUSH=0` run with `CLAUDE_CLI_VERSION` set to an unprobed version, which stops and names the probed versions (scenario "An image built with an unprobed pin")
-- [ ] 4.7 A sandbox-transport run of `turn` and `host-tool` on ssh-docker against the local Docker engine. Its transport section goes in the PR, and no fixtures are kept from it. The driver's listing of the bot's project sandboxes (names and creation times) is identical before and after the run (scenario "Probe beside a running bot")
+- [x] 4.5 `PROBED_CLI_VERSIONS = ['2.1.282']` in `src/cliversion.ts`, plus the gates: reports and hashes, contract coverage, both Dockerfiles' `ARG` and `.env.example`. Verified by `src/cliprobe/gate.test.ts` (scenarios "A pin bump without a report", "A contract scenario fails on a new version", "A recording edited after its report")
+- [x] 4.6 `snapshot/build-and-push.sh` refuses a pin outside the set before building. Verified by a `PUSH=0` run with `CLAUDE_CLI_VERSION` set to an unprobed version, which stops and names the probed versions (scenario "An image built with an unprobed pin")
+- [x] 4.7 A sandbox-transport run of `turn` and `host-tool` on ssh-docker against the local Docker engine. Its transport section goes in the PR, and no fixtures are kept from it. The driver's listing of the bot's project sandboxes (names and creation times) is identical before and after the run (scenario "Probe beside a running bot")
 
 ## 5. Docs and rollout
 
-- [ ] 5.1 `docs/cli-probe.md` covers running the probe, writing a scenario, reading a report and the pin-bump procedure (design D9), including when a version may leave the set. The README's Claude Code version section, `docs/housekeeping.md` and CLAUDE.md's architecture pointers link to it. Verified by reading it through, and by the public-guard on the docs
-- [ ] 5.2 A `docs/rollout.md` ledger row:
+- [x] 5.1 `docs/cli-probe.md` covers running the probe, writing a scenario, reading a report and the pin-bump procedure (design D9), including when a version may leave the set. The README's Claude Code version section, `docs/housekeeping.md` and CLAUDE.md's architecture pointers link to it. Verified by reading it through, and by the public-guard on the docs
+- [x] 5.2 A `docs/rollout.md` ledger row:
   - **What:** the cli-probe harness, the 2.1.282 report and the gates in CI and in the image build; the `claudeLaunch()` and `src/clienv.ts` refactors; `deleteSandbox` with its guard on the drivers (no bot caller).
   - **Gate:** none, bucket 1 (tooling; the spawn command is pinned byte for byte).
   - **Canary:** home turns start as before.

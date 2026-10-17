@@ -7,8 +7,8 @@ the DinD disk from filling, clearing wedged processes. The janitor, as opposed t
 > **Status: v1 shipped.** A `housekeeping` routine kind (`/aven housekeeping on|off|now`)
 > runs the janitor nightly: dockerd guard, threshold-gated docker prune (never volumes),
 > proactive worktree reap, and (with `CLAUDE_CLI_VERSION` set) converging the sandbox's
-> Claude Code CLI to the pin (`src/cliversion.ts`; the README's *Claude Code version*
-> section has the bump/canary procedure). Pure script/report logic in `src/housekeeping.ts` (tested);
+> Claude Code CLI to the pin (`src/cliversion.ts`; the bump/canary procedure, which starts with a
+> probe of the new version, is in `docs/cli-probe.md`). Pure script/report logic in `src/housekeeping.ts` (tested);
 > firing in `src/pollers.ts`; the dockerd guard also runs at every chat prep
 > (`ensureDockerd`). Still open below: branch pruning, wedged-process detection,
 > a fleet-wide pass.

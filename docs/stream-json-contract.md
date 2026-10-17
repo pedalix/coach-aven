@@ -5,9 +5,12 @@ protocol. The public docs cover the Agent SDK abstraction (`canUseTool` callback
 headless output format, but **not** the exact stdin `control_request`/`control_response`
 shapes or the `AskUserQuestion` answer format. The sources of truth are:
 
-1. The Claude Agent SDK source (`query.ts` in slopus/happy-cli is a vendored copy of it).
+1. The Claude Agent SDK source (`query.ts` in slopus/happy-cli is a vendored copy of it), and its
+   type declarations (`sdk.d.ts` of `@anthropic-ai/claude-agent-sdk`, the de facto schema).
 2. **Empirical testing** against the live CLI — which is how the shapes below were verified
    (in a Daytona sandbox, June 2026, claude-code 2.1.x).
+3. **The CLI probe** (`docs/cli-probe.md`): what the bot relies on, as contract scenarios checked per
+   CLI version — `src/fixtures/cli/<version>/REPORT.md` is the measured state of a pinned version.
 
 This is what our orchestrator (`orchestrator/src/claudeSession.ts`) relies on.
 
@@ -68,8 +71,9 @@ Permission / question answer (reply to a `can_use_tool` request, same id):
    the metering records carry.
 - `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"|"allowed_warning"|"rejected",
    "rateLimitType":"five_hour"|"seven_day","resetsAt":<unix s>,"unifiedWindows":{"five_hour":{"utilization",
-   "resetsAt"},"seven_day":{…}}}}` — **subscription quota state**, emitted right before
-   `system/init` on every turn. UNDOCUMENTED; `unifiedWindows` (utilization 0–1) appears
+   "resetsAt"},"seven_day":{…}}}}` — **subscription quota state**, emitted once per turn (on 2.1.282
+   after `system/init` and the first assistant message — the probe's recordings; the parser does not
+   depend on the order). `unifiedWindows` is undeclared in the SDK types; `unifiedWindows` (utilization 0–1) appears
    from CLI ≈2.1.2xx (2.1.183 sends status + reset only). Parsed by `src/ratelimit.ts` →
    alert channel on warning/rejected transitions, `/aven status` quota line.
 

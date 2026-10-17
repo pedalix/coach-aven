@@ -41,6 +41,8 @@ const recording: RecordLine[] = [
   { t: 41, dir: 'out', frame: { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Hel' } } } },
   { t: 42, dir: 'out', frame: { type: 'stream_event', event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'lo' } } } },
   { t: 50, dir: 'in', frame: { type: 'user', message: { role: 'user', content: `the earlier call was ${TOOLU}` } } },
+  { t: 55, dir: 'out', frame: { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_01MEMwriteXYZ', name: 'Write', input: { content: '---\nmodified: 2026-10-17T16:36:13.101Z\n---\nSaved on 2026-10-17.' } }] } } },
+  { t: 58, dir: 'out', frame: { type: 'control_request', request_id: 'r9', request: { subtype: 'mcp_message', server_name: 'probe', message: { jsonrpc: '2.0', id: 0, method: 'initialize', params: { protocolVersion: '2025-11-25' } } } } },
   { t: 60, proc: 'exit', code: null, signal: 'SIGKILL' },
 ];
 
@@ -52,6 +54,9 @@ test('normalizeRecording — a recording is normalized: no machine path, issued 
   }
   const init = (out[1] as { frame: Record<string, unknown> }).frame;
   assert.equal(init.cwd, '/probe/work');
+  const memory = (out.find((l) => JSON.stringify(l).includes('modified:')) as unknown as { frame: { message: { content: { input: { content: string } }[] } } }).frame;
+  assert.ok(JSON.stringify(out).includes('"protocolVersion":"2025-11-25"'), 'a date-shaped protocol revision is not a time');
+  assert.equal(memory.message.content[0]!.input.content, '---\nmodified: 2000-01-01T00:00:00.000Z\n---\nSaved on 2000-01-01.', 'times and dates inside text are fixed too');
   assert.equal(init.session_id, '00000000-0000-4000-8000-000000000001', 'a UUID placeholder is itself a UUID');
   assert.equal(init.messaging_socket_path, '/probe/run/cc-socks/4242.sock');
   assert.equal((init.memory_paths as { auto: string }).auto, `/probe/home/.claude/projects/${encodePath('/probe/work')}/memory`);

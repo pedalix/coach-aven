@@ -309,8 +309,8 @@ export class ClaudeSession {
   // never set on no-UI asks/dreams), while metering must hold for every session from the
   // moment it opens, or background work burns tokens no usage record ever sees.
   onIdleUsage?: (info: { usage?: TurnUsage; isError: boolean; durationMs: number }) => void;
-  // Fires on every `rate_limit_event` (subscription quota state, emitted right before
-  // system/init at the start of each turn) — see ratelimit.ts. Mutable like onIdleResult.
+  // Fires on every `rate_limit_event` (subscription quota state, once per turn — on 2.1.282 after
+  // system/init and the first assistant message, per the CLI probe) — see ratelimit.ts. Mutable like onIdleResult.
   onRateLimit?: (info: RateLimitInfo) => void;
 
   constructor(

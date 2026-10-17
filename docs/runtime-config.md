@@ -265,8 +265,9 @@ mechanism, the one the Agent SDK uses: right after spawn the bot writes
 sends each server's handshake and every `tools/call` back as `control_request{mcp_message}`, and the
 bot answers in `control_response.response.mcp_response`. The agent sees ordinary MCP tools
 (`mcp__host__propose`, `mcp__sources__search`, …) and the session's `init` lists them with
-`source: "sdk"`. `scripts/host-tools-smoke.mjs` proves the round trip against a real CLI — run it
-inside a sandbox on every Claude Code pin bump.
+`source: "sdk"`. The CLI probe's `host-tool` contract scenario proves the round trip against every
+probed CLI version (`docs/cli-probe.md`); `scripts/host-tools-smoke.mjs` remains for a manual check
+inside a project's sandbox.
 
 - **The caller is the session.** A tool call is attributed to the project and conversation of the
   session it arrived on; a project or thread named in the input is ignored.

@@ -27,6 +27,16 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      # OpenSpec cli-probe: the committed CLI recordings (src/fixtures/cli/) re-checked against the SDK
+      # declarations their reports name — fetched from the npm registry, never committed. No model
+      # credential: CI never runs the CLI; live runs are the operator's step (docs/cli-probe.md).
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/coach-aven/cli-probe/sdk
+          key: cli-probe-sdk-${{ hashFiles('src/fixtures/cli/*/report.json') }}
+          restore-keys: cli-probe-sdk-
+      - name: cli-probe check (recorded CLI frames against the SDK's declarations)
+        run: npm run cli-probe -- check
       - name: public-guard (no installation identifiers in tracked files)
         env:
           # The private deny-list (names, ids, hosts) — a secret, so it never sits in this public repo.

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { catalogue, changedSince, failing, mergeScenarios, recordingText, renderReport, sha256, type ReportJson, type ReportScenario } from './report.js';
+import { catalogue, changedSince, failing, groupFindings, mergeScenarios, recordingText, renderReport, sha256, type ReportJson, type ReportScenario } from './report.js';
 import type { RecordLine, RunOutcome } from './types.js';
 
 const GOLDEN = new URL('../fixtures/cliprobe/report.golden.md', import.meta.url).pathname;
@@ -57,14 +57,14 @@ const now: ReportJson = {
     row('chain-priority', 'holds', [run('holds', 0.18, { answeredIn: 'result#1' })], { variant: 'next', contract: false, model: 'claude-opus-5-5' }),
   ],
   catalogue: catalogue([rec2]),
-  findings: [
+  findings: groupFindings([
     { dir: 'out', file: 'turn.jsonl', line: 2, kind: 'undeclared-field', frameKind: 'system/init', path: '$.capabilities', detail: 'not declared', origin: 'protocol' },
     { dir: 'out', file: 'turn.jsonl', line: 3, kind: 'violation', frameKind: 'result/success', path: '$.usage', detail: 'required, missing', origin: 'protocol' },
     { dir: 'out', file: 'turn.jsonl', line: 3, kind: 'violation', frameKind: 'assistant', path: '$.message.usage.server_tool_use', detail: 'required, missing', origin: 'api' },
     { dir: 'out', file: 'turn.jsonl', line: 6, kind: 'violation', frameKind: 'assistant', path: '$.message.usage.server_tool_use', detail: 'required, missing', origin: 'api' },
     { dir: 'in', file: 'turn.jsonl', line: 4, kind: 'violation', frameKind: 'user', path: '$.parent_tool_use_id', detail: 'required, missing', origin: 'protocol' },
     { dir: 'out', file: 'turn.jsonl', line: 5, kind: 'undeclared-kind', frameKind: 'system/telemetry', path: '$', detail: 'no declared kind', origin: 'protocol' },
-  ],
+  ]),
 };
 
 test('changedSince — a pin bump shows what changed: verdicts, new kinds and fields', () => {
@@ -87,7 +87,9 @@ test('renderReport — REPORT.md (golden): header with cost, changed-since, scen
 });
 
 test('failing — only protocol violations in frames the CLI wrote fail the check', () => {
-  assert.deepEqual(failing(now.findings).map((f) => `${f.dir} ${f.path}`), ['out $.usage']);
+  assert.deepEqual(failing(now.findings).map((f) => `${f.dir} ${f.path} ${f.count}`), ['out $.usage 1']);
+  const api = now.findings.find((g) => g.origin === 'api')!;
+  assert.deepEqual([api.count, api.first], [2, { file: 'turn.jsonl', line: 3 }], 'repeated findings are one group with a count and the first place');
 });
 
 test('mergeScenarios — a partial run replaces its rows only; recordings hash as committed text', () => {

@@ -156,7 +156,7 @@ One recording per scenario: the first conclusive run. The other runs are summari
 
 Recordings are tracked files, so public-guard scans them. The gitleaks allowlist entry becomes `src/fixtures/.*\.json$`, so `.jsonl` recordings are scanned too. Existing `.jsonl` fixtures that hold deliberate secret shapes are listed by name.
 
-**Size.** About 500 KB per version. A version leaves the repository when it leaves the probed set.
+**Size.** About 600 KB per version (2.1.282: 30 recordings, the report 42 KB). A version leaves the repository when it leaves the probed set.
 
 **`REPORT.md`** contains:
 - a header: CLI, SDK release, models, transport, date, total cost;

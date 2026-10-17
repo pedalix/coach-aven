@@ -14,6 +14,12 @@
 // The Dockerfile takes the same pin as a build arg so fresh sandboxes match the fleet.
 // Pure helpers + shell snippets here (tested); the exec/alert plumbing lives in the callers.
 //
+// The PROBED set (OpenSpec `cli-probe`): CLI versions whose committed probe report
+// (src/fixtures/cli/<version>/) has every contract scenario holding — what the bot relies on, measured.
+// The images' default pin and .env.example must be in it (src/cliprobe/gate.test.ts), and the image
+// build refuses any other (snapshot/build-and-push.sh). An installation pins only a probed version;
+// a version leaves the set only when no installation or project still pins it.
+//
 // WHERE it installs: an override prefix under /root (CLI_PREFIX), not the image's
 // /usr/local. Under sysbox (the ssh-docker driver) the image layers belong to an unmapped
 // uid — they read as `nobody` and even root can't rename inside /usr/local/lib/node_modules
@@ -23,6 +29,8 @@
 // absent → the image's copy. Same rule everywhere, no per-driver special case.
 
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
+
+export const PROBED_CLI_VERSIONS: readonly string[] = ['2.1.282'];
 
 // The per-sandbox install prefix (npm --prefix → <prefix>/bin/claude, <prefix>/lib/node_modules).
 export const CLI_PREFIX = '/root/.local';
