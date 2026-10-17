@@ -15,8 +15,83 @@ import { parseRateLimitEvent, type RateLimitInfo } from './ratelimit.js';
 import { CLI_PATH_ENV } from './cliversion.js';
 import { log } from './log.js';
 import { scrubSummary, scrubText } from './scrub.js';
-import { ATTRIBUTION_SETTINGS, gitIdentityEnv } from './gitidentity.js';
+import { ATTRIBUTION_SETTINGS, GIT_EMAIL, GIT_NAME, gitIdentityEnv } from './gitidentity.js';
 import type { HostServerRoute, JsonRpc } from './hosttools.js';
+
+// The CLI's command line for one session — the ONE place the bot's flags live. ClaudeSession runs
+// `command(cwd)` in the sandbox; the CLI probe (src/cliprobe/, OpenSpec `cli-probe`) spawns the same
+// `args` with the same `env` locally, or runs the same `command(cwd)` in a throwaway sandbox, so a
+// probe always tests what the bot runs. `settings` and `extraArgs` are the probe's instruments (hooks,
+// --replay-user-messages, …); the bot passes neither, and its command stays byte-identical
+// (claudeSession.test.ts pins it).
+export interface ClaudeLaunchOpts {
+  model?: string;
+  mcpConfigPath?: string;
+  resumeSessionId?: string;
+  systemPrompt?: string;
+  avenSession?: string;
+  // Merged into the single --settings JSON beside the attribution settings.
+  settings?: Record<string, unknown>;
+  // Appended after the bot's own flags.
+  extraArgs?: readonly string[];
+}
+export interface ClaudeLaunch {
+  // The variables every spawn sets besides PATH and the token: behaviour + git identity (+ AVEN_SESSION).
+  env: Record<string, string>;
+  // The flags, as argv (no binary).
+  args: string[];
+  // The sandbox command line: cd, the pinned CLI first on PATH, the token from its file, env, claude + flags.
+  command(cwd: string): string;
+}
+export function claudeLaunch(o: ClaudeLaunchOpts): ClaudeLaunch {
+  const settings = o.settings ? { ...ATTRIBUTION_SETTINGS, ...o.settings } : ATTRIBUTION_SETTINGS;
+  const extra = o.extraArgs ?? [];
+  // No positional prompt → persistent mode (turns stream in via stdin). --verbose is
+  // mandatory with stream-json. --strict-mcp-config ignores the repo's own .mcp.json;
+  // --mcp-config adds ONLY our per-project servers (e.g. Grafana). Without it,
+  // --strict-mcp-config = no servers.
+  // BOTH --dangerously-skip-permissions AND --permission-prompt-tool stdio: verified
+  // to coexist — normal tools auto-run (bypass, no round-trip) while AskUserQuestion
+  // STILL fires a can_use_tool control_request we answer (→ Slack buttons).
+  // --settings attribution: commits and PRs credit coach-aven[bot] (gitidentity.ts).
+  const args = [
+    '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose',
+    '--dangerously-skip-permissions', '--permission-prompt-tool', 'stdio', '--strict-mcp-config',
+    '--settings', JSON.stringify(settings),
+    ...(o.model ? ['--model', o.model] : []),
+    ...(o.mcpConfigPath ? ['--mcp-config', o.mcpConfigPath] : []),
+    ...(o.resumeSessionId ? ['--resume', o.resumeSessionId] : []),
+    ...(o.systemPrompt ? ['--append-system-prompt', o.systemPrompt] : []),
+    ...extra,
+  ];
+  const env: Record<string, string> = {
+    GIT_AUTHOR_NAME: GIT_NAME,
+    GIT_AUTHOR_EMAIL: GIT_EMAIL,
+    GIT_COMMITTER_NAME: GIT_NAME,
+    GIT_COMMITTER_EMAIL: GIT_EMAIL,
+    IS_SANDBOX: '1',
+    DISABLE_AUTOUPDATER: '1',
+    ...(o.avenSession ? { AVEN_SESSION: o.avenSession } : {}),
+  };
+  const command = (cwd: string): string => {
+    const resume = o.resumeSessionId ? `--resume ${o.resumeSessionId} ` : '';
+    const sys = o.systemPrompt ? `--append-system-prompt ${sq(o.systemPrompt)} ` : '';
+    const mcp = o.mcpConfigPath ? `--mcp-config ${sq(o.mcpConfigPath)} ` : '';
+    const model = o.model ? `--model ${sq(o.model)} ` : '';
+    return (
+      // CLI_PATH_ENV: the pinned per-sandbox Claude Code (cliversion.ts) wins over the image's.
+      // gitIdentityEnv + --settings attribution: commits are authored by and credit
+      // coach-aven[bot], whatever identity the agent tries to pass (gitidentity.ts).
+      `cd ${sq(cwd)} && ${CLI_PATH_ENV} ${CC_TOKEN_ENV} ${gitIdentityEnv()} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
+      (o.avenSession ? `AVEN_SESSION=${sq(o.avenSession)} ` : '') +
+      `claude --output-format stream-json --input-format stream-json --verbose ` +
+      `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ` +
+      `--settings ${sq(JSON.stringify(settings))} ${model}${mcp}${resume}${sys}` +
+      extra.map((a) => `${sq(a)} `).join('')
+    );
+  };
+  return { env, args, command };
+}
 
 export interface AskQuestion {
   question: string;
@@ -266,26 +341,8 @@ export class ClaudeSession {
       return;
     }
     await this.sandbox.createSession(this.sessionKey);
-    const resume = this.opts.resumeSessionId ? `--resume ${this.opts.resumeSessionId} ` : '';
-    const sys = this.opts.systemPrompt ? `--append-system-prompt ${sq(this.opts.systemPrompt)} ` : '';
-    // --strict-mcp-config ignores the repo's own .mcp.json; --mcp-config adds ONLY our
-    // per-project servers (e.g. Grafana). Without it, --strict-mcp-config = no servers.
-    const mcp = this.opts.mcpConfigPath ? `--mcp-config ${sq(this.opts.mcpConfigPath)} ` : '';
-    const model = this.opts.model ? `--model ${sq(this.opts.model)} ` : '';
-    // No positional prompt → persistent mode (turns stream in via stdin). --verbose is
-    // mandatory with stream-json. --strict-mcp-config ignores the repo's own .mcp.json.
-    // BOTH --dangerously-skip-permissions AND --permission-prompt-tool stdio: verified
-    // to coexist — normal tools auto-run (bypass, no round-trip) while AskUserQuestion
-    // STILL fires a can_use_tool control_request we answer (→ Slack buttons).
-    const command =
-      // CLI_PATH_ENV: the pinned per-sandbox Claude Code (cliversion.ts) wins over the image's.
-      // gitIdentityEnv + --settings attribution: commits are authored by and credit
-      // coach-aven[bot], whatever identity the agent tries to pass (gitidentity.ts).
-      `cd ${sq(this.opts.cwd)} && ${CLI_PATH_ENV} ${CC_TOKEN_ENV} ${gitIdentityEnv()} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
-      (this.opts.avenSession ? `AVEN_SESSION=${sq(this.opts.avenSession)} ` : '') +
-      `claude --output-format stream-json --input-format stream-json --verbose ` +
-      `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ` +
-      `--settings ${sq(JSON.stringify(ATTRIBUTION_SETTINGS))} ${model}${mcp}${resume}${sys}`;
+    const { model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession } = this.opts;
+    const command = claudeLaunch({ model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession }).command(this.opts.cwd);
     const started = await this.sandbox.startSessionCommand(this.sessionKey, command);
     this.cmdId = started.cmdId;
     // Stream stdout until the process exits; resolution/rejection both mean "process gone".

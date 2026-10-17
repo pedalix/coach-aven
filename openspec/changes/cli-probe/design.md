@@ -123,7 +123,7 @@ Why: a run must equal a fresh sandbox, not the operator's laptop, and its record
   7. deletes the sandbox in `finally`.
 
 **Deleting** needs a new `deleteSandbox(name)` on `SandboxDriver`: `docker rm -f` for ssh-docker, the SDK's delete for Daytona.
-- Both implementations first call a shared pure guard, `assertDeletable(name, namePrefix)`, which refuses any name that carries the project prefix. Code never deletes a project's sandbox.
+- Both implementations first call a shared pure guard, `assertDeletable(name, namePrefix)`, which accepts only a throwaway sandbox's name (`cli-probe-…`) and refuses any name that carries the project prefix. Code never deletes a project's sandbox.
 - The probe calls `deleteSandbox` only for `cli-probe-` names. The bot does not call it at all.
 
 Why: the bot never runs the CLI locally. The stdin path differs per driver (the ssh-docker FIFO, the Daytona session input), and `agent-messaging` has to measure it (its task 0.2).

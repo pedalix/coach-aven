@@ -3,7 +3,7 @@ import type { Config } from './config.js';
 import type { ExecOpts, ExecResult, SandboxDriver, SandboxHandle } from './driver.js';
 import { log } from './log.js';
 import { utf8Chunks } from './utf8.js';
-import { resolveSandboxOptions, sandboxManagedBy, type Mount, type SandboxOptions } from './sandboxopts.js';
+import { assertDeletable, resolveSandboxOptions, sandboxManagedBy, type Mount, type SandboxOptions } from './sandboxopts.js';
 
 // SshDockerDriver: sandboxes as Docker containers on a host we own, driven over SSH.
 // The self-hosted answer to Daytona's freeze (see driver.ts): one fixed-cost box runs
@@ -473,4 +473,19 @@ export class SshDockerDriver implements SandboxDriver {
     );
     return parseContainerStates(r.stdout);
   }
+
+  async deleteSandbox(name: string): Promise<void> {
+    assertDeletable(name, this.cfg.sandbox.namePrefix);
+    const r = await this.onHost(deleteSandboxScript(name), { timeoutMs: 60_000 });
+    if (r.stdout.trim() !== 'gone') {
+      throw new Error(`deleteSandbox ${name} failed (exit ${r.code}): ${r.stdout.slice(0, 300)}${errTail(r)}`);
+    }
+  }
+}
+
+// Remove a container and prove it is gone: `docker rm -f` of a missing container fails on some
+// Docker versions and succeeds on others, so the verdict is the inspect afterwards, not rm's exit.
+export function deleteSandboxScript(name: string): string {
+  const n = sq(safeToken(name));
+  return `docker rm -f ${n} >/dev/null 2>&1; if docker inspect ${n} >/dev/null 2>&1; then echo still-there; else echo gone; fi`;
 }

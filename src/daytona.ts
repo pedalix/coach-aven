@@ -2,7 +2,7 @@ import { Daytona, DaytonaConflictError, DaytonaNotFoundError, type Sandbox } fro
 import type { Config } from './config.js';
 import type { ExecOpts, ExecResult, SandboxDriver, SandboxHandle } from './driver.js';
 import { log } from './log.js';
-import { isDefaultSandbox, resolveSandboxOptions, sandboxManagedBy, type SandboxOptions } from './sandboxopts.js';
+import { assertDeletable, isDefaultSandbox, resolveSandboxOptions, sandboxManagedBy, type SandboxOptions } from './sandboxopts.js';
 import { withNetRetry } from './netretry.js';
 
 // The Daytona implementation of SandboxDriver (see driver.ts for the contract). This is
@@ -219,5 +219,13 @@ export class DaytonaDriver implements SandboxDriver {
       if (sb.name) states.set(sb.name, sb.state ?? 'unknown');
     }
     return states;
+  }
+
+  // The guard runs before any API call: this organization's listing holds every sandbox, the
+  // installations' project sandboxes included.
+  async deleteSandbox(name: string): Promise<void> {
+    assertDeletable(name, this.cfg.sandbox.namePrefix);
+    const sandbox = await this.daytona.get(name).catch(() => undefined);
+    if (sandbox) await this.net('delete', () => this.daytona.delete(sandbox, 120));
   }
 }

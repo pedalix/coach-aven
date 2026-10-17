@@ -1,9 +1,9 @@
 ## 1. Shared pieces (no behaviour change)
 
-- [ ] 1.1 `claudeLaunch(opts)` in `src/claudeSession.ts` returns the environment prefix, the behaviour variables and the flags, with one `--settings` value. `ClaudeSession.open()` builds its command from it. Verified by `src/claudeSession.test.ts`: it pins today's full spawn command byte for byte, before and after the move, with and without model, MCP config, resume, system prompt and `AVEN_SESSION`
-- [ ] 1.2 `src/clienv.ts` holds the parent-variable scrub and the isolated environment (configuration directory, token), moved from `src/lab/llm.ts`, which now imports it. Verified by `src/clienv.test.ts`, with `src/lab/llm.test.ts` passing unchanged
-- [ ] 1.3 `deleteSandbox(name)` on `SandboxDriver`: `docker rm -f` for ssh-docker, the SDK's delete for Daytona. Both first call the pure guard `assertDeletable(name, namePrefix)` in `src/sandboxopts.ts`, which refuses a project-prefixed name. The bot does not call `deleteSandbox`.
-  - Verified by `src/sandboxopts.test.ts` and `src/sshdocker.test.ts` (the command, the refusal) (scenario "Asked to delete a project's sandbox").
+- [x] 1.1 `claudeLaunch(opts)` in `src/claudeSession.ts` returns the environment prefix, the behaviour variables and the flags, with one `--settings` value. `ClaudeSession.open()` builds its command from it. Verified by `src/claudeSession.test.ts`: it pins today's full spawn command byte for byte, before and after the move, with and without model, MCP config, resume, system prompt and `AVEN_SESSION`
+- [x] 1.2 `src/clienv.ts` holds the parent-variable scrub and the isolated environment (configuration directory, token), moved from `src/lab/llm.ts`, which now imports it. Verified by `src/clienv.test.ts`, with `src/lab/llm.test.ts` passing unchanged
+- [x] 1.3 `deleteSandbox(name)` on `SandboxDriver`: `docker rm -f` for ssh-docker, the SDK's delete for Daytona. Both first call the pure guard `assertDeletable(name, namePrefix)` in `src/sandboxopts.ts`, which refuses a project-prefixed name. The bot does not call `deleteSandbox`.
+  - Verified by `src/sandboxopts.test.ts`, `src/sshdocker.test.ts` (the command, the refusal) and `src/daytona.test.ts` (the refusal before any API call) (scenario "Asked to delete a project's sandbox").
   - The Daytona delete is checked by typecheck here, and live on the first Daytona probe run (`agent-messaging` task 0.2).
 
 ## 2. Harness core (`src/cliprobe/`)

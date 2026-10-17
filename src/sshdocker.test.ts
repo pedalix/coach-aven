@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript, transportArgv, LOCAL_HOST } from './sshdocker.js';
+import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript, transportArgv, LOCAL_HOST, deleteSandboxScript, SshDockerDriver } from './sshdocker.js';
+import type { Config } from './config.js';
 
 test('sq — single-quotes and survives embedded quotes', () => {
   assert.equal(sq('plain'), `'plain'`);
@@ -176,3 +177,19 @@ test('transportArgv — the literal `local` host runs the same command through s
   // Only the exact literal switches transport — `localhost` is still an ssh target.
   assert.equal(transportArgv('localhost', cmd).cmd, 'ssh');
 });
+
+test('deleteSandboxScript — removes the container and proves it is gone; the name is validated', () => {
+  assert.equal(
+    deleteSandboxScript('cli-probe-r1'),
+    `docker rm -f 'cli-probe-r1' >/dev/null 2>&1; if docker inspect 'cli-probe-r1' >/dev/null 2>&1; then echo still-there; else echo gone; fi`,
+  );
+  assert.throws(() => deleteSandboxScript('x; docker rm -f proj-caldora'));
+});
+
+test('SshDockerDriver.deleteSandbox — refuses a project sandbox before touching the host', async () => {
+  const cfg = { sshDocker: { host: 'ssh-unreachable.example', runtime: 'privileged' }, snapshot: { image: 'img' }, sandbox: { namePrefix: 'proj-' } } as unknown as Config;
+  const driver = new SshDockerDriver(cfg);
+  await assert.rejects(driver.deleteSandbox('proj-caldora'), /refusing to delete sandbox "proj-caldora"/);
+  await assert.rejects(driver.deleteSandbox('caldora'), /refusing to delete sandbox/);
+});
+
