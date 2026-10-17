@@ -86,6 +86,12 @@ turn runs is queued.
 - **Kill:** a message written but not yet taken up is lost when the process is killed.
 - **Background tasks:** the CLI reports one that ends mid-turn the same way, as a queued user message (`origin: {"kind": "task-notification"}`).
 
+**Subagents:** a subagent's frames carry `parent_tool_use_id` = the id of the `Agent` / `Task` call that started it. The bot labels its steps `↳1`, `↳2`, … while the parent turn runs.
+- **Default.** An `Agent` call without `run_in_background` runs in the background (since 2.1.198). The parent turn then ends at once ("still running"). The subagent's frames come after that `result`, and its report arrives as an unsolicited turn (`🔔 Background update`).
+- **2.1.282:** in the probe the model passed `run_in_background: false`.
+- **2.1.292:** the model left the flag out, and the subagent ran in the background. The frames also carry `agent_id` (the task id).
+- **What a person sees.** On 2.1.292, expect more subagent work to report as a background update, after the turn's answer, than as `↳` steps inside it. The probe's `subagent-parent` asks for the foreground explicitly, so its recordings compare like for like.
+
 Parsing notes: stdout arrives in arbitrary chunks (not lines) — buffer and split on `\n`,
 keep the partial tail. Wrap `JSON.parse` in try/catch and skip non-JSON lines (the CLI
 interleaves noise). Read `session_id` from both `system/init` and `result`.

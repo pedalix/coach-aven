@@ -194,7 +194,9 @@ const subagentParent: Scenario<ProbeCtx> = {
     hypothesis: 'A subagent’s events carry `parent_tool_use_id` equal to the id of the `Task` / `Agent` call that started it.',
   },
   async run(ctx) {
-    await ctx.send('Use your subagent tool (Agent or Task) to have a subagent run the Bash command `echo PROBE-SUB` and report its output. Then reply with that output.');
+    // In the foreground (`run_in_background: false`): from 2.1.292 the model often leaves the flag out, and the CLI
+    // then runs the subagent in the background — the parent turn ends first, and the bot labels no steps ↳1.
+    await ctx.send('Use your subagent tool (Agent or Task) to have a subagent run the Bash command `echo PROBE-SUB` and report its output. Pass run_in_background: false and wait for it. Then reply with that output.');
     const call = await ctx.precondition((f) => toolUses(f).some((b) => b.name === 'Agent' || b.name === 'Task'), 120 * S, 'the model starts a subagent');
     const id = toolUses(call).find((b) => b.name === 'Agent' || b.name === 'Task')?.id;
     await ctx.expect((f) => (f as Any).parent_tool_use_id === id, 120 * S, 'subagent events carry the call’s id as parent_tool_use_id', { past: true });

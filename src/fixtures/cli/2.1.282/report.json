@@ -12,7 +12,7 @@
   "claude-haiku-5-5",
   "claude-opus-5-5"
  ],
- "totalCostUsd": 3.5291823000000004,
+ "totalCostUsd": 3.5292592000000003,
  "scenarios": [
   {
    "id": "ask-user-question",
@@ -1171,14 +1171,14 @@
       "toolName": "Agent",
       "subagentFrames": 3
      },
-     "costUsd": 0.0956629,
-     "durationMs": 9787
+     "costUsd": 0.09573979999999999,
+     "durationMs": 10381
     }
    ],
-   "costUsd": 0.0956629,
+   "costUsd": 0.09573979999999999,
    "recording": {
     "file": "subagent-parent.jsonl",
-    "sha256": "f49c72b9835b01c1fc3627a7ac3c0f3b9673756effc1d0fb0a811976d6b263db"
+    "sha256": "20a503877f1d125d34d062209fcc4e876879344f7d31eb4052be8ecd4ec4da40"
    },
    "transport": "local"
   },
@@ -1333,7 +1333,7 @@
  ],
  "catalogue": {
   "assistant": {
-   "count": 163,
+   "count": 164,
    "fields": [
     "message",
     "parent_tool_use_id",
@@ -1943,7 +1943,7 @@
    "frameKind": "assistant",
    "path": "$.message.content[].citations",
    "detail": "required, missing",
-   "count": 58,
+   "count": 59,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 7
@@ -1956,7 +1956,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.fallback_credit",
    "detail": "required, missing",
-   "count": 163,
+   "count": 164,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1969,7 +1969,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.iterations",
    "detail": "required, missing",
-   "count": 163,
+   "count": 164,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1982,7 +1982,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.output_tokens_details",
    "detail": "required, missing",
-   "count": 163,
+   "count": 164,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1995,7 +1995,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.server_tool_use",
    "detail": "required, missing",
-   "count": 163,
+   "count": 164,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
