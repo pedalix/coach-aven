@@ -5,6 +5,8 @@ import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import type { DispatchConfig } from './dispatch.js';
 import { validateSourcesConfig } from './sources/config.js';
 import type { SourcesConfig } from './sources/types.js';
+import { validateMessagingConfig, type MessagingConfig } from './messaging/config.js';
+import { log } from './log.js';
 
 // Registry of the projects the bot serves. ONE bot, MANY channels: each Slack channel
 // is bound to a project, and each project gets its OWN isolated sandbox (proj-<slug>).
@@ -85,6 +87,11 @@ export interface ProjectConfig {
   // in ~/.config/coach-aven/sources/<slug>/ and are bootstrapped with `orch sources auth`. See
   // docs/sources.md. Validated at boot (sources/config.ts).
   sources?: SourcesConfig;
+  // Agent messaging (OpenSpec agent-messaging, design D2): whether this project's agent may send tasks
+  // to other agents, and which agents may ask it. Absent = exactly today's behaviour. Read at call
+  // time, so `/aven reload` changes what the next call may do. Refused on a project several tenants
+  // share — its domain would be ambiguous (src/messaging/config.ts).
+  messaging?: MessagingConfig;
 }
 
 // A workspaces entry: the short form is just the slug list; the object form adds
@@ -164,6 +171,13 @@ export function loadProjects(path: string): ProjectsRegistry {
         throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+    if (p.messaging !== undefined) {
+      try {
+        p.messaging = validateMessagingConfig(p.messaging, `project "${p.slug}" messaging`);
+      } catch (e) {
+        throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     if (p.dispatch !== undefined) {
       const dc = p.dispatch;
       if (!dc || typeof dc !== 'object' || Array.isArray(dc)) throw new Error(`${path}: project "${p.slug}" dispatch must be an object`);
@@ -195,6 +209,16 @@ export function loadProjects(path: string): ProjectsRegistry {
       }
       for (const s of slugs) {
         if (!known.has(s)) throw new Error(`${path}: workspaces["${tenant}"] references unknown project "${s}"`);
+      }
+    }
+    // A project several tenants share has no single domain (design D14), so it cannot take part in
+    // messaging: its block is dropped, loudly, and the project behaves as before.
+    for (const p of reg.projects) {
+      if (p.messaging === undefined) continue;
+      const tenants = sharingTenants(reg, p.slug);
+      if (tenants.length > 1) {
+        log.error(`${path}: project "${p.slug}" is shared by ${tenants.length} tenants — its messaging configuration is refused (a shared project's domain would be ambiguous)`);
+        delete p.messaging;
       }
     }
   }
@@ -239,6 +263,13 @@ export function teamProjects(
   }
   const slugs = new Set(entrySlugs(reg.workspaces[tenantId ?? homeTenant ?? '']) ?? []);
   return reg.projects.filter((p) => slugs.has(p.slug));
+}
+
+/** The tenants whose workspaces entry lists the slug (more than one = a shared project). */
+export function sharingTenants(reg: ProjectsRegistry, slug: string): string[] {
+  return Object.entries(reg.workspaces ?? {})
+    .filter(([, e]) => entrySlugs(e)?.includes(slug))
+    .map(([t]) => t);
 }
 
 // The single tenant a poller acts for on this project — the FIRST tenant whose

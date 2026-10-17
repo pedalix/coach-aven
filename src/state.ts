@@ -2,6 +2,9 @@ import type { StoredProposal } from './dispatch.js';
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { splitTeam } from './teamkeys.js';
 import type { TeamAccess } from './access.js';
+import { countKeyDay, inTaskKey, isOpen, type HeldMessage, type InTask, type MessagingState, type OutTask } from './messaging/records.js';
+import type { Marks } from './messaging/protocol.js';
+import type { OutboxRecord, RecordStore } from './messaging/transport.js';
 
 // MVP state store: a single JSON file mapping projects → their warm sandbox, plus
 // chat-thread → Claude-session bindings. Swap for SQLite later if concurrency demands
@@ -158,6 +161,9 @@ interface StateShape {
   youtrackInvestigations?: Record<string, TicketInvestigation>;
   // Legacy pre-record dedup (ticket id → ISO). Still READ for dedup back-compat; not written.
   seenYouTrackTickets?: Record<string, string>;
+  // Agent messaging (OpenSpec agent-messaging; shapes in messaging/records.ts): tasks both ways, marks,
+  // held messages, learned domains, daily caps and the transports' records. Absent until first used.
+  messaging?: MessagingState;
 }
 
 const STATE_PATH = new URL('../state.json', import.meta.url).pathname;
@@ -453,9 +459,15 @@ export class Store {
     prWatches: PrWatch[];
     investigations: Record<string, TicketInvestigation>;
     installation?: unknown;
+    tasks: { out: OutTask[]; in: InTask[] };
+    held: HeldMessage[];
+    marks: Record<string, Marks>;
   } {
     const mine = <T extends { teamId?: string }>(rs: T[]) => rs.filter((r) => r.teamId === tenantId);
     return {
+      tasks: { out: mine(Object.values(this.data.messaging?.out ?? {})), in: mine(Object.values(this.data.messaging?.in ?? {})) },
+      held: mine(Object.values(this.data.messaging?.held ?? {})),
+      marks: Object.fromEntries(Object.entries(this.data.messaging?.marks ?? {}).filter(([k]) => splitTeam(k).tenantId === tenantId)),
       chats: mine(Object.values(this.data.chats ?? {})),
       routines: mine(Object.values(this.data.routines ?? {})),
       prWatches: mine(Object.values(this.data.prWatches ?? {})),
@@ -471,6 +483,15 @@ export class Store {
   // TODO (documented in docs/multitenancy.md offboarding notes). Returns counts by class.
   purgeTenant(tenantId: string): Record<string, number> {
     const counts: Record<string, number> = { chats: 0, routines: 0, prWatches: 0, investigations: 0, installations: 0 };
+    const m = this.data.messaging; // counted only where messaging was ever used
+    if (m) {
+      Object.assign(counts, { tasks: 0, held: 0, marks: 0 });
+      for (const map of [m.out, m.in] as (Record<string, { teamId?: string }> | undefined)[]) {
+        for (const [k, r] of Object.entries(map ?? {})) if (r.teamId === tenantId) { delete map![k]; counts.tasks!++; }
+      }
+      for (const [k, r] of Object.entries(m.held ?? {})) if (r.teamId === tenantId) { delete m.held![k]; counts.held!++; }
+      for (const k of Object.keys(m.marks ?? {})) if (splitTeam(k).tenantId === tenantId) { delete m.marks![k]; counts.marks!++; }
+    }
     for (const [k, r] of Object.entries(this.data.chats ?? {})) {
       if (r.teamId === tenantId) { delete this.data.chats![k]; counts.chats++; }
     }
@@ -535,6 +556,180 @@ export class Store {
       const t = Date.parse(rec.updatedAt);
       if (Number.isFinite(t) && now - t > maxAgeMs) {
         delete chats[key];
+        // A conversation's marks end with its record (agent-messaging D14): never by age alone.
+        if (this.data.messaging?.marks) delete this.data.messaging.marks[key];
+        dropped++;
+      }
+    }
+    if (dropped) this.save();
+    return dropped;
+  }
+
+  // ── agent messaging (OpenSpec agent-messaging; shapes and rules in messaging/records.ts) ──────
+  // Reads never create the block: an installation that never used messaging keeps a state.json
+  // without it. Task, held and mark records are stamped with the tenant of their conversation key,
+  // like chats, so export/purge stay a filter.
+  private msg(): MessagingState {
+    return (this.data.messaging ??= {});
+  }
+  private stamped<T extends { key: string; teamId?: string }>(rec: T): T {
+    const next = { ...rec, teamId: splitTeam(rec.key).tenantId };
+    if (!next.teamId) delete next.teamId;
+    return next;
+  }
+  private static patched<T extends object>(cur: T, patch: Partial<T>): T {
+    const next = { ...cur, ...patch };
+    for (const k of Object.keys(patch) as (keyof T)[]) if (patch[k] === undefined) delete next[k];
+    return next;
+  }
+
+  getOutTask(id: string): OutTask | undefined {
+    return this.data.messaging?.out?.[id];
+  }
+  putOutTask(rec: OutTask): OutTask {
+    const next = this.stamped(rec);
+    (this.msg().out ??= {})[rec.id] = next;
+    this.save();
+    return next;
+  }
+  /** Merge into a task (a key set to undefined is deleted). `updatedAt` moves only when the patch sets it: it means the last message. */
+  patchOutTask(id: string, patch: Partial<Omit<OutTask, 'id' | 'key' | 'teamId'>>): OutTask | undefined {
+    const cur = this.data.messaging?.out?.[id];
+    if (!cur) return undefined;
+    const next = Store.patched<OutTask>(cur, patch);
+    this.msg().out![id] = next;
+    this.save();
+    return next;
+  }
+
+  getInTask(origin: string, id: string): InTask | undefined {
+    return this.data.messaging?.in?.[inTaskKey(origin, id)];
+  }
+  putInTask(rec: InTask): InTask {
+    const next = this.stamped(rec);
+    (this.msg().in ??= {})[inTaskKey(rec.origin, rec.id)] = next;
+    this.save();
+    return next;
+  }
+  patchInTask(origin: string, id: string, patch: Partial<Omit<InTask, 'id' | 'origin' | 'key' | 'teamId'>>): InTask | undefined {
+    const k = inTaskKey(origin, id);
+    const cur = this.data.messaging?.in?.[k];
+    if (!cur) return undefined;
+    const next = Store.patched<InTask>(cur, patch);
+    this.msg().in![k] = next;
+    this.save();
+    return next;
+  }
+
+  /** Every task record, both directions (a task inside one installation appears in both lists). */
+  messagingTasks(): { out: OutTask[]; in: InTask[] } {
+    return { out: Object.values(this.data.messaging?.out ?? {}), in: Object.values(this.data.messaging?.in ?? {}) };
+  }
+
+  /** Open tasks with no message for longer than `idleMs`: they end `failed: expired` on this side (D8, D10). */
+  idleOpenTasks(idleMs: number, now = Date.now()): { out: OutTask[]; in: InTask[] } {
+    const idle = (t: { state: OutTask['state']; updatedAt: string }) => isOpen(t) && now - Date.parse(t.updatedAt) > idleMs;
+    const { out, in: inc } = this.messagingTasks();
+    return { out: out.filter(idle), in: inc.filter(idle) };
+  }
+
+  /** A conversation's marks (D14); a copy, empty when it has none. */
+  getMarks(key: string): Marks {
+    const m = this.data.messaging?.marks?.[key];
+    return m ? Object.fromEntries(Object.entries(m).map(([d, h]) => [d, [...h]])) : {};
+  }
+  setMarks(key: string, marks: Marks): void {
+    const empty = !Object.keys(marks).length;
+    if (empty && !this.data.messaging?.marks?.[key]) return;
+    const all = (this.msg().marks ??= {});
+    if (empty) delete all[key];
+    else all[key] = marks;
+    this.save();
+  }
+
+  /** The domain a peer agent's card or messages named (D14), when learned. */
+  peerDomain(agent: string): string | undefined {
+    return this.data.messaging?.domains?.[agent];
+  }
+  learnDomain(agent: string, domain: string): void {
+    if (this.data.messaging?.domains?.[agent] === domain) return;
+    (this.msg().domains ??= {})[agent] = domain;
+    this.save();
+  }
+
+  getHeld(id: string): HeldMessage | undefined {
+    return this.data.messaging?.held?.[id];
+  }
+  putHeld(rec: HeldMessage): HeldMessage {
+    const next = this.stamped(rec);
+    (this.msg().held ??= {})[rec.id] = next;
+    this.save();
+    return next;
+  }
+  patchHeld(id: string, patch: Partial<Pick<HeldMessage, 'card'>>): HeldMessage | undefined {
+    const cur = this.data.messaging?.held?.[id];
+    if (!cur) return undefined;
+    const next = Store.patched<HeldMessage>(cur, patch);
+    this.msg().held![id] = next;
+    this.save();
+    return next;
+  }
+  deleteHeld(id: string): boolean {
+    if (!this.data.messaging?.held?.[id]) return false;
+    delete this.data.messaging.held[id];
+    this.save();
+    return true;
+  }
+  listHeld(): HeldMessage[] {
+    return Object.values(this.data.messaging?.held ?? {});
+  }
+
+  /** Daily caps (messaging/records.ts sendCountKey / acceptCountKey). */
+  askCount(key: string): number {
+    return this.data.messaging?.counts?.[key] ?? 0;
+  }
+  /** Count one more; counters of days before `oldestDay` (YYYY-MM-DD) are dropped on the way. */
+  bumpAskCount(key: string, oldestDay: string): number {
+    const counts = (this.msg().counts ??= {});
+    const n = (counts[key] ?? 0) + 1;
+    counts[key] = n;
+    for (const k of Object.keys(counts)) if (countKeyDay(k) < oldestDay) delete counts[k];
+    this.save();
+    return n;
+  }
+
+  /** A transport's durable records (messaging/transport.ts RecordStore), kept in state.json. */
+  messagingRecords(which: 'local' | 'hub'): RecordStore {
+    return {
+      load: (): OutboxRecord[] => [...(this.data.messaging?.outbox?.[which] ?? [])],
+      save: (records: OutboxRecord[]): void => {
+        if (!records.length && !this.data.messaging?.outbox?.[which]) return;
+        (this.msg().outbox ??= {})[which] = [...records];
+        this.save();
+      },
+    };
+  }
+
+  /**
+   * Housekeeping (D17): drop ended tasks whose last message is older than `maxAgeMs` (30 days), and held
+   * messages that old. Open tasks are never pruned here — they end by expiry first (idleOpenTasks).
+   */
+  pruneMessaging(maxAgeMs: number, now = Date.now()): number {
+    const m = this.data.messaging;
+    if (!m) return 0;
+    let dropped = 0;
+    const old = (iso: string) => now - Date.parse(iso) > maxAgeMs;
+    for (const map of [m.out, m.in] as (Record<string, OutTask | InTask> | undefined)[]) {
+      for (const [k, t] of Object.entries(map ?? {})) {
+        if (!isOpen(t) && old(t.updatedAt)) {
+          delete map![k];
+          dropped++;
+        }
+      }
+    }
+    for (const [k, h] of Object.entries(m.held ?? {})) {
+      if (old(h.createdAt)) {
+        delete m.held![k];
         dropped++;
       }
     }

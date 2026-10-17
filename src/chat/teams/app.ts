@@ -168,7 +168,9 @@ export async function runTeams(cfg: Config): Promise<void> {
   const pruneState = () => {
     const chats = store.pruneChats(45 * DAY_MS);
     const prs = store.pruneReviewedPrs(90 * DAY_MS);
+    const asks = store.pruneMessaging(30 * DAY_MS); // agent messaging: ended tasks, held messages (none without messaging)
     if (chats || prs) log.info(`retention: pruned ${chats} idle chats, ${prs} reviewed-PR entries`);
+    if (asks) log.info(`retention: pruned ${asks} ended agent-messaging records`);
   };
   pruneState();
   setInterval(pruneState, DAY_MS).unref();

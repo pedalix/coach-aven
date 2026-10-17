@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { config as loadDotenv } from 'dotenv';
 import { isValidCliVersion } from './cliversion.js';
+import { messagingEnv, type MessagingEnv } from './messaging/config.js';
 
 // The checkout's .env configures a RUNNING bot. Under the test runner (node --test sets
 // NODE_TEST_CONTEXT in every test process) it must not leak into tests: a developer's
@@ -193,6 +194,10 @@ export interface Config {
   // Sentry error/perf/log reporting; undefined (off) unless SENTRY_DSN is set. `logs` opt-in
   // (SENTRY_LOGS=1) since it sends log content to Sentry's cloud.
   sentry?: { dsn: string; environment: string; release?: string; tracesSampleRate: number; logs: boolean };
+  // Agent messaging (OpenSpec agent-messaging, design D8/D18): this installation's id in every address
+  // (INSTALLATION_ID, default `local`), and the hub client's settings when HUB_URL is set — without it
+  // there is no socket. A HUB_URL the client cannot use is reported in `hubProblem`, never a boot failure.
+  messaging: MessagingEnv;
 }
 
 // Slack config resolves in two shapes: classic single-workspace (bot + app token) and
@@ -319,6 +324,7 @@ export function loadConfig(): Config {
     projectsConfigPath:
       process.env.PROJECTS_CONFIG_PATH ||
       new URL('../projects.config.json', import.meta.url).pathname,
+    messaging: messagingEnv(process.env),
     sentry: process.env.SENTRY_DSN
       ? {
           dsn: process.env.SENTRY_DSN,

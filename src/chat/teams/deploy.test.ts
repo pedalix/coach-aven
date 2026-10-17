@@ -49,3 +49,10 @@ test('an unknown driver is refused with the list of drivers', () => {
   assert.notEqual(status, 0);
   assert.match(out, /CHAT_DRIVER must be one of: slack, teams/);
 });
+
+test('export and import carry hub.peers.json beside the projects config when present — never the private hub key', () => {
+  writeFileSync(`${OVERLAY}/deploy.env`, BASE);
+  const out = execFileSync('bash', [`${ROOT}infra/deploy/deploy.sh`, SLUG, 'runtime-files'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  assert.equal(out, 'required .env github-app-private-key.pem projects.config.json\noptional mirrors.json hub.peers.json\ndirs projects.d\n');
+});
+

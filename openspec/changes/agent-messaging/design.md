@@ -111,10 +111,11 @@ Per project in `projects.config.json`:
 - `ws.serializeAttachment({installation?, nonce, acceptedAt})` keeps the socket's state across evictions; sockets are found by their attachment (there are only a handful of installations);
 - `setWebSocketAutoResponse("ping" → "pong")` answers keep-alives without waking the object.
 
-State lives in the object's SQLite:
-- `outbox(installation, seq, envelope_json, expires_at)`, plus `next_seq` per installation;
-- `pending(id, from, to, method, task_id, routed_at)`, for expiry reports;
-- `removed(installation, at)`: tombstones, so removal is known even with an empty outbox;
+State lives in the object's SQLite (`hub/src/store.ts`):
+- `outbox(installation, seq, env_id, sender, to_addr, method, task, size, routed_at, expires_at, env)`, plus `seqs` (the next seq per installation);
+- `routed(env_id, at)`: envelope ids already routed, so a re-sent envelope is answered `routed` and stored once;
+- `expired(env_id, sender, task, to_addr)`: expiry reports waiting for an offline sender;
+- `removed(installation, at)`: tombstones, so removal is known even with an empty outbox; `enrolled` remembers who was;
 - an alarm that sweeps expired rows, sends `expired` reports, and closes sockets that have not authenticated within 10 s;
 - `schema_version` with forward migrations, run on the first request after a deploy (a deploy drops every socket, and clients reconnect);
 - a backlog cap per recipient outbox (1000 envelopes or 50 MB) → `rejected: backlog` to the sender.
