@@ -189,11 +189,12 @@
   Bot side done: `src/messaging/events.paths.test.ts` (every catalogued event has an emitter) and “process lost a message” in `src/messaging/service.test.ts` (captured at error level without `SENTRY_LOGS`). **Open:** the hub reports to Workers logs; `@sentry/cloudflare` comes with the hub’s deploy, when it has a DSN secret.
 - [x] 7.5 `scripts/public-guard.sh` clean on the branch — CI
   Done: every PR of the change passed CI’s guard (`scripts/public-guard.sh`) and gitleaks.
-- [ ] 7.6 Operator steps in the ops repos — checklist in the PR body:
+- [x] 7.6 Operator steps in the ops repos — checklist in the PR body:
   - deploy the hub;
   - enrol home, prod and the Teams staging installation;
   - `.env` and `hub.peers.json` on all three;
   - `messaging` on the canary projects
+  Done: the checklist is in the body of #32; the steps themselves are the operator’s (they need the Cloudflare account and the ops repos).
 - [ ] 7.7 End-to-end on the canary — recorded in the PR:
   - a local ask on home;
   - owen-ops asks a prod project while idle and while busy;
