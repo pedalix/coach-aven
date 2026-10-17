@@ -1,0 +1,208 @@
+// The report of one probed CLI version (design D4): report.json (machine) and REPORT.md (people).
+// REPORT.md is what a pin bump is reviewed by — a new version's report is a new file, so a diff alone
+// shows nothing; its "Changed since" section compares it with the newest version already probed.
+import { createHash } from 'node:crypto';
+import type { RecordLine, RunOutcome, Verdict } from './types.js';
+import { rowId } from './types.js';
+
+export type FindingKind = 'violation' | 'undeclared-field' | 'undeclared-kind';
+export interface Finding {
+  dir: 'out' | 'in';
+  /** The recording file and the 1-based line of the frame. */
+  file: string;
+  line: number;
+  kind: FindingKind;
+  /** `type[/subtype]` of the frame. */
+  frameKind: string;
+  /** JSON path inside the frame (`$` for the frame itself). */
+  path: string;
+  detail: string;
+  /** `protocol`: the agent SDK's own declarations; `api`: the API message model they import (listed, never failed). */
+  origin: 'protocol' | 'api';
+}
+
+/** The findings that fail the check: violations of the protocol's own declarations in frames the CLI wrote. */
+export const failing = (fs: readonly Finding[]): Finding[] => fs.filter((f) => f.dir === 'out' && f.kind === 'violation' && f.origin === 'protocol');
+
+export interface ReportScenario {
+  id: string;
+  variant?: string;
+  contract: boolean;
+  hypothesis: string;
+  model: string;
+  verdict: Verdict;
+  holds: number;
+  fails: number;
+  inconclusive: number;
+  costUsd: number;
+  runs: RunOutcome[];
+  recording: { file: string; sha256: string };
+}
+
+export interface ReportJson {
+  cli: string;
+  /** The declarations the frames were checked against (design D5); absent until checked. */
+  sdk?: { release: string; claudeCodeVersion: string; exact: boolean; anthropicSdk: string };
+  transport: string;
+  date: string;
+  models: string[];
+  totalCostUsd: number;
+  scenarios: ReportScenario[];
+  catalogue: Record<string, { count: number; fields: string[] }>;
+  findings: Finding[];
+}
+
+export const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
+
+/** A recording as committed: one JSON line per record. */
+export const recordingText = (lines: readonly RecordLine[]): string => lines.map((l) => JSON.stringify(l)).join('\n') + '\n';
+
+/** The kind of a frame as the catalogue and the findings name it. */
+export function frameKind(f: Record<string, unknown>): string {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const a = f as any;
+  if (f.type === 'stream_event') return `stream_event:${String(a.event?.type)}`;
+  if (f.type === 'control_request') return `control_request:${String(a.request?.subtype)}`;
+  if (f.type === 'control_response') return `control_response:${String(a.response?.subtype)}`;
+  if (f.type === 'user' && a.isReplay === true) return 'user (replay)';
+  return `${String(f.type)}${typeof f.subtype === 'string' ? `/${f.subtype}` : ''}`;
+}
+
+/** Pure: the kinds of frames the CLI wrote across recordings, with their top-level fields. */
+export function catalogue(recordings: Iterable<readonly RecordLine[]>): ReportJson['catalogue'] {
+  const acc = new Map<string, { count: number; fields: Set<string> }>();
+  for (const rec of recordings) {
+    for (const l of rec) {
+      if (!('frame' in l) || l.dir !== 'out') continue;
+      const k = frameKind(l.frame);
+      const e = acc.get(k) ?? { count: 0, fields: new Set<string>() };
+      e.count++;
+      for (const f of Object.keys(l.frame)) e.fields.add(f);
+      acc.set(k, e);
+    }
+  }
+  return Object.fromEntries([...acc.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, { count: v.count, fields: [...v.fields].sort() }]));
+}
+
+/** Pure: replace rows by row id (a partial run updates only its scenarios), sorted by row id. */
+export function mergeScenarios(previous: readonly ReportScenario[], fresh: readonly ReportScenario[]): ReportScenario[] {
+  const byId = new Map(previous.map((s) => [rowId(s.id, s.variant), s]));
+  for (const s of fresh) byId.set(rowId(s.id, s.variant), s);
+  return [...byId.values()].sort((a, b) => rowId(a.id, a.variant).localeCompare(rowId(b.id, b.variant)));
+}
+
+export interface Changes {
+  since: string;
+  verdicts: { row: string; was: string; now: string }[];
+  kindsAdded: string[];
+  kindsGone: string[];
+  fieldsAdded: { kind: string; fields: string[] }[];
+  fieldsGone: { kind: string; fields: string[] }[];
+}
+
+/** Pure: what changed between the newest version already probed and this one. */
+export function changedSince(now: ReportJson, before: ReportJson): Changes {
+  const was = new Map(before.scenarios.map((s) => [rowId(s.id, s.variant), s.verdict]));
+  const verdicts: Changes['verdicts'] = [];
+  for (const s of now.scenarios) {
+    const row = rowId(s.id, s.variant);
+    const w = was.get(row) ?? '—';
+    if (w !== s.verdict) verdicts.push({ row, was: w, now: s.verdict });
+  }
+  for (const [row, w] of was) if (!now.scenarios.some((s) => rowId(s.id, s.variant) === row)) verdicts.push({ row, was: w, now: '—' });
+  const kNow = Object.keys(now.catalogue);
+  const kBefore = Object.keys(before.catalogue);
+  const fieldsAdded: Changes['fieldsAdded'] = [];
+  const fieldsGone: Changes['fieldsGone'] = [];
+  for (const k of kNow.filter((k) => kBefore.includes(k))) {
+    const a = now.catalogue[k]!.fields.filter((f) => !before.catalogue[k]!.fields.includes(f));
+    const g = before.catalogue[k]!.fields.filter((f) => !now.catalogue[k]!.fields.includes(f));
+    if (a.length) fieldsAdded.push({ kind: k, fields: a });
+    if (g.length) fieldsGone.push({ kind: k, fields: g });
+  }
+  return {
+    since: before.cli,
+    verdicts: verdicts.sort((a, b) => a.row.localeCompare(b.row)),
+    kindsAdded: kNow.filter((k) => !kBefore.includes(k)),
+    kindsGone: kBefore.filter((k) => !kNow.includes(k)),
+    fieldsAdded,
+    fieldsGone,
+  };
+}
+
+const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/\n/g, ' ');
+const usd = (n: number): string => `$${n.toFixed(2)}`;
+const observed = (s: ReportScenario): string => {
+  // A row that does not hold shows the run that says why; a holding row its first conclusive run.
+  const run =
+    (s.verdict === 'fails' || s.verdict === 'flaky' ? s.runs.find((r) => r.verdict === 'fails') : undefined) ??
+    s.runs.find((r) => r.verdict !== 'inconclusive') ??
+    s.runs.at(-1);
+  if (!run) return '';
+  const parts = Object.entries(run.observations).map(([k, v]) => `${k}=${typeof v === 'string' ? v : JSON.stringify(v)}`);
+  const why = run.reason ?? run.error;
+  return cell([...parts, ...(why ? [`(${why})`] : [])].join(', ').slice(0, 300));
+};
+
+/** Pure: REPORT.md. */
+export function renderReport(r: ReportJson, previous?: ReportJson): string {
+  const out: string[] = [];
+  out.push(`# Claude Code ${r.cli} — probe report`, '');
+  out.push('Generated by `npm run cli-probe` (OpenSpec `cli-probe`, `docs/cli-probe.md`). Do not edit by hand: `npm run cli-probe -- report ' + r.cli + '` renders it again.', '');
+  const sdk = r.sdk
+    ? `\`@anthropic-ai/claude-agent-sdk\` ${r.sdk.release} (names CLI ${r.sdk.claudeCodeVersion}${r.sdk.exact ? '' : ', the nearest lower release'}) with \`@anthropic-ai/sdk\` ${r.sdk.anthropicSdk}`
+    : 'not checked yet';
+  out.push(`- **CLI:** ${r.cli}`, `- **Declarations:** ${sdk}`, `- **Models:** ${r.models.join(', ')}`, `- **Transport:** ${r.transport}`, `- **Date:** ${r.date}`, `- **Cost:** ${usd(r.totalCostUsd)} API-equivalent`, '');
+  if (previous) {
+    const c = changedSince(r, previous);
+    out.push(`## Changed since ${c.since}`, '');
+    if (!c.verdicts.length && !c.kindsAdded.length && !c.kindsGone.length && !c.fieldsAdded.length && !c.fieldsGone.length) out.push('Nothing: the same verdicts, event kinds and fields.', '');
+    if (c.verdicts.length) {
+      out.push('| Scenario | Was | Now |', '|---|---|---|');
+      for (const v of c.verdicts) out.push(`| ${v.row} | ${v.was} | ${v.now} |`);
+      out.push('');
+    }
+    if (c.kindsAdded.length) out.push(`- **New event kinds:** ${c.kindsAdded.map((k) => `\`${k}\``).join(', ')}`);
+    if (c.kindsGone.length) out.push(`- **Event kinds gone:** ${c.kindsGone.map((k) => `\`${k}\``).join(', ')}`);
+    for (const f of c.fieldsAdded) out.push(`- **New fields** in \`${f.kind}\`: ${f.fields.map((x) => `\`${x}\``).join(', ')}`);
+    for (const f of c.fieldsGone) out.push(`- **Fields gone** from \`${f.kind}\`: ${f.fields.map((x) => `\`${x}\``).join(', ')}`);
+    if (c.kindsAdded.length || c.kindsGone.length || c.fieldsAdded.length || c.fieldsGone.length) out.push('');
+  }
+  out.push('## Scenarios', '', '| Scenario | Contract | Verdict | Runs ✓/✗/? | Hypothesis | Observed | Cost |', '|---|---|---|---|---|---|---|');
+  for (const s of r.scenarios) {
+    out.push(`| ${rowId(s.id, s.variant)} | ${s.contract ? 'yes' : ''} | **${s.verdict}** | ${s.holds}/${s.fails}/${s.inconclusive} | ${cell(s.hypothesis)} | ${observed(s)} | ${usd(s.costUsd)} |`);
+  }
+  out.push('', '## Event catalogue', '', 'Frames the CLI wrote, across all recordings.', '', '| Kind | Count | Fields |', '|---|---|---|');
+  for (const [k, v] of Object.entries(r.catalogue)) out.push(`| \`${k}\` | ${v.count} | ${v.fields.map((f) => `\`${f}\``).join(' ')} |`);
+  out.push('', '## Type checks', '');
+  for (const dir of ['out', 'in'] as const) {
+    const fs = r.findings.filter((f) => f.dir === dir);
+    out.push(dir === 'out' ? '### Frames the CLI wrote' : '### Frames the probe wrote (as the bot writes them; listed, never failed)', '');
+    if (!r.sdk) {
+      out.push('Not checked yet.', '');
+      continue;
+    }
+    const v = fs.filter((f) => f.kind === 'violation' && f.origin === 'protocol');
+    out.push(`- **Violations:**${v.length ? '' : ' none'}`);
+    for (const f of v) out.push(`  - \`${f.frameKind}\` at \`${f.path}\` (${f.file}:${f.line}): ${cell(f.detail)}`);
+    // The API message model (`message`, `usage`, stream `event`s) is imported from @anthropic-ai/sdk;
+    // grouped by path, one line each, listed and never failed.
+    const api = new Map<string, { n: number; detail: string }>();
+    for (const f of fs.filter((x) => x.kind === 'violation' && x.origin === 'api')) {
+      const k = `${f.frameKind} ${f.path.replace(/\[\d+\]/g, '[]')}`;
+      api.set(k, { n: (api.get(k)?.n ?? 0) + 1, detail: f.detail });
+    }
+    out.push(`- **API message model mismatches** (listed, not failed):${api.size ? '' : ' none'}`);
+    for (const [k, x] of [...api.entries()].sort(([a], [b]) => a.localeCompare(b))) {
+      const [kind, path] = k.split(' ');
+      out.push(`  - \`${kind}\` at \`${path}\`: ${cell(x.detail)} (${x.n}×)`);
+    }
+    const fields = new Map<string, Set<string>>();
+    for (const f of fs.filter((x) => x.kind === 'undeclared-field')) (fields.get(f.frameKind) ?? fields.set(f.frameKind, new Set()).get(f.frameKind)!).add(f.path);
+    out.push(`- **Undeclared fields:**${fields.size ? '' : ' none'}`);
+    for (const [k, ps] of [...fields.entries()].sort(([a], [b]) => a.localeCompare(b))) out.push(`  - \`${k}\`: ${[...ps].sort().map((p) => `\`${p}\``).join(', ')}`);
+    const kinds = [...new Set(fs.filter((x) => x.kind === 'undeclared-kind').map((x) => x.frameKind))].sort();
+    out.push(`- **Undeclared kinds:** ${kinds.length ? kinds.map((k) => `\`${k}\``).join(', ') : 'none'}`, '');
+  }
+  return out.join('\n');
+}

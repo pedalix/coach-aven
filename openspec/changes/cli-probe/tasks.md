@@ -8,16 +8,16 @@
 
 ## 2. Harness core (`src/cliprobe/`)
 
-- [ ] 2.1 The scenario module (`meta`, `run(ctx)`, variants), `ctx.precondition` and `ctx.expect`, and the pure verdict aggregation (flaky, then inconclusive, then holds or fails). Verified by `src/cliprobe/verdict.test.ts` (scenarios "The model does not follow the script", "A predicted event never comes", "Runs disagree", "Not enough conclusive runs")
-- [ ] 2.2 Installing the CLI into the probe's cache (validated `x.y.z`, `npm install --prefix`, or `--bin`), and the token check before anything starts. The token comes from `CLI_PROBE_TOKEN` only. Verified by `src/cliprobe/install.test.ts`, with a fake exec and an environment that also holds an installation's `CLAUDE_CODE_OAUTH_TOKEN` (scenarios "Version not installed", "No token")
-- [ ] 2.3 `ctx` over the local transport covers:
+- [x] 2.1 The scenario module (`meta`, `run(ctx)`, variants), `ctx.precondition` and `ctx.expect`, and the pure verdict aggregation (flaky, then inconclusive, then holds or fails). Verified by `src/cliprobe/verdict.test.ts` (scenarios "The model does not follow the script", "A predicted event never comes", "Runs disagree", "Not enough conclusive runs")
+- [x] 2.2 Installing the CLI into the probe's cache (validated `x.y.z`, `npm install --prefix`, or `--bin`), and the token check before anything starts. The token comes from `CLI_PROBE_TOKEN` only. Verified by `src/cliprobe/install.test.ts`, with a fake exec and an environment that also holds an installation's `CLAUDE_CODE_OAUTH_TOKEN` (scenarios "Version not installed", "No token")
+- [x] 2.3 `ctx` over the local transport covers:
   - the isolated environment;
   - `claudeLaunch` with the scenario's extras merged in (hooks inside the one `--settings`);
   - the version check against `system/init`;
   - `send`, `control`, `respond`, `kill`, `restart`, `onCanUseTool` and `onMcpMessage`.
 
   Verified by `src/cliprobe/ctx.test.ts` against a fake process that plays a script (scenarios "Started from inside a Claude Code session", "The bot's flags change", "The wrong CLI answers")
-- [ ] 2.4 The sandbox transport through `SandboxDriver` covers:
+- [x] 2.4 The sandbox transport through `SandboxDriver` covers:
   - leftover cleanup chosen by the `cli-probe-` name;
   - the probe's own name, plus its label on ssh-docker;
   - the token written as project prep writes it;
@@ -30,21 +30,22 @@
 
 ## 3. Recordings, report and type checks
 
-- [ ] 3.1 The recording writer (frames in both directions; `proc` start and exit lines with the token removed) and the normalizer (pure, design D4). Verified by `src/cliprobe/normalize.test.ts` over a synthetic recording with the shapes the scratchpad files carry (scenarios "A recording is normalized", "A recording spans a restart"):
+- [x] 3.1 The recording writer (frames in both directions; `proc` start and exit lines with the token removed) and the normalizer (pure, design D4). Verified by `src/cliprobe/normalize.test.ts` over a synthetic recording with the shapes the scratchpad files carry, and by `src/cliprobe/ctx.test.ts` for the process boundaries (scenarios "A recording is normalized", "A recording spans a restart"):
   - plain and encoded home paths;
   - a socket path and a `blocked_path`;
   - run, agent and task ids;
   - a thinking signature;
   - rate-limit information
-- [ ] 3.2 The report: `report.json` (verdicts, runs, observations, cost, event catalogue, findings split by direction, recording hashes) and `REPORT.md` with its "Changed since" section. Verified by `src/cliprobe/report.test.ts`, with a golden `REPORT.md` over two fictional versions (scenarios "A pin bump shows what changed", "Cost")
-- [ ] 3.3 Choosing the SDK release from the full registry document (`claudeCodeVersion`, else the nearest lower release, else a failure), `npm pack` of it and of the pinned `@anthropic-ai/sdk` into the cache, and both versions recorded for `check`. Verified by `src/cliprobe/sdk.test.ts` with a fake registry (scenario "No release names the version")
-- [ ] 3.4 The checker on the TypeScript compiler API (design D5):
+- [x] 3.2 The report: `report.json` (verdicts, runs, observations, cost, event catalogue, findings split by direction, recording hashes) and `REPORT.md` with its "Changed since" section. Verified by `src/cliprobe/report.test.ts`, with a golden `REPORT.md` over two fictional versions (scenarios "A pin bump shows what changed", "Cost")
+- [x] 3.3 Choosing the SDK release from the full registry document (`claudeCodeVersion`, else the nearest lower release, else a failure), `npm pack` of it and of the pinned `@anthropic-ai/sdk` into the cache, and both versions recorded for `check`. Verified by `src/cliprobe/sdk.test.ts` with a fake registry (scenario "No release names the version")
+- [x] 3.4 The checker on the TypeScript compiler API (design D5):
   - candidates found by their discriminating literals;
   - a structural walk that collects every finding of a frame;
   - the candidate with the fewest violations kept;
+  - each finding's origin, protocol or API message model, where only protocol violations fail;
   - input frames listed, never failed.
 
-  Verified by `src/cliprobe/typecheck.test.ts` over a small fictional declaration file, with two members sharing a `type`, a nested union, and a frame with both a missing and two extra fields (scenarios "A field of the wrong type", "Several findings in one frame", "A field the declarations lack", "A kind the declarations lack", "The bot's own message differs from the declaration")
+  Verified by `src/cliprobe/typecheck.test.ts` over a small fictional declaration file, with two members sharing a `type`, a nested union, and a frame with both a missing and two extra fields (scenarios "A field of the wrong type", "Several findings in one frame", "A mismatch in the API message model", "A field the declarations lack", "A kind the declarations lack", "The bot's own message differs from the declaration")
 - [ ] 3.5 CI changes:
   - `npm run cli-probe -- check` becomes a step of the `verify` job in `.github/workflows/ci.yml`, with an Actions cache per SDK release and no credential;
   - the gitleaks allowlist entry is anchored (`src/fixtures/.*\.json$`), and existing `.jsonl` fixtures that hold deliberate secret shapes are listed by name.

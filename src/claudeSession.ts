@@ -93,6 +93,59 @@ export function claudeLaunch(o: ClaudeLaunchOpts): ClaudeLaunch {
   return { env, args, command };
 }
 
+// The frames the bot writes to the CLI's stdin, as pure functions: ClaudeSession writes them, and the
+// CLI probe writes the very same ones, so a probe's recording shows what the bot sends (key order
+// included — JSON.stringify keeps it, and the probe's recordings are compared as text).
+export const userFrame = (content: string) => ({ type: 'user', message: { role: 'user', content } });
+export const interruptFrame = (requestId = `int-${Date.now()}`) => ({
+  request_id: requestId,
+  type: 'control_request',
+  request: { subtype: 'interrupt' },
+});
+// Register the bot-served MCP servers (`initialize` with `sdkMcpServers`), exactly as the Agent SDK does.
+export function initializeFrame(servers: readonly HostServerRoute[], requestId = `init-${Date.now()}`) {
+  const sdkMcpServerConfigs: Record<string, { timeout: number }> = {};
+  for (const s of servers) if (s.timeoutMs) sdkMcpServerConfigs[s.name] = { timeout: s.timeoutMs };
+  return {
+    type: 'control_request',
+    request_id: requestId,
+    request: { subtype: 'initialize', sdkMcpServers: servers.map((s) => s.name), sdkMcpServerConfigs },
+  };
+}
+// Answer a can_use_tool request: allow, with the (possibly answered) input.
+export const allowFrame = (requestId: unknown, updatedInput: unknown) => ({
+  type: 'control_response',
+  response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow', updatedInput } },
+});
+// Answer a control_request{mcp_message} for a bot-served server: the server's JSON-RPC reply in
+// `mcp_response`; a notification is acknowledged the way the SDK does; an unknown server is an error.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function mcpAnswerFrame(ev: any, routes: readonly HostServerRoute[]): Promise<Record<string, unknown>> {
+  const requestId = ev.request_id;
+  const serverName = String(ev.request?.server_name ?? '');
+  const message = ev.request?.message as JsonRpc | undefined;
+  const route = routes.find((s) => s.name === serverName);
+  const success = (mcp_response: unknown) => ({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response: { mcp_response } } });
+  if (!route || !message || typeof message !== 'object') {
+    return { type: 'control_response', response: { subtype: 'error', request_id: requestId, error: `no host server "${serverName}" in this session` } };
+  }
+  if (message.id === undefined || message.id === null) {
+    try {
+      await route.handle(message);
+    } catch {
+      /* a notification has no error channel */
+    }
+    return success({ jsonrpc: '2.0', result: {}, id: 0 });
+  }
+  let reply: JsonRpc | undefined;
+  try {
+    reply = await route.handle(message);
+  } catch (e) {
+    reply = { jsonrpc: '2.0', id: message.id, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } };
+  }
+  return success(reply ?? { jsonrpc: '2.0', id: message.id, result: {} });
+}
+
 export interface AskQuestion {
   question: string;
   header?: string;
@@ -362,13 +415,7 @@ export class ClaudeSession {
   private async registerHostServers(): Promise<void> {
     const servers = this.opts.hostServers ?? [];
     if (!servers.length) return;
-    const sdkMcpServerConfigs: Record<string, { timeout: number }> = {};
-    for (const s of servers) if (s.timeoutMs) sdkMcpServerConfigs[s.name] = { timeout: s.timeoutMs };
-    await this.write({
-      type: 'control_request',
-      request_id: `init-${Date.now()}`,
-      request: { subtype: 'initialize', sdkMcpServers: servers.map((s) => s.name), sdkMcpServerConfigs },
-    });
+    await this.write(initializeFrame(servers));
   }
 
   // Arm the two-stage watchdog on a pending turn (see the STREAM_*_MS comment): soft
@@ -433,7 +480,7 @@ export class ClaudeSession {
 
       // The last hop before the API: whatever a person typed in Slack (plus the attachment
       // preamble) becomes model input here, so this is where pasted secrets get redacted.
-      const line = JSON.stringify({ type: 'user', message: { role: 'user', content: this.scrub(text, 'turn') } }) + '\n';
+      const line = JSON.stringify(userFrame(this.scrub(text, 'turn'))) + '\n';
       void this.input(line)
         .catch((e: unknown) =>
           this.settle({
@@ -570,11 +617,7 @@ export class ClaudeSession {
 
   // Write a control_request{interrupt} to stdin — aborts the current turn cleanly.
   async interrupt(): Promise<void> {
-    await this.write({
-      request_id: `int-${Date.now()}`,
-      type: 'control_request',
-      request: { subtype: 'interrupt' },
-    });
+    await this.write(interruptFrame());
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -689,11 +732,7 @@ export class ClaudeSession {
     const input = ev.request?.input ?? {};
     const ac = new AbortController(); // aborted by a control_cancel_request for this id
     this.inflightTools.set(requestId, ac);
-    const allow = (updatedInput: unknown) =>
-      this.write({
-        type: 'control_response',
-        response: { subtype: 'success', request_id: requestId, response: { behavior: 'allow', updatedInput } },
-      });
+    const allow = (updatedInput: unknown) => this.write(allowFrame(requestId, updatedInput));
 
     try {
       if (ev.request.tool_name === 'AskUserQuestion' && this.pending?.onQuestion) {
@@ -726,32 +765,7 @@ export class ClaudeSession {
   // the CLI turns into a failed tool call the agent can read.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async handleMcpMessage(ev: any): Promise<void> {
-    const requestId = ev.request_id;
-    const serverName = String(ev.request?.server_name ?? '');
-    const message = ev.request?.message as JsonRpc | undefined;
-    const route = (this.opts.hostServers ?? []).find((s) => s.name === serverName);
-    const respond = (mcp_response: unknown) =>
-      this.write({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response: { mcp_response } } });
-    if (!route || !message || typeof message !== 'object') {
-      await this.write({ type: 'control_response', response: { subtype: 'error', request_id: requestId, error: `no host server "${serverName}" in this session` } });
-      return;
-    }
-    if (message.id === undefined || message.id === null) {
-      try {
-        await route.handle(message);
-      } catch {
-        /* a notification has no error channel */
-      }
-      await respond({ jsonrpc: '2.0', result: {}, id: 0 });
-      return;
-    }
-    let reply: JsonRpc | undefined;
-    try {
-      reply = await route.handle(message);
-    } catch (e) {
-      reply = { jsonrpc: '2.0', id: message.id, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } };
-    }
-    await respond(reply ?? { jsonrpc: '2.0', id: message.id, result: {} });
+    await this.write(await mcpAnswerFrame(ev, this.opts.hostServers ?? []));
   }
 
   private onExit(): void {

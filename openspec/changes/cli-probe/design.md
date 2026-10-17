@@ -172,7 +172,7 @@ Why committed: the facts become text a reviewer reads, and the recordings are th
 ### D5. Checks against the SDK's declarations, fetched, not vendored
 **Release.** The full npm registry document of `@anthropic-ai/claude-agent-sdk` carries every release's manifest, including `claudeCodeVersion`. The abbreviated document does not, so the probe asks for the full one.
 - The probe takes the release whose `claudeCodeVersion` equals the CLI version, else the nearest lower one. With no release at or below, the check fails and says so.
-- For the message-content types it imports, the probe uses the newest `@anthropic-ai/sdk` in the release's peer range at the time the report is written.
+- For the message-content types it imports, the probe uses the `@anthropic-ai/sdk` release that was current when the agent SDK release was published. Its peer range is open-ended, and the newest API types require fields an older CLI never writes (measured: 0.135.0 against CLI 2.1.282).
 - The report names both versions, and `check` reuses them, so a check never changes with a new upstream release.
 
 **Fetch.** `npm pack` of both into `<cache>/sdk/<release>/`: the tarball alone, with no install and no optional platform binaries.
@@ -188,6 +188,11 @@ Why committed: the facts become text a reviewer reads, and the recordings are th
    - every present property is declared, else an **undeclared field** at its path, and the walk goes on;
    - every value is allowed by its declared type: primitives and literals through `checker.isTypeAssignableTo` against the value's literal type; objects, arrays, records and unions by recursion, where a union takes the member with the fewest violations. A value that no type allows is a **violation** at its path.
 3. **Choice.** The frame keeps the candidate with the fewest violations, and all its findings are reported.
+4. **Origin.** Each finding carries where the violated declaration lives.
+   - `protocol`: the agent SDK's own declarations, the stream-json envelope.
+   - `api`: the Anthropic API message model that the protocol's `message`, `usage` and stream `event` fields import from `@anthropic-ai/sdk`.
+
+   The CLI's transcript objects are not the API's responses field for field. Measured on 2.1.282: the API types require `citations`, `usage.server_tool_use`, `usage.iterations` and more, which the CLI does not write. So only protocol violations in frames the CLI wrote fail the check; API-model mismatches are listed, grouped by path. A union member such as `'model-a' | (string & {})` accepts any string, as the compiler does.
 
 `in` frames are walked against `SDKUserMessage` and the control request and response types, and their findings are listed, never failed. The bot's own user message lacks `parent_tool_use_id`, which the declaration requires, and the CLI accepts it. The report shows the gap for a later decision about the bot.
 

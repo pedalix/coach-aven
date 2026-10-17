@@ -145,7 +145,8 @@ For each frame, the candidates are the declared kinds whose discriminating liter
 - an **undeclared kind**: no candidate.
 
 Findings on frames the CLI wrote:
-- a violation SHALL fail the check;
+- a violation of the protocol's own declarations SHALL fail the check;
+- a mismatch inside the API message model those declarations import (the Anthropic API's message, usage and stream event types) SHALL be listed, not failed;
 - undeclared fields and kinds SHALL be listed, not failed.
 
 Findings on frames the probe wrote, which are the bot's own frames, SHALL be listed and SHALL NOT fail the check.
@@ -159,6 +160,10 @@ The declarations SHALL be fetched at check time. They SHALL NOT be committed to 
 #### Scenario: Several findings in one frame
 - **WHEN** a recorded frame lacks a required field and carries two fields the declaration lacks
 - **THEN** the check reports the missing field as a violation and both extra fields as undeclared, for that one frame
+
+#### Scenario: A mismatch in the API message model
+- **WHEN** an assistant frame's message lacks a field that the imported API message type requires
+- **THEN** the report lists it as an API message model mismatch and the check passes
 
 #### Scenario: A field the declarations lack
 - **WHEN** `system/init` carries a field the declarations do not list
