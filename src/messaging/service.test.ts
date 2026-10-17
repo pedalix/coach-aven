@@ -42,6 +42,7 @@ interface Harness {
   turns: Turn[];
   posts: { to: ConvTarget; view: MessageView }[];
   events: string[];
+  captured: { line: string; level: string; tags: Record<string, string> }[];
   running: Map<string, { automatic: boolean; injected: number; session: Partial<ChatSession> }>;
   scripts: Record<string, Script>;
   canceled: string[];
@@ -54,7 +55,8 @@ function harness(projects: ProjectConfig[], o: { scripts?: Record<string, Script
   const store = new Store(join(dir, 'state.json'));
   const reg: RegistryRef = { current: { projects } } as unknown as RegistryRef;
   const events: string[] = [];
-  const sink: EventSink = { log: (_l, line) => events.push(line), capture: () => undefined, now: () => Date.now() };
+  const captured: Harness['captured'] = [];
+  const sink: EventSink = { log: (_l, line) => events.push(line), capture: (line, level, tags) => void captured.push({ line, level, tags }), now: () => Date.now() };
   const turns: Turn[] = [];
   const posts: Harness['posts'] = [];
   const running: Harness['running'] = new Map();
@@ -118,7 +120,7 @@ function harness(projects: ProjectConfig[], o: { scripts?: Record<string, Script
     sink,
   });
   local.onDeliver((x) => svc.onDelivery(local, x));
-  Object.assign(h, { svc, store, reg, turns, posts, events, running, scripts: o.scripts ?? {}, canceled, closed, tool: (key: string, slug: string) => ({ slug, conversationKey: key }) });
+  Object.assign(h, { svc, store, reg, turns, posts, events, captured, running, scripts: o.scripts ?? {}, canceled, closed, tool: (key: string, slug: string) => ({ slug, conversationKey: key }) });
   // owen-ops's thread has a turn running (the tool is called inside it): its reply target.
   store.patchChat(OWEN, 'owen-ops', { inflight: { channel: 'C0OWEN', statusTs: '1700000000.000200', msgThreadTs: '1700000000.000100', startedAt: new Date().toISOString() } });
   return h;
@@ -529,5 +531,18 @@ test('dismiss: a held task ends `canceled: dismissed`; a dismissed reply leaves 
   await flush(20);
   assert.equal(h.store.getOutTask(t2)!.state, 'input-required', 'still waiting for a reply');
   assert.ok(h.turns.some((t) => t.key === OWEN && /your reply was dismissed by a person/.test(t.question)), 'the conversation is told');
+});
+
+test('process lost a message (D16): an error with the task, the session key and the CLI state goes to error tracking without SENTRY_LOGS; the message is delivered again as a turn', async () => {
+  const h = harness([owenOps(), caldora()], { scripts: { caldora: () => 'Because.' } });
+  h.running.set(OWEN, { automatic: false, injected: 0, session: { injectRefusal: () => undefined, pendingTurnTakenUp: () => true, inject: async () => ({ kind: 'lost', takenUp: false }) as InjectOutcome } });
+  const r = send(h, 'caldora', 'Why?');
+  await flush(25);
+  const lost = h.captured.find((c) => c.line.startsWith('messaging ask.inject.lost'))!;
+  assert.ok(lost, 'captured');
+  assert.equal(lost.level, 'error');
+  assert.deepEqual(lost.tags, { area: 'messaging', event: 'ask.inject.lost' });
+  assert.match(lost.line, new RegExp(`key=${OWEN.replace(/[.]/g, '\\.')} task=${data(r).taskId} cli="not taken up"`));
+  assert.equal(h.turns.filter((t) => t.slug === 'owen-ops').length, 1, 'delivered again as a turn');
 });
 
