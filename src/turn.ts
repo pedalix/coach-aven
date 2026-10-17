@@ -79,6 +79,20 @@ export interface TurnEngine {
   // "🔄 Restart session" → kill this thread's Claude conversation (live or persisted) and
   // clear its session fields, so the next liveTurn/runAsk on this key starts fresh.
   restartSession(key: string, project: ProjectConfig): Promise<void>;
+  // ── agent messaging (agent-messaging D10, D11): what the deliverer sees of a conversation ──
+  // The turn running on a key: when it started, whether it is automatic (TurnOpts.automatic), and
+  // how many task messages were folded into it.
+  turnOn(key: string): { turnId: string; startedAt: number; automatic: boolean; injected: number } | undefined;
+  noteInjection(key: string): void;
+  liveSession(key: string): ChatSession | undefined;
+  // A `runAsk` turn (a one-off /aven answer, a dream) runs on the key: it has no place for answers.
+  isAsk(key: string): boolean;
+  // Cancel every turn queued or running on a key (a canceled task's shadow turn).
+  cancelKey(key: string): void;
+  // Close a key's session for good (an ended task's shadow conversation): the process is killed,
+  // the records stay. And retire one that will not take a message any more: killed, resumed next time.
+  closeSession(key: string): Promise<void>;
+  retireSession(key: string, slug: string): Promise<void>;
   // Startup recovery, in order: reattach + finalize turns that were RUNNING at the last
   // stop (returns per-key promises so queued replays can wait their turn), then replay the
   // journaled turns that were still QUEUED (their user messages would otherwise be lost).
@@ -125,9 +139,27 @@ export interface TurnOpts {
   // and answer feedback can be cut per routine. Absent for every other turn.
   routine?: { id: string; label: string };
   // A dispatched turn's provenance (dispatchrun.ts): the proposing project and proposal id —
-  // journaled with the queued turn and stamped on its usage record.
-  origin?: { slug: string; proposalId: string };
+  // journaled with the queued turn and stamped on its usage record. A shadow turn's (agent
+  // messaging D10): the asking agent and the task id.
+  origin?: TurnOrigin;
+  // A turn that runs without a person and acts on its own — a poller's review or investigation,
+  // autofix: a task message never folds into it, it waits for the turn to end (agent-messaging D11).
+  automatic?: true;
+  // Where an unsolicited result of this turn's session goes instead of a 🔔 Background update:
+  // a shadow conversation hands it to its completion rule (agent-messaging D10).
+  onIdleResult?: (text: string) => void;
+  // The turn is journaled (a restart replays it): a delivery may be acked now (agent-messaging D11).
+  onAccepted?: () => void;
+  // The turn starts running (its slot granted): a shadow conversation sends `working` (D10).
+  onStart?: () => void;
+  // Answers the agent's AskUserQuestion instead of the chat's buttons: nobody can click in a shadow
+  // conversation, so it goes to the asker as request_input and is answered at once (D10).
+  onQuestion?: OnQuestion;
 }
+export type TurnOrigin = { slug: string; proposalId: string } | { slug: string; taskId: string };
+
+/** A shadow conversation's key (agent-messaging D10): `[<tenant>:]a2a:<origin>:<taskId>:<slug>`. */
+export const isShadowKey = (key: string): boolean => splitTeam(key).base.startsWith('a2a:');
 
 // What the "🧭 Show steps" click renders: every step line the turn streamed (growing while
 // it runs — the array is shared with doTurn), how long it took (so far), and whether it
@@ -160,6 +192,14 @@ export interface TurnDeps {
   usageLog?: UsageLog;
   feedbackLog?: FeedbackLog;
   drafts?: DraftStore;
+  // Agent messaging's shadow conversations (agent-messaging D10, task 5.7): their chat driver, the
+  // options a replayed shadow turn needs (callbacks, origin), and what a recovered one hands its
+  // result to. Without it an `a2a:` key is recovered like any other.
+  shadow?: {
+    driver: ChatDriver;
+    opts: (key: string) => TurnOpts | undefined;
+    recovered: (key: string, r: { ok: boolean; status: string; text: string }) => Promise<void>;
+  };
 }
 
 export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, deps: TurnDeps = {}): TurnEngine {
@@ -197,6 +237,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // `queues` chain, so projectBusy() must consult this too — otherwise a dream wouldn't see a
   // live Q&A turn (or another dream) writing the same project's memory.
   const asking = new Set<string>();
+  // Agent messaging (D11): the turn running on each key, and every turn accepted per key.
+  const current = new Map<string, { turnId: string; startedAt: number; automatic: boolean; injected: number }>();
+  const turnsByKey = new Map<string, Set<string>>();
 
   // Global concurrency cap on agent turns (multi-tenancy slice 4, "capacity"): pollers ×
   // channels × clients can otherwise stampede the sandbox fleet and the provider API.
@@ -231,6 +274,35 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     const next = slotWaiters.shift();
     if (next) next(); // hand the slot over directly — turnSlots stays 0
     else turnSlots++;
+  }
+  // Shadow turns (agent-messaging D10 "Slots and sessions") take the global slots like any turn,
+  // but at most half of them (at least one): a fan-out or another installation's routine cannot
+  // take every slot from this installation's people. A second gate in front of the global one.
+  let shadowSlots = Math.max(1, Math.floor(MAX_TURNS / 2));
+  const shadowWaiters: (() => void)[] = [];
+  function acquireShadowSlot(signal?: AbortSignal): Promise<void> {
+    if (shadowSlots > 0) {
+      shadowSlots--;
+      return Promise.resolve();
+    }
+    return new Promise((resolve, reject) => {
+      const waiter = () => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      };
+      const onAbort = () => {
+        const i = shadowWaiters.indexOf(waiter);
+        if (i !== -1) shadowWaiters.splice(i, 1);
+        reject(new Error('canceled'));
+      };
+      shadowWaiters.push(waiter);
+      if (signal) signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+  function releaseShadowSlot(): void {
+    const next = shadowWaiters.shift();
+    if (next) next();
+    else shadowSlots++;
   }
 
   // Per-turn token/cost accounting → usage/<month>.jsonl (multi-tenancy slice 4,
@@ -393,6 +465,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       sandbox: project.sandbox,
       scrubSecrets: project.scrubSecrets,
       sources: project.sources !== undefined,
+      ...(project.messaging?.send ? { messagingSend: true } : {}),
       // CLI pin: per-project canary override, else the fleet pin. Install only when no OTHER
       // conversation on this project has a turn in flight (this key's own turn is the one
       // opening the session) — see provisionTooling.
@@ -594,6 +667,13 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       plain: !attachments?.refs.length && (!opts || (!opts.ytDraftFor && !opts.autoPost)),
       ...(opts?.origin ? { origin: opts.origin } : {}),
     });
+    if (opts?.onAccepted) {
+      try {
+        opts.onAccepted();
+      } catch (e) {
+        log.error(`onAccepted ${turnId}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
 
     // Cancel while still queued (doTurn hasn't claimed this turnId yet) — settle right
     // here rather than leaving "⏳ In queue…" frozen until doTurn eventually runs.
@@ -614,9 +694,14 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       .catch(() => {})
       .then(() => doTurn(chat, channel, msgTs, threadTs, ts, key, project, question, turnId, ac, attachments, opts));
     queues.set(key, mine);
+    const ofKey = turnsByKey.get(key) ?? new Set<string>();
+    ofKey.add(turnId);
+    turnsByKey.set(key, ofKey);
     void mine.finally(() => {
       running.delete(turnId);
       if (queues.get(key) === mine) queues.delete(key);
+      ofKey.delete(turnId);
+      if (!ofKey.size && turnsByKey.get(key) === ofKey) turnsByKey.delete(key);
     });
     return mine;
   }
@@ -672,9 +757,17 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         .update(status, { kind: 'status', line: '⏳ Waiting for a free agent slot…', turnId, notify: 'In queue…' })
         .catch(() => {});
     }
+    const shadowTurn = isShadowKey(key);
+    try {
+      if (shadowTurn) await acquireShadowSlot(ac.signal);
+    } catch {
+      await settleCanceled();
+      return;
+    }
     try {
       await acquireSlot(ac.signal);
     } catch {
+      if (shadowTurn) releaseShadowSlot();
       await settleCanceled(); // canceled while waiting for a slot — never acquired one, nothing to release
       return;
     }
@@ -682,11 +775,22 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       // Rare race: canceled the instant the slot was granted — release it immediately
       // rather than let a dead turn hold a slot another turn is waiting on.
       releaseSlot();
+      if (shadowTurn) releaseShadowSlot();
       await settleCanceled();
       return;
     }
 
     const start = Date.now();
+    // What the deliverer sees of this turn (agent-messaging D11). Automatic: flagged by its caller,
+    // or a turn that posts to YouTrack on its own.
+    current.set(key, { turnId, startedAt: start, automatic: opts?.automatic === true || !!opts?.ytDraftFor || !!opts?.autoPost, injected: 0 });
+    if (opts?.onStart) {
+      try {
+        opts.onStart();
+      } catch (e) {
+        log.error(`onStart ${turnId}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
     let phase = '🛠 Preparing sandbox…';
     // Registered when the turn was queued; the array is shared, so every push below shows
     // up in an already-open "🧭 Show steps" modal on its next open. (?? covers a doTurn
@@ -795,7 +899,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       // A background Task/Agent this turn launches may finish AFTER this turn's own
       // answer is already posted — see ClaudeSession.onIdleResult. Re-registered on every
       // live turn so it always targets the CURRENT channel/thread.
-      live.setIdleNotify((text) => {
+      if (opts?.onIdleResult) live.setIdleNotify(opts.onIdleResult);
+      else live.setIdleNotify((text) => {
         const capped = text.slice(0, MAX_SLACK_TEXT) || '(no output)';
         const msg = `🔔 *Background update*\n${capped}`;
         void chat
@@ -841,7 +946,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
               void scheduleFlush();
             },
             ac.signal,
-            makeOnQuestion(chat, channel, threadTs, ac.signal, (qid) => turnQs.add(qid)),
+            opts?.onQuestion ?? makeOnQuestion(chat, channel, threadTs, ac.signal, (qid) => turnQs.add(qid)),
             // Soft deadline reached: the turn continues to the hard cap — flip the working
             // message to the background card instead of erroring out. No extra thread
             // notice: the card says it, and the answer itself will arrive as a new message.
@@ -929,6 +1034,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       }
     } finally {
       releaseSlot();
+      if (shadowTurn) releaseShadowSlot();
+      if (current.get(key)?.turnId === turnId) current.delete(key);
       // Meter the turn (even canceled/errored ones — tokens may have burned before the
       // interrupt; a turn that died before sessionFor simply records no usage).
       usageLog.record({
@@ -941,7 +1048,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         elapsedMs: Date.now() - start,
         usage: session?.lastUsage(),
         ...(opts?.routine ? { routineId: opts.routine.id, routineLabel: opts.routine.label } : {}),
-        ...(opts?.origin ? { originSlug: opts.origin.slug, proposalId: opts.origin.proposalId } : {}),
+        ...(opts?.origin ? { originSlug: opts.origin.slug, ...('taskId' in opts.origin ? { taskId: opts.origin.taskId } : { proposalId: opts.origin.proposalId }) } : {}),
       });
       // Settled either way (answer/cancel/error) — freeze the trail's clock and stop the
       // modal saying "still running". The steps stay: the answer rewrite would otherwise
@@ -986,6 +1093,14 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       // The record's own workspace token finalizes its status message. A tenant with no
       // installation (uninstalled since) clears the marker — leaving it would make every
       // future boot retry forever (pruneChats skips inflight records).
+      // A shadow conversation (agent-messaging D10) has no chat to finalize: its result goes to the
+      // task's completion rule, and the turn is metered with the task's origin (recovery writes no
+      // usage record for other turns).
+      const shadow = isShadowKey(chat.threadTs) ? deps.shadow : undefined;
+      if (shadow) {
+        recovering.set(chat.threadTs, recoverShadow(chat.threadTs, project, inf.uuid, shadow));
+        continue;
+      }
       let driver: ChatDriver;
       try {
         driver = driverFor(chat.teamId);
@@ -1059,6 +1174,35 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     return recovering;
   }
 
+  async function recoverShadow(key: string, project: ProjectConfig, uuid: string | undefined, shadow: NonNullable<TurnDeps['shadow']>): Promise<void> {
+    const start = Date.now();
+    let r: { ok: boolean; status: string; text: string } = { ok: false, status: 'error', text: '' };
+    let cs: ChatSession | undefined;
+    try {
+      cs = await sessionFor(key, project);
+      r = await cs.adoptInflight(undefined, undefined, uuid);
+      persist(key, project.slug, cs);
+    } catch (e) {
+      log.error(`resume ${key}: ${e instanceof Error ? e.message : String(e)}`);
+      captureError(e, { subsystem: 'resume', thread: key, slug: project.slug });
+      r = { ok: false, status: 'error', text: e instanceof Error ? e.message : String(e) };
+    } finally {
+      store.patchChat(key, project.slug, { inflight: undefined });
+    }
+    const origin = shadow.opts(key)?.origin;
+    usageLog.record({
+      at: new Date().toISOString(),
+      key,
+      slug: project.slug,
+      kind: 'turn',
+      status: r.ok ? 'ok' : r.status === 'canceled' ? 'canceled' : 'error',
+      elapsedMs: Date.now() - start,
+      usage: cs?.lastUsage(),
+      ...(origin ? { originSlug: origin.slug, ...('taskId' in origin ? { taskId: origin.taskId } : { proposalId: origin.proposalId }) } : {}),
+    });
+    await shadow.recovered(key, r).catch((e) => log.error(`resume ${key}: ${e instanceof Error ? e.message : String(e)}`));
+  }
+
   // Replay the journaled turns that were still QUEUED (accepted, never started) at the
   // last stop — the one class of turn that used to vanish silently, leaving its "In
   // queue…" message frozen. Plain turns re-run automatically; turns that carried
@@ -1082,6 +1226,21 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         await recovering.get(key)?.catch(() => {});
         for (const e of entries) {
           const project = resolveBySlug(reg.current, e.slug);
+          // A queued shadow turn (agent-messaging D10) replays through the shadow driver with the
+          // options its task record gives back (callbacks, origin); a task that ended has none.
+          if (isShadowKey(e.key) && deps.shadow) {
+            const opts = deps.shadow.opts(e.key);
+            if (!project || !opts) {
+              log.info(`replay ${e.turnId}: the task of ${e.key} ended — not replayed`);
+              continue;
+            }
+            try {
+              await liveTurn(deps.shadow.driver, e.channel, e.msgTs, e.threadTs, e.key, project, e.question, undefined, opts);
+            } catch (err) {
+              log.error(`replay ${e.turnId}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+            continue;
+          }
           // Pre-liveTurn tenant check (skip, not throw): a replay for an uninstalled
           // workspace has no token to even rewrite its status message with.
           let driver: ChatDriver;
@@ -1134,6 +1293,27 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     projectBusy,
     slugForKey,
     restartSession,
+    turnOn: (key) => current.get(key),
+    noteInjection: (key) => {
+      const c = current.get(key);
+      if (c) c.injected++;
+    },
+    liveSession: (key) => live.get(key),
+    isAsk: (key) => asking.has(key),
+    cancelKey: (key) => {
+      for (const turnId of turnsByKey.get(key) ?? []) running.get(turnId)?.abort();
+    },
+    closeSession: async (key) => {
+      const s = live.get(key);
+      live.delete(key);
+      await s?.close().catch(() => {});
+    },
+    retireSession: async (key, slug) => {
+      const s = live.get(key);
+      live.delete(key);
+      await s?.close().catch(() => {});
+      store.patchChat(key, slug, { sessionKey: undefined, cmdId: undefined }); // the sessionId stays: the next turn resumes
+    },
     resumeInflightTurns,
     resumeQueuedTurns,
     trail: (turnId) => trails.get(turnId),

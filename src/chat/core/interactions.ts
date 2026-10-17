@@ -335,7 +335,8 @@ export function createInteractions(deps: InteractionDeps): Interactions {
       // resolve the clicking workspace's own credentials.
       const key = withTeam(tenant, homeTeamId, `autofix:${v.repo}:${v.number}:${v.slug}`);
       if (engine.hasKey(key)) return; // a fix is already running for this PR
-      await engine.liveTurn(d, v.channel, undefined, undefined, key, project, autofixPrompt(v.repo, v.number));
+      // automatic: it pushes commits on its own — an agent-messaging answer never folds into it (D11).
+      await engine.liveTurn(d, v.channel, undefined, undefined, key, project, autofixPrompt(v.repo, v.number), undefined, { automatic: true });
     },
 
     // Memory topic → that section file, privately (journal copy first, no sandbox wake).

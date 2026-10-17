@@ -144,3 +144,11 @@ test('matrix: gitFlow × dind — the toolchain follows dind, the worktree flow 
     }
   }
 });
+
+test('golden: a project with messaging.send gets the messaging paragraph (agent-messaging D9); every other prompt is unchanged', () => {
+  assert.equal(buildSystemPrompt({ ...MULTI, messagingSend: true }), golden('multi-repo-messaging'));
+  const both = buildSystemPrompt({ ...MULTI, messagingSend: true, dispatchEnabled: true });
+  assert.ok(both.includes('`propose` and the messaging tools (below) are the only ways to reach beyond this thread'), 'with DISPATCH the sentence names both');
+  assert.ok(!both.includes('is the ONLY way'));
+  assert.ok(buildSystemPrompt({ ...MULTI, dispatchEnabled: true }).includes('is the ONLY way to reach beyond this thread'), 'dispatch alone: unchanged');
+});

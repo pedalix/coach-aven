@@ -28,8 +28,10 @@ export interface QueuedTurn {
   // (a YT draft's autoPost) that can't be serialized — recovery then asks for a resend.
   plain: boolean;
   // Provenance of a DISPATCHED turn (dispatch.ts): which project proposed it and under which
-  // proposal id. Informational on replay (the pointer-back callbacks are not serializable).
-  origin?: { slug: string; proposalId: string };
+  // proposal id; of a shadow turn (agent-messaging D10): the asking agent and the task id.
+  // Informational on replay (the pointer-back callbacks are not serializable; a shadow turn's are
+  // rebuilt from its task record — TurnDeps.shadow).
+  origin?: { slug: string; proposalId: string } | { slug: string; taskId: string };
 }
 
 type JournalOp = ({ op: 'add' } & QueuedTurn) | { op: 'done'; turnId: string };

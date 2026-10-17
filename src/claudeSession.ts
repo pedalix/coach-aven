@@ -143,7 +143,7 @@ export async function mcpAnswerFrame(ev: any, routes: readonly HostServerRoute[]
   }
   let reply: JsonRpc | undefined;
   try {
-    reply = await route.handle(message);
+    reply = await route.handle(message, typeof requestId === 'string' ? { requestId } : {});
   } catch (e) {
     reply = { jsonrpc: '2.0', id: message.id, error: { code: -32603, message: e instanceof Error ? e.message : String(e) } };
   }
@@ -260,7 +260,7 @@ function usageOf(ev: any, costs: CostDelta): TurnUsage | undefined {
 // waiting. STREAM_HARD_MAX_MS is the real kill: past it the process state is unknown, so
 // the turn dies and the session is retired. Callers that did NOT wire onLongRunning keep
 // the old kill-at-soft behavior — a silent 60-minute wait would be worse than the error.
-const STREAM_MAX_MS = (Number(process.env.STREAM_MAX_MINUTES) || 15) * 60_000;
+export const STREAM_MAX_MS = (Number(process.env.STREAM_MAX_MINUTES) || 15) * 60_000;
 const STREAM_HARD_MAX_MS = (Number(process.env.STREAM_HARD_MAX_MINUTES) || 60) * 60_000;
 const CANCEL_GRACE_MS = 10_000; // after interrupt, wait this long for the canceled result
 
@@ -668,7 +668,9 @@ export class ClaudeSession {
    */
   recoverInjected(o: { uuid: string; writtenAt: number; label?: string; onSlow?: () => void }): Promise<InjectOutcome> {
     if (!this.opts.ledger) return Promise.resolve({ kind: 'refused', reason: 'spawned without the message ledger' });
-    if (this.dead || !this.cmdId) return Promise.resolve({ kind: 'lost', takenUp: false });
+    // Not reattached (the old process is gone, this one was spawned with --resume): whatever was
+    // written to the old one cannot be told apart any more — delivered again as a turn (D11).
+    if (this.dead || !this.cmdId || !this.attached) return Promise.resolve({ kind: 'lost', takenUp: false });
     const turn = this.snapTurns.find((t) => t.echoes.includes(o.uuid));
     if (turn?.result) {
       return Promise.resolve(turn.echoes[0] === o.uuid ? { kind: 'answered', result: turn.result } : { kind: 'folded', into: 'turn' });

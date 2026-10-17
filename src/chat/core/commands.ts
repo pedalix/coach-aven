@@ -49,6 +49,9 @@ export interface CommandDeps {
   // TEAMS_OPERATORS — the one tenant is "home" there, and a client's whole tenant must not
   // hold the operator keys.
   isOperator?: (user: string | undefined) => boolean;
+  // After `/aven reload` swapped the registry: what else changed (agent messaging re-reads its
+  // peers and the acceptance of open tasks), in words — appended to the reply when there is any.
+  onReload?: () => string[];
 }
 
 // Read a file from a project's Claude Code auto-memory dir (the sandbox copy). By default
@@ -510,7 +513,8 @@ export function createCommands(deps: CommandDeps) {
         // them this workspace actually sees, so "8 project(s)" doesn't read as "8 here".
         const mine = teamProjects(next, tenant, homeTeamId).length;
         const scope = next.workspaces && mine !== after.length ? `, ${mine} in this workspace` : '';
-        await say(`:arrows_counterclockwise: Config reloaded — ${after.length} project(s)${scope}${delta ? ` (${delta})` : ''}. New prompts/MCP apply to new sessions; running conversations keep their current setup.`);
+        const extra = deps.onReload?.() ?? [];
+        await say(`:arrows_counterclockwise: Config reloaded — ${after.length} project(s)${scope}${delta ? ` (${delta})` : ''}. New prompts/MCP apply to new sessions; running conversations keep their current setup.${extra.length ? `\nAgent messaging: ${extra.join('; ')}.` : ''}`);
       } catch (err) {
         await say(`${errText(err)}\n_The previous config stays active._`);
       }

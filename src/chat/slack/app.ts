@@ -26,6 +26,8 @@ import { registerCommands } from './commands.js';
 import { registerEvents } from './events.js';
 import { setAlertSink, summary, notConfiguredText, type AlertLevel } from './blocks.js';
 import { log } from '../../log.js';
+import { messagingRuntime } from '../../messaging/runtime.js';
+import { UsageLog } from '../../metering.js';
 
 const { App } = bolt;
 
@@ -248,13 +250,17 @@ export async function runSlack(cfg: Config): Promise<void> {
   // The dispatcher is built after the engine (it drives child turns through it), so `propose`
   // reaches it late-bound; a session only calls it during a turn, long after boot.
   const dispatcherRef: { current?: Dispatcher } = {};
+  // Agent messaging (OpenSpec agent-messaging): the shadow conversations' hooks go into the engine,
+  // the service is started once the engine exists. Nothing reaches it without a `messaging` block.
+  const messaging = messagingRuntime({ cfg, store, reg, home: () => homeTeamId, platform: 'slack' });
   const hostRoutes = createHostRouter({
     reg,
     home: () => homeTeamId,
     tz: ROUTINE_TZ,
     propose: (slug, record) => dispatcherRef.current?.propose(slug, record) ?? Promise.resolve({ ok: false as const, error: 'dispatch is not available yet' }),
+    messaging: messaging.messaging,
   });
-  const engine = createTurnEngine(cfg, store, reg, { hostRoutes });
+  const engine = createTurnEngine(cfg, store, reg, { hostRoutes, shadow: messaging.turnDeps });
   // Late-bound home getter: channels is built here, but homeTeamId was resolved above and
   // a future re-auth could in principle refresh it.
   const channels = createChannels(reg, () => homeTeamId);
@@ -262,11 +268,12 @@ export async function runSlack(cfg: Config): Promise<void> {
   // Every non-event path (pollers, dispatch, recovery) posts through a tenant's chat driver.
   const driverFor = (t?: string) => slackDriver(clientForTeam(t));
   const dispatcher = createDispatcher({ store, reg, engine, channels, driverFor, home: () => homeTeamId, tz: ROUTINE_TZ });
+  messaging.start({ engine, driverFor, usageLog: new UsageLog(), tz: ROUTINE_TZ });
   dispatcherRef.current = dispatcher;
   const pollers = createPollers(cfg, store, reg, driverFor, engine, channels, () => homeTeamId);
 
   registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, dispatcher });
-  registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId });
+  registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId, onReload: () => messaging.reload() });
 
   // Recovery order matters: reattach the turns that were RUNNING first, then replay the
   // journaled ones that were still queued (a replay waits for its key's recovery). Both
@@ -279,6 +286,7 @@ export async function runSlack(cfg: Config): Promise<void> {
   if (homeClient) {
     const recovering = engine.resumeInflightTurns(driverFor);
     engine.resumeQueuedTurns(driverFor, recovering);
+    messaging.recover(recovering); // messages that were on their way, after their conversation's recovery
   }
 
   await app.start();

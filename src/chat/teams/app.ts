@@ -26,6 +26,8 @@ import { teamsDriver, type OutActivity, type TeamsApi } from './driver.js';
 import { registerEvents, type TeamsAppLike } from './events.js';
 import { withNetRetry } from '../../netretry.js';
 import { log } from '../../log.js';
+import { messagingRuntime } from '../../messaging/runtime.js';
+import { UsageLog } from '../../metering.js';
 
 export async function runTeams(cfg: Config): Promise<void> {
   const teams = cfg.teams;
@@ -109,15 +111,20 @@ export async function runTeams(cfg: Config): Promise<void> {
 
   // ── engine, channels, pollers, dispatch — as on Slack ─────────────────────
   const dispatcherRef: { current?: Dispatcher } = {};
+  // Agent messaging (OpenSpec agent-messaging): as in the Slack root — the shadow hooks into the engine,
+  // the service once the engine exists; nothing reaches it without a `messaging` block.
+  const messaging = messagingRuntime({ cfg, store, reg, home: () => tenantId, platform: 'teams' });
   const hostRoutes = createHostRouter({
     reg,
     home: () => tenantId,
     tz: ROUTINE_TZ,
     propose: (slug, record) => dispatcherRef.current?.propose(slug, record) ?? Promise.resolve({ ok: false as const, error: 'dispatch is not available yet' }),
+    messaging: messaging.messaging,
   });
-  const engine = createTurnEngine(cfg, store, reg, { hostRoutes });
+  const engine = createTurnEngine(cfg, store, reg, { hostRoutes, shadow: messaging.turnDeps });
   const channels = createChannels(reg, () => tenantId);
   const dispatcher = createDispatcher({ store, reg, engine, channels, driverFor, home: () => tenantId, tz: ROUTINE_TZ });
+  messaging.start({ engine, driverFor, usageLog: new UsageLog(), tz: ROUTINE_TZ });
   dispatcherRef.current = dispatcher;
   const pollers = createPollers(cfg, store, reg, driverFor, engine, channels, () => tenantId);
 
@@ -125,7 +132,7 @@ export async function runTeams(cfg: Config): Promise<void> {
   const servedTenant = (t: string | undefined) => t === tenantId;
   const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', dispatcher });
   const messages = createMessages({ store, reg, engine, channels, homeTeamId: tenantId, actor, parkDmPick: core.parkDmPick });
-  const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator });
+  const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator, onReload: () => messaging.reload() });
 
   registerEvents(app as unknown as TeamsAppLike, {
     tenantId,
@@ -155,6 +162,7 @@ export async function runTeams(cfg: Config): Promise<void> {
   // Recovery before the listener opens: the journal drain must not race new activities.
   const recovering = engine.resumeInflightTurns(driverFor);
   engine.resumeQueuedTurns(driverFor, recovering);
+  messaging.recover(recovering); // messages that were on their way, after their conversation's recovery
 
   await app.initialize();
   const listener = await new Promise<import('node:http').Server>((resolve, reject) => {
