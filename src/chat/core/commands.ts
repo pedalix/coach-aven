@@ -52,6 +52,10 @@ export interface CommandDeps {
   // After `/aven reload` swapped the registry: what else changed (agent messaging re-reads its
   // peers and the acceptance of open tasks), in words — appended to the reply when there is any.
   onReload?: () => string[];
+  // `/aven asks` (agent-messaging D17): the operators' audit of tasks between agents. The verb
+  // exists only while `enabled()` (a project has a `messaging` block, or HUB_URL is set) —
+  // elsewhere `/aven asks …` stays a question to the agent.
+  asks?: { enabled(): boolean; list(): string; transcript(taskId: string): string; cancel(taskId: string, by: string): string };
 }
 
 // Read a file from a project's Claude Code auto-memory dir (the sandbox copy). By default
@@ -478,6 +482,24 @@ export function createCommands(deps: CommandDeps) {
       const days = Math.min(90, Math.max(1, Math.floor(Number(cmdText.split(/\s+/)[1])) || 30));
       try {
         await say(engine.usageReport(days));
+      } catch (err) {
+        await say(errText(err));
+      }
+      return;
+    }
+
+    // `/aven asks [<task id> | cancel <task id>]` → the tasks between agents (agent-messaging D17):
+    // every tenant, both directions, held first. Operators of the home workspace only.
+    if (verb === 'asks' && deps.asks?.enabled()) {
+      if (!operator) {
+        await say(':lock: `/aven asks` is for operators.');
+        return;
+      }
+      const [, sub, arg] = cmdText.trim().split(/\s+/);
+      try {
+        if (!sub) await say(deps.asks.list());
+        else if (sub === 'cancel') await say(arg ? deps.asks.cancel(arg, cmd.actor.user ?? 'an operator') : `Usage: \`${CMD} asks cancel <task id>\``);
+        else await say(deps.asks.transcript(sub));
       } catch (err) {
         await say(errText(err));
       }

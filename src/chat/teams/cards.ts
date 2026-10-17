@@ -110,6 +110,19 @@ export function renderMessageView(v: MessageView): TeamsMessage {
       };
     case 'proposal':
       return { text: mrkdwnToTeams(proposalText(v.proposal)) };
+    case 'heldAsk': {
+      // agent-messaging D9: the held message with Send / Dismiss while pending (the same action ids as Slack).
+      const what = v.held.kind === 'task' ? `a task for **${v.held.target}**` : `a reply to **${v.held.target}**`;
+      const quoted = v.held.text.slice(0, 2500).split('\n').map((l) => `> ${l}`).join('\n');
+      const head = v.state === 'pending' ? `✋ **Held for your Send:** ${what}` : v.state === 'sent' ? `✅ **Sent:** ${what}` : `🚫 **Dismissed:** ${what}`;
+      const foot = v.state === 'pending' ? `_Held because ${v.held.why}. Anyone who may drive this thread can send it._` : `_${v.state === 'sent' ? 'Sent' : 'Dismissed'}${v.note ? ` — ${v.note}` : ''}_`;
+      return {
+        card: card(
+          [text(head), text(quoted), text(foot, { isSubtle: true })],
+          v.state === 'pending' ? [execute('Send', 'held_send', v.held.id), execute('Dismiss', 'held_dismiss', v.held.id)] : [],
+        ),
+      };
+    }
     case 'relayed':
       return { text: `${mrkdwnToTeams(v.text)}\n\n_proposed by **${v.from}** · ${mrkdwnToTeams(v.by)}_` };
     case 'autofixNotice':
@@ -258,7 +271,7 @@ export function renderHomeView(v: HomeView): TeamsMessage {
   if (v.kind === 'onboarding') return { text: "👋 I'm Aven. This installation serves no projects yet — ask your operator to bind a channel." };
   const projects = v.projects.map((p: ProjectConfig) => `- **${p.slug}** — ${p.repos.join(', ')}${p.teamsChannel ? '' : ' _(no Teams channel bound yet)_'}`);
   // The shared cheat-sheet; Teams wording: commands are `@Aven /verb` in channels, `/verb` in 1:1.
-  const bullets = homeBullets().map((b) => mrkdwnToTeams(b.replace(/\/aven /g, '/')));
+  const bullets = homeBullets(v.messaging ? { messaging: true } : {}).map((b) => mrkdwnToTeams(b.replace(/\/aven /g, '/')));
   return {
     text:
       `**Aven — your coding agent**\n\n**Projects**\n${projects.join('\n') || '_none_'}\n\n` +

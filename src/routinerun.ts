@@ -71,6 +71,7 @@ export function headline(answer: string): string {
 export interface RoutineSettle {
   headline?: string; // ok: the delivered answer's headline
   reason?: string; // error: the failure, one line
+  key?: string; // the run's conversation key (its thread): the tasks it started are counted by it
 }
 export interface RoutineRunOpts {
   onSettle?: (outcome: RoutineOutcome, info: RoutineSettle) => Promise<void>;
@@ -109,7 +110,7 @@ export async function startRoutineTurn(
     ? async (outcome: RoutineOutcome, reason?: string): Promise<void> => {
         if (outcome === 'error') await slack.updateParent(parentTs, `⚠️ ${run.label} — failed: ${failureReason(reason)}`).catch(() => {});
         else if (outcome === 'canceled') await slack.updateParent(parentTs, `${run.label} — canceled`).catch(() => {});
-        await settle(outcome, { headline: head || undefined, reason: outcome === 'error' ? failureReason(reason, 200) : undefined });
+        await settle(outcome, { headline: head || undefined, reason: outcome === 'error' ? failureReason(reason, 200) : undefined, key: run.threadKey(parentTs) });
       }
     : undefined;
   await engine.liveTurn(run.threadKey(parentTs), parentTs, project, prompt, onAnswer, onSettle);

@@ -49,7 +49,7 @@ interface Harness {
   tool: (key: string, slug: string) => { slug: string; conversationKey: string };
 }
 
-function harness(projects: ProjectConfig[], o: { scripts?: Record<string, Script> } = {}): Harness {
+function harness(projects: ProjectConfig[], o: { scripts?: Record<string, Script>; peers?: Record<string, unknown>; hub?: Any } = {}): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'aven-msg-'));
   const store = new Store(join(dir, 'state.json'));
   const reg: RegistryRef = { current: { projects } } as unknown as RegistryRef;
@@ -108,9 +108,10 @@ function harness(projects: ProjectConfig[], o: { scripts?: Record<string, Script
     store,
     reg,
     home: () => undefined,
-    peers: () => ({}),
+    peers: () => o.peers ?? {},
     engine,
     local,
+    ...(o.hub ? { hub: o.hub } : {}),
     shadow: shadowDriver({ dir: join(dir, 'shadow') }),
     platform: 'slack',
     driverFor: () => chat,
@@ -487,3 +488,46 @@ test('AskUserQuestion in a shadow conversation: sent to the asker as request_inp
   assert.ok(h.turns.some((t) => t.slug === 'owen-ops' && /asks back:\n> Which shop\?\n> Options: B2C · B2B/.test(t.question)));
   assert.ok(h.events.some((e) => e.startsWith('messaging ask.shadow.askuserquestion')));
 });
+
+test('forwarding waits for a person: a thread holding bluefin’s data asks northwind — held, a card with Send/Dismiss in the thread, nothing sent until Send', async () => {
+  const sent: Any[] = [];
+  const hub = { kind: 'hub', send: async (env: Any, p: Any) => (sent.push([env, p]), { routed: true }), onDeliver: () => {}, ack: async () => {}, presence: () => ({ online: ['northwind'], removed: [] }) };
+  const h = harness([owenOps(), caldora()], { peers: { northwind: [{ sign: 'x', box: 'y' }] }, hub });
+  h.store.setMarks(OWEN, { bluefin: ['bluefin'] }); // an answer from bluefin reached this thread earlier
+  const r = send(h, 'northwind/ledger', 'Which orders failed today?');
+  assert.equal(r.ok, true);
+  assert.equal(data(r).held, true);
+  assert.match(data(r).why, /held for a person's Send: this conversation holds data from bluefin, and northwind\/ledger is an agent whose domain is not known yet|held for a person's Send/);
+  await flush(10);
+  assert.equal(sent.length, 0, 'nothing reaches northwind');
+  assert.deepEqual(h.posts.map((p) => [p.to.conv, p.to.thread, p.to.marked, p.view.kind, (p.view as Any).state]), [['C0OWEN', '1700000000.000100', true, 'heldAsk', 'pending']]);
+  assert.ok(h.store.getHeld(data(r).taskId)?.card, 'the card is remembered with the held record');
+  const ok = h.svc.release(data(r).taskId, 'U0OWEN');
+  assert.equal(ok.ok, true);
+  assert.equal(h.svc.release(data(r).taskId, 'U0OWEN').ok, false, 'Send releases once');
+  await flush(10);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0][0].to, 'northwind/ledger');
+  assert.deepEqual(sent[0][1].marks, { bluefin: ['bluefin'] }, 'the message carries the marks');
+});
+
+test('dismiss: a held task ends `canceled: dismissed`; a dismissed reply leaves its task waiting and the conversation is told', async () => {
+  const hub = { kind: 'hub', send: async () => ({ routed: true }), onDeliver: () => {}, ack: async () => {}, presence: () => ({ online: [], removed: [] }) };
+  const h = harness([owenOps(), caldora()], { peers: { northwind: [{ sign: 'x', box: 'y' }] }, hub });
+  h.store.setMarks(OWEN, { bluefin: ['bluefin'] });
+  const r = send(h, 'northwind/ledger', 'q');
+  h.svc.dismiss(data(r).taskId);
+  assert.equal(h.store.getOutTask(data(r).taskId)!.state, 'canceled');
+  assert.equal(h.store.getOutTask(data(r).taskId)!.reason, 'dismissed');
+  // a reply held, then dismissed
+  const t2 = 'b'.repeat(24);
+  h.store.putOutTask({ id: t2, slug: 'owen-ops', key: OWEN, reply: { key: OWEN, driver: 'slack', channel: 'C0OWEN', thread: '1700000000.000100' }, target: 'northwind/ledger', question: 'q2', state: 'input-required', depth: 0, rounds: 1, replies: [], seen: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  const rep = h.svc.sendMessage(h.tool(OWEN, 'owen-ops'), { target: 'northwind/ledger', text: 'B2C.', taskId: t2 }, 'rr');
+  assert.equal(data(rep).held, true);
+  const heldId = h.store.listHeld().find((x) => x.task === t2)!.id;
+  h.svc.dismiss(heldId);
+  await flush(20);
+  assert.equal(h.store.getOutTask(t2)!.state, 'input-required', 'still waiting for a reply');
+  assert.ok(h.turns.some((t) => t.key === OWEN && /your reply was dismissed by a person/.test(t.question)), 'the conversation is told');
+});
+

@@ -849,8 +849,14 @@ export function packSections(bullets: string[], max = 2900): string[] {
 
 // The "How to use me" cheat-sheet, one bullet per entry (CLAUDE.md: every user-facing change
 // lands here). Exported so the Home-tab packing test can assert nothing is dropped or split.
-export function homeBullets(opts: { dispatch?: boolean } = {}): string[] {
+export function homeBullets(opts: { dispatch?: boolean; messaging?: boolean } = {}): string[] {
   return [
+    ...(opts.messaging
+      ? [
+          '• *Agents asking agents* — an agent configured to send can ask other agents, in this installation or another one; the answer arrives in its own thread as quoted data from that agent, and its trail shows when an answer folded into a running turn. When a thread holds another client\'s data, a message that would carry it elsewhere waits as a *✋ Held* card: anyone who may drive the thread can *Send* it (once) or *Dismiss* it.',
+          `• *Audit asks* — \`${CMD} asks\` lists the recent tasks between agents (held first, with cost), \`${CMD} asks <task id>\` shows a transcript, \`${CMD} asks cancel <task id>\` cancels one. _(Operators' home workspace only.)_`,
+        ]
+      : []),
     ...(opts.dispatch
       ? [
           '• *Proposals* — when an agent wants to post to another channel or hand a task to another project\'s agent, it proposes it in its own thread and you see *Send* / *Dismiss*. Send executes once (a message with a "proposed by … approved by …" footer, or a new thread in the target channel with the answer and a pointer back here); Dismiss records the no. Mentioning a project in text never dispatches — only a proposal does.',
@@ -889,7 +895,7 @@ export function homeBullets(opts: { dispatch?: boolean } = {}): string[] {
 // registry — a client workspace must not see the fleet. The empty subset renders
 // onboardingHomeBlocks instead (see events.ts).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
+export function homeBlocks(projects: ProjectConfig[], prefix: string, opts: { messaging?: boolean } = {}): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blocks: any[] = [
     { type: 'header', text: { type: 'plain_text', text: '🧭 CoachAven' } },
@@ -917,7 +923,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string): any[] {
   // list grew (and `CMD` can be longer than `/aven` on a dev install: every occurrence
   // widens the text), at which point views.publish rejected the whole view and the Home
   // tab spun forever for everyone — so the layout is computed, not assumed.
-  const bullets = homeBullets({ dispatch: dispatch.enabled });
+  const bullets = homeBullets({ dispatch: dispatch.enabled, ...(opts.messaging ? { messaging: true } : {}) });
   blocks.push(
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*How to use me*' } },
@@ -1091,3 +1097,39 @@ export function summary(reg: ProjectsRegistry): string {
   const bound = reg.projects.filter((p) => p.slackChannel || p.teamsChannel).length;
   return `${reg.projects.length} project(s), ${bound} channel-bound`;
 }
+
+// ── agent messaging: a message held for a person's Send (agent-messaging D9, D14) ─────────────
+// The target, the text quoted, why it is held; Send / Dismiss while pending (action ids
+// held_send / held_dismiss, value = the held message's id), its outcome once decided.
+type HeldView = Extract<import('../views.js').MessageView, { kind: 'heldAsk' }>;
+const quoteMrkdwn = (t: string): string =>
+  t
+    .slice(0, 2500)
+    .split('\n')
+    .map((l) => `> ${l}`)
+    .join('\n');
+export function heldAskText(v: HeldView): string {
+  const what = v.held.kind === 'task' ? `a task for ${v.held.target}` : `a reply to ${v.held.target}`;
+  return v.state === 'pending' ? `✋ Held for your Send: ${what}` : v.state === 'sent' ? `✅ Sent: ${what}` : `🚫 Dismissed: ${what}`;
+}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function heldAskBlocks(v: HeldView): any[] {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const blocks: any[] = [
+    { type: 'section', text: { type: 'mrkdwn', text: `*${heldAskText(v)}*\n${quoteMrkdwn(v.held.text)}` } },
+    { type: 'context', elements: [{ type: 'mrkdwn', text: `Held because ${v.held.why}. Anyone who may drive this thread can send it.` }] },
+  ];
+  if (v.state === 'pending') {
+    blocks.push({
+      type: 'actions',
+      elements: [
+        { type: 'button', text: { type: 'plain_text', text: 'Send' }, style: 'primary', action_id: 'held_send', value: v.held.id },
+        { type: 'button', text: { type: 'plain_text', text: 'Dismiss' }, action_id: 'held_dismiss', value: v.held.id },
+      ],
+    });
+  } else {
+    blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `${v.state === 'sent' ? 'Sent' : 'Dismissed'}${v.by ? ` by <@${v.by}>` : ''}${v.note ? ` — ${v.note}` : ''}` }] });
+  }
+  return blocks;
+}
+

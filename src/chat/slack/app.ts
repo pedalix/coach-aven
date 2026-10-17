@@ -272,8 +272,8 @@ export async function runSlack(cfg: Config): Promise<void> {
   dispatcherRef.current = dispatcher;
   const pollers = createPollers(cfg, store, reg, driverFor, engine, channels, () => homeTeamId);
 
-  registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, dispatcher });
-  registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId, onReload: () => messaging.reload() });
+  registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, dispatcher, messaging: messaging.messaging });
+  registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId, onReload: () => messaging.reload(), asks: messaging.asks });
 
   // Recovery order matters: reattach the turns that were RUNNING first, then replay the
   // journaled ones that were still queued (a replay waits for its key's recovery). Both

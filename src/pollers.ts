@@ -220,7 +220,9 @@ export function createPollers(
       ? async (outcome: RoutineOutcome, info: SettleInfo): Promise<void> => {
           if (settled) return;
           settled = true;
-          const { patch, note } = settlePatch(fire, outcome, info, new Date(), routineGuard);
+          // Tasks the run sent to other agents (agent-messaging D15): a failed run that sent any is not retried.
+          const startedTasks = info.key ? store.messagingTasks().out.filter((t) => t.key === info.key).length : 0;
+          const { patch, note } = settlePatch(fire, outcome, { ...info, ...(startedTasks ? { startedTasks } : {}) }, new Date(), routineGuard);
           // The delivered run's fingerprint for the empty-slot skip: the replica's raw-record count now.
           if (outcome === 'ok' && routineGuard.skipEmpty && project.sources) {
             const raw = sourcesViews.view(project, localDate(r.tz, new Date())).rawRecords;

@@ -22,6 +22,7 @@ import type { Pollers } from '../../pollers.js';
 import type { SlackChatDriver } from './driver.js';
 import { createTwinApp, mentionEnvelope, messageEnvelope } from './twin.js';
 import { CMD } from './blocks.js';
+import type { CommandDeps } from '../core/commands.js';
 
 const UPDATE = process.env.UPDATE_SNAPSHOTS === '1';
 const SNAP = (dir: string, name: string) => new URL(`../../fixtures/chat/${dir}/${name}.json`, import.meta.url).pathname;
@@ -63,7 +64,7 @@ function recordingEngine(store: Store) {
   return { engine, log, busy };
 }
 
-async function twin() {
+async function twin(o: { asks?: CommandDeps['asks'] } = {}) {
   const reg = {
     current: {
       projects: [
@@ -91,13 +92,13 @@ async function twin() {
   );
   const cfg = { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 }, projectsConfigPath: '/nonexistent/projects.config.json' } as unknown as Config;
   registerEvents(app, { cfg, store, reg: reg as never, engine: rec.engine, channels, botUserId: `UBOT_${HOME}`, homeTeamId: HOME, servedTenant });
-  registerCommands(app, { cfg, store, reg: reg as never, engine: rec.engine, channels, pollers, homeTeamId: HOME });
+  registerCommands(app, { cfg, store, reg: reg as never, engine: rec.engine, channels, pollers, homeTeamId: HOME, ...(o.asks ? { asks: o.asks } : {}) });
   return { receiver, api, store, ...rec, pollerLog, stop };
 }
 type Twin = Awaited<ReturnType<typeof twin>>;
 
-async function record(dir: string, name: string, run: (t: Twin) => Promise<void>): Promise<void> {
-  const t = await twin();
+async function record(dir: string, name: string, run: (t: Twin) => Promise<void>, o: { asks?: CommandDeps['asks'] } = {}): Promise<void> {
+  const t = await twin(o);
   try {
     await run(t);
     await new Promise((r) => setTimeout(r, 30));
@@ -328,3 +329,32 @@ C('question-dm', async (t) => {
 C('question-no-dm', (t) => t.receiver.send(cmd('how do we deploy?')));
 C('question-empty-bound', (t) => t.receiver.send(cmd('')));
 C('question-unbound', (t) => t.receiver.send(cmd('how?', { channel: 'C_RANDOM' })));
+
+// ── agent messaging: `/aven asks` (agent-messaging D17, task 6.1) ────────────────────────────────
+const asksLog: unknown[] = [];
+const fakeAsks = (enabled: boolean): CommandDeps['asks'] => ({
+  enabled: () => enabled,
+  list: () => (asksLog.push('list'), '*Tasks between agents* — the last 1, held first (times UTC)\n✅ alpha → home/beta · completed'),
+  transcript: (id: string) => (asksLog.push({ transcript: id }), `*Task \`${id}\`*`),
+  cancel: (id: string, by: string) => (asksLog.push({ cancel: id, by }), `Task \`${id}\` to home/beta: canceled.`),
+});
+test('commands record: asks — operator audit lists the tasks; a transcript; a cancel', async () => {
+  asksLog.length = 0;
+  await record('commands', 'asks-operator', async (t) => {
+    await t.receiver.send(cmd('asks'));
+    await t.receiver.send(cmd(`asks ${'a'.repeat(24)}`));
+    await t.receiver.send(cmd(`asks cancel ${'a'.repeat(24)}`));
+  }, { asks: fakeAsks(true) });
+  assert.deepEqual(asksLog, ['list', { transcript: 'a'.repeat(24) }, { cancel: 'a'.repeat(24), by: 'U_HUMAN' }]);
+});
+test('commands record: asks — not an operator: told the verb is for operators, nothing listed', async () => {
+  asksLog.length = 0;
+  await record('commands', 'asks-client', (t) => t.receiver.send(cmd('asks', { team: CLIENT, channel: 'C_CLIENT' })), { asks: fakeAsks(true) });
+  assert.deepEqual(asksLog, []);
+});
+test('commands record: asks — installation without configuration: `/aven asks why?` is a question to the agent, as before', async () => {
+  asksLog.length = 0;
+  await record('commands', 'asks-unconfigured', (t) => t.receiver.send(cmd('asks why?')), { asks: fakeAsks(false) });
+  assert.deepEqual(asksLog, []);
+});
+

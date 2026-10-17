@@ -555,3 +555,88 @@ test('marks — a turn in a marked conversation posts and updates with the marke
   const plain = await run(false);
   assert.ok(plain.every((c) => !('metadata' in (c.payload as Record<string, unknown>))), 'unmarked: no metadata anywhere');
 });
+
+// ── shadow conversations through the engine (agent-messaging D10, task 5.7–5.8) ──────────────────────
+// Not call snapshots: the shadow driver posts nothing to Slack, and the Slack keys beside them keep the
+// snapshots above byte-identical.
+const SHADOW_KEY = `a2a:home:${'a'.repeat(24)}:alpha`;
+function shadowEngine(o: { adopt?: () => Promise<{ ok: boolean; status: string; text: string }>; ask?: () => Promise<string>; seed?: (s: Store, j: QueueJournal) => void } = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'aven-turnshadow-'));
+  const store = new Store(join(dir, 'state.json'));
+  const journal = new QueueJournal(join(dir, 'queue.jsonl'));
+  o.seed?.(store, journal);
+  const recovered: { key: string; r: { ok: boolean; status: string; text: string } }[] = [];
+  const shadowPosts: string[] = [];
+  const shadowDriverFake = { ...slackDriver(new bolt.webApi.WebClient('xoxb-home', { slackApiUrl: url, retryConfig: { retries: 0 } })), post: async (_t: unknown, v: { kind: string }) => (shadowPosts.push(v.kind), { conv: SHADOW_KEY, id: `s${shadowPosts.length}` }), update: async () => {} } as unknown as ChatDriver;
+  const usage = new UsageLog(join(dir, 'usage'));
+  const engine = createTurnEngine(cfg, store, reg, {
+    openChat: fakeOpenChat({ ask: o.ask, ...(o.adopt ? { adopt: o.adopt } : {}) }),
+    journal,
+    usageLog: usage,
+    feedbackLog: new FeedbackLog(join(dir, 'feedback')),
+    drafts: new DraftStore(join(dir, 'drafts')),
+    shadow: { driver: shadowDriverFake, opts: () => ({ origin: { slug: 'home/owen-ops', taskId: 'a'.repeat(24) } }), recovered: async (key, r) => void recovered.push({ key, r }) },
+  });
+  return { engine, store, recovered, shadowPosts, usage };
+}
+
+test('shadow — restart mid-answer: the in-flight shadow turn is recovered into its task (not into Slack) and metered with the task’s origin', async () => {
+  const h = shadowEngine({
+    seed: (s) => s.patchChat(SHADOW_KEY, 'alpha', { sessionKey: 'sk-9', cmdId: 'cmd-9', inflight: { channel: SHADOW_KEY, statusTs: 's1', startedAt: '1970-01-01T00:00:00.000Z' } }),
+  });
+  api.reset();
+  const rec = h.engine.resumeInflightTurns(() => assert.fail('no Slack driver for a shadow key'));
+  await Promise.all(rec.values());
+  assert.deepEqual(h.recovered, [{ key: SHADOW_KEY, r: { ok: true, status: 'ok', text: 'Recovered.' } }]);
+  assert.equal(api.calls.length, 0, 'nothing to Slack');
+  assert.equal(h.store.getChat(SHADOW_KEY)?.inflight, undefined);
+  const u = h.usage.read(86_400_000) as { key: string; taskId?: string; originSlug?: string }[];
+  assert.deepEqual(u.map((x) => [x.key, x.originSlug, x.taskId]), [[SHADOW_KEY, 'home/owen-ops', 'a'.repeat(24)]]);
+});
+
+test('shadow — recovery fails: the task hears it (the service ends it `failed`)', async () => {
+  const h = shadowEngine({
+    adopt: async () => ({ ok: false, status: 'timeout', text: '' }),
+    seed: (s) => s.patchChat(SHADOW_KEY, 'alpha', { sessionKey: 'sk-9', cmdId: 'cmd-9', inflight: { channel: SHADOW_KEY, statusTs: 's1', startedAt: '1970-01-01T00:00:00.000Z' } }),
+  });
+  const rec = h.engine.resumeInflightTurns(() => assert.fail('no Slack driver'));
+  await Promise.all(rec.values());
+  assert.deepEqual(h.recovered.map((x) => x.r.ok), [false]);
+});
+
+test('shadow — a queued shadow turn is replayed through the shadow driver with its task’s options', async () => {
+  let asked = 0;
+  const h = shadowEngine({
+    ask: async () => (asked++, 'Answer.'),
+    seed: (_s, j) => j.add({ turnId: 'tq', key: SHADOW_KEY, slug: 'alpha', channel: SHADOW_KEY, statusTs: 's0', question: '[Task from another agent …]', plain: true, origin: { slug: 'home/owen-ops', taskId: 'a'.repeat(24) } }),
+  });
+  api.reset();
+  const rec = h.engine.resumeInflightTurns(() => assert.fail('no Slack driver'));
+  h.engine.resumeQueuedTurns(() => assert.fail('no Slack driver for a shadow key'), rec);
+  await new Promise((r) => setTimeout(r, 100));
+  await quiesce();
+  assert.equal(asked, 1);
+  assert.ok(h.shadowPosts.length > 0, 'through the shadow driver');
+  assert.equal(api.calls.length, 0);
+});
+
+test('shadow — incoming burst: shadow turns take at most half of the turn slots; a person’s turn still runs', async () => {
+  const releases: (() => void)[] = [];
+  let started = 0;
+  const h = shadowEngine({ ask: () => new Promise<string>((r) => (started++, releases.push(() => r('ok')))) });
+  const shadowDriverFake = { capabilities: { reactions: false, privateReplies: 'fallback', threadRepliesNeedMention: false }, post: async () => ({ conv: 'x', id: 'y' }), update: async () => {}, mark: async () => {}, permalink: async () => undefined } as unknown as ChatDriver;
+  const keys = ['b', 'c', 'd'].map((x) => `a2a:home:${x.repeat(24)}:alpha`);
+  const turns = keys.map((k) => h.engine.liveTurn(shadowDriverFake, k, undefined, undefined, k, PROJECT, 'task'));
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(started, 2, 'TURN_MAX_CONCURRENT 4 → 2 shadow turns at a time');
+  const client = slackDriver(new bolt.webApi.WebClient('xoxb-home', { slackApiUrl: url, retryConfig: { retries: 0 } }));
+  const person = h.engine.liveTurn(client, 'C1', '100.1', '100.1', 'thread:100.1', PROJECT, 'hi');
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(started, 3, 'a person’s turn takes one of the other slots');
+  releases.shift()!();
+  await new Promise((r) => setTimeout(r, 50));
+  assert.equal(started, 4, 'the third shadow turn starts when one ends');
+  for (const r of releases.splice(0)) r();
+  await Promise.all([...turns, person]);
+  await quiesce();
+});

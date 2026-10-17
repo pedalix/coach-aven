@@ -245,6 +245,74 @@
     "questionDone": {
       "text": "✅ Answered"
     },
+    "heldAsk": {
+      "card": {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.5",
+        "body": [
+          {
+            "type": "TextBlock",
+            "text": "✋ **Held for your Send:** a task for **northwind/ledger**",
+            "wrap": true
+          },
+          {
+            "type": "TextBlock",
+            "text": "> Which orders failed today?",
+            "wrap": true
+          },
+          {
+            "type": "TextBlock",
+            "text": "_Held because this conversation holds data from bluefin, and northwind does not have it. Anyone who may drive this thread can send it._",
+            "wrap": true,
+            "isSubtle": true
+          }
+        ],
+        "actions": [
+          {
+            "type": "Action.Execute",
+            "title": "Send",
+            "data": {
+              "action": "held_send",
+              "value": "aaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          },
+          {
+            "type": "Action.Execute",
+            "title": "Dismiss",
+            "data": {
+              "action": "held_dismiss",
+              "value": "aaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        ]
+      }
+    },
+    "heldAskSent": {
+      "card": {
+        "type": "AdaptiveCard",
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "version": "1.5",
+        "body": [
+          {
+            "type": "TextBlock",
+            "text": "✅ **Sent:** a reply to **northwind/ledger**",
+            "wrap": true
+          },
+          {
+            "type": "TextBlock",
+            "text": "> B2C.",
+            "wrap": true
+          },
+          {
+            "type": "TextBlock",
+            "text": "_Sent_",
+            "wrap": true,
+            "isSubtle": true
+          }
+        ]
+      }
+    },
     "relayed": {
       "text": "Heads-up from alpha\n\n_proposed by **alpha** · approved by Pat_"
     },

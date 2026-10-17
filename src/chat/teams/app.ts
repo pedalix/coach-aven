@@ -130,9 +130,9 @@ export async function runTeams(cfg: Config): Promise<void> {
 
   const actor = createActorGate(store, tenantId);
   const servedTenant = (t: string | undefined) => t === tenantId;
-  const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', dispatcher });
+  const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', dispatcher, messaging: messaging.messaging });
   const messages = createMessages({ store, reg, engine, channels, homeTeamId: tenantId, actor, parkDmPick: core.parkDmPick });
-  const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator, onReload: () => messaging.reload() });
+  const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator, onReload: () => messaging.reload(), asks: messaging.asks });
 
   registerEvents(app as unknown as TeamsAppLike, {
     tenantId,

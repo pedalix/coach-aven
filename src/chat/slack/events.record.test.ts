@@ -23,6 +23,7 @@ import type { Dispatcher } from '../../dispatchrun.js';
 import type { SlackChatDriver } from './driver.js';
 import { FB_CALLBACK, FB_NOTE, FB_REASON, YT_PROMPT_CALLBACK, YT_PROMPT_INPUT, YT_PROMPT_NOW, YT_SEND_CALLBACK, YT_SEND_INPUT } from './blocks.js';
 import { createTwinApp, messageEnvelope, homeOpenedEnvelope, blockActionEnvelope } from './twin.js';
+import type { Messaging } from '../../messaging/service.js';
 
 const SNAP_DIR = new URL('../../fixtures/chat/interactions/', import.meta.url).pathname;
 const UPDATE = process.env.UPDATE_SNAPSHOTS === '1';
@@ -108,7 +109,7 @@ function recordingEngine(store: Store) {
   return { engine, log, busy, trails, drafts, questions, completed };
 }
 
-async function twin(opts: { dispatcher?: Dispatcher } = {}) {
+async function twin(opts: { dispatcher?: Dispatcher; messaging?: () => Messaging | undefined } = {}) {
   const reg = {
     current: {
       projects: [
@@ -135,13 +136,14 @@ async function twin(opts: { dispatcher?: Dispatcher } = {}) {
     homeTeamId: HOME,
     servedTenant,
     dispatcher: opts.dispatcher,
+    ...(opts.messaging ? { messaging: opts.messaging } : {}),
   });
   return { receiver, api, store, ...rec, stop };
 }
 
 type Twin = Awaited<ReturnType<typeof twin>>;
 
-async function record(name: string, run: (t: Twin) => Promise<void>, opts?: { dispatcher?: Dispatcher }): Promise<void> {
+async function record(name: string, run: (t: Twin) => Promise<void>, opts?: { dispatcher?: Dispatcher; messaging?: () => Messaging | undefined }): Promise<void> {
   const t = await twin(opts);
   try {
     await run(t);
@@ -216,6 +218,34 @@ for (const which of ['dispatch_send', 'dispatch_dismiss']) {
     }
   });
 }
+
+// ── agent messaging: the held-message card (agent-messaging task 4.7) — independent of DISPATCH ──
+const HELD = { id: 'a'.repeat(24), task: 'a'.repeat(24), kind: 'task' as const, slug: 'alpha', key: 'thread:5.1', target: 'northwind/ledger', text: 'Which orders failed today?', why: 'this conversation holds data from bluefin, and northwind does not have it', createdAt: '1970-01-01T00:00:00.000Z' };
+const fakeMessaging = (log: unknown[]) =>
+  ({
+    release: (id: string, by: string) => (log.push({ release: { id, by } }), { ok: true, text: 'Sent.' }),
+    dismiss: (id: string) => (log.push({ dismiss: { id } }), { ok: true, text: 'Dismissed.' }),
+  }) as unknown as Messaging;
+for (const which of ['held_send', 'held_dismiss']) {
+  test(`events record: ${which} — held message without the flag (DISPATCH off)`, async () => {
+    assert.equal(dispatch.enabled, false);
+    const mlog: unknown[] = [];
+    await record(`${which.replace('_', '-')}`, async (t) => {
+      t.store.putHeld(HELD);
+      await t.receiver.send({ ...action(HOME, which, HELD.id), message: { ts: '5.6' } });
+      t.log.push(...mlog);
+    }, { messaging: () => fakeMessaging(mlog) });
+  });
+}
+test('events record: held_send by someone who may not drive the conversation is refused, nothing released', async () => {
+  const mlog: unknown[] = [];
+  await record('held-send-refused', async (t) => {
+    restrict(t, HOME);
+    t.store.putHeld(HELD);
+    await t.receiver.send({ ...action(HOME, 'held_send', HELD.id), message: { ts: '5.6' } });
+    t.log.push(...mlog);
+  }, { messaging: () => fakeMessaging(mlog) });
+});
 
 // ── link + trail ─────────────────────────────────────────────────────────────
 test('events record: pr_link only acks', () => record('pr-link', (t) => t.receiver.send(action(HOME, 'pr_link:0', 'https://x/pull/1'))));
