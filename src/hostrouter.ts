@@ -3,7 +3,11 @@
 // handed to the turn engine (TurnDeps.hostRoutes); `routesFor` runs when a session opens and returns
 // what that session registers with the CLI:
 //   • `host`    — while DISPATCH=1: propose + registry (the dispatch primitive's own server; it
-//                 replaced a stdio server in the sandbox and its outbox mount).
+//                 replaced a stdio server in the sandbox and its outbox mount). For a project with a
+//                 `messaging` block, also the messaging tools (agent-messaging D9): send_message,
+//                 get_task, cancel_task, agents with `send`, request_input in a shadow conversation —
+//                 which never gets propose/registry (nobody can click there). Nothing without either.
+//                 Registered when the session opens: an open session gets new tools after a restart.
 //   • `sources` — a project with a `sources` block: the sources tool table over the replica on this
 //                 disk, answered on a worker thread (sources/worker.mjs). Bucket 2: only sources
 //                 projects are affected, and no prod project has one. With `sources.daemon` the
@@ -25,6 +29,9 @@ import { forwardToDaemon } from './sources/daemonclient.js';
 import type { DaemonConfig } from './sources/types.js';
 import { REPLICA_FILE } from './sources/store.js';
 import { log } from './log.js';
+import type { Messaging } from './messaging/service.js';
+import { messagingTools } from './messaging/tools.js';
+import { parseShadowKey } from './chat/shadow/driver.js';
 
 export const HOST_SERVER_NAME = 'host';
 /** tools/call limits the CLI enforces per server: host tools are small; a sources call can be a second or more. */
@@ -51,6 +58,8 @@ export interface HostRouterDeps {
   /** Forwards a tools/call to a project's daemon (default: forwardToDaemon over HTTP). */
   forward?: (cfg: DaemonConfig, slug: string, message: JsonRpc) => Promise<JsonRpc | undefined>;
   tz?: string; // default: AVEN_TZ (the zone bare dates are read in)
+  /** Agent messaging (late-bound: the service is built after the engine); absent → no messaging tools. */
+  messaging?: () => Messaging | undefined;
 }
 
 /** Pure: does the project declare its own server under this name? Then the bot registers none (it keeps its own). */
@@ -66,17 +75,24 @@ export function createHostRouter(d: HostRouterDeps): HostRouter {
   return {
     routesFor(caller, project) {
       const routes: HostServerRoute[] = [];
-      if (dispatchOn && !declares(project, HOST_SERVER_NAME)) {
-        const tools = hostToolTable(caller, {
-          projects: (c) =>
-            teamProjects(d.reg.current, c.teamId ?? d.home(), d.home()).map((p) => ({
-              slug: p.slug,
-              ...(p.slackChannel ? { channel: p.slackChannel } : {}),
-              ...(p.slug === c.slug ? { self: true } : {}),
-            })),
-          propose: (c, record) => d.propose(c.slug, record),
-        });
-        routes.push({ name: HOST_SERVER_NAME, timeoutMs: HOST_TIMEOUT_MS, handle: mcpServer(HOST_SERVER_NAME, tools) });
+      const shadow = parseShadowKey(caller.conversationKey) !== undefined;
+      const m = project.messaging !== undefined ? d.messaging?.() : undefined;
+      if ((dispatchOn || m) && !declares(project, HOST_SERVER_NAME)) {
+        const tools = [
+          ...(dispatchOn && !shadow
+            ? hostToolTable(caller, {
+                projects: (c) =>
+                  teamProjects(d.reg.current, c.teamId ?? d.home(), d.home()).map((p) => ({
+                    slug: p.slug,
+                    ...(p.slackChannel ? { channel: p.slackChannel } : {}),
+                    ...(p.slug === c.slug ? { self: true } : {}),
+                  })),
+                propose: (c, record) => d.propose(c.slug, record),
+              })
+            : []),
+          ...(m ? messagingTools(caller, m, { send: project.messaging!.send === true, shadow }) : []),
+        ];
+        if (tools.length) routes.push({ name: HOST_SERVER_NAME, timeoutMs: HOST_TIMEOUT_MS, handle: mcpServer(HOST_SERVER_NAME, tools) });
       }
       if (project.sources !== undefined && !declares(project, SOURCES_SERVER_NAME)) {
         const db = replicaPath(project.slug);

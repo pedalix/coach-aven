@@ -346,7 +346,8 @@ export function createPollers(
   ): boolean {
     const key = withTeam(tenant, home(), `review:${repo}:${number}:${project.slug}`);
     if (engine.hasKey(key)) return false;
-    void engine.liveTurn(c, channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort)).catch(
+    // automatic: a poller's turn — an agent-messaging answer never folds into it (D11).
+    void engine.liveTurn(c, channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort), undefined, { automatic: true }).catch(
       turnFail(`review ${repo}#${number}`),
     );
     return true;
@@ -555,7 +556,7 @@ export function createPollers(
       // survive an immediate crash; stamp finishedAt when the turn settles. `rootTs` ties the
       // ticket to `thread:<rootTs>` → chats → the Claude session.
       store.recordInvestigation(ticket.id, { slug: project.slug, teamId, channel, rootTs, startedAt: new Date().toISOString() });
-      void engine.liveTurn(chat, channel, undefined, rootTs, key, project, prompt, attachments)
+      void engine.liveTurn(chat, channel, undefined, rootTs, key, project, prompt, attachments, { automatic: true }) // a poller's turn (D11)
         .catch(turnFail(`youtrack ${ticket.id}`))
         .finally(() => store.finishInvestigation(ticket.id));
       return true;

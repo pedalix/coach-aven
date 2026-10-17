@@ -114,6 +114,29 @@ export interface HeldMessage {
   createdAt: string;
 }
 
+/**
+ * A message on its way into a conversation (D11), recorded before the transport is acked: on a
+ * restart it is recovered from the session (`injected`) or queued as a turn. Removed once the
+ * conversation has it (taken up, answered, or its turn journaled).
+ */
+export interface DeliveryRecord {
+  /** The uuid the message is written with. */
+  uuid: string;
+  /** The conversation it goes into, its project and tenant (stamped from the key). */
+  key: string;
+  slug: string;
+  teamId?: string;
+  reply: ReplyTarget;
+  text: string;
+  /** The trail step when it folds into a running turn. */
+  label: string;
+  /** The task it belongs to: an outgoing task (an answer for the asker) or an incoming one (a reply for the shadow conversation). */
+  task: { dir: 'out' | 'in'; id: string; origin?: string };
+  /** Written into a running turn (vs. queued as a turn of its own), and when. */
+  injected?: boolean;
+  at: string;
+}
+
 /** The messaging part of state.json. Absent on an installation that never used messaging. */
 export interface MessagingState {
   out?: Record<string, OutTask>;
@@ -128,6 +151,8 @@ export interface MessagingState {
   counts?: Record<string, number>;
   /** The transports' durable records (transport.ts): written before sending or handing over, removed when done. */
   outbox?: { local?: OutboxRecord[]; hub?: OutboxRecord[] };
+  /** Messages on their way into a conversation, by uuid (D11). */
+  deliveries?: Record<string, DeliveryRecord>;
 }
 
 export const inTaskKey = (origin: string, id: string): string => `${origin}:${id}`;

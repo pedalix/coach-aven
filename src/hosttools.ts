@@ -33,7 +33,16 @@ export interface HostServerRoute {
   /** Per-server tools/call timeout the CLI enforces (sdkMcpServerConfigs); unset → the CLI default. */
   timeoutMs?: number;
   /** A request → its response; a notification → undefined (the session acknowledges it). */
-  handle: (message: JsonRpc) => Promise<JsonRpc | undefined> | JsonRpc | undefined;
+  handle: (message: JsonRpc, ctx?: CallContext) => Promise<JsonRpc | undefined> | JsonRpc | undefined;
+}
+
+/**
+ * The control request a message came in: its `request_id` is a fresh UUID per call and the same when
+ * a restarted bot serves a pending call again — what a tool with an effect derives its ids from
+ * (agent-messaging D9 step 4). The JSON-RPC id inside is a per-process counter and is not.
+ */
+export interface CallContext {
+  requestId?: string;
 }
 
 export interface ToolResult {
@@ -44,7 +53,7 @@ export interface HostToolDef {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
-  call: (args: Record<string, unknown>) => Promise<ToolResult> | ToolResult;
+  call: (args: Record<string, unknown>, ctx?: CallContext) => Promise<ToolResult> | ToolResult;
 }
 
 /** The MCP revision this server speaks when the client names none; a named one is echoed (the CLI's client picks). */
@@ -55,8 +64,8 @@ export const MCP_PROTOCOL_VERSION = '2025-06-18';
  * tools/call — over a fixed tool table. A notification (no id) returns undefined; a tool that
  * throws answers as a tool error (the agent must read it), never as a JSON-RPC error.
  */
-export function mcpServer(name: string, tools: readonly HostToolDef[], version = '1.0.0'): (message: JsonRpc) => Promise<JsonRpc | undefined> {
-  return async (m) => {
+export function mcpServer(name: string, tools: readonly HostToolDef[], version = '1.0.0'): (message: JsonRpc, ctx?: CallContext) => Promise<JsonRpc | undefined> {
+  return async (m, ctx) => {
     if (!m || typeof m !== 'object' || typeof m.method !== 'string') return undefined; // a response or junk: nothing to answer
     const id = m.id;
     if (id === undefined || id === null) return undefined; // notification
@@ -78,7 +87,7 @@ export function mcpServer(name: string, tools: readonly HostToolDef[], version =
         const raw = m.params?.arguments;
         const args = raw && typeof raw === 'object' && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
         try {
-          const r = await tool.call(args);
+          const r = await tool.call(args, ctx);
           return ok({ content: [{ type: 'text', text: r.text }], isError: r.isError === true });
         } catch (e) {
           return ok({ content: [{ type: 'text', text: `${tool.name} failed: ${e instanceof Error ? e.message : String(e)}` }], isError: true });

@@ -91,3 +91,52 @@ test('daemonRoute — tools/call goes to the daemon; initialize and tools/list s
   const [route] = router.routesFor(caller('acme'), viaDaemon);
   assert.deepEqual(await route!.handle({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'stats', arguments: {} } }), { jsonrpc: '2.0', id: 5, result: { daemon: 'acme' } });
 });
+
+// ── agent messaging (OpenSpec agent-messaging, tasks 3.5 / 5.1) ─────────────────────────────────────
+const fakeMessaging = { sendMessage: () => ({ ok: true, data: {} }) } as unknown as import('./messaging/service.js').Messaging;
+const sender = project('owen-ops', { messaging: { send: true } });
+const answerOnly = project('caldora', { messaging: { accept: ['owen-ops'] } });
+const toolNames = async (r: ReturnType<typeof createHostRouter>, c: HostCaller, p: ProjectConfig): Promise<string[] | undefined> => {
+  const host = r.routesFor(c, p).find((x) => x.name === 'host');
+  if (!host) return undefined;
+  const list = (await host.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' })) as { result: { tools: { name: string }[] } };
+  return list.result.tools.map((t) => t.name);
+};
+const propose = async () => ({ ok: true as const, id: 'p-x', status: 'pending' as const, gate: 'buttons' as const });
+
+test('installation without configuration / project not configured: no `host`, exactly as before — with or without the service', async () => {
+  for (const messaging of [undefined, () => fakeMessaging]) {
+    const r = createHostRouter({ reg, home: () => undefined, propose, dispatchEnabled: false, replicaPath: () => missing, sources: noSources, ...(messaging ? { messaging } : {}) });
+    assert.equal(await toolNames(r, caller('plain'), plain), undefined);
+  }
+});
+
+test('nothing is registered without the gate: a messaging project without the service started gets nothing either', async () => {
+  const r = createHostRouter({ reg, home: () => undefined, propose, dispatchEnabled: false, replicaPath: () => missing, sources: noSources, messaging: () => undefined });
+  assert.equal(await toolNames(r, caller('owen-ops'), sender), undefined);
+});
+
+test('messaging without dispatch: a sending project gets the messaging tools only; with DISPATCH both; an answer-only project outside a task gets none', async () => {
+  const off = createHostRouter({ reg, home: () => undefined, propose, dispatchEnabled: false, replicaPath: () => missing, sources: noSources, messaging: () => fakeMessaging });
+  assert.deepEqual(await toolNames(off, caller('owen-ops'), sender), ['send_message', 'get_task', 'cancel_task', 'agents']);
+  assert.equal(await toolNames(off, caller('caldora'), answerOnly), undefined);
+  const on = createHostRouter({ reg, home: () => undefined, propose, dispatchEnabled: true, replicaPath: () => missing, sources: noSources, messaging: () => fakeMessaging });
+  assert.deepEqual(await toolNames(on, caller('owen-ops'), sender), ['propose', 'registry', 'send_message', 'get_task', 'cancel_task', 'agents']);
+});
+
+test('shadow conversation: request_input, the sending tools when the project may send — never propose or registry (nobody can click there)', async () => {
+  const on = createHostRouter({ reg, home: () => undefined, propose, dispatchEnabled: true, replicaPath: () => missing, sources: noSources, messaging: () => fakeMessaging });
+  const shadow: HostCaller = { slug: 'caldora', conversationKey: `a2a:home:${'a'.repeat(24)}:caldora` };
+  assert.deepEqual(await toolNames(on, shadow, answerOnly), ['request_input']);
+  assert.deepEqual(await toolNames(on, { ...shadow, slug: 'owen-ops' }, sender), ['send_message', 'get_task', 'cancel_task', 'agents', 'request_input']);
+});
+
+test('a host tool call needs no transport: send_message is answered in-process, with the call’s control request id', async () => {
+  const seen: unknown[] = [];
+  const m = { sendMessage: (c: unknown, a: unknown, rid: string) => (seen.push([c, a, rid]), { ok: true, data: { taskId: 't', state: 'submitted' } }) } as unknown as import('./messaging/service.js').Messaging;
+  const r = createHostRouter({ reg, home: () => undefined, propose, dispatchEnabled: false, replicaPath: () => missing, sources: noSources, messaging: () => m });
+  const host = r.routesFor(caller('owen-ops'), sender).find((x) => x.name === 'host')!;
+  const reply = (await host.handle({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'send_message', arguments: { target: 'caldora', text: 'q' } } }, { requestId: 'req-uuid-1' })) as { result: { content: { text: string }[] } };
+  assert.deepEqual(JSON.parse(reply.result.content[0]!.text), { taskId: 't', state: 'submitted' });
+  assert.deepEqual(seen, [[{ slug: 'owen-ops', conversationKey: 'thread:1' }, { target: 'caldora', text: 'q' }, 'req-uuid-1']]);
+});

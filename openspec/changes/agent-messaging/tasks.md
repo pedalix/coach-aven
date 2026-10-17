@@ -63,8 +63,9 @@
   - ack only after the handler's durable record; dedupe;
   - `replaced` logged; `expired` → `failed: expired`; `removed` → `failed: peer removed`
   Done: `applyHubReports` turns expiries, removals and rejections into task states; telling the conversations comes with the deliverer (4.4). The composition root starts the client with 3.5.
-- [ ] 3.5 Composition roots (Slack, Teams): start the transports; register `host` with `DISPATCH=1` or a `messaging` configuration; never `propose`/`registry` in a shadow conversation — `src/hostrouter.test.ts` ("installation without configuration", "project not configured", "nothing is registered without the gate", "messaging without dispatch", "shadow conversation", "a host tool call needs no transport"; host list and spawn line byte-identical for unconfigured projects)
+- [x] 3.5 Composition roots (Slack, Teams): start the transports; register `host` with `DISPATCH=1` or a `messaging` configuration; never `propose`/`registry` in a shadow conversation — `src/hostrouter.test.ts` ("installation without configuration", "project not configured", "nothing is registered without the gate", "messaging without dispatch", "shadow conversation", "a host tool call needs no transport"; host list and spawn line byte-identical for unconfigured projects)
   Lands with section 5: the composition roots start the transports once the deliverer (4.4) and the incoming-task handler (5.4) exist to take their deliveries, and `host` is registered once there are messaging tools to list. It also re-reads `hub.peers.json` on `/aven reload` and ends the dropped peers’ tasks (`droppedPeers` + `endTasksWithPeer`).
+  Done: `src/messaging/runtime.ts` in both roots — the local transport always, the hub client only with a usable `HUB_URL` (a loud error otherwise, local messaging stays); `/aven reload` re-reads `hub.peers.json` and the acceptance of open tasks; `host` registration in `src/hostrouter.ts`.
 - [x] 3.6 `deploy.sh export`/`import` carry `hub.peers.json` beside the projects config — `src/chat/teams/deploy.test.ts` (extended) + a dry run of `npm run ops -- <slug> export`
   Done: `hub.peers.json` is an optional runtime file of `infra/deploy/deploy.sh`; `deploy.sh <slug> runtime-files` lists what export and import carry (export has no dry run).
 
@@ -89,11 +90,12 @@
   Done: `ClaudeSession.inject` / `recoverInjected` → `folded` · `answered` · `lost` · `stuck` · `refused`; the requeue and the session restart on `stuck` are the deliverer’s (4.4).
 - [x] 4.3 Per-session contract check: from the session's `system/init` (a capability if the CLI reports one, else the version), inject only on a CLI in the passed set kept in `src/cliversion.ts`; otherwise queued turns + `ask.inject.disabled` — `src/cliversion.test.ts`
   Done: `injectRefusal()` (the ledger, an open session, the version from `system/init` in `PROBED_CLI_VERSIONS`; no capability names fold-in yet); `ask.inject.disabled` is emitted by the deliverer when it falls back to a queued turn (4.4).
-- [ ] 4.4 Deliverer (`src/messaging/deliver.ts`), both transports — `src/messaging/deliver.test.ts` (scenarios "answer while the asker is idle", "answer while the asker is working", "people keep talking while the task is open", "turn ends just as the message arrives", "automatic turn running", "asker in a direct message or a Teams chat", "the person sees the fold", "fan-out", "answer after the asker's bot restarted", "nowhere to deliver", "answer from someone else", "late answer"):
+- [x] 4.4 Deliverer (`src/messaging/deliver.ts`), both transports — `src/messaging/deliver.test.ts` (scenarios "answer while the asker is idle", "answer while the asker is working", "people keep talking while the task is open", "turn ends just as the message arrives", "automatic turn running", "asker in a direct message or a Teams chat", "the person sees the fold", "fan-out", "answer after the asker's bot restarted", "nowhere to deliver", "answer from someone else", "late answer"):
   - the counterpart check; messages for ended tasks acked and logged;
   - the explicit reply target (chat or shadow);
   - inject only into a started turn of a person, routine or task, younger than the soft deadline, with fewer than 5 injections, in a session spawned with the ledger on a checked CLI; else `liveTurn`;
   - a trail step for a fold; state written before the ack
+  Done: the deliverer in `src/messaging/service.ts` (`deliver` → `run`: inject or queue, a `DeliveryRecord` before the ack, `recoverDeliveries` after the engine’s recovery), tested end to end in `src/messaging/service.test.ts` over the local transport.
 - [x] 4.5 `wrapAnswer` / `wrapReply` / `wrapTask` (pure; golden fixtures `src/fixtures/messaging/{answer,reply,task}.txt`): the original question, the never-forward sentence, the still-open line, the no-writes frame — `src/messaging/wrap.test.ts` ("session gone")
   Done: `src/messaging/wrap.ts`; every line of foreign text is quoted (`> `), so it cannot close its quote or pass for a person.
 - [x] 4.6 Marks (D14) — `src/messaging/marks.test.ts` ("forwarding waits for a person", "a released message can be answered", "second message to the same domain", "two clients in one installation", "no laundering through a local agent", "a peer claims another domain", "compaction keeps the marks", "fresh session"):
@@ -116,27 +118,33 @@
 
 ## 5. Bot: tools and the answering side
 
-- [ ] 5.1 Tools `send_message`, `get_task`, `cancel_task`, `agents` for senders (shadow conversations included), and `request_input` on shadow keys — `src/hosttools.test.ts`, `src/hostrouter.test.ts` ("task message without a button", "propose returns the gate" unchanged, "send returns at once", "unknown installation", "agent that does not accept the caller", "status on demand", "another thread asks for the answer", "call served again after a restart", "sending withdrawn", "someone else's task", "depth exceeded", "cap reached" sender side):
+- [x] 5.1 Tools `send_message`, `get_task`, `cancel_task`, `agents` for senders (shadow conversations included), and `request_input` on shadow keys — `src/hosttools.test.ts`, `src/hostrouter.test.ts` ("task message without a button", "propose returns the gate" unchanged, "send returns at once", "unknown installation", "agent that does not accept the caller", "status on demand", "another thread asks for the answer", "call served again after a restart", "sending withdrawn", "someone else's task", "depth exceeded", "cap reached" sender side):
   - task tools scoped to the calling conversation; configuration read at call time;
   - the reply target resolved like a proposal's thread (its own key for a shadow conversation); refused in `runAsk` conversations;
   - task and reply ids derived from the conversation and the call's request id, looked up before any other check;
   - depth; the daily cap; held / refused under the marks
-- [ ] 5.2 Messaging prompt paragraph for projects with `messaging.send`; the dispatch sentence names both when both are on; goldens for other projects unchanged — `src/prompt.test.ts` + new fixture `src/fixtures/prompt/*messaging*.txt`
-- [ ] 5.3 `agents`: own installation answered locally; a peer by one bounded round trip, or `offline`; only agents that accept the caller; domains learned from the cards — `src/messaging/agents.test.ts` ("listing a peer", the own installation)
-- [ ] 5.4 Incoming-task handler (`src/messaging/answer.ts`) — `src/messaging/answer.test.ts` ("accepted in the same installation", "not accepted", "receiver rejects", "answer-only project", "nothing in the channel", "cap reached"):
+  Done: `src/messaging/tools.ts` over the service; ids derived from the control request id (`CallContext`), so a call served again finds its task.
+- [x] 5.2 Messaging prompt paragraph for projects with `messaging.send`; the dispatch sentence names both when both are on; goldens for other projects unchanged — `src/prompt.test.ts` + new fixture `src/fixtures/prompt/*messaging*.txt`
+  Done: `MESSAGING_PROMPT_PARAGRAPH` (`src/messaging/wrap.ts`), golden `src/fixtures/prompt/multi-repo-messaging.txt`.
+- [x] 5.3 `agents`: own installation answered locally; a peer by one bounded round trip, or `offline`; only agents that accept the caller; domains learned from the cards — `src/messaging/agents.test.ts` ("listing a peer", the own installation)
+  Done: local cards tested; a peer’s `agents` → `cards` round trip (10 s, `offline`) is implemented and first exercised by the canary (7.7), as there is no hub to answer before.
+- [x] 5.4 Incoming-task handler (`src/messaging/answer.ts`) — `src/messaging/answer.test.ts` ("accepted in the same installation", "not accepted", "receiver rejects", "answer-only project", "nothing in the channel", "cap reached"):
   - verify and open (remote);
   - acceptance checked for every message of a task;
   - depth; the daily cap per sender;
   - a shadow `liveTurn` with the tenant-prefixed key `[<tenant>:]a2a:<origin>/<taskId>`
   - the `toDomain` the sender assumed checked against the target’s domain (`rejected: domain changed` on a first message, `failed` on a later one); the conversation marked from the task (`markArrival`)
-- [ ] 5.5 `src/chat/shadow/driver.ts` (journal only) and `settleShadowTurn` in `src/messaging/answer.ts` (the one owner of completion) — `src/chat/shadow/driver.test.ts`, `src/messaging/answer.test.ts` ("background subagent", "asked back and ended the turn", "sub-question", "answer arrives during the final text", "nothing outstanding and no turn comes", "nudge gives no answer"):
+  Done: `onAsk` in `src/messaging/service.ts` — acceptance, `toDomain`, depth, the daily cap per sender, the shadow turn with its marks.
+- [x] 5.5 `src/chat/shadow/driver.ts` (journal only) and `settleShadowTurn` in `src/messaging/answer.ts` (the one owner of completion) — `src/chat/shadow/driver.test.ts`, `src/messaging/answer.test.ts` ("background subagent", "asked back and ended the turn", "sub-question", "answer arrives during the final text", "nothing outstanding and no turn comes", "nudge gives no answer"):
   - the journal; `working` on start;
   - completion only when nothing is outstanding: an unanswered `request_input`, open sub-tasks, messages not taken up yet, CLI background tasks. Otherwise the answer becomes the status message;
   - at most one nudge turn per task, then `failed: no answer`;
   - `AskUserQuestion` → `request_input` + event; late results → event;
   - expiry on the answering side too
   - an answer the marks refuse ends its task `failed: refused by marks` (`ask.marks.refused`)
-- [ ] 5.6 Clarifications (at most `maxRounds`, the next ends the task), cancel with cascade to sub-tasks, acceptance withdrawn on reload, a later message bounced → `failed` — `src/messaging/answer.test.ts` ("clarification answered while still working", "clarification needs a person", "agents loop", "asker gives up", "acceptance withdrawn", "reply bounced", "parent canceled")
+  Done: `src/chat/shadow/driver.ts`; `settleShadowTurn` and the nudge in the service; `AskUserQuestion` → `request_input` through the turn’s `onQuestion`.
+- [x] 5.6 Clarifications (at most `maxRounds`, the next ends the task), cancel with cascade to sub-tasks, acceptance withdrawn on reload, a later message bounced → `failed` — `src/messaging/answer.test.ts` ("clarification answered while still working", "clarification needs a person", "agents loop", "asker gives up", "acceptance withdrawn", "reply bounced", "parent canceled")
+  Done: rounds, cancel with cascade, acceptance withdrawn on reload; a bounced reply ends the task `failed` (`applyHubReports`).
 - [ ] 5.7 Restart recovery — `src/chat/slack/turn.record.test.ts` byte-identical ("slack mode", "unknown driver" unchanged) + "restart mid-answer", "recovery fails", "incoming burst", "shadow conversations beside slack":
   - keys `[<tenant>:]a2a:<origin>:<taskId>:<slug>` (validated ids; `slugForKey` and `projectBusy` see them);
   - queued replay of an `a2a:` key → the shadow driver and `shadowOpts(key)`; inflight recovery of an `a2a:` key → `settleShadowTurn` plus a metering record with the origin; Slack and Teams unchanged;

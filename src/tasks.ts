@@ -253,6 +253,8 @@ export async function openChat(
     // The bot-served MCP servers this session registers (host tools, channel-served sources).
     // Empty/absent → nothing is registered and the session is byte-identical to today's.
     hostServers?: HostServerRoute[];
+    // ProjectConfig.messaging.send: the system prompt explains the messaging tools (agent-messaging D9).
+    messagingSend?: boolean;
   },
 ): Promise<ChatSession> {
   const sourcesEnabled = opts.sources === true;
@@ -280,6 +282,7 @@ export async function openChat(
     packageRepos: reachableDependencyRepos(opts.repos, facts.dependsOnRepos(opts.slug)),
     sourcesEnabled,
     dispatchEnabled: dispatch.enabled,
+    ...(opts.messagingSend ? { messagingSend: true } : {}),
     gitFlow: opts.gitFlow,
     // Resolved again here (loadProjects already validated it) so the prompt sees the same
     // dind answer as the dockerd guard in prepareChat.

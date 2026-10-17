@@ -1,4 +1,5 @@
 import { DISPATCH_PROMPT_PARAGRAPH } from './dispatch.js';
+import { MESSAGING_PROMPT_PARAGRAPH } from './messaging/wrap.js';
 import { repoName } from './project.js';
 import { SOURCES_PROMPT_PARAGRAPH } from './sources/mcp.js';
 import type { GitFlow } from './projects.js';
@@ -31,6 +32,8 @@ export interface SystemPromptInputs {
   sourcesEnabled?: boolean;
   // DISPATCH=1 → the `host` MCP server (propose) is injected; absent by default, so the prod goldens hold.
   dispatchEnabled?: boolean;
+  // ProjectConfig.messaging.send → the messaging tools are on `host` (agent-messaging D9); absent → today's text.
+  messagingSend?: boolean;
   // ProjectConfig.gitFlow; absent → "pr".
   gitFlow?: GitFlow;
   // The project's container options as resolved at boot (sandboxopts.ts) — `dind` gates the
@@ -163,7 +166,16 @@ export function buildSystemPrompt(inp: SystemPromptInputs): string {
     lines.push('', SOURCES_PROMPT_PARAGRAPH);
   }
   if (inp.dispatchEnabled) {
-    lines.push('', DISPATCH_PROMPT_PARAGRAPH);
+    // With messaging, propose is no longer the ONLY way beyond the thread: the sentence names both.
+    lines.push(
+      '',
+      inp.messagingSend
+        ? DISPATCH_PROMPT_PARAGRAPH.replace('is the ONLY way to reach beyond this thread', 'and the messaging tools (below) are the only ways to reach beyond this thread')
+        : DISPATCH_PROMPT_PARAGRAPH,
+    );
+  }
+  if (inp.messagingSend) {
+    lines.push('', MESSAGING_PROMPT_PARAGRAPH);
   }
   if (slackUrl) {
     lines.push(

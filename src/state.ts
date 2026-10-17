@@ -2,7 +2,7 @@ import type { StoredProposal } from './dispatch.js';
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { splitTeam } from './teamkeys.js';
 import type { TeamAccess } from './access.js';
-import { countKeyDay, inTaskKey, isOpen, type HeldMessage, type InTask, type MessagingState, type OutTask } from './messaging/records.js';
+import { countKeyDay, inTaskKey, isOpen, type DeliveryRecord, type HeldMessage, type InTask, type MessagingState, type OutTask } from './messaging/records.js';
 import type { Marks } from './messaging/protocol.js';
 import type { OutboxRecord, RecordStore } from './messaging/transport.js';
 
@@ -693,6 +693,28 @@ export class Store {
   }
   listHeld(): HeldMessage[] {
     return Object.values(this.data.messaging?.held ?? {});
+  }
+
+  /** Messages on their way into a conversation (D11): recorded before the transport is acked. */
+  putDelivery(rec: DeliveryRecord): DeliveryRecord {
+    const next = this.stamped(rec);
+    (this.msg().deliveries ??= {})[rec.uuid] = next;
+    this.save();
+    return next;
+  }
+  patchDelivery(uuid: string, patch: Partial<Pick<DeliveryRecord, 'injected' | 'at'>>): void {
+    const cur = this.data.messaging?.deliveries?.[uuid];
+    if (!cur) return;
+    this.msg().deliveries![uuid] = Store.patched<DeliveryRecord>(cur, patch);
+    this.save();
+  }
+  deleteDelivery(uuid: string): void {
+    if (!this.data.messaging?.deliveries?.[uuid]) return;
+    delete this.data.messaging.deliveries[uuid];
+    this.save();
+  }
+  listDeliveries(): DeliveryRecord[] {
+    return Object.values(this.data.messaging?.deliveries ?? {});
   }
 
   /** Daily caps (messaging/records.ts sendCountKey / acceptCountKey). */
