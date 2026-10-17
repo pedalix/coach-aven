@@ -10,21 +10,21 @@
 
 ## 1. Messaging core (pure, shared)
 
-- [ ] 1.1 `src/messaging/a2a.ts`: the Message / Task / AgentCard subset (card: name, description, accepting, plus `domain`), the state set, parsers and validators — `src/messaging/a2a.test.ts`
-- [ ] 1.2 `src/messaging/protocol.ts` — `src/messaging/protocol.test.ts`:
+- [x] 1.1 `src/messaging/a2a.ts`: the Message / Task / AgentCard subset (card: name, description, accepting, plus `domain`), the state set, parsers and validators — `src/messaging/a2a.test.ts`
+- [x] 1.2 `src/messaging/protocol.ts` — `src/messaging/protocol.test.ts`:
   - frames: `challenge`, `auth`, `hello` with `removed`, `send`, `ack`, `deliver`, `routed`/`rejected`, `expired`, `presence`;
   - the envelope (`ask|answer|cancel|agents|cards`) and its payload `{message, domain, marks, depth, cost?}`;
   - target parsing (`<installation>/<agent>`, bare `<agent>`);
   - the accept-pattern matcher
-- [ ] 1.3 `src/messaging/seal.ts`: Ed25519 + X25519 with `node:crypto` — `src/messaging/seal.test.ts` ("tampered envelope"):
+- [x] 1.3 `src/messaging/seal.ts`: Ed25519 + X25519 with `node:crypto` — `src/messaging/seal.test.ts` ("tampered envelope"):
   - seal and open: ephemeral ECDH → HKDF → AES-256-GCM, header + envelope id as AAD, Ed25519 signature;
   - key lists with `notAfter`;
   - tests: tamper, wrong key, wrong sender, replayed ciphertext, rotation grace
-- [ ] 1.4 Imports test: `protocol.ts` and `a2a.ts` import nothing from `node:` — `src/messaging/imports.test.ts`
-- [ ] 1.4a Versions: unknown payload and frame fields ignored; unknown `v` rejected with both versions; a fixture of today's envelope kept, so later changes are checked against it — `src/messaging/protocol.test.ts` ("prod on the last tag", "unknown version")
-- [ ] 1.5 `src/messaging/transport.ts` + `local.ts`: the `PeerTransport` interface and the in-process transport (the same outbox record as the hub client, re-handed after a restart; the double for every bot-side test) — `src/messaging/transport.test.ts`
-- [ ] 1.6 `src/messaging/events.ts`: the D16 catalogue (names, levels, fields) and its helper, which logs and sends warnings and errors to Sentry explicitly (`captureMessage` / `captureError`) — `src/messaging/events.test.ts`
-- [ ] 1.7 `orch hub keygen` writes the key file (0600) and prints the public halves — cli unit test + manual run
+- [x] 1.4 Imports test: `protocol.ts` and `a2a.ts` import nothing from `node:` — `src/messaging/imports.test.ts`
+- [x] 1.4a Versions: unknown payload and frame fields ignored; unknown `v` rejected with both versions; a fixture of today's envelope kept, so later changes are checked against it — `src/messaging/protocol.test.ts` ("prod on the last tag", "unknown version")
+- [x] 1.5 `src/messaging/transport.ts` + `local.ts`: the `PeerTransport` interface and the in-process transport (the same outbox record as the hub client, re-handed after a restart; the double for every bot-side test) — `src/messaging/transport.test.ts`
+- [x] 1.6 `src/messaging/events.ts`: the D16 catalogue (names, levels, fields) and its helper, which logs and sends warnings and errors to Sentry explicitly (`captureMessage` / `captureError`) — `src/messaging/events.test.ts`
+- [x] 1.7 `orch hub keygen` writes the key file (0600) and prints the public halves — cli unit test + manual run
 
 ## 2. Hub (`hub/`)
 

@@ -46,6 +46,12 @@ export function captureError(err: unknown, tags?: Record<string, string>): void 
   if (on) Sentry.captureException(err, tags ? { tags } : undefined);
 }
 
+// Report a message (no stack) as a Sentry issue at a level — the explicit path for events that must
+// reach Sentry whether or not SENTRY_LOGS is on (src/messaging/events.ts). No-op when Sentry is off.
+export function captureMessage(msg: string, level: 'warning' | 'error', tags?: Record<string, string>): void {
+  if (on) Sentry.captureMessage(scrubText(msg), { level, ...(tags ? { tags } : {}) });
+}
+
 // Forward a log line to Sentry structured logs — only when logs are explicitly enabled. Scrubbed.
 export function sentryLog(level: 'info' | 'warn' | 'error', msg: string): void {
   if (logsOn) Sentry.logger[level](scrubText(msg));
