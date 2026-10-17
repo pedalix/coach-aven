@@ -13,7 +13,6 @@ import { shadowDriver, type ShadowDriver } from '../chat/shadow/driver.js';
 import type { ChatDriver } from '../chat/driver.js';
 import type { Config } from '../config.js';
 import { log } from '../log.js';
-import type { UsageLog } from '../metering.js';
 import type { RegistryRef } from '../projects.js';
 import type { Store } from '../state.js';
 import type { TurnDeps, TurnEngine } from '../turn.js';
@@ -22,6 +21,9 @@ import { LocalTransport } from './local.js';
 import { droppedPeers, endTasksWithPeer, loadPeers, peersPath, type Peers } from './peers.js';
 import type { KeyFile } from './seal.js';
 import { createMessaging, type Messaging } from './service.js';
+import { asksList, asksTranscript, type AskRow } from './audit.js';
+import { UsageLog } from '../metering.js';
+import { splitTeam } from '../teamkeys.js';
 
 const SHADOW_DIR = new URL('../../shadow', import.meta.url).pathname;
 const TICK_MS = 60_000;
@@ -37,6 +39,10 @@ export interface MessagingRuntime {
   recover(recovering: Map<string, Promise<void>>): void;
   /** `/aven reload`: re-read hub.peers.json and the acceptance of open tasks; what changed, in words. */
   reload(): string[];
+  /** `/aven asks` (D17), for the commands. */
+  asks: { enabled(): boolean; list(): string; transcript(taskId: string): string; cancel(taskId: string, by: string): string };
+  /** Whether any project has a `messaging` block (the Home tab's messaging lines, the verb). */
+  configured(): boolean;
   stop(): void;
 }
 
@@ -121,5 +127,58 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
       hub?.stop();
       if (timer) clearInterval(timer);
     },
+    configured: () => o.reg.current.projects.some((p) => p.messaging !== undefined),
+    asks: {
+      enabled: () => o.reg.current.projects.some((p) => p.messaging !== undefined) || env.hub !== undefined || env.hubProblem !== undefined,
+      list: () => asksList(rows()),
+      transcript: (taskId) => {
+        const r = rows().find((x) => x.id === taskId);
+        if (!r) return `No task \`${taskId}\` here.`;
+        const inc = r.dir === 'in' ? o.store.messagingTasks().in.find((t) => t.id === taskId) : undefined;
+        return asksTranscript(r, inc ? shadow.read(inc.origin, inc.id) : []);
+      },
+      cancel: (taskId, by) => ref.current?.cancelByOperator(taskId, by) ?? 'Agent messaging has not started.',
+    },
   };
+
+  // The audit's rows: tasks both ways, and held messages; costs from metering (turns run here, by task
+  // id) or, for an answer from another installation, the cost it reported (D17).
+  function rows(): AskRow[] {
+    const usage = new UsageLog().read(31 * 86_400_000) as { taskId?: string; usage?: { costUsd?: number } }[];
+    const costOf = (id: string): number | undefined => {
+      const rs = usage.filter((u) => u.taskId === id);
+      return rs.length ? rs.reduce((a, u) => a + (u.usage?.costUsd ?? 0), 0) : undefined;
+    };
+    const tasks = o.store.messagingTasks();
+    const out: AskRow[] = tasks.out.map((t) => ({
+      dir: 'out',
+      id: t.id,
+      slug: t.slug,
+      ...(splitTeam(t.key).tenantId ? { tenant: splitTeam(t.key).tenantId } : {}),
+      peer: t.target,
+      state: o.store.getHeld(t.id) ? 'held' : t.state,
+      ...(t.reason ? { reason: t.reason } : {}),
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      ...((t.cost ?? costOf(t.id)) !== undefined ? { cost: t.cost ?? costOf(t.id) } : {}),
+      question: t.question,
+      ...(t.last?.text ? { answer: t.last.text } : {}),
+      ...(o.store.getHeld(t.id) ? { why: o.store.getHeld(t.id)!.why } : {}),
+    }));
+    const inc: AskRow[] = tasks.in.map((t) => ({
+      dir: 'in',
+      id: t.id,
+      slug: t.slug,
+      ...(splitTeam(t.key).tenantId ? { tenant: splitTeam(t.key).tenantId } : {}),
+      peer: t.from,
+      state: t.state,
+      ...(t.reason ? { reason: t.reason } : {}),
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      ...(costOf(t.id) !== undefined ? { cost: costOf(t.id) } : {}),
+      question: t.question,
+      ...(t.last?.text ? { answer: t.last.text } : {}),
+    }));
+    return [...out, ...inc];
+  }
 }

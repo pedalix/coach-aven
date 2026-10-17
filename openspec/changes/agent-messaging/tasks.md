@@ -109,12 +109,13 @@
   Done: `src/messaging/marks.ts` (`domainOf`, `markArrival`, `markSent`, `mayGo`, `heldWhy`), the store’s per-conversation marks, their end with `🔄 Restart session` or the conversation’s record, and the domain claim in the hub client. Where the rule is applied — held in chat and refused in shadow (5.1), the receiver’s `toDomain` check (5.4), a refused answer ending its task (5.5) — lands with those tasks.
 - [ ] 4.6a Posts of a marked conversation carry the marker (Slack message metadata, the Teams equivalent), and the Slack source skips them at ingest — `src/sources/slack/normalise.test.ts` ("answer posted in a thread is not ingested") + driver golden for the metadata
   Slack done: the driver marks posts and updates of a marked conversation (`metadata.event_type = aven_marked`), the turn engine marks while the conversation has marks, and the Slack source pulls with `include_all_metadata` and skips them. **Teams open:** an answer goes out as a markdown text message, so a marker Graph can see must sit in the text; no Teams installation ingests its own workspace for a messaging project yet.
-- [ ] 4.7 The held-message card — `src/chat/slack/events.record.test.ts` + Teams cards golden ("held message without the flag", "flag off"; existing byte-identical):
+- [x] 4.7 The held-message card — `src/chat/slack/events.record.test.ts` + Teams cards golden ("held message without the flag", "flag off"; existing byte-identical):
   - a `heldAsk` view for a new task or a reply;
   - Slack blocks and a Teams card with their own action ids;
   - a handler gated by `mayDrive`;
   - Send releases once; Dismiss → `canceled: dismissed` (a dismissed reply leaves `input-required`, and the conversation is told);
   - independent of `DISPATCH`
+  Done: the `heldAsk` view (Slack `heldAskBlocks`, Teams card), `held_send` / `held_dismiss` in the core behind the drive gate, the card posted by the service into the conversation (marked when it is); `src/chat/slack/events.record.test.ts` (held-send, held-dismiss, refused), the Teams cards golden, `src/messaging/service.test.ts` (Send once, Dismiss, a dismissed reply).
 
 ## 5. Bot: tools and the answering side
 
@@ -145,24 +146,29 @@
   Done: `src/chat/shadow/driver.ts`; `settleShadowTurn` and the nudge in the service; `AskUserQuestion` → `request_input` through the turn’s `onQuestion`.
 - [x] 5.6 Clarifications (at most `maxRounds`, the next ends the task), cancel with cascade to sub-tasks, acceptance withdrawn on reload, a later message bounced → `failed` — `src/messaging/answer.test.ts` ("clarification answered while still working", "clarification needs a person", "agents loop", "asker gives up", "acceptance withdrawn", "reply bounced", "parent canceled")
   Done: rounds, cancel with cascade, acceptance withdrawn on reload; a bounced reply ends the task `failed` (`applyHubReports`).
-- [ ] 5.7 Restart recovery — `src/chat/slack/turn.record.test.ts` byte-identical ("slack mode", "unknown driver" unchanged) + "restart mid-answer", "recovery fails", "incoming burst", "shadow conversations beside slack":
+- [x] 5.7 Restart recovery — `src/chat/slack/turn.record.test.ts` byte-identical ("slack mode", "unknown driver" unchanged) + "restart mid-answer", "recovery fails", "incoming burst", "shadow conversations beside slack":
   - keys `[<tenant>:]a2a:<origin>:<taskId>:<slug>` (validated ids; `slugForKey` and `projectBusy` see them);
   - queued replay of an `a2a:` key → the shadow driver and `shadowOpts(key)`; inflight recovery of an `a2a:` key → `settleShadowTurn` plus a metering record with the origin; Slack and Teams unchanged;
   - a shadow turn that cannot be recovered → `failed`;
   - shadow turns limited to half of the turn slots;
   - the shadow session closed when its task ends
-- [ ] 5.8 `TurnOpts.origin` accepts `{slug, taskId}`; metering stamps it and the number of folded task messages — `src/metering.test.ts`
-- [ ] 5.9 Routine guard: no retry for a failed run that already started tasks; a run without tasks retries as today — `src/routineguard.test.ts` ("routine gathers answers")
+  Done: the engine’s `a2a:` branches (`TurnDeps.shadow`), tested in `src/chat/slack/turn.record.test.ts` (“shadow — …”: restart mid-answer, recovery fails, a queued shadow turn replayed, incoming burst); the Slack snapshots unchanged.
+- [x] 5.8 `TurnOpts.origin` accepts `{slug, taskId}`; metering stamps it and the number of folded task messages — `src/metering.test.ts`
+  Done: `TurnOrigin` `{slug, taskId}`, stamped as `originSlug` + `taskId` on usage records (live turns, recovered shadow turns, injected own turns); the folded-message count is in the deliverer’s events, not in the record.
+- [x] 5.9 Routine guard: no retry for a failed run that already started tasks; a run without tasks retries as today — `src/routineguard.test.ts` ("routine gathers answers")
+  Done: `SettleInfo.startedTasks` from the run’s conversation key; `settlePatch` plans no retry for a failed run that sent tasks (`src/routineguard.test.ts`).
 
 ## 6. Audit and UI
 
-- [ ] 6.1 `/aven asks` — `src/chat/slack/commands.record.test.ts` ("operator audit", "not an operator", "installation without configuration" for `/aven asks why?`; existing byte-identical):
+- [x] 6.1 `/aven asks` — `src/chat/slack/commands.record.test.ts` ("operator audit", "not an operator", "installation without configuration" for `/aven asks why?`; existing byte-identical):
   - for the installation's operators, every tenant with a tenant column;
   - both directions, local and remote, held first;
   - cost from metering or from the answering side;
   - `/aven asks <taskId>` (the transcript), `/aven asks cancel <taskId>`;
   - the verb exists only where messaging is configured
-- [ ] 6.2 Home tab cheat-sheet: the `/aven asks` line and the held-message card, shown only when a project has a `messaging` configuration (Slack `homeBlocks` + Teams Home card) — blocks golden test
+  Done: `src/messaging/audit.ts` (list, transcript), the verb in `src/chat/core/commands.ts` behind `asks.enabled()`, the data from the runtime (metering by task id, or the reported cost); `src/chat/slack/commands.record.test.ts` (asks-operator, asks-client, asks-unconfigured).
+- [x] 6.2 Home tab cheat-sheet: the `/aven asks` line and the held-message card, shown only when a project has a `messaging` configuration (Slack `homeBlocks` + Teams Home card) — blocks golden test
+  Done: `homeBullets({ messaging })`, shown when any project has a `messaging` block, on Slack and the Teams Home card (`src/chat/slack/blocks.test.ts`).
 
 ## 7. Docs, rollout, ops
 

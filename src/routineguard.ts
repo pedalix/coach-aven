@@ -246,6 +246,10 @@ export function firePatch(now: Date, fire: Fire, guard: RoutineGuard): GuardPatc
 export interface SettleInfo {
   headline?: string; // ok: the answer's first line (routinerun.ts headline)
   reason?: string; // error: the failure, already shortened to one line
+  key?: string; // the run's conversation key
+  // Tasks the run sent to other agents (agent-messaging D15): their answers continue in its thread,
+  // so a failed run that sent any is not retried — the retry would send them again.
+  startedTasks?: number;
 }
 
 // The routine patch when its turn settles, plus a one-line log note. An error schedules the ONE
@@ -269,6 +273,7 @@ export function settlePatch(
   const reason = (info.reason || 'unknown error').slice(0, 200);
   const patch: GuardPatch = { lastOutcome: 'error', lastReason: reason };
   if (fire.mode === 'retry') return { patch, note: `retry failed — giving up: ${reason}` };
+  if ((info.startedTasks ?? 0) > 0) return { patch, note: `failed after sending ${info.startedTasks} task(s) to other agents — no retry (their answers continue in its thread): ${reason}` };
   if (fire.mode === 'manual' || !fire.slot) return { patch, note: `failed (manual run — no automatic retry): ${reason}` };
   const retryAt = now.getTime() + guard.retryMinutes * 60_000;
   const until = fire.slot.getTime() + guard.catchupHours * 3_600_000;

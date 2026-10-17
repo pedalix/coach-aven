@@ -33,6 +33,7 @@ import {
 } from './blocks.js';
 import type { Dispatcher } from '../../dispatchrun.js';
 import { log } from '../../log.js';
+import type { Messaging } from '../../messaging/service.js';
 
 export interface EventDeps {
   cfg: Config;
@@ -52,6 +53,8 @@ export interface EventDeps {
   servedTenant: (tenantId: string | undefined) => boolean;
   // Dispatch primitive (DISPATCH=1): Send / Dismiss on a proposal (dispatchrun.ts).
   dispatcher?: Dispatcher;
+  // Agent messaging: Send / Dismiss on a held message (agent-messaging D9).
+  messaging?: () => Messaging | undefined;
 }
 
 // files.info bound to THIS envelope's workspace client: in a Slack Connect channel the
@@ -85,6 +88,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     actor,
     prefixFor: (t: string | undefined) => channels.prefixFor(t),
     dispatcher: deps.dispatcher,
+    ...(deps.messaging ? { messaging: deps.messaging } : {}),
   });
   const messages = createMessages({ store, reg, engine, channels, homeTeamId, actor, parkDmPick: core.parkDmPick });
 

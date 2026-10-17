@@ -27,6 +27,8 @@ import type { Dispatcher } from '../../dispatchrun.js';
 import { log } from '../../log.js';
 import type { Actor, ChatAction, ChatDriver, DialogSubmit } from '../driver.js';
 import type { ActorGate } from './gates.js';
+import type { Messaging } from '../../messaging/service.js';
+import type { MessageView } from '../views.js';
 
 export interface InteractionDeps {
   cfg: Config;
@@ -40,6 +42,8 @@ export interface InteractionDeps {
   prefixFor: (tenantId: string | undefined) => string;
   // Dispatch primitive (DISPATCH=1): Send / Dismiss on a proposal (dispatchrun.ts).
   dispatcher?: Dispatcher;
+  // Agent messaging (agent-messaging D9): Send / Dismiss on a held message — independent of DISPATCH.
+  messaging?: () => Messaging | undefined;
 }
 
 export type ActionHandler = (a: ChatAction, d: ChatDriver) => Promise<void>;
@@ -128,9 +132,32 @@ export function createInteractions(deps: InteractionDeps): Interactions {
       }
     };
 
+  // A held message (agent-messaging D9): anyone who may drive the conversation may click; Send
+  // releases it once, Dismiss ends a held task `canceled: dismissed` (a held reply leaves its task
+  // waiting, and the conversation is told). Idempotent on the held record.
+  const decideHeld =
+    (send: boolean): ActionHandler =>
+    async (a, d) => {
+      if (!servedTenant(a.actor.tenant)) return;
+      if (!(await cleared(a, d))) return;
+      const m = deps.messaging?.();
+      const id = a.value;
+      const user = a.actor.user;
+      if (!m || !id || !user) return;
+      const held = deps.store.getHeld(id);
+      const r = send ? m.release(id, user) : m.dismiss(id);
+      if (!a.msg) return;
+      const view: MessageView = held
+        ? { kind: 'heldAsk', held: { id, kind: held.kind, target: held.target, text: held.text, why: held.why }, state: r.ok ? (send ? 'sent' : 'dismissed') : 'dismissed', by: user, ...(r.ok ? {} : { note: r.text }) }
+        : { kind: 'text', text: r.text };
+      await d.update(a.msg, view).catch((e) => log.error(`held ${id}: message update: ${e instanceof Error ? e.message : String(e)}`));
+    };
+
   const actions: Record<string, ActionHandler> = {
     dispatch_send: decideProposal(true),
     dispatch_dismiss: decideProposal(false),
+    held_send: decideHeld(true),
+    held_dismiss: decideHeld(false),
 
     // ✖ Cancel → abort that turn (the queued next one then starts). Steering → gated.
     cancel_turn: async (a, d) => {
@@ -492,7 +519,7 @@ export function createInteractions(deps: InteractionDeps): Interactions {
     try {
       await d.publishHome(
         who.user,
-        mine.length ? { kind: 'home', projects: mine, prefix: deps.prefixFor(who.tenant) } : { kind: 'onboarding' },
+        mine.length ? { kind: 'home', projects: mine, prefix: deps.prefixFor(who.tenant), ...(deps.reg.current.projects.some((p) => p.messaging !== undefined) ? { messaging: true } : {}) } : { kind: 'onboarding' },
       );
     } catch (err) {
       log.error(`home publish failed: ${err instanceof Error ? err.message : String(err)}`);

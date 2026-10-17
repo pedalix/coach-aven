@@ -101,19 +101,19 @@ test('with the hook: a failed run rewrites the parent to the reason and reports 
   const got: unknown[] = [];
   await startRoutineTurn(err.engine, err.slack, run, project, 'p', { onSettle: async (o, info) => void got.push([o, info]) });
   assert.equal(err.posts[0]!.text, '⚠️ 🛠 Review session — failed: command failed (exit 1): gh auth login --with-token < /root/.gh-token');
-  assert.deepEqual([...got], [['error', { headline: undefined, reason: 'command failed (exit 1): gh auth login --with-token < /root/.gh-token' }]]);
+  assert.deepEqual([...got], [['error', { headline: undefined, reason: 'command failed (exit 1): gh auth login --with-token < /root/.gh-token', key: 'thread:170000000.0001' }]]);
 
   const ok = settling('ok');
   got.length = 0;
   await startRoutineTurn(ok.engine, ok.slack, run, project, 'p', { onSettle: async (o, info) => void got.push([o, info]) });
   assert.equal(ok.posts[0]!.text, '🛠 Review session — Review 09.10 — 96 decided, 1 question'); // headline rewrite as before
-  assert.deepEqual([...got], [['ok', { headline: 'Review 09.10 — 96 decided, 1 question', reason: undefined }]]);
+  assert.deepEqual([...got], [['ok', { headline: 'Review 09.10 — 96 decided, 1 question', reason: undefined, key: 'thread:170000000.0001' }]]);
 
   const can = settling('canceled');
   got.length = 0;
   await startRoutineTurn(can.engine, can.slack, run, project, 'p', { onSettle: async (o, info) => void got.push([o, info]) });
   assert.equal(can.posts[0]!.text, '🛠 Review session — canceled');
-  assert.deepEqual([...got], [['canceled', { headline: undefined, reason: undefined }]]);
+  assert.deepEqual([...got], [['canceled', { headline: undefined, reason: undefined, key: 'thread:170000000.0001' }]]); // the run's thread: its tasks are counted by it
 });
 
 test('failureReason — one line, separators dropped, an empty head borrows the next line, bounded', () => {

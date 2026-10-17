@@ -290,3 +290,14 @@ test('previousRunLine — after a skip the next run names the skip AND the last 
   assert.doesNotMatch(line, /missed/);
 });
 
+
+test('settlePatch — routine gathers answers: a failed run that already sent tasks to other agents is not retried; one without retries as today (agent-messaging D15)', () => {
+  const slot = d('2026-10-13T05:30:00Z');
+  const fire = { mode: 'scheduled' as const, slot };
+  const withTasks = settlePatch(fire, 'error', { reason: 'boom', startedTasks: 3 }, d('2026-10-13T05:32:00Z'), ON);
+  assert.equal(withTasks.patch.retry, undefined);
+  assert.equal(withTasks.patch.lastOutcome, 'error');
+  assert.match(withTasks.note, /failed after sending 3 task\(s\) to other agents — no retry/);
+  const without = settlePatch(fire, 'error', { reason: 'boom' }, d('2026-10-13T05:32:00Z'), ON);
+  assert.ok(without.patch.retry, 'a run without tasks keeps its one retry');
+});

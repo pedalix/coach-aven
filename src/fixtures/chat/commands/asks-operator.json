@@ -1,0 +1,30 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*Tasks between agents* — the last 1, held first (times UTC)\n✅ alpha → home/beta · completed"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*Task `aaaaaaaaaaaaaaaaaaaaaaaa`*"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "Task `aaaaaaaaaaaaaaaaaaaaaaaa` to home/beta: canceled."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

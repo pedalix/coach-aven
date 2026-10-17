@@ -413,3 +413,17 @@ test('routineListBlocks: a task routine carries its own label, a digest does not
   assert.match(text, /\*r1\* 🛠 task/);
   assert.doesNotMatch(text, /\*r2\* 🛠 task/);
 });
+
+test('homeBlocks: with a `messaging` configuration the cheat-sheet explains agents asking agents and `/aven asks`; without, it is unchanged', () => {
+  const projects = [{ slug: 'alpha', repos: ['Org/alpha'] }] as never;
+  const text = (blocks: { text?: { text?: string } }[]) => blocks.map((b) => b.text?.text ?? '').join('\n');
+  const on = text(homeBlocks(projects, 'aven-', { messaging: true }));
+  assert.match(on, /\*Agents asking agents\*/);
+  assert.match(on, /\*✋ Held\* card/);
+  assert.match(on, /\*Audit asks\* — `\/aven asks`/);
+  const off = text(homeBlocks(projects, 'aven-'));
+  assert.equal(off.includes('Agents asking agents'), false);
+  assert.deepEqual(homeBlocks(projects, 'aven-'), homeBlocks(projects, 'aven-', {}), 'no option = today');
+  for (const b of homeBlocks(projects, 'aven-', { messaging: true })) if (b.text?.text) assert.ok(b.text.text.length <= 3000);
+  assert.deepEqual(homeBullets({ messaging: true }).slice(2), homeBullets(), 'the two lines come first; every other bullet is unchanged');
+});

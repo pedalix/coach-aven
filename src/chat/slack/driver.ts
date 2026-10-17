@@ -39,6 +39,8 @@ import {
   ticketUnavailableView,
   trailModalView,
   withRatingTally,
+  heldAskBlocks,
+  heldAskText,
 } from './blocks.js';
 import { fallbackText, mdToMrkdwn } from '../../format.js';
 import { proposalBlocks, proposalText } from '../../dispatch.js';
@@ -78,6 +80,8 @@ export function renderMessageView(v: MessageView): { text: string; blocks?: any[
       return { text: v.text };
     case 'proposal':
       return { text: proposalText(v.proposal), blocks: proposalBlocks(v.proposal) };
+    case 'heldAsk':
+      return { text: heldAskText(v), blocks: heldAskBlocks(v) };
     case 'relayed':
       return {
         text: v.text,
@@ -160,7 +164,7 @@ export function renderDialogView(v: DialogView): any {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
 export function renderHomeView(v: HomeView): any[] {
-  return v.kind === 'home' ? homeBlocks(v.projects, v.prefix) : onboardingHomeBlocks();
+  return v.kind === 'home' ? homeBlocks(v.projects, v.prefix, v.messaging ? { messaging: true } : {}) : onboardingHomeBlocks();
 }
 
 // What a Slack interaction carries that the core never sees: the response_url responder,

@@ -61,8 +61,6 @@ export interface MessagingDeps {
   tz?: string;
   now?: () => Date;
   sink?: EventSink;
-  /** A held message's card (the held-message card, task 4.7); without it a held message waits unseen. */
-  onHeld?: (held: HeldMessage) => Promise<void>;
 }
 
 export const MAX_DEPTH = 3;
@@ -403,7 +401,7 @@ export function createMessaging(d: MessagingDeps) {
       const why = heldWhy(v.blocking, toDomain);
       const held = d.store.putHeld({ id, task: id, kind: 'task', slug: c.slug, key: c.conversationKey, target: task.target, text, why, createdAt: iso() });
       ev('ask.marks.held', { task: id, marks: v.blocking.join(','), target: task.target });
-      void d.onHeld?.(held);
+      void postHeld(held, task.reply);
       return { ok: true, data: { taskId: id, state: 'submitted', held: true, why: `held for a person's Send: ${why}` } };
     }
     d.store.putOutTask(task);
@@ -442,7 +440,7 @@ export function createMessaging(d: MessagingDeps) {
       const held = d.store.putHeld({ id: mid, task: taskId, kind: 'reply', slug: c.slug, key: c.conversationKey, target: t.target, text, why, createdAt: iso() });
       d.store.patchOutTask(taskId, { replies: [...t.replies, mid] });
       ev('ask.marks.held', { task: taskId, marks: v.blocking.join(','), target: t.target });
-      void d.onHeld?.(held);
+      void postHeld(held, t.reply);
       return { ok: true, data: { taskId, state: t.state, held: true, why: `held for a person's Send: ${why}` } };
     }
     d.store.patchOutTask(taskId, { replies: [...t.replies, mid], state: 'working', updatedAt: iso(), last: { at: iso(), role: 'user', state: 'working', text } });
@@ -468,6 +466,22 @@ export function createMessaging(d: MessagingDeps) {
     post({ from: self(t.slug), to: t.target, method: 'cancel', task: t.id }, { domain: domainOfKey(t.key), marks: {}, depth: t.depth });
     ev('ask.canceled', { task: t.id, from: self(t.slug), to: t.target });
     return { ok: true, data: { taskId: t.id, state: 'canceled' } };
+  }
+
+  /** `/aven asks cancel` (D17): an operator ends any open task here, either direction. */
+  function cancelByOperator(taskId: string, by: string): string {
+    const out = d.store.getOutTask(taskId);
+    if (out) {
+      const r = cancelTask({ slug: out.slug, conversationKey: '*' }, taskId, `by an operator (${by})`);
+      return r.ok ? `Task \`${taskId}\` to ${out.target}: ${String(r.data.state)}.` : r.error;
+    }
+    const inc = d.store.messagingTasks().in.find((t) => t.id === taskId);
+    if (!inc) return `No task \`${taskId}\` here.`;
+    if (!isOpen(inc)) return `Task \`${taskId}\` from ${inc.from} already ended (${inc.state}).`;
+    d.engine.cancelKey(inc.key);
+    endIn(inc.origin, inc.id, 'canceled', `by an operator`);
+    sendStatus(inc, 'canceled', { reason: 'by an operator' });
+    return `Task \`${taskId}\` from ${inc.from}: canceled.`;
   }
 
   function requestInput(c: Caller, question: unknown, options?: unknown): ToolReply {
@@ -799,7 +813,21 @@ export function createMessaging(d: MessagingDeps) {
     }
   }
 
-  // ── held messages (D9, task 4.7): a person releases or dismisses ───────────────────────────
+  // ── held messages (D9, task 4.7): a card in the conversation; a person releases or dismisses ─
+  async function postHeld(h: HeldMessage, reply: ReplyTarget): Promise<void> {
+    const driver = driverOf(reply);
+    if (!driver || !reply.channel) return;
+    const marked = Object.keys(d.store.getMarks(h.key)).length ? ({ marked: true } as const) : {};
+    try {
+      const ref = await driver.post(
+        { conv: reply.channel, ...(reply.thread ? { thread: reply.thread } : {}), ...marked },
+        { kind: 'heldAsk', held: { id: h.id, kind: h.kind, target: h.target, text: h.text, why: h.why }, state: 'pending' },
+      );
+      d.store.patchHeld(h.id, { card: { channel: ref.conv, ts: ref.id } });
+    } catch (e) {
+      ev('ask.deliver.no_conversation', { task: h.task, key: h.key, slug: h.slug, driver: `held card: ${e instanceof Error ? e.message : String(e)}` });
+    }
+  }
   function release(heldId: string, by: string): { ok: boolean; text: string } {
     const h = d.store.getHeld(heldId);
     if (!h) return { ok: false, text: 'This message was already sent or dismissed.' };
@@ -888,6 +916,7 @@ export function createMessaging(d: MessagingDeps) {
     tick,
     ended,
     reload,
+    cancelByOperator,
     // for tests and the audit
     domainOfProject,
     domainOfKey,
