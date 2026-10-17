@@ -470,6 +470,7 @@ The stream-json input accepts an optional `priority` on a user message (`now` | 
   - The session reads its `system/init`, preferring a capability when the CLI reports one and falling back to the version.
   - Injection is used only on a CLI that `cli-probe` passed; otherwise that session gets queued turns and logs `ask.inject.disabled`.
   - The passed set is `PROBED_CLI_VERSIONS` in `src/cliversion.ts`, beside the fleet pin. The pin-bump PR updates both, with the probe report.
+  - A version leaves the set only when no installation or project still pins it, because a session on a version outside the set gets no injection (loudly, `ask.inject.disabled`).
 
 ### D13. Message accounting in `ClaudeSession`
 Today `ClaudeSession` keeps one pending turn and settles it with the first `result` that arrives. That is wrong as soon as two messages can be in flight. It is already subtly wrong with CLI background tasks: a background report that finishes while a person's turn waits to start can settle that turn with the report's text. Injection would make it routine.
