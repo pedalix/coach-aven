@@ -2,9 +2,13 @@
 # wrangler.toml, set the route to the hub's own domain, and put the enrolment in the HUB_CONFIG secret:
 #   wrangler secret put HUB_CONFIG   # {"installations": {"<id>": {"sign": [{"key": "<orch hub keygen output>"}]}}}
 # Adding or removing an installation: edit HUB_CONFIG, then `wrangler deploy`.
+# Sentry (optional): `wrangler secret put SENTRY_DSN` — the bots' DSN will do; SENTRY_ENVIRONMENT below
+# tells the hub's events apart.
 name = "coach-aven-hub"
 main = "src/index.ts"
 compatibility_date = "2026-10-01"
+# AsyncLocalStorage for @sentry/cloudflare (it keeps one scope per request).
+compatibility_flags = ["nodejs_als"]
 
 # routes = [{ pattern = "hub.example.com", custom_domain = true }]
 
@@ -18,3 +22,4 @@ new_sqlite_classes = ["Hub"]
 
 [vars]
 HUB_EXPIRY_DAYS = "7"
+# SENTRY_ENVIRONMENT = "hub"

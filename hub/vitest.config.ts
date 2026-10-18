@@ -1,6 +1,8 @@
 // Hub tests run inside workerd (the Workers runtime) with the real Durable Object, SQLite and
 // WebSocket Hibernation. Signing keys are generated here, per run: the public halves go into the
 // HUB_CONFIG binding, the private ones only to the tests (TEST_KEYS) — no key material in the repo.
+// Sentry is on, as with a DSN in production: test/setup.ts answers its requests and keeps them for
+// test/report.test.ts.
 import { generateKeyPairSync } from 'node:crypto';
 import { cloudflareTest } from '@cloudflare/vitest-plugin';
 import { defineConfig } from 'vitest/config';
@@ -20,7 +22,10 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: './wrangler.example.toml' },
-      miniflare: { bindings: { HUB_CONFIG, TEST_KEYS: JSON.stringify(keys) } },
+      miniflare: {
+        bindings: { HUB_CONFIG, TEST_KEYS: JSON.stringify(keys), SENTRY_DSN: 'https://public@sentry.example/1', SENTRY_ENVIRONMENT: 'hub-test' },
+      },
     }),
   ],
+  test: { setupFiles: ['./test/setup.ts'] },
 });
