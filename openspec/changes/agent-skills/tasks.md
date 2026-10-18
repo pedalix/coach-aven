@@ -34,9 +34,19 @@
 - [x] 5.2 Exploratory scenarios `add-dir-loads-skills` and `skill-slash-via-stdin` (`src/cliprobe/scenarios/skills.ts`). Verify: `npm run cli-probe -- list`.
 - [ ] 5.3 Record both on every probed version (needs `CLI_PROBE_TOKEN`, on the operator's machine), then make them contract scenarios. Verify: `npm run cli-probe -- run add-dir-loads-skills skill-slash-via-stdin --cli 2.1.292` (and 2.1.282), then `src/cliprobe/gate.test.ts`. Until then the facts rest on the manual verification in design.md (Context).
 
+## 5b. After the review of #50
+
+- [x] 5b.1 Only what really runs is offered: the folder name is the id; `user-invocable: false` is never offered; names a CLI command takes (built-ins, and the session's `init` commands minus the project's own skills, recorded as `session_commands`) are withheld with a reason. Verify: `src/messaging/skills.test.ts`, `src/skills.test.ts` ("the folder is the id…", "user-invocable…", "recordSessionCommands…"), `src/claudeSession.test.ts` ("init commands…").
+- [x] 5b.2 Nothing is offered before the first scan, for a list as for `*`. Verify: `src/messaging/skills.test.ts`, `src/messaging/service.test.ts` ("never scanned yet…").
+- [x] 5b.3 The scan: a fresh nonce in every marker, odd folder names skipped unnamed, lines cut at 1000, run checked. Verify: `src/skills.test.ts` ("the scan shell, run for real…", "scanProjectSkills — … runs checked…").
+- [x] 5b.4 Caps: 32 skills per card, exposed and parsed; a name of at most 64. Verify: `src/messaging/skills.test.ts`, `src/messaging/a2a.test.ts`.
+- [x] 5b.5 Only a task's first message carries `skill`; a malformed received id is rejected `unknown skill`; a rejection leaves the budget untouched. Verify: `src/messaging/service.test.ts` ("a reply…", "a malformed skill id…", "an `unknown skill` rejection leaves…").
+- [x] 5b.6 Wiring: both sessions openChat creates carry `--add-dir` and the init recorder (`sessionWiring`); only a project with `messaging.skills` scans. Verify: `src/tasks.wiring.test.ts`, `src/chat/slack/turn.record.test.ts` ("only a project whose card offers skills…").
+- [x] 5b.7 Probe: `skill-slash-via-stdin` runs with the ledger flags; `add-dir-loads-skills` with two absolute dirs (`{work}`). Verify: `src/cliprobe/runner.test.ts` ("`{work}` in a scenario's extra args…").
+
 ## 6. Docs and rollout
 
-- [x] 6.1 `docs/agent-messaging.md` (skills: cards, `messaging.skills`, `send_message` `skill`, `unknown skill`, a `SKILL.md` example with `tags` and `examples`, duplicates, before the first scan), `docs/runtime-config.md` (`REPO_SKILLS`), `docs/project-facts.md` (`project_skills`), `docs/cli-probe.md` (scenario files, the two scenarios). Reviewed in the PR.
+- [x] 6.1 `docs/agent-messaging.md` (skills: cards, `messaging.skills`, the `"*"` warning, only what runs, `send_message` `skill`, `unknown skill`, free-text arguments, a `SKILL.md` example with `tags` and `examples`), `docs/runtime-config.md` (`REPO_SKILLS`: what a project gains, the kill-switch steps), `.env.example` (`REPO_SKILLS`), `docs/project-facts.md` (`project_skills`, `session_commands`), `docs/cli-probe.md` (scenario files, the two scenarios). Reviewed in the PR.
 - [x] 6.2 `docs/rollout.md`: two rows — repo skills (bucket 1, `REPO_SKILLS=0` kill switch, prod changes at the tag) and skills in messaging (bucket 2). No Slack command or interaction changes, so the Home tab needs no update. Verify: `scripts/public-guard.sh` in CI.
 
 ## 7. Canary

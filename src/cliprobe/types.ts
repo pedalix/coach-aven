@@ -40,7 +40,7 @@ export interface ScenarioMeta {
   runs: number;
   /** `haiku` (default, cheap) or `fleet` (the fleet's model) where the model may matter. */
   model?: 'haiku' | 'fleet';
-  /** Merged into the bot's command line: flags appended, settings into the one --settings. */
+  /** Merged into the bot's command line: flags appended (`{work}` → the CLI's working directory), settings into the one --settings. */
   extras?: { args?: string[]; settings?: Record<string, unknown> };
   /** Parameter values; each is its own report row (`<id>[<variant>]`). */
   variants?: readonly string[];

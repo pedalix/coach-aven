@@ -14,6 +14,8 @@ export interface ProjectSkill {
   /** Optional SKILL.md frontmatter keys, capped (SKILL_LIMITS). */
   tags?: string[];
   examples?: string[];
+  /** `user-invocable: false` in its frontmatter: the CLI will not run it by name, so it is never offered. */
+  userInvocable?: false;
   /**
    * The same name defined in more than one place: every origin, in scan order. Such a skill is never
    * offered — which definition the CLI would load is not ours to guess — until it is renamed.
@@ -21,44 +23,56 @@ export interface ProjectSkill {
   clash?: string[];
 }
 
+/**
+ * Names of the CLI's own commands, withheld even when a project skill takes one: `/name` would run the
+ * CLI's command, not the skill. The session's `init` lists complete it per project (`notOurs`).
+ */
+export const BUILTIN_COMMANDS: readonly string[] = ['init', 'context', 'recap', 'debug', 'verify', 'run', 'design', 'review', 'clear', 'compact', 'help', 'config'];
+
 export interface Exposure {
   skills: AgentSkill[];
   /** Listed names the scan did not find. */
   missing: string[];
-  /** Listed (or, with `*`, found) names withheld because they are defined twice: name → origins. */
-  clashing: { name: string; origins: string[] }[];
+  /** Names withheld from the card, and why (defined twice, a CLI command's name, not invocable by name). */
+  withheld: { name: string; reason: string }[];
 }
 
 const card = (s: ProjectSkill): AgentSkill => ({
   id: s.name,
-  name: s.name,
+  name: s.name.slice(0, SKILL_LIMITS.name),
   description: s.description.slice(0, SKILL_LIMITS.description),
   tags: (s.tags ?? []).slice(0, SKILL_LIMITS.tags),
   ...(s.examples?.length ? { examples: s.examples.slice(0, SKILL_LIMITS.examples) } : {}),
 });
 
 /**
- * The skills a card offers, with what the caller should warn about:
+ * The skills a card offers — only what a task can really run — with what the caller should warn about:
  * - no allowlist → none: a project's skills stay internal unless its operator lists them;
- * - never scanned (`found` undefined, before the project's first session since the skills were added) →
- *   an explicit list is offered by name, without description, so a first task does not fail on a missing
- *   scan; `*` offers nothing yet;
- * - scanned → the listed names that exist (`*`: all of them), with their descriptions, tags and examples;
- *   a name defined twice is withheld and reported.
+ * - never scanned (`found` undefined: no session since the skills were listed) → none, list or `*`;
+ * - scanned → the listed names that exist (`*`: all of them), with their descriptions, tags and examples,
+ *   withholding a name defined twice, one marked `user-invocable: false`, and one a CLI command takes
+ *   (`notOurs`: BUILTIN_COMMANDS plus the session's `init` commands that are not the project's own);
+ * - at most SKILL_LIMITS.card.
  */
-export function exposedSkills(allow: string[] | '*' | undefined, found: readonly ProjectSkill[] | undefined): Exposure {
-  if (allow === undefined) return { skills: [], missing: [], clashing: [] };
-  if (found === undefined) return { skills: allow === '*' ? [] : allow.map((n) => ({ id: n, name: n, description: '', tags: [] })), missing: [], clashing: [] };
+export function exposedSkills(allow: string[] | '*' | undefined, found: readonly ProjectSkill[] | undefined, notOurs: ReadonlySet<string> = new Set(BUILTIN_COMMANDS)): Exposure {
+  const out: Exposure = { skills: [], missing: [], withheld: [] };
+  if (allow === undefined || found === undefined) return out;
   const byName = new Map(found.map((s) => [s.name, s]));
-  const names = allow === '*' ? found.map((s) => s.name) : allow;
-  const out: Exposure = { skills: [], missing: [], clashing: [] };
-  for (const n of names) {
+  for (const n of allow === '*' ? found.map((s) => s.name) : allow) {
     const s = byName.get(n);
     if (!s) out.missing.push(n);
-    else if (s.clash) out.clashing.push({ name: n, origins: s.clash });
-    else out.skills.push(card(s));
+    else if (s.clash) out.withheld.push({ name: n, reason: `defined in ${s.clash.join(' and ')}` });
+    else if (s.userInvocable === false) out.withheld.push({ name: n, reason: 'user-invocable: false' });
+    else if (notOurs.has(n)) out.withheld.push({ name: n, reason: `/${n} is a command of the CLI` });
+    else if (out.skills.length < SKILL_LIMITS.card) out.skills.push(card(s));
   }
   return out;
+}
+
+/** The names not ours to offer: the CLI's built-ins, and what a session reported in `init` minus the project's own skills. */
+export function notOursOf(sessionCommands: readonly string[] | undefined, found: readonly ProjectSkill[] | undefined): Set<string> {
+  const ours = new Set((found ?? []).map((s) => s.name));
+  return new Set([...BUILTIN_COMMANDS, ...(sessionCommands ?? []).filter((n) => !ours.has(n))]);
 }
 
 /** The first message of a task's shadow conversation: the skill's slash invocation, then the plain frame (S6). */

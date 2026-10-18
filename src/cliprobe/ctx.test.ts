@@ -13,6 +13,7 @@ function fakeTransport(script: Script, onStart?: (emit: (f: Frame) => void) => v
   const kills: string[] = [];
   const transport: Transport = {
     kind: 'local',
+    workDir: '/probe/work',
     seed: async () => {},
     async start(launch: ClaudeLaunch, h: ProcessHandlers) {
       launches.push(launch);

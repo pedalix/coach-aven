@@ -19,6 +19,7 @@ import { LocalTransport } from './local.js';
 import { memoryStore } from './transport.js';
 import { createMessaging, NUDGE_TEXT, type Messaging, type MessagingEngine } from './service.js';
 import type { ProjectSkill } from './skills.js';
+import { parsePayload } from './protocol.js';
 import type { EventSink } from './events.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -681,7 +682,7 @@ test('skills — a listed name the scan did not find is not offered and is logge
   });
   for (let i = 0; i < 3; i++) assert.deepEqual(data(await h.svc.agents(h.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills.map((s: Any) => s.id), ['brand-profile']);
   assert.equal(h.events.filter((e) => e.includes('skills.missing') && e.includes('skills=ghost')).length, 1);
-  assert.equal(h.events.filter((e) => e.includes('skills.withheld') && e.includes('skill=twice') && e.includes('origins=repo-a,repo-b')).length, 1);
+  assert.equal(h.events.filter((e) => e.includes('skills.withheld') && e.includes('skill=twice') && /reason="?defined in repo-a and repo-b/.test(e)).length, 1);
 });
 
 test('skills — a local task naming an offered skill records it on both sides, and the shadow conversation starts by invoking it', async () => {
@@ -745,9 +746,53 @@ test('skills — from another installation, an offered skill: the task records i
   assert.match(h.turns.find((x) => x.slug === 'brand-studio')!.question, /^\/brand-profile /);
 });
 
-test('skills — never scanned yet: an explicit list is offered by name (so a first task does not fail on a missing scan); `*` offers nothing until the scan', async () => {
+test('skills — never scanned yet: the card offers nothing, for an explicit list as for `*`', async () => {
   const listed = harness([owenOps(), studio()]);
-  assert.deepEqual(data(await listed.svc.agents(listed.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills, [{ id: 'brand-profile', name: 'brand-profile', description: '', tags: [] }]);
+  assert.deepEqual(data(await listed.svc.agents(listed.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills, []);
   const star = harness([owenOps(), studio({ skills: '*' })]);
   assert.deepEqual(data(await star.svc.agents(star.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills, []);
+});
+
+test('skills — a reply on a task does not carry the skill: only the task\'s first message does', async () => {
+  const sent: Any[] = [];
+  const hub = hubOf(sent);
+  const h = harness([owenOps(), caldora()], { peers: { bluefin: [{ sign: 'x', box: 'y' }] }, hub });
+  const r = h.svc.sendMessage(h.tool(OWEN, 'owen-ops'), { target: 'bluefin/brand-studio', text: 'hotel-x.example', skill: 'brand-profile' }, 'r1');
+  assert.equal(r.ok, true);
+  await flush();
+  const id = data(r).taskId;
+  assert.equal(sent[0][1].skill, 'brand-profile', 'the first message names the skill');
+  h.store.patchOutTask(id, { state: 'input-required' });
+  const re = h.svc.sendMessage(h.tool(OWEN, 'owen-ops'), { target: 'bluefin/brand-studio', text: 'the second hotel', taskId: id }, 'r2');
+  assert.equal(re.ok, true);
+  await flush();
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1][1].skill, undefined, 'a reply omits it');
+});
+
+test('skills — a malformed skill id from another installation is rejected `unknown skill` at once, not dropped (the asker would wait for expiry)', async () => {
+  const sent: Any[] = [];
+  const hub = hubOf(sent);
+  const h = harness([owenOps(), studio()], { peers: { northwind: [{ sign: 'x', box: 'y' }] }, hub, skills: { 'brand-studio': STUDIO_SKILLS } });
+  const ask = remoteAsk();
+  const parsed = parsePayload({ ...ask.payload, skill: 'Not An Id!' });
+  assert.ok(parsed, 'the payload still parses');
+  await h.svc.onDelivery(hub as Any, { ...ask, payload: parsed! });
+  await flush();
+  assert.equal(h.turns.length, 0);
+  assert.equal(sent[0][1].message.state, 'rejected');
+  assert.match(JSON.stringify(sent[0][1].message), /unknown skill \\"Not An Id!\\"/);
+});
+
+test('skills — an `unknown skill` rejection leaves the sender\'s daily budget untouched', async () => {
+  const sent: Any[] = [];
+  const hub = hubOf(sent);
+  const h = harness([owenOps(), studio({ acceptPerDay: 1 })], { peers: { northwind: [{ sign: 'x', box: 'y' }] }, hub, skills: { 'brand-studio': STUDIO_SKILLS }, scripts: { 'brand-studio': () => undefined } });
+  await h.svc.onDelivery(hub as Any, remoteAsk('release'));
+  await flush();
+  assert.match(JSON.stringify(sent[0][1].message), /unknown skill/);
+  const second = remoteAsk('brand-profile');
+  await h.svc.onDelivery(hub as Any, { ...second, env: { ...second.env, id: 'd'.repeat(24), task: 'e'.repeat(24) } });
+  await flush(10);
+  assert.equal(h.store.getInTask('northwind', 'e'.repeat(24))!.skill, 'brand-profile', 'the one task allowed today still starts');
 });

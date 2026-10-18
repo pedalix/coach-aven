@@ -23,7 +23,7 @@ import type { GitFlow, McpServerSpec } from './projects.js';
 import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import { FactStore } from './facts.js';
 import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './deps.js';
-import { scanProjectSkills } from './skills.js';
+import { recordSessionCommands, scanProjectSkills } from './skills.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
 import { ClaudeSession, type InjectOutcome, type OnQuestion, type TurnUsage } from './claudeSession.js';
 
@@ -192,6 +192,20 @@ async function prepareChat(
   return { driver, sandbox, proj, cwd };
 }
 
+/**
+ * What every session openChat spawns or reattaches shares for agent skills: a multi-repo project's
+ * checkouts as `--add-dir` (project.ts repoSkillDirs; none with REPO_SKILLS=0 or a single repo), and, for
+ * a project that offers skills, a recorder of the commands its `init` reports (skills.ts
+ * recordSessionCommands). Exported for its test; both `new ClaudeSession` below spread it.
+ */
+export function sessionWiring(cfg: Config, opts: { slug: string; repos: string[]; scanSkills?: boolean }, store: FactStore): { addDirs?: string[]; onInitCommands?: (names: string[]) => void } {
+  const addDirs = repoSkillDirs(cfg, opts.slug, opts.repos);
+  return {
+    ...(addDirs.length ? { addDirs } : {}),
+    ...(opts.scanSkills ? { onInitCommands: (names: string[]) => recordSessionCommands(store, opts.slug, names) } : {}),
+  };
+}
+
 // Claude stores a session's transcript at ~/.claude/projects/<cwd with '/'→'-'>/<id>.jsonl.
 // Resuming an id whose transcript isn't flushed/real fails silently — verify it first
 // (file non-empty AND contains at least one real entry), else start fresh.
@@ -272,8 +286,8 @@ export async function openChat(
     prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox, opts.scanSkills === true),
   );
   const { driver, proj, cwd } = prep;
-  // A multi-repo project's sessions load each repo's skills (agent-skills; REPO_SKILLS=0 turns it off).
-  const addDirs = repoSkillDirs(cfg, opts.slug, opts.repos);
+  // What every session below shares for agent skills: --add-dir per repo, the init recorder (sessionWiring).
+  const wiring = sessionWiring(cfg, opts, facts);
   let sandbox = prep.sandbox;
   let sessionId: string | undefined = opts.resumeSessionId;
   let session: ClaudeSession | undefined;
@@ -345,7 +359,7 @@ export async function openChat(
             attach: target,
             resumeSessionId: sessionId, // seed claudeSessionId; not used to relaunch
             ...(opts.attachLedger ? { ledger: true } : {}),
-            ...(addDirs.length ? { addDirs } : {}),
+            ...wiring,
           });
           await reattached.open();
           session = reattached;
@@ -374,7 +388,7 @@ export async function openChat(
         hostServers: opts.hostServers,
         model: cfg.claudeModel,
         ...(opts.ledger ? { ledger: true } : {}),
-        ...(addDirs.length ? { addDirs } : {}),
+        ...wiring,
       });
       session.onIdleResult = idleNotify;
       session.onRateLimit = opts.onRateLimit;

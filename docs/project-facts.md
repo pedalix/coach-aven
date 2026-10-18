@@ -90,8 +90,22 @@ a multi-repo project each repo passed with `--add-dir` (`REPO_SKILLS`, `docs/run
   until renamed.
 - A malformed key is logged and dropped; a failed scan keeps the previous fact.
 
+- The id is the skill's folder name (the CLI resolves `/name` by folder); `userInvocable: false`
+  records a skill marked `user-invocable: false`, never offered.
+- The scan's markers carry a fresh nonce, so frontmatter or folder names cannot forge a record; a
+  folder whose name is not a skill name is skipped without being named; lines are cut at 1000
+  characters and 120 per file; a failed command keeps the previous fact.
+
 **Reader** — the agent card (`src/messaging/skills.ts` → `exposedSkills`): the project's
 `messaging.skills` over this fact decides which skills the card offers and which a task may name.
+
+## Beside it: `session_commands`
+
+**Writer** — every session of a project that offers skills reports, in its `system/init`, the names
+of its slash commands and skills; `tasks.ts` records them (`skills.ts` → `recordSessionCommands`),
+sorted, rewriting the fact only when they change. **Reader** — the agent card: a project skill whose
+name one of these takes (minus the project's own skills), or one of the CLI's built-ins, is withheld,
+because `/name` would run the command instead.
 
 ## Bootstrap order
 

@@ -50,3 +50,11 @@ test('parseCard — skills: the A2A AgentSkill subset; tags always present, exam
   assert.equal(out.skills[1]!.examples!.length, 5);
   assert.deepEqual(out.skills[2], { id: 'no-tags', name: 'no-tags', description: 'no tags given', tags: [] }, 'tags present, examples absent');
 });
+
+test('parseCard — a peer\'s card is capped: at most 32 skills, a name of at most 64 characters', () => {
+  const card = { name: 'bluefin/brand-studio', description: 'd', accepting: true, domain: 'bluefin' };
+  const skills = Array.from({ length: 40 }, (_, i) => ({ id: `skill-${i}`, name: i === 0 ? 'n'.repeat(500) : `skill-${i}`, description: 'd' }));
+  const out = parseCard({ ...card, skills })!;
+  assert.equal(out.skills.length, 32);
+  assert.equal(out.skills[0]!.name.length, 64);
+});

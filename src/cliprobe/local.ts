@@ -51,6 +51,7 @@ export function localTransport(o: {
   const children = new Set<ChildProcess>();
   return {
     kind: 'local',
+    workDir: o.workDir,
     async seed(files) {
       for (const [rel, text] of Object.entries(files)) {
         if (!seedPathOk(rel)) throw new Error(`a scenario file must stay inside the working directory: ${rel}`);

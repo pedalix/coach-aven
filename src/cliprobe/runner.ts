@@ -83,7 +83,8 @@ export async function runScenario(s: Scenario<ProbeCtx>, variant: string | undef
       if (s.meta.files) await transport.seed(s.meta.files);
       ctx = new ProbeCtx({
         transport,
-        launch: { model, settings: s.meta.extras?.settings, extraArgs: s.meta.extras?.args },
+        // `{work}` in an extra arg is the CLI's working directory, absolute, whatever the transport.
+        launch: { model, settings: s.meta.extras?.settings, extraArgs: s.meta.extras?.args?.map((a) => a.split('{work}').join(transport!.workDir)) },
         expectedVersion: o.version,
         log: o.log,
       });

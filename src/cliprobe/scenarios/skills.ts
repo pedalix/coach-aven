@@ -1,6 +1,7 @@
 // Project skills, as agent-skills relies on them (OpenSpec `agent-skills`, lean v1). Exploratory until the
 // first recording on a probed version (the probe needs a CLI_PROBE_TOKEN run): then both become contract
 // scenarios, so a CLI bump re-checks them. Verified by hand on 2.1.292 in a project sandbox (design.md).
+import { LEDGER_ARGS } from '../../claudeSession.js';
 import type { ProbeCtx } from '../ctx.js';
 import type { Scenario } from '../types.js';
 
@@ -30,17 +31,19 @@ const addDirLoadsSkills: Scenario<ProbeCtx> = {
     id: 'add-dir-loads-skills',
     contract: false,
     runs: 1,
-    files: { 'repo-a/.claude/skills/probe-alpha/SKILL.md': markerSkill('probe-alpha') },
-    extras: { args: ['--add-dir', 'repo-a'] },
-    hypothesis: 'A skill folder under an `--add-dir` directory is a session skill: it is listed in `system/init` `skills` (a multi-repo project loads its repos’ skills this way).',
+    // As the bot launches a multi-repo session: two absolute checkouts after one `--add-dir`, last on the line.
+    files: { 'repo-a/.claude/skills/probe-alpha/SKILL.md': markerSkill('probe-alpha'), 'repo-b/.claude/skills/probe-beta/SKILL.md': markerSkill('probe-beta') },
+    extras: { args: ['--add-dir', '{work}/repo-a', '{work}/repo-b'] },
+    hypothesis: 'A skill folder under each `--add-dir` directory is a session skill: both are listed in `system/init` `skills` (a multi-repo project loads its repos’ skills this way).',
   },
   async run(ctx) {
     await ctx.send('Reply with the single word OK.');
     await ctx.precondition(ctx.is.init, 60 * S, 'the session starts');
     await ctx.expect(ctx.is.result, 120 * S, 'a result');
     const skills = skillsOf(ctx);
-    ctx.check(skills.includes('probe-alpha'), `init lists the --add-dir skill (got ${JSON.stringify(skills.filter((s) => s.startsWith('probe')))})`);
-    return { listed: skills.includes('probe-alpha') };
+    const got = JSON.stringify(skills.filter((s) => s.startsWith('probe')));
+    ctx.check(skills.includes('probe-alpha') && skills.includes('probe-beta'), `init lists both --add-dir skills (got ${got})`);
+    return { listed: got };
   },
 };
 
@@ -50,6 +53,8 @@ const skillSlashViaStdin: Scenario<ProbeCtx> = {
     contract: false,
     runs: 1,
     files: { '.claude/skills/probe-marker/SKILL.md': markerSkill('probe-marker') },
+    // As every shadow session runs: with the message ledger.
+    extras: { args: [...LEDGER_ARGS] },
     hypothesis: 'A user message `/<skill> <text>` written to stream-json stdin runs that project skill with the whole text, every line of it, as its arguments; unknown frontmatter keys (`tags`, `examples`) do not stop it from loading.',
   },
   async run(ctx) {

@@ -73,6 +73,7 @@ export async function sandboxTransport(o: SandboxTransportOptions): Promise<Tran
   let n = 0;
   return {
     kind: 'sandbox',
+    workDir: SANDBOX_WORK_DIR,
     async seed(files) {
       // Each file through base64, so no content needs shell quoting.
       for (const [rel, text] of Object.entries(files)) {

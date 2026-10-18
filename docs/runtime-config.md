@@ -317,15 +317,26 @@ Sessions are spawned with the message ledger (`--replay-user-messages`) only for
 
 A multi-repo project's sessions start in the project folder, where no repo's `.claude/skills` is visible. Every such
 session therefore starts with `--add-dir <checkout>` for each repo, so it loads each repo's own Claude Code skills as a
-Claude Code started in that repo would (OpenSpec `agent-skills`). Single-repo projects are unaffected: their session
-starts in the repo.
+Claude Code started in that repo would (OpenSpec `agent-skills`). `--add-dir` also loads each repo's legacy
+`.claude/commands/`. Single-repo projects are unaffected: their session starts in the repo. Both sandbox drivers run
+the same command line (the Daytona driver passes it unchanged).
 
 | Setting | Where | What |
 |---|---|---|
-| `REPO_SKILLS` | `.env` | On unless `0` (or `false`, `off`, `no`) — the kill switch for the whole installation. Off: no `--add-dir`, and the repos' skills are neither loaded nor offered on agent cards. Takes effect for sessions opened after the restart. |
+| `REPO_SKILLS` | `.env` | On unless `0` (or `false`, `off`, `no`) — the kill switch for the whole installation. Off: no `--add-dir`, and the repos' skills are neither loaded nor offered on agent cards. |
 
-What to watch when it reaches a project: skills written for the repo's developers (a release or deploy helper) become
-available to the agent, which may start using them on its own.
+**What a project gains.** Whatever skills and commands its repos carry. Typical today: OpenSpec workflow skills
+(`openspec-*`) and `/opsx` commands, plus a few framework development helpers (a Laravel media-library or HTTP-client
+helper, a Tailwind helper). A skill or command defined in two of a project's repos loads twice, and `/name` runs the
+first `--add-dir`'s. Watch for skills the agent starts using on its own. The multi-repo path has no canary run — the
+canary installations are single-repo — so it rests on the live measurement (design `agent-skills`) and the tests.
+
+**Turning it off.**
+1. Set `REPO_SKILLS=0` in the installation's `.env` in its ops repo — not on the box, which the next export would
+   overwrite.
+2. `npm run ops -- <slug> export`, then restart the bot.
+3. Sessions already running, and sessions the restart reattaches, keep `--add-dir` until they end, or until
+   `🔄 Restart session` in their thread.
 
 ## Dispatch (`DISPATCH`) — retired
 

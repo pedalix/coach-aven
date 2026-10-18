@@ -462,6 +462,9 @@ export class ClaudeSession {
       // a multi-repo project's checkouts (project.ts repoSkillDirs). Empty/absent → the spawn line is
       // byte-identical to before. Last on the line: `--add-dir` takes every argument after it.
       addDirs?: readonly string[];
+      // Every `system/init`: the names the session reports as its slash commands and skills (agent-skills —
+      // the card withholds a project skill whose name a CLI command takes).
+      onInitCommands?: (names: string[]) => void;
     },
   ) {
     this.sessionKey =
@@ -996,6 +999,14 @@ export class ClaudeSession {
     const version = typeof ev.claude_code_version === 'string' ? ev.claude_code_version : undefined;
     const capabilities = Array.isArray(ev.capabilities) ? ev.capabilities.filter((c: unknown): c is string => typeof c === 'string') : [];
     this.cli = { version: version ?? this.cli?.version, capabilities };
+    if (this.opts.onInitCommands) {
+      const names = [...(Array.isArray(ev.slash_commands) ? ev.slash_commands : []), ...(Array.isArray(ev.skills) ? ev.skills : [])].filter((n: unknown): n is string => typeof n === 'string');
+      try {
+        this.opts.onInitCommands([...new Set(names)]);
+      } catch {
+        /* a recorder's failure never touches the session */
+      }
+    }
   }
 
   private onEcho(uuid: string, internal: boolean): void {

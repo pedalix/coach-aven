@@ -31,10 +31,10 @@ Measured on the pinned CLI (2.1.292), in a project sandbox:
   - A name defined twice is withheld from the card until renamed, with a warning naming both places.
   - Malformed keys are logged and skipped.
   - Bundled and plugin skills are never candidates.
-- **Exposure.** `messaging.skills` is a list of names or `"*"`; absent, nothing is offered. Every accepted sender sees the same set.
+- **Exposure.** `messaging.skills` is a list of names or `"*"`; absent, nothing is offered. Every accepted sender sees the same set, at most 32. Only what really runs is offered: the folder name is the id, and a skill marked `user-invocable: false` or named like a CLI command is withheld. Nothing is offered before the project's first scan.
 - **Cards.** Every card carries `skills`, the A2A AgentSkill subset: `id`, `name`, `description`, `tags` (always, `[]` when none) and `examples` (when given), capped. An agent without skills has `skills: []`.
 - **A skill on a task.** `send_message` takes an optional `skill`. The receiving installation decides:
-  - a skill it does not offer gets `rejected: unknown skill`, with the ids it offers;
+  - a skill it does not offer, or a malformed id, gets `rejected: unknown skill`, with the ids it offers; only a task's first message carries a skill;
   - a sender that is not accepted learns nothing;
   - in the caller's own installation the tool refuses at once.
 - **Running it.** A task with a skill starts its shadow session with `/<skill>` followed by the plain task frame.
@@ -71,7 +71,7 @@ None.
 ## Impact
 
 - **Rollout.**
-  - **Bucket 1 for repo skills:** a bug fix — a multi-repo session now sees what a Claude Code started in each repo sees. It changes prod at the tag: multi-repo projects gain their repos' skills, including development helpers such as release or deploy. `REPO_SKILLS=0` is the kill switch.
+  - **Bucket 1 for repo skills:** a bug fix — a multi-repo session now sees what a Claude Code started in each repo sees. It changes prod at the tag: multi-repo projects mostly gain OpenSpec workflow skills and `/opsx` commands, plus a few Laravel development helpers; duplicates across repos load twice. `REPO_SKILLS=0` is the kill switch.
   - **Bucket 2 for skills in messaging:** only projects with a `messaging` block; the configuration is additive, and cards of those projects gain `skills: []`. Prod has no `messaging` block yet.
   - Two ledger rows in `docs/rollout.md`.
 - **Code.**

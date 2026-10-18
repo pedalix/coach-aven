@@ -127,12 +127,20 @@ A target is `bluefin/caldora`, or just `caldora` in the own installation. Every 
 An agent card says what an agent is (its one-line `description`) and what it can do: its **skills**, the A2A AgentSkill subset `{id, name, description, tags, examples?}` (OpenSpec `agent-skills`). An agent's skills are its project's own Claude Code skills — the same `SKILL.md` files its sessions load — never a second description in the ops repo.
 
 - **The project chooses what to offer.** `messaging.skills` lists the skill names its card shows, or `"*"` for all of them; without it, the card offers none (`skills: []`) and the project's skills stay internal. Every sender the agent accepts sees the same set; narrowing per sender comes later, with roles.
+- **`"*"` offers everything, development helpers included,** to every sender the agent accepts — and a shadow session runs, like every session, with permissions bypassed. List names unless every skill of the project is meant for other agents.
 - **Where they come from.** At prepare time, for a project that offers skills, the bot reads the frontmatter of every `.claude/skills/<folder>/SKILL.md` its session loads: the working directory, and for a multi-repo project each repo (`--add-dir`, see `docs/runtime-config.md` → `REPO_SKILLS`). It records them as the project fact `project_skills` (`docs/project-facts.md`). Bundled CLI skills and plugin skills are never offered.
-- **Asking for a skill.** `send_message(target, text, {skill})` names one of the ids on the target's card. The receiving installation decides: a skill it does not offer ends the task `rejected: unknown skill`, with the ids it does offer (a sender it does not accept is told `not accepted`, as always, and learns nothing about its skills). In the own installation the tool refuses at once.
+- **Only what really runs is offered.**
+  - A skill's id is its **folder** name: the CLI resolves `/name` by folder (a different frontmatter `name` is only reported).
+  - A skill marked `user-invocable: false` is not offered: the CLI will not run it by name.
+  - A name that a CLI command takes is not offered, since `/name` would run the command: the built-ins (`init`, `context`, `recap`, `debug`, `verify`, `run`, `design`, `review`, `clear`, `compact`, `help`, `config`) and whatever else the project's sessions report as commands or skills in their `init`.
+  - A name defined twice (two repos, or a repo and the project folder) is withheld until renamed; the log names both places.
+  - At most 32 skills on a card.
+- **Before the first scan** (no session since the skills were listed) the card offers nothing yet.
+- **Asking for a skill.** `send_message(target, text, {skill})` names one of the ids on the target's card; only a task's first message carries it. The receiving installation decides: a skill it does not offer — or a malformed id — ends the task `rejected: unknown skill`, with the ids it does offer (a sender it does not accept is told `not accepted`, as always, and learns nothing about its skills). A rejected task does not count against the sender's daily limit. In the own installation the tool refuses at once.
 - **Running it.** The answering shadow conversation starts with the skill's slash invocation, `/<skill>`, followed by the task frame as its arguments: the bot runs the skill, not the prompt. Both task records and `/aven asks` name the skill.
 - **No skills is fine.** An agent that offers none works as before: general requests, `skills: []` on its card.
-- **Defined twice.** The same name in two places (two repos, or a repo and the project folder) is withheld from the card until it is renamed; the log names both places.
-- **Before the first scan** (no session since the skills were listed): an explicit list is offered by name only, so the first task after a deploy works; `"*"` offers nothing until then.
+
+**An offered skill must take free-text arguments.** Its arguments are the whole task frame, which begins with `[Request from another agent]`, the sender and the task id; the request itself follows. So `$ARGUMENTS` is the frame, while positional (`$0`, `$ARGUMENTS[0]`) and named arguments get the frame's first words, not the request's. The request is deliberately not moved to the front: a request that starts with `/` would chain a second skill. Write such a skill to read its arguments as a message.
 
 A `SKILL.md` for a skill another agent may use — `tags` and `examples` are optional, read for the card, and ignored by Claude Code itself (verified on CLI 2.1.292):
 
@@ -145,10 +153,11 @@ examples:
   - Build the brand profile for https://hotel-alpenblick.example
   - What is the tone of voice of https://seehof.example?
 ---
-Read the website at the address in the request. …
+The arguments are a message from another agent; it names the hotel's website somewhere in it.
+Read that website. …
 ```
 
-Caps on the card: description 300 characters, 8 tags of 40, 5 examples of 200. A malformed key (for example `tags: brand, hotels` instead of a list) is logged and skipped; the skill stays.
+Caps on the card: name 64 characters, description 300, 8 tags of 40, 5 examples of 200. A malformed key (for example `tags: brand, hotels` instead of a list) is logged and skipped; the skill stays.
 
 ## One rule for every message that comes back
 

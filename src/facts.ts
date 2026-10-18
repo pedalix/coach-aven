@@ -33,8 +33,13 @@ export interface ProjectSkillFact {
   origin: string;
   tags?: string[];
   examples?: string[];
+  userInvocable?: false;
   clash?: string[];
 }
+// Third, beside it: `session_commands`, the slash commands and skills a session of the project reported in
+// its `system/init` (written by tasks.ts for a project that offers skills). Reader: the agent card, which
+// withholds a project skill whose name a CLI command already takes (messaging/skills.ts).
+export const SESSION_COMMANDS = 'session_commands';
 
 export interface Fact {
   // What the fact is about, e.g. "project:caldora".
@@ -99,8 +104,14 @@ export class FactStore {
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
   }
 
-  // The project's own skills as last scanned; undefined when never scanned (the card then offers an
-  // explicit allowlist by name only — messaging/skills.ts).
+  // The names a session of the project reported as its slash commands and skills; undefined when none yet.
+  sessionCommands(slug: string): string[] | undefined {
+    const v = this.get(slug, projectSubject(slug), SESSION_COMMANDS)?.value;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined;
+  }
+
+  // The project's own skills as last scanned; undefined when never scanned (the card then offers
+  // nothing — messaging/skills.ts exposedSkills).
   projectSkills(slug: string): ProjectSkillFact[] | undefined {
     const f = this.get(slug, projectSubject(slug), PROJECT_SKILLS);
     if (!f || !Array.isArray(f.value)) return undefined;

@@ -94,7 +94,7 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
           return undefined;
         }
       };
-      const svc = createMessaging({ installation: env.installation, store: o.store, reg: o.reg, home: o.home, peers: () => peers.current, engine, local, ...(hub ? { hub } : {}), shadow, platform: o.platform, driverFor: driverOrNone, ...(usageLog ? { usageLog } : {}), ...(tz ? { tz } : {}), skillsOf: (slug) => facts.projectSkills(slug) });
+      const svc = createMessaging({ installation: env.installation, store: o.store, reg: o.reg, home: o.home, peers: () => peers.current, engine, local, ...(hub ? { hub } : {}), shadow, platform: o.platform, driverFor: driverOrNone, ...(usageLog ? { usageLog } : {}), ...(tz ? { tz } : {}), skillsOf: (slug) => facts.projectSkills(slug), commandsOf: (slug) => facts.sessionCommands(slug) });
       ref.current = svc;
       local.onDeliver((x) => svc.onDelivery(local, x));
       if (hub) {

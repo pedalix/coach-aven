@@ -6,11 +6,18 @@ The skills an agent can offer SHALL be the Claude Code skills its own sessions l
 - and, for a multi-repo project, every such file in each repo checkout ("A multi-repo project's sessions load their repos' skills").
 
 When a session of a project that offers skills is prepared, the bot SHALL read these files in the sandbox and record, as the project fact `project_skills`:
-- each skill's name (the frontmatter `name`, else the folder name) and `description`;
-- the optional frontmatter lists `tags` and `examples`, capped at 8 tags and 5 examples;
+- each skill's id, which is its folder name (the CLI resolves `/name` by folder), and its `description`;
+- the optional frontmatter lists `tags` and `examples`, capped at 8 tags and 5 examples, and a `user-invocable: false` mark;
 - where it was found, with provenance (`<repo>@<commit>:<path>`).
 
-A name defined in more than one place SHALL be recorded with every place and SHALL NOT be offered until it is renamed; a warning SHALL name the places. A malformed key SHALL be logged and skipped, never fail the scan. Bundled CLI skills and plugin skills SHALL never be offered. A failed scan SHALL keep the previous fact.
+The scan's output SHALL NOT be forgeable by frontmatter text or folder names, and a folder whose name is not a skill name SHALL be skipped. A malformed key SHALL be logged and skipped, never fail the scan. A failed scan, a non-zero exit included, SHALL keep the previous fact. Bundled CLI skills and plugin skills SHALL never be offered.
+
+A skill SHALL NOT be offered when `/name` would not run it:
+- the same name is defined in more than one place (recorded with every place; a warning names them) — until it is renamed;
+- it is marked `user-invocable: false`;
+- a CLI command takes its name: one of the CLI's built-ins, or a command or skill the project's sessions report in `init` that is not the project's own.
+
+Each such name SHALL be logged once with its reason.
 
 #### Scenario: A skill in the repo
 - **WHEN** the repo of brand-studio has `.claude/skills/brand-profile/SKILL.md` with a name, a description, `tags: [brand]` and two examples
@@ -19,6 +26,14 @@ A name defined in more than one place SHALL be recorded with every place and SHA
 #### Scenario: Defined twice
 - **WHEN** a multi-repo project defines `triage` in two of its repos
 - **THEN** `triage` is offered to nobody, and a warning names both repos
+
+#### Scenario: A CLI command's name
+- **WHEN** a project defines a skill folder `review`, and lists it in `messaging.skills`
+- **THEN** the card does not offer it, because `/review` runs the CLI's command, and a warning says so
+
+#### Scenario: Forged marker
+- **WHEN** a `SKILL.md`'s frontmatter contains a line that imitates the scan's record marker
+- **THEN** the scan records nothing more than the skills that exist
 
 #### Scenario: Malformed tags
 - **WHEN** a `SKILL.md` writes `tags: brand, web` instead of a list
@@ -36,19 +51,23 @@ Every session of a project with more than one repo SHALL start with `--add-dir <
 - **THEN** no session gains `--add-dir`, and the repos' skills are neither loaded nor offered
 
 ### Requirement: The receiving installation decides which skills are offered
-A project's `messaging.skills` SHALL list the names of the skills its card offers, or be `"*"` for all of its skills; absent, it SHALL offer none. Every sender the agent accepts SHALL see the same set. A listed name the scan did not find SHALL not be offered and SHALL be logged once. Before the project's first scan, an explicit list SHALL be offered by name, without description, so a first task does not fail; `"*"` SHALL offer nothing until the scan.
+A project's `messaging.skills` SHALL list the names of the skills its card offers, or be `"*"` for all of its skills that can be offered; absent, it SHALL offer none. Every sender the agent accepts SHALL see the same set, at most 32 skills. A listed name the scan did not find SHALL not be offered and SHALL be logged once. Before the project's first scan, the card SHALL offer none, for a list as for `"*"`.
 
 #### Scenario: Internal skills stay internal
 - **WHEN** brand-studio has the skills `brand-profile` and `release`, and its `messaging.skills` lists `brand-profile`
 - **THEN** its card offers `brand-profile` only
+
+#### Scenario: Before the first scan
+- **WHEN** brand-studio lists `brand-profile`, and no session of brand-studio has run since
+- **THEN** its card has `skills: []`, and a task naming `brand-profile` is rejected `unknown skill`
 
 #### Scenario: No allowlist
 - **WHEN** a project with skills has no `messaging.skills`
 - **THEN** its card has `skills: []`
 
 ### Requirement: A task can name the skill it asks for
-`send_message` SHALL take an optional `skill`, one of the ids the target's card offers; only a task's first message carries it. The receiving installation SHALL decide, after acceptance and before the daily budget:
-- a skill it does not offer SHALL end the task `rejected: unknown skill`, and the rejection SHALL list the ids it offers;
+`send_message` SHALL take an optional `skill`, one of the ids the target's card offers; only a task's first message SHALL carry it, never a reply. The receiving installation SHALL decide, after acceptance and before the daily budget:
+- a skill it does not offer, or a malformed id, SHALL end the task `rejected: unknown skill`, and the rejection SHALL list the ids it offers; such a task SHALL NOT count against the sender's daily limit;
 - a sender it does not accept SHALL get `not accepted`, as without a skill, and learn nothing about skills.
 
 For a target in the caller's own installation, the tool SHALL refuse at once with the same list and record nothing. The task record on both sides SHALL store the skill, and `/aven asks` SHALL show it. A task with a skill SHALL start its shadow conversation with the skill's slash invocation, `/<skill>`, followed by the plain task frame as its arguments. A release without skills ignores the field and runs a general request.
@@ -60,6 +79,14 @@ For a target in the caller's own installation, the tool SHALL refuse at once wit
 #### Scenario: Skill not offered
 - **WHEN** owen-ops names `release`, which brand-studio does not offer
 - **THEN** the task ends `rejected: unknown skill`, listing `brand-profile`
+
+#### Scenario: Malformed id
+- **WHEN** a task from another installation names the skill `Not An Id!`
+- **THEN** it is rejected `unknown skill` at once, and the asker does not wait for the task to expire
+
+#### Scenario: A reply
+- **WHEN** owen-ops replies on a task that asked for `brand-profile`
+- **THEN** the reply carries no skill
 
 #### Scenario: An agent without skills
 - **WHEN** owen-ops asks caldora, which offers no skills, once with no skill and once with `skill: "anything"`

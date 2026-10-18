@@ -67,7 +67,7 @@ export interface AgentSkill {
 export const SKILL_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
 export const isSkillId = (s: unknown): s is string => typeof s === 'string' && SKILL_RE.test(s);
 /** A card travels in every `agents` answer, so a skill's text is capped. */
-export const SKILL_LIMITS = { description: 300, tags: 8, tag: 40, examples: 5, example: 200 } as const;
+export const SKILL_LIMITS = { card: 32, name: 64, description: 300, tags: 8, tag: 40, examples: 5, example: 200 } as const;
 /** Up to `max` non-empty strings, each cut to `len`; anything else in the list is dropped. */
 export const capStrings = (x: unknown, max: number, len: number): string[] =>
   Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string' && v.trim() !== '').slice(0, max).map((v) => v.trim().slice(0, len)) : [];
@@ -125,7 +125,7 @@ export function parseCard(x: unknown): AgentCard | undefined {
   if (!str(a.name) || !str(a.description) || typeof a.accepting !== 'boolean' || !str(a.domain)) return undefined;
   // Additive within version 2: a card without `skills` (an older release) reads as offering none, and a
   // malformed entry is dropped, not the card.
-  const skills = Array.isArray(a.skills) ? a.skills.map(parseSkill).filter((x: AgentSkill | undefined): x is AgentSkill => !!x) : [];
+  const skills = Array.isArray(a.skills) ? a.skills.map(parseSkill).filter((x: AgentSkill | undefined): x is AgentSkill => !!x).slice(0, SKILL_LIMITS.card) : [];
   return { name: a.name, description: a.description, accepting: a.accepting, domain: a.domain, skills };
 }
 
@@ -136,7 +136,7 @@ function parseSkill(x: unknown): AgentSkill | undefined {
   const examples = capStrings(a.examples, SKILL_LIMITS.examples, SKILL_LIMITS.example);
   return {
     id: a.id,
-    name: a.name,
+    name: a.name.slice(0, SKILL_LIMITS.name),
     description: a.description.slice(0, SKILL_LIMITS.description),
     tags: capStrings(a.tags, SKILL_LIMITS.tags, SKILL_LIMITS.tag),
     ...(examples.length ? { examples } : {}),

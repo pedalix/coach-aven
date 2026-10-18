@@ -550,3 +550,16 @@ test('restart mid-call, several calls pending: every unanswered host tool call o
   sb.push({ type: 'result', result: 'echo:A echo:B echo:C', is_error: false, session_id: 's1' });
   assert.equal((await adopted).status, 'ok', 'the adopted turn then finishes');
 });
+
+test('init commands (agent-skills) — a system/init reports its slash commands and skills, unique, to the recorder', async () => {
+  const got: string[][] = [];
+  const sb = fakeSandbox('');
+  const session = new ClaudeSession(sb.handle, { cwd: '/tmp', onInitCommands: (names) => got.push(names) });
+  await session.open();
+  const turn = session.send('hello');
+  await flushAll();
+  sb.push({ type: 'system', subtype: 'init', claude_code_version: '2.1.292', slash_commands: ['review', 'brand-profile'], skills: ['brand-profile', 'code-review'] });
+  sb.push(result('done'));
+  await turn;
+  assert.deepEqual(got, [['review', 'brand-profile', 'code-review']]);
+});
