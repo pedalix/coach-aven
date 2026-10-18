@@ -27,6 +27,10 @@ test('mrkdwn → Teams markdown: bold, links, shortcodes', () => {
   assert.equal(mrkdwnToTeams('• *Status* — `/aven status`'), '• **Status** — `/aven status`');
   assert.equal(mrkdwnToTeams('**already** bold and 2*3*4 math'), '**already** bold and 2*3*4 math');
   assert.equal(mrkdwnToTeams(':unknown_code: stays'), ':unknown_code: stays');
+  // The router's own short texts: seen rendered as written on the canary (2026-10-18).
+  assert.equal(mrkdwnToTeams(':envelope_with_arrow: Answering you in DM…'), '📩 Answering you in DM…');
+  assert.equal(mrkdwnToTeams(':bar_chart: Gathering status…'), '📊 Gathering status…');
+  assert.equal(mrkdwnToTeams(':lock: Usage reporting is operator-only.'), '🔒 Usage reporting is operator-only.');
 });
 
 test('GitHub markdown passes through unchanged (Teams renders tables, code and headings)', () => {
