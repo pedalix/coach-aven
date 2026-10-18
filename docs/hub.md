@@ -17,7 +17,10 @@ installation does.
    wrangler secret put HUB_CONFIG   # {"installations": {"home": {"sign": [{"key": "<…>"}]}, "bluefin": {…}}}
    ```
    Keep the readable copy in the ops repo (`hub.config.json`); it holds public keys only.
-3. `wrangler deploy` (from the ops repo, with `hub/` of this repo as the source).
+3. Sentry, optional: `wrangler secret put SENTRY_DSN` (the bots' DSN will do) and a `SENTRY_ENVIRONMENT`
+   var that tells the hub's events apart (default `hub`); `--var SENTRY_RELEASE:<git sha>` on the deploy
+   tags them with the version.
+4. `wrangler deploy` (from the ops repo, with `hub/` of this repo as the source).
 
 The hub's state (outboxes, tombstones, the schema version) lives in the object's SQLite and survives
 deploys; a deploy drops every socket and the bots reconnect.
@@ -72,5 +75,8 @@ metadata (who, to whom, method, task id, sizes, times).
 
 Every refusal, an envelope that does not verify, a replaced connection, an outage of 10 minutes or more,
 a long backlog and every messaging failure on the bots is logged as `messaging <event> …`, and from
-warning up sent to Sentry explicitly (catalogue: `src/messaging/events.ts`). The hub logs its own refusals
-and expiries to Workers logs.
+warning up sent to Sentry explicitly (catalogue: `src/messaging/events.ts`). The hub logs every refusal,
+rejection, replacement, removal and expiry to Workers logs as one JSON line, and with a `SENTRY_DSN` secret
+sends the warnings and errors among them to Sentry too (tags `area=hub`, `event`, `reason`, `installation`;
+one event per event, reason and installation per hour — a bot with a wrong key redials every minute), along
+with any uncaught exception. Routing metadata only: never a key, a signature or an envelope.

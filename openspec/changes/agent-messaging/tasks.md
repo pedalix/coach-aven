@@ -185,8 +185,8 @@
   - canary on three installations;
   - existing sessions need `🔄 Restart session`
   Done: the rollout row in `docs/rollout.md`, beside the rows of each PR.
-- [ ] 7.4 Failure-path test: every path in D16 emits its event, and warnings and errors reach Sentry without `SENTRY_LOGS`; the hub reports through `@sentry/cloudflare` when a DSN is set — `src/messaging/events.test.ts` ("process lost a message"), hub test for the reporter
-  Bot side done: `src/messaging/events.paths.test.ts` (every catalogued event has an emitter) and “process lost a message” in `src/messaging/service.test.ts` (captured at error level without `SENTRY_LOGS`). **Open:** the hub reports to Workers logs; `@sentry/cloudflare` comes with the hub’s deploy, when it has a DSN secret.
+- [x] 7.4 Failure-path test: every path in D16 emits its event, and warnings and errors reach Sentry without `SENTRY_LOGS`; the hub reports through `@sentry/cloudflare` when a DSN is set — `src/messaging/events.test.ts` ("process lost a message"), hub test for the reporter
+  Bot side done: `src/messaging/events.paths.test.ts` (every catalogued event has an emitter) and “process lost a message” in `src/messaging/service.test.ts` (captured at error level without `SENTRY_LOGS`). Hub done: `hub/src/report.ts` (Workers logs always; warnings, errors and uncaught exceptions to Sentry with a `SENTRY_DSN` secret, once per event, reason and installation per hour) and `hub/test/report.test.ts` (a refused key arrives in Sentry through the wrapped object, without the signature, once).
 - [x] 7.5 `scripts/public-guard.sh` clean on the branch — CI
   Done: every PR of the change passed CI’s guard (`scripts/public-guard.sh`) and gitleaks.
 - [x] 7.6 Operator steps in the ops repos — checklist in the PR body:

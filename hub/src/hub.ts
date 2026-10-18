@@ -11,8 +11,9 @@ import { challengeText, parseAddress, parseClientFrame, parseEnvelope, type Enve
 import { keysValidAt, parseHubConfig, type HubConfig } from './config.js';
 import { randomNonce, verifyEd25519 } from './crypto.js';
 import { HubStore } from './store.js';
+import { log, type SentryEnv } from './report.js';
 
-export interface Env {
+export interface Env extends SentryEnv {
   HUB: DurableObjectNamespace<Hub>;
   /** Secret: {installations: {<id>: {sign: [{key, notAfter?}]}}}. */
   HUB_CONFIG: string;
@@ -32,13 +33,6 @@ const DAY_MS = 86_400_000;
 const AUTH_TIMEOUT_MS = 10_000;
 const BACKLOG_COUNT = 1000;
 const BACKLOG_BYTES = 50 * 1024 * 1024;
-
-const log = (level: 'info' | 'warn' | 'error', event: string, fields: Record<string, unknown> = {}): void => {
-  const line = JSON.stringify({ event, ...fields });
-  if (level === 'error') console.error(line);
-  else if (level === 'warn') console.warn(line);
-  else console.log(line);
-};
 
 export class Hub extends DurableObject<Env> {
   private readonly store: HubStore;

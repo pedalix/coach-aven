@@ -14,7 +14,8 @@ npm run typecheck
 Deploying from the operator's ops repo:
 1. Copy `wrangler.example.toml` to `wrangler.toml` and set the route.
 2. Run `wrangler secret put HUB_CONFIG` with the installations' signing keys, as `orch hub keygen` prints them.
-3. Run `wrangler deploy`.
+3. Optionally, run `wrangler secret put SENTRY_DSN` and set `SENTRY_ENVIRONMENT`: warnings, errors and uncaught exceptions then go to Sentry (`src/report.ts`).
+4. Run `wrangler deploy`.
 
 Adding or removing an installation is an edit of `HUB_CONFIG` plus a deploy. The first request after the deploy tombstones whoever left.
 
