@@ -92,7 +92,7 @@
   - the cut-over.
 - [x] 4.2 `docs/agent-messaging.md`: addresses (`name@host` reserved), the clear header, pins as the allow list. Also the comments in `hub/README.md` and `hub/wrangler.example.toml`. Reviewed in the PR.
 - [x] 4.3 `docs/rollout.md` ledger row: bucket 3 behind `HUB_URL`, the cut-over order, and prod joining on a tag that carries version 2. Verify: `scripts/public-guard.sh` in CI.
-- [ ] 4.4 Every changed file and the PR text pass the public guard and gitleaks. Verify: CI `verify`.
+- [x] 4.4 Every changed file and the PR text pass the public guard and gitleaks. Verify: CI `verify`.
 
 ## 5. Canary
 
