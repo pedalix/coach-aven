@@ -22,8 +22,6 @@ import { captureError } from '../../sentry.js';
 import { getIssue, listComments, listAttachments, postInternalComment } from '../../youtrack.js';
 import { isBadReason, isTurnId, type Tally } from '../../feedback.js';
 import { errText } from '../slack/blocks.js';
-import { dispatch } from '../../dispatch.js';
-import type { Dispatcher } from '../../dispatchrun.js';
 import { log } from '../../log.js';
 import type { Actor, ChatAction, ChatDriver, DialogSubmit } from '../driver.js';
 import type { ActorGate } from './gates.js';
@@ -40,9 +38,7 @@ export interface InteractionDeps {
   actor: ActorGate;
   // The viewer tenant's channel-name wildcard, for the home surface.
   prefixFor: (tenantId: string | undefined) => string;
-  // Dispatch primitive (DISPATCH=1): Send / Dismiss on a proposal (dispatchrun.ts).
-  dispatcher?: Dispatcher;
-  // Agent messaging (agent-messaging D9): Send / Dismiss on a held message — independent of DISPATCH.
+  // Agent messaging (agent-messaging D9): Send / Dismiss on a held message.
   messaging?: () => Messaging | undefined;
 }
 
@@ -115,23 +111,6 @@ export function createInteractions(deps: InteractionDeps): Interactions {
     if (a.msg) await d.update(a.msg, { kind: 'text', text: '⌛ This question has expired' }).catch(() => {});
   };
 
-  // Send executes once, Dismiss records; both idempotent on the proposal id.
-  const decideProposal =
-    (send: boolean): ActionHandler =>
-    async (a, d) => {
-      if (!servedTenant(a.actor.tenant)) return;
-      if (!(await cleared(a, d))) return;
-      const id = a.value;
-      const user = a.actor.user;
-      if (!id || !user || !deps.dispatcher || !dispatch.enabled) return;
-      const p = send ? await deps.dispatcher.approve(d, id, user) : deps.dispatcher.dismiss(id, user);
-      if (p && a.msg) {
-        await d
-          .update(a.msg, { kind: 'proposal', proposal: p })
-          .catch((e) => log.error(`dispatch ${id}: message update: ${e instanceof Error ? e.message : String(e)}`));
-      }
-    };
-
   // A held message (agent-messaging D9): anyone who may drive the conversation may click; Send
   // releases it once, Dismiss ends a held task `canceled: dismissed` (a held reply leaves its task
   // waiting, and the conversation is told). Idempotent on the held record.
@@ -153,11 +132,18 @@ export function createInteractions(deps: InteractionDeps): Interactions {
       await d.update(a.msg, view).catch((e) => log.error(`held ${id}: message update: ${e instanceof Error ? e.message : String(e)}`));
     };
 
+  // A proposal card posted before the dispatch primitive was retired (OpenSpec `retire-agent-dispatch`) still
+  // carries Send / Dismiss in old threads: the click is acknowledged and the card says nothing was sent,
+  // the way a stale question is handled, instead of a dead control.
+  const retiredProposal: ActionHandler = async (a, d) => {
+    if (a.msg) await d.update(a.msg, { kind: 'text', text: '⌛ Proposals were retired — nothing was sent' }).catch(() => {});
+  };
+
   const actions: Record<string, ActionHandler> = {
-    dispatch_send: decideProposal(true),
-    dispatch_dismiss: decideProposal(false),
     held_send: decideHeld(true),
     held_dismiss: decideHeld(false),
+    dispatch_send: retiredProposal,
+    dispatch_dismiss: retiredProposal,
 
     // ✖ Cancel → abort that turn (the queued next one then starts). Steering → gated.
     cancel_turn: async (a, d) => {

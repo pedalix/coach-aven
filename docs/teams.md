@@ -59,7 +59,7 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 | `/aven users allow @user` | `@Aven /users allow @user` with a real mention; ids are Teams user ids (`29:…`). Admins: the installation's operators (`TEAMS_OPERATORS`) and whoever they add. Operator-only verbs (`/usage`, `/reload`) are theirs alone |
 | `@user` mentions in bot text | rendered as Teams mentions for people the bot has seen in this run (sender or mentioned); others appear as `@<id>` |
 
-| routines, dreams, housekeeping, auto-review, autofix, YouTrack investigations, dispatch, ops alerts | the same deliveries into the project's bound channel (`teamsChannel`); a routine opens a new reply chain and replies there continue its session. 🔍 Full ticket waits for the ticket data before the dialog opens (a few seconds at most); 📝 Report to YouTrack and ✏️ Edit & send are dialogs with the editable text |
+| routines, dreams, housekeeping, auto-review, autofix, YouTrack investigations, ops alerts | the same deliveries into the project's bound channel (`teamsChannel`); a routine opens a new reply chain and replies there continue its session. 🔍 Full ticket waits for the ticket data before the dialog opens (a few seconds at most); 📝 Report to YouTrack and ✏️ Edit & send are dialogs with the editable text |
 | YouTrack `ping` owners | the same `youtrack.ping` list, with Teams user ids (`29:…`); each becomes a real mention (the bot looks the name up in the channel roster once) |
 | `AVEN_ALERT_CHANNEL` | the same; a Teams channel id the app is in |
 

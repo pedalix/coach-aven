@@ -1,9 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { hostToolTable, mcpServer, MCP_PROTOCOL_VERSION, type HostCaller } from './hosttools.js';
-import type { ProposalRecord } from './dispatch.js';
-
-const caller: HostCaller = { slug: 'bluefin-ops', conversationKey: 'thread:1792005676.356099' };
+import { mcpServer, MCP_PROTOCOL_VERSION } from './hosttools.js';
 
 test('mcpServer — the MCP subset an in-process server needs: initialize, ping, tools/list, tools/call; notifications and responses are not answered', async () => {
   const calls: unknown[] = [];
@@ -27,29 +24,4 @@ test('mcpServer — the MCP subset an in-process server needs: initialize, ping,
   assert.deepEqual(await server({ jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'boom' } }), { jsonrpc: '2.0', id: 8, result: { content: [{ type: 'text', text: 'boom failed: kaboom' }], isError: true } }, 'a throw is a tool error the agent reads, not a JSON-RPC error');
   assert.deepEqual(await server({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'nope' } }), { jsonrpc: '2.0', id: 9, error: { code: -32602, message: 'unknown tool "nope"' } });
   assert.deepEqual(await server({ jsonrpc: '2.0', id: 10, method: 'resources/list' }), { jsonrpc: '2.0', id: 10, error: { code: -32601, message: 'method not found: resources/list' } });
-});
-
-test('hostToolTable — propose composes the record from the SESSION and hands it to the dispatcher; registry reads through the deps', async () => {
-  const proposed: { caller: HostCaller; record: ProposalRecord }[] = [];
-  const tools = hostToolTable(caller, {
-    projects: (c) => [{ slug: c.slug, self: true }, { slug: 'owen-ops', channel: 'C1' }],
-    propose: async (c, record) => {
-      proposed.push({ caller: c, record });
-      return { ok: true, id: record.id, status: 'pending', gate: 'buttons', note: 'waiting for Send / Dismiss' };
-    },
-    now: () => new Date('2026-10-15T12:00:00.000Z'),
-  });
-  assert.deepEqual(tools.map((t) => t.name), ['propose', 'registry']);
-  const tool = (name: string) => tools.find((t) => t.name === name)!;
-  assert.deepEqual(JSON.parse((await tool('registry').call({})).text), { projects: [{ slug: 'bluefin-ops', self: true }, { slug: 'owen-ops', channel: 'C1' }] });
-  // the input names another project and thread — both ignored: the record is the session's
-  const r = await tool('propose').call({ kind: 'dispatch', target: 'owen-ops', text: 'Check CG-61', refs: ['https://x/1'], rationale: 'nine days', slug: 'evil', session: 'thread:0' });
-  assert.equal(r.isError, false);
-  assert.deepEqual(JSON.parse(r.text), { ok: true, id: proposed[0]!.record.id, status: 'pending', gate: 'buttons', note: 'waiting for Send / Dismiss' });
-  assert.equal(proposed[0]!.caller, caller);
-  assert.deepEqual([proposed[0]!.record.session, proposed[0]!.record.target, proposed[0]!.record.createdAt], ['thread:1792005676.356099', 'owen-ops', '2026-10-15T12:00:00.000Z']);
-  const bad = await tool('propose').call({ kind: 'fax', target: 'owen-ops', text: 'x' });
-  assert.equal(bad.isError, true);
-  assert.match(JSON.parse(bad.text).error, /kind must be one of message, dispatch/);
-  assert.equal(proposed.length, 1, 'a rejected record never reaches the dispatcher');
 });

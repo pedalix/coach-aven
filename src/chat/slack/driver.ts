@@ -43,7 +43,6 @@ import {
   heldAskText,
 } from './blocks.js';
 import { fallbackText, mdToMrkdwn } from '../../format.js';
-import { proposalBlocks, proposalText } from '../../dispatch.js';
 import { log } from '../../log.js';
 
 // Reaction a skipped "!" note gets (configurable — some workspaces lack the default emoji).
@@ -78,18 +77,8 @@ export function renderMessageView(v: MessageView): { text: string; blocks?: any[
       return { text: 'Which project?', blocks: dmPickerBlocks(v.pid, v.projects) };
     case 'line':
       return { text: v.text };
-    case 'proposal':
-      return { text: proposalText(v.proposal), blocks: proposalBlocks(v.proposal) };
     case 'heldAsk':
       return { text: heldAskText(v), blocks: heldAskBlocks(v) };
-    case 'relayed':
-      return {
-        text: v.text,
-        blocks: [
-          { type: 'section', text: { type: 'mrkdwn', text: v.text.slice(0, 2900) } },
-          { type: 'context', elements: [{ type: 'mrkdwn', text: `proposed by *${v.from}* · ${v.by}` }] },
-        ],
-      };
     case 'autofixNotice':
       return {
         text: `${shortRepo(v.watch.repo)}#${v.watch.number}: ${v.notes.join('; ')}`,
@@ -179,7 +168,7 @@ const ctxOf = (a: Interaction): SlackActionCtx => (a.ctx ?? {}) as SlackActionCt
 
 // Resolves a workspace's Web API client (undefined = home). Throws for a tenant with no
 // live installation — callers treat that per record, never letting one uninstalled
-// workspace abort a whole loop (recovery, pollers, dispatch).
+// workspace abort a whole loop (recovery, pollers, messaging).
 export type ClientForTeam = (tenantId?: string) => bolt.webApi.WebClient;
 
 // The Slack driver keeps its workspace client visible: Slack-side code (and the tenant

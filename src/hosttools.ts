@@ -7,8 +7,9 @@
 // sandbox: a call rides the pipe the bot already drives turns through, so the CALLER IS THE
 // SESSION — its project and conversation come from the channel, never from a field in the input.
 // claudeSession.ts speaks the framing; hostrouter.ts composes the per-session routes; this module
-// is the pure part — the JSON-RPC server over a tool table and the `host` tools themselves.
-import { composeProposal, MAX_REFS, MAX_TEXT, PROPOSAL_KINDS, type ProposalRecord, type ProposeOutcome } from './dispatch.js';
+// is the pure part — the JSON-RPC server over a tool table. The `host` tools themselves are agent
+// messaging's (messaging/tools.ts); the dispatch primitive's propose/registry were retired
+// (OpenSpec `retire-agent-dispatch`).
 
 /** A JSON-RPC 2.0 message as MCP carries it (request, notification or response). */
 export interface JsonRpc {
@@ -24,7 +25,6 @@ export interface JsonRpc {
 export interface HostCaller {
   slug: string;
   conversationKey: string;
-  teamId?: string;
 }
 
 /** One in-process server as the session registers it: a name the CLI addresses, and the handler for its messages. */
@@ -97,59 +97,4 @@ export function mcpServer(name: string, tools: readonly HostToolDef[], version =
         return err(-32601, `method not found: ${m.method}`);
     }
   };
-}
-
-// ── the `host` tools (the dispatch primitive's own server: present while DISPATCH=1) ─────────
-export interface RegistryEntry {
-  slug: string;
-  channel?: string;
-  self?: boolean;
-}
-/** What the tools read or submit — narrow functions, so the table is testable with fakes (hostrouter.ts wires the real ones). */
-export interface HostToolDeps {
-  /** The projects this caller may address (a dispatch target is one of these slugs). */
-  projects: (caller: HostCaller) => RegistryEntry[];
-  /** The dispatcher: a composed record → what happened to it (dispatchrun.ts). */
-  propose: (caller: HostCaller, record: ProposalRecord) => Promise<ProposeOutcome>;
-  now?: () => Date;
-}
-
-const asJson = (v: unknown): string => JSON.stringify(v);
-
-export function hostToolTable(caller: HostCaller, deps: HostToolDeps): HostToolDef[] {
-  return [
-    {
-      name: 'propose',
-      description:
-        'Propose a side effect beyond this thread: a `message` to a project channel, or a `dispatch` — a task for another project\'s ' +
-        'agent, answered in a new thread of its channel with a pointer back here. The reply carries the proposal id and whether it waits ' +
-        'for Send / Dismiss in this thread or was auto-approved. Propose once, then finish your turn — never wait for the outcome.',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          kind: { type: 'string', enum: [...PROPOSAL_KINDS] },
-          target: { type: 'string', description: 'Project slug (dispatch or message; see `registry`) or a Slack channel id C…/G… (message)' },
-          text: { type: 'string', description: `The message or the task, ≤ ${MAX_TEXT} chars` },
-          refs: { type: 'array', items: { type: 'string' }, description: `Permalinks / ticket urls, ≤ ${MAX_REFS}` },
-          rationale: { type: 'string', description: 'One line: why this, why now' },
-        },
-        required: ['kind', 'target', 'text'],
-      },
-      call: async (args) => {
-        // The record is composed HERE, from the session's identity — an input naming another project or thread changes nothing.
-        const made = composeProposal(args, caller, deps.now?.() ?? new Date());
-        if ('error' in made) return { text: asJson({ ok: false, error: made.error }), isError: true };
-        const outcome = await deps.propose(caller, made.record);
-        return { text: asJson(outcome), isError: !outcome.ok };
-      },
-    },
-    {
-      name: 'registry',
-      description:
-        'The projects this orchestrator runs that this conversation may address: slug, the bound Slack channel id when one is configured, ' +
-        'and `self` for the project you are. A slug is what `propose` takes as a target.',
-      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-      call: () => ({ text: asJson({ projects: deps.projects(caller) }) }),
-    },
-  ];
 }

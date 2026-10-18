@@ -419,6 +419,7 @@ test('homeBlocks: with a `messaging` configuration the cheat-sheet explains agen
   const text = (blocks: { text?: { text?: string } }[]) => blocks.map((b) => b.text?.text ?? '').join('\n');
   const on = text(homeBlocks(projects, 'aven-', { messaging: true }));
   assert.match(on, /\*Agents asking agents\*/);
+  assert.match(on, /can ask other agents or request work from them/, 'questions and requests alike (retire-agent-dispatch D3)');
   assert.match(on, /\*✋ Held\* card/);
   assert.match(on, /\*Audit asks\* — `\/aven asks`/);
   const off = text(homeBlocks(projects, 'aven-'));

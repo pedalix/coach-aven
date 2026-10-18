@@ -1,7 +1,6 @@
 // What the bot posts on its own, through the Teams driver (OpenSpec teams-chat-driver, task
 // 3.4): the pollers scenarios of src/chat/slack/pollers.record.test.ts replayed against
-// teamsDriver + the recording TeamsApi — real createPollers / createDispatcher, the same
-// recording fake engine. Pins the Connector calls per scenario; re-snapshot on purpose with
+// teamsDriver + the recording TeamsApi — real createPollers, the same recording fake engine. Pins the Connector calls per scenario; re-snapshot on purpose with
 // UPDATE_SNAPSHOTS=1.
 
 import { test, mock, before, after } from 'node:test';
@@ -13,8 +12,6 @@ import type { Config } from '../../config.js';
 import { Store, type RoutineRecord } from '../../state.js';
 import { createChannels } from '../../channels.js';
 import { createPollers } from '../../pollers.js';
-import { createDispatcher } from '../../dispatchrun.js';
-import { dispatch, type StoredProposal } from '../../dispatch.js';
 import { routineGuard } from '../../routineguard.js';
 import type { TurnEngine, TurnOpts } from '../../turn.js';
 import type { ChatDriver } from '../driver.js';
@@ -75,7 +72,7 @@ function harness(outcome: Outcome = 'answer') {
   const reg = {
     current: {
       projects: [
-        { slug: 'alpha', repos: ['Org/alpha'], teamsChannel: CH_ALPHA, dispatch: { auto: ['beta'] } },
+        { slug: 'alpha', repos: ['Org/alpha'], teamsChannel: CH_ALPHA },
         { slug: 'beta', repos: ['Org/beta'], teamsChannel: CH_BETA },
       ],
       workspaces: { [TENANT]: ['alpha', 'beta'] },
@@ -91,9 +88,8 @@ function harness(outcome: Outcome = 'answer') {
     return client;
   };
   const cfg = { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 } } as unknown as Config;
-  const dispatcher = createDispatcher({ store, reg: reg as never, engine: rec.engine, channels, driverFor, home: () => TENANT, tz: 'Europe/Zurich' });
   const pollers = createPollers(cfg, store, reg as never, driverFor, rec.engine, channels, () => TENANT);
-  return { store, reg, api, client, driverFor, pollers, dispatcher, ...rec };
+  return { store, reg, api, client, driverFor, pollers, ...rec };
 }
 type H = ReturnType<typeof harness>;
 
@@ -118,7 +114,6 @@ async function record(name: string, outcome: Outcome, run: (h: H) => Promise<unk
     engine: h.log,
     result: result ?? null,
     routines: h.store.listRoutines().map((r) => ({ id: r.id, lastRunAt: r.lastRunAt, lastOutcome: (r as { lastOutcome?: string }).lastOutcome })),
-    proposals: ['p-1', 'p-2', 'p-3'].map((id) => h.store.getProposal(id) ?? null),
   };
   const file = SNAP(name);
   if (UPDATE) writeFileSync(file, JSON.stringify(got, null, 2) + '\n');
@@ -136,15 +131,6 @@ const withGuard = async (on: boolean, run: () => Promise<void>) => {
     await run();
   } finally {
     (routineGuard as { enabled: boolean }).enabled = was;
-  }
-};
-const withDispatch = async (run: () => Promise<void>) => {
-  const was = dispatch.enabled;
-  (dispatch as { enabled: boolean }).enabled = true;
-  try {
-    await run();
-  } finally {
-    (dispatch as { enabled: boolean }).enabled = was;
   }
 };
 
@@ -168,66 +154,6 @@ test('teams pollers record: a routine still in flight is not stacked', () =>
 // ── reviews ──
 test('teams pollers record: review fired', () =>
   record('review', 'answer', async (h) => h.pollers.fireReview(h.client, h.reg.current.projects[1] as never, 'Org/beta', 12, CH_BETA, 'high')));
-
-// ── dispatch: Send lands in the target project's Teams channel (bound by teamsChannel) ──
-const pending = (over: Partial<StoredProposal>): StoredProposal => ({
-  id: 'p-1',
-  kind: 'message',
-  target: CH_TARGET,
-  text: 'Heads-up: the deploy moved to Friday.',
-  refs: ['https://x/pull/1'],
-  rationale: 'they asked',
-  session: 'thread:9.1',
-  createdAt: '2026-10-15T07:00:00.000Z',
-  slug: 'alpha',
-  status: 'pending',
-  receivedAt: '2026-10-15T07:00:00.000Z',
-  channel: CH_ALPHA,
-  threadTs: '9.1',
-  messageTs: '9.5',
-  ...over,
-});
-test('teams pollers record: dispatch Send — a message to a channel', () =>
-  withDispatch(() => record('dispatch-send-message', 'answer', async (h) => (h.store.setProposal(pending({})), h.dispatcher.approve(h.client, 'p-1', '29:USER1')))));
-for (const o of ['answer', 'error'] as const) {
-  test(`teams pollers record: dispatch Send — a task for another project (${o})`, () =>
-    withDispatch(() =>
-      record(`dispatch-send-task-${o}`, o, async (h) => (h.store.setProposal(pending({ kind: 'dispatch', target: 'beta', text: 'Bump the SDK.' })), h.dispatcher.approve(h.client, 'p-1', '29:USER1'))),
-    ));
-}
-test('teams pollers record: dispatch Dismiss', () =>
-  withDispatch(() => record('dispatch-dismiss', 'answer', async (h) => (h.store.setProposal(pending({})), h.dispatcher.dismiss('p-1', '29:USER1')))));
-
-const proposalFile = (over: Record<string, unknown>) => ({
-  id: 'p-2',
-  kind: 'message',
-  target: CH_TARGET,
-  text: 'FYI the release is out.',
-  refs: [],
-  rationale: '',
-  session: 'thread:9.1',
-  createdAt: '2026-10-15T07:00:00.000Z',
-  ...over,
-});
-async function propose(h: H, record: unknown, expect: Record<string, unknown>): Promise<void> {
-  const out = await h.dispatcher.propose('alpha', record);
-  for (const [k, v] of Object.entries(expect)) assert.deepEqual((out as Record<string, unknown>)[k], v, `propose → ${k}`);
-  await quiesce(h);
-}
-test('teams pollers record: propose — gated proposal rendered in its chain', () =>
-  withDispatch(() =>
-    record('propose-gated', 'answer', async (h) => {
-      h.store.patchChat('thread:9.1', 'alpha', { inflight: { channel: CH_ALPHA, statusTs: '9.2', msgThreadTs: '9.1', startedAt: '2026-10-15T07:00:00.000Z' } });
-      await propose(h, proposalFile({}), { ok: true, id: 'p-2', status: 'pending', gate: 'buttons' });
-    }),
-  ));
-test('teams pollers record: propose — auto-approved task executes in the target channel', () =>
-  withDispatch(() =>
-    record('propose-auto', 'answer', async (h) => {
-      h.store.patchChat('thread:9.1', 'alpha', { inflight: { channel: CH_ALPHA, statusTs: '9.2', msgThreadTs: '9.1', startedAt: '2026-10-15T07:00:00.000Z' } });
-      await propose(h, proposalFile({ id: 'p-3', kind: 'dispatch', target: 'beta', text: 'Bump the SDK.' }), { ok: true, id: 'p-3', status: 'sent', gate: 'auto' });
-    }),
-  ));
 
 // ── an owner mention in a delivery becomes a Teams mention through the roster ──
 test('teams pollers record: a configured owner is mentioned by name after one roster lookup', async () => {

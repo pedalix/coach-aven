@@ -148,7 +148,7 @@ test('accepted in the same installation: the task runs in a shadow conversation 
   await flush(20);
   const shadowTurn = h.turns.find((t) => t.slug === 'caldora')!;
   assert.match(shadowTurn.key, /^a2a:home:[0-9a-f]{24}:caldora$/);
-  assert.match(shadowTurn.question, /^\[Task from another agent/);
+  assert.match(shadowTurn.question, /^\[Request from another agent\]\nFrom: agent owen-ops of installation home · Task: /);
   assert.match(shadowTurn.question, /> Why did orders drop on 2026-10-16\?/);
   const answerTurn = h.turns.find((t) => t.slug === 'owen-ops')!;
   assert.equal(answerTurn.key, OWEN, 'the answer turn runs in the asking thread');

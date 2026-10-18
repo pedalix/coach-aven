@@ -117,7 +117,7 @@ Every `/aven` verb SHALL be available in Teams as a command message (`@Aven /<ve
 - **THEN** the bot replies with the command list
 
 ### Requirement: Background deliveries
-Scheduled routines, dreams, housekeeping reports, auto-reviews, autofix notices with the Fix button, YouTrack investigations with the ticket card, Full ticket and Report-to-YouTrack dialogs, dispatched messages and turns, and ops alerts SHALL be delivered into the bound Teams channel of their project, with the same content and actions as on Slack.
+Scheduled routines, dreams, housekeeping reports, auto-reviews, autofix notices with the Fix button, YouTrack investigations with the ticket card, Full ticket and Report-to-YouTrack dialogs, and ops alerts SHALL be delivered into the bound Teams channel of their project, with the same content and actions as on Slack.
 
 #### Scenario: Routine fires
 - **WHEN** a routine's schedule fires
@@ -126,10 +126,6 @@ Scheduled routines, dreams, housekeeping reports, auto-reviews, autofix notices 
 #### Scenario: YouTrack ticket
 - **WHEN** a tagged ticket is picked up
 - **THEN** the ticket card and the investigation appear in a new thread, the configured owners are mentioned, and Report to YouTrack opens a dialog
-
-#### Scenario: Dispatch to another project
-- **WHEN** a user presses Send on a dispatch proposal
-- **THEN** the message or turn lands in the target project's Teams channel with the provenance footer
 
 ### Requirement: Files
 Files shared with a message SHALL be passed to the turn as on Slack: images and documents in 1:1 chats, pasted images and attached documents in channels. A file the bot cannot read SHALL be named in a reply with the reason.

@@ -313,9 +313,6 @@
         ]
       }
     },
-    "relayed": {
-      "text": "Heads-up from alpha\n\n_proposed by **alpha** · approved by Pat_"
-    },
     "autofix": {
       "text": "🔧 Org/alpha#7: CI failed; review requested changes"
     },

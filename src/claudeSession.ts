@@ -377,8 +377,8 @@ export class ClaudeSession {
   // to the runtime watchdog (whose kill also retires the whole session).
   private snapshotPendingTool?: { requestId: string; input: unknown };
   // On reattach: an mcp_message (a host tool call) the OLD bot never answered — served for real
-  // by adoptInflight, since this process holds the same routes; a tool with an effect (propose)
-  // is idempotent on its id, so a reply the old bot did get out is harmless.
+  // by adoptInflight, since this process holds the same routes; a tool with an effect (send_message)
+  // is idempotent on its control request id, so a reply the old bot did get out is harmless.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private snapshotPendingMcp: any[] = [];
   private attached = false; // opened by reattaching to a running command (vs fresh spawn)

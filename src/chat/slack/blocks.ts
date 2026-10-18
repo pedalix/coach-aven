@@ -5,7 +5,6 @@
 
 import type { RoutineRecord, PrWatch } from '../../state.js';
 import type { AnswerOpts, FollowUp, ProjectStatus, RateMeta, SessionPanelInfo, StatusReport, TrailMeta } from '../views.js';
-import { dispatch } from '../../dispatch.js';
 import type { ProjectConfig, ProjectsRegistry } from '../../projects.js';
 import type { AskQuestion } from '../../claudeSession.js';
 import type { YouTrackIssue, YouTrackComment } from '../../youtrack.js';
@@ -849,17 +848,12 @@ export function packSections(bullets: string[], max = 2900): string[] {
 
 // The "How to use me" cheat-sheet, one bullet per entry (CLAUDE.md: every user-facing change
 // lands here). Exported so the Home-tab packing test can assert nothing is dropped or split.
-export function homeBullets(opts: { dispatch?: boolean; messaging?: boolean } = {}): string[] {
+export function homeBullets(opts: { messaging?: boolean } = {}): string[] {
   return [
     ...(opts.messaging
       ? [
-          '• *Agents asking agents* — an agent configured to send can ask other agents, in this installation or another one; the answer arrives in its own thread as quoted data from that agent, and its trail shows when an answer folded into a running turn. When a thread holds another client\'s data, a message that would carry it elsewhere waits as a *✋ Held* card: anyone who may drive the thread can *Send* it (once) or *Dismiss* it.',
+          '• *Agents asking agents* — an agent configured to send can ask other agents or request work from them, in this installation or another one; the answer arrives in its own thread as quoted data from that agent, and its trail shows when an answer folded into a running turn. When a thread holds another client\'s data, a message that would carry it elsewhere waits as a *✋ Held* card: anyone who may drive the thread can *Send* it (once) or *Dismiss* it.',
           `• *Audit asks* — \`${CMD} asks\` lists the recent tasks between agents (held first, with cost), \`${CMD} asks <task id>\` shows a transcript, \`${CMD} asks cancel <task id>\` cancels one. _(Operators' home workspace only.)_`,
-        ]
-      : []),
-    ...(opts.dispatch
-      ? [
-          '• *Proposals* — when an agent wants to post to another channel or hand a task to another project\'s agent, it proposes it in its own thread and you see *Send* / *Dismiss*. Send executes once (a message with a "proposed by … approved by …" footer, or a new thread in the target channel with the answer and a pointer back here); Dismiss records the no. Mentioning a project in text never dispatches — only a proposal does.',
         ]
       : []),
     '• *Build / collaborate* — @-mention me with a task in a project channel. I reply in a thread; keep replying (no need to re-mention) and I remember the conversation.',
@@ -923,7 +917,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string, opts: { me
   // list grew (and `CMD` can be longer than `/aven` on a dev install: every occurrence
   // widens the text), at which point views.publish rejected the whole view and the Home
   // tab spun forever for everyone — so the layout is computed, not assumed.
-  const bullets = homeBullets({ dispatch: dispatch.enabled, ...(opts.messaging ? { messaging: true } : {}) });
+  const bullets = homeBullets(opts.messaging ? { messaging: true } : {});
   blocks.push(
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*How to use me*' } },

@@ -1,5 +1,5 @@
 ## Purpose
-Any agent the bot runs can ask any agent that accepts it, in its own installation or in another one, and receive the answer inside its own session: in the turn it is running, or as a new turn. The answering turn runs in a shadow conversation that never posts to chat. Messages between installations are readable only by those two installations. Data from one domain (one tenant of one installation) does not reach another domain without a person. The agent-facing tools mirror the A2A operations. Messages ask; they do not order: changing something in another agent's scope stays with dispatch and its Send button.
+Any agent the bot runs can ask any agent that accepts it, in its own installation or in another one, and receive the answer inside its own session: in the turn it is running, or as a new turn. The answering turn runs in a shadow conversation that never posts to chat. Messages between installations are readable only by those two installations. Data from one domain (one tenant of one installation) does not reach another domain without a person. The agent-facing tools mirror the A2A operations. Messaging carries questions and requests to do work alike: the receiving agent's accept list is the gate.
 
 ## ADDED Requirements
 

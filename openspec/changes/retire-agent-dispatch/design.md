@@ -37,13 +37,13 @@ The code touches more than its two files. This is the inventory, against origin/
 ## Goals / Non-Goals
 
 **Goals:**
-- One way for an agent to reach beyond its thread: `agents` and `send_message`.
-- No behaviour change on any installation in use. The tests prove it on prompts, tool lists and recorded chat calls.
+- One way for an agent to reach beyond its thread: `agents` and `send_message`, for questions and requests alike (D3).
+- Outside agent messaging, no behaviour change on any installation in use. The tests prove it on prompts, tool lists and recorded chat calls. Inside it, only the prompt paragraph, the tool descriptions and the answering-side frames change, for projects with a `messaging` block (D3).
 - Nothing half-removed: no dead flag, view, state key or fixture is left behind.
 
 **Non-Goals:**
-- A replacement for dispatched work (D3).
-- Changing agent messaging, the hub or the YouTrack pollers.
+- Per-sender permissions on the receiving side (D3, a possible future direction).
+- Changing agent messaging beyond D3, the hub, or the YouTrack pollers.
 
 ## Decisions
 
@@ -68,14 +68,36 @@ The `host` server keeps existing for projects with a `messaging` block, so `rout
 - **The task-origin provenance** (`{slug, taskId}` on turns, the queue journal and metering). Only the `{slug, proposalId}` variant goes.
 - **The "nobody can click there" rule for shadow conversations.** It now concerns only the held card: a message that needs Send is refused in a shadow conversation.
 
-### D3. No successor for "ask another agent to do work", for now
-Dispatch could make another project's agent do work, visibly, after a person's Send. Messaging only asks, so that ability goes with dispatch, and nobody uses it: the flag is set nowhere.
+### D3. No successor: messaging already carries requests to do work
+Dispatch could make another project's agent do work after a person's Send. Messaging does not need a successor for that: it is intent-agnostic. A task carries a question or a request to do work alike, and no rule or confirmation tells the two apart.
 
-If it comes back, the shape is already there: a messaging task marked as work, which never runs on its own.
-- The asking side holds it on the same ✋ card until a person sends it.
-- The answering side runs it where people can see it, not in a shadow conversation.
+**The gate is the receiving side's.**
+- The receiving agent's accept list decides who may send it anything.
+- The answering frame asks the agent to handle the task as a colleague's request, within its project's rules and permissions.
+- The marks rule, caps, depth and rounds stay as they are.
 
-That is a new change with its own spec, not a flag kept alive here.
+**So this change also removes "ask, don't order" everywhere it lived:**
+- the sentence "Messages ask; they do not order" in the messaging prompt paragraph;
+- the same idea in the `send_message` description;
+- the answering side's "change nothing" frame (`wrapTask`) and the reply frame's "data, not instructions" header. Both now read as a request from agent `<agent>` of installation `<installation>`.
+
+**The asking side keeps its guard.** An answer still arrives as data from another agent, never an instruction from a person (`wrapAnswer`, `NEVER_FORWARD`), because that is the injection and marks guard for what comes back.
+
+**Possible future direction, not planned:** permissions per sender, enforced by the receiving bot. One example is read-only versus write for a sender, through the sandbox's permission mode. That could come with an intent check that escalates a request to a person.
+
+### D3a. Changed after the plan (scope from the review, same PR)
+D3 above replaces the plan's original D3, which kept "Messages ask; they do not order" and sketched a held, visible work task as the future. Following from it:
+- The `agent-messaging` Purpose is edited in its change, which is not archived. The shadow-conversation requirement's framing sentence changes through this change's `agent-messaging` delta, with a new scenario, "A request to do work".
+- The goldens `src/fixtures/messaging/task.txt`, `src/fixtures/messaging/reply.txt` and `src/fixtures/prompt/multi-repo-messaging.txt` are re-captured on purpose.
+- `answer.txt` is unchanged.
+
+**Accepted risks (from the PR review).** The task frame stays plain and transparent, so it is easy to debug. It restricts neither the work nor where the task's data goes. Two consequences are accepted for now.
+1. **An accepted peer can approve a risky step itself.** In a shadow conversation an AskUserQuestion goes to the asking agent as `request_input`, because nobody can click there. So there is no person on either side.
+2. **What a task carries can be saved where marks do not follow.** On the answering side, the task's data can end up in memory notes, tickets or commits. Marks stay per conversation, so saved data is a way around them.
+
+The mitigations:
+- **Accept lists.** They grant all of this only to trusted senders, and an existing grant now also allows requests for work. `docs/agent-messaging.md` says so.
+- **Roles per sender in `accept`.** A role such as reader or contributor, enforced by the receiving bot (for example through the sandbox permission mode), is the planned lever for both risks. It is not built in this change.
 
 ### D4. Leftovers fail soft, loudly
 Every leftover is handled without stopping the bot:
@@ -86,28 +108,33 @@ Every leftover is handled without stopping the bot:
 A stale setting should not stop a bot from starting, and the warning reaches the operator, so the setting is never silently honoured. The house rule is to fail loudly on configuration that would change behaviour, and these change nothing any more.
 
 ### D5. The bucket, and how the tests prove it
-This is a removal of dead code, with the same risk as a bug fix: no installation sets `DISPATCH`, so nothing a person sees can change. The proof is in the tests:
-- The prompt goldens of every input without `dispatchEnabled` stay byte-identical. Only the dispatch variants in `src/prompt.test.ts:150-153` are deleted.
-- The recorded Slack and Teams calls of every non-dispatch scenario stay byte-identical. `git diff --stat src/fixtures` shows deletions only, plus the one `relayed` entry of the Teams card golden.
-- The host router tests show the same tool lists, with and without a `messaging` block, as the code before the change gives with `DISPATCH` unset.
+The dispatch half is a removal of dead code, with the same risk as a bug fix: no installation sets `DISPATCH`, so nothing a person sees can change. The intent-agnostic half (D3) is bucket 2: it reaches only projects with a `messaging` block, and no prod project has one.
+
+The tests prove both:
+- **Prompt goldens.** Every input without `messagingSend` stays byte-identical, and only the dispatch variants in `src/prompt.test.ts` are deleted. `multi-repo-messaging.txt` changes by its one messaging line (D3).
+- **Recorded chat calls.** Every non-dispatch scenario keeps its calls byte-identical. The fixtures show the deleted dispatch recordings, plus two removals:
+  - the one `relayed` entry of the Teams card golden;
+  - the always-null `proposals` key, gone from the Slack and Teams pollers snapshots (16 files). The harness recorded proposal state next to the calls; a check shows each file differs only by that key.
+- **Host router.** Its tests show the same tool lists, with and without a `messaging` block, as the code before the change gives with `DISPATCH` unset.
 
 ### D6. Archive order
 1. `agent-messaging`.
 2. `hub-open-network`.
 3. This change.
 
-This change's `host-tools` delta is written against the version `agent-messaging` leaves. That is why it keeps the scenario names "Messaging without dispatch" and "Shadow conversation", and replaces the two requirements whose scenarios must go. After its archive, every `agent-dispatch` requirement is gone: the empty `openspec/specs/agent-dispatch/` is deleted. The Purpose of `openspec/specs/agent-messaging/spec.md` loses its sentence about dispatch. A Purpose is edited in the main spec, not through a delta.
+This change's `host-tools` delta is written against the version `agent-messaging` leaves. That is why it keeps the scenario names "Messaging without dispatch" and "Shadow conversation", and replaces the two requirements whose scenarios must go. After its archive, every `agent-dispatch` requirement is gone: the empty `openspec/specs/agent-dispatch/` is deleted. The `agent-messaging` Purpose no longer names dispatch. It was edited in the `agent-messaging` change itself, which is not archived yet (D3a), because a Purpose is edited in place and not through a delta.
 
 ## Risks / Trade-offs
 
-- **[Someone relied on dispatch]** Only the operator's home bot ever had the flag, and it is off since 2026-10-18 with a `.env` backup. Bringing dispatch back would mean reverting this change. D3 describes the cleaner path.
+- **[Someone relied on dispatch]** Only the operator's home bot ever had the flag, and it is off since 2026-10-18 with a `.env` backup. Messaging carries the same requests (D3).
+- **[A request to do work reaches an agent that should not act on it]** The accept list decides who may send at all. The project's rules and the sandbox's permissions decide what the agent may do, as for a colleague's request. Per-sender permissions are the future direction in D3. Accept lists name senders one by one, so an operator grants this on purpose.
 - **[A large diff across the chat drivers]** Most of it is deletion. Every recorded non-dispatch scenario stays byte-identical, so a slip shows up as a snapshot diff, not in production.
 - **[State written by an old release]** `proposals` and `dispatches` in `state.json` are pruned once (D4), and a rollback to an older release would find them empty. Nobody had pending proposals: home's agent never proposed after the flag went off.
 
 ## Migration Plan
 
-1. Merge. Nothing changes on any installation; the boot warning appears only where `DISPATCH` is still set.
+1. Merge. Outside messaging nothing changes on any installation; the boot warning appears only where `DISPATCH` is still set. Projects with a `messaging` block get the new prompt paragraph and frames in new sessions.
 2. On the home bot, delete the commented `# DISPATCH=1` line from `.env` after the restart that brings this change. The backup stays until the next cleanup.
-3. Archive in the order of D6, then delete `openspec/specs/agent-dispatch/` and edit the `agent-messaging` Purpose.
+3. Archive in the order of D6, then delete `openspec/specs/agent-dispatch/`.
 
 **Rollback:** revert the merge. No data needs restoring.

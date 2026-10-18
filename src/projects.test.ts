@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadProjects } from './projects.js';
+import { log } from './log.js';
 
 // Each case gets its own throwaway config dir (loadProjects reads projects.d/ relative
 // to the config file's location, so the fixture must be a real directory on disk).
@@ -224,5 +225,17 @@ test('messaging — shared project: the block is refused at load with an error n
     assert.equal(reg.projects[0]!.messaging, undefined, 'alpha is shared by two tenants: no messaging');
     assert.equal(reg.projects[0]!.systemPrompt, 'json prompt', 'and otherwise loads as before');
     assert.deepEqual(reg.projects[1]!.messaging, { send: true }, 'beta has one tenant: kept');
+  });
+});
+
+test('dispatch is retired: a leftover `dispatch` block warns once, naming the project, and is ignored — the project loads as before', (t) => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ projects: [{ ...BASE.projects[0], dispatch: { auto: ['beta'], maxPerDay: 3 } }, BASE.projects[1]] }));
+    const warn = t.mock.method(log, 'warn', () => {});
+    const reg = loadProjects(cfg);
+    assert.equal(warn.mock.callCount(), 1);
+    assert.match(String(warn.mock.calls[0]!.arguments[0]), /project "alpha" dispatch is retired — agent messaging replaces it; the block is ignored/);
+    assert.equal('dispatch' in reg.projects[0]!, false, 'the block is dropped');
+    assert.equal(reg.projects[0]!.systemPrompt, 'json prompt');
   });
 });

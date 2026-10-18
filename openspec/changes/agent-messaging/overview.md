@@ -87,7 +87,7 @@ Until then the answer is kept as a progress note (`get_task` shows it), and the 
   - In a chat thread the message waits for a person's Send; in a shadow session it is refused.
   - A fresh session starts clean; compaction does not clear it.
   - The bot's own posts in such a conversation are not ingested into the project's sources, so the data cannot come back through the store.
-- **Messages ask, they don't order.** Changing something in another agent's scope stays with dispatch and its Send button.
+- **Questions and requests alike.** A task may ask for an answer or for work. What the answering agent may do is decided by its own project's rules and its sandbox's permissions, and who may send to it by its accept list (`retire-agent-dispatch` D3).
 - **Limits:**
   - tasks per day on both sides;
   - clarification rounds per task;

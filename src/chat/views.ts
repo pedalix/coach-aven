@@ -9,7 +9,6 @@
 import type { AskQuestion } from '../claudeSession.js';
 import type { ProjectConfig } from '../projects.js';
 import type { PrWatch, RoutineRecord } from '../state.js';
-import type { StoredProposal } from '../dispatch.js';
 import type { YouTrackComment, YouTrackIssue } from '../youtrack.js';
 
 /** What a held-message card shows (agent-messaging D9): the record's id rides on the buttons. */
@@ -78,17 +77,12 @@ export type MessageView =
   // A plain message with no controls: cancel/error/recovery notices, skip notices. As an
   // update it replaces whatever the message showed before, controls included.
   | { kind: 'text'; text: string }
-  // A one-line headline the bot keeps rewriting (a routine's or a dispatched task's parent).
+  // A one-line headline the bot keeps rewriting (a routine's parent).
   // As an update it changes only the text — the message never had any layout to clear.
   | { kind: 'line'; text: string }
-  // A dispatch proposal, with Send/Dismiss while pending and its outcome once decided.
-  | { kind: 'proposal'; proposal: StoredProposal }
   // A message to another agent held for a person's Send (agent-messaging D9, D14): the target, the text,
   // why it is held, with Send / Dismiss while pending and its outcome once decided.
   | { kind: 'heldAsk'; held: HeldCard; state: 'pending' | 'sent' | 'dismissed'; by?: string; note?: string }
-  // A message relayed on another project's behalf (an approved dispatch `message`), with its
-  // provenance line (`by`: who approved it).
-  | { kind: 'relayed'; text: string; from: string; by: string }
   // PR feedback on a watched PR (CI, reviews) with the 🔧 Fix control.
   | { kind: 'autofixNotice'; watch: PrWatch; notes: string[] }
   // A support ticket's one-line thread header, and the card that opens its thread.

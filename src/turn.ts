@@ -140,9 +140,8 @@ export interface TurnOpts {
   // The scheduled routine this turn runs for (pollers.ts), stamped on its usage record so usage
   // and answer feedback can be cut per routine. Absent for every other turn.
   routine?: { id: string; label: string };
-  // A dispatched turn's provenance (dispatchrun.ts): the proposing project and proposal id —
-  // journaled with the queued turn and stamped on its usage record. A shadow turn's (agent
-  // messaging D10): the asking agent and the task id.
+  // A shadow turn's provenance (agent messaging D10): the asking agent and the task id — journaled
+  // with the queued turn and stamped on its usage record.
   origin?: TurnOrigin;
   // A turn that runs without a person and acts on its own — a poller's review or investigation,
   // autofix: a task message never folds into it, it waits for the turn to end (agent-messaging D11).
@@ -158,7 +157,7 @@ export interface TurnOpts {
   // conversation, so it goes to the asker as request_input and is answered at once (D10).
   onQuestion?: OnQuestion;
 }
-export type TurnOrigin = { slug: string; proposalId: string } | { slug: string; taskId: string };
+export type TurnOrigin = { slug: string; taskId: string };
 
 /** A shadow conversation's key (agent-messaging D10): `[<tenant>:]a2a:<origin>:<taskId>:<slug>`. */
 export const isShadowKey = (key: string): boolean => splitTeam(key).base.startsWith('a2a:');
@@ -449,10 +448,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       return existing;
     }
     const prior = store.getChat(key);
-    // Who the bot-served tools see as the caller: this session's own project, conversation and
-    // tenant — fixed here, never taken from anything the agent writes (hosttools.ts).
-    const tenantId = splitTeam(key).tenantId;
-    const caller: HostCaller = { slug: project.slug, conversationKey: key, ...(tenantId ? { teamId: tenantId } : {}) };
+    // Who the bot-served tools see as the caller: this session's own project and conversation —
+    // fixed here, never taken from anything the agent writes (hosttools.ts).
+    const caller: HostCaller = { slug: project.slug, conversationKey: key };
     const chat = await openSession(cfg, store, {
       slug: project.slug,
       repos: project.repos,
@@ -1050,7 +1048,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         elapsedMs: Date.now() - start,
         usage: session?.lastUsage(),
         ...(opts?.routine ? { routineId: opts.routine.id, routineLabel: opts.routine.label } : {}),
-        ...(opts?.origin ? { originSlug: opts.origin.slug, ...('taskId' in opts.origin ? { taskId: opts.origin.taskId } : { proposalId: opts.origin.proposalId }) } : {}),
+        ...(opts?.origin ? { originSlug: opts.origin.slug, taskId: opts.origin.taskId } : {}),
       });
       // Settled either way (answer/cancel/error) — freeze the trail's clock and stop the
       // modal saying "still running". The steps stay: the answer rewrite would otherwise
@@ -1200,7 +1198,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       status: r.ok ? 'ok' : r.status === 'canceled' ? 'canceled' : 'error',
       elapsedMs: Date.now() - start,
       usage: cs?.lastUsage(),
-      ...(origin ? { originSlug: origin.slug, ...('taskId' in origin ? { taskId: origin.taskId } : { proposalId: origin.proposalId }) } : {}),
+      ...(origin ? { originSlug: origin.slug, taskId: origin.taskId } : {}),
     });
     await shadow.recovered(key, r).catch((e) => log.error(`resume ${key}: ${e instanceof Error ? e.message : String(e)}`));
   }

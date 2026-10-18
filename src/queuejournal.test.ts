@@ -40,6 +40,16 @@ test('pendingFromJournal — tolerates torn lines, blanks, and unknown ops', () 
   assert.deepEqual(pendingFromJournal(text).map((p) => p.turnId), ['ta-1']);
 });
 
+test('pendingFromJournal — a line from a release with dispatch (origin {slug, proposalId}) next to a normal one: no crash, nothing lost (retire-agent-dispatch)', () => {
+  const text = [
+    JSON.stringify({ op: 'add', ...entry('ta-old'), origin: { slug: 'owen-ops', proposalId: 'p-abc' } }),
+    JSON.stringify({ op: 'add', ...entry('ta-new') }),
+  ].join('\n');
+  const out = pendingFromJournal(text);
+  assert.deepEqual(out.map((e) => e.turnId), ['ta-old', 'ta-new']);
+  assert.deepEqual(out[1], entry('ta-new'), 'the normal item comes back whole');
+});
+
 test('QueueJournal — add/done round-trip; drain truncates so nothing replays twice', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'aven-queue-')), 'queue.jsonl');
   const j = new QueueJournal(path);
