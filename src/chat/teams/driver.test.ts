@@ -292,3 +292,36 @@ test('a status ref rebuilt after a restart carries its chain: the recovered answ
   await d.update({ ...top, thread: '100' }, { kind: 'text', text: 'still at the root' });
   assert.deepEqual(api.calls.slice(1).map((c) => [c.op, c.conv]), [['update', CH]]);
 });
+
+test('private replies in the 1:1 fallback: `replace` edits the last message and posts the thread pointer once', async () => {
+  // `/status` says "Gathering…" then replaces it with the report; the canary (2026-10-18) showed
+  // two pointers in the thread and two messages in the 1:1 for one command.
+  const api = new Recorder();
+  const d = teamsDriver(api, { tenantId: TENANT });
+  const cmd = { ctx: { conv: CH, thread: '100', user: '29:USER1', direct: false } };
+  await d.reply(cmd, { kind: 'text', text: '📊 Gathering status…' });
+  await d.reply(cmd, { kind: 'text', text: 'the report' }, { replace: true });
+  assert.deepEqual(
+    api.calls.map((c) => [c.op, c.conv, c.activity?.text]),
+    [
+      ['openPersonal', '29:USER1', undefined],
+      ['send', 'a:PERSONAL1', '📊 Gathering status…'],
+      ['send', `${CH};messageid=100`, '↗ _Answered you privately — see our 1:1 chat._'],
+      ['openPersonal', '29:USER1', undefined],
+      ['update', 'a:PERSONAL1', 'the report'],
+    ],
+  );
+  // A later, non-replacing reply is a new exchange: a new message and a new pointer.
+  api.calls = [];
+  await d.reply(cmd, { kind: 'text', text: 'something else' });
+  assert.deepEqual(api.calls.map((c) => c.op), ['openPersonal', 'send', 'send']);
+});
+
+test('private replies as targeted messages: `replace` sends anew (a targeted message cannot be edited)', async () => {
+  const api = new Recorder();
+  const d = teamsDriver(api, { tenantId: TENANT, targeted: true });
+  const cmd = { ctx: { conv: CH, thread: '100', user: '29:USER1', direct: false } };
+  await d.reply(cmd, { kind: 'text', text: 'first' });
+  await d.reply(cmd, { kind: 'text', text: 'second' }, { replace: true });
+  assert.deepEqual(api.calls.map((c) => [c.op, c.activity?.text]), [['sendTargeted', 'first'], ['sendTargeted', 'second']]);
+});
