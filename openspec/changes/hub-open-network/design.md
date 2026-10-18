@@ -26,16 +26,20 @@ Constraints: no new dependency on either side; no new bot setting; the local pat
 ## Decisions
 
 ### N1. Names: a registry in the hub, first come first served
-The object's SQLite gains `names(name PRIMARY KEY, keys, claimed_at, last_seen)`, with a unique index on each key, and `claims(ip, day, count)`.
+The object's SQLite gains `names(name PRIMARY KEY, key UNIQUE, claimed_at, last_seen)` and `claims(ip, day, count)`. Reserved names are not stored there: they live in the configuration only.
 - **Claiming.** `auth` names the name and the key.
   - A reserved name admits its configured keys.
   - A bound name admits its bound key.
   - A free name is bound if registration is `open`, the key holds no name, and the claim limit of the client's IP (`CF-Connecting-IP`) allows it.
 - **Last seen.** It is updated on every authentication, rounded to the hour, so it costs one write per connection.
 - **Releasing.** The alarm releases names idle longer than `idleDays` (not reserved ones). A release tombstones the name (`removed(name, at, reason)`), drops its outbox and allow list, and reports it.
-- **Aligning with the configuration.** On the first request after a deploy, the object aligns with the configuration, as it aligns enrolment today. A name now reserved for nobody, or for keys other than its bound one, is revoked: tombstoned, its socket closed, its outbox dropped.
+- **Aligning with the configuration.** On the first request after a deploy, the object aligns with the configuration, as it aligned enrolment before:
+  - a claimed name now reserved for nobody, or for keys other than its bound one, is revoked: tombstoned, its socket closed, its outbox dropped;
+  - a claimed name now reserved for its own key just loses its claim row, and stays;
+  - a connected reserved name whose key the configuration no longer lists is disconnected (`reserved`), and keeps its name;
+  - a name dropped from `reserved` keeps working: the protection ends, nobody is cut off.
 - **Claiming again.** It clears the tombstone, so a name can change hands. The peers' pins are what make that safe (N5).
-- **`keys` is a JSON list.** A reserved name rotates with `notAfter` as today, and key succession for claimed names can come later without a schema change.
+- **One key per claimed name.** A reserved name rotates with `notAfter` as today. Key succession for claimed names comes later, with a migration to a list of keys.
 
 Alternatives:
 - *Keep enrolment by the operator.* That cannot serve installations the operator does not know.
@@ -43,13 +47,17 @@ Alternatives:
 - *Names proven by DNS only (`/.well-known/`).* That puts friction on a laptop and on anyone without a domain. It stays a later admission mode.
 
 ### N2. `auth` version 2 and the connect hint
-- **Connecting.** The client connects to `/connect?as=<name>`. The Worker checks the name's grammar and forwards the request to the single object. Later, `idFromName(as)` gives each installation its own object with no client change.
+- **Connecting.** The client connects to `/connect?as=<name>`. The Worker checks the name's grammar and forwards the request to the single object. Later, `idFromName(as)` gives each installation its own object with no client change. A connection without `as` is forwarded too, so that a version-1 bot meets `unsupported version` at its `auth` instead of an HTTP error; a version-2 `auth` without a hint is `hint mismatch`.
 - **The challenge is unchanged:** `{t:"challenge", nonce, now}`.
 - **The answer** is `{t:"auth", v: 2, name, key, sig}`, with `sig = Ed25519("coach-aven-hub/2|<host>|<name>|<key>|<nonce>")`.
   - The key travels because a free name has no key to look up.
   - The host keeps a signature from being replayed at another hub.
-- **Refusals.** A refused `auth` closes the socket with a reason the bot logs (`hub.connect.refused`, a warning that reaches Sentry): `unsupported version`, `hint mismatch`, `bad signature`, `name taken`, `key holds a name`, `reserved`, `closed`, `claim limit`.
+- **Refusals.** A refused `auth` closes the socket with a reason the bot logs. It reuses its existing `hub.connect.failed` event, an error that reaches Sentry, with the hub's reason. The reasons: `unsupported version`, `hint mismatch`, `bad signature`, `name taken`, `key holds a name`, `reserved`, `closed`, `claim limit`, `not authenticated` (anything before a well-formed `auth`), `bad config`.
   - The hub logs the same reason as `hub.auth.refused`, with the claimed name and never the key.
+  - Levels differ, because on an open hub most refusals are other people's business:
+    - `reserved` (a reserved name claimed with another key) and `bad config` are errors;
+    - `unsupported version`, `hint mismatch` and `bad signature` are warnings;
+    - the rest are info.
   - An answer without `v: 2` (the version-1 shape) is `unsupported version`.
 
 ### N3. The allow list is the pinned peers
@@ -81,7 +89,8 @@ Alternatives:
   - the signature covers `[v, id, from, to, eph, ct]`.
   So the key derivation binds the receiver's encryption key, as HPKE does, and the signature binds the sender's signing key. A name that changes hands can neither open an envelope sealed to the old key nor sign as the old key, and the pins at the receiver turn it into `bad signature from <name>`.
 - **Inside the bot,** messages keep their full addresses. The service and the local transport keep working on a message with `<installation>/<agent>` addresses, method and task. Only the hub client splits a message into the outer envelope and the sealed payload, and joins them again on delivery, after checking that the sealed `to` names a local agent. The local path is unchanged, and the service tests prove it.
-- **Expiry reports** are `{t:"expired", id}`. Each task record keeps the ids of the envelopes it sent (`envIds`, bounded by the rounds), so the bot finds the task. An expired answer of its own ends the incoming task as today.
+- **Expiry reports** are `{t:"expired", id}`. The hub client keeps each routed envelope's record — the clear message, without its ciphertext and payload — until the bot's own task expiry (8 days), so the report finds its task there. Task records are untouched, and an expired answer of its own ends the incoming task as today.
+- **A delivery for another installation** (its clear `to` is not this one) is dropped as unexpected. A sealed `to` naming no local agent reaches the service, which answers it as it answers any agent that does not accept the caller: `rejected: not accepted` (D9).
 
 ### N6. Hub storage, version 2
 - **One migration (schema 2)** recreates `outbox` as `(installation, seq, env_id, sender, size, routed_at, expires_at, env)` with an index on `(installation, sender)`.
@@ -109,6 +118,8 @@ Alternatives:
   - a version-1 bot meets `unsupported version` when it authenticates;
   - a version-2 bot meets a version-1 hub's refusal of its `auth` frame;
   - in both cases messaging inside the installation keeps working.
+- **Other versions' envelopes.** The hub refuses an envelope of another version when it is sent (`rejected: unsupported version`), so the sender is told there. A receiver cannot read the task inside an envelope of a version it does not know, so it can only log one that still reaches it; it no longer tells the sender itself.
+- **Records queued by a version-1 bot** before its upgrade cannot be sent. The upgraded bot settles them `rejected: unsupported version`, so their tasks end loudly.
 - **Order:** the hub first, then the canary bots. The window between them is minutes, and tasks in it fail loudly.
 
 ### N9. Where each later feature plugs in
@@ -152,6 +163,14 @@ Alternatives:
 6. Prod joins on the next tag that carries version 2: keygen, its reserved entry (already there), pins on both sides, `HUB_URL`.
 
 **Rollback.** Redeploy the previous hub and bot releases together. The storage migration is one-way, so the previous hub starts on empty storage and loses only canary envelopes.
+
+## Changed while implementing
+
+Implementation choices that differ from the text above as first proposed. Each is now written into the decision it belongs to.
+- N1: one key column per claimed name instead of a key list; reserved names stay in the configuration only; the alignment rules are spelled out.
+- N2: refusals reuse the bot's `hub.connect.failed` event (the plan named `hub.connect.refused`); two more reasons (`not authenticated`, `bad config`); a level per reason; a connection without a hint is forwarded.
+- N5: expiry reports find their task in the hub client's routed records, not in new `envIds` on the task records; a sealed `to` with no such agent is the service's `not accepted`.
+- N8: the receiver no longer tells the sender of an envelope of another version (the hub does, at send time); the version-1 `onUnsupported` hook is gone; version-1 outbox records end `rejected: unsupported version`.
 
 ## Open Questions
 

@@ -44,6 +44,10 @@ Per project, in `projects.config.json`:
 Between installations, see `docs/hub.md`: `INSTALLATION_ID`, `HUB_URL`, `HUB_KEY_PATH` in `.env`, and
 the peers pinned in `hub.peers.json` beside the projects configuration. The variables are listed in
 `docs/runtime-config.md`.
+- **Pins are the allow list at the hub.** The hub delivers to an installation only from the peers it
+  pinned. The `accept` lists stay on the installation, and the hub never sees them.
+- **Addresses name installations on the hub this one uses.** `<installation>@<host>/<agent>` is kept for
+  other hubs (federation) and refused for now.
 
 ## A domain
 
@@ -93,7 +97,7 @@ flowchart LR
 
 - **Agent**: a Claude Code session the bot drives for a project. The project may be a project agent, a tenant agent, or a person's own agent.
 - **Bot**: turns agent tool calls into messages and messages into turns. Inside one installation the messages stay in the bot. Between installations the bot is the only thing that talks to the hub.
-- **Hub**: admits enrolled installations, routes between them, and keeps undelivered envelopes. It cannot read them.
+- **Hub**: admits installations by name — the first key to claim a name holds it, unless the hub's operator reserved it. It routes only between installations that pinned each other, and keeps undelivered envelopes. It cannot read them: it sees the two installations, and the agent names, the method and the task travel sealed.
 - **Task**: one conversation between two agents, with an id and a state (A2A).
 - **Shadow session**: the answering agent's own session for one task. Its turns never appear in chat.
 
@@ -101,7 +105,7 @@ flowchart LR
 
 - **Sending is configured.** A project configured to send gets the sending tools.
 - **Each agent lists who may ask it.** Entries are specific agents, or `*` for every agent of its own domain; another domain's agents are always named. The receiving installation checks the list for every message.
-- **The hub does not decide.** It only knows which installations exist.
+- **The hub does not decide.** It knows only which installations pinned which, and drops envelopes from the others before they take a place in a mailbox.
 - **Accepting is granting.** Accepting an asker gives the asker, and whoever may drive it, what this agent answers.
 
 ## The tools an agent has
@@ -249,6 +253,7 @@ A held new task is a `submitted` task that has not left its installation yet: Se
 | Answering bot restarts mid-turn | The shadow turn is recovered like any chat turn, and the answer still goes out once. |
 | Hub unreachable | Messages between installations wait in the sender's state. Local messages and chat keep working. |
 | Recipient offline for days | The hub keeps the envelope until it is acknowledged or expires (7 days). |
+| Recipient has not pinned the sender | The hub answers `unknown installation`, as for a name nobody holds, and the asking agent is told that the peer may not have pinned it. |
 | Sandbox killed before the agent took a message up | The message is delivered again as a turn. |
 | A person keeps chatting meanwhile | Their messages are ordinary turns. The answer joins whichever turn is running, or starts its own. |
 | Host clock drifts | Nothing breaks, and the bot warns once it is more than 30 s off. |
@@ -256,6 +261,7 @@ A held new task is a `submitted` task that has not left its installation yet: Se
 
 ## Where it can grow
 
+- **Other hubs:** addresses `<installation>@<host>`, kept for federation (OpenSpec `hub-open-network`, which also lists pairing codes, key succession and organisation keys as later steps).
 - **Third-party agents:** an A2A HTTP adapter on the hub, translating to the same task shapes, with keys per agent.
 - **People in the loop on the answering side:** mirroring a shadow session into a channel, per pair.
 - **Hard read-only answering:** a Claude Code permission mode per shadow session.

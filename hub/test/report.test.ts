@@ -1,7 +1,7 @@
 // The hub's reporter (design D16, task 7.4): what a line becomes in Sentry, the SDK options, and — with
 // the Worker's test DSN (vitest.config.ts, answered by test/setup.ts) — a refusal that really arrives.
 import { describe, expect, it } from 'vitest';
-import { connect, login, sign, waitClosed } from './client.js';
+import { connect, keyOf, login, sign, waitClosed } from './client.js';
 import { sentryRequests } from './setup.js';
 import { challengeText } from '../../src/messaging/protocol.js';
 import { sentryOptions, toSentry } from '../src/report.js';
@@ -52,26 +52,25 @@ describe('What reaches Sentry', () => {
 
   it('A refused key reaches Sentry once an hour, without the signature', async () => {
     const before = events().length;
+    // northwind is reserved for its own key: another key claiming it is the loud refusal.
     const first = await login('northwind', 'wrong');
-    expect(await waitClosed(first)).toEqual({ code: 4003, reason: 'bad_sig' });
-    const wanted = (e: SentEvent): boolean => e.message === 'hub.auth.refused reason=bad_sig installation=northwind';
+    expect(await waitClosed(first)).toEqual({ code: 4003, reason: 'reserved' });
+    const wanted = (e: SentEvent): boolean => e.message === 'hub.auth.refused reason=reserved installation=northwind';
     await until(() => events().some(wanted));
     expect(events().find(wanted)).toMatchObject({
       level: 'error',
       environment: 'hub-test',
-      tags: { area: 'hub', event: 'hub.auth.refused', reason: 'bad_sig', installation: 'northwind' },
+      tags: { area: 'hub', event: 'hub.auth.refused', reason: 'reserved', installation: 'northwind' },
     });
     // The redial an hour has not passed for: logged, not sent. Another refusal is, and arrives after it.
-    const again = await connect();
+    const again = await connect({ as: 'northwind' });
     const ch = await again.next((f) => f.t === 'challenge');
-    const sig = await sign('wrong', challengeText('hub.example', 'northwind', ch.nonce));
-    again.send({ t: 'auth', installation: 'northwind', sig });
-    expect(await waitClosed(again)).toEqual({ code: 4003, reason: 'bad_sig' });
-    const stranger = await connect();
-    const ch2 = await stranger.next((f) => f.t === 'challenge');
-    stranger.send({ t: 'auth', installation: 'quillon', sig: await sign('home', challengeText('hub.example', 'quillon', ch2.nonce)) });
-    expect(await waitClosed(stranger)).toEqual({ code: 4003, reason: 'unknown' });
-    await until(() => events().some((e) => e.message === 'hub.auth.refused reason=unknown installation=quillon'));
+    const sig = await sign('wrong', challengeText('hub.example', 'northwind', keyOf('wrong').x, ch.nonce));
+    again.send({ t: 'auth', v: 2, name: 'northwind', key: keyOf('wrong').x, sig });
+    expect(await waitClosed(again)).toEqual({ code: 4003, reason: 'reserved' });
+    const mismatch = await login('quillon', 'wrong', { hint: 'kestrel' });
+    expect(await waitClosed(mismatch)).toEqual({ code: 4003, reason: 'hint mismatch' });
+    await until(() => events().some((e) => e.message === 'hub.auth.refused reason="hint mismatch" installation=quillon'));
     expect(events().slice(before).filter(wanted)).toHaveLength(1);
     expect(JSON.stringify(sentryRequests())).not.toContain(sig);
   });

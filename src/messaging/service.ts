@@ -31,7 +31,7 @@ import { isTerminal, parseCard, parseMessage, parseStatus, textMessage, textOf, 
 import { messagingLimits, type MessagingConfig } from './config.js';
 import { emit, type EventName, type EventSink } from './events.js';
 import { domainOf, heldWhy, markArrival, markSent, mayGo } from './marks.js';
-import { accepts, parseAddress, parseTarget, PROTOCOL_VERSION, type Address, type Envelope, type EnvelopeHeader, type Method, type Payload } from './protocol.js';
+import { accepts, isOtherHub, parseAddress, parseTarget, PROTOCOL_VERSION, type Address, type Envelope, type EnvelopeHeader, type Method, type Payload } from './protocol.js';
 import { acceptCountKey, isOpen, sendCountKey, type DeliveryRecord, type HeldMessage, type InTask, type OutTask, type ReplyTarget } from './records.js';
 import type { Delivery, PeerTransport } from './transport.js';
 import { wrapAnswer, wrapReply, wrapTask, type OpenTask } from './wrap.js';
@@ -66,6 +66,8 @@ export interface MessagingDeps {
 export const MAX_DEPTH = 3;
 export const MAX_INJECTIONS = 5;
 export const AGENTS_TIMEOUT_MS = 10_000;
+/** `<name>@<host>` is kept for addresses on other hubs (federation), not supported yet (hub-open-network). */
+const OTHER_HUB = 'addresses on other hubs (`<installation>@<host>`) are not supported — targets are "<installation>/<agent>" or "<agent>" on this hub';
 /** How far back the metered turns of a task are looked up: past the task records' 30-day retention. */
 export const TASK_COST_WINDOW_MS = 31 * 86_400_000;
 export const NUDGE_TEXT = 'Nothing is outstanding any more on the task from another agent: give your final answer to the task now.';
@@ -341,6 +343,7 @@ export function createMessaging(d: MessagingDeps) {
     const text = typeof args.text === 'string' ? args.text.trim() : '';
     if (!text) return { ok: false, error: '`text` is required' };
     if (text.length > 64 * 1024) return { ok: false, error: '`text` is longer than 64 KiB' };
+    if (isOtherHub(args.target)) return { ok: false, error: OTHER_HUB };
     const target = parseTarget(args.target, d.installation);
     const peers = Object.keys(d.peers()).sort();
     if (!target) return { ok: false, error: `\`target\` must be "<installation>/<agent>", or "<agent>" for this installation (${d.installation}); known installations: ${[d.installation, ...peers].join(', ')}` };
@@ -526,11 +529,13 @@ export function createMessaging(d: MessagingDeps) {
   const pendingCards = new Map<string, (cards: AgentCard[]) => void>();
   async function agents(c: Caller, installation: unknown): Promise<ToolReply> {
     if (!messaging(project(c.slug))?.send) return { ok: false, error: 'this agent may not send tasks' };
+    if (isOtherHub(installation)) return { ok: false, error: OTHER_HUB };
     const inst = typeof installation === 'string' && installation ? installation : d.installation;
     const me = { installation: d.installation, agent: c.slug };
     if (inst === d.installation) return { ok: true, data: { installation: inst, agents: localCards(me, domainOfKey(c.conversationKey)) } };
     if (!(inst in d.peers()) || !d.hub) return { ok: false, error: `unknown installation "${inst}"; known: ${[d.installation, ...Object.keys(d.peers()).sort()].join(', ')}` };
-    if (!d.hub.presence().online.includes(inst)) return { ok: true, data: { installation: inst, offline: true } };
+    // The hub shows a peer online only when the two have pinned each other (hub-open-network, N4).
+    if (!d.hub.presence().online.includes(inst)) return { ok: true, data: { installation: inst, offline: true, note: `offline, or ${inst} has not pinned ${d.installation}` } };
     const req = newId();
     const cards = await new Promise<AgentCard[] | undefined>((resolve) => {
       const timer = setTimeout(() => {

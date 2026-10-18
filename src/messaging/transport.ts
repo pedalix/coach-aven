@@ -5,14 +5,23 @@
 // Delivery is at-least-once: a delivery is acked only after its handler has durably recorded the
 // effect, and whatever is not acked is handed over again after a restart. Handlers drop envelope ids
 // they have seen (design D6 "Seen ids").
-import type { Envelope, Payload, Removed } from './protocol.js';
+import type { Envelope, Payload, Removed, WireEnvelope } from './protocol.js';
 
 /** An envelope as it waits in an outbox or inbox: written before it is sent, removed when acked. */
 export interface OutboxRecord {
   seq: number;
+  /** The message in clear, as the bot handles it: on this installation's own disk only. */
   env: Envelope;
   /** In clear: only inside one process (the local transport); never serialized across installations. */
   payload?: Payload;
+  /** The hub transport: the sealed envelope that goes on the wire (hub-open-network, design N5). */
+  wire?: WireEnvelope;
+  /**
+   * The hub transport: when the hub routed it. A routed record stays, without its ciphertext, until the
+   * bot's own task expiry: the hub reports an expiry by envelope id only, and this is where the id finds
+   * its task (hubclient.ts).
+   */
+  routedAt?: string;
   /** ISO time it was queued. */
   at: string;
 }

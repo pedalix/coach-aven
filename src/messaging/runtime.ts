@@ -115,6 +115,8 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
     reload() {
       const before = peers.current;
       peers.current = readPeers();
+      // The pinned peers are this installation's allow list at the hub (hub-open-network, N3).
+      hub?.refreshAllow();
       const notes: string[] = [];
       for (const peer of droppedPeers(before, peers.current)) {
         const gone = endTasksWithPeer(o.store, peer, 'peer removed');

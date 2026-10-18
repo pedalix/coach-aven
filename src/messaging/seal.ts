@@ -3,13 +3,16 @@
 // (`orch hub keygen` → HUB_KEY_PATH, 0600); peers pin each other's public halves in hub.peers.json,
 // as a list per peer with `notAfter`, so a rotation has a grace period.
 //
-// Sealing: a fresh ephemeral X25519 pair → ECDH with the recipient's key → HKDF-SHA256 (info binds
-// from, to and task) → AES-256-GCM over the payload with the routing header AND the envelope id as AAD
-// (a ciphertext replayed under a new id does not open) → an Ed25519 signature over header + eph + ct.
-// The receiver verifies the signature with the pinned keys of `from` before it decrypts. The hub never
-// decrypts and never distributes keys: a compromised hub can drop or delay envelopes, not read or forge them.
+// Sealing (version 2, `hub-open-network` design N5): a fresh ephemeral X25519 pair → ECDH with the
+// recipient's key → HKDF-SHA256 (info binds the ephemeral key and the recipient's encryption key) →
+// AES-256-GCM over the sealed content (agents, method, task, payload) with the clear header — version,
+// envelope id, the two installations — as AAD (a ciphertext replayed under a new id does not open) → an
+// Ed25519 signature over header + eph + ct. The receiver verifies the signature with the pinned keys of
+// `from` before it decrypts. A name that changed hands on the hub is caught here: its new key fails the
+// pin, and it cannot open what was sealed to the earlier key. The hub never decrypts and never
+// distributes keys: a compromised hub can drop or delay envelopes, not read or forge them.
 import { createCipheriv, createDecipheriv, createHash, createPrivateKey, createPublicKey, diffieHellman, generateKeyPairSync, hkdfSync, randomBytes, sign, verify, type KeyObject } from 'node:crypto';
-import { challengeText, headerAad, kdfInfo, signingText, type Envelope, type EnvelopeHeader } from './protocol.js';
+import { challengeText, headerAad, kdfInfo, signingText, type WireEnvelope, type WireHeader } from './protocol.js';
 
 /** A key pair as JWK base64url halves (`x` public, `d` private). */
 export interface KeyHalves {
@@ -48,28 +51,27 @@ export function generateKeyFile(): KeyFile {
 /** Short fingerprint of a public key, for logs and events (never the key itself). */
 export const fingerprint = (publicHalf: string): string => createHash('sha256').update(publicHalf).digest('hex').slice(0, 8);
 
-/** Seal a payload for `recipientBox` (the peer's X25519 public half), signed with the own signing key. */
-export function seal(header: EnvelopeHeader, payload: unknown, o: { signing: KeyHalves; recipientBox: string }): Envelope {
+/** Seal `content` for `recipientBox` (the peer's X25519 public half), signed with the own signing key. */
+export function seal(header: WireHeader, content: unknown, o: { signing: KeyHalves; recipientBox: string }): WireEnvelope {
   const eph = generateKeyPairSync('x25519');
   const ephPublic = (eph.publicKey.export({ format: 'jwk' }) as { x: string }).x;
   const shared = diffieHellman({ privateKey: eph.privateKey, publicKey: pub('X25519', o.recipientBox) });
-  const key = Buffer.from(hkdfSync('sha256', shared, unb64u(ephPublic), Buffer.from(kdfInfo(header)), 32));
+  const key = Buffer.from(hkdfSync('sha256', shared, unb64u(ephPublic), Buffer.from(kdfInfo(ephPublic, o.recipientBox)), 32));
   const iv = randomBytes(12);
   const cipher = createCipheriv('aes-256-gcm', key, iv);
   cipher.setAAD(Buffer.from(headerAad(header)));
-  const body = Buffer.concat([cipher.update(JSON.stringify(payload), 'utf8'), cipher.final()]);
-  const env: Envelope = { ...header, eph: ephPublic, ct: b64u(Buffer.concat([iv, body, cipher.getAuthTag()])) };
-  env.sig = b64u(sign(null, Buffer.from(signingText(env)), priv('Ed25519', o.signing)));
-  return env;
+  const body = Buffer.concat([cipher.update(JSON.stringify(content), 'utf8'), cipher.final()]);
+  const unsigned = { v: header.v, id: header.id, from: header.from, to: header.to, eph: ephPublic, ct: b64u(Buffer.concat([iv, body, cipher.getAuthTag()])) };
+  return { ...unsigned, sig: b64u(sign(null, Buffer.from(signingText(unsigned)), priv('Ed25519', o.signing))) };
 }
 
-export type Opened = { ok: true; payload: unknown; signedBy: string } | { ok: false; reason: 'malformed' | 'bad_signature' | 'decrypt_failed' };
+export type Opened = { ok: true; content: unknown; signedBy: string } | { ok: false; reason: 'malformed' | 'bad_signature' | 'decrypt_failed' };
 
 /**
  * Open an envelope: the signature first, against the sender's pinned keys valid at `now`; then the
  * own encryption keys in order (the current one, then the previous ones still in their grace period).
  */
-export function open(env: Envelope, o: { senderKeys: readonly PeerKey[]; own: KeyFile; now?: Date }): Opened {
+export function open(env: WireEnvelope, o: { senderKeys: readonly PeerKey[]; own: KeyFile; now?: Date }): Opened {
   const now = o.now ?? new Date();
   if (!env.eph || !env.ct || !env.sig) return { ok: false, reason: 'malformed' };
   const data = Buffer.from(signingText(env));
@@ -92,12 +94,12 @@ export function open(env: Envelope, o: { senderKeys: readonly PeerKey[]; own: Ke
   for (const box of boxes) {
     try {
       const shared = diffieHellman({ privateKey: priv('X25519', box), publicKey: pub('X25519', env.eph) });
-      const key = Buffer.from(hkdfSync('sha256', shared, unb64u(env.eph), Buffer.from(kdfInfo(env)), 32));
+      const key = Buffer.from(hkdfSync('sha256', shared, unb64u(env.eph), Buffer.from(kdfInfo(env.eph, box.public)), 32));
       const decipher = createDecipheriv('aes-256-gcm', key, iv);
       decipher.setAAD(Buffer.from(headerAad(env)));
       decipher.setAuthTag(tag);
       const text = Buffer.concat([decipher.update(body), decipher.final()]).toString('utf8');
-      return { ok: true, payload: JSON.parse(text), signedBy: fingerprint(signer.sign) };
+      return { ok: true, content: JSON.parse(text), signedBy: fingerprint(signer.sign) };
     } catch {
       /* the next key */
     }
@@ -105,13 +107,13 @@ export function open(env: Envelope, o: { senderKeys: readonly PeerKey[]; own: Ke
   return { ok: false, reason: 'decrypt_failed' };
 }
 
-/** The hub challenge answer (design D4): Ed25519 over `coach-aven-hub/1|host|installation|nonce`. */
-export const signChallenge = (host: string, installation: string, nonce: string, signing: KeyHalves): string =>
-  b64u(sign(null, Buffer.from(challengeText(host, installation, nonce)), priv('Ed25519', signing)));
+/** The hub challenge answer (design D4, N2): Ed25519 over `coach-aven-hub/2|host|name|key|nonce`, with `key` the signer's own public half. */
+export const signChallenge = (host: string, name: string, nonce: string, signing: KeyHalves): string =>
+  b64u(sign(null, Buffer.from(challengeText(host, name, signing.public, nonce)), priv('Ed25519', signing)));
 
-export const verifyChallenge = (host: string, installation: string, nonce: string, sig: string, signPublic: string): boolean => {
+export const verifyChallenge = (host: string, name: string, nonce: string, sig: string, signPublic: string): boolean => {
   try {
-    return verify(null, Buffer.from(challengeText(host, installation, nonce)), pub('Ed25519', signPublic), unb64u(sig));
+    return verify(null, Buffer.from(challengeText(host, name, signPublic, nonce)), pub('Ed25519', signPublic), unb64u(sig));
   } catch {
     return false;
   }

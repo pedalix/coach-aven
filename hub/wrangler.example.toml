@@ -1,7 +1,8 @@
-# The messaging hub (OpenSpec agent-messaging, messaging-hub). Copy to the operator's ops repo as
-# wrangler.toml, set the route to the hub's own domain, and put the enrolment in the HUB_CONFIG secret:
-#   wrangler secret put HUB_CONFIG   # {"installations": {"<id>": {"sign": [{"key": "<orch hub keygen output>"}]}}}
-# Adding or removing an installation: edit HUB_CONFIG, then `wrangler deploy`.
+# The messaging hub (OpenSpec agent-messaging, messaging-hub, hub-open-network). Copy to the operator's ops
+# repo as wrangler.toml, set the route to the hub's own domain, and put the registration policy in the
+# HUB_CONFIG secret (docs/hub.md):
+#   wrangler secret put HUB_CONFIG   # {"registration": "open", "reserved": {"<name>": {"sign": [{"key": "<orch hub keygen output>"}]}}}
+# Reserving or revoking a name (reserved for null): edit HUB_CONFIG, then `wrangler deploy`.
 # Sentry (optional): `wrangler secret put SENTRY_DSN` — the bots' DSN will do; SENTRY_ENVIRONMENT below
 # tells the hub's events apart.
 name = "coach-aven-hub"
