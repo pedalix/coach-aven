@@ -141,11 +141,33 @@ describe('Names are claimed first come, first served', () => {
     }
   });
 
-  it('Closed registration: only reserved names are admitted', async () => {
+  it('Closed registration: no new claims — reserved names and names already bound keep working', async () => {
     const closed = { ...config(), registration: 'closed' };
     const key = (await freshKey()).x;
     expect(await inHub((instance) => instance.admit(closed, 'kestrel', key, '198.51.100.3', Date.now()))).toBe('closed');
     expect(await inHub((instance) => instance.admit(closed, 'home', keyOf('home').x, '198.51.100.3', Date.now()))).toBeUndefined();
+  });
+
+  it('Closed registration says nothing about names: a fresh key gets `closed` for a bound name and a free one, in either order', async () => {
+    const owner = await freshKey();
+    const first = await login('closed-bound', owner, { ip: '192.0.2.120' }); // claimed while open
+    expect(first.frames.find(hello)).toBeDefined();
+    first.ws.close();
+    await withConfig({ ...JSON.parse((env as Any).HUB_CONFIG), registration: 'closed' }, async () => {
+      for (const order of [['closed-bound', 'closed-free'], ['closed-free', 'closed-bound']]) {
+        const probe = await freshKey();
+        for (const name of order) {
+          const c = await login(name, probe, { ip: '192.0.2.121' });
+          expect(await waitClosed(c), `${order.join(' then ')}: ${name}`).toEqual({ code: 4003, reason: 'closed' });
+        }
+      }
+      const back = await login('closed-bound', owner, { ip: '192.0.2.120' });
+      expect(back.frames.find(hello), 'its own key still connects').toBeDefined();
+      back.ws.close();
+    });
+    // Open again: telling a taken name from a free one costs a claim.
+    const taken = await login('closed-bound', await freshKey(), { ip: '192.0.2.122' });
+    expect(await waitClosed(taken)).toEqual({ code: 4003, reason: 'name taken' });
   });
 
   it('Silent name: released after the idle days, reported to those who allow it, then free to claim again', async () => {
@@ -493,6 +515,27 @@ describe('The hub sees routing metadata only', () => {
   });
 });
 
+describe('What a warning names', () => {
+  it('The operator’s reserved names as the `installation` tag, anyone else’s as `claimed`, a plain field', async () => {
+    const lines: Any[] = [];
+    const spy = vi.spyOn(console, 'warn').mockImplementation((...a: unknown[]) => void lines.push(JSON.parse(String(a[0]))));
+    try {
+      const k = await freshKey();
+      await login('repl-x', k, { ip: '192.0.2.130' });
+      const second = await login('repl-x', k, { ip: '192.0.2.130' });
+      await login('home');
+      await login('home');
+      second.ws.close();
+    } finally {
+      spy.mockRestore();
+    }
+    const replaced = lines.filter((l) => l.event === 'hub.replaced');
+    expect(replaced).toContainEqual({ event: 'hub.replaced', claimed: 'repl-x' });
+    expect(replaced).toContainEqual({ event: 'hub.replaced', installation: 'home' });
+    expect(replaced.filter((l) => l.installation === 'repl-x')).toEqual([]);
+  });
+});
+
 describe('Idle connections cost nothing', () => {
   it('Wake on message: after an eviction, an envelope is routed over the existing connections', async () => {
     const home = await login('home');
@@ -656,13 +699,17 @@ describe('Alignment with the configuration', () => {
 });
 
 describe('Allow lists are cheap to send', () => {
-  it('Throttled: past 10 lists in 10 minutes on one connection, further lists are ignored', async () => {
-    const c = await login('allow-t', await freshKey(), { ip: '192.0.2.110' });
+  it('Throttled: the 11th list in 10 minutes closes the connection (`allow throttled`), never dropped silently; the next connection has a fresh budget', async () => {
+    const k = await freshKey();
+    const c = await login('allow-t', k, { ip: '192.0.2.110' });
     for (let i = 0; i < 10; i++) await allow(c, i % 2 ? ['home'] : []);
     c.send({ t: 'allow', installations: ['bluefin'] });
-    await new Promise((r) => setTimeout(r, 100));
+    expect(await waitClosed(c)).toEqual({ code: 4003, reason: 'allow throttled' });
     expect(await storedAllow('allow-t')).toEqual(['home']);
-    c.ws.close();
+    const again = await login('allow-t', k, { ip: '192.0.2.110' });
+    await allow(again, ['bluefin']); // what the bot does after reconnecting: its list, once
+    expect(await storedAllow('allow-t')).toEqual(['bluefin']);
+    again.ws.close();
   });
 
   it('Capped at allowMax: the capped list is stored, and nobody beyond the cap is told anything', async () => {

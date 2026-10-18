@@ -71,7 +71,7 @@ Alternatives:
 - **Cheap to send, quiet to receive.**
   - An unchanged list does nothing.
   - A changed one sends a fresh view only to the sender, when its edges or the removals it hears of changed, and to the peers whose edge with the sender changed. An installation that does not allow the sender hears nothing, not even an empty frame, however often the sender lists it.
-  - Each connection may send 10 lists in 10 minutes; the hub ignores the rest and logs `hub.allow.throttled`.
+  - Each connection may send 10 lists in 10 minutes. The next one closes it (`allow throttled`, logged `hub.allow.throttled`), so that the bot reconnects after its backoff and resends its list once; a list is never dropped silently. A bot sends one list per connection and one per changed reload, so this cannot loop.
 - **Routing.** The `send` check becomes: the recipient's name is bound, not tombstoned, and its allow list holds the sender.
 - **The bot's list** is `Object.keys(peers.current)`. Pins already decide whose envelopes the installation can verify, so the hub only drops early what the receiver would drop anyway, before it takes backlog.
 - **No reason that reveals a name.** A free name, a released one and one that does not allow the sender all get `rejected: unknown installation`. The bot words it for the agent as "unknown installation, or it has not pinned `<this installation>`".
@@ -188,6 +188,11 @@ Implementation choices that differ from the text above as first proposed. Each i
 - N5: a rejected envelope is logged from parsed fields only, never the raw `to` or `id` of a malformed one.
 - N7: unknown configuration keys are refused at every level; `/health` fails on a configuration that does not parse.
 - Own-property lookups everywhere a name indexes an object (`reservation()`, `pinnedKeys()`/`isPinned()`): `constructor` is a valid name.
+
+### Leftovers (the follow-up to PR #40)
+- N1: under `closed`, `closed` is answered before `name taken`, so a fresh key learns nothing about which names exist without spending a claim.
+- N3: a throttled allow list closes the connection (`allow throttled`) instead of being dropped silently.
+- Logging: `hub.replaced`, `hub.allow.throttled`, `hub.allow.capped` and `hub.installation.removed` name a claimed installation as `claimed` (a field), and only the operator's reserved names as `installation` (a Sentry tag). So repeats are deduped on the event and reason, and invented names cannot become events past the reporter's bounded memory.
 
 ## Open Questions
 
