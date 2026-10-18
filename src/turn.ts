@@ -1111,7 +1111,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
         continue;
       }
-      const status = { conv: inf.channel, id: inf.statusTs };
+      const status: MsgRef = { conv: inf.channel, id: inf.statusTs, ...(inf.msgThreadTs ? { thread: inf.msgThreadTs } : {}) };
       const recovery = (async () => {
         try {
           await driver

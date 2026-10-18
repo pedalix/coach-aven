@@ -270,3 +270,25 @@ test('a rating click re-renders the answer card with the tally', async () => {
   const titles = (edit.activity!.attachments![0].content.actions as { title: string }[]).map((a) => a.title);
   assert.deepEqual(titles, ['🧭 Show steps', '⚙️ Session', '👍 Helped · 2', '👎 Missed']);
 });
+
+test('a status ref rebuilt after a restart carries its chain: the recovered answer lands in the thread, not at the channel root', async () => {
+  // The engine's inflight record (channel, statusTs, msgThreadTs) is all a fresh process has;
+  // the canary 2026-10-18 saw the recovered answer posted at the root for want of the chain.
+  const api = new Recorder();
+  const d = teamsDriver(api, { tenantId: TENANT });
+  await d.update({ conv: CH, id: 'm1', thread: '100' }, { kind: 'text', text: '🔄 Reconnected after a restart — recovering this turn…' });
+  await d.update({ conv: CH, id: 'm1', thread: '100' }, { kind: 'answer', markdown: 'Recovered: typecheck passes.' });
+  assert.deepEqual(
+    api.calls.map((c) => [c.op, c.conv, c.id, c.activity!.text]),
+    [
+      ['update', `${CH};messageid=100`, 'm1', '🔄 Reconnected after a restart — recovering this turn…'],
+      ['update', `${CH};messageid=100`, 'm1', '✅ Done — answer below'],
+      ['send', `${CH};messageid=100`, undefined, 'Recovered: typecheck passes.'],
+    ],
+  );
+  // What the driver saw posted wins over the hint (a top-level status edited later with a stale ref).
+  api.calls = [];
+  const top = await d.post({ conv: CH }, { kind: 'status', line: 'working', turnId: 't9', notify: 'w' });
+  await d.update({ ...top, thread: '100' }, { kind: 'text', text: 'still at the root' });
+  assert.deepEqual(api.calls.slice(1).map((c) => [c.op, c.conv]), [['update', CH]]);
+});

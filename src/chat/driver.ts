@@ -27,6 +27,10 @@ export interface MsgRef {
   conv: string;
   id: string;
   marked?: true;
+  // The chain the message lives in, when the caller knows it from its own records. A driver
+  // that addresses edits by chain (Teams) remembers it for the messages it posted; that memory
+  // dies with the process, so a ref rebuilt after a restart carries it here. Slack needs none.
+  thread?: string;
 }
 
 /** The Slack message-metadata event type of a marked post (agent-messaging D14); the Slack source skips it. */

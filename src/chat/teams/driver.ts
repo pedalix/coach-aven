@@ -149,7 +149,7 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
         return;
       }
       const real = resolve(msg);
-      await edit(real, msgThread.get(keyOf(real)), view);
+      await edit(real, chainOf(real), view);
     })().finally(() => {
       p.inflight = undefined;
     });
@@ -175,6 +175,10 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
   // Connector addresses an activity by conversation id (chain included) + activity id.
   const msgThread = new Map<string, string | undefined>();
   const keyOf = (m: MsgRef) => `${m.conv}#${m.id}`;
+  // The chain of a message: what this process saw it posted into, else what the caller's own
+  // record says (a status card rebuilt after a restart — the canary 2026-10-18 posted a
+  // recovered answer at the channel root for want of this).
+  const chainOf = (m: MsgRef): string | undefined => (msgThread.has(keyOf(m)) ? msgThread.get(keyOf(m)) : m.thread);
   // Queued placeholders: a pending reference → where its card goes once the turn starts.
   let pendingSeq = 0;
   const pendingTargets = new Map<string, { conv: string; thread?: string }>();
@@ -305,7 +309,7 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
       // A reaction on the person's message, as on Slack. Its chain comes from remember()
       // (events.ts) for channel messages; a 1:1 message is addressed by its conversation alone.
       try {
-        await api.react(targetId(msg.conv, msgThread.get(keyOf(msg))), msg.id, REACTION[mark], op);
+        await api.react(targetId(msg.conv, chainOf(msg)), msg.id, REACTION[mark], op);
       } catch (e) {
         // Best-effort (already reacted / removed, message gone), but say so: a wrong reaction
         // id would otherwise fail silently on every turn.
@@ -377,7 +381,7 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
       }
       const c = answerCard(view, tally);
       if (!c) return;
-      await api.update(targetId(ref.conv, msgThread.get(keyOf(ref)) ?? action.where.thread), ref.id, toActivity({ card: c })).catch((e) => log.error(`rating tally: ${e instanceof Error ? e.message : String(e)}`));
+      await api.update(targetId(ref.conv, chainOf(ref) ?? action.where.thread), ref.id, toActivity({ card: c })).catch((e) => log.error(`rating tally: ${e instanceof Error ? e.message : String(e)}`));
     },
 
     async publishHome(user: string, view: HomeView): Promise<void> {
