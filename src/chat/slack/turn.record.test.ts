@@ -48,6 +48,8 @@ type AskScript = (ctx: {
 
 interface FakeOpts {
   ask?: AskScript;
+  /** Each openChat call's options, as the engine passed them. */
+  opened?: Record<string, unknown>[];
   adopt?: (onLong: () => void) => Promise<{ ok: boolean; status: string; text: string }>;
   contextLost?: boolean;
   skipped?: { name: string; reason: string }[];
@@ -55,7 +57,8 @@ interface FakeOpts {
 }
 
 function fakeOpenChat(o: FakeOpts): typeof openChat {
-  return (async () => {
+  return (async (_cfg: unknown, _store: unknown, opts: Record<string, unknown>) => {
+    o.opened?.push(opts);
     let idle: ((t: string) => void) | undefined;
     let lost = o.contextLost ?? false;
     const session: ChatSession = {
@@ -639,4 +642,17 @@ test('shadow — incoming burst: shadow turns take at most half of the turn slot
   for (const r of releases.splice(0)) r();
   await Promise.all([...turns, person]);
   await quiesce();
+});
+
+test('turn: only a project whose card offers skills asks openChat to scan them (agent-skills) — every other project opens as before', async () => {
+  const opened: Record<string, unknown>[] = [];
+  const { engine, client } = harness({ opened });
+  await mention(engine, client, 'hello');
+  await engine.liveTurn(client, 'C1', '100.2', '100.2', 'thread:100.2', { ...PROJECT, messaging: { skills: ['brand-profile'] } } as ProjectConfig, 'hello');
+  await engine.liveTurn(client, 'C1', '100.3', '100.3', 'thread:100.3', { ...PROJECT, messaging: { send: true } } as ProjectConfig, 'hello');
+  await quiesce();
+  assert.equal(opened.length, 3);
+  assert.equal('scanSkills' in opened[0]!, false, 'no messaging block: the option is absent');
+  assert.equal(opened[1]!.scanSkills, true, 'messaging.skills set: scan');
+  assert.equal('scanSkills' in opened[2]!, false, 'messaging without skills: absent');
 });

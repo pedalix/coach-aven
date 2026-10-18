@@ -352,6 +352,17 @@ test('ledger — the spawn line gains exactly the ledger flags; without the ledg
   assert.equal(ledger, `${plain}'--replay-user-messages' `);
 });
 
+test('repo skills (agent-skills) — a multi-repo session gains `--add-dir` with every checkout, last on the line (after the ledger flags); none → byte-identical', async () => {
+  const plain = await spawnCommand({ cwd: '/w' });
+  assert.equal(await spawnCommand({ cwd: '/w', addDirs: [] }), plain);
+  const dirs = ['/root/work/acme-suite/acme-admin', '/root/work/acme-suite/acme-shop'];
+  assert.equal(await spawnCommand({ cwd: '/w', addDirs: dirs }), `${plain}'--add-dir' '/root/work/acme-suite/acme-admin' '/root/work/acme-suite/acme-shop' `);
+  assert.equal(
+    await spawnCommand({ cwd: '/w', ledger: true, addDirs: dirs }),
+    `${plain}'--replay-user-messages' '--add-dir' '/root/work/acme-suite/acme-admin' '/root/work/acme-suite/acme-shop' `,
+  );
+});
+
 test('ledger — every message carries a uuid; a result before the turn’s own echo is not its result (a background report), the one after it is', async () => {
   const { session, push, writes } = await openLedger();
   const idle: string[] = [];
@@ -538,4 +549,17 @@ test('restart mid-call, several calls pending: every unanswered host tool call o
   assert.deepEqual(served.sort(), ['req-a', 'req-c']);
   sb.push({ type: 'result', result: 'echo:A echo:B echo:C', is_error: false, session_id: 's1' });
   assert.equal((await adopted).status, 'ok', 'the adopted turn then finishes');
+});
+
+test('init commands (agent-skills) — a system/init reports its slash commands and skills, unique, to the recorder', async () => {
+  const got: string[][] = [];
+  const sb = fakeSandbox('');
+  const session = new ClaudeSession(sb.handle, { cwd: '/tmp', onInitCommands: (names) => got.push(names) });
+  await session.open();
+  const turn = session.send('hello');
+  await flushAll();
+  sb.push({ type: 'system', subtype: 'init', claude_code_version: '2.1.292', slash_commands: ['review', 'brand-profile'], skills: ['brand-profile', 'code-review'] });
+  sb.push(result('done'));
+  await turn;
+  assert.deepEqual(got, [['review', 'brand-profile', 'code-review']]);
 });

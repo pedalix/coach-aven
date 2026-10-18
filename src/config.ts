@@ -169,6 +169,11 @@ export interface Config {
   // which historically resolved to Sonnet — set CLAUDE_MODEL explicitly (e.g.
   // claude-opus-5-5) so the fleet's model is a deliberate choice, not a CLI default.
   claudeModel?: string;
+  // REPO_SKILLS=1: a multi-repo project's sessions load each repo's own Claude Code skills (`--add-dir
+  // <checkout>` per repo, OpenSpec agent-skills), as a local Claude Code started in that repo would. Off by
+  // default (bucket 3): unset or anything else keeps every spawn line as it was. Single-repo projects are
+  // unaffected either way: their session starts in the repo.
+  repoSkills: boolean;
   // Pin for the sandbox Claude Code CLI (x.y.z). Warm sandboxes converge to it in place at
   // chat prep / nightly housekeeping; the image build bakes the same pin. Unset → sandboxes
   // keep whatever their image shipped (and the daily drift check nags). See cliversion.ts.
@@ -310,6 +315,7 @@ export function loadConfig(): Config {
     },
     claudeOauthToken: resolveClaudeToken(),
     claudeModel: process.env.CLAUDE_MODEL || undefined,
+    repoSkills: repoSkillsEnv(process.env.REPO_SKILLS),
     claudeCliVersion: cliVersionEnv(),
     github: githubAuth(),
     slack: slackConfig(),
@@ -345,3 +351,6 @@ export function loadConfig(): Config {
       : undefined,
   };
 }
+
+/** REPO_SKILLS: exactly `1` → on (agent-skills: repo skills load in multi-repo projects); unset or anything else → off. */
+export const repoSkillsEnv = (v: string | undefined): boolean => (v ?? '').trim() === '1';

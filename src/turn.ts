@@ -466,6 +466,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       scrubSecrets: project.scrubSecrets,
       sources: project.sources !== undefined,
       ...(project.messaging?.send ? { messagingSend: true } : {}),
+      // A card that offers skills needs them scanned (agent-skills); no other project scans.
+      ...(project.messaging?.skills !== undefined ? { scanSkills: true } : {}),
       // CLI pin: per-project canary override, else the fleet pin. Install only when no OTHER
       // conversation on this project has a turn in flight (this key's own turn is the one
       // opening the session) — see provisionTooling.

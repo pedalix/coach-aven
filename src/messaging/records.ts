@@ -45,6 +45,8 @@ export interface OutTask {
   targetDomain?: string;
   /** The question as sent: the answer's framing quotes it (D11). */
   question: string;
+  /** The skill the task asks for (agent-skills): one of the ids the target's card offered. */
+  skill?: string;
   state: TaskState;
   /** Why a task ended other than `completed`, as the asker is told it. */
   reason?: string;
@@ -80,6 +82,8 @@ export interface InTask {
   /** The shadow conversation: `[<tenant>:]a2a:<origin>:<taskId>:<slug>`. */
   key: string;
   question: string;
+  /** The skill the asker named (agent-skills); the shadow session started by invoking it. */
+  skill?: string;
   state: TaskState;
   reason?: string;
   depth: number;

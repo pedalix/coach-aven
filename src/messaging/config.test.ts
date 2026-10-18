@@ -53,3 +53,21 @@ test('messagingEnv — the hub needs an explicit installation id and a key file;
 test('messagingEnv — an invalid INSTALLATION_ID fails the boot (it goes into every address)', () => {
   assert.throws(() => messagingEnv({ INSTALLATION_ID: 'Home Bot' }), /INSTALLATION_ID must match/);
 });
+
+test('validateMessagingConfig — skills: names and `*` globs, `!` exclusions; the string "*" is shorthand for ["*"]; absent offers none', () => {
+  assert.deepEqual(validateMessagingConfig({ skills: ['brand-profile', 'site-design', 'brand-profile'] }, 'p').skills, ['brand-profile', 'site-design']);
+  assert.deepEqual(validateMessagingConfig({ skills: ['*', '!openspec-*', 'newsletter-*', '*-helper'] }, 'p').skills, ['*', '!openspec-*', 'newsletter-*', '*-helper']);
+  assert.deepEqual(validateMessagingConfig({ skills: '*' }, 'p').skills, ['*']);
+  assert.equal(validateMessagingConfig({}, 'p').skills, undefined);
+});
+
+test('validateMessagingConfig — a bad skill entry fails the load, naming the project field', () => {
+  for (const bad of ['Brand Profile', 'Openspec-*', 'a--b', '-a', 'a-', '!!x', '!', '', 'a/b', 'x'.repeat(70)]) {
+    assert.throws(() => validateMessagingConfig({ skills: [bad] }, 'project "brand-studio" messaging'), /project "brand-studio" messaging\.skills: .* is not a skill name or pattern/, bad);
+  }
+  assert.throws(() => validateMessagingConfig({ skills: 'brand-profile' }, 'p'), /p\.skills must be "\*" or an array/);
+});
+
+test('validateMessagingConfig — a run of `*` is collapsed at load', () => {
+  assert.deepEqual(validateMessagingConfig({ skills: ['news***-*', '!**open'] }, 'p').skills, ['news*-*', '!*open']);
+});

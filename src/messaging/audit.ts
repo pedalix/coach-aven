@@ -19,6 +19,8 @@ export interface AskRow {
   /** USD, API-equivalent: metering for turns run here, the reported cost for answers from another installation. */
   cost?: number;
   question: string;
+  /** The skill the task asked for (agent-skills). */
+  skill?: string;
   answer?: string;
   /** Why it is held (a held message). */
   why?: string;
@@ -41,9 +43,10 @@ export function asksList(rows: readonly AskRow[]): string {
     const span = r.createdAt === r.updatedAt ? when(r.createdAt) : `${when(r.createdAt)} → ${when(r.updatedAt).slice(6)}`;
     const cost = r.cost !== undefined ? ` · $${r.cost.toFixed(2)}` : '';
     const tenant = r.tenant ? ` · tenant ${r.tenant}` : '';
+    const skill = r.skill ? ` · skill ${r.skill}` : '';
     const q = `“${first(r.question)}”`;
     const a = r.answer ? ` → “${first(r.answer)}”` : r.why ? ` — held: ${r.why}` : '';
-    return `${ICON[r.state] ?? '•'} ${arrow} · ${state} · ${span}${cost}${tenant} · \`${r.id}\`\n    ${q}${a}`;
+    return `${ICON[r.state] ?? '•'} ${arrow} · ${state} · ${span}${cost}${skill}${tenant} · \`${r.id}\`\n    ${q}${a}`;
   });
   return [`*Tasks between agents* — the last ${sorted.length}${rows.length > sorted.length ? ` of ${rows.length}` : ''}, held first (times UTC)`, ...lines, '_`/aven asks <task id>` shows a transcript; `/aven asks cancel <task id>` cancels a task._'].join('\n');
 }
@@ -51,7 +54,7 @@ export function asksList(rows: readonly AskRow[]): string {
 /** A task's transcript: its record, and for a task answered here the shadow conversation's journal. */
 export function asksTranscript(row: AskRow, journal: readonly JournalEntry[]): string {
   const head = [
-    `*Task \`${row.id}\`* — ${row.dir === 'out' ? `${row.slug} → ${row.peer}` : `${row.slug} ← ${row.peer}`} · ${row.state}${row.reason ? ` (${row.reason})` : ''}`,
+    `*Task \`${row.id}\`* — ${row.dir === 'out' ? `${row.slug} → ${row.peer}` : `${row.slug} ← ${row.peer}`} · ${row.state}${row.reason ? ` (${row.reason})` : ''}${row.skill ? ` · skill ${row.skill}` : ''}`,
     `Question:\n${quote(row.question)}`,
     ...(row.answer ? [`Last message:\n${quote(row.answer)}`] : []),
   ];

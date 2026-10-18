@@ -12,7 +12,7 @@ import type { SandboxDriver, SandboxHandle } from '../driver.js';
 import { SshDockerDriver } from '../sshdocker.js';
 import { seedClaudeAuth } from '../project.js';
 import { DISPOSABLE_SANDBOX_PREFIX } from '../sandboxopts.js';
-import type { ProbeProcess, ProcessHandlers, Transport } from './ctx.js';
+import { seedPathOk, type ProbeProcess, type ProcessHandlers, type Transport } from './ctx.js';
 
 /** The CLI's working directory inside the probe's sandbox (empty, like a fresh project checkout). */
 export const SANDBOX_WORK_DIR = '/root/probe-work';
@@ -73,6 +73,16 @@ export async function sandboxTransport(o: SandboxTransportOptions): Promise<Tran
   let n = 0;
   return {
     kind: 'sandbox',
+    workDir: SANDBOX_WORK_DIR,
+    async seed(files) {
+      // Each file through base64, so no content needs shell quoting.
+      for (const [rel, text] of Object.entries(files)) {
+        if (!seedPathOk(rel)) throw new Error(`a scenario file must stay inside the working directory: ${rel}`);
+        const path = `${SANDBOX_WORK_DIR}/${rel}`;
+        const dir = path.slice(0, path.lastIndexOf('/'));
+        await handle.exec(`mkdir -p '${dir}' && printf '%s' '${Buffer.from(text).toString('base64')}' | base64 -d > '${path}'`, { check: true });
+      }
+    },
     async start(launch: ClaudeLaunch, h: ProcessHandlers): Promise<ProbeProcess> {
       const key = `probe-${++n}`;
       await handle.createSession(key);

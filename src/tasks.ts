@@ -14,6 +14,8 @@ import {
   reapWorktrees,
   repoCheckout,
   projectCwd,
+  repoSkillDirs,
+  skillOrigins,
 } from './project.js';
 import type { HostServerRoute } from './hosttools.js';
 import { buildSystemPrompt } from './prompt.js';
@@ -21,6 +23,7 @@ import type { GitFlow, McpServerSpec } from './projects.js';
 import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import { FactStore } from './facts.js';
 import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './deps.js';
+import { recordSessionCommands, scanProjectSkills } from './skills.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
 import { ClaudeSession, type InjectOutcome, type OnQuestion, type TurnUsage } from './claudeSession.js';
 
@@ -143,6 +146,7 @@ async function prepareChat(
   cliVersion?: string,
   upgradeCli?: boolean,
   sandboxOpts?: SandboxOptions,
+  scanSkills = false,
 ) {
   if (repos.length === 0) throw new Error(`project ${slug} has no repos`);
   const driver = createDriver(cfg, driverKind);
@@ -167,6 +171,9 @@ async function prepareChat(
   // auth.json in every checkout that has a composer.json.
   const checkouts = repos.map((repo) => ({ repo, dir: repoCheckout(cfg, slug, repo) }));
   await scanDependencyRepos(sandbox, facts, slug, checkouts);
+  // Writer: the project's own Claude Code skills → `project_skills` fact (agent-skills); reader: its agent
+  // card. Only for a project whose card offers skills (`messaging.skills`): no other project runs it.
+  if (scanSkills) await scanProjectSkills(sandbox, facts, slug, skillOrigins(cfg, slug, repos));
   const scopeAfter = scopedRepos(slug, repos);
   if (scopeAfter.join() !== scopeBefore.join()) {
     await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeAfter));
@@ -183,6 +190,20 @@ async function prepareChat(
   proj.clonedAt = proj.clonedAt ?? new Date().toISOString();
   store.setProject(proj);
   return { driver, sandbox, proj, cwd };
+}
+
+/**
+ * What every session openChat spawns or reattaches shares for agent skills: a multi-repo project's
+ * checkouts as `--add-dir` (project.ts repoSkillDirs; only with REPO_SKILLS=1, never for a single repo), and, for
+ * a project that offers skills, a recorder of the commands its `init` reports (skills.ts
+ * recordSessionCommands). Exported for its test; both `new ClaudeSession` below spread it.
+ */
+export function sessionWiring(cfg: Config, opts: { slug: string; repos: string[]; scanSkills?: boolean }, store: FactStore): { addDirs?: string[]; onInitCommands?: (names: string[]) => void } {
+  const addDirs = repoSkillDirs(cfg, opts.slug, opts.repos);
+  return {
+    ...(addDirs.length ? { addDirs } : {}),
+    ...(opts.scanSkills ? { onInitCommands: (names: string[]) => recordSessionCommands(store, opts.slug, names) } : {}),
+  };
 }
 
 // Claude stores a session's transcript at ~/.claude/projects/<cwd with '/'→'-'>/<id>.jsonl.
@@ -254,15 +275,19 @@ export async function openChat(
     hostServers?: HostServerRoute[];
     // ProjectConfig.messaging.send: the system prompt explains the messaging tools (agent-messaging D9).
     messagingSend?: boolean;
+    // ProjectConfig.messaging.skills set: prepare scans the project's skills for its card (agent-skills).
+    scanSkills?: boolean;
   },
 ): Promise<ChatSession> {
   const sourcesEnabled = opts.sources === true;
   // The sandbox's own MCP list is exactly the project's: bot-served servers never appear in it.
   const mcp = opts.mcp;
   const prep = await withSandboxLock(opts.slug, () =>
-    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox),
+    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox, opts.scanSkills === true),
   );
   const { driver, proj, cwd } = prep;
+  // What every session below shares for agent skills: --add-dir per repo, the init recorder (sessionWiring).
+  const wiring = sessionWiring(cfg, opts, facts);
   let sandbox = prep.sandbox;
   let sessionId: string | undefined = opts.resumeSessionId;
   let session: ClaudeSession | undefined;
@@ -334,6 +359,7 @@ export async function openChat(
             attach: target,
             resumeSessionId: sessionId, // seed claudeSessionId; not used to relaunch
             ...(opts.attachLedger ? { ledger: true } : {}),
+            ...wiring,
           });
           await reattached.open();
           session = reattached;
@@ -362,6 +388,7 @@ export async function openChat(
         hostServers: opts.hostServers,
         model: cfg.claudeModel,
         ...(opts.ledger ? { ledger: true } : {}),
+        ...wiring,
       });
       session.onIdleResult = idleNotify;
       session.onRateLimit = opts.onRateLimit;

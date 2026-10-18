@@ -29,3 +29,10 @@ test('a transcript: the record, and for a task answered here what its shadow con
   assert.match(t, /\*The shadow conversation\*\n\*10-17 08:03 answer\*\n> Because of the deploy\.\n> Details …/);
   assert.match(asksTranscript(row({}), []), /the answering side keeps the transcript/);
 });
+
+test('a task that asked for a skill shows it, in the list and in the transcript (agent-skills)', () => {
+  const r = row({ peer: 'bluefin/brand-studio', skill: 'brand-profile', cost: 0.1 });
+  assert.match(asksList([r]).split('\n')[1]!, /^✅ owen-ops → bluefin\/brand-studio · completed · 10-17 08:00 → 08:03 · \$0\.10 · skill brand-profile · `a{24}`$/);
+  assert.match(asksTranscript(r, []), /· completed · skill brand-profile/);
+  assert.doesNotMatch(asksList([row({})]), /skill/);
+});

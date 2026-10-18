@@ -27,13 +27,14 @@ import type { Store } from '../state.js';
 import type { ChatSession } from '../tasks.js';
 import { normalizeTenant, splitTeam } from '../teamkeys.js';
 import type { TurnEngine, TurnOpts } from '../turn.js';
-import { isTerminal, parseCard, parseMessage, parseStatus, textMessage, textOf, type AgentCard, type TaskState } from './a2a.js';
+import { isSkillId, isTerminal, parseCard, parseMessage, parseStatus, textMessage, textOf, type AgentCard, type AgentSkill, type TaskState } from './a2a.js';
 import { messagingLimits, type MessagingConfig } from './config.js';
 import { emit, type EventName, type EventSink } from './events.js';
 import { domainOf, heldWhy, markArrival, markSent, mayGo } from './marks.js';
 import { accepts, isOtherHub, parseAddress, parseTarget, PROTOCOL_VERSION, type Address, type Envelope, type EnvelopeHeader, type Method, type Payload } from './protocol.js';
 import { acceptCountKey, isOpen, sendCountKey, type DeliveryRecord, type HeldMessage, type InTask, type OutTask, type ReplyTarget } from './records.js';
 import type { Delivery, PeerTransport } from './transport.js';
+import { exposedSkills, invokeSkill, notOursOf, type ProjectSkill } from './skills.js';
 import { wrapAnswer, wrapReply, wrapTask, type OpenTask } from './wrap.js';
 import { expireIdleTasks } from './expiry.js';
 import { isPinned } from './peers.js';
@@ -58,6 +59,12 @@ export interface MessagingDeps {
   /** The chat driver of a tenant (undefined = home); undefined when the tenant is gone. */
   driverFor: (teamId: string | undefined) => ChatDriver | undefined;
   usageLog?: UsageLog;
+  /** A project's own Claude Code skills as last scanned (facts `project_skills`); undefined = never scanned. */
+  skillsOf?: (slug: string) => readonly ProjectSkill[] | undefined;
+  /** The slash commands and skills a session of the project reported in `init` (facts `session_commands`). */
+  commandsOf?: (slug: string) => readonly string[] | undefined;
+  /** The CLI's own command and skill names at the project's pinned version (clinames.ts). */
+  cliNamesOf?: (slug: string) => Iterable<string>;
   /** Local days for the daily caps. */
   tz?: string;
   now?: () => Date;
@@ -338,7 +345,7 @@ export function createMessaging(d: MessagingDeps) {
     conversationKey: string;
   }
 
-  function sendMessage(c: Caller, args: { target?: unknown; text?: unknown; taskId?: unknown }, requestId: string): ToolReply {
+  function sendMessage(c: Caller, args: { target?: unknown; text?: unknown; taskId?: unknown; skill?: unknown }, requestId: string): ToolReply {
     const p = project(c.slug);
     if (!messaging(p)?.send) return { ok: false, error: 'this agent may not send tasks (its messaging configuration has no `send`)' };
     const text = typeof args.text === 'string' ? args.text.trim() : '';
@@ -352,6 +359,9 @@ export function createMessaging(d: MessagingDeps) {
       return { ok: false, error: `unknown installation "${target.installation}"; known: ${[d.installation, ...peers].join(', ')} — targets are "<installation>/<agent>" or "<agent>"` };
     }
     if (typeof args.taskId === 'string' && args.taskId) return reply(c, p!, target, text, args.taskId, requestId);
+    // The skill a new task asks for (agent-skills): an id from the target's card. Only a task's first message carries one.
+    if (args.skill !== undefined && args.skill !== '' && !isSkillId(args.skill)) return { ok: false, error: '`skill` must be a skill id from the target\'s card (lowercase letters, digits, hyphens)' };
+    const skill = typeof args.skill === 'string' && args.skill ? args.skill : undefined;
     const id = deriveId(d.installation, c.conversationKey, requestId);
     const known = d.store.getOutTask(id);
     if (known) return { ok: true, data: { taskId: id, state: known.state } }; // the same call, served again
@@ -374,6 +384,8 @@ export function createMessaging(d: MessagingDeps) {
         const ok = localCards({ installation: d.installation, agent: c.slug }, own).map((x) => x.name);
         return { ok: false, error: `no agent "${target.agent}" here accepts tasks from ${c.slug}; agents that do: ${ok.length ? ok.join(', ') : 'none'}` };
       }
+      // A local target: refused at once, nothing recorded; onAsk checks again (one authority for both transports).
+      if (skill && !offered(tp).some((s) => s.id === skill)) return { ok: false, error: unknownSkill(self(target.agent), skill, offered(tp)) };
       toDomain = domainOfProject(target.agent);
     } else {
       toDomain = d.store.peerDomain(`${target.installation}/${target.agent}`);
@@ -386,6 +398,7 @@ export function createMessaging(d: MessagingDeps) {
       target: `${target.installation}/${target.agent}`,
       ...(toDomain ? { targetDomain: toDomain } : {}),
       question: text,
+      ...(skill ? { skill } : {}),
       state: 'submitted',
       depth,
       rounds: 0,
@@ -412,17 +425,17 @@ export function createMessaging(d: MessagingDeps) {
     }
     d.store.putOutTask(task);
     d.store.bumpAskCount(sendCountKey(c.slug, today), localDate(tz, new Date(now().getTime() - 86_400_000)));
-    sendAsk(task, text, id);
+    sendAsk(task, text, id, true);
     return { ok: true, data: { taskId: id, state: 'submitted' } };
   }
 
-  /** Send a task's question or a reply (the marks allowed it, or a person released it). */
-  function sendAsk(task: OutTask, text: string, messageId: string): void {
+  /** Send a task's question or a reply (the marks allowed it, or a person released it). Only the first message names the skill. */
+  function sendAsk(task: OutTask, text: string, messageId: string, first: boolean): void {
     const marks = d.store.getMarks(task.key);
     const own = domainOfKey(task.key);
     post(
       { from: self(task.slug), to: task.target, method: 'ask', task: task.id },
-      { message: textMessage('user', text, messageId, task.id), domain: own, ...(task.targetDomain ? { toDomain: task.targetDomain } : {}), marks, depth: task.depth },
+      { message: textMessage('user', text, messageId, task.id), domain: own, ...(task.targetDomain ? { toDomain: task.targetDomain } : {}), marks, depth: task.depth, ...(first && task.skill ? { skill: task.skill } : {}) },
     );
     if (task.targetDomain) d.store.setMarks(task.key, markSent(marks, task.targetDomain));
   }
@@ -450,7 +463,7 @@ export function createMessaging(d: MessagingDeps) {
       return { ok: true, data: { taskId, state: t.state, held: true, why: `held for a person's Send: ${why}` } };
     }
     d.store.patchOutTask(taskId, { replies: [...t.replies, mid], state: 'working', updatedAt: iso(), last: { at: iso(), role: 'user', state: 'working', text } });
-    sendAsk(d.store.getOutTask(taskId)!, text, mid);
+    sendAsk(d.store.getOutTask(taskId)!, text, mid, false);
     return { ok: true, data: { taskId, state: 'working' } };
   }
 
@@ -516,6 +529,25 @@ export function createMessaging(d: MessagingDeps) {
   }
 
   // ── discovery (D9 `agents`, D7 cards) ───────────────────────────────────────────────────────
+  // The skills a project's card offers (agent-skills): its `messaging.skills` over its scanned skills. The
+  // same set for every sender it accepts, and the one onAsk checks. Listed-but-missing and defined-twice
+  // names are logged once per process each, not on every `agents` call.
+  const skillWarned = new Set<string>();
+  function offered(p: ProjectConfig): AgentSkill[] {
+    const found = d.skillsOf?.(p.slug);
+    const x = exposedSkills(p.messaging?.skills, found, notOursOf(d.cliNamesOf?.(p.slug) ?? [], d.commandsOf?.(p.slug), found));
+    const missing = x.missing.filter((n) => !skillWarned.has(`missing:${p.slug}:${n}`));
+    if (missing.length) {
+      for (const n of missing) skillWarned.add(`missing:${p.slug}:${n}`);
+      ev('skills.missing', { slug: p.slug, skills: missing.join(',') });
+    }
+    for (const w of x.withheld) {
+      if (skillWarned.has(`withheld:${p.slug}:${w.name}`)) continue;
+      skillWarned.add(`withheld:${p.slug}:${w.name}`);
+      ev('skills.withheld', { slug: p.slug, skill: w.name, reason: w.reason });
+    }
+    return x.skills;
+  }
   function localCards(sender: Address, senderDomain: string): AgentCard[] {
     const today = localDate(tz, now());
     return d.reg.current.projects
@@ -525,8 +557,11 @@ export function createMessaging(d: MessagingDeps) {
         description: p.messaging!.description ?? '',
         accepting: d.store.askCount(acceptCountKey(p.slug, `${sender.installation}/${sender.agent}`, today)) < messagingLimits(p.messaging!).acceptPerDay,
         domain: domainOfProject(p.slug),
+        skills: offered(p),
       }));
   }
+  const unknownSkill = (target: string, skill: string, offers: AgentSkill[]): string =>
+    `unknown skill "${skill}" — ${target} offers ${offers.length ? offers.map((s) => s.id).join(', ') : 'no skills'}`;
   const pendingCards = new Map<string, (cards: AgentCard[]) => void>();
   async function agents(c: Caller, installation: unknown): Promise<ToolReply> {
     if (!messaging(project(c.slug))?.send) return { ok: false, error: 'this agent may not send tasks' };
@@ -626,26 +661,34 @@ export function createMessaging(d: MessagingDeps) {
     const target = parseAddress(env.to)!;
     const slug = target.agent;
     const sender = parseAddress(env.from)!;
-    const reject = (reason: string): Promise<void> => {
+    const reject = (reason: string, text: string = reason): Promise<void> => {
       ev('ask.rejected', { from: env.from, to: env.to, task: env.task, reason, versions: `v${PROTOCOL_VERSION}` });
-      post({ from: env.to, to: env.from, method: 'answer', task: env.task }, { message: { state: 'rejected', timestamp: iso(), message: textMessage('agent', reason, newId(), env.task) }, domain: project(slug) ? domainOfProject(slug) : d.installation, marks: {}, depth: payload.depth });
+      post({ from: env.to, to: env.from, method: 'answer', task: env.task }, { message: { state: 'rejected', timestamp: iso(), message: textMessage('agent', text, newId(), env.task) }, domain: project(slug) ? domainOfProject(slug) : d.installation, marks: {}, depth: payload.depth });
       return ack();
     };
     // Not accepted, or no such agent: the same answer (D9 — it does not say whether the agent exists).
     if (!project(slug) || !accepted(slug, sender, payload.domain)) return reject('not accepted');
     if (payload.toDomain !== undefined && payload.toDomain !== domainOfProject(slug)) return reject('domain changed');
     if (payload.depth > MAX_DEPTH) return reject('too deep');
+    // The skill asked for (agent-skills): after acceptance, so a sender this agent does not accept learns
+    // nothing about its skills; before the budget, so a rejected task costs the sender nothing.
+    if (payload.skill !== undefined) {
+      // A malformed id is answered like an unknown one (parsePayload keeps it for this): the asker is
+      // told at once instead of waiting for the task to expire.
+      const offers = offered(project(slug)!);
+      if (!isSkillId(payload.skill) || !offers.some((s) => s.id === payload.skill)) return reject('unknown skill', unknownSkill(self(slug), payload.skill, offers));
+    }
     const limits = messagingLimits(messaging(project(slug))!);
     const today = localDate(tz, now());
     const countKey = acceptCountKey(slug, env.from, today);
     if (d.store.askCount(countKey) >= limits.acceptPerDay) return reject('budget');
     const key = shadowKey({ tenantId: tenantOfProject(slug), origin, taskId: env.task, slug });
-    const task: InTask = { id: env.task, origin, from: env.from, fromDomain: payload.domain, slug, key, question: textOf(msg), state: 'submitted', depth: payload.depth, rounds: 0, seen: [env.id], createdAt: iso(), updatedAt: iso() };
+    const task: InTask = { id: env.task, origin, from: env.from, fromDomain: payload.domain, slug, key, question: textOf(msg), ...(payload.skill ? { skill: payload.skill } : {}), state: 'submitted', depth: payload.depth, rounds: 0, seen: [env.id], createdAt: iso(), updatedAt: iso() };
     d.store.putInTask(task);
     d.store.bumpAskCount(countKey, localDate(tz, new Date(now().getTime() - 86_400_000)));
     d.store.setMarks(key, markArrival({}, { own: domainOfProject(slug), from: payload.domain, carried: payload.marks }));
     const maySend = !!messaging(project(slug))!.send && payload.depth < MAX_DEPTH;
-    deliver({ key, slug, reply: { key, driver: 'shadow' }, label: `↩ task ${env.task} from ${env.from}`, task: { dir: 'in', id: env.task, origin }, text: wrapTask({ from: env.from, taskId: env.task, text: textOf(msg), maySend, maxRounds: limits.maxRounds }) }, { ownTurn: true });
+    deliver({ key, slug, reply: { key, driver: 'shadow' }, label: `↩ task ${env.task} from ${env.from}`, task: { dir: 'in', id: env.task, origin }, text: invokeSkill(payload.skill, wrapTask({ from: env.from, taskId: env.task, text: textOf(msg), maySend, maxRounds: limits.maxRounds })) }, { ownTurn: true });
     return ack();
   }
 
@@ -865,7 +908,7 @@ export function createMessaging(d: MessagingDeps) {
     const t = d.store.getOutTask(h.task);
     d.store.deleteHeld(heldId);
     if (!t || !isOpen(t)) return { ok: false, text: 'Its task has ended.' };
-    sendAsk(t, h.text, h.id); // the target's domain now has the data: markSent, as for any message that goes out
+    sendAsk(t, h.text, h.id, h.kind === 'task'); // the target's domain now has the data: markSent, as for any message that goes out
     if (h.kind === 'reply') d.store.patchOutTask(t.id, { state: 'working', updatedAt: iso() });
     return { ok: true, text: `Sent to ${t.target} by ${by}.` };
   }

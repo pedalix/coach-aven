@@ -304,7 +304,7 @@ Agents asking agents — `docs/agent-messaging.md` (what it does, the `messaging
 
 | Setting | Where | What |
 |---|---|---|
-| `messaging` | per project, `projects.config.json` | `send`, `accept`, `description`, daily caps, `maxRounds`, `costWarnUsd`. Read at call time; `/aven reload` applies it (open tasks whose asker is no longer accepted end `canceled: not accepted`). Refused on a project several tenants share. |
+| `messaging` | per project, `projects.config.json` | `send`, `accept`, `description`, `skills` (the project's Claude Code skills its card offers: names, `*` globs and `!` exclusions, e.g. `["*", "!openspec-*"]`; none by default — `docs/agent-messaging.md` → *Skills*), daily caps, `maxRounds`, `costWarnUsd`. Read at call time; `/aven reload` applies it (open tasks whose asker is no longer accepted end `canceled: not accepted`). Refused on a project several tenants share. |
 | `INSTALLATION_ID` | `.env` | This installation's name in every address (default `local`, enough inside one installation; must be explicit for the hub, where it is claimed by this installation's key or reserved for it — `local` and `hub` never can be). Invalid → the boot fails. |
 | `HUB_URL` | `.env` | `wss://<hub>` — the bot keeps one outbound connection to the hub. Unset: no connection. Set without an explicit `INSTALLATION_ID` or `HUB_KEY_PATH`: a loud error, and messaging inside the installation only. |
 | `HUB_KEY_PATH` | `.env` | The installation's key file (`orch hub keygen`, mode 0600). |
@@ -312,6 +312,33 @@ Agents asking agents — `docs/agent-messaging.md` (what it does, the `messaging
 
 Sessions are spawned with the message ledger (`--replay-user-messages`) only for projects with a
 `messaging` block; a session opened before a reload keeps the mode it was spawned with.
+
+## Repo skills (`REPO_SKILLS`)
+
+A multi-repo project's sessions start in the project folder, where no repo's `.claude/skills` is visible. With
+`REPO_SKILLS=1`, every such session starts with `--add-dir <checkout>` for each repo, so it loads each repo's own Claude
+Code skills as a Claude Code started in that repo would (OpenSpec `agent-skills`); `--add-dir` also loads each repo's
+legacy `.claude/commands/`. Off by default: unset or anything else, every spawn line stays as it was. Single-repo
+projects are unaffected either way: their session starts in the repo. Both sandbox drivers run the same command line
+(the Daytona driver passes it unchanged).
+
+| Setting | Where | What |
+|---|---|---|
+| `REPO_SKILLS` | `.env` | `1` turns repo skills on for the installation's multi-repo projects (their agent cards can then offer the repos' skills too). Unset or anything else: off. |
+
+**Off everywhere; switch it on per installation when a skill worth it exists.** What turning it on brings: whatever
+skills and commands the repos carry — typically OpenSpec workflow skills (`openspec-*`) and `/opsx` commands, plus a
+few framework development helpers (a Laravel media-library or HTTP-client helper, a Tailwind helper). A skill or command
+defined in two of a project's repos loads twice, and `/name` runs the first `--add-dir`'s. Watch for skills the agent
+starts using on its own. The canary installations are single-repo, so the multi-repo path rests on the live measurement
+(design `agent-skills`) and the tests until an installation with a multi-repo project switches it on.
+
+**Turning it on.**
+1. Set `REPO_SKILLS=1` in the installation's `.env` in its ops repo — not on the box, which the next export would
+   overwrite.
+2. `npm run ops -- <slug> export`, then restart the bot.
+3. Sessions already running, and sessions the restart reattaches, keep their old command line until they end, or until
+   `🔄 Restart session` in their thread. Turning it off is the same with the line removed.
 
 ## Dispatch (`DISPATCH`) — retired
 

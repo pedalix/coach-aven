@@ -23,6 +23,23 @@ import { log } from './log.js';
 // the composer auth seeder (which checkouts) in tasks.ts, and the system prompt.
 
 export const DEPENDS_ON_REPOS = 'depends_on_repos';
+// Second writer: the skills scanner (skills.ts) — `project_skills`, the project's own Claude Code skills
+// ({name, description, origin}). Reader: the agent card (messaging/skills.ts exposedSkills).
+export const PROJECT_SKILLS = 'project_skills';
+/** A `project_skills` entry (the shape of messaging/skills.ts ProjectSkill, kept free of that import). */
+export interface ProjectSkillFact {
+  name: string;
+  description: string;
+  origin: string;
+  tags?: string[];
+  examples?: string[];
+  userInvocable?: false;
+  clash?: string[];
+}
+// Third, beside it: `session_commands`, the slash commands and skills a session of the project reported in
+// its `system/init` (written by tasks.ts for a project that offers skills). Reader: the agent card, which
+// withholds a project skill whose name a CLI command already takes (messaging/skills.ts).
+export const SESSION_COMMANDS = 'session_commands';
 
 export interface Fact {
   // What the fact is about, e.g. "project:caldora".
@@ -85,5 +102,22 @@ export class FactStore {
   dependsOnRepos(slug: string): string[] {
     const v = this.get(slug, projectSubject(slug), DEPENDS_ON_REPOS)?.value;
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  }
+
+  // The names a session of the project reported as its slash commands and skills; undefined when none yet.
+  sessionCommands(slug: string): string[] | undefined {
+    const v = this.get(slug, projectSubject(slug), SESSION_COMMANDS)?.value;
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : undefined;
+  }
+
+  // The project's own skills as last scanned; undefined when never scanned (the card then offers
+  // nothing — messaging/skills.ts exposedSkills).
+  projectSkills(slug: string): ProjectSkillFact[] | undefined {
+    const f = this.get(slug, projectSubject(slug), PROJECT_SKILLS);
+    if (!f || !Array.isArray(f.value)) return undefined;
+    return f.value.filter(
+      (x): x is ProjectSkillFact =>
+        !!x && typeof x === 'object' && typeof (x as { name?: unknown }).name === 'string' && typeof (x as { description?: unknown }).description === 'string' && typeof (x as { origin?: unknown }).origin === 'string',
+    );
   }
 }

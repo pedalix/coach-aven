@@ -9,11 +9,18 @@ import type { Frame, Scenario } from './types.js';
 function transportFactory(version = '2.1.282') {
   const disposed: string[] = [];
   const dirs: RunDirs[] = [];
+  const seeded: { dir: string; files: string[] }[] = [];
+  const launches: ClaudeLaunch[] = [];
   const factory = async (d: RunDirs): Promise<Transport> => {
     dirs.push(d);
     return {
       kind: 'local',
+      workDir: d.workDir,
+      async seed(files: Readonly<Record<string, string>>) {
+        seeded.push({ dir: d.workDir, files: Object.keys(files) });
+      },
       async start(_l: ClaudeLaunch, h: ProcessHandlers) {
+        launches.push(_l);
         let alive = true;
         const emit = (f: Frame): void => void setImmediate(() => alive && h.onLine(JSON.stringify(f)));
         return {
@@ -33,7 +40,7 @@ function transportFactory(version = '2.1.282') {
       },
     };
   };
-  return { factory, disposed, dirs };
+  return { factory, disposed, dirs, seeded, launches };
 }
 
 const opts = (factory: (d: RunDirs) => Promise<Transport>) => ({ version: '2.1.282', transport: factory, home: '/home/owen', cache: '/home/owen/.cache/cli-probe' });
@@ -101,4 +108,31 @@ test('runScenario — the wrong CLI answers: the whole probe stops, after cleanu
   };
   await assert.rejects(runScenario(s, undefined, opts(factory)), VersionMismatch);
   assert.equal(disposed.length, 1);
+});
+
+test('runScenario — a scenario\'s `files` are seeded into the working directory before the CLI starts (agent-skills: a project skill)', async () => {
+  const { factory, seeded, dirs } = transportFactory();
+  const s: Scenario<ProbeCtx> = {
+    meta: { id: 'seeded', hypothesis: 'h', contract: false, runs: 1, files: { '.claude/skills/probe-marker/SKILL.md': '---\nname: probe-marker\n---\n' } },
+    async run(ctx) {
+      await ctx.send('hi');
+      await ctx.expect(ctx.is.result, 1_000, 'a result');
+    },
+  };
+  await runScenario(s, undefined, opts(factory));
+  assert.deepEqual(seeded, [{ dir: dirs[0]!.workDir, files: ['.claude/skills/probe-marker/SKILL.md'] }]);
+});
+
+test('runScenario — `{work}` in a scenario\'s extra args becomes the CLI\'s working directory, absolute (two --add-dir checkouts)', async () => {
+  const { factory, dirs, launches } = transportFactory();
+  const s: Scenario<ProbeCtx> = {
+    meta: { id: 'dirs', hypothesis: 'h', contract: false, runs: 1, extras: { args: ['--add-dir', '{work}/repo-a', '{work}/repo-b'] } },
+    async run(ctx) {
+      await ctx.send('hi');
+      await ctx.expect(ctx.is.result, 1_000, 'a result');
+    },
+  };
+  await runScenario(s, undefined, opts(factory));
+  const args = launches[0]!.args;
+  assert.deepEqual(args.slice(-3), ['--add-dir', `${dirs[0]!.workDir}/repo-a`, `${dirs[0]!.workDir}/repo-b`]);
 });

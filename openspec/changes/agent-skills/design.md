@@ -5,14 +5,12 @@ Cards and tasks come from `agent-messaging` (D7, D9), `hub-open-network` (versio
   - `localCards` in `src/messaging/service.ts` builds it for a caller.
   - `onAgents` answers it to a peer as `cards`.
   - `parseCard` reads it back and drops unknown fields.
-- **`send_message`** goes to `sendMessage`, which records an `OutTask` and posts an `ask`. Its sealed `Payload` is `{message, domain, toDomain?, marks, depth}`.
-- **`onAsk`** checks, in this order: acceptance (`not accepted` also covers "no such agent"), `domain changed`, `too deep`, `budget`. It then records an `InTask` and delivers `wrapTask(...)` as the first message of a shadow conversation (`service.ts`, `deliver(… text: wrapTask(…))`).
-- **`accept`** entries are strings (`*`, `<installation>/<agent>`, `<agent>`), validated in `src/messaging/config.ts` and matched by `accepts()` in `protocol.ts`.
-- **The session's working directory** is the repo checkout for a single-repo project and the project folder for a multi-repo one (`projectCwd`, `src/project.ts`). `claudeLaunch` (`src/claudeSession.ts`) takes `extraArgs`.
-- **The `init` frame** is already parsed by `ClaudeSession.noteCli`, which takes the CLI version and capabilities from it.
-- **Facts** (`src/facts.ts`, `docs/project-facts.md`) are derived, provenanced records written by deterministic code. Today the dependency scanner (`src/deps.ts`) is their only writer: it greps manifests inside the sandbox at prepare time.
+- **`send_message`** goes to `sendMessage`, which records an `OutTask` and posts an `ask` with a sealed `Payload`.
+- **`onAsk`** checks acceptance (`not accepted` also covers "no such agent"), `domain changed`, `too deep` and `budget`, then records an `InTask` and delivers `wrapTask(...)` as the first message of a shadow conversation.
+- **The session's working directory** is the repo checkout for a single-repo project and the project folder for a multi-repo one (`projectCwd`, `src/project.ts`).
+- **Facts** (`src/facts.ts`) are derived, provenanced records written by deterministic code. The dependency scanner (`src/deps.ts`) was their only writer.
 
-Measured on CLI 2.1.292 in a project sandbox, reading `skills` from the `init` frame of `claude -p … --output-format stream-json --verbose`:
+Measured on CLI 2.1.292 in a project sandbox:
 
 | Session start | Skills in `init` |
 |---|---|
@@ -20,118 +18,148 @@ Measured on CLI 2.1.292 in a project sandbox, reading `skills` from the `init` f
 | cwd = `repo-a` | `alpha` |
 | cwd = project folder, `--add-dir repo-a repo-b` | `alpha`, `beta` |
 
+And, through stream-json stdin:
+- `/alpha hello-from-probe` ran the skill, which answered `ALPHA-SKILL-RAN hello-from-probe`.
+- `/alpha` with a three-line text ran it with all three lines: it answered with the last word of the third line.
+- A `SKILL.md` with `tags: [probe, test]` and an `examples` list was listed in `init` and ran. Claude Code ignores frontmatter keys it does not use.
+- `init` also lists the session's `slash_commands` (built-in, bundled and the project's own) beside its `skills`.
+
+What the repos of an operator's multi-repo projects carry today (from their default branches): mostly OpenSpec workflow skills (`openspec-*`, often the same set in several repos of one project) and `/opsx` commands, a few Laravel development helpers, and no release or deploy skills.
+
 ## Goals / Non-Goals
 
 **Goals:**
-- A card says what an agent can do, from the same `SKILL.md` that Claude Code itself loads: one source of truth.
-- The receiving installation alone decides which skills are shown, to whom, and whether a named skill is valid.
-- A task that names a skill runs that skill. The bot invokes it; the prompt does not just mention it.
+- A card says what an agent can do, from the same `SKILL.md` Claude Code loads: one source of truth.
+- The receiving installation alone decides which skills are shown and whether a named skill is valid.
+- A task that names a skill runs that skill: the bot invokes it, the prompt does not just mention it.
 - An agent without skills works exactly as today.
+- Multi-repo projects can load their repos' skills, off until an installation switches it on.
 
 **Non-Goals:**
-- Routing, permissions or pricing by skill. The design only places their hooks.
+- Narrowing per sender, routing, permissions or pricing by skill. The design only places their hooks.
 - Exposing bundled CLI skills or plugin skills.
-- Agents that are not sandboxes.
 - Inferring a skill from a task's text.
 
 ## Decisions
 
-### S1. Skills are found, not declared
-A scanner runs at prepare time, beside the dependency scanner (`src/skills.ts`, called from `tasks.ts`):
-- It lists every `.claude/skills/*/SKILL.md` in the project folder and in each repo checkout, inside the sandbox.
-- It parses the YAML frontmatter `name` and `description`. The parser is pure, with tests over real-shaped files.
-- It writes the fact `project_skills` on `project:<slug>`. The value is `[{name, description, origin: "<repo>" | "project", loadable}]`; the sources are `<repo>@<commit>:.claude/skills/<dir>/SKILL.md`.
-- **`loadable`** says whether a session of this project loads the skill: always for `origin: "project"` and for a single-repo project's repo; for a multi-repo project's repos, only with `repoSkills` (S2).
-- **Clashes.** A name that two origins both define is recorded with `clash: true` and is never exposed, because which one Claude Code would load is not ours to guess.
-
-**Verification from the session.** `noteCli` also takes `init.skills`, and the session keeps the list. When a skill the card exposes is missing from a session's list, the bot logs `skills.not.loaded`, a warning that reaches Sentry. A task naming that skill then falls back to the frame line (S6).
-
-**Why only these two places.** Bundled skills are the CLI's (`init` lists them, e.g. `code-review`). Plugin skills come from installed plugins. Neither is the project's to offer. Reading only the project's own skill folders makes that boundary structural, not a filter someone has to keep up to date.
+### S1. Repo skills for multi-repo projects, behind `REPO_SKILLS=1` (bucket 3)
+`repoSkillDirs` (`src/project.ts`) gives each repo checkout of a project with more than one repo, and the session's command line ends with `--add-dir` and those directories (`addDirArgs`, last on the line because `--add-dir` takes every argument after it).
+- **Off by default.** Only `REPO_SKILLS=1` turns it on, for the installation; unset or anything else, every spawn line is byte-identical to before (tests compare the multi-repo line both ways). Decided in review: prod does not get repo skills for now.
+- **Why a flag and not a bug fix.** A multi-repo session should see what a Claude Code started in each repo sees, but switching it on changes what every session of those projects can do, people's sessions included. What it brings today: mostly OpenSpec workflow skills and `/opsx` commands, plus a few Laravel development helpers; a skill defined in two repos loads twice, and `/name` runs the first `--add-dir`'s; `--add-dir` loads each repo's legacy `.claude/commands/` too. So it waits for a skill worth it, per installation.
+- **Turning it on:** `REPO_SKILLS=1` in the installation's ops `.env`, an export, a restart. Running and reattached sessions keep their old line until they end or `🔄 Restart session`.
+- **Both drivers** run the same command line; the Daytona driver passes it unchanged. The canary installations are single-repo, so the multi-repo path has no canary run yet: it rests on the live measurement and the tests.
+- **Single-repo projects are unaffected either way:** their session starts in the repo.
 
 Alternatives:
-- *Skills written in the `messaging` block*, the first version of this plan: a second description of the same thing, which drifts.
-- *Only the `init` list:* it gives names without descriptions, and only after a session ran.
-- *Generated from the README:* that describes intentions, not something the agent can invoke.
+- *On by default, with a kill switch* (the first version of this PR): prod's multi-repo sessions would change at the tag, for skills nobody asked to offer yet.
+- *A per-project opt-in:* finer, but a second place to configure; an installation-wide switch is enough while no installation needs it per project.
+- *Starting in one "main" repo* loses the others' skills.
+- *Symlinking the repos' skills into the project folder* writes into checkouts and repeats what `--add-dir` does natively.
 
-### S2. `--add-dir` for multi-repo projects, behind `repoSkills`
-- A project field `repoSkills: true` adds `--add-dir <checkout>` to the session's launch for each repo. That is a no-op for a single-repo project, which already starts in its repo.
-- **Why a gate.** Turning it on changes what every session of that project sees, people's sessions included, not just shadow ones:
-  - the repos' skills join the system prompt, with their descriptions;
-  - skills written for local development, such as release or deploy helpers, become available to the agent.
+### S2. Skills are found, not declared
+A scanner runs at prepare time beside the dependency scanner (`src/skills.ts`, called from `prepareChat`), only for a project whose card offers skills (`messaging.skills` set). No other project gets an extra command.
+- **Where it looks:** exactly where the session loads skills (`skillOrigins`): the working directory, and for a multi-repo project with `REPO_SKILLS=1` each `--add-dir` checkout. Without it the repos' skills are not the session's, so they are not scanned either.
+- **What it reads:** only each `SKILL.md`'s frontmatter, printed by `awk` in the sandbox, at most 120 lines of at most 1000 characters (`head`, `cut`). The parser is pure and tested:
+  - plain and quoted scalars, `|` and `>` block scalars, plain values continued on indented lines;
+  - block and flow lists;
+  - Windows line endings (a trailing `\r` is dropped from every line).
+- **Forgery-proof output.** Every scan picks a fresh random nonce, and its markers (`@@ORIGIN-<nonce>`, `@@SKILL-<nonce>`, `@@SKIP-<nonce>`) carry it, so frontmatter text or a folder name cannot forge a record. A folder whose name is not a skill name — a control character, a newline, uppercase — prints only `@@SKIP-<nonce>`, never its name (`case` under `LC_ALL=C`). A test runs the real script in a shell over a hostile tree.
+- **What it records:** the fact `project_skills` on `project:<slug>`, `[{name, description, origin, tags?, examples?, userInvocable?, clash?}]`, with sources `<origin>@<commit>:.claude/skills/<folder>/SKILL.md`.
+  - The id (`name`) is the **folder** name: the CLI resolves `/name` by folder. A frontmatter `name` that differs is only reported.
+  - `user-invocable: false` is recorded; such a skill is never offered (S3).
+  - The description is capped at 300 characters, tags at 8 of 40, examples at 5 of 200.
+- **Malformed keys** (`tags: brand, web` instead of a list) are logged and skipped; the skill is kept with what is valid.
+- **A failed scan** keeps the previous fact, as the dependency scanner does; the command runs checked (`{check: true}`), so a non-zero exit is a failure, not "no skills".
 
-  That is a behaviour change for a prod project, so it is opt-in and off by default. The spawn-line golden of a project without it stays byte-identical. Bucket 2: a per-project field, off by default, where an env flag would turn on every project of an installation at once.
-- **Pinned by cli-probe.** A contract scenario, `add-dir-loads-skills`, asserts that a skill folder under an `--add-dir` directory appears in `init.skills`. Bumping the CLI pin therefore checks it.
+### S3. Only what really runs is offered
+A skill is withheld from the card — and from task validation — when `/name` would not run it:
+- **Defined twice.** Two origins define the same name: the fact keeps one entry with `clash: [<every origin>]`. Which definition the CLI loads (the first `--add-dir`'s) is not what an asker can rely on, so it is offered nowhere until renamed.
+- **`user-invocable: false`.** The CLI will not run it by name.
+- **A name the CLI takes.** `/name` could run the CLI's command, not the skill. The names not ours are:
+  - **the CLI's own names at the pinned version** (`src/messaging/clinames.ts`): the `slash_commands` and bundled `skills` of the `system/init` in the cli-probe's recorded `turn` session of that version (a bare directory, so nothing of any project) — 52 names on 2.1.282, 53 on 2.1.292, `schedule`, `insights`, `usage`, `goal`, `simplify`, `code-review` among them. The pin is always a probed version; any other, or none, gets the union. These are never subtracted, so a project skill named like one is withheld;
+  - a static floor of built-ins (`init`, `context`, `recap`, `debug`, `verify`, `run`, `design`, `review`, `clear`, `compact`, `help`, `config`);
+  - what the project's sessions report in `init` beyond the project's own skills — plugins, which no recording knows. `tasks.ts` records that report as the fact `session_commands` (rewritten only when it changes) for a project that offers skills.
 
-Alternatives:
-- *Start in one "main" repo:* this loses the others' skills.
-- *Symlink the repos' skills into the project folder:* this creates name clashes, writes into checkouts, and repeats what `--add-dir` does natively.
+  The card and the task check use the same set (`offered`).
 
-### S3. The receiving installation decides what is shown, and to whom
-- **The allowlist.** `messaging.skills` is a list of skill names; there is no default, so nothing is shown. A project's internal skills stay internal even when they are loadable.
-- **Narrowing per sender.** An `accept` entry may be `{"from": "<pattern>", "skills": ["<name>", …]}`, where `<pattern>` is today's string form. Validation at load refuses a skill that is not in the allowlist.
-- **Who may use what.** For a caller, the skills it may use are the union over its matching entries. A string entry contributes every exposed skill; an object entry contributes its list.
-- **What is exposed.** The allowlist, intersected with `project_skills` entries that are `loadable` and not clashing. A listed name that is missing, not loadable or clashing is logged once per scan (`skills.missing`, with the reason) and not shown.
-- **The card** (`localCards`, and the `cards` answer to a peer) carries only the skills the caller may use. The same set is checked at task time (S5).
+Each withheld name is logged once as `skills.withheld` with its reason.
 
-### S4. The A2A AgentSkill subset, always present
-- A card's `skills` is `[{id, name, description, tags}]`:
-  - `id` and `name` are the skill's name;
-  - `description` comes from `SKILL.md`, capped at 300 characters;
-  - `tags` is `[]`.
-- A2A requires `skills` and `tags`, so they are always present: an agent without exposed skills has `skills: []`. Cards of projects with a `messaging` block gain this one field, and nothing else changes for them.
-- On the wire, the card's `skills` and the sealed `Payload.skill` are additive within version 2. `parseCard` keeps well-formed skills and drops malformed entries. An older release drops `skills` and ignores `skill`, so it runs a skill-named task as a general request, and `docs/agent-messaging.md` says so.
+### S4. The receiving installation decides what is offered
+`exposedSkills` (`src/messaging/skills.ts`, pure) turns the allowlist, the fact and the names not ours into a card's skills:
+- **`messaging.skills` absent:** none. A project's skills stay internal unless its operator lists them.
+- **Entries:** skill names, globs with `*` (`newsletter-*`), and exclusions with a leading `!` (`!openspec-*`), validated strictly at load (an optional `!`, then kebab-case segments with `*`; a bad entry fails the load naming the project; runs of `*` collapse). Matching is a linear two-pointer wildcard matcher, never a regex: a pattern of many stars must not stall `agents()` or an incoming task. The string `"*"` is shorthand for `["*"]`. A skill is offered when an inclusion matches it and no exclusion does, exclusions applying after inclusions whatever their order; inclusions keep their list order, a glob the scan order. A plain name that matches nothing is logged once per process (`skills.missing`); a glob that matches nothing is not.
+- **Whatever the entries say,** what does not really run (S3) stays withheld.
+- **Recommended:** `["*", "!openspec-*"]` — workflow tooling skills are for the agent's own developers, not for other agents — so a new skill appears on the card without a configuration change. `["*"]` alone offers development helpers too, to every accepted sender, and shadow sessions run with permissions bypassed; `docs/agent-messaging.md` warns.
+- **Never scanned** (no session since the skills were listed): nothing, for a list as for `"*"`. Offering a name the bot has not seen would let a task reach a session without that skill.
+- **At most 32** skills on a card.
 
-### S5. The check, on the receiving side
-In `onAsk` the skill check comes after acceptance, the domain and the depth, and before the budget:
+Every sender the agent accepts sees the same set, and `onAsk` checks against the same set. Narrowing per sender is cut from v1 and comes with roles.
+
+### S5. The A2A AgentSkill subset
+A card's `skills` is `[{id, name, description, tags, examples?}]`:
+- `id` and `name` are the skill's name;
+- `tags` is always present (A2A requires it), `[]` when none;
+- `examples` is present only when the `SKILL.md` gives some.
+
+A card this release builds always has `skills` (`[]` when nothing is offered). `parseCard` keeps well-formed skills, caps them (at most 32, a name of at most 64 characters, the text caps of S2), and drops malformed ones, not the card; a card from an older release reads as `skills: []`.
+
+### S6. The check, on the receiving side
+In `onAsk`, the skill check comes after acceptance, the domain and the depth, and before the budget:
 1. A sender the target does not accept gets `not accepted`, as today, and learns nothing about skills.
-2. A skill the caller may not use (S3), including any skill at an agent that exposes none, gets `rejected: unknown skill`. The rejection lists the ids the caller may use, which it could read from its card anyway.
+2. A skill not offered gets `rejected: unknown skill`. The rejection text lists the offered ids, or says the agent offers none; the caller could read them from the card anyway.
 3. A rejected task does not count against the budget.
 
-For a local target, `sendMessage` refuses at once with the same list and records nothing. `onAsk` still checks, so both transports have one authority. Only a task's first message carries a skill.
+For a local target, `sendMessage` refuses at once with the same text and records nothing; `onAsk` still checks, so both transports have one authority. The skill travels in the sealed payload (`Payload.skill`), and the hub never sees it.
+- **Only a task's first message carries it.** A reply, and a held reply a person releases, omit it.
+- **A malformed id is rejected, not dropped.** `parsePayload` keeps any received `skill` (as a string, capped); `onAsk` answers an id that is not a skill id `rejected: unknown skill`, so the asker is told at once instead of waiting for the task to expire.
 
-### S6. Running the skill
-- **With a skill**, the first message of the answering shadow conversation is the skill's slash invocation followed by the plain task frame: `/<skill>` on its own line, then `wrapTask(…)` unchanged. Claude Code runs the skill, with the frame as its input.
-- **The fallback** is used when the session's `init` did not list the skill, or when the pinned CLI's report marks slash invocation through stream-json input as unsupported. The frame then gains the line `Use the \`<skill>\` skill for this request.`, and `skills.fallback` is logged.
-- **Pinned by cli-probe.** A contract scenario, `skill-slash-via-stdin`, writes a slash invocation of a project skill through stream-json input and asserts that the skill ran: the skill's body asks for a marker word, and the answer carries it. The recording joins the version's report.
-- **Without a skill**, the first message is exactly today's frame (golden).
+### S7. Running the skill
+A task with a skill starts its shadow conversation with `/<skill> ` followed by the plain task frame (`invokeSkill`). Claude Code runs the skill with the frame as its arguments: verified live, multi-line arguments included (Context). Without a skill, the first message is exactly today's frame.
 
-### S7. Records and audit
-- `OutTask.skill?` and `InTask.skill?` are added to `state.json`; this is additive.
-- `/aven asks` shows ` · skill <name>` on such tasks.
-- `ask.rejected` carries `reason=unknown skill`. `skills.missing`, `skills.not.loaded` and `skills.fallback` are warnings, so they reach Sentry once per key.
+**An offered skill must take free-text arguments.** The frame begins with `[Request from another agent]`, the sender and the task id; the request follows. So positional (`$0`, `$ARGUMENTS[0]`) and named arguments get the frame's first words. The request is not moved to the front: a request beginning with `/` would chain a second skill. `docs/agent-messaging.md` says so.
 
-### S8. An agent without skills
-Nothing changes in how it works:
-- its card has its description and `skills: []`;
-- `agents()` shows it;
-- a task without a skill runs as today;
-- a task naming any skill gets `rejected: unknown skill` with an empty list.
+**No fallback.** The previous plan named the skill in the frame when the session had not loaded it. The two CLI facts held when measured, and a CLI bump re-checks them once the cli-probe scenarios become contract scenarios (S9).
 
-### S9. What a skill does not do yet, and where that plugs in
+### S8. Records and audit
+- `OutTask.skill?` and `InTask.skill?` in `state.json`, additive.
+- `/aven asks` shows ` · skill <name>` in the list and in a transcript's head.
+- `ask.rejected` carries `reason=unknown skill`. `skills.missing` and `skills.withheld` are warnings, so they reach Sentry, once per project and name.
+
+### S9. cli-probe
+- **Scenario files.** A scenario may now seed `files` into the CLI's working directory before the CLI starts (`ScenarioMeta.files`, `Transport.seed`, local and sandbox); paths stay inside the working directory.
+- **Two exploratory scenarios:**
+  - `add-dir-loads-skills`: as the bot launches a multi-repo session, one `--add-dir` with two absolute checkouts (`{work}` in a scenario's extra args becomes the CLI's working directory); the skills of both are listed in `init`.
+  - `skill-slash-via-stdin`: with the message ledger (`--replay-user-messages`), as every shadow session runs, `/<skill>` with a multi-line text through stdin runs the skill with all of it, and `tags`/`examples` keys do not stop it from loading.
+
+  They are not recorded yet: a run needs `CLI_PROBE_TOKEN`, which this change's author did not have. The facts were verified by hand on 2.1.292 (Context). Once recorded on every probed version, both become contract scenarios.
+
+### S10. What a skill does not do yet, and where that plugs in
 
 | Later | Plugs in at |
 |---|---|
-| Routing by skill (another session, prompt or sandbox) | `onAsk`, after S5's check |
-| Permissions per skill, with roles per sender in `accept` | `accept` objects (S3) already carry per-sender skills; a `role` key joins them, and the receiving bot picks the sandbox permission mode |
-| Bundled or plugin skills | a second origin in S1, behind its own allowlist |
-| Examples and tags | optional frontmatter keys read by S1's parser |
-| Adapters to external A2A endpoints | a card source beside `localCards`; S4's subset maps 1:1 |
-| Cost per skill | the task's `skill` and its metered cost are already on one record |
+| Narrowing per sender, roles | an `accept` entry becomes an object; `exposedSkills` gains the sender |
+| Routing by skill (another session, prompt or sandbox) | `onAsk`, after S6's check |
+| Permissions per skill | the receiving bot picks the sandbox permission mode from the skill and the sender's role |
+| Checking the scan against the session's `init` | `ClaudeSession` already parses `init`; it lists `skills` |
+| Bundled or plugin skills | a second origin in S2, behind its own allowlist |
+| Adapters to external A2A endpoints | a card source beside `localCards`; S5's subset maps 1:1 |
+| Cost per skill | the task's `skill` and its metered cost are on one record |
 
 ## Risks / Trade-offs
 
-- **[A skill's description was written for its own repo's developers]** The operator chooses what to expose, and better text goes into the repo's `SKILL.md`, where the agent itself benefits from it too.
-- **[`repoSkills` changes people's sessions too]** That is why it is an opt-in per project, canaried first. The ledger row says what to watch: skills the agent starts using on its own.
-- **[The CLI changes how skills load or run]** The two contract scenarios fail on a bump, and S6's fallback keeps a task running.
-- **[The scan goes stale between prepares]** The fact is replaced on every prepare, and the session's `init` list catches a skill that vanished (`skills.not.loaded`).
-- **[Name clashes in multi-repo projects]** They are detected and never exposed, and are logged until resolved.
+- **[Turning repo skills on changes multi-repo sessions]** OpenSpec workflow skills, `/opsx` commands and a few development helpers become available to the agent; duplicates load twice. → Off by default; the ledger row names what turning it on brings, the watch point and the steps.
+- **[`"*"` offers development helpers]** To every sender the agent accepts, in sessions that run with permissions bypassed. → Documented; list names unless every skill is meant for other agents. Roles per sender are the planned lever.
+- **[A skill's description was written for its repo's developers]** The operator chooses what to expose, and better text goes into the repo's `SKILL.md`, where the agent itself benefits.
+- **[The CLI changes how skills load or run]** The two scenarios become contract scenarios once recorded, and a bump re-checks them.
+- **[The scan goes stale between prepares]** The fact is replaced on every prepare of a project that offers skills.
 - **[A release without skills ignores a named skill]** Additive by design, and documented. It matters only while installations run different releases.
 
 ## Migration Plan
 
-Merge (bucket 2). Then:
-1. On the staging installation, choose a project with a repo skill, put its name in `messaging.skills`, and `/aven reload`. If it is a multi-repo project, also set `repoSkills: true`.
+Merge: repo skills is bucket 3 (off), skills in messaging bucket 2. Then:
+1. On the canary installations, put a skill's name in a project's `messaging.skills` and `/aven reload`.
 2. From the home tenant agent, `agents()` shows the skill.
-3. Run a task naming it: the answering session starts with the slash invocation. Run one naming an unknown skill: it is rejected with the list. Record both in the PR.
+3. Run a task naming it: the answering session starts with the slash invocation. Run one naming an unknown skill: it is rejected with the list.
+4. Repo skills stay off everywhere; an installation switches `REPO_SKILLS=1` on when a skill worth it exists, and watches its multi-repo sessions for skills the agent starts using on its own.
 
-**Rollback.** Drop `messaging.skills` and `repoSkills`, or revert. Records carrying `skill` stay readable by older code.
+**Rollback.** Remove `REPO_SKILLS=1`; drop `messaging.skills`, or revert. Records carrying `skill` stay readable by older code.

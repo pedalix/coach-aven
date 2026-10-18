@@ -101,6 +101,9 @@ export const userFrame = (content: string, uuid?: string) => ({ type: 'user', me
 // The flags of a session with the message ledger (agent-messaging D13): every message is echoed when the
 // CLI takes it up. The CLI probe's echo scenarios run with exactly these.
 export const LEDGER_ARGS: readonly string[] = ['--replay-user-messages'];
+
+/** `--add-dir` with every directory (agent-skills); nothing when there are none. Must stay last on the line. */
+export const addDirArgs = (dirs: readonly string[] | undefined): string[] => (dirs?.length ? ['--add-dir', ...dirs] : []);
 export const interruptFrame = (requestId = `int-${Date.now()}`) => ({
   request_id: requestId,
   type: 'control_request',
@@ -455,6 +458,13 @@ export class ClaudeSession {
       // default: the spawn line and the settle rule stay as they always were. On attach it must be
       // the mode the running process was spawned with (the chat record keeps it).
       ledger?: boolean;
+      // Directories whose Claude Code skills the session loads too (`--add-dir`, OpenSpec agent-skills):
+      // a multi-repo project's checkouts (project.ts repoSkillDirs). Empty/absent → the spawn line is
+      // byte-identical to before. Last on the line: `--add-dir` takes every argument after it.
+      addDirs?: readonly string[];
+      // Every `system/init`: the names the session reports as its slash commands and skills (agent-skills —
+      // the card withholds a project skill whose name a CLI command takes).
+      onInitCommands?: (names: string[]) => void;
     },
   ) {
     this.sessionKey =
@@ -544,7 +554,8 @@ export class ClaudeSession {
     }
     await this.sandbox.createSession(this.sessionKey);
     const { model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession } = this.opts;
-    const command = claudeLaunch({ model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession, ...(this.opts.ledger ? { extraArgs: LEDGER_ARGS } : {}) }).command(this.opts.cwd);
+    const extraArgs = [...(this.opts.ledger ? LEDGER_ARGS : []), ...addDirArgs(this.opts.addDirs)];
+    const command = claudeLaunch({ model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession, ...(extraArgs.length ? { extraArgs } : {}) }).command(this.opts.cwd);
     const started = await this.sandbox.startSessionCommand(this.sessionKey, command);
     this.cmdId = started.cmdId;
     // Stream stdout until the process exits; resolution/rejection both mean "process gone".
@@ -988,6 +999,14 @@ export class ClaudeSession {
     const version = typeof ev.claude_code_version === 'string' ? ev.claude_code_version : undefined;
     const capabilities = Array.isArray(ev.capabilities) ? ev.capabilities.filter((c: unknown): c is string => typeof c === 'string') : [];
     this.cli = { version: version ?? this.cli?.version, capabilities };
+    if (this.opts.onInitCommands) {
+      const names = [...(Array.isArray(ev.slash_commands) ? ev.slash_commands : []), ...(Array.isArray(ev.skills) ? ev.skills : [])].filter((n: unknown): n is string => typeof n === 'string');
+      try {
+        this.opts.onInitCommands([...new Set(names)]);
+      } catch {
+        /* a recorder's failure never touches the session */
+      }
+    }
   }
 
   private onEcho(uuid: string, internal: boolean): void {

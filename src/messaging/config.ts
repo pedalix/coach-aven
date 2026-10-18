@@ -2,6 +2,7 @@
 // `messaging` block in projects.config.json, and the installation's environment (INSTALLATION_ID,
 // HUB_URL, HUB_KEY_PATH). Pure: projects.ts validates the block at load, config.ts reads the env, and
 // both are read again at call time — a reload changes what the next call may do.
+import { collapseStars, isSkillPattern } from './skills.js';
 import { INSTALLATION_RE, parseTarget } from './protocol.js';
 
 export interface MessagingConfig {
@@ -15,6 +16,14 @@ export interface MessagingConfig {
   accept?: string[];
   /** The agent card's one line (D7). */
   description?: string;
+  /**
+   * Which of the project's own Claude Code skills its card offers (agent-skills): entries that are skill
+   * names or globs with `*` (`"newsletter-*"`), and exclusions prefixed with `!` (`"!openspec-*"`), which
+   * apply after the inclusions whatever their order. The string `"*"` is shorthand for `["*"]`. Absent:
+   * none — a project's skills stay internal unless listed. Every sender the agent accepts sees the same set
+   * (narrowing per sender comes with roles). Normalized to the list form at load.
+   */
+  skills?: string[];
   /** Tasks this agent may start per day. */
   sendPerDay?: number;
   /** New tasks per sender per day this agent takes. */
@@ -63,6 +72,13 @@ export function validateMessagingConfig(x: unknown, where: string): MessagingCon
       throw new Error(`${where}.description must be one line of at most ${MAX_DESCRIPTION} characters`);
     }
     out.description = a.description;
+  }
+  if (a.skills !== undefined) {
+    const list = a.skills === '*' ? ['*'] : a.skills;
+    if (!Array.isArray(list)) throw new Error(`${where}.skills must be "*" or an array of skill names and patterns`);
+    const bad = list.filter((n) => !isSkillPattern(n));
+    if (bad.length) throw new Error(`${where}.skills: ${bad.map((b) => JSON.stringify(b)).join(', ')} is not a skill name or pattern (kebab-case, \`*\` as a wildcard, a leading \`!\` to exclude; at most 64)`);
+    out.skills = [...new Set((list as string[]).map(collapseStars))];
   }
   const int = (k: 'sendPerDay' | 'acceptPerDay' | 'maxRounds', max: number): void => {
     const v = a[k];

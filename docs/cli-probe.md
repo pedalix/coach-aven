@@ -22,7 +22,8 @@ makes sure the repository only pins versions whose contract was probed (OpenSpec
   Every one of them must hold on every version in `PROBED_CLI_VERSIONS` (`src/cliversion.ts`). Each also has a replay test that feeds its recording through `ClaudeSession` (`src/claudeSession.recorded.test.ts`). That test asserts what the bot makes of the frames, and that the frames the bot writes back equal the ones the probe wrote.
 - **Exploratory scenarios** record facts without gating anything:
   - priority, parallel tools, subagents, hooks, the race with the final text, a long turn on the fleet's model, background tasks ending mid-turn;
-  - candidates from the SDK's declarations (`still_queued`, `cancel_async_message`, `origin`, `/compact`).
+  - candidates from the SDK's declarations (`still_queued`, `cancel_async_message`, `origin`, `/compact`);
+  - project skills, as `agent-skills` relies on them: `add-dir-loads-skills` (a skill under an `--add-dir` directory is listed in `init`) and `skill-slash-via-stdin` (`/<skill>` with a multi-line text through stdin runs the skill with all of it; `tags`/`examples` frontmatter keys do not stop it from loading). Verified by hand on 2.1.292; once recorded on every probed version they become contract scenarios.
 - **Type checks.** Every recorded frame is checked against the type declarations of the Claude Agent SDK release whose `claudeCodeVersion` is the probed CLI version (`sdk.d.ts`, the de facto schema). The declarations are fetched at check time with `npm pack` and never committed: the package is proprietary, and as a dependency it would pull CLI binaries.
 - **CI** (`.github/workflows/ci.yml`) needs no model credential, because it never runs the CLI.
   - `npm test` runs the gate (`src/cliprobe/gate.test.ts`). It checks that reports and recordings are intact, that every contract scenario holds, and that the images' `ARG CLAUDE_CLI_VERSION` and `.env.example` are probed versions.
@@ -42,7 +43,7 @@ npm run cli-probe -- report 2.1.282                        # recompute catalogue
 ```
 
 - **Token.** `CLI_PROBE_TOKEN` is a subscription token (`claude setup-token`), and the probe reads no other variable for one. The operator may hand it an installation's token on purpose; the probe never picks one up by itself. Runs count against that subscription's limits.
-- **Isolation.** A run uses its own configuration directory and an empty working directory, and drops the parent Claude Code session's variables. The CLI version is installed into the probe's cache (`~/.cache/coach-aven/cli-probe`, or `CLI_PROBE_CACHE`), never the machine's `claude`. Every `system/init` must report the version the run names.
+- **Isolation.** A run uses its own configuration directory and an empty working directory, and drops the parent Claude Code session's variables. A scenario may seed `files` into that working directory before the CLI starts (a project skill, for instance); paths stay inside it. The CLI version is installed into the probe's cache (`~/.cache/coach-aven/cli-probe`, or `CLI_PROBE_CACHE`), never the machine's `claude`. Every `system/init` must report the version the run names.
 - **Command line.** The probe starts the CLI with the bot's own command line (`claudeLaunch()` in `src/claudeSession.ts`) plus the scenario's extras: `--replay-user-messages`, hooks in the single `--settings`, partial messages.
 - **Cost.** The report shows each scenario's cost and the total, API-equivalent. Haiku 5.5 is the default model, about 0.02 USD a run; the full suite came to about 2 USD on 2.1.282 and 3.60 USD on 2.1.292.
 - **`--transport sandbox`.** It runs the CLI in a throwaway sandbox `cli-probe-<run>` through the bot's driver, so stdin goes the bot's way: the ssh-docker FIFO, the Daytona session input.

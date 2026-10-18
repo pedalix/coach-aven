@@ -23,6 +23,8 @@ import type { KeyFile } from './seal.js';
 import { createMessaging, type Messaging } from './service.js';
 import { asksList, asksTranscript, type AskRow } from './audit.js';
 import { UsageLog } from '../metering.js';
+import { FactStore } from '../facts.js';
+import { cliOwnNames } from './clinames.js';
 import { splitTeam } from '../teamkeys.js';
 
 const SHADOW_DIR = new URL('../../shadow', import.meta.url).pathname;
@@ -72,6 +74,8 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
       recovered: async (key, r) => ref.current?.settleShadowTurn(key, r.ok ? { ok: true, text: r.text } : { ok: false, reason: r.status }),
     },
     start({ engine, driverFor, usageLog, tz }) {
+      // The skills a project's card offers come from the skills scanner's fact (src/skills.ts, agent-skills).
+      const facts = new FactStore();
       const local = new LocalTransport(o.store.messagingRecords('local'), { installation: env.installation, onHandlerError: (seq, e) => log.error(`agent messaging: local delivery ${seq}: ${e instanceof Error ? e.message : String(e)}`) });
       localRef.current = local;
       if (env.hubProblem) log.error(`agent messaging: ${env.hubProblem} — the hub client does not start; messaging inside this installation keeps working`);
@@ -91,7 +95,7 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
           return undefined;
         }
       };
-      const svc = createMessaging({ installation: env.installation, store: o.store, reg: o.reg, home: o.home, peers: () => peers.current, engine, local, ...(hub ? { hub } : {}), shadow, platform: o.platform, driverFor: driverOrNone, ...(usageLog ? { usageLog } : {}), ...(tz ? { tz } : {}) });
+      const svc = createMessaging({ installation: env.installation, store: o.store, reg: o.reg, home: o.home, peers: () => peers.current, engine, local, ...(hub ? { hub } : {}), shadow, platform: o.platform, driverFor: driverOrNone, ...(usageLog ? { usageLog } : {}), ...(tz ? { tz } : {}), skillsOf: (slug) => facts.projectSkills(slug), commandsOf: (slug) => facts.sessionCommands(slug), cliNamesOf: (slug) => cliOwnNames(o.reg.current.projects.find((p) => p.slug === slug)?.cliVersion ?? o.cfg.claudeCliVersion) });
       ref.current = svc;
       local.onDeliver((x) => svc.onDelivery(local, x));
       if (hub) {
@@ -164,6 +168,7 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
       updatedAt: t.updatedAt,
       ...((t.cost ?? costOf(t.id)) !== undefined ? { cost: t.cost ?? costOf(t.id) } : {}),
       question: t.question,
+      ...(t.skill ? { skill: t.skill } : {}),
       ...(t.last?.text ? { answer: t.last.text } : {}),
       ...(o.store.getHeld(t.id) ? { why: o.store.getHeld(t.id)!.why } : {}),
     }));
@@ -179,6 +184,7 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
       updatedAt: t.updatedAt,
       ...(costOf(t.id) !== undefined ? { cost: costOf(t.id) } : {}),
       question: t.question,
+      ...(t.skill ? { skill: t.skill } : {}),
       ...(t.last?.text ? { answer: t.last.text } : {}),
     }));
     return [...out, ...inc];

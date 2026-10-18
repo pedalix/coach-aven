@@ -27,9 +27,34 @@ test('parseStatus / parseTask — A2A states, the message optional; terminal sta
   assert.deepEqual(['completed', 'canceled', 'failed', 'rejected', 'working', 'input-required'].map((s) => isTerminal(s as never)), [true, true, true, true, false, false]);
 });
 
-test('parseCard — name, description, accepting and the domain extension', () => {
+test('parseCard — name, description, accepting and the domain extension; a card without skills (an older release) offers none', () => {
   const card = { name: 'caldora', description: 'Orders and payments of caldora', accepting: true, domain: 'bluefin' };
-  assert.deepEqual(parseCard({ ...card, url: 'https://agent.example' }), card);
+  assert.deepEqual(parseCard({ ...card, url: 'https://agent.example' }), { ...card, skills: [] });
   assert.equal(parseCard({ ...card, accepting: 'yes' }), undefined);
   assert.equal(parseCard({ ...card, domain: undefined }), undefined);
+});
+
+test('parseCard — skills: the A2A AgentSkill subset; tags always present, examples only when given, both capped; a malformed skill is dropped, not the card', () => {
+  const card = { name: 'bluefin/brand-studio', description: 'Brand work for hotels', accepting: true, domain: 'bluefin' };
+  const skills = [
+    { id: 'brand-profile', name: 'brand-profile', description: 'A brand profile from a hotel website', tags: ['brand', 'web'], examples: ['profile for hotel-x.example'] },
+    { id: 'site-design', name: 'site-design', description: 'x'.repeat(400), tags: Array.from({ length: 12 }, (_, i) => `t${i}`), examples: Array.from({ length: 9 }, (_, i) => `e${i}`) },
+    { id: 'Not An Id', name: 'bad', description: 'dropped' },
+    { id: 'no-tags', name: 'no-tags', description: 'no tags given' },
+  ];
+  const out = parseCard({ ...card, skills })!;
+  assert.deepEqual(out.skills.map((s) => s.id), ['brand-profile', 'site-design', 'no-tags']);
+  assert.deepEqual(out.skills[0], skills[0]);
+  assert.equal(out.skills[1]!.description.length, 300);
+  assert.equal(out.skills[1]!.tags.length, 8);
+  assert.equal(out.skills[1]!.examples!.length, 5);
+  assert.deepEqual(out.skills[2], { id: 'no-tags', name: 'no-tags', description: 'no tags given', tags: [] }, 'tags present, examples absent');
+});
+
+test('parseCard — a peer\'s card is capped: at most 32 skills, a name of at most 64 characters', () => {
+  const card = { name: 'bluefin/brand-studio', description: 'd', accepting: true, domain: 'bluefin' };
+  const skills = Array.from({ length: 40 }, (_, i) => ({ id: `skill-${i}`, name: i === 0 ? 'n'.repeat(500) : `skill-${i}`, description: 'd' }));
+  const out = parseCard({ ...card, skills })!;
+  assert.equal(out.skills.length, 32);
+  assert.equal(out.skills[0]!.name.length, 64);
 });

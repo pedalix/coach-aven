@@ -145,6 +145,12 @@ export interface Payload {
   depth: number;
   /** On a terminal status: what the answering turns cost. */
   cost?: number;
+  /**
+   * On a task's first message only: the skill it asks for (agent-skills), one of the ids the target's card
+   * offers. Additive within version 2: an older release ignores it and runs a general request. Parsed as
+   * any string (capped): the receiver validates it, and answers a bad one `rejected: unknown skill`.
+   */
+  skill?: string;
 }
 
 export type ParsedWire =
@@ -213,8 +219,14 @@ export function parsePayload(x: unknown): Payload | undefined {
     marks,
     depth: a.depth,
     ...(a.cost !== undefined ? { cost: a.cost } : {}),
+    // Kept even when malformed (a non-string, a bad id): the receiver answers `rejected: unknown skill`
+    // rather than dropping the whole message, so the asker is told at once.
+    ...(a.skill !== undefined ? { skill: (typeof a.skill === 'string' ? a.skill : JSON.stringify(a.skill) ?? '').slice(0, SKILL_ID_KEEP) } : {}),
   };
 }
+
+/** How much of a received `skill` is kept, valid or not, to quote it back in a rejection. */
+const SKILL_ID_KEEP = 100;
 
 // The exact texts the crypto signs or binds (seal.ts; the hub verifies `challengeText`), N2 and N5:
 // - the AAD binds the clear header, the envelope id with it (a ciphertext replayed under a new id fails);
