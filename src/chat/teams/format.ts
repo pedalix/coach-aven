@@ -51,6 +51,9 @@ const SHORTCODES: Record<string, string> = {
 // Slack mrkdwn → Teams markdown. Bold is the one construct that differs (`*x*` vs `**x**`);
 // `_italic_`, backticks and bullets are shared. Shortcode emoji become the characters Teams
 // shows; unknown codes are left as written rather than dropped.
+import { CMD } from '../slack/blocks.js';
+const CMD_IN_CODE = new RegExp('`' + CMD.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s+', 'g');
+
 export function mrkdwnToTeams(s: string): string {
   return (
     s
@@ -61,6 +64,9 @@ export function mrkdwnToTeams(s: string): string {
       .replace(/(^|[^*\w])\*(?!\*)([^*\n]+?)\*(?!\*)/g, '$1**$2**')
       // :shortcode:
       .replace(/:([a-z0-9_+-]+):/g, (m, code: string) => SHORTCODES[code] ?? m)
+      // `/aven verb …` → `/verb …`: the shared router's hints name the Slack slash command (`CMD`);
+      // on Teams the verb follows the slash directly (the Home card already says so).
+      .replace(CMD_IN_CODE, '`/')
   );
 }
 

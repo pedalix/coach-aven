@@ -18,6 +18,7 @@ import type { Interactions } from '../core/interactions.js';
 import type { createMessages } from '../core/messages.js';
 import type { createCommands } from '../core/commands.js';
 import { rewriteMentions, stripBotMention } from './format.js';
+import { CMD } from '../slack/blocks.js';
 import { splitConversation, threadOf } from './keys.js';
 import { hydrateTeamsFiles, teamsFiles, type FileTokens } from './files.js';
 import type { AdaptiveCard } from './cards.js';
@@ -55,6 +56,8 @@ const isDirect = (a: InboundActivity) => a.conversation.conversationType === 'pe
 // or bare in a 1:1), or a plain message (a thread reply, a 1:1 line). `ctx` is what the
 // driver needs to answer privately; `files` is lazy — classified now (files.ts), fetched only
 // once the core acts, with the tokens app.ts provides (none in the pure tests: no files).
+const CMD_WORD = new RegExp(`^${CMD.slice(1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i');
+
 export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kind: string) => boolean = () => true, tokens?: FileTokens): Normalized {
   if (a.type !== 'message') return { kind: 'ignore', why: `not a message: ${a.type}` };
   const { conv, root } = splitConversation(a.conversation.id);
@@ -65,9 +68,11 @@ export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kin
   const actor = { tenant, user: a.from.id };
   const ctx: TeamsActionCtx = { conv, thread: thread ?? (direct ? undefined : root), user: a.from.id, direct };
   // `/verb …` is a command wherever the bot listens: after a mention, in a 1:1, in a reply chain
-  // (the router answers privately, exactly as a Slack slash command typed in any thread).
+  // (the router answers privately, exactly as a Slack slash command typed in any thread). The
+  // Slack spelling `/aven verb …` (the router's own `CMD` hints) is accepted too, so a hint
+  // copied from an answer works instead of going to the agent as a question.
   if (text.startsWith('/') && (mentioned || direct || thread)) {
-    return { kind: 'command', cmd: { text: text.slice(1), conv, actor, ctx } };
+    return { kind: 'command', cmd: { text: text.slice(1).replace(CMD_WORD, ''), conv, actor, ctx } };
   }
   const files = tokens ? teamsFiles(a.attachments) : [];
   const msg: ChatMessage = {

@@ -68,6 +68,21 @@ test('a personal message is direct; `/verb` there is a command', () => {
   }
 });
 
+test('the Slack spelling `/aven verb` is the same command (a hint copied from an answer must work)', () => {
+  const a = load('message-personal-command');
+  a.text = '/aven users allow @someone';
+  const c = normalizeMessage(a, TENANT);
+  assert.equal(c.kind, 'command');
+  if (c.kind === 'command') assert.equal(c.cmd.text, 'users allow @someone');
+  a.text = '/Aven status';
+  const d = normalizeMessage(a, TENANT);
+  if (d.kind === 'command') assert.equal(d.cmd.text, 'status');
+  // Only the leading word: a verb that merely starts with the name is untouched.
+  a.text = '/avenue';
+  const e = normalizeMessage(a, TENANT);
+  if (e.kind === 'command') assert.equal(e.cmd.text, 'avenue');
+});
+
 test('a `/verb` typed in a reply chain is a command too (a mention is not required there)', () => {
   const n = normalizeMessage(load('message-channel-command'), TENANT);
   assert.equal(n.kind, 'command');

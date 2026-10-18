@@ -295,7 +295,7 @@ export function renderHomeView(v: HomeView): TeamsMessage {
   if (v.kind === 'onboarding') return { text: "👋 I'm Aven. This installation serves no projects yet — ask your operator to bind a channel." };
   const projects = v.projects.map((p: ProjectConfig) => `- **${p.slug}** — ${p.repos.join(', ')}${p.teamsChannel ? '' : ' _(no Teams channel bound yet)_'}`);
   // The shared cheat-sheet; Teams wording: commands are `@Aven /verb` in channels, `/verb` in 1:1.
-  const bullets = homeBullets(v.messaging ? { messaging: true } : {}).map((b) => mrkdwnToTeams(b.replace(/\/aven /g, '/')));
+  const bullets = homeBullets(v.messaging ? { messaging: true } : {}).map(mrkdwnToTeams); // `/aven verb` → `/verb` happens there
   return {
     text:
       `**Aven — your coding agent**\n\n**Projects**\n${projects.join('\n') || '_none_'}\n\n` +
