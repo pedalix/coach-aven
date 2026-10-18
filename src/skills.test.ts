@@ -150,3 +150,14 @@ test('recordSessionCommands — the init names, sorted and unique; written only 
   recordSessionCommands(facts, 'brand-studio', ['brand-profile', 'review']);
   assert.equal(facts.get('brand-studio', projectSubject('brand-studio'), 'session_commands')!.observedAt, at, 'unchanged: not rewritten');
 });
+
+test('CRLF — a SKILL.md with Windows line endings keeps every key: user-invocable: false is honoured, the description read', () => {
+  const fm = parseFrontmatter(['name: helper\r', 'description: Background knowledge\r', 'user-invocable: false\r', 'tags:\r', '  - one\r']);
+  assert.deepEqual(fm, { name: 'helper', description: 'Background knowledge', 'user-invocable': 'false', tags: ['one'] });
+  const root = mkdtempSync(join(tmpdir(), 'aven-skillscan-'));
+  mkdirSync(join(root, '.claude', 'skills', 'helper'), { recursive: true });
+  writeFileSync(join(root, '.claude', 'skills', 'helper', 'SKILL.md'), '---\r\nname: helper\r\ndescription: Background knowledge\r\nuser-invocable: false\r\n---\r\nbody\r\n');
+  const n = scanNonce();
+  const { skills } = parseSkillsScan(execFileSync('bash', ['-c', skillsScanScript([{ origin: 'brand-studio', dir: root }], n)], { encoding: 'utf8' }), n);
+  assert.deepEqual(skills, [{ name: 'helper', description: 'Background knowledge', origin: 'brand-studio', userInvocable: false }]);
+});

@@ -67,3 +67,7 @@ test('validateMessagingConfig — a bad skill entry fails the load, naming the p
   }
   assert.throws(() => validateMessagingConfig({ skills: 'brand-profile' }, 'p'), /p\.skills must be "\*" or an array/);
 });
+
+test('validateMessagingConfig — a run of `*` is collapsed at load', () => {
+  assert.deepEqual(validateMessagingConfig({ skills: ['news***-*', '!**open'] }, 'p').skills, ['news*-*', '!*open']);
+});

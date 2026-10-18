@@ -94,8 +94,10 @@ function flowList(v: string): string[] {
  * (plain or quoted), `key: |` / `key: >` block scalars, a plain value continued on indented lines, and
  * lists, block (`- item` lines) or flow (`[a, b]`). Other keys and comments are skipped.
  */
-export function parseFrontmatter(lines: string[]): Record<string, string | string[]> {
+export function parseFrontmatter(raw: string[]): Record<string, string | string[]> {
   const out: Record<string, string | string[]> = {};
+  // A SKILL.md written with Windows line endings: `.` stops at `\r`, which would lose every key.
+  const lines = raw.map((l) => l.replace(/\r$/, ''));
   for (let i = 0; i < lines.length; i++) {
     const m = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(lines[i]!);
     if (!m) continue;
@@ -178,7 +180,7 @@ export function parseSkillsScan(output: string, n: string): { skills: ProjectSki
     }
     current = undefined;
   };
-  for (const line of output.split('\n')) {
+  for (const line of output.split(/\r?\n/)) {
     if (line.startsWith(ORIGIN)) {
       flush();
       const [o, s] = line.slice(ORIGIN.length).trim().split(/\s+/);

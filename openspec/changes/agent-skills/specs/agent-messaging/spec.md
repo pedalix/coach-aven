@@ -15,7 +15,7 @@ The scan's output SHALL NOT be forgeable by frontmatter text or folder names, an
 A skill SHALL NOT be offered when `/name` would not run it:
 - the same name is defined in more than one place (recorded with every place; a warning names them) — until it is renamed;
 - it is marked `user-invocable: false`;
-- a CLI command takes its name: one of the CLI's built-ins, or a command or skill the project's sessions report in `init` that is not the project's own.
+- the CLI takes its name: one of the CLI's own commands or bundled skills at the project's pinned version, one of its built-ins, or a plugin command the project's sessions report in `init`.
 
 Each such name SHALL be logged once with its reason.
 
@@ -28,8 +28,12 @@ Each such name SHALL be logged once with its reason.
 - **THEN** `triage` is offered to nobody, and a warning names both repos
 
 #### Scenario: A CLI command's name
-- **WHEN** a project defines a skill folder `review`, and lists it in `messaging.skills`
-- **THEN** the card does not offer it, because `/review` runs the CLI's command, and a warning says so
+- **WHEN** a project defines a skill folder `schedule`, and `messaging.skills` is `["*"]`
+- **THEN** the card does not offer it, a task naming it is rejected `unknown skill`, because `/schedule` could run the CLI's scheduler, and a warning says so
+
+#### Scenario: Windows line endings
+- **WHEN** a `SKILL.md` with Windows line endings marks itself `user-invocable: false`
+- **THEN** the mark is honoured, and the description is read
 
 #### Scenario: Forged marker
 - **WHEN** a `SKILL.md`'s frontmatter contains a line that imitates the scan's record marker

@@ -2,7 +2,7 @@
 // `messaging` block in projects.config.json, and the installation's environment (INSTALLATION_ID,
 // HUB_URL, HUB_KEY_PATH). Pure: projects.ts validates the block at load, config.ts reads the env, and
 // both are read again at call time — a reload changes what the next call may do.
-import { isSkillPattern } from './skills.js';
+import { collapseStars, isSkillPattern } from './skills.js';
 import { INSTALLATION_RE, parseTarget } from './protocol.js';
 
 export interface MessagingConfig {
@@ -78,7 +78,7 @@ export function validateMessagingConfig(x: unknown, where: string): MessagingCon
     if (!Array.isArray(list)) throw new Error(`${where}.skills must be "*" or an array of skill names and patterns`);
     const bad = list.filter((n) => !isSkillPattern(n));
     if (bad.length) throw new Error(`${where}.skills: ${bad.map((b) => JSON.stringify(b)).join(', ')} is not a skill name or pattern (kebab-case, \`*\` as a wildcard, a leading \`!\` to exclude; at most 64)`);
-    out.skills = [...new Set(list as string[])];
+    out.skills = [...new Set((list as string[]).map(collapseStars))];
   }
   const int = (k: 'sendPerDay' | 'acceptPerDay' | 'maxRounds', max: number): void => {
     const v = a[k];

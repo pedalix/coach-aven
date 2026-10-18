@@ -61,7 +61,8 @@ A scanner runs at prepare time beside the dependency scanner (`src/skills.ts`, c
 - **Where it looks:** exactly where the session loads skills (`skillOrigins`): the working directory, and for a multi-repo project with `REPO_SKILLS=1` each `--add-dir` checkout. Without it the repos' skills are not the session's, so they are not scanned either.
 - **What it reads:** only each `SKILL.md`'s frontmatter, printed by `awk` in the sandbox, at most 120 lines of at most 1000 characters (`head`, `cut`). The parser is pure and tested:
   - plain and quoted scalars, `|` and `>` block scalars, plain values continued on indented lines;
-  - block and flow lists.
+  - block and flow lists;
+  - Windows line endings (a trailing `\r` is dropped from every line).
 - **Forgery-proof output.** Every scan picks a fresh random nonce, and its markers (`@@ORIGIN-<nonce>`, `@@SKILL-<nonce>`, `@@SKIP-<nonce>`) carry it, so frontmatter text or a folder name cannot forge a record. A folder whose name is not a skill name — a control character, a newline, uppercase — prints only `@@SKIP-<nonce>`, never its name (`case` under `LC_ALL=C`). A test runs the real script in a shell over a hostile tree.
 - **What it records:** the fact `project_skills` on `project:<slug>`, `[{name, description, origin, tags?, examples?, userInvocable?, clash?}]`, with sources `<origin>@<commit>:.claude/skills/<folder>/SKILL.md`.
   - The id (`name`) is the **folder** name: the CLI resolves `/name` by folder. A frontmatter `name` that differs is only reported.
@@ -74,14 +75,19 @@ A scanner runs at prepare time beside the dependency scanner (`src/skills.ts`, c
 A skill is withheld from the card — and from task validation — when `/name` would not run it:
 - **Defined twice.** Two origins define the same name: the fact keeps one entry with `clash: [<every origin>]`. Which definition the CLI loads (the first `--add-dir`'s) is not what an asker can rely on, so it is offered nowhere until renamed.
 - **`user-invocable: false`.** The CLI will not run it by name.
-- **A CLI command's name.** `/name` would run the command, not the skill. The names not ours are a static guard list of the CLI's built-ins (`init`, `context`, `recap`, `debug`, `verify`, `run`, `design`, `review`, `clear`, `compact`, `help`, `config`) plus what the project's sessions report in `init` (`slash_commands` and `skills`) minus the project's own skills. `tasks.ts` records that report as the fact `session_commands` (rewritten only when it changes) for a project that offers skills.
+- **A name the CLI takes.** `/name` could run the CLI's command, not the skill. The names not ours are:
+  - **the CLI's own names at the pinned version** (`src/messaging/clinames.ts`): the `slash_commands` and bundled `skills` of the `system/init` in the cli-probe's recorded `turn` session of that version (a bare directory, so nothing of any project) — 52 names on 2.1.282, 53 on 2.1.292, `schedule`, `insights`, `usage`, `goal`, `simplify`, `code-review` among them. The pin is always a probed version; any other, or none, gets the union. These are never subtracted, so a project skill named like one is withheld;
+  - a static floor of built-ins (`init`, `context`, `recap`, `debug`, `verify`, `run`, `design`, `review`, `clear`, `compact`, `help`, `config`);
+  - what the project's sessions report in `init` beyond the project's own skills — plugins, which no recording knows. `tasks.ts` records that report as the fact `session_commands` (rewritten only when it changes) for a project that offers skills.
+
+  The card and the task check use the same set (`offered`).
 
 Each withheld name is logged once as `skills.withheld` with its reason.
 
 ### S4. The receiving installation decides what is offered
 `exposedSkills` (`src/messaging/skills.ts`, pure) turns the allowlist, the fact and the names not ours into a card's skills:
 - **`messaging.skills` absent:** none. A project's skills stay internal unless its operator lists them.
-- **Entries:** skill names, globs with `*` (`newsletter-*`), and exclusions with a leading `!` (`!openspec-*`), validated strictly at load (an optional `!`, then kebab-case segments with `*`; a bad entry fails the load naming the project). The string `"*"` is shorthand for `["*"]`. A skill is offered when an inclusion matches it and no exclusion does, exclusions applying after inclusions whatever their order; inclusions keep their list order, a glob the scan order. A plain name that matches nothing is logged once per process (`skills.missing`); a glob that matches nothing is not.
+- **Entries:** skill names, globs with `*` (`newsletter-*`), and exclusions with a leading `!` (`!openspec-*`), validated strictly at load (an optional `!`, then kebab-case segments with `*`; a bad entry fails the load naming the project; runs of `*` collapse). Matching is a linear two-pointer wildcard matcher, never a regex: a pattern of many stars must not stall `agents()` or an incoming task. The string `"*"` is shorthand for `["*"]`. A skill is offered when an inclusion matches it and no exclusion does, exclusions applying after inclusions whatever their order; inclusions keep their list order, a glob the scan order. A plain name that matches nothing is logged once per process (`skills.missing`); a glob that matches nothing is not.
 - **Whatever the entries say,** what does not really run (S3) stays withheld.
 - **Recommended:** `["*", "!openspec-*"]` — workflow tooling skills are for the agent's own developers, not for other agents — so a new skill appears on the card without a configuration change. `["*"]` alone offers development helpers too, to every accepted sender, and shadow sessions run with permissions bypassed; `docs/agent-messaging.md` warns.
 - **Never scanned** (no session since the skills were listed): nothing, for a list as for `"*"`. Offering a name the bot has not seen would let a task reach a session without that skill.

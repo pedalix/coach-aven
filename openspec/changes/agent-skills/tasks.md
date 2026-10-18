@@ -46,6 +46,8 @@
 
 - [x] 5b.8 `messaging.skills` entries: names, `*` globs, `!` exclusions applied after inclusions; `"*"` is `["*"]`; strict validation at load; withheld skills stay withheld. Verify: `src/messaging/skills.test.ts` ("patterns — …", "isSkillPattern…"), `src/messaging/config.test.ts` ("skills: names and `*` globs…", "a bad skill entry fails the load…").
 
+- [x] 5b.9 The re-review: the CLI's own names per pinned version come from the probe's recorded bare session (`src/messaging/clinames.ts`), never subtracted, the same set on the card and the task check; patterns match with a linear wildcard matcher and runs of `*` collapse; frontmatter with Windows line endings parses. Verify: `src/messaging/skills.test.ts` ("a project skill named like a CLI command (`schedule`)…", "cliOwnNames…", "wildcardMatch — the worst patterns…"), `src/messaging/service.test.ts` ("… `schedule` is neither on the card nor accepted on a task…"), `src/skills.test.ts` ("CRLF…"), `src/messaging/config.test.ts` ("a run of `*` is collapsed…").
+
 ## 6. Docs and rollout
 
 - [x] 6.1 `docs/agent-messaging.md` (skills: cards, `messaging.skills`, the `"*"` warning, only what runs, `send_message` `skill`, `unknown skill`, free-text arguments, a `SKILL.md` example with `tags` and `examples`), `docs/runtime-config.md` (`REPO_SKILLS`: what a project gains, the kill-switch steps), `.env.example` (`REPO_SKILLS`), `docs/project-facts.md` (`project_skills`, `session_commands`), `docs/cli-probe.md` (scenario files, the two scenarios). Reviewed in the PR.

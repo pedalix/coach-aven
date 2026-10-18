@@ -103,9 +103,10 @@ a multi-repo project each repo passed with `--add-dir` (only with `REPO_SKILLS=1
 
 **Writer** — every session of a project that offers skills reports, in its `system/init`, the names
 of its slash commands and skills; `tasks.ts` records them (`skills.ts` → `recordSessionCommands`),
-sorted, rewriting the fact only when they change. **Reader** — the agent card: a project skill whose
-name one of these takes (minus the project's own skills), or one of the CLI's built-ins, is withheld,
-because `/name` would run the command instead.
+sorted, rewriting the fact only when they change. **Reader** — the agent card: beyond the CLI's own
+names (taken per pinned version from the cli-probe's recorded bare session, `src/messaging/clinames.ts`),
+it adds what else the sessions load — plugins — minus the project's own skills; a project skill with one
+of those names is withheld, because `/name` would run the command instead.
 
 ## Bootstrap order
 

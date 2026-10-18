@@ -133,7 +133,7 @@ An agent card says what an agent is (its one-line `description`) and what it can
 - **Only what really runs is offered.**
   - A skill's id is its **folder** name: the CLI resolves `/name` by folder (a different frontmatter `name` is only reported).
   - A skill marked `user-invocable: false` is not offered: the CLI will not run it by name.
-  - A name that a CLI command takes is not offered, since `/name` would run the command: the built-ins (`init`, `context`, `recap`, `debug`, `verify`, `run`, `design`, `review`, `clear`, `compact`, `help`, `config`) and whatever else the project's sessions report as commands or skills in their `init`.
+  - A name the CLI itself takes is not offered, since `/name` could run the CLI's command instead (`/schedule`, `/insights`, `/code-review`, …): the CLI's own commands and bundled skills at the project's pinned version — taken from the cli-probe's recorded bare session of that version — a small static floor of built-ins, and plugin commands the project's sessions report in their `init`.
   - A name defined twice (two repos, or a repo and the project folder) is withheld until renamed; the log names both places.
   - These stay withheld whatever the entries say.
   - At most 32 skills on a card.

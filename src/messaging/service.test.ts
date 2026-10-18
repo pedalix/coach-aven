@@ -19,6 +19,7 @@ import { LocalTransport } from './local.js';
 import { memoryStore } from './transport.js';
 import { createMessaging, NUDGE_TEXT, type Messaging, type MessagingEngine } from './service.js';
 import type { ProjectSkill } from './skills.js';
+import { cliOwnNames } from './clinames.js';
 import { parsePayload } from './protocol.js';
 import type { EventSink } from './events.js';
 
@@ -56,7 +57,7 @@ interface Harness {
 
 function harness(
   projects: ProjectConfig[],
-  o: { scripts?: Record<string, Script>; peers?: Record<string, unknown>; hub?: Any; turnUsage?: (t: Turn) => TurnUsage | undefined; skills?: Record<string, ProjectSkill[]> } = {},
+  o: { scripts?: Record<string, Script>; peers?: Record<string, unknown>; hub?: Any; turnUsage?: (t: Turn) => TurnUsage | undefined; skills?: Record<string, ProjectSkill[]>; cliNames?: Iterable<string> } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'aven-msg-'));
   const store = new Store(join(dir, 'state.json'));
@@ -127,6 +128,7 @@ function harness(
     driverFor: () => chat,
     usageLog: usage,
     skillsOf: (slug) => o.skills?.[slug],
+    ...(o.cliNames ? { cliNamesOf: () => o.cliNames! } : {}),
     sink,
   });
   local.onDeliver((x) => svc.onDelivery(local, x));
@@ -795,4 +797,18 @@ test('skills — an `unknown skill` rejection leaves the sender\'s daily budget 
   await h.svc.onDelivery(hub as Any, { ...second, env: { ...second.env, id: 'd'.repeat(24), task: 'e'.repeat(24) } });
   await flush(10);
   assert.equal(h.store.getInTask('northwind', 'e'.repeat(24))!.skill, 'brand-profile', 'the one task allowed today still starts');
+});
+
+test('skills — a project skill named like a CLI command (`schedule`) is neither on the card nor accepted on a task: one list for both', async () => {
+  const sent: Any[] = [];
+  const hub = hubOf(sent);
+  const skills = { 'brand-studio': [...STUDIO_SKILLS, { name: 'schedule', description: 'Our own scheduler', origin: 'brand-studio' }] };
+  const h = harness([owenOps(), studio({ skills: ['*'] })], { peers: { northwind: [{ sign: 'x', box: 'y' }] }, hub, skills, cliNames: cliOwnNames('2.1.292') });
+  const card = data(await h.svc.agents(h.tool(OWEN, 'owen-ops'), 'home')).agents[0];
+  assert.deepEqual(card.skills.map((s: Any) => s.id), ['brand-profile', 'release']);
+  assert.ok(h.events.some((e) => e.includes('skills.withheld') && e.includes('skill=schedule')));
+  await h.svc.onDelivery(hub as Any, remoteAsk('schedule'));
+  await flush();
+  assert.equal(h.turns.length, 0);
+  assert.match(JSON.stringify(sent[0][1].message), /unknown skill \\"schedule\\"/);
 });

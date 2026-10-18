@@ -24,6 +24,7 @@ import { createMessaging, type Messaging } from './service.js';
 import { asksList, asksTranscript, type AskRow } from './audit.js';
 import { UsageLog } from '../metering.js';
 import { FactStore } from '../facts.js';
+import { cliOwnNames } from './clinames.js';
 import { splitTeam } from '../teamkeys.js';
 
 const SHADOW_DIR = new URL('../../shadow', import.meta.url).pathname;
@@ -94,7 +95,7 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
           return undefined;
         }
       };
-      const svc = createMessaging({ installation: env.installation, store: o.store, reg: o.reg, home: o.home, peers: () => peers.current, engine, local, ...(hub ? { hub } : {}), shadow, platform: o.platform, driverFor: driverOrNone, ...(usageLog ? { usageLog } : {}), ...(tz ? { tz } : {}), skillsOf: (slug) => facts.projectSkills(slug), commandsOf: (slug) => facts.sessionCommands(slug) });
+      const svc = createMessaging({ installation: env.installation, store: o.store, reg: o.reg, home: o.home, peers: () => peers.current, engine, local, ...(hub ? { hub } : {}), shadow, platform: o.platform, driverFor: driverOrNone, ...(usageLog ? { usageLog } : {}), ...(tz ? { tz } : {}), skillsOf: (slug) => facts.projectSkills(slug), commandsOf: (slug) => facts.sessionCommands(slug), cliNamesOf: (slug) => cliOwnNames(o.reg.current.projects.find((p) => p.slug === slug)?.cliVersion ?? o.cfg.claudeCliVersion) });
       ref.current = svc;
       local.onDeliver((x) => svc.onDelivery(local, x));
       if (hub) {

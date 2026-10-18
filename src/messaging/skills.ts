@@ -29,7 +29,34 @@ export interface ProjectSkill {
  */
 const PATTERN_RE = /^!?[a-z0-9*]+(-[a-z0-9*]+)*$/;
 export const isSkillPattern = (p: unknown): p is string => typeof p === 'string' && p.replace(/^!/, '').length <= 64 && PATTERN_RE.test(p);
-const globRe = (glob: string): RegExp => new RegExp(`^${glob.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('[a-z0-9-]*')}$`);
+/** A run of `*` matches what one does: collapsed at load (config.ts) and here, defensively. */
+export const collapseStars = (p: string): string => p.replace(/\*+/g, '*');
+
+/**
+ * Whether `name` matches the wildcard pattern (`*` = any run of characters). Linear-time two-pointer
+ * matching that backtracks only to the last `*` — never a backtracking regex: a pattern of many stars must
+ * not stall `agents()` or an incoming task.
+ */
+export function wildcardMatch(pattern: string, name: string): boolean {
+  let p = 0;
+  let n = 0;
+  let star = -1;
+  let mark = 0;
+  while (n < name.length) {
+    if (p < pattern.length && pattern[p] !== '*' && pattern[p] === name[n]) {
+      p++;
+      n++;
+    } else if (p < pattern.length && pattern[p] === '*') {
+      star = p++;
+      mark = n;
+    } else if (star !== -1) {
+      p = star + 1;
+      n = ++mark;
+    } else return false;
+  }
+  while (p < pattern.length && pattern[p] === '*') p++;
+  return p === pattern.length;
+}
 
 /**
  * Names of the CLI's own commands, withheld even when a project skill takes one: `/name` would run the
@@ -67,14 +94,13 @@ export function exposedSkills(allow: readonly string[] | '*' | undefined, found:
   const out: Exposure = { skills: [], missing: [], withheld: [] };
   if (allow === undefined || found === undefined) return out;
   const entries = allow === '*' ? ['*'] : allow;
-  const includes = entries.filter((e) => !e.startsWith('!'));
-  const excludes = entries.filter((e) => e.startsWith('!')).map((e) => globRe(e.slice(1)));
-  const excluded = (n: string): boolean => excludes.some((re) => re.test(n));
+  const includes = entries.filter((e) => !e.startsWith('!')).map(collapseStars);
+  const excludes = entries.filter((e) => e.startsWith('!')).map((e) => collapseStars(e.slice(1)));
+  const excluded = (n: string): boolean => excludes.some((x) => wildcardMatch(x, n));
   // In the order of the inclusions (a plain list keeps its order), scan order within a glob; exclusions win.
   const picked: ProjectSkill[] = [];
   for (const inc of includes) {
-    const re = globRe(inc);
-    const hits = found.filter((s) => re.test(s.name));
+    const hits = found.filter((s) => wildcardMatch(inc, s.name));
     if (!hits.length && !inc.includes('*')) out.missing.push(inc);
     for (const s of hits) if (!excluded(s.name) && !picked.includes(s)) picked.push(s);
   }
@@ -87,10 +113,15 @@ export function exposedSkills(allow: readonly string[] | '*' | undefined, found:
   return out;
 }
 
-/** The names not ours to offer: the CLI's built-ins, and what a session reported in `init` minus the project's own skills. */
-export function notOursOf(sessionCommands: readonly string[] | undefined, found: readonly ProjectSkill[] | undefined): Set<string> {
+/**
+ * The names not ours to offer: the static floor (BUILTIN_COMMANDS), the CLI's own names at the pinned
+ * version (clinames.ts, from the probe's bare-session recording — these are never subtracted, so a project
+ * skill named like one is withheld), and what the project's sessions reported in `init` beyond its own skills
+ * (plugins: the `session_commands` fact).
+ */
+export function notOursOf(cliOwn: Iterable<string>, sessionCommands: readonly string[] | undefined, found: readonly ProjectSkill[] | undefined): Set<string> {
   const ours = new Set((found ?? []).map((s) => s.name));
-  return new Set([...BUILTIN_COMMANDS, ...(sessionCommands ?? []).filter((n) => !ours.has(n))]);
+  return new Set([...BUILTIN_COMMANDS, ...cliOwn, ...(sessionCommands ?? []).filter((n) => !ours.has(n))]);
 }
 
 /** The first message of a task's shadow conversation: the skill's slash invocation, then the plain frame (S6). */

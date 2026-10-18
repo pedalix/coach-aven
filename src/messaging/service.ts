@@ -63,6 +63,8 @@ export interface MessagingDeps {
   skillsOf?: (slug: string) => readonly ProjectSkill[] | undefined;
   /** The slash commands and skills a session of the project reported in `init` (facts `session_commands`). */
   commandsOf?: (slug: string) => readonly string[] | undefined;
+  /** The CLI's own command and skill names at the project's pinned version (clinames.ts). */
+  cliNamesOf?: (slug: string) => Iterable<string>;
   /** Local days for the daily caps. */
   tz?: string;
   now?: () => Date;
@@ -533,7 +535,7 @@ export function createMessaging(d: MessagingDeps) {
   const skillWarned = new Set<string>();
   function offered(p: ProjectConfig): AgentSkill[] {
     const found = d.skillsOf?.(p.slug);
-    const x = exposedSkills(p.messaging?.skills, found, notOursOf(d.commandsOf?.(p.slug), found));
+    const x = exposedSkills(p.messaging?.skills, found, notOursOf(d.cliNamesOf?.(p.slug) ?? [], d.commandsOf?.(p.slug), found));
     const missing = x.missing.filter((n) => !skillWarned.has(`missing:${p.slug}:${n}`));
     if (missing.length) {
       for (const n of missing) skillWarned.add(`missing:${p.slug}:${n}`);
