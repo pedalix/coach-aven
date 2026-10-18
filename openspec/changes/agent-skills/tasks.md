@@ -44,6 +44,8 @@
 - [x] 5b.6 Wiring: both sessions openChat creates carry `--add-dir` and the init recorder (`sessionWiring`); only a project with `messaging.skills` scans. Verify: `src/tasks.wiring.test.ts`, `src/chat/slack/turn.record.test.ts` ("only a project whose card offers skills…").
 - [x] 5b.7 Probe: `skill-slash-via-stdin` runs with the ledger flags; `add-dir-loads-skills` with two absolute dirs (`{work}`). Verify: `src/cliprobe/runner.test.ts` ("`{work}` in a scenario's extra args…").
 
+- [x] 5b.8 `messaging.skills` entries: names, `*` globs, `!` exclusions applied after inclusions; `"*"` is `["*"]`; strict validation at load; withheld skills stay withheld. Verify: `src/messaging/skills.test.ts` ("patterns — …", "isSkillPattern…"), `src/messaging/config.test.ts` ("skills: names and `*` globs…", "a bad skill entry fails the load…").
+
 ## 6. Docs and rollout
 
 - [x] 6.1 `docs/agent-messaging.md` (skills: cards, `messaging.skills`, the `"*"` warning, only what runs, `send_message` `skill`, `unknown skill`, free-text arguments, a `SKILL.md` example with `tags` and `examples`), `docs/runtime-config.md` (`REPO_SKILLS`: what a project gains, the kill-switch steps), `.env.example` (`REPO_SKILLS`), `docs/project-facts.md` (`project_skills`, `session_commands`), `docs/cli-probe.md` (scenario files, the two scenarios). Reviewed in the PR.

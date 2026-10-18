@@ -672,7 +672,7 @@ test('skills — the card offers exactly the listed skills that exist, with desc
 test('skills — no allowlist: the card offers none, whatever the project has; `*` offers all of them', async () => {
   const none = harness([owenOps(), studio({ skills: undefined })], { skills: { 'brand-studio': STUDIO_SKILLS } });
   assert.deepEqual(data(await none.svc.agents(none.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills, []);
-  const all = harness([owenOps(), studio({ skills: '*' })], { skills: { 'brand-studio': STUDIO_SKILLS } });
+  const all = harness([owenOps(), studio({ skills: ['*'] })], { skills: { 'brand-studio': STUDIO_SKILLS } });
   assert.deepEqual(data(await all.svc.agents(all.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills.map((s: Any) => s.id), ['brand-profile', 'release']);
 });
 
@@ -749,7 +749,7 @@ test('skills — from another installation, an offered skill: the task records i
 test('skills — never scanned yet: the card offers nothing, for an explicit list as for `*`', async () => {
   const listed = harness([owenOps(), studio()]);
   assert.deepEqual(data(await listed.svc.agents(listed.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills, []);
-  const star = harness([owenOps(), studio({ skills: '*' })]);
+  const star = harness([owenOps(), studio({ skills: ['*'] })]);
   assert.deepEqual(data(await star.svc.agents(star.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills, []);
 });
 

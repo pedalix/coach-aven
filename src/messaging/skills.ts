@@ -24,6 +24,14 @@ export interface ProjectSkill {
 }
 
 /**
+ * A `messaging.skills` entry: an optional leading `!` (an exclusion), then kebab-case segments in which `*`
+ * matches any run of name characters — `brand-profile`, `*`, `newsletter-*`, `!openspec-*`.
+ */
+const PATTERN_RE = /^!?[a-z0-9*]+(-[a-z0-9*]+)*$/;
+export const isSkillPattern = (p: unknown): p is string => typeof p === 'string' && p.replace(/^!/, '').length <= 64 && PATTERN_RE.test(p);
+const globRe = (glob: string): RegExp => new RegExp(`^${glob.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('[a-z0-9-]*')}$`);
+
+/**
  * Names of the CLI's own commands, withheld even when a project skill takes one: `/name` would run the
  * CLI's command, not the skill. The session's `init` lists complete it per project (`notOurs`).
  */
@@ -48,22 +56,32 @@ const card = (s: ProjectSkill): AgentSkill => ({
 /**
  * The skills a card offers — only what a task can really run — with what the caller should warn about:
  * - no allowlist → none: a project's skills stay internal unless its operator lists them;
- * - never scanned (`found` undefined: no session since the skills were listed) → none, list or `*`;
- * - scanned → the listed names that exist (`*`: all of them), with their descriptions, tags and examples,
- *   withholding a name defined twice, one marked `user-invocable: false`, and one a CLI command takes
- *   (`notOurs`: BUILTIN_COMMANDS plus the session's `init` commands that are not the project's own);
+ * - never scanned (`found` undefined: no session since the skills were listed) → none, whatever the list;
+ * - scanned → the skills the entries include (names or `*` globs) and no `!` entry excludes, with their
+ *   descriptions, tags and examples; a listed plain name that matches nothing is `missing`; whatever the
+ *   entries say, a name defined twice, one marked `user-invocable: false`, and one a CLI command takes
+ *   (`notOurs`: BUILTIN_COMMANDS plus the session's `init` commands that are not the project's own) are withheld;
  * - at most SKILL_LIMITS.card.
  */
-export function exposedSkills(allow: string[] | '*' | undefined, found: readonly ProjectSkill[] | undefined, notOurs: ReadonlySet<string> = new Set(BUILTIN_COMMANDS)): Exposure {
+export function exposedSkills(allow: readonly string[] | '*' | undefined, found: readonly ProjectSkill[] | undefined, notOurs: ReadonlySet<string> = new Set(BUILTIN_COMMANDS)): Exposure {
   const out: Exposure = { skills: [], missing: [], withheld: [] };
   if (allow === undefined || found === undefined) return out;
-  const byName = new Map(found.map((s) => [s.name, s]));
-  for (const n of allow === '*' ? found.map((s) => s.name) : allow) {
-    const s = byName.get(n);
-    if (!s) out.missing.push(n);
-    else if (s.clash) out.withheld.push({ name: n, reason: `defined in ${s.clash.join(' and ')}` });
-    else if (s.userInvocable === false) out.withheld.push({ name: n, reason: 'user-invocable: false' });
-    else if (notOurs.has(n)) out.withheld.push({ name: n, reason: `/${n} is a command of the CLI` });
+  const entries = allow === '*' ? ['*'] : allow;
+  const includes = entries.filter((e) => !e.startsWith('!'));
+  const excludes = entries.filter((e) => e.startsWith('!')).map((e) => globRe(e.slice(1)));
+  const excluded = (n: string): boolean => excludes.some((re) => re.test(n));
+  // In the order of the inclusions (a plain list keeps its order), scan order within a glob; exclusions win.
+  const picked: ProjectSkill[] = [];
+  for (const inc of includes) {
+    const re = globRe(inc);
+    const hits = found.filter((s) => re.test(s.name));
+    if (!hits.length && !inc.includes('*')) out.missing.push(inc);
+    for (const s of hits) if (!excluded(s.name) && !picked.includes(s)) picked.push(s);
+  }
+  for (const s of picked) {
+    if (s.clash) out.withheld.push({ name: s.name, reason: `defined in ${s.clash.join(' and ')}` });
+    else if (s.userInvocable === false) out.withheld.push({ name: s.name, reason: 'user-invocable: false' });
+    else if (notOurs.has(s.name)) out.withheld.push({ name: s.name, reason: `/${s.name} is a command of the CLI` });
     else if (out.skills.length < SKILL_LIMITS.card) out.skills.push(card(s));
   }
   return out;

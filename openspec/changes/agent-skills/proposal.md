@@ -31,7 +31,7 @@ Measured on the pinned CLI (2.1.292), in a project sandbox:
   - A name defined twice is withheld from the card until renamed, with a warning naming both places.
   - Malformed keys are logged and skipped.
   - Bundled and plugin skills are never candidates.
-- **Exposure.** `messaging.skills` is a list of names or `"*"`; absent, nothing is offered. Every accepted sender sees the same set, at most 32. Only what really runs is offered: the folder name is the id, and a skill marked `user-invocable: false` or named like a CLI command is withheld. Nothing is offered before the project's first scan.
+- **Exposure.** `messaging.skills` is a list of names, `*` globs and `!` exclusions (recommended: `["*", "!openspec-*"]`), or `"*"`; absent, nothing is offered. Every accepted sender sees the same set, at most 32. Only what really runs is offered: the folder name is the id, and a skill marked `user-invocable: false` or named like a CLI command is withheld. Nothing is offered before the project's first scan.
 - **Cards.** Every card carries `skills`, the A2A AgentSkill subset: `id`, `name`, `description`, `tags` (always, `[]` when none) and `examples` (when given), capped. An agent without skills has `skills: []`.
 - **A skill on a task.** `send_message` takes an optional `skill`. The receiving installation decides:
   - a skill it does not offer, or a malformed id, gets `rejected: unknown skill`, with the ids it offers; only a task's first message carries a skill;

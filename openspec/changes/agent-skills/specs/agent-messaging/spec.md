@@ -55,11 +55,23 @@ When the installation sets `REPO_SKILLS=1`, every session of a project with more
 - **THEN** its command line is unchanged
 
 ### Requirement: The receiving installation decides which skills are offered
-A project's `messaging.skills` SHALL list the names of the skills its card offers, or be `"*"` for all of its skills that can be offered; absent, it SHALL offer none. Every sender the agent accepts SHALL see the same set, at most 32 skills. A listed name the scan did not find SHALL not be offered and SHALL be logged once. Before the project's first scan, the card SHALL offer none, for a list as for `"*"`.
+A project's `messaging.skills` SHALL be a list of entries — skill names, globs with `*`, and exclusions with a leading `!` — or the string `"*"`, shorthand for `["*"]`; absent, it SHALL offer none. A skill SHALL be offered when an inclusion matches it and no exclusion does; exclusions SHALL apply after inclusions whatever their order. A malformed entry SHALL fail the configuration load with an error naming the project. What does not really run SHALL stay withheld whatever the entries say. Every sender the agent accepts SHALL see the same set, at most 32 skills. A listed name the scan did not find SHALL not be offered and SHALL be logged once. Before the project's first scan, the card SHALL offer none, for a list as for `"*"`.
 
 #### Scenario: Internal skills stay internal
 - **WHEN** brand-studio has the skills `brand-profile` and `release`, and its `messaging.skills` lists `brand-profile`
 - **THEN** its card offers `brand-profile` only
+
+#### Scenario: Everything but the workflow tooling
+- **WHEN** brand-studio's `messaging.skills` is `["*", "!openspec-*"]`, and it has `brand-profile`, `newsletter-weekly` and two `openspec-*` skills
+- **THEN** its card offers `brand-profile` and `newsletter-weekly`
+
+#### Scenario: Included and excluded
+- **WHEN** `messaging.skills` is `["brand-profile", "!brand-profile"]`
+- **THEN** the card offers nothing
+
+#### Scenario: Bad entry
+- **WHEN** `messaging.skills` contains `"Brand Profile"`
+- **THEN** loading the configuration fails, naming the project
 
 #### Scenario: Before the first scan
 - **WHEN** brand-studio lists `brand-profile`, and no session of brand-studio has run since

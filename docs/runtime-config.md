@@ -304,7 +304,7 @@ Agents asking agents — `docs/agent-messaging.md` (what it does, the `messaging
 
 | Setting | Where | What |
 |---|---|---|
-| `messaging` | per project, `projects.config.json` | `send`, `accept`, `description`, `skills` (the project's Claude Code skills its card offers: names, or `"*"`; none by default — `docs/agent-messaging.md` → *Skills*), daily caps, `maxRounds`, `costWarnUsd`. Read at call time; `/aven reload` applies it (open tasks whose asker is no longer accepted end `canceled: not accepted`). Refused on a project several tenants share. |
+| `messaging` | per project, `projects.config.json` | `send`, `accept`, `description`, `skills` (the project's Claude Code skills its card offers: names, `*` globs and `!` exclusions, e.g. `["*", "!openspec-*"]`; none by default — `docs/agent-messaging.md` → *Skills*), daily caps, `maxRounds`, `costWarnUsd`. Read at call time; `/aven reload` applies it (open tasks whose asker is no longer accepted end `canceled: not accepted`). Refused on a project several tenants share. |
 | `INSTALLATION_ID` | `.env` | This installation's name in every address (default `local`, enough inside one installation; must be explicit for the hub, where it is claimed by this installation's key or reserved for it — `local` and `hub` never can be). Invalid → the boot fails. |
 | `HUB_URL` | `.env` | `wss://<hub>` — the bot keeps one outbound connection to the hub. Unset: no connection. Set without an explicit `INSTALLATION_ID` or `HUB_KEY_PATH`: a loud error, and messaging inside the installation only. |
 | `HUB_KEY_PATH` | `.env` | The installation's key file (`orch hub keygen`, mode 0600). |

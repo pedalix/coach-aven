@@ -81,8 +81,9 @@ Each withheld name is logged once as `skills.withheld` with its reason.
 ### S4. The receiving installation decides what is offered
 `exposedSkills` (`src/messaging/skills.ts`, pure) turns the allowlist, the fact and the names not ours into a card's skills:
 - **`messaging.skills` absent:** none. A project's skills stay internal unless its operator lists them.
-- **A list:** those names that were found and really run (S3), in list order. A missing name is logged once per process (`skills.missing`).
-- **`"*"`:** every skill found that really runs. It offers development helpers too, to every accepted sender, and shadow sessions run with permissions bypassed; `docs/agent-messaging.md` warns.
+- **Entries:** skill names, globs with `*` (`newsletter-*`), and exclusions with a leading `!` (`!openspec-*`), validated strictly at load (an optional `!`, then kebab-case segments with `*`; a bad entry fails the load naming the project). The string `"*"` is shorthand for `["*"]`. A skill is offered when an inclusion matches it and no exclusion does, exclusions applying after inclusions whatever their order; inclusions keep their list order, a glob the scan order. A plain name that matches nothing is logged once per process (`skills.missing`); a glob that matches nothing is not.
+- **Whatever the entries say,** what does not really run (S3) stays withheld.
+- **Recommended:** `["*", "!openspec-*"]` — workflow tooling skills are for the agent's own developers, not for other agents — so a new skill appears on the card without a configuration change. `["*"]` alone offers development helpers too, to every accepted sender, and shadow sessions run with permissions bypassed; `docs/agent-messaging.md` warns.
 - **Never scanned** (no session since the skills were listed): nothing, for a list as for `"*"`. Offering a name the bot has not seen would let a task reach a session without that skill.
 - **At most 32** skills on a card.
 
