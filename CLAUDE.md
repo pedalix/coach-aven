@@ -9,6 +9,9 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 - `npm run typecheck` — `tsc --noEmit`. Must pass before every commit.
 - `npm test` — Node's built-in runner over `src/**/*.test.ts`. Must pass before every commit.
 - `npm run orch -- slack` — run the bot locally (needs a dev Slack app + `.env`; see `README.md`).
+- `npm run orch -- routines list [slug]` / `npm run orch -- routines run <id>` — the scheduled routines in
+  `state.json`, or ask the running bot to fire one now (a request in the control channel it watches:
+  `src/routinescli.ts`, `src/control.ts`).
 - `npm run ops -- <slug> <command>` — deploy/export/import/logs for ONE installation: the ops repo
   checked out at `infra/<slug>/` (`infra/README.md`). No default slug, on purpose.
 - Release — merge PRs to `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag
@@ -66,6 +69,10 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
 - `src/turn.ts` (turn lifecycle: `liveTurn`/`doTurn`, queues, agent questions, restart
   recovery), `src/pollers.ts` (scheduler + auto-review/autofix/YouTrack pollers),
   `src/channels.ts` (channel↔project).
+- `src/cli.ts` — the commander CLI (`slack`, `teams`, `sources …`, `routines …`). `src/project.ts` — clone,
+  worktrees, auth/MCP seeding into the sandbox, `provisionTooling()`. `src/claudeSession.ts` — the persistent
+  `claude` process (stream-json). `src/github.ts` — GitHub App tokens (minted before every turn) + PR/CI reads.
+  `src/scrub.ts` — secrets redaction at the model boundary and at ingest.
 - `src/tasks.ts` — chat session over a sandbox. `src/prompt.ts` — the **3-layer system prompt**
   (orchestrator base → project prompt → repo `CLAUDE.md`), pure and golden-tested: the base text
   reaches every production session, so `src/fixtures/prompt/*.txt` pins it byte-exact — change it
