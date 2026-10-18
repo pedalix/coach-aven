@@ -168,7 +168,7 @@ const ctxOf = (a: Interaction): SlackActionCtx => (a.ctx ?? {}) as SlackActionCt
 
 // Resolves a workspace's Web API client (undefined = home). Throws for a tenant with no
 // live installation — callers treat that per record, never letting one uninstalled
-// workspace abort a whole loop (recovery, pollers, dispatch).
+// workspace abort a whole loop (recovery, pollers, messaging).
 export type ClientForTeam = (tenantId?: string) => bolt.webApi.WebClient;
 
 // The Slack driver keeps its workspace client visible: Slack-side code (and the tenant
