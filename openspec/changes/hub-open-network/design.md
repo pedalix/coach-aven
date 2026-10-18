@@ -194,6 +194,9 @@ Implementation choices that differ from the text above as first proposed. Each i
 - N3: a throttled allow list closes the connection (`allow throttled`) instead of being dropped silently.
 - Logging: `hub.replaced`, `hub.allow.throttled`, `hub.allow.capped` and `hub.installation.removed` name a claimed installation as `claimed` (a field), and only the operator's reserved names as `installation` (a Sentry tag). So repeats are deduped on the event and reason, and invented names cannot become events past the reporter's bounded memory.
 
+### After the canary
+- Discovery: `agents()` without an argument lists every installation the caller can reach, its own first and then each pinned peer, with their cards or `offline`. On the canary an agent called it bare, saw only its own installation, empty, and never learned that its peer existed; since the hub tells nobody who is on it (N4), the pins are the only list, and the first call must show them. The `send_message` and `agents` descriptions and the messaging prompt paragraph now say so.
+
 ## Open Questions
 
 - The defaults for `idleDays` (180) and `claimsPerIpPerDay` (5) are configuration. They can be tuned after the first months of an open hub without touching code or specs.

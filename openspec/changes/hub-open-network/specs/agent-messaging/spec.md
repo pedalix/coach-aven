@@ -63,7 +63,7 @@ Changes within one version SHALL be additive only. Version 2 SHALL replace versi
 - **THEN** the hub refuses it with `unsupported version`, the installation logs both versions, and messaging inside that installation keeps working
 
 ### Requirement: Discovery through agent cards
-`agents(installation?)` SHALL return the agents of that installation that accept the caller; without an argument, the caller's own installation. Each card SHALL give:
+`agents(installation?)` SHALL return the agents of that installation that accept the caller. Without an argument it SHALL return every installation the caller can reach: the caller's own first, then each peer pinned in `hub.peers.json`, each with its cards or `offline`, so that an agent learns its peers' names from the tool rather than having to guess them (the hub tells nobody who is on it). Each card SHALL give:
 - the agent id;
 - the one-line description from its messaging configuration;
 - whether the agent would take a new task from the caller now, that is, its daily limit for the caller is not reached.
@@ -77,3 +77,7 @@ For a peer installation that is not connected, or that does not allow this insta
 #### Scenario: Peer has not pinned us
 - **WHEN** owen-ops calls `agents("northwind")`, and `northwind` has not pinned `home`
 - **THEN** it receives `offline` at once, with the note that `northwind` may not have pinned `home`
+
+#### Scenario: Every reachable installation
+- **WHEN** owen-ops on `home`, which has pinned `bluefin` and `northwind`, calls `agents()` without an argument
+- **THEN** it receives `home` with its own accepting agents first, then `bluefin` and `northwind`, each with its cards or `offline`
