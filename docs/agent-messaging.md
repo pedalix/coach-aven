@@ -115,9 +115,9 @@ flowchart LR
 | `send_message(target, text, {taskId?})` — start a task, or reply on one | `request_input(question)` — ask back |
 | `get_task(taskId)` — state, last message (only in the conversation that sent it) | its final answer ends the task, once nothing is outstanding |
 | `cancel_task(taskId)` | if its project may send, the asking tools too (a chain) |
-| `agents(installation?)` — who accepts me | |
+| `agents(installation?)` — who accepts me: without an argument, every installation I can reach (mine first, then each pinned peer) with its cards or `offline` | |
 
-A target is `bluefin/caldora`, or just `caldora` in the own installation. Every tool returns at once, and nobody waits with a turn open.
+A target is `bluefin/caldora`, or just `caldora` in the own installation. Every tool returns at once, and nobody waits with a turn open. The hub tells no installation who else is on it, so an agent learns its peers' names from `agents()` called without an argument, which lists the installations pinned in `hub.peers.json`. Asking another agent is `send_message`, not `propose`.
 
 ## One rule for every message that comes back
 

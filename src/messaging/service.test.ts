@@ -475,8 +475,23 @@ test('answer after the asker’s bot restarted: a delivery recorded before the r
 
 test('agents — the own installation: the cards of the agents that accept the caller, with their description and whether they take a task now', async () => {
   const h = harness([owenOps(), caldora(), billing(), { slug: 'stockist', repos: ['Org/s'], messaging: { accept: ['someone-else'] } } as ProjectConfig]);
+  const cards = [{ name: 'home/caldora', description: 'Orders and payments of caldora', accepting: true, domain: 'home' }];
+  assert.deepEqual(data(await h.svc.agents(h.tool(OWEN, 'owen-ops'), 'home')), { installation: 'home', agents: cards });
+  // Without an argument: every installation the caller can reach; with no hub that is this one alone.
+  assert.deepEqual(data(await h.svc.agents(h.tool(OWEN, 'owen-ops'), undefined)), { installations: [{ installation: 'home', agents: cards }] });
+});
+
+test('agents without an argument lists every installation the caller can reach: this one first, then each pinned peer — an agent never has to guess a peer name', async () => {
+  const hub = { kind: 'hub', send: async () => ({ routed: true }), onDeliver: () => {}, ack: async () => {}, presence: () => ({ online: [], removed: [] }) };
+  const h = harness([owenOps(), caldora()], { peers: { northwind: [{ sign: 'x', box: 'y' }], bluefin: [{ sign: 'x', box: 'y' }] }, hub });
   const r = await h.svc.agents(h.tool(OWEN, 'owen-ops'), undefined);
-  assert.deepEqual(data(r), { installation: 'home', agents: [{ name: 'home/caldora', description: 'Orders and payments of caldora', accepting: true, domain: 'home' }] });
+  assert.deepEqual(data(r), {
+    installations: [
+      { installation: 'home', agents: [{ name: 'home/caldora', description: 'Orders and payments of caldora', accepting: true, domain: 'home' }] },
+      { installation: 'bluefin', offline: true, note: 'offline, or bluefin has not pinned home' },
+      { installation: 'northwind', offline: true, note: 'offline, or northwind has not pinned home' },
+    ],
+  });
 });
 
 test('sub-question: an answer while a sub-task of the shadow conversation is open does not complete the task; the sub-task’s parent cancel cascades', async () => {

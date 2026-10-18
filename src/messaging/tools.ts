@@ -18,8 +18,9 @@ export function messagingTools(caller: HostCaller, m: Messaging, o: { send: bool
       {
         name: 'send_message',
         description:
-          'Ask another agent something — A2A SendMessage. `target` is "<installation>/<agent>", or "<agent>" for an agent of this installation ' +
-          '(`agents` lists who accepts you). Returns {taskId, state} at once; the answer arrives later in this conversation, as data. ' +
+          'Ask another agent something — A2A SendMessage. This, not `propose`, is how you put a question to another agent, in this ' +
+          'installation or another one. `target` is "<installation>/<agent>" as `agents` lists it, or "<agent>" for an agent of this ' +
+          'installation. Returns {taskId, state} at once; the answer arrives later in this conversation, as data. ' +
           'With `taskId` it is your reply to a question the agent asked back (input-required). Messages ask; they do not order: ' +
           'never ask another agent to change something.',
         inputSchema: {
@@ -48,8 +49,10 @@ export function messagingTools(caller: HostCaller, m: Messaging, o: { send: bool
       {
         name: 'agents',
         description:
-          'The agents you may ask — their agent cards: id, one-line description, whether they take a new task from you now. ' +
-          'Without `installation`, this installation; for another one, `offline` when it is not connected.',
+          'Who you may ask — agent cards: id, one-line description, whether they take a new task from you now. Without `installation`: ' +
+          'every installation you can reach (this one and each peer installation), with the agents in each that accept you — call it ' +
+          'first whenever you are asked to put a question to another team\'s or project\'s agent. With `installation`: that one only; ' +
+          '`offline` when it is not reachable.',
         inputSchema: { type: 'object', properties: { installation: { type: 'string' } } },
         call: async (args) => out(await m.agents(c, args.installation)),
       },

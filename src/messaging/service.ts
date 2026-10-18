@@ -531,12 +531,24 @@ export function createMessaging(d: MessagingDeps) {
   async function agents(c: Caller, installation: unknown): Promise<ToolReply> {
     if (!messaging(project(c.slug))?.send) return { ok: false, error: 'this agent may not send tasks' };
     if (isOtherHub(installation)) return { ok: false, error: OTHER_HUB };
-    const inst = typeof installation === 'string' && installation ? installation : d.installation;
+    if (typeof installation === 'string' && installation) {
+      const one = await installationCards(c, installation);
+      return 'error' in one ? { ok: false, error: one.error } : { ok: true, data: one };
+    }
+    // Without an argument: every installation the caller can reach — this one, then each pinned peer
+    // (asked in parallel). The agent cannot know peer names otherwise: the hub tells nobody who is on it
+    // (hub-open-network N4), so the pins are the only list, and a first call must show them.
+    const peers = d.hub ? Object.keys(d.peers()).sort() : [];
+    const all = await Promise.all([d.installation, ...peers].map((inst) => installationCards(c, inst)));
+    return { ok: true, data: { installations: all } };
+  }
+  type InstallationCards = { installation: string; agents: AgentCard[] } | { installation: string; offline: true; note?: string };
+  async function installationCards(c: Caller, inst: string): Promise<InstallationCards | { error: string }> {
     const me = { installation: d.installation, agent: c.slug };
-    if (inst === d.installation) return { ok: true, data: { installation: inst, agents: localCards(me, domainOfKey(c.conversationKey)) } };
-    if (!isPinned(d.peers(), inst) || !d.hub) return { ok: false, error: `unknown installation "${inst}"; known: ${[d.installation, ...Object.keys(d.peers()).sort()].join(', ')}` };
+    if (inst === d.installation) return { installation: inst, agents: localCards(me, domainOfKey(c.conversationKey)) };
+    if (!isPinned(d.peers(), inst) || !d.hub) return { error: `unknown installation "${inst}"; known: ${[d.installation, ...Object.keys(d.peers()).sort()].join(', ')}` };
     // The hub shows a peer online only when the two have pinned each other (hub-open-network, N4).
-    if (!d.hub.presence().online.includes(inst)) return { ok: true, data: { installation: inst, offline: true, note: `offline, or ${inst} has not pinned ${d.installation}` } };
+    if (!d.hub.presence().online.includes(inst)) return { installation: inst, offline: true, note: `offline, or ${inst} has not pinned ${d.installation}` };
     const req = newId();
     const cards = await new Promise<AgentCard[] | undefined>((resolve) => {
       const timer = setTimeout(() => {
@@ -551,9 +563,9 @@ export function createMessaging(d: MessagingDeps) {
       });
       post({ from: self(c.slug), to: `${inst}/agents`, method: 'agents', task: req }, { domain: domainOfKey(c.conversationKey), marks: {}, depth: 0 });
     });
-    if (!cards) return { ok: true, data: { installation: inst, offline: true } };
+    if (!cards) return { installation: inst, offline: true };
     for (const card of cards) if (card.domain) d.store.learnDomain(card.name, card.domain);
-    return { ok: true, data: { installation: inst, agents: cards } };
+    return { installation: inst, agents: cards };
   }
 
   // ════════════════════════════════════════════════════════════════════════════════════════════
