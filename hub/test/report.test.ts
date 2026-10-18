@@ -38,6 +38,17 @@ describe('What reaches Sentry', () => {
     });
   });
 
+  it('A claimed name is a field, not a tag: its repeats share one dedupe key', () => {
+    expect(toSentry('warn', 'hub.replaced', { claimed: 'repl-x' })).toEqual({
+      message: 'hub.replaced claimed=repl-x',
+      level: 'warning',
+      tags: { area: 'hub', event: 'hub.replaced' },
+      key: 'hub.replaced||',
+    });
+    expect(toSentry('warn', 'hub.replaced', { claimed: 'repl-y' })!.key).toBe('hub.replaced||');
+    expect(toSentry('warn', 'hub.replaced', { installation: 'home' })!.key).toBe('hub.replaced||home');
+  });
+
   it('No DSN, no SDK; the environment tells the hub apart', () => {
     expect(sentryOptions({}).dsn).toBeUndefined();
     expect(sentryOptions({ SENTRY_DSN: '' }).dsn).toBeUndefined();

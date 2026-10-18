@@ -44,8 +44,9 @@ installations, never agents: agent names, the method and the task id travel seal
                    "northwind": null },
      "limits": { "claimsPerIpPerDay": 5, "idleDays": 180 } }
    ```
-   - `registration`: `open` (the default: anyone may claim a free name) or `closed` (only reserved names
-     connect).
+   - `registration`: `open` (the default: anyone may claim a free name) or `closed` (no new claims:
+     reserved names, and names already bound to a key, keep connecting with their keys; anyone else is
+     refused `closed`, whatever name it asks for).
    - `reserved`: a name maps to `{"sign": [{"key", "notAfter"?}]}`, the keys that may hold it (a list, so a
      rotation can overlap), or to `null`, nobody.
    - `limits`, all optional (defaults):
@@ -104,7 +105,10 @@ and the schema version. A deploy drops every socket, and the bots reconnect.
   - No installation learns the list of names on the hub.
 - **Allow lists are cheap.** An unchanged list changes nothing and tells nobody anything. A changed one
   sends a fresh view only where a relationship changed: an installation that does not allow the sender
-  hears nothing. The hub takes at most 10 lists per connection in 10 minutes, and ignores the rest.
+  hears nothing. The hub takes at most 10 lists per connection in 10 minutes. The next one closes the
+  connection (`allow throttled`), so that the bot reconnects after its backoff and sends its current list
+  once, under a fresh budget. A bot sends one list per connection and one per reload that changed its pins,
+  so this happens only as fast as an operator reloads.
 - **Quotas.** If either limit is reached, the envelope is refused `rejected: backlog`:
   - 1000 envelopes or 50 MB waiting for one recipient;
   - 200 envelopes or 10 MB from one sender to one recipient, so one peer cannot fill a mailbox for the
@@ -201,10 +205,12 @@ None of it goes to the ops repo.
   JSON line.
   - With a `SENTRY_DSN` secret it also sends the warnings and errors among them to Sentry, along with any
     uncaught exception.
-  - Tags are `area=hub`, `event`, `reason` and, for an admitted installation, `installation`. There is one
-    event per event, reason and installation per hour, because a bot that is refused redials every minute.
-  - A refusal names the client's claim as `claimed`, which is not a tag. So refusals are deduped on the
-    reason alone, and whoever invents names cannot turn them into events. The dedupe memory is bounded.
+  - Tags are `area=hub`, `event`, `reason` and, for the operator's reserved names, `installation`. There is
+    one event per event, reason and installation per hour, because a bot that is refused redials every minute.
+  - Any other name travels as `claimed`, a plain field, not a tag: in refusals, and in `hub.replaced`,
+    `hub.allow.throttled`, `hub.allow.capped` and `hub.installation.removed`. Those are deduped on the event
+    and reason alone, so names invented by the thousand cannot turn repeats into events. The dedupe memory
+    is bounded.
   - How loud a refusal is depends on whose business it is:
     - a reserved name claimed with another key is an error: the operator's own bot is misconfigured, or
       someone is posing as it;

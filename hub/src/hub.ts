@@ -118,6 +118,16 @@ export class Hub extends DurableObject<Env> {
     }
   }
 
+  /**
+   * How a log line names an installation: as `installation` — a Sentry tag, part of the reporter's dedupe
+   * key — for the operator's reserved names, a set the operator chose; as `claimed`, a plain field, for
+   * anyone else's. Names claimed by the thousand on an open hub then cannot turn repeats into events.
+   */
+  private who(name: string): { installation: string } | { claimed: string } {
+    const cfg = this.config();
+    return cfg && reservation(cfg, name) !== undefined ? { installation: name } : { claimed: name };
+  }
+
   /** The configuration, or undefined when it does not parse: logged, and every connection refused. */
   private config(): HubConfig | undefined {
     try {
@@ -248,9 +258,11 @@ export class Hub extends DurableObject<Env> {
     // which names exist costs a claim each (and the claim limit).
     const held = reservedNameOfKey(cfg, key) ?? this.store.nameOfKey(key);
     if (held !== undefined && held !== name) return 'key holds a name';
-    if (row) return 'name taken';
-    // Closed registration claims nothing new; names already bound keep working for their keys.
+    // Closed registration claims nothing new, and says so before anything about the name: under it a
+    // fresh key gets `closed` for a bound name and a free one alike, so it learns nothing — on an open hub
+    // the same question costs a claim. Names already bound kept working for their keys (above).
     if (cfg.registration === 'closed') return 'closed';
+    if (row) return 'name taken';
     const bucket = claimBucket(ip);
     const day = Math.floor(now / DAY_MS);
     if (this.store.claimCount(bucket, day) >= cfg.limits.claimsPerIpPerDay) return 'claim limit';
@@ -272,7 +284,7 @@ export class Hub extends DurableObject<Env> {
       if (other !== ws && this.att(other).installation === name) {
         other.serializeAttachment({ ...this.att(other), installation: undefined });
         other.close(4000, 'replaced');
-        log('warn', 'hub.replaced', { installation: name });
+        log('warn', 'hub.replaced', this.who(name));
       }
     }
     ws.serializeAttachment({ ...a, installation: name, key, authedAt: now } satisfies Attachment);
@@ -290,7 +302,8 @@ export class Hub extends DurableObject<Env> {
    * A new allow list (N3): it governs envelopes routed from now on. Only views that change are sent: the
    * sender's own when one of its edges or the removals it hears of change, and a peer's only when its
    * edge with the sender changed — an installation that does not allow the sender hears nothing, not
-   * even an empty frame, however often the sender lists it. Throttled per connection.
+   * even an empty frame, however often the sender lists it. Throttled per connection: past the limit the
+   * connection is closed (`allow throttled`).
    */
   private allow(ws: WebSocket, a: Attachment, peers: string[]): void {
     const installation = a.installation!;
@@ -299,12 +312,19 @@ export class Hub extends DurableObject<Env> {
     const count = fresh ? 1 : (a.allowCount ?? 0) + 1;
     ws.serializeAttachment({ ...a, allowWindow: fresh ? now : a.allowWindow, allowCount: count } satisfies Attachment);
     if (count > ALLOW_PER_WINDOW) {
-      if (count === ALLOW_PER_WINDOW + 1) log('warn', 'hub.allow.throttled', { installation, max: ALLOW_PER_WINDOW });
+      // Not dropped silently: the bot believes it sent the list, and the hub would keep the stale one until
+      // the next reconnect. Closed instead, so the bot reconnects — after its backoff — and sends its list
+      // once on the new connection, under a fresh budget. A bot sends one list per connection and one per
+      // reload that changed its pins, so this repeats only as fast as an operator reloads, never in a loop.
+      log('warn', 'hub.allow.throttled', { ...this.who(installation), max: ALLOW_PER_WINDOW });
+      ws.serializeAttachment({ ...this.att(ws), installation: undefined });
+      ws.close(4003, 'allow throttled');
+      for (const peer of this.edges(installation)) this.presenceTo(peer);
       return;
     }
     const max = this.config()?.limits.allowMax ?? peers.length;
     const wanted = peers.filter((p) => p !== installation);
-    if (wanted.length > max) log('warn', 'hub.allow.capped', { installation, size: wanted.length, max });
+    if (wanted.length > max) log('warn', 'hub.allow.capped', { ...this.who(installation), size: wanted.length, max });
     const list = wanted.slice(0, max);
     const before = this.store.allowOf(installation);
     if (sameSet(before, list)) return;
@@ -363,7 +383,7 @@ export class Hub extends DurableObject<Env> {
   private removeName(name: string, reason: 'released' | 'revoked'): void {
     const allowers = this.store.allowedBy(name);
     this.store.remove(name, new Date().toISOString(), reason);
-    log('warn', 'hub.installation.removed', { installation: name, reason });
+    log('warn', 'hub.installation.removed', { ...this.who(name), reason });
     for (const ws of this.ctx.getWebSockets()) {
       if (this.att(ws).installation !== name) continue;
       ws.serializeAttachment({ ...this.att(ws), installation: undefined });

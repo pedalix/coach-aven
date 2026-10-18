@@ -340,6 +340,23 @@ test('refused at auth: `hub.connect.failed` with the reason, once per hour while
   c.stop();
 });
 
+test('allow throttled: the hub closes the connection; the client logs it, redials only after its backoff, and sends its list once — no loop', async (t: TestContext) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  const hub = fakeHub();
+  const { c, sink } = client(hub);
+  c.start();
+  await hub.admit();
+  hub.last.drop(4003, 'allow throttled');
+  assert.ok(sink.lines.includes('messaging hub.connect.failed installation=home reason="allow throttled"'));
+  t.mock.timers.tick(400);
+  assert.equal(hub.conns.length, 1, 'not at once: the backoff (0.5–1 s, doubling while it fails)');
+  t.mock.timers.tick(1_000);
+  assert.equal(hub.conns.length, 2);
+  await hub.admit(hub.last);
+  assert.deepEqual(hub.last.frames('allow'), [{ t: 'allow', installations: ['bluefin', 'northwind'] }], 'one list on the new connection: under any budget');
+  c.stop();
+});
+
 test('silent for 90 s: dropped and redialled; offline for 10 minutes: reported once with the outbox size', async (t: TestContext) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: Date.parse('2026-10-17T08:00:00.000Z') });
   const hub = fakeHub();

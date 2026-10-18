@@ -6,7 +6,7 @@ The hub SHALL bind a name to the first signing key that claims it when all of th
 - the name is free and not reserved;
 - the hub's registration is `open`.
 
-Under `closed` registration, the hub SHALL claim no new name: it admits reserved names and names already bound, each for its key. A bound name SHALL admit only its key. A key SHALL hold at most one name. When a key that holds a name claims another, the hub SHALL refuse it with `key holds a name`, whether the other name is taken or free.
+Under `closed` registration, the hub SHALL claim no new name: it admits reserved names and names already bound, each for its key, and SHALL refuse any other key with `closed` before it says anything about the name, so that a taken name and a free one get the same answer. A bound name SHALL admit only its key. A key SHALL hold at most one name. When a key that holds a name claims another, the hub SHALL refuse it with `key holds a name`, whether the other name is taken or free.
 
 The hub SHALL store every binding: a claim, and the key a reserved name was last admitted with. A name dropped from the reserved names SHALL stay bound to the key that last used it.
 
@@ -53,7 +53,7 @@ A configuration in the version-1 shape (a map of `installations`), or with a key
 - **THEN** it admits no connection, logs an error that names the problem, and its health check fails
 
 ### Requirement: Each installation tells the hub whom it hears from
-After authenticating, an installation SHALL send the hub its allow list: the installations from which it accepts envelopes. The hub SHALL keep the latest list for each installation across connections and deploys. A new list SHALL apply to envelopes routed after it arrives; envelopes already in the outbox SHALL stay. An installation that has never sent a list SHALL have an empty one. An unchanged list SHALL change nothing and tell nobody anything. The hub SHALL keep at most `allowMax` installations of a list, and MAY ignore lists that one connection sends faster than its limit.
+After authenticating, an installation SHALL send the hub its allow list: the installations from which it accepts envelopes. The hub SHALL keep the latest list for each installation across connections and deploys. A new list SHALL apply to envelopes routed after it arrives; envelopes already in the outbox SHALL stay. An installation that has never sent a list SHALL have an empty one. An unchanged list SHALL change nothing and tell nobody anything. The hub SHALL keep at most `allowMax` installations of a list. A connection that sends lists faster than the hub's limit SHALL be closed with the reason `allow throttled`, never left with a list the hub silently ignored.
 
 #### Scenario: Peer added
 - **WHEN** `bluefin` sends an allow list that adds `home`
