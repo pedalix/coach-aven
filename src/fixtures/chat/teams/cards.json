@@ -340,10 +340,13 @@
       "text": "**Access for alpha**\n\n- repos: Org/alpha\n- tools: gw"
     },
     "routines": {
-      "text": "**Scheduled jobs**\n\n- r1 · report · weekdays 9:00 — brief me"
+      "text": "**Scheduled jobs**\n\n- 🟢 **r1** — `weekdays 9:00` (Europe/Zurich) · last 2026-03-02 09:00 — brief me\n- ⚪️ **r2** 🛠 task — `daily 19:30` (Europe/Zurich) ⏭ skipped (nothing new) — xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…\n- 🟢 **r3** 🌙 dream — `daily 3:00` (UTC) — _merged 4 notes_\n\n_Manage:_ `/routines run|off|on|rm <id>` (`run` = fire now) · `/routines all` for every project"
+    },
+    "routinesEmpty": {
+      "text": "_No scheduled jobs in this channel._\n\nCreate one: `/schedule weekdays 9:00 | one-line status on open PRs and active threads`"
     },
     "allRoutines": {
-      "text": "**All scheduled jobs**\n\n**alpha**\n- r1 · report · weekdays 9:00 (paused)"
+      "text": "**All scheduled jobs**\n\n**alpha**\n- ⚪️ **r1** — `weekdays 9:00` (UTC) — x\n\n_Manage:_ `/routines run|off|on|rm <id>` (`run` = fire now) · `/routines all` for every project"
     },
     "memoryIndex": {
       "text": "**Memory — alpha**\n\n- [Build](build.md)\n_(snapshot)_"

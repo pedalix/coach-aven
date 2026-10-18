@@ -62,8 +62,17 @@ const privates: Record<string, PrivateView> = {
     },
   },
   access: { kind: 'access', project: { ...alpha, mcp: [{ name: 'gw' }] } as never },
-  routines: { kind: 'routines', routines: [{ id: 'r1', kind: 'report', spec: 'weekdays 9:00', enabled: true, prompt: 'brief me' }] as never },
-  allRoutines: { kind: 'allRoutines', groups: [{ slug: 'alpha', routines: [{ id: 'r1', kind: 'report', spec: 'weekdays 9:00', enabled: false, prompt: 'x' }] as never }] },
+  // A report carries no `kind` at all (state.ts) — the list must not print it raw.
+  routines: {
+    kind: 'routines',
+    routines: [
+      { id: 'r1', spec: 'weekdays 9:00', tz: 'Europe/Zurich', enabled: true, prompt: 'brief me', lastRunAt: '2026-03-02T09:00:12.000Z' },
+      { id: 'r2', kind: 'task', spec: 'daily 19:30', tz: 'Europe/Zurich', enabled: false, prompt: 'x'.repeat(100), lastOutcome: 'skipped' },
+      { id: 'r3', kind: 'dream', spec: 'daily 3:00', tz: 'UTC', enabled: true, prompt: '', lastSummary: 'merged 4 notes' },
+    ] as never,
+  },
+  routinesEmpty: { kind: 'routines', routines: [] },
+  allRoutines: { kind: 'allRoutines', groups: [{ slug: 'alpha', routines: [{ id: 'r1', kind: 'report', spec: 'weekdays 9:00', tz: 'UTC', enabled: false, prompt: 'x' }] as never }] },
   memoryIndex: { kind: 'memoryIndex', slug: 'alpha', markdown: '- [Build](build.md)', note: '\n_(snapshot)_', topics: [{ title: 'Build', file: 'build.md' }] },
   sessionPanel: {
     kind: 'sessionPanel',

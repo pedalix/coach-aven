@@ -161,6 +161,26 @@ function renderQuestion(v: Extract<MessageView, { kind: 'question' }>): TeamsMes
 
 // Replies only the acting person sees — Teams has no ephemeral messages, so these go to the
 // person's 1:1 chat (driver.ts); here they are just text.
+// One line per scheduled job, in the Slack list's vocabulary (`routineListBlocks`): the dot is
+// the enabled state, dream/housekeeping show their label (and last digest) instead of a prompt,
+// a task is tagged, a report has no kind at all — so the kind is never printed raw.
+type RoutineLike = Extract<PrivateView, { kind: 'routines' }>['routines'][number];
+function routineLine(r: RoutineLike): string {
+  const dot = r.enabled ? '🟢' : '⚪️';
+  const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
+  if (r.kind === 'dream' || r.kind === 'housekeeping') {
+    const label = r.kind === 'dream' ? '🌙 dream' : '🧹 housekeeping';
+    const s = r.lastSummary ? ` — _${r.lastSummary}_` : '';
+    return `- ${dot} **${r.id}** ${label} — \`${r.spec}\` (${r.tz})${last}${s}`;
+  }
+  const p = r.prompt.length > 90 ? `${r.prompt.slice(0, 87)}…` : r.prompt;
+  const tag = r.kind === 'task' ? ' 🛠 task' : '';
+  // Empty-slot skip (ROUTINE_SKIP_EMPTY): the last slot posted one line instead of a run.
+  const skipped = r.lastOutcome === 'skipped' ? ' ⏭ skipped (nothing new)' : '';
+  return `- ${dot} **${r.id}**${tag} — \`${r.spec}\` (${r.tz})${last}${skipped} — ${p}`;
+}
+const ROUTINES_MANAGE = '_Manage:_ `/routines run|off|on|rm <id>` (`run` = fire now) · `/routines all` for every project';
+
 export function renderPrivateView(v: PrivateView): TeamsMessage {
   switch (v.kind) {
     case 'text':
@@ -182,10 +202,14 @@ export function renderPrivateView(v: PrivateView): TeamsMessage {
     case 'access':
       return { text: `**Access for ${v.project.slug}**\n\n- repos: ${v.project.repos.join(', ')}\n- tools: ${(v.project.mcp ?? []).map((m) => m.name).join(', ') || 'none'}` };
     case 'routines':
-      return { text: `**Scheduled jobs**\n\n${v.routines.map((r) => `- ${r.id} · ${r.kind} · ${r.spec}${r.enabled ? '' : ' (paused)'} — ${r.prompt.slice(0, 80)}`).join('\n') || '_none_'}` };
+      return {
+        text: v.routines.length
+          ? `**Scheduled jobs**\n\n${v.routines.map(routineLine).join('\n')}\n\n${ROUTINES_MANAGE}`
+          : `_No scheduled jobs in this channel._\n\nCreate one: \`/schedule weekdays 9:00 | one-line status on open PRs and active threads\``,
+      };
     case 'allRoutines':
       return {
-        text: `**All scheduled jobs**\n\n${v.groups.map((g) => `**${g.slug}**\n${g.routines.map((r) => `- ${r.id} · ${r.kind} · ${r.spec}${r.enabled ? '' : ' (paused)'}`).join('\n') || '_none_'}`).join('\n\n')}`,
+        text: `**All scheduled jobs**\n\n${v.groups.map((g) => `**${g.slug}**\n${g.routines.map(routineLine).join('\n') || '_none_'}`).join('\n\n')}\n\n${ROUTINES_MANAGE}`,
       };
     case 'memoryIndex':
       return { text: `**Memory — ${v.slug}**\n\n${markdownToTeams(v.markdown)}${mrkdwnToTeams(v.note)}`.slice(0, MAX_TEAMS_TEXT) };
