@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { Store } from '../state.js';
 import { isOpen, type InTask, type OutTask } from './records.js';
-import { INSTALLATION_RE, parseAddress } from './protocol.js';
+import { INSTALLATION_RE, KEY_RE, parseAddress } from './protocol.js';
 import type { PeerKey } from './seal.js';
 
 export const PEERS_FILE = 'hub.peers.json';
@@ -20,7 +20,6 @@ export interface PeersRef {
   current: Peers;
 }
 
-const KEY_RE = /^[A-Za-z0-9_-]{43}$/; // 32 bytes, base64url without padding
 
 /** Where the peers file lives: beside the projects configuration. */
 export const peersPath = (projectsConfigPath: string): string => join(dirname(projectsConfigPath), PEERS_FILE);
@@ -63,8 +62,15 @@ export function loadPeers(path: string, ownInstallation: string): Peers {
 export const validKeys = (keys: readonly PeerKey[] | undefined, now: Date): PeerKey[] =>
   (keys ?? []).filter((k) => k.notAfter === undefined || Date.parse(k.notAfter) > now.getTime());
 
+/**
+ * A peer's pinned keys, or undefined. Always through this (or `isPinned`): an installation name is any
+ * `[a-z0-9-]{1,32}`, `constructor` included, and a plain lookup would find Object.prototype's.
+ */
+export const pinnedKeys = (peers: Peers, installation: string): PeerKey[] | undefined => (Object.hasOwn(peers, installation) ? peers[installation] : undefined);
+export const isPinned = (peers: Readonly<Record<string, unknown>>, installation: string): boolean => Object.hasOwn(peers, installation);
+
 /** Pure: which peers a reload drops. */
-export const droppedPeers = (before: Peers, after: Peers): string[] => Object.keys(before).filter((p) => !(p in after)).sort();
+export const droppedPeers = (before: Peers, after: Peers): string[] => Object.keys(before).filter((p) => !isPinned(after, p)).sort();
 
 /**
  * End every open task with `peer` (D2 "Peers", D8): outgoing tasks to its agents and incoming tasks from

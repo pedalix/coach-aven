@@ -1,29 +1,38 @@
-// The bot's side of the hub (OpenSpec `agent-messaging`, design D4, D5, D8): a PeerTransport over one
-// outbound WebSocket. Started by the composition root only when HUB_URL is set (config.ts).
+// The bot's side of the hub (OpenSpec `agent-messaging`, design D4, D5, D8; `hub-open-network`, design
+// N2–N5): a PeerTransport over one outbound WebSocket. Started by the composition root only when HUB_URL
+// is set (config.ts).
 //
-//   connect → `challenge` (the hub's time and a nonce) → `auth` (Ed25519 over host|installation|nonce)
-//   → `hello` (enrolled, online, removed) → the outbox is sent again, the hub replays what it holds
+//   connect (`?as=<name>`) → `challenge` (the hub's time and a nonce) → `auth` (the name, the signing
+//   key, Ed25519 over host|name|key|nonce) → `hello` (who is online and who was removed, among the
+//   installations this one has a relationship with) → `allow` (the pinned peers: the only installations
+//   the hub lets write to this one) → the outbox is sent again, the hub replays what it holds
 //
 // - **Clocks.** The hub's `now` is compared with ours once per connection; past 30 s it is a warning
 //   (`hub.clock.skew`), never a correction — keeping the host's clock is the host's job.
-// - **Outgoing.** Envelopes are sealed to the peer's pinned key and written to the outbox (state.json)
-//   BEFORE they are sent; `routed`/`rejected` clears them. A restart sends them again, and the hub
-//   de-duplicates by envelope id.
+// - **Outgoing.** A message is split: the installations stay in clear, the agents, method, task and
+//   payload are sealed to the peer's pinned key (N5). It is written to the outbox (state.json) BEFORE it
+//   is sent; `rejected` clears it, `routed` slims it to the clear message, kept until the bot's own task
+//   expiry so that an `expired` report — by envelope id only — finds its task. A restart sends the
+//   unrouted ones again, and the hub de-duplicates by envelope id.
 // - **Incoming.** A `deliver` is opened (signature against the sender's pinned keys first, then the own
-//   keys), its domain claim checked against the authenticated installation, and handed to the handler.
-//   It is acked only after the handler resolved — the handler records the effect durably first. A
-//   redelivery of an envelope this process already handled is acked and ignored; across restarts the
-//   handler's own record (the task's seen ids) does that.
+//   keys), joined back into the message the bot handles, its domain claim checked against the
+//   authenticated installation, and handed to the handler. It is acked only after the handler resolved —
+//   the handler records the effect durably first. A redelivery of an envelope this process already
+//   handled is acked and ignored; across restarts the handler's own record (the task's seen ids) does that.
+// - **Allow list.** After every `hello`, and when a reload changes the pinned peers, the client sends
+//   them as its allow list (N3): pins decide whose envelopes this installation can verify at all, so
+//   the hub drops the rest before they take a place in its outbox.
 // - **Reports.** `expired`, removals (in `hello` and `presence`) and outcomes go to the hooks; `replaced`
-//   (two bots with one key) and refusals are logged loudly.
+//   (two bots with one key) and refusals (the hub's reason: `name taken`, `reserved`, `unsupported
+//   version`…) are logged loudly.
 // - **Connection.** Exponential backoff with jitter (1 s → 60 s), a `ping` every 30 s (the hub's runtime
 //   answers `pong` without waking the hub), and a connection silent for 90 s is dropped and redialled.
 import { emit, type EventSink } from './events.js';
-import { isId } from './a2a.js';
-import { domainClaimOk, parseAddress, parseEnvelope, parseHubFrame, parsePayload, PROTOCOL_VERSION, type Envelope, type HubFrame, type Payload, type Removed } from './protocol.js';
+import { domainClaimOk, joinEnvelope, parseAddress, parseHubFrame, parseSealed, parseWireEnvelope, PROTOCOL_VERSION, sealedOf, wireHeaderOf, type Envelope, type HubFrame, type Payload, type Removed } from './protocol.js';
 import { fingerprint, open, seal, signChallenge, type KeyFile } from './seal.js';
+import { TASK_EXPIRY_MS } from './expiry.js';
 import type { Delivery, OutboxRecord, PeerTransport, RecordStore, SendOutcome } from './transport.js';
-import { endTasksWithPeer, validKeys, type Peers } from './peers.js';
+import { endTasksWithPeer, pinnedKeys, validKeys, type Peers } from './peers.js';
 import { isOpen, type InTask, type OutTask } from './records.js';
 import type { Store } from '../state.js';
 
@@ -38,6 +47,7 @@ export type SocketFactory = (url: string) => HubSocket;
 export interface HubClientOptions {
   /** HUB_URL: the hub's base (`wss://hub.example.com`); `/connect` is added when the URL names no path. */
   url: string;
+  /** INSTALLATION_ID: the name this installation claims on the hub. */
   installation: string;
   keys: KeyFile;
   /** The pinned peers, read at use time (a reload changes them). */
@@ -58,19 +68,20 @@ export const LONG_OUTAGE_MS = 10 * 60_000;
 export const OUTBOX_WARN = 100;
 const HOUR = 3_600_000;
 const SEEN_MAX = 2_000;
+/** The records still waiting for the hub's answer (routed ones only wait for a possible expiry report). */
+const unrouted = (records: OutboxRecord[]): OutboxRecord[] => records.filter((r) => !r.routedAt);
 
-export const connectUrl = (base: string): string => {
+/**
+ * The URL to dial: `/connect` when the base names no path, and the name this installation claims as
+ * `?as=` (N2) — the hub refuses an `auth` for another name, and a later hub can pick the installation's
+ * own object from it without a protocol change.
+ */
+export const connectUrl = (base: string, name: string): string => {
   const u = new URL(base);
   if (u.pathname === '' || u.pathname === '/') u.pathname = '/connect';
+  u.searchParams.set('as', name);
   return u.toString();
 };
-
-export interface Unsupported {
-  from: string;
-  to?: string;
-  task: string;
-  theirs: unknown;
-}
 
 export interface Expiry {
   id: string;
@@ -95,7 +106,8 @@ export class HubClient implements PeerTransport {
   private seq: number;
   private online: string[] = [];
   private removed: Removed[] = [];
-  private enrolled: string[] = [];
+  /** The allow list as last sent on this connection (JSON), so a reload sends it only when it changed. */
+  private sentAllow?: string;
   private handler?: (d: Delivery) => Promise<void>;
   private readonly waiting = new Map<string, (o: SendOutcome) => void>();
   private readonly inFlight = new Set<number>();
@@ -103,10 +115,9 @@ export class HubClient implements PeerTransport {
   private readonly outcomeHooks: ((env: Envelope, o: SendOutcome) => void)[] = [];
   private readonly expiryHooks: ((e: Expiry) => void)[] = [];
   private readonly presenceHooks: ((p: { online: string[]; removed: Removed[] }) => void)[] = [];
-  private readonly unsupportedHooks: ((u: Unsupported) => void)[] = [];
 
   constructor(private readonly o: HubClientOptions) {
-    this.url = connectUrl(o.url);
+    this.url = connectUrl(o.url, o.installation);
     this.host = new URL(this.url).host;
     this.seq = o.store.load().reduce((m, r) => Math.max(m, r.seq), 0);
   }
@@ -118,15 +129,16 @@ export class HubClient implements PeerTransport {
    */
   async send(env: Envelope, payload?: Payload): Promise<SendOutcome> {
     const peer = parseAddress(env.to)?.installation;
-    const keys = peer ? validKeys(this.o.peers()[peer], new Date()) : [];
+    const keys = peer ? validKeys(pinnedKeys(this.o.peers(), peer), new Date()) : [];
     if (!peer || !keys.length) return { rejected: 'unknown installation' };
-    const sealed = seal({ v: env.v, id: env.id, from: env.from, to: env.to, method: env.method, task: env.task }, payload ?? {}, { signing: this.o.keys.signing, recipientBox: keys[0]!.box });
-    const rec: OutboxRecord = { seq: ++this.seq, env: sealed, at: new Date().toISOString() };
+    if (!payload || !parseAddress(env.from)) return { rejected: 'malformed' };
+    const wire = seal(wireHeaderOf(env), sealedOf(env, payload), { signing: this.o.keys.signing, recipientBox: keys[0]!.box });
+    const rec: OutboxRecord = { seq: ++this.seq, env, wire, at: new Date().toISOString() };
     const records = [...this.o.store.load(), rec];
     this.o.store.save(records); // durable before it can leave
-    if (records.length > OUTBOX_WARN) this.backlog(records);
-    const outcome = new Promise<SendOutcome>((resolve) => this.waiting.set(sealed.id, resolve));
-    if (this.authed) this.frame({ t: 'send', env: sealed });
+    if (unrouted(records).length > OUTBOX_WARN) this.backlog(unrouted(records));
+    const outcome = new Promise<SendOutcome>((resolve) => this.waiting.set(env.id, resolve));
+    if (this.authed) this.frame({ t: 'send', env: wire });
     return outcome;
   }
 
@@ -157,15 +169,11 @@ export class HubClient implements PeerTransport {
     this.presenceHooks.push(h);
   }
   /**
-   * An envelope of a protocol version this release does not know (a newer hub routed it): dropped and
-   * logged here; the answering side tells its sender `rejected: unsupported version` (D5).
+   * Send the allow list again if the pinned peers changed (a reload, N3). Not connected: the next
+   * `hello` sends it anyway.
    */
-  onUnsupported(h: (u: Unsupported) => void): void {
-    this.unsupportedHooks.push(h);
-  }
-  /** The installations the hub enrols, from the last `hello`. */
-  enrolledInstallations(): string[] {
-    return [...this.enrolled];
+  refreshAllow(): void {
+    if (this.authed) this.sendAllow();
   }
   get connected(): boolean {
     return this.authed;
@@ -283,7 +291,7 @@ export class HubClient implements PeerTransport {
     }
     if (!this.authed && this.downSince !== undefined && !this.outageReported && now - this.downSince > LONG_OUTAGE_MS) {
       this.outageReported = true;
-      emit('hub.disconnected.long', { minutes: Math.round((now - this.downSince) / 60_000), outbox: this.o.store.load().length }, { sink: this.o.sink });
+      emit('hub.disconnected.long', { minutes: Math.round((now - this.downSince) / 60_000), outbox: unrouted(this.o.store.load()).length }, { sink: this.o.sink });
     }
   }
 
@@ -305,7 +313,8 @@ export class HubClient implements PeerTransport {
           const skew = Date.parse(f.now) - Date.now();
           if (Number.isFinite(skew) && Math.abs(skew) > SKEW_WARN_MS) emit('hub.clock.skew', { skew_ms: skew }, { sink: this.o.sink });
         }
-        this.frame({ t: 'auth', installation: this.o.installation, sig: signChallenge(this.host, this.o.installation, f.nonce, this.o.keys.signing) });
+        const { installation: name, keys } = this.o;
+        this.frame({ t: 'auth', v: PROTOCOL_VERSION, name, key: keys.signing.public, sig: signChallenge(this.host, name, f.nonce, keys.signing) });
         return;
       }
       case 'hello': {
@@ -313,10 +322,15 @@ export class HubClient implements PeerTransport {
         this.attempt = 0;
         this.downSince = undefined;
         this.outageReported = false;
-        this.enrolled = f.enrolled;
+        this.sentAllow = undefined;
         this.setPresence(f.online, f.removed);
-        const records = this.o.store.load().sort((a, b) => a.seq - b.seq);
-        for (const r of records) this.frame({ t: 'send', env: r.env });
+        this.sendAllow();
+        const records = unrouted(this.o.store.load()).sort((a, b) => a.seq - b.seq);
+        for (const r of records) {
+          if (r.wire) this.frame({ t: 'send', env: r.wire });
+          // Queued by a version-1 release before the upgrade: there is nothing to send, its task ends loudly.
+          else this.settle(r.env.id, { rejected: 'unsupported version' });
+        }
         if (records.length > OUTBOX_WARN) this.backlog(records);
         return;
       }
@@ -327,13 +341,29 @@ export class HubClient implements PeerTransport {
         return this.settle(f.id, { routed: true });
       case 'rejected':
         return this.settle(f.id, { rejected: f.reason });
-      case 'expired':
-        for (const h of this.expiryHooks) h({ id: f.id, task: f.task, to: f.to });
+      case 'expired': {
+        // By envelope id only (N5): the record kept since `routed` names the task. None: the bot's own
+        // task expiry (expiry.ts) ends it anyway.
+        const records = this.o.store.load();
+        const rec = records.find((r) => r.env.id === f.id);
+        if (!rec) return;
+        this.o.store.save(records.filter((r) => r !== rec));
+        for (const h of this.expiryHooks) h({ id: f.id, task: rec.env.task, to: rec.env.to });
         return;
+      }
       case 'deliver':
         void this.deliver(f.seq, f.env);
         return;
     }
+  }
+
+  /** The pinned peers, as the hub's allow list for this installation; sent when it differs from the last one. */
+  private sendAllow(): void {
+    const installations = Object.keys(this.o.peers()).sort();
+    const json = JSON.stringify(installations);
+    if (json === this.sentAllow) return;
+    this.sentAllow = json;
+    this.frame({ t: 'allow', installations });
   }
 
   private setPresence(online: string[], removed: Removed[]): void {
@@ -344,9 +374,12 @@ export class HubClient implements PeerTransport {
 
   private settle(id: string, outcome: SendOutcome): void {
     const records = this.o.store.load();
-    const rec = records.find((r) => r.env.id === id);
+    const rec = records.find((r) => r.env.id === id && !r.routedAt);
     if (!rec) return; // not ours, or settled already
-    this.o.store.save(records.filter((r) => r.env.id !== id));
+    const now = Date.now();
+    const rest = records.filter((r) => r !== rec && !(r.routedAt && now - Date.parse(r.routedAt) > TASK_EXPIRY_MS));
+    // Routed: the clear message stays (no ciphertext, no payload) for the `expired` report; rejected: gone.
+    this.o.store.save('routed' in outcome ? [...rest, { seq: rec.seq, env: rec.env, at: rec.at, routedAt: new Date(now).toISOString() }] : rest);
     if ('rejected' in outcome) emit('hub.rejected', { from: rec.env.from, to: rec.env.to, method: rec.env.method, reason: outcome.rejected }, { sink: this.o.sink });
     this.waiting.get(id)?.(outcome);
     this.waiting.delete(id);
@@ -363,42 +396,43 @@ export class HubClient implements PeerTransport {
     if (this.inFlight.has(seq)) return;
     const drop = (): void => void this.ack(seq);
     const s = (k: string): string | undefined => (typeof raw[k] === 'string' ? (raw[k] as string) : undefined);
-    const parsed = parseEnvelope(raw);
+    const parsed = parseWireEnvelope(raw);
     if (!parsed.ok) {
-      if (parsed.reason === 'unsupported version') {
-        emit('ask.rejected', { from: s('from'), to: s('to'), task: s('task'), reason: 'unsupported version', versions: `theirs ${String(parsed.theirs)}, ours ${PROTOCOL_VERSION}` }, { sink: this.o.sink });
-        const from = s('from');
-        const task = s('task');
-        if (from && task && parseAddress(from) && isId(task)) for (const h of this.unsupportedHooks) h({ from, to: s('to'), task, theirs: parsed.theirs });
-      } else {
-        emit('ask.unexpected', { task: s('task'), from: s('from'), expected: 'a well-formed envelope' }, { sink: this.o.sink });
-      }
+      // Another version's task id is sealed in a form this release cannot read, so its sender cannot be
+      // told here: the hub refuses such envelopes when they are sent (N8). This one is only logged.
+      if (parsed.reason === 'unsupported version') emit('ask.rejected', { from: s('from'), to: s('to'), reason: 'unsupported version', versions: `theirs ${String(parsed.theirs)}, ours ${PROTOCOL_VERSION}` }, { sink: this.o.sink });
+      else emit('ask.unexpected', { from: s('from'), expected: 'a well-formed envelope' }, { sink: this.o.sink });
       return drop();
     }
-    const env = parsed.env;
-    if (this.handled.has(env.id)) {
-      emit('hub.envelope.duplicate', { from: env.from, task: env.task, env_id: env.id }, { sink: this.o.sink });
+    const wire = parsed.env;
+    if (wire.to !== this.o.installation) {
+      emit('ask.unexpected', { from: wire.from, expected: `an envelope for ${this.o.installation}, not for ${wire.to}` }, { sink: this.o.sink });
       return drop();
     }
-    const sender = parseAddress(env.from)!.installation;
-    const pinned = this.o.peers()[sender];
-    const bad = (name: 'hub.envelope.bad_signature' | 'hub.envelope.decrypt_failed', key: string): void =>
-      emit(name, { from: env.from, method: env.method, task: env.task, env_id: env.id, key }, { sink: this.o.sink });
+    if (this.handled.has(wire.id)) {
+      emit('hub.envelope.duplicate', { from: wire.from, env_id: wire.id }, { sink: this.o.sink });
+      return drop();
+    }
+    const sender = wire.from;
+    const pinned = pinnedKeys(this.o.peers(), sender);
+    const bad = (name: 'hub.envelope.bad_signature' | 'hub.envelope.decrypt_failed', key: string): void => emit(name, { from: sender, env_id: wire.id, key }, { sink: this.o.sink });
     if (!pinned?.length) {
       bad('hub.envelope.bad_signature', 'unpinned');
       return drop();
     }
-    const opened = open(env, { senderKeys: validKeys(pinned, new Date()), own: this.o.keys });
+    const opened = open(wire, { senderKeys: validKeys(pinned, new Date()), own: this.o.keys });
     if (!opened.ok) {
       if (opened.reason === 'decrypt_failed') bad('hub.envelope.decrypt_failed', fingerprint(this.o.keys.encryption.public));
       else bad('hub.envelope.bad_signature', pinned.map((k) => fingerprint(k.sign)).join(','));
       return drop();
     }
-    const payload = parsePayload(opened.payload);
-    if (!payload) {
-      emit('ask.unexpected', { task: env.task, from: env.from, expected: 'a valid payload' }, { sink: this.o.sink });
+    const sealed = parseSealed(opened.content);
+    if (!sealed) {
+      emit('ask.unexpected', { from: sender, expected: 'a valid sealed message' }, { sink: this.o.sink });
       return drop();
     }
+    const env = joinEnvelope(wire, sealed);
+    const payload = sealed.payload;
     if (!domainClaimOk(payload.domain, sender)) {
       emit('ask.unexpected', { task: env.task, from: env.from, expected: `a domain of ${sender}, not ${payload.domain}` }, { sink: this.o.sink });
       return drop();
@@ -447,13 +481,16 @@ export function applyHubReports(client: HubClient, store: Store, o: { installati
   });
   client.onOutcome((env, outcome) => {
     if (!('rejected' in outcome)) return;
+    // The hub answers `unknown installation` alike for a name nobody holds and for one that has not
+    // pinned this installation (it does not say who exists, N3): the reason names the likelier cause.
+    const reason = outcome.rejected === 'unknown installation' ? `unknown installation, or it has not pinned ${o.installation}` : outcome.rejected;
     if (env.method === 'ask') {
       const t = store.getOutTask(env.task);
       const first = t !== undefined && t.state === 'submitted' && !t.replies.length;
-      endOut(env.task, first ? 'rejected' : 'failed', outcome.rejected);
+      endOut(env.task, first ? 'rejected' : 'failed', reason);
     } else if (env.method === 'answer') {
       const to = parseAddress(env.to);
-      if (to) endIn(to.installation, env.task, outcome.rejected);
+      if (to) endIn(to.installation, env.task, reason);
     }
   });
   const applied = new Set<string>();

@@ -9,12 +9,16 @@ import { defineConfig } from 'vitest/config';
 
 const jwk = (): { x: string; d: string } => generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' }) as { x: string; d: string };
 const keys: Record<string, { x: string; d: string }> = { home: jwk(), bluefin: jwk(), northwind: jwk(), wrong: jwk(), rotated: jwk() };
+// Version 2 (OpenSpec `hub-open-network`): an open hub with the three test installations reserved; any
+// other name is claimed by the first key that connects with it (the tests make those keys themselves).
 const HUB_CONFIG = JSON.stringify({
-  installations: {
+  registration: 'open',
+  reserved: {
     home: { sign: [{ key: keys.home!.x }] },
     // A rotation in progress: the old key expired, the new one valid.
     bluefin: { sign: [{ key: keys.rotated!.x, notAfter: '2020-01-01T00:00:00Z' }, { key: keys.bluefin!.x }] },
     northwind: { sign: [{ key: keys.northwind!.x }] },
+    mallory: null,
   },
 });
 

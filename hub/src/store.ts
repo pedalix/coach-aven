@@ -1,13 +1,20 @@
-// The hub's state in its Durable Object's SQLite (design D3). Everything the hub knows survives an
-// eviction here, or in the sockets' attachments; the object keeps nothing in memory between messages.
-//   outbox   — per recipient installation, strictly increasing seq, the envelope (header + ciphertext,
-//              re-serialized from the known fields only) and its routing fields; deleted on ack
+// The hub's state in its Durable Object's SQLite (design D3; `hub-open-network`, design N1, N3, N6).
+// Everything the hub knows survives an eviction here, or in the sockets' attachments; the object keeps
+// nothing in memory between messages.
+//   outbox   — per recipient installation, strictly increasing seq, the envelope (the clear header and
+//              the ciphertext, re-serialized from the known fields only), its sender and size; deleted on
+//              ack. Installations only: no agent, method or task (N5)
 //   seqs     — the next seq per installation
 //   routed   — envelope ids already routed, so a re-sent envelope is answered `routed` and stored once
-//   expired  — expiry reports owed to a sender, delivered now or on its next connection
-//   removed  — tombstones: removal is known even with an empty outbox
-//   enrolled — who the configuration enrolled at the last start, to tombstone whoever disappears
-export const SCHEMA_VERSION = 1;
+//   expired  — expiry reports owed to a sender (by envelope id), delivered now or on its next connection
+//   removed  — tombstones: a released or revoked name, so its removal reaches those who allowed it even
+//              with an empty outbox; cleared when the name is claimed again
+//   names    — every name a key holds, claimed first come, first served or admitted as reserved: the key,
+//              when bound and last seen. A reserved name's binding outlives its reservation: dropped from
+//              the configuration, the name stays with the key that last used it
+//   allow    — each installation's allow list: whom it hears from (N3)
+//   claims   — new names claimed per IP address per day (the claim limit)
+export const SCHEMA_VERSION = 2;
 
 const MIGRATIONS: Record<number, string[]> = {
   1: [
@@ -22,6 +29,26 @@ const MIGRATIONS: Record<number, string[]> = {
     `CREATE TABLE IF NOT EXISTS removed (installation TEXT PRIMARY KEY, at TEXT NOT NULL)`,
     `CREATE TABLE IF NOT EXISTS enrolled (installation TEXT PRIMARY KEY)`,
   ],
+  // Version 2 (N6): installation-level rows. Version-1 rows go: no version-2 client can read them, and
+  // only the operator's canary envelopes ever waited in them (their tasks end by the bots' own expiry).
+  2: [
+    `DROP TABLE IF EXISTS outbox`,
+    `DROP TABLE IF EXISTS expired`,
+    `DROP TABLE IF EXISTS removed`,
+    `DROP TABLE IF EXISTS enrolled`,
+    `DELETE FROM seqs`,
+    `DELETE FROM routed`,
+    `CREATE TABLE IF NOT EXISTS outbox (installation TEXT NOT NULL, seq INTEGER NOT NULL, env_id TEXT NOT NULL, sender TEXT NOT NULL,
+       size INTEGER NOT NULL, routed_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, env TEXT NOT NULL, PRIMARY KEY (installation, seq))`,
+    `CREATE INDEX IF NOT EXISTS outbox_expires ON outbox (expires_at)`,
+    `CREATE INDEX IF NOT EXISTS outbox_pair ON outbox (installation, sender)`,
+    `CREATE TABLE IF NOT EXISTS expired (env_id TEXT PRIMARY KEY, sender TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS removed (name TEXT PRIMARY KEY, at TEXT NOT NULL, reason TEXT NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS names (name TEXT PRIMARY KEY, key TEXT NOT NULL UNIQUE, claimed_at INTEGER NOT NULL, last_seen INTEGER NOT NULL)`,
+    `CREATE TABLE IF NOT EXISTS allow (installation TEXT NOT NULL, peer TEXT NOT NULL, PRIMARY KEY (installation, peer))`,
+    `CREATE INDEX IF NOT EXISTS allow_peer ON allow (peer)`,
+    `CREATE TABLE IF NOT EXISTS claims (ip TEXT NOT NULL, day INTEGER NOT NULL, count INTEGER NOT NULL, PRIMARY KEY (ip, day))`,
+  ],
 };
 
 export type OutboxRow = {
@@ -29,14 +56,24 @@ export type OutboxRow = {
   seq: number;
   env_id: string;
   sender: string;
-  to_addr: string;
-  method: string;
-  task: string;
   size: number;
   routed_at: number;
   expires_at: number;
   env: string;
 };
+export type NameRow = {
+  name: string;
+  key: string;
+  claimed_at: number;
+  last_seen: number;
+};
+export type Tombstone = {
+  name: string;
+  at: string;
+  reason: string;
+};
+
+const HOUR_MS = 3_600_000;
 
 export class HubStore {
   constructor(private readonly sql: SqlStorage) {}
@@ -52,8 +89,15 @@ export class HubStore {
     return { from, to: SCHEMA_VERSION };
   }
 
+  // ── outboxes ──────────────────────────────────────────────────────────────────────────────────
   outboxSize(installation: string): { count: number; bytes: number } {
     const r = this.sql.exec<{ c: number; b: number | null }>(`SELECT COUNT(*) AS c, SUM(size) AS b FROM outbox WHERE installation = ?`, installation).one();
+    return { count: r.c, bytes: r.b ?? 0 };
+  }
+
+  /** What one sender has waiting for one recipient (the pair cap, N6). */
+  pairSize(installation: string, sender: string): { count: number; bytes: number } {
+    const r = this.sql.exec<{ c: number; b: number | null }>(`SELECT COUNT(*) AS c, SUM(size) AS b FROM outbox WHERE installation = ? AND sender = ?`, installation, sender).one();
     return { count: r.c, bytes: r.b ?? 0 };
   }
 
@@ -67,8 +111,8 @@ export class HubStore {
     const seq = cur?.next_seq ?? 1;
     this.sql.exec(`INSERT OR REPLACE INTO seqs (installation, next_seq) VALUES (?, ?)`, r.installation, seq + 1);
     this.sql.exec(
-      `INSERT INTO outbox (installation, seq, env_id, sender, to_addr, method, task, size, routed_at, expires_at, env) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      r.installation, seq, r.env_id, r.sender, r.to_addr, r.method, r.task, r.size, r.routed_at, r.expires_at, r.env,
+      `INSERT INTO outbox (installation, seq, env_id, sender, size, routed_at, expires_at, env) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      r.installation, seq, r.env_id, r.sender, r.size, r.routed_at, r.expires_at, r.env,
     );
     this.sql.exec(`INSERT OR REPLACE INTO routed (env_id, at) VALUES (?, ?)`, r.env_id, r.routed_at);
     return { ...r, seq };
@@ -83,13 +127,13 @@ export class HubStore {
   }
 
   /** Move envelopes past their expiry into expiry reports for their senders; returns the reports made. */
-  expire(now: number): { sender: string; env_id: string; task: string; to_addr: string }[] {
+  expire(now: number): { sender: string; env_id: string; installation: string; size: number }[] {
     const rows = this.sql.exec<OutboxRow>(`SELECT * FROM outbox WHERE expires_at <= ?`, now).toArray();
     for (const r of rows) {
       this.sql.exec(`DELETE FROM outbox WHERE installation = ? AND seq = ?`, r.installation, r.seq);
-      this.sql.exec(`INSERT OR REPLACE INTO expired (env_id, sender, task, to_addr) VALUES (?, ?, ?, ?)`, r.env_id, r.sender, r.task, r.to_addr);
+      this.sql.exec(`INSERT OR REPLACE INTO expired (env_id, sender) VALUES (?, ?)`, r.env_id, r.sender);
     }
-    return rows.map((r) => ({ sender: r.sender, env_id: r.env_id, task: r.task, to_addr: r.to_addr }));
+    return rows.map((r) => ({ sender: r.sender, env_id: r.env_id, installation: r.installation, size: r.size }));
   }
 
   /** Dedupe ids are kept a day past the expiry, then forgotten. */
@@ -97,8 +141,8 @@ export class HubStore {
     this.sql.exec(`DELETE FROM routed WHERE at < ?`, before);
   }
 
-  expiredFor(sender: string): { env_id: string; task: string; to_addr: string }[] {
-    return this.sql.exec<{ env_id: string; task: string; to_addr: string }>(`SELECT env_id, task, to_addr FROM expired WHERE sender = ?`, sender).toArray();
+  expiredFor(sender: string): { env_id: string }[] {
+    return this.sql.exec<{ env_id: string }>(`SELECT env_id FROM expired WHERE sender = ?`, sender).toArray();
   }
 
   clearExpired(envId: string): void {
@@ -110,28 +154,87 @@ export class HubStore {
     return r.e ?? undefined;
   }
 
-  removedList(): { installation: string; at: string }[] {
-    return this.sql.exec<{ installation: string; at: string }>(`SELECT installation, at FROM removed ORDER BY installation`).toArray();
+  // ── names (N1) ───────────────────────────────────────────────────────────────────────────────
+  nameRow(name: string): NameRow | undefined {
+    return this.sql.exec<NameRow>(`SELECT * FROM names WHERE name = ?`, name).toArray()[0];
+  }
+  nameOfKey(key: string): string | undefined {
+    return this.sql.exec<{ name: string }>(`SELECT name FROM names WHERE key = ?`, key).toArray()[0]?.name;
+  }
+  boundNames(): NameRow[] {
+    return this.sql.exec<NameRow>(`SELECT * FROM names ORDER BY name`).toArray();
+  }
+  /** Bind a free name to a key; a tombstone of an earlier holder is lifted. */
+  claim(name: string, key: string, now: number): void {
+    this.sql.exec(`INSERT INTO names (name, key, claimed_at, last_seen) VALUES (?, ?, ?, ?)`, name, key, now, now);
+    this.sql.exec(`DELETE FROM removed WHERE name = ?`, name);
+  }
+  /**
+   * Bind a reserved name to the key that used it (a rotation moves the binding to the new key). The
+   * caller has released any other name this key held: one key, one name.
+   */
+  bind(name: string, key: string, now: number): void {
+    this.sql.exec(
+      `INSERT INTO names (name, key, claimed_at, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT (name) DO UPDATE SET key = excluded.key, last_seen = excluded.last_seen`,
+      name, key, now, now,
+    );
+    this.sql.exec(`DELETE FROM removed WHERE name = ?`, name);
+  }
+  /** Mark a claimed name seen; rounded to the hour, so an idle hub writes once per connection at most. */
+  touch(name: string, now: number): void {
+    this.sql.exec(`UPDATE names SET last_seen = ? WHERE name = ? AND last_seen < ?`, now, name, now - HOUR_MS);
+  }
+  idleNames(before: number): string[] {
+    return this.sql.exec<{ name: string }>(`SELECT name FROM names WHERE last_seen < ? ORDER BY name`, before).toArray().map((r) => r.name);
   }
 
+  /** New names claimed from one address bucket (net.ts: an IPv4 address, an IPv6 /64) on one day (UTC day number). */
+  claimCount(bucket: string, day: number): number {
+    return this.sql.exec<{ count: number }>(`SELECT count FROM claims WHERE ip = ? AND day = ?`, bucket, day).toArray()[0]?.count ?? 0;
+  }
+  countClaim(bucket: string, day: number): void {
+    this.sql.exec(`INSERT INTO claims (ip, day, count) VALUES (?, ?, 1) ON CONFLICT (ip, day) DO UPDATE SET count = count + 1`, bucket, day);
+    this.sql.exec(`DELETE FROM claims WHERE day < ?`, day - 1);
+  }
+
+  // ── removals ─────────────────────────────────────────────────────────────────────────────────
+  tombstones(): Tombstone[] {
+    return this.sql.exec<Tombstone>(`SELECT name, at, reason FROM removed ORDER BY name`).toArray();
+  }
+  isTombstoned(name: string): boolean {
+    return this.sql.exec(`SELECT 1 FROM removed WHERE name = ?`, name).toArray().length > 0;
+  }
   /**
-   * Align with the configuration: an installation enrolled before and gone now is tombstoned and its
-   * outbox and expiry reports dropped; one (re-)enrolled loses its tombstone. Returns who was removed.
+   * A released or revoked name: tombstoned, its claim, outbox, expiry reports and allow list dropped.
+   * Others' allow lists that name it stay — their bots drop it when their operators unpin it — so the
+   * removal keeps reaching them.
    */
-  syncEnrolment(configured: string[], at: string): string[] {
-    const before = this.sql.exec<{ installation: string }>(`SELECT installation FROM enrolled`).toArray().map((r) => r.installation);
-    const gone = before.filter((i) => !configured.includes(i));
-    for (const i of gone) {
-      this.sql.exec(`INSERT OR REPLACE INTO removed (installation, at) VALUES (?, ?)`, i, at);
-      this.sql.exec(`DELETE FROM outbox WHERE installation = ?`, i);
-      this.sql.exec(`DELETE FROM seqs WHERE installation = ?`, i);
-      this.sql.exec(`DELETE FROM expired WHERE sender = ?`, i);
-      this.sql.exec(`DELETE FROM enrolled WHERE installation = ?`, i);
-    }
-    for (const i of configured) {
-      this.sql.exec(`INSERT OR IGNORE INTO enrolled (installation) VALUES (?)`, i);
-      this.sql.exec(`DELETE FROM removed WHERE installation = ?`, i);
-    }
-    return gone;
+  remove(name: string, at: string, reason: string): void {
+    this.sql.exec(`INSERT OR REPLACE INTO removed (name, at, reason) VALUES (?, ?, ?)`, name, at, reason);
+    this.sql.exec(`DELETE FROM names WHERE name = ?`, name);
+    this.sql.exec(`DELETE FROM outbox WHERE installation = ?`, name);
+    this.sql.exec(`DELETE FROM seqs WHERE installation = ?`, name);
+    this.sql.exec(`DELETE FROM expired WHERE sender = ?`, name);
+    this.sql.exec(`DELETE FROM allow WHERE installation = ?`, name);
+  }
+  /** A reserved name admitted again (its operator re-reserved it): the tombstone goes. */
+  lift(name: string): void {
+    this.sql.exec(`DELETE FROM removed WHERE name = ?`, name);
+  }
+
+  // ── allow lists (N3) ─────────────────────────────────────────────────────────────────────────
+  allowOf(installation: string): string[] {
+    return this.sql.exec<{ peer: string }>(`SELECT peer FROM allow WHERE installation = ? ORDER BY peer`, installation).toArray().map((r) => r.peer);
+  }
+  allows(installation: string, peer: string): boolean {
+    return this.sql.exec(`SELECT 1 FROM allow WHERE installation = ? AND peer = ?`, installation, peer).toArray().length > 0;
+  }
+  /** The installations whose allow list names `peer`. */
+  allowedBy(peer: string): string[] {
+    return this.sql.exec<{ installation: string }>(`SELECT installation FROM allow WHERE peer = ? ORDER BY installation`, peer).toArray().map((r) => r.installation);
+  }
+  setAllow(installation: string, peers: readonly string[]): void {
+    this.sql.exec(`DELETE FROM allow WHERE installation = ?`, installation);
+    for (const p of peers) this.sql.exec(`INSERT OR IGNORE INTO allow (installation, peer) VALUES (?, ?)`, installation, p);
   }
 }

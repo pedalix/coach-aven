@@ -10,8 +10,9 @@ import { applyHubReports, connectUrl, HubClient, type HubSocket } from './hubcli
 import { generateKeyFile, open, seal, verifyChallenge, type KeyFile } from './seal.js';
 import { memoryStore, type Delivery } from './transport.js';
 import type { EventSink } from './events.js';
-import type { Envelope, Payload } from './protocol.js';
+import type { Envelope, Payload, Sealed, WireEnvelope } from './protocol.js';
 import type { OutTask } from './records.js';
+import { TASK_EXPIRY_MS } from './expiry.js';
 
 const HOME = generateKeyFile();
 const BLUEFIN = generateKeyFile();
@@ -72,7 +73,7 @@ function fakeHub(o: { now?: () => string; removed?: { installation: string; at: 
       return conns[conns.length - 1]!;
     },
     socket: (url: string): HubSocket => {
-      assert.equal(url, 'wss://hub.example/connect');
+      assert.equal(url, 'wss://hub.example/connect?as=home', 'the name it claims, as the hint');
       const c = new FakeConn();
       conns.push(c);
       setImmediate(() => c.push({ t: 'challenge', nonce: `nonce-${conns.length}`, now: o.now?.() ?? new Date().toISOString() }));
@@ -83,8 +84,9 @@ function fakeHub(o: { now?: () => string; removed?: { installation: string; at: 
       await flush();
       const auth = c.frames('auth')[0];
       assert.ok(auth, 'the client answered the challenge');
+      assert.deepEqual({ v: auth.v, name: auth.name, key: auth.key }, { v: 2, name: 'home', key: HOME.signing.public }, 'version 2: the name and the key that claims it');
       assert.ok(verifyChallenge('hub.example', 'home', `nonce-${conns.indexOf(c) + 1}`, String(auth.sig), HOME.signing.public), 'signed with the installation key');
-      c.push({ t: 'hello', now: new Date().toISOString(), enrolled: ['bluefin', 'home', 'northwind'], online: ['bluefin', 'home'], removed: o.removed ?? [] });
+      c.push({ t: 'hello', now: new Date().toISOString(), online: ['bluefin'], removed: o.removed ?? [] });
       await flush();
     },
   };
@@ -99,33 +101,61 @@ function client(hub: FakeHub, over: Partial<ConstructorParameters<typeof HubClie
 }
 
 /** An envelope from bluefin to home, sealed as bluefin's bot would seal it. */
-function fromBluefin(over: Partial<Envelope> = {}, p: Payload = payload({ domain: 'bluefin' }), signer = BLUEFIN): Envelope {
-  const header = { v: 1, id: id(), from: 'bluefin/caldora', to: 'home/owen-ops', method: 'answer' as const, task: TASK, ...over };
-  return seal(header, p, { signing: signer.signing, recipientBox: HOME.encryption.public });
+function fromBluefin(over: Partial<Sealed> = {}, p: Payload = payload({ domain: 'bluefin' }), signer = BLUEFIN): WireEnvelope {
+  const content: Sealed = { from: 'caldora', to: 'owen-ops', method: 'answer', task: TASK, payload: p, ...over };
+  return seal({ v: 2, id: id(), from: 'bluefin', to: 'home' }, content, { signing: signer.signing, recipientBox: HOME.encryption.public });
 }
+/** A message of home's, sealed for bluefin as the client seals it. */
+function toBluefin(env: Envelope): WireEnvelope {
+  return seal({ v: env.v, id: env.id, from: 'home', to: 'bluefin' }, { from: 'owen-ops', to: 'caldora', method: env.method, task: env.task, payload: payload() }, { signing: HOME.signing, recipientBox: BLUEFIN.encryption.public });
+}
+const unrouted = (store: { load(): { routedAt?: string }[] }) => store.load().filter((r) => !r.routedAt);
 
-test('connectUrl — the base URL gets /connect; an explicit path stays', () => {
-  assert.equal(connectUrl('wss://hub.example'), 'wss://hub.example/connect');
-  assert.equal(connectUrl('wss://hub.example/'), 'wss://hub.example/connect');
-  assert.equal(connectUrl('wss://hub.example/aven/connect'), 'wss://hub.example/aven/connect');
+test('connectUrl — the base URL gets /connect and the claimed name as `as`; an explicit path stays', () => {
+  assert.equal(connectUrl('wss://hub.example', 'home'), 'wss://hub.example/connect?as=home');
+  assert.equal(connectUrl('wss://hub.example/', 'home'), 'wss://hub.example/connect?as=home');
+  assert.equal(connectUrl('wss://hub.example/aven/connect', 'bluefin'), 'wss://hub.example/aven/connect?as=bluefin');
 });
 
-test('connect: the challenge is signed with the installation key; after hello the outbox goes out again, and `routed` clears it', async () => {
+test('connect: version-2 `auth` signed with the installation key; after hello the allow list, then the outbox again; `routed` keeps only the clear message', async () => {
   const hub = fakeHub();
   const store = memoryStore();
-  const left = seal({ v: 1, id: id(), from: 'home/owen-ops', to: 'bluefin/caldora', method: 'ask', task: TASK }, payload(), { signing: HOME.signing, recipientBox: BLUEFIN.encryption.public });
-  store.save([{ seq: 7, env: left, at: '2026-10-17T08:00:00.000Z' }]); // written before a restart, never routed
+  const env: Envelope = { v: 2, id: id(), from: 'home/owen-ops', to: 'bluefin/caldora', method: 'ask', task: TASK };
+  store.save([{ seq: 7, env, wire: toBluefin(env), at: '2026-10-17T08:00:00.000Z' }]); // written before a restart, never routed
   const { c } = client(hub, { store });
   const outcomes: string[] = [];
-  c.onOutcome((env, o) => outcomes.push(`${env.id}:${'routed' in o ? 'routed' : o.rejected}`));
+  c.onOutcome((e, o) => outcomes.push(`${e.id}:${'routed' in o ? 'routed' : o.rejected}`));
   c.start();
   await hub.admit();
   assert.equal(c.connected, true);
-  assert.deepEqual(hub.last.frames('send').map((f) => (f.env as Envelope).id), [left.id]);
-  hub.last.push({ t: 'routed', id: left.id });
-  assert.deepEqual(store.load(), []);
-  assert.deepEqual(outcomes, [`${left.id}:routed`]);
-  assert.deepEqual(c.presence(), { online: ['bluefin', 'home'], removed: [] });
+  assert.deepEqual(hub.last.sent.map((f) => f.t), ['auth', 'allow', 'send']);
+  assert.deepEqual(hub.last.frames('allow'), [{ t: 'allow', installations: ['bluefin', 'northwind'] }], 'the pinned peers');
+  assert.deepEqual(hub.last.frames('send').map((f) => (f.env as WireEnvelope).id), [env.id]);
+  hub.last.push({ t: 'routed', id: env.id });
+  assert.deepEqual(unrouted(store), []);
+  const [kept] = store.load();
+  assert.deepEqual({ ...kept, routedAt: undefined }, { seq: 7, env, at: '2026-10-17T08:00:00.000Z', routedAt: undefined }, 'no ciphertext kept');
+  assert.deepEqual(outcomes, [`${env.id}:routed`]);
+  assert.deepEqual(c.presence(), { online: ['bluefin'], removed: [] });
+  c.stop();
+});
+
+test('allow list: sent again only when a reload changes the pinned peers; not before hello', async () => {
+  const hub = fakeHub();
+  let peers: Record<string, ReturnType<typeof pin>> = { ...PEERS };
+  const { c } = client(hub, { peers: () => peers });
+  c.refreshAllow();
+  c.start();
+  await flush();
+  assert.deepEqual(hub.last.frames('allow'), [], 'not before the hub said hello');
+  await hub.admit();
+  c.refreshAllow(); // a reload that changed nothing
+  peers = { bluefin: pin(BLUEFIN) };
+  c.refreshAllow();
+  assert.deepEqual(hub.last.frames('allow'), [
+    { t: 'allow', installations: ['bluefin', 'northwind'] },
+    { t: 'allow', installations: ['bluefin'] },
+  ]);
   c.stop();
 });
 
@@ -149,20 +179,23 @@ test('send: sealed to the peer’s pinned key and recorded before it leaves; onl
   const { c, store } = client(hub);
   c.start();
   await hub.admit();
-  const env: Envelope = { v: 1, id: id(), from: 'home/owen-ops', to: 'bluefin/caldora', method: 'ask', task: TASK };
+  const env: Envelope = { v: 2, id: id(), from: 'home/owen-ops', to: 'bluefin/caldora', method: 'ask', task: TASK };
   const outcome = c.send(env, payload());
   assert.equal(store.load().length, 1, 'recorded first');
-  const sent = hub.last.frames('send')[0]!.env as Envelope;
+  const sent = hub.last.frames('send')[0]!.env as WireEnvelope;
   assert.ok(sent.ct && sent.sig && sent.eph);
-  assert.equal(JSON.stringify(sent).includes('why?'), false, 'nothing readable on the wire');
+  assert.deepEqual([sent.from, sent.to], ['home', 'bluefin'], 'installations in clear');
+  for (const hidden of ['why?', 'owen-ops', 'caldora', TASK]) assert.equal(JSON.stringify(sent).includes(hidden), false, `${hidden} is sealed`);
   const opened = open(sent, { senderKeys: pin(HOME), own: BLUEFIN });
-  assert.ok(opened.ok && (opened.payload as Payload).domain === 'home');
+  assert.ok(opened.ok);
+  assert.deepEqual(opened.ok && opened.content, { from: 'owen-ops', to: 'caldora', method: 'ask', task: TASK, payload: payload() });
   assert.equal(open(sent, { senderKeys: pin(HOME), own: NORTHWIND }).ok, false, 'another peer cannot');
   hub.last.push({ t: 'routed', id: env.id });
   assert.deepEqual(await outcome, { routed: true });
-  assert.deepEqual(store.load(), []);
+  assert.deepEqual(unrouted(store), []);
+  const before = store.load().length;
   assert.deepEqual(await c.send({ ...env, id: id(), to: 'mallory/x' }, payload()), { rejected: 'unknown installation' });
-  assert.deepEqual(store.load(), [], 'an unpinned installation records nothing');
+  assert.equal(store.load().length, before, 'an unpinned installation records nothing');
   c.stop();
 });
 
@@ -189,6 +222,7 @@ test('deliver: opened and handed over; acked only after the handler resolved; a 
   await flush();
   assert.equal(got.length, 2);
   assert.deepEqual(got[1]!.payload?.domain, 'bluefin');
+  assert.deepEqual(got[1]!.env, { v: 2, id: e1.id, from: 'bluefin/caldora', to: 'home/owen-ops', method: 'answer', task: TASK }, 'joined back into the message the bot handles');
   assert.deepEqual(hub.last.frames('ack'), [], 'not before the handler resolved');
   release();
   await flush();
@@ -233,42 +267,46 @@ test('deliver: an envelope this process handled already is acked and ignored', a
   c.stop();
 });
 
-test('tampered envelope: dropped with `bad signature`, acked, no handler; so are an unpinned sender, a foreign domain claim and an unknown version', async () => {
+test('tampered envelope: dropped with `bad signature`, acked, no handler; so are an unpinned sender, a foreign domain claim, another version and one for another installation', async () => {
   const hub = fakeHub();
   const { c, sink } = client(hub);
   let calls = 0;
   c.onDeliver(async () => void calls++);
   c.start();
   await hub.admit();
-  const tampered = { ...fromBluefin(), from: 'bluefin/billing' }; // sender altered in transit
+  const tampered = { ...fromBluefin(), from: 'northwind' }; // sender altered in transit
   const forged = fromBluefin({}, payload({ domain: 'bluefin' }), NORTHWIND); // signed with another key
-  const unpinned = { ...fromBluefin(), from: 'mallory/x' };
+  const unpinned = { ...fromBluefin(), from: 'mallory' };
   const claim = fromBluefin({}, payload({ domain: 'northwind' }));
-  const future = { ...fromBluefin(), v: 2 };
-  [tampered, forged, unpinned, claim, future].forEach((env, i) => hub.last.push({ t: 'deliver', seq: 10 + i, env }));
+  const future = { ...fromBluefin(), v: 3 };
+  const elsewhere = { ...fromBluefin(), to: 'northwind' };
+  [tampered, forged, unpinned, claim, future, elsewhere].forEach((env, i) => hub.last.push({ t: 'deliver', seq: 10 + i, env }));
   await flush();
   assert.equal(calls, 0);
-  assert.deepEqual(hub.last.frames('ack').map((f) => f.seq), [10, 11, 12, 13, 14]);
+  assert.deepEqual(hub.last.frames('ack').map((f) => f.seq), [10, 11, 12, 13, 14, 15]);
   const names = sink.lines.map((l) => l.split(' ')[1]);
-  assert.deepEqual(names, ['hub.envelope.bad_signature', 'hub.envelope.bad_signature', 'hub.envelope.bad_signature', 'ask.unexpected', 'ask.rejected']);
+  assert.deepEqual(names, ['hub.envelope.bad_signature', 'hub.envelope.bad_signature', 'hub.envelope.bad_signature', 'ask.unexpected', 'ask.rejected', 'ask.unexpected']);
   assert.match(sink.lines[2]!, /key=unpinned/);
   assert.match(sink.lines[3]!, /a domain of bluefin, not northwind/);
-  assert.match(sink.lines[4]!, /reason="unsupported version" versions="theirs 2, ours 1"/);
+  assert.match(sink.lines[4]!, /reason="unsupported version" versions="theirs 3, ours 2"/);
+  assert.match(sink.lines[5]!, /an envelope for home, not for northwind/);
   assert.ok(!sink.lines.join('\n').includes(BLUEFIN.signing.public), 'fingerprints only, never a key');
   c.stop();
 });
 
-test('unknown version: the answering side hears of it, to tell the sender', async () => {
+test('a version-1 record left in the outbox at the upgrade: nothing to send, its task ends `rejected: unsupported version`', async () => {
   const hub = fakeHub();
-  const { c } = client(hub);
-  const heard: unknown[] = [];
-  c.onUnsupported((u) => heard.push(u));
+  const store = memoryStore();
+  const old: Envelope = { v: 1, id: id(), from: 'home/owen-ops', to: 'bluefin/caldora', method: 'ask', task: TASK };
+  store.save([{ seq: 3, env: old, at: '2026-10-17T08:00:00.000Z' }]);
+  const { c } = client(hub, { store });
+  const outcomes: string[] = [];
+  c.onOutcome((e, o) => outcomes.push(`${e.id}:${'routed' in o ? 'routed' : o.rejected}`));
   c.start();
   await hub.admit();
-  const future = { ...fromBluefin({ method: 'ask' }), v: 2 };
-  hub.last.push({ t: 'deliver', seq: 20, env: future });
-  await flush();
-  assert.deepEqual(heard, [{ from: 'bluefin/caldora', to: 'home/owen-ops', task: TASK, theirs: 2 }]);
+  assert.deepEqual(hub.last.frames('send'), []);
+  assert.deepEqual(outcomes, [`${old.id}:unsupported version`]);
+  assert.deepEqual(store.load(), []);
   c.stop();
 });
 
@@ -294,11 +332,11 @@ test('refused at auth: `hub.connect.failed` with the reason, once per hour while
   c.start();
   for (let i = 0; i < 3; i++) {
     await flush();
-    hub.last.drop(4003, 'bad_sig');
+    hub.last.drop(4003, 'name taken');
     t.mock.timers.tick(60_000);
   }
   assert.ok(hub.conns.length >= 3);
-  assert.deepEqual(sink.lines.filter((l) => l.includes('hub.connect.failed')), ['messaging hub.connect.failed installation=home reason=bad_sig']);
+  assert.deepEqual(sink.lines.filter((l) => l.includes('hub.connect.failed')), ['messaging hub.connect.failed installation=home reason="name taken"']);
   c.stop();
 });
 
@@ -306,7 +344,8 @@ test('silent for 90 s: dropped and redialled; offline for 10 minutes: reported o
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: Date.parse('2026-10-17T08:00:00.000Z') });
   const hub = fakeHub();
   const { c, sink, store } = client(hub);
-  store.save([{ seq: 1, env: { v: 1, id: id(), from: 'home/owen-ops', to: 'bluefin/caldora', method: 'ask', task: TASK }, at: '2026-10-17T08:00:00.000Z' }]);
+  const queued: Envelope = { v: 2, id: id(), from: 'home/owen-ops', to: 'bluefin/caldora', method: 'ask', task: TASK };
+  store.save([{ seq: 1, env: queued, wire: toBluefin(queued), at: '2026-10-17T08:00:00.000Z' }]);
   c.start();
   await hub.admit();
   t.mock.timers.tick(30_000);
@@ -355,15 +394,67 @@ test('expired and rejected: the first message rejected ends the task `rejected`;
   applyHubReports(c, store, { installation: 'home', onEnded: (t) => ended.push(`${t.id.slice(0, 1)}:${t.state}:${t.reason}`) });
   c.start();
   await hub.admit();
-  const first = { v: 1, id: id(), from: 'home/owen-ops', to: 'northwind/ledger', method: 'ask' as const, task: TASK };
-  const reply = { v: 1, id: id(), from: 'home/owen-ops', to: 'bluefin/caldora', method: 'ask' as const, task: 'b'.repeat(24) };
+  const first = { v: 2, id: id(), from: 'home/owen-ops', to: 'northwind/ledger', method: 'ask' as const, task: TASK };
+  const reply = { v: 2, id: id(), from: 'home/owen-ops', to: 'bluefin/caldora', method: 'ask' as const, task: 'b'.repeat(24) };
   void c.send(first, payload());
   void c.send(reply, payload());
   hub.last.push({ t: 'rejected', id: first.id, reason: 'backlog' });
   hub.last.push({ t: 'rejected', id: reply.id, reason: 'backlog' });
   assert.deepEqual(ended, ['a:rejected:backlog', 'b:failed:backlog']);
   assert.deepEqual(outbox.load(), []);
-  hub.last.push({ t: 'expired', id: id(), task: 'd'.repeat(24), to: 'northwind/ledger' });
-  assert.deepEqual(ended.slice(2), ['d:failed:expired'], 'our answer that never reached its asker');
+  // Our answer that never reached its asker: the hub reports the envelope id only; the routed record names the task.
+  const answer = { v: 2, id: id(), from: 'home/caldora', to: 'northwind/ledger', method: 'answer' as const, task: 'd'.repeat(24) };
+  void c.send(answer, payload());
+  hub.last.push({ t: 'routed', id: answer.id });
+  hub.last.push({ t: 'expired', id: id() }); // an id this client never sent: nothing to end
+  hub.last.push({ t: 'expired', id: answer.id });
+  assert.deepEqual(ended.slice(2), ['d:failed:expired']);
+  assert.deepEqual(outbox.load(), [], 'the report used the record up');
+  c.stop();
+});
+
+test('rejected `unknown installation`: the reason names the likelier cause, a missing pin on the other side', async () => {
+  const hub = fakeHub();
+  const { c } = client(hub);
+  const store = storeWithTasks();
+  const ended: string[] = [];
+  applyHubReports(c, store, { installation: 'home', onEnded: (t) => ended.push(`${t.id.slice(0, 1)}:${t.state}:${t.reason}`) });
+  c.start();
+  await hub.admit();
+  const first = { v: 2, id: id(), from: 'home/owen-ops', to: 'northwind/ledger', method: 'ask' as const, task: TASK };
+  void c.send(first, payload());
+  hub.last.push({ t: 'rejected', id: first.id, reason: 'unknown installation' });
+  assert.deepEqual(ended, ['a:rejected:unknown installation, or it has not pinned home']);
+  c.stop();
+});
+
+test('routed records are kept for an expiry report only until the bot’s own task expiry', async () => {
+  const hub = fakeHub();
+  const store = memoryStore();
+  const stale: Envelope = { v: 2, id: id(), from: 'home/owen-ops', to: 'bluefin/caldora', method: 'ask', task: TASK };
+  store.save([{ seq: 1, env: stale, at: '2026-01-01T00:00:00.000Z', routedAt: new Date(Date.now() - TASK_EXPIRY_MS - 60_000).toISOString() }]);
+  const { c } = client(hub, { store });
+  c.start();
+  await hub.admit();
+  assert.deepEqual(hub.last.frames('send'), [], 'a routed record is never sent again');
+  const env: Envelope = { ...stale, id: id() };
+  void c.send(env, payload());
+  hub.last.push({ t: 'routed', id: env.id });
+  assert.deepEqual(store.load().map((r) => r.env.id), [env.id], 'the stale one pruned on the next settle');
+  c.stop();
+});
+
+test('a peer named like an Object.prototype member: `constructor` unpinned is unknown on send, and unpinned on delivery — never a crash', async () => {
+  const hub = fakeHub();
+  const { c, sink } = client(hub);
+  c.onDeliver(async () => assert.fail('no handler for an unpinned sender'));
+  c.start();
+  await hub.admit();
+  const env: Envelope = { v: 2, id: id(), from: 'home/owen-ops', to: 'constructor/x', method: 'ask', task: TASK };
+  assert.deepEqual(await c.send(env, payload()), { rejected: 'unknown installation' });
+  hub.last.push({ t: 'deliver', seq: 30, env: { ...fromBluefin(), from: 'constructor' } });
+  await flush();
+  assert.deepEqual(hub.last.frames('ack'), [{ t: 'ack', seq: 30 }]);
+  assert.match(sink.lines.find((l) => l.includes('hub.envelope.bad_signature'))!, /from=constructor .*key=unpinned/);
   c.stop();
 });

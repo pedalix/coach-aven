@@ -55,8 +55,8 @@ Changes within one version SHALL be additive only. Version 2 SHALL replace versi
 - **THEN** prod answers the task and ignores the field
 
 #### Scenario: Unknown version
-- **WHEN** an envelope arrives with a version the receiver does not support
-- **THEN** no turn starts, the sender is told `rejected: unsupported version`, and a warning names both versions
+- **WHEN** an installation sends an envelope of a version the hub or the receiver does not support
+- **THEN** no turn starts, the sender is told `rejected: unsupported version` by the hub when it is sent, and a receiver that gets one anyway drops it with a warning that names both versions
 
 #### Scenario: Version 1 installation
 - **WHEN** an installation still on a version-1 release connects to a version-2 hub

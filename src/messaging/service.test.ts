@@ -582,3 +582,51 @@ test('process lost a message (D16): an error with the task, the session key and 
   assert.equal(h.turns.filter((t) => t.slug === 'owen-ops').length, 1, 'delivered again as a turn');
 });
 
+
+// ── hub-open-network: addresses on other hubs, peers that have not pinned this installation ──────
+test('Address on another hub: refused at once, saying other hubs are not supported; nothing is sent', async () => {
+  const sent: Any[] = [];
+  const hub = { kind: 'hub', send: async (env: Any) => (sent.push(env), { routed: true }), onDeliver: () => {}, ack: async () => {}, presence: () => ({ online: ['bluefin'], removed: [] }) };
+  const h = harness([owenOps(), caldora()], { peers: { bluefin: [{ sign: 'x', box: 'y' }] }, hub });
+  const r = send(h, 'bluefin@hub.example.org/caldora', 'x');
+  assert.equal(r.ok, false);
+  assert.match((r as Any).error, /addresses on other hubs .* are not supported/);
+  const a = await h.svc.agents(h.tool(OWEN, 'owen-ops'), 'bluefin@hub.example.org');
+  assert.match((a as Any).error, /addresses on other hubs .* are not supported/);
+  await flush();
+  assert.deepEqual(sent, []);
+  assert.equal(h.store.messagingTasks().out.length, 0);
+});
+
+test('Peer has not pinned us: `agents` answers `offline` at once, with the note that the peer may not have pinned this installation', async () => {
+  const hub = { kind: 'hub', send: async () => ({ routed: true }), onDeliver: () => {}, ack: async () => {}, presence: () => ({ online: [], removed: [] }) };
+  const h = harness([owenOps(), caldora()], { peers: { northwind: [{ sign: 'x', box: 'y' }] }, hub });
+  const r = await h.svc.agents(h.tool(OWEN, 'owen-ops'), 'northwind');
+  assert.deepEqual(data(r), { installation: 'northwind', offline: true, note: 'offline, or northwind has not pinned home' });
+});
+
+test('target `constructor/x`: a name nobody pinned is unknown — never Object.prototype’s member, never a crash', () => {
+  const h = harness([owenOps(), caldora()]);
+  const r = send(h, 'constructor/x', 'q');
+  assert.equal(r.ok, false);
+  assert.match((r as Any).error, /unknown installation "constructor"/);
+});
+
+test('a delivery from the hub for an agent this installation does not have: answered `rejected: not accepted`, as for one that does not accept the caller (design N5)', async () => {
+  const sent: Any[] = [];
+  let acked = 0;
+  const hub = { kind: 'hub', send: async (env: Any, p: Any) => (sent.push([env, p]), { routed: true }), onDeliver: () => {}, ack: async () => void acked++, presence: () => ({ online: ['northwind'], removed: [] }) };
+  const h = harness([owenOps(), caldora()], { peers: { northwind: [{ sign: 'x', box: 'y' }] }, hub });
+  await h.svc.onDelivery(hub as Any, {
+    seq: 1,
+    env: { v: 2, id: 'b'.repeat(24), from: 'northwind/ledger', to: 'home/ghost', method: 'ask', task: 'c'.repeat(24) },
+    payload: { message: { role: 'user', parts: [{ kind: 'text', text: 'q' }], messageId: 'c'.repeat(24) }, domain: 'northwind', marks: {}, depth: 0 },
+  });
+  await flush();
+  assert.equal(acked, 1);
+  assert.equal(h.turns.length, 0);
+  assert.equal(sent.length, 1);
+  assert.deepEqual([sent[0][0].from, sent[0][0].to, sent[0][0].method, sent[0][0].task], ['home/ghost', 'northwind/ledger', 'answer', 'c'.repeat(24)]);
+  assert.equal(sent[0][1].message.state, 'rejected');
+  assert.match(JSON.stringify(sent[0][1].message), /not accepted/);
+});

@@ -27,6 +27,8 @@ export function sentryOptions(env: SentryEnv): CloudflareOptions {
 
 /** One Sentry event per key per hour: a bot with a wrong key redials every minute, and its every refusal is in the logs anyway. */
 export const SENTRY_REPEAT_MS = 3_600_000;
+/** The dedupe map's bound: keys can come from clients (a refusal's reason), so it must not grow without one. */
+export const SENTRY_KEYS_MAX = 256;
 const lastSent = new Map<string, number>();
 
 export interface SentryLine {
@@ -56,6 +58,9 @@ export function toSentry(level: Level, event: string, fields: Record<string, unk
   };
 }
 
+/** How many dedupe keys are held now (tests). */
+export const sentryKeys = (): number => lastSent.size;
+
 export function log(level: Level, event: string, fields: Record<string, unknown> = {}, now = Date.now()): void {
   const line = JSON.stringify({ event, ...fields });
   if (level === 'error') console.error(line);
@@ -65,6 +70,8 @@ export function log(level: Level, event: string, fields: Record<string, unknown>
   if (!s) return;
   const last = lastSent.get(s.key);
   if (last !== undefined && now - last < SENTRY_REPEAT_MS) return;
+  lastSent.delete(s.key); // re-inserted last: the map's order is the order of last sending
   lastSent.set(s.key, now);
+  if (lastSent.size > SENTRY_KEYS_MAX) for (const [k, at] of lastSent) if (now - at >= SENTRY_REPEAT_MS || lastSent.size > SENTRY_KEYS_MAX) lastSent.delete(k);
   captureMessage(s.message, { level: s.level, tags: s.tags });
 }

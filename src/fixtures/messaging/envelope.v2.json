@@ -1,0 +1,30 @@
+{
+  "_comment": "A version-2 envelope as it travels between installations, and what it seals (OpenSpec hub-open-network, design N5): only the installations are in clear. Within version 2 changes are additive only, so later releases must keep parsing these. Fictional installations and values.",
+  "envelope": {
+    "v": 2,
+    "id": "5f0c1d2e3a4b59687a6b5c4d",
+    "from": "home",
+    "to": "bluefin",
+    "eph": "q2v8m1Zk3yGd5o0rB7tH4sJ9wE6uN2cX1aL8pQ0fR3k",
+    "ct": "u7Hk2Lw9pA4sD1fG6jK3zX8cV5bN0mQ2wE7rT4yU9iO1pA3sD6fG",
+    "sig": "Zx9Cv8Bn7Mm6Ll5Kk4Jj3Hh2Gg1Ff0Ee9Dd8Cc7Bb6Aa5Zz4Yy3Xx2Ww1Vv0Uu9Tt8Ss7Rr6Qq5Pp4Oo3Nn2Mm1Ll0Kk"
+  },
+  "sealed": {
+    "from": "owen-ops",
+    "to": "caldora",
+    "method": "ask",
+    "task": "0f1e2d3c4b5a69788796a5b4",
+    "payload": {
+      "message": {
+        "role": "user",
+        "parts": [{ "kind": "text", "text": "Which orders of caldora failed today, and why?" }],
+        "messageId": "5f0c1d2e3a4b59687a6b5c4d",
+        "taskId": "0f1e2d3c4b5a69788796a5b4"
+      },
+      "domain": "home",
+      "toDomain": "bluefin",
+      "marks": { "northwind": ["northwind", "home"] },
+      "depth": 0
+    }
+  }
+}
