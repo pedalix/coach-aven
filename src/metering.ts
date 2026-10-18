@@ -59,6 +59,10 @@ export function costOf(r: UsageRecord): { usd: number; legacyUsd: number } {
   return u.costUsdCumulative === undefined ? { usd: 0, legacyUsd: u.costUsd } : { usd: u.costUsd, legacyUsd: 0 };
 }
 
+// One turn's own dollars, by the same rule: undefined for a figure written before per-turn cost.
+export const turnUsd = (u: TurnUsage | undefined): number | undefined =>
+  u?.costUsd !== undefined && u.costUsdCumulative !== undefined ? u.costUsd : undefined;
+
 // The stamp the scheduler puts on a routine turn's record (optional: live turns, and every
 // record from before the stamp existed, carry none). Read structurally so this cut neither
 // depends on nor conflicts with the fields' declaration on UsageRecord.

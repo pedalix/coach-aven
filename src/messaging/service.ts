@@ -20,7 +20,7 @@ import type { ChatDriver } from '../chat/driver.js';
 import type { ShadowDriver } from '../chat/shadow/driver.js';
 import { parseShadowKey, shadowKey } from '../chat/shadow/driver.js';
 import { STREAM_MAX_MS, type InjectOutcome } from '../claudeSession.js';
-import type { UsageLog } from '../metering.js';
+import { turnUsd, type UsageLog } from '../metering.js';
 import { projectOwnerTeam, resolveBySlug, type ProjectConfig, type RegistryRef } from '../projects.js';
 import { localDate } from '../routineguard.js';
 import type { Store } from '../state.js';
@@ -66,6 +66,8 @@ export interface MessagingDeps {
 export const MAX_DEPTH = 3;
 export const MAX_INJECTIONS = 5;
 export const AGENTS_TIMEOUT_MS = 10_000;
+/** How far back the metered turns of a task are looked up: past the task records' 30-day retention. */
+export const TASK_COST_WINDOW_MS = 31 * 86_400_000;
 export const NUDGE_TEXT = 'Nothing is outstanding any more on the task from another agent: give your final answer to the task now.';
 
 export type ToolReply = { ok: true; data: Record<string, unknown> } | { ok: false; error: string };
@@ -747,7 +749,7 @@ export function createMessaging(d: MessagingDeps) {
           sendStatus(cur, 'working');
         }
       },
-      onAnswer: async (text) => settleShadowTurn(key, { ok: true, text }),
+      onAnswer: async (text, usage) => settleShadowTurn(key, { ok: true, text, turnUsd: turnUsd(usage) }),
       onSettle: async (outcome, reason) => {
         if (outcome !== 'ok') await settleShadowTurn(key, { ok: false, reason: outcome === 'canceled' ? 'canceled' : reason ?? outcome });
       },
@@ -767,7 +769,7 @@ export function createMessaging(d: MessagingDeps) {
     };
   }
 
-  async function settleShadowTurn(key: string, o: { ok: true; text: string; unsolicited?: boolean } | { ok: false; reason: string }): Promise<void> {
+  async function settleShadowTurn(key: string, o: { ok: true; text: string; unsolicited?: boolean; turnUsd?: number } | { ok: false; reason: string }): Promise<void> {
     const t = taskOfKey(key);
     if (!t) return;
     if (!isOpen(t)) {
@@ -785,13 +787,24 @@ export function createMessaging(d: MessagingDeps) {
       d.store.patchInTask(t.origin, t.id, { last: { at: iso(), role: 'agent', state: t.state, text: o.text } });
       return;
     }
-    const cost = undefined;
+    const cost = taskCost(t.id, o.turnUsd);
     if (!sendStatus(t, 'completed', { text: o.text, ...(cost !== undefined ? { cost } : {}) })) {
       endIn(t.origin, t.id, 'failed', 'refused by marks');
       sendStatus(t, 'failed', { reason: 'refused by marks' });
       return;
     }
     endIn(t.origin, t.id, 'completed');
+  }
+
+  /**
+   * What a task's answering turns cost (D17), reported with its final status: the turns already metered
+   * for it (their usage records carry the task id), plus the turn that answers — metered only after it
+   * settles, so its figure comes with the answer. Undefined when there is no figure at all.
+   */
+  function taskCost(taskId: string, answering: number | undefined): number | undefined {
+    const metered = (d.usageLog?.read(TASK_COST_WINDOW_MS) ?? []).filter((r) => (r as { taskId?: string }).taskId === taskId).map((r) => turnUsd(r.usage));
+    const usd = [...metered, answering].filter((x): x is number => x !== undefined);
+    return usd.length ? Math.round(usd.reduce((a, b) => a + b, 0) * 1e6) / 1e6 : undefined;
   }
 
   /**
