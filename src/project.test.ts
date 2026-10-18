@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composerAuthScript, seedGatewayAuth, seedGitHubAuth } from './project.js';
+import { composerAuthScript, repoSkillDirs, seedGatewayAuth, seedGitHubAuth, skillOrigins } from './project.js';
+import type { Config } from './config.js';
 import type { SandboxHandle } from './driver.js';
 
 test('composerAuthScript — http-basic + x-access-token (the only form GitHub accepts for ghs_ tokens), token read from file, per-checkout guard', () => {
@@ -103,4 +104,23 @@ test('seedGitHubAuth tolerant (ROUTINE_GUARD): a transient gh failure is retried
   const timeout = ghSandbox([124], '');
   await seedGitHubAuth(timeout.sandbox, 'ghs_x', 'tolerant', quiet);
   assert.equal(timeout.ghCalls().length, 1); // not transient → no retry, still not fatal
+});
+
+// ── repo skills (OpenSpec agent-skills) ────────────────────────────────────────────────────────────
+const skillCfg = (repoSkills: boolean) => ({ sandbox: { workDir: '/root/work' }, repoSkills }) as unknown as Config;
+
+test('repoSkillDirs — a multi-repo project loads every checkout with --add-dir; a single-repo project needs none (its cwd is the repo); REPO_SKILLS=0 turns it off', () => {
+  assert.deepEqual(repoSkillDirs(skillCfg(true), 'acme-suite', ['AcmeOrg/acme-admin', 'AcmeOrg/acme-shop']), ['/root/work/acme-suite/acme-admin', '/root/work/acme-suite/acme-shop']);
+  assert.deepEqual(repoSkillDirs(skillCfg(true), 'caldora', ['Org/caldora']), []);
+  assert.deepEqual(repoSkillDirs(skillCfg(false), 'acme-suite', ['AcmeOrg/acme-admin', 'AcmeOrg/acme-shop']), []);
+});
+
+test('skillOrigins — the scanner looks exactly where the session loads skills: the cwd, then the --add-dir checkouts', () => {
+  assert.deepEqual(skillOrigins(skillCfg(true), 'caldora', ['Org/caldora']), [{ origin: 'caldora', dir: '/root/work/caldora/caldora' }]);
+  assert.deepEqual(skillOrigins(skillCfg(true), 'acme-suite', ['AcmeOrg/acme-admin', 'AcmeOrg/acme-shop']), [
+    { origin: 'project', dir: '/root/work/acme-suite' },
+    { origin: 'acme-admin', dir: '/root/work/acme-suite/acme-admin' },
+    { origin: 'acme-shop', dir: '/root/work/acme-suite/acme-shop' },
+  ]);
+  assert.deepEqual(skillOrigins(skillCfg(false), 'acme-suite', ['AcmeOrg/acme-admin', 'AcmeOrg/acme-shop']), [{ origin: 'project', dir: '/root/work/acme-suite' }]);
 });

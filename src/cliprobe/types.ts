@@ -48,6 +48,8 @@ export interface ScenarioMeta {
   keepPartials?: boolean;
   /** Upper bound for one run, ms (default 4 minutes). */
   timeoutMs?: number;
+  /** Files written into the CLI's working directory before it starts (e.g. a project skill), paths relative to it. */
+  files?: Readonly<Record<string, string>>;
 }
 
 export interface Scenario<Ctx = unknown> {

@@ -1,90 +1,45 @@
 ## 0. Order
 
-- [ ] 0.1 Before coding, re-read the four requirements this change modifies as they stand then: "The receiving agent decides who may ask it", "Discovery through agent cards", "Agent tools mirror A2A operations" and "Terminal states are reported". They live in `openspec/changes/agent-messaging`, `hub-open-network` and `retire-agent-dispatch`, or in `openspec/specs/agent-messaging` once those are archived. Bring the MODIFIED blocks here up to date. `retire-agent-dispatch` has merged (#44), so `wrapTask` and the tool descriptions are settled. Verify: `openspec validate agent-skills --strict`.
+- [x] 0.1 The MODIFIED requirements ("Discovery through agent cards", "Agent tools mirror A2A operations", "Terminal states are reported") carry the text of `hub-open-network` and `retire-agent-dispatch` as merged (#40–#44). Verify: `openspec validate agent-skills --strict`.
 - [ ] 0.2 Archive in order: `agent-messaging` → `hub-open-network` → `retire-agent-dispatch` → `agent-skills`. Verify: each `openspec archive`, then `openspec validate --all --strict`.
 
-## 1. Finding skills
+## 1. Repo skills for multi-repo projects (bucket 1)
 
-- [ ] 1.1 `src/skills.ts`: a pure parser for a `SKILL.md` frontmatter (`name`, `description`; tolerant of other keys; a missing or invalid name yields no skill), and the fact shape `project_skills` (design S1).
-  - The fact value is `[{name, description, origin, loadable, clash?}]`, with sources `<repo>@<commit>:<path>`.
-  - Verify: `src/skills.test.ts` (real-shaped files, a multi-line description, no frontmatter, a clash between two origins).
-- [ ] 1.2 The scan runs at prepare time, beside `scanDependencyRepos` (`src/tasks.ts`). Inside the sandbox it lists `.claude/skills/*/SKILL.md` in the project folder and in each checkout, and writes the fact; `loadable` follows design S1 and S2. It runs for every project and changes nothing a session sees. Verify: `src/skills.test.ts` (the sandbox call through the test driver), and the existing `tasks` tests unchanged.
-- [ ] 1.3 `src/claudeSession.ts`, `noteCli`: keep `init.skills` on the session. When a skill the project offers is missing from it, log `skills.not.loaded`, a warning. Verify: `src/claudeSession.test.ts` (an `init` frame with and without the skill).
-- [ ] 1.4 `docs/project-facts.md`: the second writer (`project_skills`), its readers (cards, the task check), and its provenance. Reviewed in the PR.
+- [x] 1.1 `src/config.ts`: `REPO_SKILLS`, on unless `0`/`false`/`off`/`no` (`repoSkillsEnv`). Verify: `src/config.test.ts` ("REPO_SKILLS — on unless…").
+- [x] 1.2 `src/project.ts`: `repoSkillDirs` (each checkout of a multi-repo project; none for a single repo or with the switch off) and `skillOrigins` (where the session loads skills). Verify: `src/project.test.ts`.
+- [x] 1.3 `src/claudeSession.ts`: `addDirs` → `--add-dir <dirs…>` last on the spawn line; `src/tasks.ts` passes them to every session it opens. Verify: `src/claudeSession.test.ts` ("repo skills — … none → byte-identical"), and the existing spawn-line tests unchanged.
 
-## 2. Multi-repo projects: `repoSkills`
+## 2. Finding skills
 
-- [ ] 2.1 `src/projects.ts`: an optional project field `repoSkills: boolean`, validated, off by default. Verify: `src/projects.test.ts`.
-- [ ] 2.2 With `repoSkills`, a multi-repo project's sessions launch with `--add-dir <checkout>` for each repo, through `claudeLaunch`'s `extraArgs`. Verify: `src/claudeSession.test.ts`, the spawn-line tests. They must show:
-  - the flag present for a multi-repo project with `repoSkills`;
-  - no change for a single-repo project;
-  - no change for any project without the field (the existing goldens are byte-identical).
-- [ ] 2.3 A cli-probe contract scenario, `add-dir-loads-skills` (`src/cliprobe/scenarios/contract.ts`): a skill folder under an `--add-dir` directory appears in `init.skills`. Record it on the pinned CLI and add it to the version's report. Verify: `npm run cli-probe` on the operator's machine (live runs never run in CI), then `src/cliprobe/gate.test.ts` and the replay tests.
+- [x] 2.1 `src/skills.ts`: the scan shell (frontmatter only, per origin, with the commit), the pure frontmatter parser (scalars, quoted, block, continued, block and flow lists), `skillFromFrontmatter` (name fallback, caps, malformed keys as problems), `parseSkillsScan` (origins, provenance, clashes). Verify: `src/skills.test.ts`.
+- [x] 2.2 `src/facts.ts`: the `project_skills` fact and `projectSkills()`; `prepareChat` scans a project whose card offers skills (`messaging.skills` set, passed by `src/turn.ts`). Verify: `src/skills.test.ts` ("scanProjectSkills — records the fact…; a failed scan keeps the previous fact").
 
 ## 3. Exposure and cards
 
-- [ ] 3.1 `src/messaging/config.ts`:
-  - validate `messaging.skills`: kebab-case names, unique, at most 16;
-  - validate `accept` objects: `{from, skills}`, where `from` is a valid string entry and every skill is in `messaging.skills`;
-  - errors name the project and the entry.
-  - Verify: `src/messaging/config.test.ts`.
-- [ ] 3.2 `src/messaging/protocol.ts`: the matcher accepts the object form and returns which skills a matching entry allows. The union over matching entries is the caller's set (design S3). Verify: `src/messaging/protocol.test.ts`, with the existing accept tests unchanged.
-- [ ] 3.3 `src/messaging/a2a.ts`: the `AgentSkill` type `{id, name, description, tags}` and the required `AgentCard.skills`. `parseCard` keeps well-formed skills and reads a card without the field as `[]`. Verify: `src/messaging/a2a.test.ts`.
-- [ ] 3.4 Cards per caller. In `src/messaging/service.ts`, `localCards` and the `cards` answer carry the skills the caller may use: the allowlist, intersected with the loadable, non-clashing `project_skills`, narrowed by `accept`. A card with none carries `skills: []`. A listed but missing name logs `skills.missing`, once per scan, with its reason. Verify: `src/messaging/service.test.ts`:
-  - "Nothing offered by default";
-  - "Allowlisted skill";
-  - "Narrowed for one sender";
-  - "Listed but not found";
-  - "Agent without skills";
-  - "Card with skills" through the hub test transport.
+- [x] 3.1 `src/messaging/config.ts`: `messaging.skills` is a list of skill names or `"*"`. Verify: `src/messaging/config.test.ts`.
+- [x] 3.2 `src/messaging/a2a.ts`: `AgentSkill {id, name, description, tags, examples?}`, caps, the required `AgentCard.skills`; `parseCard` drops malformed skills and reads a card without the field as `[]`. Verify: `src/messaging/a2a.test.ts`.
+- [x] 3.3 `src/messaging/skills.ts`: `exposedSkills` (none by default, a list, `*`, never scanned, missing, clashing withheld) and `invokeSkill`. Verify: `src/messaging/skills.test.ts`.
+- [x] 3.4 `src/messaging/service.ts`: cards carry the offered skills; `skills.missing` and `skills.withheld` are logged once per project and name; the composition root reads the fact (`src/messaging/runtime.ts`). Verify: `src/messaging/service.test.ts` ("skills — the card offers exactly…", "no allowlist…", "a listed name the scan did not find…", "never scanned yet…").
 
 ## 4. A task names a skill
 
-- [ ] 4.1 `src/messaging/protocol.ts`: `Payload.skill?`, parsed. A payload without it is valid as before (additive within version 2). Verify: `src/messaging/protocol.test.ts`.
-- [ ] 4.2 `src/messaging/tools.ts`: an optional `skill` in the `send_message` schema; the description says to take it from the target's card in `agents`. `sendMessage`:
-  - refuses at once, for a local target, a skill the caller may not use, listing the allowed ones;
-  - records `skill` on the `OutTask`;
-  - puts it on the first message only.
-  - Verify: `src/messaging/service.test.ts` ("Unknown skill in the same installation", "Skill named").
-- [ ] 4.3 `onAsk`: the skill check after acceptance, domain and depth, and before the budget (design S5).
-  - It answers `rejected: unknown skill` with the caller's allowed ids, and a rejected task costs no budget.
-  - It records `skill` on the `InTask`.
-  - Verify: `src/messaging/service.test.ts` ("Unknown skill at a peer", a sender that is not accepted learns nothing, "Agent without skills").
-- [ ] 4.4 Records and audit. In `src/messaging/records.ts`, `OutTask.skill?` and `InTask.skill?`. `src/messaging/audit.ts` shows ` · skill <name>`. In `src/messaging/events.ts`, `ask.rejected` carries `reason=unknown skill`, and `skills.missing`, `skills.not.loaded` and `skills.fallback` are warnings. Verify: `src/messaging/audit.test.ts`, `src/messaging/events.test.ts`.
+- [x] 4.1 `src/messaging/protocol.ts`: `Payload.skill?`, validated, additive. `src/messaging/records.ts`: `OutTask.skill?`, `InTask.skill?`. Verify: `npm run typecheck`, and the service tests below.
+- [x] 4.2 `send_message` takes `skill` (`src/messaging/tools.ts`). A local target refuses at once with the offered ids and records nothing; the skill rides the sealed payload. Verify: `src/messaging/service.test.ts` ("a local task naming a skill the target does not offer…", "an agent without skills works as today…").
+- [x] 4.3 `onAsk`: after acceptance, domain and depth, before the budget: `rejected: unknown skill` with the offered ids; a sender not accepted learns nothing. Verify: `src/messaging/service.test.ts` ("from another installation: an unknown skill is rejected…", "a sender this agent does not accept learns nothing…").
+- [x] 4.4 A task with a skill starts its shadow conversation with `/<skill> ` and the plain frame; both task records store the skill; `/aven asks` shows it. Verify: `src/messaging/service.test.ts` ("a local task naming an offered skill…", "from another installation, an offered skill…"), `src/messaging/audit.test.ts` ("a task that asked for a skill shows it…").
 
-## 5. Running the skill
+## 5. cli-probe
 
-- [ ] 5.1 A cli-probe contract scenario, `skill-slash-via-stdin` (`src/cliprobe/scenarios/contract.ts`): a slash invocation of a project skill, written through stream-json input with a multi-line task after it, runs the skill. The skill's body asks for a marker word, and the result carries it. Record the verdict on the pinned CLI. Verify: `npm run cli-probe` on the operator's machine, then the replay tests.
-- [ ] 5.2 The first message of a skill-named task's shadow conversation is `/<skill>` on its own line, then `wrapTask(…)` unchanged (design S6). Fall back to the frame line ``Use the `<skill>` skill for this request.`` plus `skills.fallback` when:
-  - the session's `init` did not list the skill; or
-  - 5.1's verdict for the pinned CLI is "unsupported".
-
-  Verify: `src/messaging/service.test.ts` ("Skill named", "Skill not loaded in the session"), and `src/messaging/wrap.test.ts` (a new golden for the fallback line; `task.txt` is byte-identical for a task without a skill).
-- [ ] 5.3 `npm run typecheck` and `npm test` pass, and the turn, prompt and Slack snapshots are unchanged. No Slack surface changes, so the Home tab needs no update.
+- [x] 5.1 Scenario `files`: seeded into the CLI's working directory before it starts, by the local and the sandbox transport; paths stay inside it. Verify: `src/cliprobe/runner.test.ts` ("a scenario's `files` are seeded…"), `src/cliprobe/ctx.test.ts` ("seedPathOk…").
+- [x] 5.2 Exploratory scenarios `add-dir-loads-skills` and `skill-slash-via-stdin` (`src/cliprobe/scenarios/skills.ts`). Verify: `npm run cli-probe -- list`.
+- [ ] 5.3 Record both on every probed version (needs `CLI_PROBE_TOKEN`, on the operator's machine), then make them contract scenarios. Verify: `npm run cli-probe -- run add-dir-loads-skills skill-slash-via-stdin --cli 2.1.292` (and 2.1.282), then `src/cliprobe/gate.test.ts`. Until then the facts rest on the manual verification in design.md (Context).
 
 ## 6. Docs and rollout
 
-- [ ] 6.1 `docs/agent-messaging.md`. Reviewed in the PR. It covers:
-  - where skills come from;
-  - `repoSkills` and why it is opt-in;
-  - the allowlist and `accept` objects;
-  - cards per caller;
-  - a skill on a task and how it runs;
-  - an agent without skills;
-  - how a release without this change behaves.
-- [ ] 6.2 `docs/runtime-config.md` gets `repoSkills`, `messaging.skills` and the `accept` object form. `projects.config.example.json` shows one exposed skill and one narrowed entry. Reviewed in the PR.
-- [ ] 6.3 A `docs/rollout.md` ledger row:
-  - bucket 2: exposure reaches only projects with a `messaging` block, and `repoSkills` is a per-project opt-in, off by default;
-  - cards of messaging projects gain `skills: []`;
-  - what to watch after turning `repoSkills` on: skills the agent starts using in people's sessions, and `skills.*` warnings in Sentry.
-
-  Verify: `scripts/public-guard.sh` in CI.
-- [ ] 6.4 Every changed file and the PR text pass the public guard and gitleaks. Verify: CI `verify`.
+- [x] 6.1 `docs/agent-messaging.md` (skills: cards, `messaging.skills`, `send_message` `skill`, `unknown skill`, a `SKILL.md` example with `tags` and `examples`, duplicates, before the first scan), `docs/runtime-config.md` (`REPO_SKILLS`), `docs/project-facts.md` (`project_skills`), `docs/cli-probe.md` (scenario files, the two scenarios). Reviewed in the PR.
+- [x] 6.2 `docs/rollout.md`: two rows — repo skills (bucket 1, `REPO_SKILLS=0` kill switch, prod changes at the tag) and skills in messaging (bucket 2). No Slack command or interaction changes, so the Home tab needs no update. Verify: `scripts/public-guard.sh` in CI.
 
 ## 7. Canary
 
-- [ ] 7.1 On the staging installation, expose one repo skill of its project (`messaging.skills`, plus `repoSkills` if the project has several repos) and `/aven reload`. From the home tenant agent, `agents()` shows the skill with its `SKILL.md` description. Recorded in the PR.
-- [ ] 7.2 Record in the PR:
-  - a task naming the skill completes, and the answering transcript starts with the slash invocation;
-  - a task naming an unknown skill is rejected with the allowed list;
-  - `/aven asks` on both sides shows the skill.
+- [ ] 7.1 On a canary installation, list a project skill in `messaging.skills`, `/aven reload`, and check from the home tenant agent: `agents()` shows it; a task naming it starts with the slash invocation; a task naming an unknown skill is rejected with the list. Recorded in the PR or the ledger row.
+- [ ] 7.2 After the tag: on prod, a multi-repo project's session lists its repos' skills; watch for skills the agent starts using on its own.

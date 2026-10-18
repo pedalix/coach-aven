@@ -1,135 +1,71 @@
 ## ADDED Requirements
 
 ### Requirement: Skills come from the project's Claude Code skills
-An agent's skills SHALL be the Claude Code skills its project defines: the `.claude/skills/*/SKILL.md` files in the project folder and in each of its repo checkouts. Each skill's name and description SHALL come from the file's frontmatter. The installation SHALL record them, with the repo, commit and path each one came from, as a project fact refreshed whenever the project's sandbox is prepared. Bundled CLI skills and plugin skills SHALL never be offered to other agents.
+The skills an agent can offer SHALL be the Claude Code skills its own sessions load from the project:
+- every `.claude/skills/<folder>/SKILL.md` in the session's working directory, which is the repo for a single-repo project and the project folder for a multi-repo one;
+- and, for a multi-repo project, every such file in each repo checkout ("A multi-repo project's sessions load their repos' skills").
 
-A skill in a repo of a multi-repo project SHALL be offered only when the project opts in with `repoSkills`. With it, the project's sessions SHALL start with `--add-dir` for each repo, so they load those skills. Without it, every project's sessions SHALL start exactly as before. A name that two origins of one project both define SHALL not be offered.
+When a session of a project that offers skills is prepared, the bot SHALL read these files in the sandbox and record, as the project fact `project_skills`:
+- each skill's name (the frontmatter `name`, else the folder name) and `description`;
+- the optional frontmatter lists `tags` and `examples`, capped at 8 tags and 5 examples;
+- where it was found, with provenance (`<repo>@<commit>:<path>`).
 
-When a session's start report (`init`) does not list a skill that the project offers, the installation SHALL log it as a warning.
+A name defined in more than one place SHALL be recorded with every place and SHALL NOT be offered until it is renamed; a warning SHALL name the places. A malformed key SHALL be logged and skipped, never fail the scan. Bundled CLI skills and plugin skills SHALL never be offered. A failed scan SHALL keep the previous fact.
 
-#### Scenario: Single-repo project
-- **WHEN** caldora's only repo has `.claude/skills/order-trace/SKILL.md`
-- **THEN** the project's skills fact lists `order-trace` with its description and the file at its commit
+#### Scenario: A skill in the repo
+- **WHEN** the repo of brand-studio has `.claude/skills/brand-profile/SKILL.md` with a name, a description, `tags: [brand]` and two examples
+- **THEN** the fact lists `brand-profile` with that description, the tag and both examples, and its source names the repo and the commit
 
-#### Scenario: Multi-repo project without the opt-in
-- **WHEN** a project has two repos, one of them with `.claude/skills/brand-profile/SKILL.md`, and no `repoSkills`
-- **THEN** `brand-profile` is recorded as not loadable and is never offered, and the project's sessions start exactly as before
+#### Scenario: Defined twice
+- **WHEN** a multi-repo project defines `triage` in two of its repos
+- **THEN** `triage` is offered to nobody, and a warning names both repos
 
-#### Scenario: Multi-repo project with the opt-in
-- **WHEN** the same project sets `repoSkills: true`
-- **THEN** its sessions start with `--add-dir` for each repo, their start report lists `brand-profile`, and the skill can be offered
+#### Scenario: Malformed tags
+- **WHEN** a `SKILL.md` writes `tags: brand, web` instead of a list
+- **THEN** the skill is recorded without tags, and the scan logs that `tags` is not a list
 
-#### Scenario: Bundled and plugin skills
-- **WHEN** a session's start report lists bundled skills such as `code-review`
-- **THEN** none of them can be offered to another agent, whatever the configuration says
+### Requirement: A multi-repo project's sessions load their repos' skills
+Every session of a project with more than one repo SHALL start with `--add-dir <checkout>` for each repo, so it loads each repo's own skills as a Claude Code started in that repo would. A single-repo project's session starts in its repo and SHALL be unchanged. The installation's `REPO_SKILLS=0` SHALL turn this off for every project.
 
-#### Scenario: Name clash
-- **WHEN** two repos of one project both define a skill named `release-notes`
-- **THEN** `release-notes` is not offered, and a warning names the project, the skill and both files
+#### Scenario: Multi-repo project
+- **WHEN** a session of acme-suite, with repos acme-admin and acme-shop, starts
+- **THEN** its command line ends with `--add-dir` and both checkouts, and the skills of both repos are available in the session
 
-### Requirement: The receiving installation decides which skills each sender may use
-A project's `messaging.skills` SHALL list the names of the skills it may offer at all. Without it, the project SHALL offer none.
+#### Scenario: Kill switch
+- **WHEN** the installation sets `REPO_SKILLS=0`
+- **THEN** no session gains `--add-dir`, and the repos' skills are neither loaded nor offered
 
-An `accept` entry MAY be an object `{"from": "<pattern>", "skills": [<names>]}`, where `<pattern>` is an entry's string form; it narrows the offer for the senders it matches. A string entry SHALL mean every offered skill. The configuration SHALL be refused at load when an object entry names a skill that is not in `messaging.skills`.
+### Requirement: The receiving installation decides which skills are offered
+A project's `messaging.skills` SHALL list the names of the skills its card offers, or be `"*"` for all of its skills; absent, it SHALL offer none. Every sender the agent accepts SHALL see the same set. A listed name the scan did not find SHALL not be offered and SHALL be logged once. Before the project's first scan, an explicit list SHALL be offered by name, without description, so a first task does not fail; `"*"` SHALL offer nothing until the scan.
 
-For a caller, the skills it may use SHALL be the union over the entries that match it, intersected with the offered skills that are loadable and not clashing. A name in `messaging.skills` that is missing, not loadable or clashing SHALL be logged with the reason and not offered.
+#### Scenario: Internal skills stay internal
+- **WHEN** brand-studio has the skills `brand-profile` and `release`, and its `messaging.skills` lists `brand-profile`
+- **THEN** its card offers `brand-profile` only
 
-The same set SHALL decide both what the caller's card shows and which skill a task from that caller may name.
-
-#### Scenario: Nothing offered by default
-- **WHEN** brand-studio's repo has the skills `brand-profile` and `release`, and its `messaging` block has no `skills`
-- **THEN** its card shows `skills: []`, and a task naming either skill is rejected
-
-#### Scenario: Allowlisted skill
-- **WHEN** brand-studio's `messaging.skills` is `["brand-profile"]`
-- **THEN** every accepted sender sees `brand-profile` on its card, and nobody sees `release`
-
-#### Scenario: Narrowed for one sender
-- **WHEN** `messaging.skills` is `["brand-profile", "site-design"]`, and the accept list is `[{"from": "home/owen-ops", "skills": ["brand-profile"]}, "bluefin/nora"]`
-- **THEN** owen-ops sees and may name only `brand-profile`, while nora sees and may name both
-
-#### Scenario: Listed but not found
-- **WHEN** `messaging.skills` lists `site-design`, and no skill folder of the project defines it
-- **THEN** the card does not show it, and a warning names the project, the skill and the reason
+#### Scenario: No allowlist
+- **WHEN** a project with skills has no `messaging.skills`
+- **THEN** its card has `skills: []`
 
 ### Requirement: A task can name the skill it asks for
-`send_message` SHALL accept an optional `skill`: the id of one skill from the target's card. The receiving installation SHALL decide on it, for both transports:
-- **A skill the caller may not use** SHALL get `rejected: unknown skill`, with the ids the caller may use. This includes any skill named to an agent that offers none. The check SHALL come after acceptance, so a sender the target does not accept learns nothing about its skills.
-- **A message without a skill** SHALL be a general request, handled as before.
-- **In the caller's own installation,** `send_message` SHALL refuse a skill the caller may not use at once, list the ones it may use, and send nothing.
+`send_message` SHALL take an optional `skill`, one of the ids the target's card offers; only a task's first message carries it. The receiving installation SHALL decide, after acceptance and before the daily budget:
+- a skill it does not offer SHALL end the task `rejected: unknown skill`, and the rejection SHALL list the ids it offers;
+- a sender it does not accept SHALL get `not accepted`, as without a skill, and learn nothing about skills.
 
-When a task names a skill, the answering conversation's first message SHALL invoke that skill explicitly, in the slash form, followed by the task's usual frame. When the answering session did not load the skill, or when the pinned CLI cannot run that form, the frame SHALL instead name the skill to use, and a warning SHALL be logged.
+For a target in the caller's own installation, the tool SHALL refuse at once with the same list and record nothing. The task record on both sides SHALL store the skill, and `/aven asks` SHALL show it. A task with a skill SHALL start its shadow conversation with the skill's slash invocation, `/<skill>`, followed by the plain task frame as its arguments. A release without skills ignores the field and runs a general request.
 
-Only a task's first message SHALL carry a skill; replies carry none. The skill SHALL be recorded on the task on both sides and shown by `/aven asks`.
+#### Scenario: Skill offered
+- **WHEN** owen-ops asks `bluefin/brand-studio` with `skill: "brand-profile"`, which brand-studio offers it
+- **THEN** brand-studio's shadow conversation starts with `/brand-profile` and the task frame, and both task records name the skill
 
-#### Scenario: Skill named
-- **WHEN** owen-ops calls `send_message("bluefin/brand-studio", "build a brand profile for hotel-alpenrose.example", {skill: "brand-profile"})`, and owen-ops may use `brand-profile`
-- **THEN** brand-studio's answering conversation starts with `/brand-profile` followed by the task frame, and both installations record `brand-profile` on the task
+#### Scenario: Skill not offered
+- **WHEN** owen-ops names `release`, which brand-studio does not offer
+- **THEN** the task ends `rejected: unknown skill`, listing `brand-profile`
 
-#### Scenario: Unknown skill at a peer
-- **WHEN** owen-ops names the skill `video-edit`, which brand-studio does not offer to it
-- **THEN** the task ends `rejected: unknown skill`, and owen-ops is told the skill ids it may use
-
-#### Scenario: Unknown skill in the same installation
-- **WHEN** owen-ops names a skill that a target in its own installation does not offer to it
-- **THEN** the tool returns an error listing the skills it may use, and no task is started
-
-#### Scenario: No skill
-- **WHEN** owen-ops sends a task to brand-studio without a skill
-- **THEN** the task runs as a general request, its first message is today's frame byte for byte, and `/aven asks` shows no skill
-
-#### Scenario: Agent without skills
-- **WHEN** owen-ops calls `agents("bluefin")`, and caldora offers no skills
-- **THEN** caldora's card has its description and `skills: []`, a general request to caldora runs as today, and a task naming any skill is rejected with an empty list
-
-#### Scenario: Skill not loaded in the session
-- **WHEN** a task names `brand-profile`, and the answering session's start report does not list it
-- **THEN** the first message names the skill in the frame instead of invoking it, and a warning is logged
-
-#### Scenario: A release without skills
-- **WHEN** an installation on a release without this change receives a task naming a skill
-- **THEN** it ignores the field and runs the task as a general request
+#### Scenario: An agent without skills
+- **WHEN** owen-ops asks caldora, which offers no skills, once with no skill and once with `skill: "anything"`
+- **THEN** the first runs as a general request, as today, and the second is refused as an unknown skill, offering none
 
 ## MODIFIED Requirements
-
-### Requirement: The receiving agent decides who may ask it
-A session SHALL have the sending tools only when its project is configured to send. A task message SHALL reach an agent only when that agent's configuration accepts the sender. An entry is one of these:
-- an exact `<installation>/<agent>`;
-- a bare agent name, for the agent's own installation;
-- `*`, for every agent of the agent's own domain;
-- an object `{"from": <one of the forms above>, "skills": [<names>]}`, which accepts the same senders and narrows the skills they may use ("The receiving installation decides which skills each sender may use").
-
-No entry SHALL match a whole other domain. The receiving installation SHALL check this for every message of a task, new or reply. It SHALL answer anything else with `rejected: not accepted` and start no turn. Accepting a sender gives the sender, and whoever may drive it, what the accepting agent answers.
-
-Configuration SHALL be read at call time, so a project that no longer may send cannot start a task from a session opened before the change. A project that several tenants share SHALL be refused a `messaging` configuration, because its domain would be ambiguous.
-
-#### Scenario: Accepted in the same installation
-- **WHEN** a person's own agent `bluefin/nora`, configured to send, asks `bluefin-ops`, which accepts `nora`
-- **THEN** the task runs in a shadow conversation of bluefin-ops on `bluefin`, and the hub plays no part in it
-
-#### Scenario: Not accepted
-- **WHEN** `home/owen-ops` asks `bluefin/caldora`, which accepts only `*`, that is, the agents of its own domain
-- **THEN** caldora starts no turn and owen-ops is told the task was rejected as not accepted
-
-#### Scenario: Answer-only project
-- **WHEN** a project accepts `home/owen-ops` and is not configured to send
-- **THEN** its sessions have no `send_message` tool, and it answers tasks from owen-ops
-
-#### Scenario: Acceptance withdrawn
-- **WHEN** the operator removes `home/owen-ops` from caldora's accepted senders and runs `/aven reload` while a task from owen-ops is open
-- **THEN** that task ends `canceled: not accepted`, a shadow turn running for it is canceled, and owen-ops is told
-
-#### Scenario: Shared project
-- **WHEN** a project listed for two tenants is given a `messaging` configuration
-- **THEN** the configuration is refused at load with an error naming the project, and the project behaves as before
-
-#### Scenario: Sending withdrawn
-- **WHEN** the operator removes `send` from owen-ops and runs `/aven reload` while a session of owen-ops is open
-- **THEN** a later `send_message` from that session is refused, and the tasks already open finish
-
-#### Scenario: An object entry
-- **WHEN** caldora accepts `{"from": "home/owen-ops", "skills": ["order-trace"]}`
-- **THEN** owen-ops is accepted exactly as with the string `home/owen-ops`, and may name only `order-trace`
 
 ### Requirement: Discovery through agent cards
 `agents(installation?)` SHALL return the agents of that installation that accept the caller. Without an argument, it SHALL return every installation the caller can reach: the caller's own first, then each peer pinned in `hub.peers.json`, each with its cards or `offline`. That way an agent learns its peers' names from the tool rather than having to guess them; the hub tells nobody who is on it.
@@ -138,7 +74,7 @@ Each card SHALL give:
 - the agent id;
 - the one-line description from its messaging configuration;
 - whether the agent would take a new task from the caller now, that is, its daily limit for the caller is not reached;
-- `skills`: the skills the caller may use, each with its id, name, description and tags, or `[]` when there are none.
+- `skills`: the skills the agent offers, each with its id, name, description and tags, and its examples when given; `[]` when there are none.
 
 For a peer installation that is not connected, or that does not allow this installation at the hub, it SHALL return `offline` and say that the peer may also not have pinned this installation.
 
@@ -155,8 +91,8 @@ For a peer installation that is not connected, or that does not allow this insta
 - **THEN** it receives `home` with its own accepting agents first, then `bluefin` and `northwind`, each with its cards or `offline`
 
 #### Scenario: Card with skills
-- **WHEN** owen-ops calls `agents("bluefin")`, and brand-studio offers owen-ops the skills `brand-profile` and `site-design`
-- **THEN** brand-studio's card lists both skills, each with its name and description from its `SKILL.md`
+- **WHEN** owen-ops calls `agents("bluefin")`, and brand-studio offers the skills `brand-profile` and `site-design`
+- **THEN** brand-studio's card lists both skills, each with its name, description, tags and examples from its `SKILL.md`
 
 ### Requirement: Agent tools mirror A2A operations
 A sending session SHALL have these tools:
@@ -220,5 +156,5 @@ A task SHALL end in exactly one of `completed`, `failed`, `canceled` or `rejecte
 - **THEN** the task ends `failed: peer removed` and owen-ops is told
 
 #### Scenario: Unknown skill
-- **WHEN** owen-ops names a skill that the target at a peer does not offer to it
-- **THEN** the task ends `rejected: unknown skill`, and owen-ops is told the skill ids it may use
+- **WHEN** owen-ops names a skill that the target at a peer does not offer
+- **THEN** the task ends `rejected: unknown skill`, and owen-ops is told the skill ids the target offers

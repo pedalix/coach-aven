@@ -2,6 +2,7 @@
 // `messaging` block in projects.config.json, and the installation's environment (INSTALLATION_ID,
 // HUB_URL, HUB_KEY_PATH). Pure: projects.ts validates the block at load, config.ts reads the env, and
 // both are read again at call time — a reload changes what the next call may do.
+import { isSkillId } from './a2a.js';
 import { INSTALLATION_RE, parseTarget } from './protocol.js';
 
 export interface MessagingConfig {
@@ -15,6 +16,12 @@ export interface MessagingConfig {
   accept?: string[];
   /** The agent card's one line (D7). */
   description?: string;
+  /**
+   * Which of the project's own Claude Code skills its card offers (agent-skills): skill names, or `"*"`
+   * for all of them. Absent: none — a project's skills stay internal unless listed. Every sender the
+   * agent accepts sees the same set (narrowing per sender comes with roles).
+   */
+  skills?: string[] | '*';
   /** Tasks this agent may start per day. */
   sendPerDay?: number;
   /** New tasks per sender per day this agent takes. */
@@ -63,6 +70,15 @@ export function validateMessagingConfig(x: unknown, where: string): MessagingCon
       throw new Error(`${where}.description must be one line of at most ${MAX_DESCRIPTION} characters`);
     }
     out.description = a.description;
+  }
+  if (a.skills !== undefined) {
+    if (a.skills === '*') out.skills = '*';
+    else {
+      if (!Array.isArray(a.skills)) throw new Error(`${where}.skills must be "*" or an array of skill names`);
+      const bad = a.skills.filter((n) => !isSkillId(n));
+      if (bad.length) throw new Error(`${where}.skills: ${bad.map((b) => JSON.stringify(b)).join(', ')} is not a skill name (lowercase letters, digits, hyphens; at most 64)`);
+      out.skills = [...new Set(a.skills as string[])];
+    }
   }
   const int = (k: 'sendPerDay' | 'acceptPerDay' | 'maxRounds', max: number): void => {
     const v = a[k];

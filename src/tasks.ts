@@ -14,6 +14,8 @@ import {
   reapWorktrees,
   repoCheckout,
   projectCwd,
+  repoSkillDirs,
+  skillOrigins,
 } from './project.js';
 import type { HostServerRoute } from './hosttools.js';
 import { buildSystemPrompt } from './prompt.js';
@@ -21,6 +23,7 @@ import type { GitFlow, McpServerSpec } from './projects.js';
 import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import { FactStore } from './facts.js';
 import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './deps.js';
+import { scanProjectSkills } from './skills.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
 import { ClaudeSession, type InjectOutcome, type OnQuestion, type TurnUsage } from './claudeSession.js';
 
@@ -143,6 +146,7 @@ async function prepareChat(
   cliVersion?: string,
   upgradeCli?: boolean,
   sandboxOpts?: SandboxOptions,
+  scanSkills = false,
 ) {
   if (repos.length === 0) throw new Error(`project ${slug} has no repos`);
   const driver = createDriver(cfg, driverKind);
@@ -167,6 +171,9 @@ async function prepareChat(
   // auth.json in every checkout that has a composer.json.
   const checkouts = repos.map((repo) => ({ repo, dir: repoCheckout(cfg, slug, repo) }));
   await scanDependencyRepos(sandbox, facts, slug, checkouts);
+  // Writer: the project's own Claude Code skills → `project_skills` fact (agent-skills); reader: its agent
+  // card. Only for a project whose card offers skills (`messaging.skills`): no other project runs it.
+  if (scanSkills) await scanProjectSkills(sandbox, facts, slug, skillOrigins(cfg, slug, repos));
   const scopeAfter = scopedRepos(slug, repos);
   if (scopeAfter.join() !== scopeBefore.join()) {
     await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeAfter));
@@ -254,15 +261,19 @@ export async function openChat(
     hostServers?: HostServerRoute[];
     // ProjectConfig.messaging.send: the system prompt explains the messaging tools (agent-messaging D9).
     messagingSend?: boolean;
+    // ProjectConfig.messaging.skills set: prepare scans the project's skills for its card (agent-skills).
+    scanSkills?: boolean;
   },
 ): Promise<ChatSession> {
   const sourcesEnabled = opts.sources === true;
   // The sandbox's own MCP list is exactly the project's: bot-served servers never appear in it.
   const mcp = opts.mcp;
   const prep = await withSandboxLock(opts.slug, () =>
-    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox),
+    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox, opts.scanSkills === true),
   );
   const { driver, proj, cwd } = prep;
+  // A multi-repo project's sessions load each repo's skills (agent-skills; REPO_SKILLS=0 turns it off).
+  const addDirs = repoSkillDirs(cfg, opts.slug, opts.repos);
   let sandbox = prep.sandbox;
   let sessionId: string | undefined = opts.resumeSessionId;
   let session: ClaudeSession | undefined;
@@ -334,6 +345,7 @@ export async function openChat(
             attach: target,
             resumeSessionId: sessionId, // seed claudeSessionId; not used to relaunch
             ...(opts.attachLedger ? { ledger: true } : {}),
+            ...(addDirs.length ? { addDirs } : {}),
           });
           await reattached.open();
           session = reattached;
@@ -362,6 +374,7 @@ export async function openChat(
         hostServers: opts.hostServers,
         model: cfg.claudeModel,
         ...(opts.ledger ? { ledger: true } : {}),
+        ...(addDirs.length ? { addDirs } : {}),
       });
       session.onIdleResult = idleNotify;
       session.onRateLimit = opts.onRateLimit;

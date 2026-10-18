@@ -18,6 +18,7 @@ import { UsageLog } from '../metering.js';
 import { LocalTransport } from './local.js';
 import { memoryStore } from './transport.js';
 import { createMessaging, NUDGE_TEXT, type Messaging, type MessagingEngine } from './service.js';
+import type { ProjectSkill } from './skills.js';
 import type { EventSink } from './events.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -54,7 +55,7 @@ interface Harness {
 
 function harness(
   projects: ProjectConfig[],
-  o: { scripts?: Record<string, Script>; peers?: Record<string, unknown>; hub?: Any; turnUsage?: (t: Turn) => TurnUsage | undefined } = {},
+  o: { scripts?: Record<string, Script>; peers?: Record<string, unknown>; hub?: Any; turnUsage?: (t: Turn) => TurnUsage | undefined; skills?: Record<string, ProjectSkill[]> } = {},
 ): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'aven-msg-'));
   const store = new Store(join(dir, 'state.json'));
@@ -124,6 +125,7 @@ function harness(
     platform: 'slack',
     driverFor: () => chat,
     usageLog: usage,
+    skillsOf: (slug) => o.skills?.[slug],
     sink,
   });
   local.onDeliver((x) => svc.onDelivery(local, x));
@@ -475,7 +477,7 @@ test('answer after the asker’s bot restarted: a delivery recorded before the r
 
 test('agents — the own installation: the cards of the agents that accept the caller, with their description and whether they take a task now', async () => {
   const h = harness([owenOps(), caldora(), billing(), { slug: 'stockist', repos: ['Org/s'], messaging: { accept: ['someone-else'] } } as ProjectConfig]);
-  const cards = [{ name: 'home/caldora', description: 'Orders and payments of caldora', accepting: true, domain: 'home' }];
+  const cards = [{ name: 'home/caldora', description: 'Orders and payments of caldora', accepting: true, domain: 'home', skills: [] }];
   assert.deepEqual(data(await h.svc.agents(h.tool(OWEN, 'owen-ops'), 'home')), { installation: 'home', agents: cards });
   // Without an argument: every installation the caller can reach; with no hub that is this one alone.
   assert.deepEqual(data(await h.svc.agents(h.tool(OWEN, 'owen-ops'), undefined)), { installations: [{ installation: 'home', agents: cards }] });
@@ -487,7 +489,7 @@ test('agents without an argument lists every installation the caller can reach: 
   const r = await h.svc.agents(h.tool(OWEN, 'owen-ops'), undefined);
   assert.deepEqual(data(r), {
     installations: [
-      { installation: 'home', agents: [{ name: 'home/caldora', description: 'Orders and payments of caldora', accepting: true, domain: 'home' }] },
+      { installation: 'home', agents: [{ name: 'home/caldora', description: 'Orders and payments of caldora', accepting: true, domain: 'home', skills: [] }] },
       { installation: 'bluefin', offline: true, note: 'offline, or bluefin has not pinned home' },
       { installation: 'northwind', offline: true, note: 'offline, or northwind has not pinned home' },
     ],
@@ -644,4 +646,108 @@ test('a delivery from the hub for an agent this installation does not have: answ
   assert.deepEqual([sent[0][0].from, sent[0][0].to, sent[0][0].method, sent[0][0].task], ['home/ghost', 'northwind/ledger', 'answer', 'c'.repeat(24)]);
   assert.equal(sent[0][1].message.state, 'rejected');
   assert.match(JSON.stringify(sent[0][1].message), /not accepted/);
+});
+
+// ── agent skills (OpenSpec agent-skills, lean v1) ──────────────────────────────────────────────────
+const STUDIO_SKILLS: ProjectSkill[] = [
+  { name: 'brand-profile', description: 'A brand profile from a hotel website', origin: 'brand-studio', tags: ['brand'], examples: ['profile for hotel-x.example'] },
+  { name: 'release', description: 'Cut a release (internal)', origin: 'brand-studio' },
+];
+const studio = (over: Partial<NonNullable<ProjectConfig['messaging']>> = {}): ProjectConfig =>
+  ({ slug: 'brand-studio', repos: ['Org/brand-studio'], messaging: { accept: ['owen-ops', 'northwind/ledger'], description: 'Brand work for hotels', skills: ['brand-profile'], ...over } }) as ProjectConfig;
+const remoteAsk = (skill?: string) => ({
+  seq: 1,
+  env: { v: 2, id: 'b'.repeat(24), from: 'northwind/ledger', to: 'home/brand-studio', method: 'ask' as const, task: 'c'.repeat(24) },
+  payload: { message: { role: 'user', parts: [{ kind: 'text', text: 'hotel-x.example' }], messageId: 'c'.repeat(24) }, domain: 'northwind', marks: {}, depth: 0, ...(skill ? { skill } : {}) },
+});
+const hubOf = (sent: Any[]) => ({ kind: 'hub', send: async (env: Any, p: Any) => (sent.push([env, p]), { routed: true }), onDeliver: () => {}, ack: async () => {}, presence: () => ({ online: ['northwind'], removed: [] }) });
+
+test('skills — the card offers exactly the listed skills that exist, with description, tags and examples; an internal skill stays off the card', async () => {
+  const h = harness([owenOps(), studio()], { skills: { 'brand-studio': STUDIO_SKILLS } });
+  const card = data(await h.svc.agents(h.tool(OWEN, 'owen-ops'), 'home')).agents[0];
+  assert.deepEqual(card.skills, [{ id: 'brand-profile', name: 'brand-profile', description: 'A brand profile from a hotel website', tags: ['brand'], examples: ['profile for hotel-x.example'] }]);
+});
+
+test('skills — no allowlist: the card offers none, whatever the project has; `*` offers all of them', async () => {
+  const none = harness([owenOps(), studio({ skills: undefined })], { skills: { 'brand-studio': STUDIO_SKILLS } });
+  assert.deepEqual(data(await none.svc.agents(none.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills, []);
+  const all = harness([owenOps(), studio({ skills: '*' })], { skills: { 'brand-studio': STUDIO_SKILLS } });
+  assert.deepEqual(data(await all.svc.agents(all.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills.map((s: Any) => s.id), ['brand-profile', 'release']);
+});
+
+test('skills — a listed name the scan did not find is not offered and is logged once; a name defined twice is withheld and logged once', async () => {
+  const h = harness([owenOps(), studio({ skills: ['brand-profile', 'ghost', 'twice'] })], {
+    skills: { 'brand-studio': [...STUDIO_SKILLS, { name: 'twice', description: 'd', origin: 'repo-a', clash: ['repo-a', 'repo-b'] }] },
+  });
+  for (let i = 0; i < 3; i++) assert.deepEqual(data(await h.svc.agents(h.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills.map((s: Any) => s.id), ['brand-profile']);
+  assert.equal(h.events.filter((e) => e.includes('skills.missing') && e.includes('skills=ghost')).length, 1);
+  assert.equal(h.events.filter((e) => e.includes('skills.withheld') && e.includes('skill=twice') && e.includes('origins=repo-a,repo-b')).length, 1);
+});
+
+test('skills — a local task naming an offered skill records it on both sides, and the shadow conversation starts by invoking it', async () => {
+  const h = harness([owenOps(), studio()], { skills: { 'brand-studio': STUDIO_SKILLS }, scripts: { 'brand-studio': () => undefined } });
+  const r = h.svc.sendMessage(h.tool(OWEN, 'owen-ops'), { target: 'brand-studio', text: 'hotel-x.example', skill: 'brand-profile' }, 'r1');
+  assert.equal(r.ok, true);
+  assert.equal(h.store.getOutTask(data(r).taskId)!.skill, 'brand-profile');
+  await flush(20);
+  assert.equal(h.store.getInTask('home', data(r).taskId)!.skill, 'brand-profile');
+  const t = h.turns.find((x) => x.slug === 'brand-studio')!;
+  assert.match(t.question, /^\/brand-profile /, 'the first message is the slash invocation, then the plain frame');
+});
+
+test('skills — a local task naming a skill the target does not offer is refused at once, with the ids it offers, and nothing is recorded', () => {
+  const h = harness([owenOps(), studio()], { skills: { 'brand-studio': STUDIO_SKILLS } });
+  const r = h.svc.sendMessage(h.tool(OWEN, 'owen-ops'), { target: 'brand-studio', text: 'q', skill: 'release' }, 'r1');
+  assert.equal(r.ok, false);
+  assert.match((r as Any).error, /unknown skill "release" — home\/brand-studio offers brand-profile/);
+  assert.equal(h.store.messagingTasks().out.length, 0);
+});
+
+test('skills — an agent without skills works as today: a general task runs; a task naming any skill is rejected `unknown skill`, offering none', async () => {
+  const h = harness([owenOps(), caldora()], { scripts: { caldora: () => 'ok' } });
+  const r = send(h, 'caldora', 'q');
+  assert.equal(r.ok, true);
+  const s = h.svc.sendMessage(h.tool(OWEN, 'owen-ops'), { target: 'caldora', text: 'q', skill: 'anything' }, 'r2');
+  assert.equal(s.ok, false);
+  assert.match((s as Any).error, /unknown skill "anything" — home\/caldora offers no skills/);
+});
+
+test('skills — from another installation: an unknown skill is rejected `unknown skill` with the offered ids; the task never starts', async () => {
+  const sent: Any[] = [];
+  const hub = hubOf(sent);
+  const h = harness([owenOps(), studio()], { peers: { northwind: [{ sign: 'x', box: 'y' }] }, hub, skills: { 'brand-studio': STUDIO_SKILLS } });
+  await h.svc.onDelivery(hub as Any, remoteAsk('release'));
+  await flush();
+  assert.equal(h.turns.length, 0);
+  assert.equal(sent[0][1].message.state, 'rejected');
+  assert.match(JSON.stringify(sent[0][1].message), /unknown skill \\"release\\" — home\/brand-studio offers brand-profile/);
+  assert.ok(h.events.some((e) => e.includes('ask.rejected') && /reason="?unknown skill/.test(e)));
+  assert.equal(h.store.getInTask('northwind', 'c'.repeat(24)), undefined);
+});
+
+test('skills — a sender this agent does not accept learns nothing about its skills: `not accepted`, as without a skill', async () => {
+  const sent: Any[] = [];
+  const hub = hubOf(sent);
+  const h = harness([owenOps(), studio({ accept: ['owen-ops'] })], { peers: { northwind: [{ sign: 'x', box: 'y' }] }, hub, skills: { 'brand-studio': STUDIO_SKILLS } });
+  await h.svc.onDelivery(hub as Any, remoteAsk('release'));
+  await flush();
+  assert.match(JSON.stringify(sent[0][1].message), /not accepted/);
+  assert.doesNotMatch(JSON.stringify(sent[0][1].message), /skill/);
+});
+
+test('skills — from another installation, an offered skill: the task records it and its shadow conversation starts with the slash invocation', async () => {
+  const sent: Any[] = [];
+  const hub = hubOf(sent);
+  const h = harness([owenOps(), studio()], { peers: { northwind: [{ sign: 'x', box: 'y' }] }, hub, skills: { 'brand-studio': STUDIO_SKILLS }, scripts: { 'brand-studio': () => undefined } });
+  await h.svc.onDelivery(hub as Any, remoteAsk('brand-profile'));
+  await flush(10);
+  assert.equal(h.store.getInTask('northwind', 'c'.repeat(24))!.skill, 'brand-profile');
+  assert.match(h.turns.find((x) => x.slug === 'brand-studio')!.question, /^\/brand-profile /);
+});
+
+test('skills — never scanned yet: an explicit list is offered by name (so a first task does not fail on a missing scan); `*` offers nothing until the scan', async () => {
+  const listed = harness([owenOps(), studio()]);
+  assert.deepEqual(data(await listed.svc.agents(listed.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills, [{ id: 'brand-profile', name: 'brand-profile', description: '', tags: [] }]);
+  const star = harness([owenOps(), studio({ skills: '*' })]);
+  assert.deepEqual(data(await star.svc.agents(star.tool(OWEN, 'owen-ops'), 'home')).agents[0].skills, []);
 });

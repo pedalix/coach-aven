@@ -101,6 +101,9 @@ export const userFrame = (content: string, uuid?: string) => ({ type: 'user', me
 // The flags of a session with the message ledger (agent-messaging D13): every message is echoed when the
 // CLI takes it up. The CLI probe's echo scenarios run with exactly these.
 export const LEDGER_ARGS: readonly string[] = ['--replay-user-messages'];
+
+/** `--add-dir` with every directory (agent-skills); nothing when there are none. Must stay last on the line. */
+export const addDirArgs = (dirs: readonly string[] | undefined): string[] => (dirs?.length ? ['--add-dir', ...dirs] : []);
 export const interruptFrame = (requestId = `int-${Date.now()}`) => ({
   request_id: requestId,
   type: 'control_request',
@@ -455,6 +458,10 @@ export class ClaudeSession {
       // default: the spawn line and the settle rule stay as they always were. On attach it must be
       // the mode the running process was spawned with (the chat record keeps it).
       ledger?: boolean;
+      // Directories whose Claude Code skills the session loads too (`--add-dir`, OpenSpec agent-skills):
+      // a multi-repo project's checkouts (project.ts repoSkillDirs). Empty/absent → the spawn line is
+      // byte-identical to before. Last on the line: `--add-dir` takes every argument after it.
+      addDirs?: readonly string[];
     },
   ) {
     this.sessionKey =
@@ -544,7 +551,8 @@ export class ClaudeSession {
     }
     await this.sandbox.createSession(this.sessionKey);
     const { model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession } = this.opts;
-    const command = claudeLaunch({ model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession, ...(this.opts.ledger ? { extraArgs: LEDGER_ARGS } : {}) }).command(this.opts.cwd);
+    const extraArgs = [...(this.opts.ledger ? LEDGER_ARGS : []), ...addDirArgs(this.opts.addDirs)];
+    const command = claudeLaunch({ model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession, ...(extraArgs.length ? { extraArgs } : {}) }).command(this.opts.cwd);
     const started = await this.sandbox.startSessionCommand(this.sessionKey, command);
     this.cmdId = started.cmdId;
     // Stream stdout until the process exits; resolution/rejection both mean "process gone".

@@ -80,6 +80,21 @@ export function projectCwd(cfg: Config, slug: string, repos: string[]): string {
   return repos.length === 1 ? repoCheckout(cfg, slug, repos[0]) : projectDir(cfg, slug);
 }
 
+// The directories a session loads Claude Code skills from beyond its cwd (OpenSpec agent-skills): a
+// multi-repo project's sessions start in the project folder, where no repo's `.claude/skills` is visible,
+// so each checkout goes to `--add-dir` — measured on CLI 2.1.292: the repos' skills then appear in `init`.
+// Empty for a single-repo project (its cwd is the repo) and with REPO_SKILLS=0.
+export function repoSkillDirs(cfg: Config, slug: string, repos: string[]): string[] {
+  return repos.length > 1 && cfg.repoSkills !== false ? repos.map((r) => repoCheckout(cfg, slug, r)) : [];
+}
+
+// Where the skills scanner looks (skills.ts): exactly where the session loads skills from — its cwd, and
+// the `--add-dir` checkouts. `origin` names the place in the fact and in warnings.
+export function skillOrigins(cfg: Config, slug: string, repos: string[]): { origin: string; dir: string }[] {
+  if (repos.length === 1) return [{ origin: repoName(repos[0]!), dir: repoCheckout(cfg, slug, repos[0]!) }];
+  return [{ origin: 'project', dir: projectDir(cfg, slug) }, ...repoSkillDirs(cfg, slug, repos).map((dir, i) => ({ origin: repoName(repos[i]!), dir }))];
+}
+
 // How the `gh auth login` step of seedGitHubAuth treats a failure: 'strict' = fatal, as it always
 // was; 'tolerant' = retried, then a warning. The default follows ROUTINE_GUARD so production keeps
 // the historical preflight until the guard is switched on there.

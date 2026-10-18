@@ -53,3 +53,11 @@ test('messagingEnv — the hub needs an explicit installation id and a key file;
 test('messagingEnv — an invalid INSTALLATION_ID fails the boot (it goes into every address)', () => {
   assert.throws(() => messagingEnv({ INSTALLATION_ID: 'Home Bot' }), /INSTALLATION_ID must match/);
 });
+
+test('validateMessagingConfig — skills: a list of skill names, or "*"; absent offers none; a bad name fails naming the field', () => {
+  assert.deepEqual(validateMessagingConfig({ skills: ['brand-profile', 'site-design', 'brand-profile'] }, 'p').skills, ['brand-profile', 'site-design']);
+  assert.equal(validateMessagingConfig({ skills: '*' }, 'p').skills, '*');
+  assert.equal(validateMessagingConfig({}, 'p').skills, undefined);
+  assert.throws(() => validateMessagingConfig({ skills: ['Brand Profile'] }, 'p'), /p\.skills: "Brand Profile" is not a skill name/);
+  assert.throws(() => validateMessagingConfig({ skills: 'brand-profile' }, 'p'), /p\.skills must be "\*" or an array/);
+});

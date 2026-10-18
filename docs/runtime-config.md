@@ -304,7 +304,7 @@ Agents asking agents — `docs/agent-messaging.md` (what it does, the `messaging
 
 | Setting | Where | What |
 |---|---|---|
-| `messaging` | per project, `projects.config.json` | `send`, `accept`, `description`, daily caps, `maxRounds`, `costWarnUsd`. Read at call time; `/aven reload` applies it (open tasks whose asker is no longer accepted end `canceled: not accepted`). Refused on a project several tenants share. |
+| `messaging` | per project, `projects.config.json` | `send`, `accept`, `description`, `skills` (the project's Claude Code skills its card offers: names, or `"*"`; none by default — `docs/agent-messaging.md` → *Skills*), daily caps, `maxRounds`, `costWarnUsd`. Read at call time; `/aven reload` applies it (open tasks whose asker is no longer accepted end `canceled: not accepted`). Refused on a project several tenants share. |
 | `INSTALLATION_ID` | `.env` | This installation's name in every address (default `local`, enough inside one installation; must be explicit for the hub, where it is claimed by this installation's key or reserved for it — `local` and `hub` never can be). Invalid → the boot fails. |
 | `HUB_URL` | `.env` | `wss://<hub>` — the bot keeps one outbound connection to the hub. Unset: no connection. Set without an explicit `INSTALLATION_ID` or `HUB_KEY_PATH`: a loud error, and messaging inside the installation only. |
 | `HUB_KEY_PATH` | `.env` | The installation's key file (`orch hub keygen`, mode 0600). |
@@ -312,6 +312,20 @@ Agents asking agents — `docs/agent-messaging.md` (what it does, the `messaging
 
 Sessions are spawned with the message ledger (`--replay-user-messages`) only for projects with a
 `messaging` block; a session opened before a reload keeps the mode it was spawned with.
+
+## Repo skills (`REPO_SKILLS`)
+
+A multi-repo project's sessions start in the project folder, where no repo's `.claude/skills` is visible. Every such
+session therefore starts with `--add-dir <checkout>` for each repo, so it loads each repo's own Claude Code skills as a
+Claude Code started in that repo would (OpenSpec `agent-skills`). Single-repo projects are unaffected: their session
+starts in the repo.
+
+| Setting | Where | What |
+|---|---|---|
+| `REPO_SKILLS` | `.env` | On unless `0` (or `false`, `off`, `no`) — the kill switch for the whole installation. Off: no `--add-dir`, and the repos' skills are neither loaded nor offered on agent cards. Takes effect for sessions opened after the restart. |
+
+What to watch when it reaches a project: skills written for the repo's developers (a release or deploy helper) become
+available to the agent, which may start using them on its own.
 
 ## Dispatch (`DISPATCH`) — retired
 

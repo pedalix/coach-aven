@@ -2,10 +2,12 @@
 // with the run's own configuration directory and token and none of the parent session's variables
 // (clienv.ts), plus the variables the bot sets on every spawn (claudeLaunch().env).
 import { spawn, type ChildProcess } from 'node:child_process';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import type { ClaudeLaunch } from '../claudeSession.js';
 import { isolatedClaudeEnv } from '../clienv.js';
 import { utf8Chunks } from '../utf8.js';
-import type { ProbeProcess, ProcessHandlers, Transport } from './ctx.js';
+import { seedPathOk, type ProbeProcess, type ProcessHandlers, type Transport } from './ctx.js';
 
 /** Pure: the child's environment. */
 export function localEnv(base: NodeJS.ProcessEnv, run: { configDir: string; token: string }, launch: ClaudeLaunch): NodeJS.ProcessEnv {
@@ -49,6 +51,14 @@ export function localTransport(o: {
   const children = new Set<ChildProcess>();
   return {
     kind: 'local',
+    async seed(files) {
+      for (const [rel, text] of Object.entries(files)) {
+        if (!seedPathOk(rel)) throw new Error(`a scenario file must stay inside the working directory: ${rel}`);
+        const path = join(o.workDir, rel);
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, text);
+      }
+    },
     async start(launch: ClaudeLaunch, h: ProcessHandlers): Promise<ProbeProcess> {
       const child = spawn(o.bin, launch.args, {
         cwd: o.workDir,

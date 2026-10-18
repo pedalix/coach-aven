@@ -5,7 +5,8 @@ import type { Scenario } from '../types.js';
 import { CANDIDATES } from './candidates.js';
 import { CONTRACT } from './contract.js';
 import { DELIVERY } from './delivery.js';
+import { SKILLS } from './skills.js';
 
-export const SCENARIOS: Scenario<ProbeCtx>[] = [...CONTRACT, ...DELIVERY, ...CANDIDATES];
+export const SCENARIOS: Scenario<ProbeCtx>[] = [...CONTRACT, ...DELIVERY, ...SKILLS, ...CANDIDATES];
 
 export const contractIds = (): string[] => SCENARIOS.filter((s) => s.meta.contract).map((s) => s.meta.id);

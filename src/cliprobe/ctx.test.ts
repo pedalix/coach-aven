@@ -13,6 +13,7 @@ function fakeTransport(script: Script, onStart?: (emit: (f: Frame) => void) => v
   const kills: string[] = [];
   const transport: Transport = {
     kind: 'local',
+    seed: async () => {},
     async start(launch: ClaudeLaunch, h: ProcessHandlers) {
       launches.push(launch);
       const n = launches.length;
@@ -186,3 +187,9 @@ test('ProbeCtx — a transport that copies stdin to stdout (a Daytona session): 
   assert.equal(ctx.replays.length, 1, 'only the CLI’s own echo counts as a replay');
 });
 
+
+test('seedPathOk — a scenario file stays inside the working directory', async () => {
+  const { seedPathOk } = await import('./ctx.js');
+  for (const p of ['.claude/skills/x/SKILL.md', 'repo-a/.claude/skills/y/SKILL.md']) assert.equal(seedPathOk(p), true, p);
+  for (const p of ['', '/etc/passwd', '../x', 'a/../../b']) assert.equal(seedPathOk(p), false, p);
+});

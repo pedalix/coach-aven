@@ -115,12 +115,40 @@ flowchart LR
 
 | Asking agent | Answering agent |
 |---|---|
-| `send_message(target, text, {taskId?})` — start a task, or reply on one | `request_input(question)` — ask back |
+| `send_message(target, text, {skill?, taskId?})` — start a task (optionally asking for one of the target's skills), or reply on one | `request_input(question)` — ask back |
 | `get_task(taskId)` — state, last message (only in the conversation that sent it) | its final answer ends the task, once nothing is outstanding |
 | `cancel_task(taskId)` | if its project may send, the asking tools too (a chain) |
-| `agents(installation?)` — who accepts me: without an argument, every installation I can reach (mine first, then each pinned peer) with its cards or `offline` | |
+| `agents(installation?)` — who accepts me: without an argument, every installation I can reach (mine first, then each pinned peer) with its cards or `offline`; each card lists the skills the agent offers | |
 
 A target is `bluefin/caldora`, or just `caldora` in the own installation. Every tool returns at once, and nobody waits with a turn open. The hub tells no installation who else is on it, so an agent learns its peers' names from `agents()` called without an argument, which lists the installations pinned in `hub.peers.json`.
+
+## Skills: what an agent offers
+
+An agent card says what an agent is (its one-line `description`) and what it can do: its **skills**, the A2A AgentSkill subset `{id, name, description, tags, examples?}` (OpenSpec `agent-skills`). An agent's skills are its project's own Claude Code skills — the same `SKILL.md` files its sessions load — never a second description in the ops repo.
+
+- **The project chooses what to offer.** `messaging.skills` lists the skill names its card shows, or `"*"` for all of them; without it, the card offers none (`skills: []`) and the project's skills stay internal. Every sender the agent accepts sees the same set; narrowing per sender comes later, with roles.
+- **Where they come from.** At prepare time, for a project that offers skills, the bot reads the frontmatter of every `.claude/skills/<folder>/SKILL.md` its session loads: the working directory, and for a multi-repo project each repo (`--add-dir`, see `docs/runtime-config.md` → `REPO_SKILLS`). It records them as the project fact `project_skills` (`docs/project-facts.md`). Bundled CLI skills and plugin skills are never offered.
+- **Asking for a skill.** `send_message(target, text, {skill})` names one of the ids on the target's card. The receiving installation decides: a skill it does not offer ends the task `rejected: unknown skill`, with the ids it does offer (a sender it does not accept is told `not accepted`, as always, and learns nothing about its skills). In the own installation the tool refuses at once.
+- **Running it.** The answering shadow conversation starts with the skill's slash invocation, `/<skill>`, followed by the task frame as its arguments: the bot runs the skill, not the prompt. Both task records and `/aven asks` name the skill.
+- **No skills is fine.** An agent that offers none works as before: general requests, `skills: []` on its card.
+- **Defined twice.** The same name in two places (two repos, or a repo and the project folder) is withheld from the card until it is renamed; the log names both places.
+- **Before the first scan** (no session since the skills were listed): an explicit list is offered by name only, so the first task after a deploy works; `"*"` offers nothing until then.
+
+A `SKILL.md` for a skill another agent may use — `tags` and `examples` are optional, read for the card, and ignored by Claude Code itself (verified on CLI 2.1.292):
+
+```markdown
+---
+name: brand-profile
+description: Builds a brand profile (tone, colours, audience, unique selling points) from a hotel's website.
+tags: [brand, hotels]
+examples:
+  - Build the brand profile for https://hotel-alpenblick.example
+  - What is the tone of voice of https://seehof.example?
+---
+Read the website at the address in the request. …
+```
+
+Caps on the card: description 300 characters, 8 tags of 40, 5 examples of 200. A malformed key (for example `tags: brand, hotels` instead of a list) is logged and skipped; the skill stays.
 
 ## One rule for every message that comes back
 
@@ -234,7 +262,7 @@ sequenceDiagram
 stateDiagram-v2
   [*] --> submitted: send_message
   submitted --> working: accepted, shadow turn started
-  submitted --> rejected: not accepted / budget / too deep / backlog / version
+  submitted --> rejected: not accepted / unknown skill / budget / too deep / backlog / version
   working --> input_required: request_input
   input_required --> working: reply (send_message with taskId)
   working --> completed: final answer, nothing outstanding

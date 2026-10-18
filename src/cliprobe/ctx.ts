@@ -38,8 +38,13 @@ export interface ProcessHandlers {
 export interface Transport {
   readonly kind: 'local' | 'sandbox';
   start(launch: ClaudeLaunch, h: ProcessHandlers): Promise<ProbeProcess>;
+  /** Write files into the CLI's working directory before it starts (a scenario's `files`), paths relative to it. */
+  seed(files: Readonly<Record<string, string>>): Promise<void>;
   dispose(): Promise<void>;
 }
+
+/** A scenario file's path: relative, inside the working directory (no `..`, no absolute path). */
+export const seedPathOk = (p: string): boolean => p !== '' && !p.startsWith('/') && !p.split('/').includes('..');
 
 export type Pred = (f: Frame) => boolean;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

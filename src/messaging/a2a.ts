@@ -43,7 +43,34 @@ export interface AgentCard {
   /** Whether the agent would take a new task from the caller now (accept list, caps). */
   accepting: boolean;
   domain: string;
+  /**
+   * What the agent offers by name (agent-skills): the A2A AgentSkill subset, from the project's own Claude
+   * Code skills its installation chose to show. Always present on a card this release builds (`[]` when
+   * none); a card from an older release has none, and reads as `[]`.
+   */
+  skills: AgentSkill[];
 }
+
+/**
+ * One skill on a card (A2A AgentSkill subset): `id` is what `send_message`'s `skill` names. `tags` is
+ * always present (A2A requires it; `[]` when the SKILL.md gives none), `examples` only when given.
+ */
+export interface AgentSkill {
+  id: string;
+  name: string;
+  description: string;
+  tags: string[];
+  examples?: string[];
+}
+
+/** A skill id: the Agent Skills name rule — lowercase letters, digits and hyphens, at most 64. */
+export const SKILL_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+export const isSkillId = (s: unknown): s is string => typeof s === 'string' && SKILL_RE.test(s);
+/** A card travels in every `agents` answer, so a skill's text is capped. */
+export const SKILL_LIMITS = { description: 300, tags: 8, tag: 40, examples: 5, example: 200 } as const;
+/** Up to `max` non-empty strings, each cut to `len`; anything else in the list is dropped. */
+export const capStrings = (x: unknown, max: number, len: number): string[] =>
+  Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string' && v.trim() !== '').slice(0, max).map((v) => v.trim().slice(0, len)) : [];
 
 /** Task and message ids: 24 lowercase hex characters (design D9 step 4, D10). */
 export const ID_RE = /^[0-9a-f]{24}$/;
@@ -96,7 +123,24 @@ export function parseCard(x: unknown): AgentCard | undefined {
   if (!obj(x)) return undefined;
   const a = x as Any;
   if (!str(a.name) || !str(a.description) || typeof a.accepting !== 'boolean' || !str(a.domain)) return undefined;
-  return { name: a.name, description: a.description, accepting: a.accepting, domain: a.domain };
+  // Additive within version 2: a card without `skills` (an older release) reads as offering none, and a
+  // malformed entry is dropped, not the card.
+  const skills = Array.isArray(a.skills) ? a.skills.map(parseSkill).filter((x: AgentSkill | undefined): x is AgentSkill => !!x) : [];
+  return { name: a.name, description: a.description, accepting: a.accepting, domain: a.domain, skills };
+}
+
+function parseSkill(x: unknown): AgentSkill | undefined {
+  if (!obj(x)) return undefined;
+  const a = x as Any;
+  if (!isSkillId(a.id) || !str(a.name) || typeof a.description !== 'string') return undefined;
+  const examples = capStrings(a.examples, SKILL_LIMITS.examples, SKILL_LIMITS.example);
+  return {
+    id: a.id,
+    name: a.name,
+    description: a.description.slice(0, SKILL_LIMITS.description),
+    tags: capStrings(a.tags, SKILL_LIMITS.tags, SKILL_LIMITS.tag),
+    ...(examples.length ? { examples } : {}),
+  };
 }
 
 /** The text of a message, parts joined. */

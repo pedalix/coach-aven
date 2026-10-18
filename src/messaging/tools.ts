@@ -20,13 +20,15 @@ export function messagingTools(caller: HostCaller, m: Messaging, o: { send: bool
         description:
           'Send another agent a question or a request — A2A SendMessage — in this installation or another one. `target` is ' +
           '"<installation>/<agent>" as `agents` lists it, or "<agent>" for an agent of this installation. Returns {taskId, state} at ' +
-          'once; the answer arrives later in this conversation, as data. With `taskId` it is your reply to a question the agent ' +
-          'asked back (input-required).',
+          'once; the answer arrives later in this conversation, as data. With `skill`, the task asks for one of the skills the ' +
+          'target\'s card offers: the other agent runs that skill on your text. With `taskId` it is your reply to a question the ' +
+          'agent asked back (input-required).',
         inputSchema: {
           type: 'object',
           properties: {
             target: { type: 'string', description: '"<installation>/<agent>" or "<agent>"' },
             text: { type: 'string', description: 'The question or request, self-contained: the other agent sees nothing of this conversation' },
+            skill: { type: 'string', description: 'Optional: a skill id from the target\'s card (`agents` lists them); a new task only' },
             taskId: { type: 'string', description: 'Reply on this task (it asked you back)' },
           },
           required: ['target', 'text'],
@@ -48,7 +50,8 @@ export function messagingTools(caller: HostCaller, m: Messaging, o: { send: bool
       {
         name: 'agents',
         description:
-          'Who you may ask — agent cards: id, one-line description, whether they take a new task from you now. Without `installation`: ' +
+          'Who you may ask — agent cards: id, one-line description, the skills it offers you (id, description, tags, examples), ' +
+          'whether it takes a new task from you now. Without `installation`: ' +
           'every installation you can reach (this one and each peer installation), with the agents in each that accept you — call it ' +
           'first whenever you are asked to put a question or a request to another team\'s or project\'s agent. With `installation`: ' +
           'that one only; `offline` when it is not reachable.',

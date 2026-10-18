@@ -41,6 +41,8 @@ export const EVENTS = {
   'ask.marks.held': ev('info', 'task', 'marks', 'target'),
   'ask.marks.refused': ev('warn', 'task', 'marks', 'target'),
   'ask.cost.high': ev('warn', 'task', 'slug', 'cost'),
+  'skills.missing': ev('warn', 'slug', 'skills'),
+  'skills.withheld': ev('warn', 'slug', 'skill', 'origins'),
 } as const;
 export type EventName = keyof typeof EVENTS;
 

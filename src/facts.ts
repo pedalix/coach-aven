@@ -23,6 +23,18 @@ import { log } from './log.js';
 // the composer auth seeder (which checkouts) in tasks.ts, and the system prompt.
 
 export const DEPENDS_ON_REPOS = 'depends_on_repos';
+// Second writer: the skills scanner (skills.ts) — `project_skills`, the project's own Claude Code skills
+// ({name, description, origin}). Reader: the agent card (messaging/skills.ts exposedSkills).
+export const PROJECT_SKILLS = 'project_skills';
+/** A `project_skills` entry (the shape of messaging/skills.ts ProjectSkill, kept free of that import). */
+export interface ProjectSkillFact {
+  name: string;
+  description: string;
+  origin: string;
+  tags?: string[];
+  examples?: string[];
+  clash?: string[];
+}
 
 export interface Fact {
   // What the fact is about, e.g. "project:caldora".
@@ -85,5 +97,16 @@ export class FactStore {
   dependsOnRepos(slug: string): string[] {
     const v = this.get(slug, projectSubject(slug), DEPENDS_ON_REPOS)?.value;
     return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  }
+
+  // The project's own skills as last scanned; undefined when never scanned (the card then offers an
+  // explicit allowlist by name only — messaging/skills.ts).
+  projectSkills(slug: string): ProjectSkillFact[] | undefined {
+    const f = this.get(slug, projectSubject(slug), PROJECT_SKILLS);
+    if (!f || !Array.isArray(f.value)) return undefined;
+    return f.value.filter(
+      (x): x is ProjectSkillFact =>
+        !!x && typeof x === 'object' && typeof (x as { name?: unknown }).name === 'string' && typeof (x as { description?: unknown }).description === 'string' && typeof (x as { origin?: unknown }).origin === 'string',
+    );
   }
 }

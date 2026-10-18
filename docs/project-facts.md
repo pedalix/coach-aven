@@ -35,7 +35,7 @@ in `state.json`.
 - A missing or corrupt file reads as "no facts": the store is a derived cache and a reader
   degrades to "unknown", never crashes a turn.
 
-## The one fact today: `depends_on_repos`
+## The first fact: `depends_on_repos`
 
 **Writer** — the dependency scanner (`src/deps.ts`), run by `prepareChat` right after the
 repos are cloned/fetched. A single grep inside the sandbox over each checkout's
@@ -64,6 +64,34 @@ are normalized to `Owner/name`.
 This replaced the per-project `composerAuth` config field (a hand-made PAT that expired
 and had to be maintained by a human). Nothing on the GitHub side needs configuring as
 long as the App installation covers the package repos (it is installed org-wide).
+
+## The second fact: `project_skills`
+
+**Writer** — the skills scanner (`src/skills.ts`, OpenSpec `agent-skills`), run by `prepareChat`
+right after the dependency scanner, only for a project whose agent card offers skills
+(`messaging.skills` set). Inside the sandbox it prints the frontmatter of every
+`.claude/skills/<folder>/SKILL.md` where the session loads skills: its working directory, and for
+a multi-repo project each repo passed with `--add-dir` (`REPO_SKILLS`, `docs/runtime-config.md`).
+
+```json
+{
+  "subject": "project:brand-studio",
+  "predicate": "project_skills",
+  "value": [
+    { "name": "brand-profile", "description": "Builds a brand profile from a hotel's website.", "origin": "brand-studio", "tags": ["brand"], "examples": ["Build the brand profile for https://hotel-alpenblick.example"] }
+  ],
+  "sources": ["brand-studio@1a2b3c4:.claude/skills/brand-profile/SKILL.md"],
+  "observedAt": "2026-10-19T08:12:03.000Z"
+}
+```
+
+- `origin` is the repo's short name, or `project` for the project folder of a multi-repo project.
+- A name found in two places is kept once with `clash: [<every origin>]` and is never offered
+  until renamed.
+- A malformed key is logged and dropped; a failed scan keeps the previous fact.
+
+**Reader** — the agent card (`src/messaging/skills.ts` → `exposedSkills`): the project's
+`messaging.skills` over this fact decides which skills the card offers and which a task may name.
 
 ## Bootstrap order
 

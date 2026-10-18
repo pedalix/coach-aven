@@ -352,6 +352,17 @@ test('ledger — the spawn line gains exactly the ledger flags; without the ledg
   assert.equal(ledger, `${plain}'--replay-user-messages' `);
 });
 
+test('repo skills (agent-skills) — a multi-repo session gains `--add-dir` with every checkout, last on the line (after the ledger flags); none → byte-identical', async () => {
+  const plain = await spawnCommand({ cwd: '/w' });
+  assert.equal(await spawnCommand({ cwd: '/w', addDirs: [] }), plain);
+  const dirs = ['/root/work/acme-suite/acme-admin', '/root/work/acme-suite/acme-shop'];
+  assert.equal(await spawnCommand({ cwd: '/w', addDirs: dirs }), `${plain}'--add-dir' '/root/work/acme-suite/acme-admin' '/root/work/acme-suite/acme-shop' `);
+  assert.equal(
+    await spawnCommand({ cwd: '/w', ledger: true, addDirs: dirs }),
+    `${plain}'--replay-user-messages' '--add-dir' '/root/work/acme-suite/acme-admin' '/root/work/acme-suite/acme-shop' `,
+  );
+});
+
 test('ledger — every message carries a uuid; a result before the turn’s own echo is not its result (a background report), the one after it is', async () => {
   const { session, push, writes } = await openLedger();
   const idle: string[] = [];
