@@ -1,53 +1,61 @@
 # Proposal
 
-> **Status: proposed 2026-10-18.** Decisions taken in review:
-> - **A card says what an agent is and what it can do.** `description` stays as the first part. The second is a list of skills, the A2A AgentSkill subset: id, name, description, examples, tags.
-> - **A task may name one skill of its target.**
->   - The receiving installation decides: a skill the target does not declare is rejected.
->   - A task without a skill is a general request, as today.
-> - **The operator declares skills** in the project's `messaging` block. Routing by skill and permissions per skill come later, with roles per sender.
-> - **Implementation waits for `retire-agent-dispatch`**, which is rewriting the same modules (`src/messaging/wrap.ts`, `tools.ts`).
+> **Status: proposed 2026-10-18, reworked the same day.** Decisions taken in review:
+> - **An agent's skills are its project's Claude Code skills.** The bot finds the `SKILL.md` files in the project and its repos and reads their name and description. The operator does not write skills a second time in the configuration.
+> - **The receiving installation decides what each sender sees.** The project's `messaging.skills` lists the skills that may be shown at all, and nothing is shown by default. An `accept` entry may narrow that list for one sender.
+> - **A task that names a skill starts with that skill.** The answering session's first message invokes the skill explicitly, so the bot decides how the task runs instead of leaving it to the prompt.
+> - **An agent without skills works as today.** Its card says so (`skills: []`), and it takes general requests.
+> - **Multi-repo projects load their repos' skills only when the project opts in**, through `--add-dir` for each repo. Single-repo projects already do.
 
 ## Why
 
-Today an agent card carries one line: what the agent is. An asking agent picks its target by guessing from that line. Agents are about to specialise:
+Today an agent card says what an agent is, in one line. An asking agent picks its target by guessing from that line. Agents are about to specialise:
 - a project agent for one codebase;
 - an operator's tenant agent;
 - an agent for one function, such as a brand studio that builds a brand profile from a hotel's website and designs a site from it.
 
-The asker needs to know what each one offers. A2A's Agent Card already answers this with a list of skills, each with an id, a name, a description and example requests.
+The asker needs to know what each one offers. A2A's Agent Card already answers that with a list of skills, each with an id, a name and a description.
 
-A skill named on a task also gives the receiving side something explicit to act on. It does not have to guess intent from the text. That matters for later work (routing a task, allowing a skill to some senders only), and for the audit today.
+A project already has such a list. Its Claude Code skills (`.claude/skills/*/SKILL.md`) each carry a name and a one-line description, and Claude Code loads them by that description or runs one when it is named. Exposing them means one source of truth: the repo's own skill, not a second description in an ops repo that drifts from it.
+
+Two facts, measured on the pinned CLI (2.1.292):
+- **The session reports its skills** in the stream-json `system/init` frame. So the bot can know exactly which skills a session has.
+- **A multi-repo project's sessions do not load their repos' skills today.** The session starts in the project folder, which only holds the repos side by side. With `--add-dir` for each repo, the repo skills load.
 
 ## What Changes
 
-- **Skills in the configuration.**
-  - A project's `messaging` block may declare `skills: [{id, name, description, examples?, tags?}]`.
-  - They are validated at load: kebab-case ids, unique, one-line texts with caps, at most 16 skills. An error names the project and the skill.
-  - A project without `skills` behaves exactly as before.
-- **Skills in the cards.** Cards carry the declared skills: local cards, and remote ones through `cards`. `agents()` shows them for every reachable installation.
+- **Finding skills.**
+  - At prepare time, a scanner in the sandbox reads every `.claude/skills/*/SKILL.md` in the project folder and in each repo checkout. It records name, description and provenance (`<repo>@<commit>:<path>`) as the project fact `project_skills`.
+  - The bot also records the skills each session's `init` frame reports.
+  - Bundled and plugin skills are never candidates.
+- **Multi-repo opt-in.** A project field `repoSkills: true` makes the bot start that project's sessions with `--add-dir <repo>` for each repo. It is off by default, so no project's spawn line changes.
+- **Exposure.**
+  - `messaging.skills` is an allowlist of skill names. The default is none, so a `deploy` or `release` skill never shows.
+  - An `accept` entry may be an object, `{"from": "<pattern>", "skills": [...]}`. It narrows the allowlist for the senders it matches. Today's string entries stay valid and mean every exposed skill.
+- **Cards.**
+  - Every card carries `skills`, the A2A AgentSkill subset (`id`, `name`, `description`, `tags`), filtered for the caller.
+  - An agent without skills has `skills: []`.
+  - Remote cards carry the field through `cards`.
 - **A skill on a task.** `send_message` takes an optional `skill`.
-  - A first message naming a skill the target does not declare gets `rejected: unknown skill`, with the target's skill ids.
-  - The receiving installation decides, for both transports. In the caller's own installation, the tool refuses at once and lists the target's skills.
-  - Only a task's first message carries a skill.
-- **Where the skill shows up.**
-  - The task record on both sides stores it.
-  - `/aven asks` shows it.
-  - The answering turn's framing names the skill, its name and its description.
-  - Without a skill, the framing is byte-identical to today's.
-- **Protocol.** The change is additive within version 2: a card field `skills`, and a sealed payload field `skill`.
-  - A card without `skills` and a payload without `skill` stay valid.
-  - A release without this change ignores both (`hub-open-network`: receivers ignore fields they do not know), so it runs a task naming a skill as a general request.
+  - The receiving installation decides. A skill the caller may not use gets `rejected: unknown skill`, with the ids it may use.
+  - A sender that is not accepted learns nothing.
+  - In the caller's own installation the tool refuses at once.
+- **Running it.**
+  - A task with a skill starts its shadow session with the skill's slash invocation, followed by the plain task frame.
+  - If the session did not load the skill, or the pinned CLI cannot run a slash invocation through stream-json input, the frame instead names the skill to use.
+  - Two cli-probe contract scenarios pin both CLI behaviours.
+- **Records.** The skill is stored on the task on both sides and shown by `/aven asks`. `ask.rejected` carries `reason=unknown skill`.
+- **Protocol.** Additive within version 2: the card's `skills` and the sealed payload's `skill`. An older release ignores both and runs a skill-named task as a general request.
 
 ## Out of scope
 
 These are extension notes in the design:
-- routing a task by its skill to another session, another prompt or another sandbox;
-- permissions per skill, together with roles per sender in `accept`, enforced by the receiving bot through the sandbox permission mode rather than the prompt;
-- agents that are not sandboxes, such as adapters to external A2A endpoints (the hub adapter idea from `agent-messaging`);
+- routing a task by its skill to another session or another sandbox;
+- permissions per skill, together with roles per sender in `accept`, enforced by the receiving bot through the sandbox permission mode;
+- exposing bundled or plugin skills;
+- agents that are not sandboxes, such as adapters to external A2A endpoints;
 - cost per skill in `/aven asks`;
-- cards generated from a project's README or facts instead of declared by the operator;
-- skills of the asking side: a card describes what an agent answers, not what it asks.
+- examples and tags read from `SKILL.md` (the cards send `tags: []` and no examples for now).
 
 ## Capabilities
 
@@ -56,9 +64,11 @@ None.
 
 ### Modified Capabilities
 - `agent-messaging`:
-  - new: skills are declared in the messaging configuration;
+  - new: skills come from the project's Claude Code skills;
+  - new: the receiving installation decides which skills each sender may use;
   - new: a task can name the skill it asks for;
-  - changed: discovery through agent cards (cards carry skills);
+  - changed: the receiving agent decides who may ask it (`accept` entries may carry skills);
+  - changed: discovery through agent cards (cards carry skills, filtered for the caller);
   - changed: agent tools mirror A2A operations (`send_message` takes `skill`);
   - changed: terminal states (a new `rejected` reason, `unknown skill`).
 
@@ -67,21 +77,21 @@ None.
 ## Impact
 
 - **Rollout.**
-  - Bucket 2: the change reaches only projects with a `messaging` block, and the configuration is additive.
-  - A project without `skills` keeps a byte-identical card, prompt and framing; the existing goldens prove it.
-  - The `send_message` tool gains an optional parameter for every project configured to send.
-  - Prod has no `messaging` block.
+  - **Bucket 2 for exposure and the skill on a task.** It reaches only projects with a `messaging` block, and the configuration is additive. Cards of those projects gain `skills: []`. Prod has no `messaging` block.
+  - **Bucket 2 for `repoSkills`.** It is a per-project opt-in, off by default. The spawn-line golden of a project without it stays byte-identical.
+  - **The scanner runs for every project,** because facts are derived for every project. It only writes `facts/<slug>.json` and changes nothing a session sees.
   - One ledger row in `docs/rollout.md`.
-- **Order.** Implemented after `retire-agent-dispatch` merges, because that change rewrites `wrapTask` and the tool descriptions.
 - **Code.**
-  - `src/messaging/config.ts`: validation;
-  - `a2a.ts`: `AgentSkill`, card parsing;
-  - `protocol.ts`: the payload field;
-  - `service.ts`: `localCards`, `sendMessage`, `onAsk`;
-  - `tools.ts`: the `send_message` schema;
-  - `wrap.ts`: the skill line in `wrapTask`;
-  - `records.ts`: the `skill` on task records;
-  - `audit.ts`: `/aven asks`;
-  - `events.ts`: the `ask.rejected` reason.
-- **Config.** `messaging.skills` per project. `projects.config.example.json` and `docs/runtime-config.md` show it.
-- **Data.** The task records in `state.json` gain an optional `skill`.
+  - a new `src/skills.ts`: the scanner and the frontmatter parser, pure parts tested;
+  - `src/tasks.ts`: the scan at prepare, and `--add-dir` under `repoSkills`;
+  - `src/claudeSession.ts`: the `init` skills;
+  - `src/projects.ts`: `repoSkills`;
+  - in `src/messaging/`:
+    - `config.ts`: the allowlist and the `accept` objects;
+    - `protocol.ts`: the matcher and `Payload.skill`;
+    - `a2a.ts`: `AgentSkill`;
+    - `service.ts`: cards per caller, `sendMessage`, `onAsk`, the first message;
+    - `tools.ts`, `wrap.ts`, `records.ts`, `audit.ts`, `events.ts`;
+  - the cli-probe contract scenarios.
+- **Config.** `repoSkills` per project, `messaging.skills`, and `accept` objects. `projects.config.example.json` and `docs/runtime-config.md` show them.
+- **Data.** A new fact, `project_skills`. Task records gain an optional `skill`.
