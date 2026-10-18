@@ -15,7 +15,6 @@ import { loadProjects, type RegistryRef, resolveByChannel } from '../../projects
 import { createTurnEngine } from '../../turn.js';
 import { createChannels } from '../../channels.js';
 import { createPollers, ROUTINE_TZ } from '../../pollers.js';
-import { createDispatcher, type Dispatcher } from '../../dispatchrun.js';
 import { createHostRouter } from '../../hostrouter.js';
 import { createActorGate } from '../core/gates.js';
 import { createInteractions } from '../core/interactions.js';
@@ -109,28 +108,19 @@ export async function runTeams(cfg: Config): Promise<void> {
     });
   }
 
-  // ── engine, channels, pollers, dispatch — as on Slack ─────────────────────
-  const dispatcherRef: { current?: Dispatcher } = {};
+  // ── engine, channels, pollers, messaging — as on Slack ────────────────────
   // Agent messaging (OpenSpec agent-messaging): as in the Slack root — the shadow hooks into the engine,
   // the service once the engine exists; nothing reaches it without a `messaging` block.
   const messaging = messagingRuntime({ cfg, store, reg, home: () => tenantId, platform: 'teams' });
-  const hostRoutes = createHostRouter({
-    reg,
-    home: () => tenantId,
-    tz: ROUTINE_TZ,
-    propose: (slug, record) => dispatcherRef.current?.propose(slug, record) ?? Promise.resolve({ ok: false as const, error: 'dispatch is not available yet' }),
-    messaging: messaging.messaging,
-  });
+  const hostRoutes = createHostRouter({ tz: ROUTINE_TZ, messaging: messaging.messaging });
   const engine = createTurnEngine(cfg, store, reg, { hostRoutes, shadow: messaging.turnDeps });
   const channels = createChannels(reg, () => tenantId);
-  const dispatcher = createDispatcher({ store, reg, engine, channels, driverFor, home: () => tenantId, tz: ROUTINE_TZ });
   messaging.start({ engine, driverFor, usageLog: new UsageLog(), tz: ROUTINE_TZ });
-  dispatcherRef.current = dispatcher;
   const pollers = createPollers(cfg, store, reg, driverFor, engine, channels, () => tenantId);
 
   const actor = createActorGate(store, tenantId);
   const servedTenant = (t: string | undefined) => t === tenantId;
-  const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', dispatcher, messaging: messaging.messaging });
+  const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', messaging: messaging.messaging });
   const messages = createMessages({ store, reg, engine, channels, homeTeamId: tenantId, actor, parkDmPick: core.parkDmPick });
   const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks });
 

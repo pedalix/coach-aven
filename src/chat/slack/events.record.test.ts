@@ -17,9 +17,7 @@ import { createChannels } from '../../channels.js';
 import { registerEvents } from './events.js';
 import { slugOfBase, isThreadKey } from '../../teamkeys.js';
 import { memoryRepoDir } from '../../memjournal.js';
-import { dispatch, type StoredProposal } from '../../dispatch.js';
 import type { PendingQuestion, TurnEngine, TurnOpts, TurnTrail } from '../../turn.js';
-import type { Dispatcher } from '../../dispatchrun.js';
 import type { SlackChatDriver } from './driver.js';
 import { FB_CALLBACK, FB_NOTE, FB_REASON, YT_PROMPT_CALLBACK, YT_PROMPT_INPUT, YT_PROMPT_NOW, YT_SEND_CALLBACK, YT_SEND_INPUT } from './blocks.js';
 import { createTwinApp, messageEnvelope, homeOpenedEnvelope, blockActionEnvelope } from './twin.js';
@@ -109,7 +107,7 @@ function recordingEngine(store: Store) {
   return { engine, log, busy, trails, drafts, questions, completed };
 }
 
-async function twin(opts: { dispatcher?: Dispatcher; messaging?: () => Messaging | undefined } = {}) {
+async function twin(opts: { messaging?: () => Messaging | undefined } = {}) {
   const reg = {
     current: {
       projects: [
@@ -135,7 +133,6 @@ async function twin(opts: { dispatcher?: Dispatcher; messaging?: () => Messaging
     botUserId: `UBOT_${HOME}`,
     homeTeamId: HOME,
     servedTenant,
-    dispatcher: opts.dispatcher,
     ...(opts.messaging ? { messaging: opts.messaging } : {}),
   });
   return { receiver, api, store, ...rec, stop };
@@ -143,7 +140,7 @@ async function twin(opts: { dispatcher?: Dispatcher; messaging?: () => Messaging
 
 type Twin = Awaited<ReturnType<typeof twin>>;
 
-async function record(name: string, run: (t: Twin) => Promise<void>, opts?: { dispatcher?: Dispatcher; messaging?: () => Messaging | undefined }): Promise<void> {
+async function record(name: string, run: (t: Twin) => Promise<void>, opts?: { messaging?: () => Messaging | undefined }): Promise<void> {
   const t = await twin(opts);
   try {
     await run(t);
@@ -181,45 +178,7 @@ test('events record: cancel_turn denied', () =>
     await t.receiver.send(action(CLIENT, 'cancel_turn', 't1-1', 'C_CLIENT'));
   }));
 
-// ── dispatch ─────────────────────────────────────────────────────────────────
-const proposal: StoredProposal = {
-  id: 'p-1',
-  kind: 'message',
-  target: 'C_CLIENT',
-  text: 'Please look at X',
-  refs: ['https://x/pull/1'],
-  rationale: 'they asked yesterday',
-  session: 'thread:9.1',
-  createdAt: '1970-01-01T00:00:00.000Z',
-  slug: 'alpha',
-  status: 'sent',
-  receivedAt: '1970-01-01T00:00:00.000Z',
-  approvedBy: 'U_HUMAN',
-  approvedAt: '1970-01-01T00:00:00.000Z',
-  result: 'https://slack/permalink',
-};
-const fakeDispatcher = (log: unknown[]) =>
-  ({
-    approve: async (_c: unknown, id: string, user: string) => (log.push({ approve: { id, user } }), proposal),
-    dismiss: (id: string, user: string) => (log.push({ dismiss: { id, user } }), { ...proposal, status: 'dismissed' }),
-  }) as unknown as Dispatcher;
-for (const which of ['dispatch_send', 'dispatch_dismiss']) {
-  test(`events record: ${which}`, async () => {
-    const was = dispatch.enabled;
-    (dispatch as { enabled: boolean }).enabled = true;
-    const dlog: unknown[] = [];
-    try {
-      await record(which, async (t) => {
-        await t.receiver.send({ ...action(HOME, which, 'p-1'), message: { ts: '5.5' } });
-        t.log.push(...dlog);
-      }, { dispatcher: fakeDispatcher(dlog) });
-    } finally {
-      (dispatch as { enabled: boolean }).enabled = was;
-    }
-  });
-}
-
-// ── agent messaging: the held-message card (agent-messaging task 4.7) — independent of DISPATCH ──
+// ── agent messaging: the held-message card (agent-messaging task 4.7) ──
 const HELD = { id: 'a'.repeat(24), task: 'a'.repeat(24), kind: 'task' as const, slug: 'alpha', key: 'thread:5.1', target: 'northwind/ledger', text: 'Which orders failed today?', why: 'this conversation holds data from bluefin, and northwind does not have it', createdAt: '1970-01-01T00:00:00.000Z' };
 const fakeMessaging = (log: unknown[]) =>
   ({
@@ -227,8 +186,7 @@ const fakeMessaging = (log: unknown[]) =>
     dismiss: (id: string) => (log.push({ dismiss: { id } }), { ok: true, text: 'Dismissed.' }),
   }) as unknown as Messaging;
 for (const which of ['held_send', 'held_dismiss']) {
-  test(`events record: ${which} — held message without the flag (DISPATCH off)`, async () => {
-    assert.equal(dispatch.enabled, false);
+  test(`events record: ${which} — held message`, async () => {
     const mlog: unknown[] = [];
     await record(`${which.replace('_', '-')}`, async (t) => {
       t.store.putHeld(HELD);

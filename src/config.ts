@@ -263,6 +263,15 @@ function teamsConfig(): TeamsConfig | undefined {
   };
 }
 
+/**
+ * Pure: switches that were retired and now change nothing (OpenSpec `retire-agent-dispatch` D4). Still set,
+ * each gets one warning at boot so the operator removes it — never a refusal to start, never honoured.
+ */
+export function retiredEnvWarnings(env: Record<string, string | undefined>): string[] {
+  const on = (v: string | undefined): boolean => v === '1' || v === 'true';
+  return on(env.DISPATCH) ? ['config: DISPATCH is retired — agent messaging replaces it'] : [];
+}
+
 export function loadConfig(): Config {
   const driver = process.env.SANDBOX_DRIVER || 'daytona';
   if (driver !== 'daytona' && driver !== 'ssh-docker') {

@@ -26,7 +26,7 @@ test('nothing outside src/cliprobe/ imports the probe', () => {
 });
 
 test('the probe imports no state, chat, sources or project-configuration module', () => {
-  const FORBIDDEN = /^\.\.\/(state|turn|projects|queuejournal|drafts|metering|pollers|channels|dispatch|dispatchrun|registry)\.js$|^\.\.\/(chat|sources)\//;
+  const FORBIDDEN = /^\.\.\/(state|turn|projects|queuejournal|drafts|metering|pollers|channels|registry)\.js$|^\.\.\/(chat|sources)\//;
   const offenders: string[] = [];
   for (const p of tsFiles(join(SRC, 'cliprobe')).filter((f) => !f.endsWith('.test.ts'))) {
     const text = readFileSync(p, 'utf8');

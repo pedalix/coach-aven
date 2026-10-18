@@ -2,11 +2,10 @@
 // part, claudeSession.ts the framing). Built once in the composition root (chat/slack/app.ts) and
 // handed to the turn engine (TurnDeps.hostRoutes); `routesFor` runs when a session opens and returns
 // what that session registers with the CLI:
-//   • `host`    — while DISPATCH=1: propose + registry (the dispatch primitive's own server; it
-//                 replaced a stdio server in the sandbox and its outbox mount). For a project with a
-//                 `messaging` block, also the messaging tools (agent-messaging D9): send_message,
-//                 get_task, cancel_task, agents with `send`, request_input in a shadow conversation —
-//                 which never gets propose/registry (nobody can click there). Nothing without either.
+//   • `host`    — a project with a `messaging` block: the messaging tools (agent-messaging D9):
+//                 send_message, get_task, cancel_task, agents with `send`, request_input in a shadow
+//                 conversation. Nothing without the block (the dispatch primitive's propose/registry,
+//                 once served here behind DISPATCH, are retired: OpenSpec `retire-agent-dispatch`).
 //                 Registered when the session opens: an open session gets new tools after a restart.
 //   • `sources` — a project with a `sources` block: the sources tool table over the replica on this
 //                 disk, answered on a worker thread (sources/worker.mjs). Bucket 2: only sources
@@ -19,10 +18,8 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import type { ProjectConfig, RegistryRef } from './projects.js';
-import { teamProjects } from './projects.js';
-import { dispatch, type ProposalRecord, type ProposeOutcome } from './dispatch.js';
-import { hostToolTable, mcpServer, type HostCaller, type HostServerRoute, type JsonRpc } from './hosttools.js';
+import type { ProjectConfig } from './projects.js';
+import { mcpServer, type HostCaller, type HostServerRoute, type JsonRpc } from './hosttools.js';
 import { sourcesTimezone, SOURCES_SERVER_NAME } from './sources/mcp.js';
 import { replicaDir } from './sources/paths.js';
 import { forwardToDaemon } from './sources/daemonclient.js';
@@ -48,11 +45,6 @@ export interface HostRouter {
 export type SourcesCall = (message: JsonRpc, dbPath: string) => Promise<JsonRpc | undefined>;
 
 export interface HostRouterDeps {
-  reg: RegistryRef;
-  home: () => string | undefined;
-  /** The dispatcher's `propose` (late-bound in the composition root: the dispatcher is built after the engine). */
-  propose: (slug: string, record: ProposalRecord) => Promise<ProposeOutcome>;
-  dispatchEnabled?: boolean; // default: the DISPATCH flag
   replicaPath?: (slug: string) => string;
   sources?: SourcesCall; // default: the worker thread
   /** Forwards a tools/call to a project's daemon (default: forwardToDaemon over HTTP). */
@@ -68,7 +60,6 @@ export function declares(project: ProjectConfig, name: string): boolean {
 }
 
 export function createHostRouter(d: HostRouterDeps): HostRouter {
-  const dispatchOn = d.dispatchEnabled ?? dispatch.enabled;
   const replicaPath = d.replicaPath ?? ((slug: string) => join(replicaDir(slug), REPLICA_FILE));
   const sources = d.sources ?? sourcesWorker(d.tz ?? sourcesTimezone());
   const forward = d.forward ?? ((cfg: DaemonConfig, slug: string, m: JsonRpc) => forwardToDaemon(cfg, slug, m));
@@ -77,21 +68,8 @@ export function createHostRouter(d: HostRouterDeps): HostRouter {
       const routes: HostServerRoute[] = [];
       const shadow = parseShadowKey(caller.conversationKey) !== undefined;
       const m = project.messaging !== undefined ? d.messaging?.() : undefined;
-      if ((dispatchOn || m) && !declares(project, HOST_SERVER_NAME)) {
-        const tools = [
-          ...(dispatchOn && !shadow
-            ? hostToolTable(caller, {
-                projects: (c) =>
-                  teamProjects(d.reg.current, c.teamId ?? d.home(), d.home()).map((p) => ({
-                    slug: p.slug,
-                    ...(p.slackChannel ? { channel: p.slackChannel } : {}),
-                    ...(p.slug === c.slug ? { self: true } : {}),
-                  })),
-                propose: (c, record) => d.propose(c.slug, record),
-              })
-            : []),
-          ...(m ? messagingTools(caller, m, { send: project.messaging!.send === true, shadow }) : []),
-        ];
+      if (m && !declares(project, HOST_SERVER_NAME)) {
+        const tools = messagingTools(caller, m, { send: project.messaging!.send === true, shadow });
         if (tools.length) routes.push({ name: HOST_SERVER_NAME, timeoutMs: HOST_TIMEOUT_MS, handle: mcpServer(HOST_SERVER_NAME, tools) });
       }
       if (project.sources !== undefined && !declares(project, SOURCES_SERVER_NAME)) {

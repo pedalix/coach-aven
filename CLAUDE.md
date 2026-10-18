@@ -52,7 +52,7 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   runs ONE chat driver, chosen by the run command (`orch slack` / `orch teams`; `src/chat/drivers.ts`). The
   platform-neutral core (`src/chat/core/`: `messages.ts` mentions/DMs/thread replies,
   `commands.ts` the `/aven` router, `interactions.ts` buttons/dialogs/home, `gates.ts` who may
-  drive) and the engine-side code (`src/turn.ts`, `src/pollers.ts`, `src/dispatchrun.ts`) talk
+  drive) and the engine-side code (`src/turn.ts`, `src/pollers.ts`) talk
   to `ChatDriver` (`src/chat/driver.ts`) with view models (`src/chat/views.ts`) — never to a
   platform SDK (`src/chat/imports.test.ts` enforces it).
 - `src/chat/teams/` — the Teams driver (`orch teams`; OpenSpec `teams-chat-driver`): `app.ts`

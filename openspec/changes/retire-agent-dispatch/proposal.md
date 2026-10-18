@@ -36,13 +36,18 @@ So the dispatch code is dead weight. Every reader has to skip it: in the composi
   - A `dispatch` block in a project's configuration is ignored, with a warning naming the project.
   - `DISPATCH` set in the environment logs one warning at boot.
   - `state.json` drops its `proposals` and `dispatches` keys once, on load.
-- **No successor here for "ask another agent to do work".** Messages still ask; they do not order. If work requests come back, they are a messaging task that waits for a person's Send on the held card (see design).
+- **No successor needed for "ask another agent to do work".** Messaging is intent-agnostic: a task carries a question or a request to do work alike, and the receiving agent's accept list is the gate. The "ask, don't order" rule is removed everywhere it lived:
+  - the prompt paragraph;
+  - the `send_message` description;
+  - the answering side's "change nothing" frame.
+
+  The asking side keeps framing what comes back as data from another agent, not an instruction from a person (design D3).
 
 ## Out of scope
 
 - YouTrack investigations and the pollers' own "dispatch" of a ticket to a thread. That is the word, not the primitive, and it stays.
-- Any change to agent messaging's behaviour beyond dropping its references to `propose`.
-- A successor for dispatched work.
+- Any change to agent messaging beyond dropping its references to `propose` and its "ask, don't order" rule (design D3).
+- Per-sender permissions on the receiving side: a possible future direction (design D3), not planned.
 
 ## Capabilities
 
@@ -53,7 +58,11 @@ None.
 - `agent-dispatch`: every requirement is removed. "Mentions do not dispatch" moves to `agent-messaging` as "Mentions never create a task".
 - `host-tools`: the `host` server exists for messaging only. "The caller is the session" and "Deterministic, read or gated" are replaced by requirements of the same rules without `propose` and `registry`: "A host tool call belongs to its session" and "Host tools read state or exchange task messages". OpenSpec cannot drop a scenario through MODIFIED.
 - `chat-driver-interface`: "Slack installations unchanged" drops dispatch from its list of recorded scenarios.
-- `agent-messaging`: the shadow conversation's "no `propose` tool" clause goes, and "Mentions never create a task" is added.
+- `agent-messaging`:
+  - the shadow conversation's "no `propose` tool" clause goes;
+  - its framing becomes a request from another agent, handled within the project's rules and permissions, with a new scenario "A request to do work";
+  - "Mentions never create a task" is added;
+  - the Purpose drops "Messages ask; they do not order" (edited in the `agent-messaging` change, which is not archived).
 
 **Archive order:**
 1. `agent-messaging`, which introduces `agent-messaging` and modifies `host-tools`, `agent-dispatch` and `chat-driver-interface`.
@@ -62,7 +71,9 @@ None.
 
 ## Impact
 
-- **Rollout:** a removal of dead code, with the same risk as a bug fix. No installation sets `DISPATCH`, so no prompt, tool list, card or Slack call changes for any installation in use. The prompt goldens and recorded chat calls of every non-dispatch scenario stay byte-identical, and the tests prove it. One ledger row in `docs/rollout.md`.
+- **Rollout:** two parts, one ledger row in `docs/rollout.md`.
+  - The dispatch half is a removal of dead code, with the same risk as a bug fix. No installation sets `DISPATCH`, so no prompt, tool list, card or Slack call changes outside messaging. The prompt goldens and recorded chat calls of every non-dispatch scenario stay the same, and the tests prove it.
+  - The intent-agnostic half is bucket 2. It reaches only projects with a `messaging` block, and no prod project has one: their prompt paragraph, tool descriptions and task frames change in new sessions.
 - **Code:**
   - deleted: `src/dispatch.ts`, `src/dispatchrun.ts`;
   - changed: `src/hosttools.ts`, `src/hostrouter.ts`, `src/prompt.ts`, `src/tasks.ts`, `src/projects.ts`, `src/state.ts`, `src/turn.ts`, `src/queuejournal.ts`, `src/claudeSession.ts` (a comment), `src/chat/views.ts`, `src/chat/core/interactions.ts`, `src/chat/slack/{app,events,driver,blocks}.ts`, `src/chat/teams/{app,cards}.ts`;

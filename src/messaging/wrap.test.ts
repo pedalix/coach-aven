@@ -15,9 +15,11 @@ const golden = (name: string, got: string): void => {
 const T = '0a1b2c3d4e5f60718293a4b5';
 const Q = 'Why did orders drop on 2026-10-16?\nB2C only, please.';
 
-test('wrapTask — the golden: data, change nothing, request_input, may send, the first line is the answer', () => {
+test('wrapTask — the golden: a request from another agent, handled as a colleague\'s within the project\'s rules and permissions; request_input, may send, the first line is the result', () => {
   golden('task', wrapTask({ from: 'home/owen-ops', taskId: T, text: Q, maySend: true, maxRounds: 5 }));
   assert.ok(!wrapTask({ from: 'home/owen-ops', taskId: T, text: Q, maySend: false, maxRounds: 5 }).includes('send_message'), 'an answer-only project is not told it may send');
+  // Intent-agnostic (retire-agent-dispatch): a question and a request to do work get the same frame — nothing says "change nothing".
+  assert.ok(!/change nothing|not instructions/i.test(wrapTask({ from: 'home/owen-ops', taskId: T, text: 'Open a PR that bumps the SDK.', maySend: false, maxRounds: 5 })));
 });
 
 test('wrapAnswer — the golden: the source, the task, the original question, the answer quoted, never-forward, still open', () => {

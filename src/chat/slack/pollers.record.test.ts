@@ -1,9 +1,7 @@
 // Recorded-call pins for what the bot posts on its own (OpenSpec chat-driver-interface,
 // task 4.1): scheduled routines (guard off and on, answered / failed / canceled / stacked /
-// orphaned), reviews, and the dispatch primitive (Send for a message and a task, Dismiss,
-// `propose` gated and auto-approved, rejected and duplicate records). Real createPollers /
-// createDispatcher against the twin's RecordingApi with a recording fake engine that plays
-// the turn's outcome. Taken before the deliveries moved behind the chat driver; the move must
+// orphaned) and reviews. Real createPollers against the twin's RecordingApi with a recording
+// fake engine that plays the turn's outcome. Taken before the deliveries moved behind the chat driver; the move must
 // leave them byte-identical. Re-snapshot on purpose with UPDATE_SNAPSHOTS=1.
 
 import { test, mock, before, after } from 'node:test';
@@ -16,8 +14,6 @@ import type { Config } from '../../config.js';
 import { Store, type RoutineRecord } from '../../state.js';
 import { createChannels } from '../../channels.js';
 import { createPollers } from '../../pollers.js';
-import { createDispatcher, type Dispatcher } from '../../dispatchrun.js';
-import { dispatch, type StoredProposal } from '../../dispatch.js';
 import { routineGuard } from '../../routineguard.js';
 import type { TurnEngine, TurnOpts } from '../../turn.js';
 import { RecordingApi } from './twin.js';
@@ -83,7 +79,7 @@ function harness(outcome: Outcome = 'answer') {
   const reg = {
     current: {
       projects: [
-        { slug: 'alpha', repos: ['Org/alpha'], dispatch: { auto: ['beta'] } },
+        { slug: 'alpha', repos: ['Org/alpha'] },
         { slug: 'beta', repos: ['Org/beta'] },
       ],
       workspaces: { [HOME]: ['alpha', 'beta'] },
@@ -97,13 +93,12 @@ function harness(outcome: Outcome = 'answer') {
     return client;
   };
   const cfg = { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 } } as unknown as Config;
-  const dispatcher = createDispatcher({ store, reg: reg as never, engine: rec.engine, channels, driverFor, home: () => HOME, tz: 'Europe/Zurich' });
   const pollers = createPollers(cfg, store, reg as never, driverFor, rec.engine, channels, () => HOME);
-  return { store, reg, client, driverFor, pollers, dispatcher, ...rec };
+  return { store, reg, client, driverFor, pollers, ...rec };
 }
 type H = ReturnType<typeof harness>;
 
-// Fire-and-forget paths (fireRoutine, dispatch) land after the call returns: wait until every
+// Fire-and-forget paths (fireRoutine) land after the call returns: wait until every
 // non-hanging turn settled and neither the API nor the engine log moved for 150 ms. Without
 // the settle wait, a slow full-suite run once leaked one scenario's posts into the next.
 async function quiesce(h?: { log: unknown[]; turns: Promise<void>[] }): Promise<void> {
@@ -130,7 +125,6 @@ async function record(name: string, outcome: Outcome, run: (h: H) => Promise<unk
     engine: h.log,
     result: result ?? null,
     routines: h.store.listRoutines().map((r) => ({ id: r.id, lastRunAt: r.lastRunAt, lastOutcome: (r as { lastOutcome?: string }).lastOutcome })),
-    proposals: ['p-1', 'p-2', 'p-3'].map((id) => h.store.getProposal(id) ?? null),
   };
   const file = SNAP(name);
   if (UPDATE) writeFileSync(file, JSON.stringify(got, null, 2) + '\n');
@@ -148,15 +142,6 @@ const withGuard = async (on: boolean, run: () => Promise<void>) => {
     await run();
   } finally {
     (routineGuard as { enabled: boolean }).enabled = was;
-  }
-};
-const withDispatch = async (run: () => Promise<void>) => {
-  const was = dispatch.enabled;
-  (dispatch as { enabled: boolean }).enabled = true;
-  try {
-    await run();
-  } finally {
-    (dispatch as { enabled: boolean }).enabled = was;
   }
 };
 
@@ -191,93 +176,3 @@ test('pollers record: review already running', () =>
     h.busy.add('review:Org/beta:12:beta');
     return h.pollers.fireReview(h.client, h.reg.current.projects[1] as never, 'Org/beta', 12, 'C_BETA');
   }));
-
-// ── dispatch ─────────────────────────────────────────────────────────────────
-const pending = (over: Partial<StoredProposal>): StoredProposal => ({
-  id: 'p-1',
-  kind: 'message',
-  target: 'C0TARGET1',
-  text: 'Heads-up: the deploy moved to Friday.',
-  refs: ['https://x/pull/1'],
-  rationale: 'they asked',
-  session: 'thread:9.1',
-  createdAt: '2026-10-15T07:00:00.000Z',
-  slug: 'alpha',
-  status: 'pending',
-  receivedAt: '2026-10-15T07:00:00.000Z',
-  channel: 'C_HOME',
-  threadTs: '9.1',
-  messageTs: '9.5',
-  ...over,
-});
-test('pollers record: dispatch Send — a message to a channel', () =>
-  withDispatch(() => record('dispatch-send-message', 'answer', async (h) => (h.store.setProposal(pending({})), h.dispatcher.approve(h.client, 'p-1', 'U_HUMAN')))));
-for (const o of ['answer', 'error'] as const) {
-  test(`pollers record: dispatch Send — a task for another project (${o})`, () =>
-    withDispatch(() =>
-      record(`dispatch-send-task-${o}`, o, async (h) => (h.store.setProposal(pending({ kind: 'dispatch', target: 'beta', text: 'Bump the SDK.' })), h.dispatcher.approve(h.client, 'p-1', 'U_HUMAN'))),
-    ));
-}
-test('pollers record: dispatch Send to an unknown project fails cleanly', () =>
-  withDispatch(() => record('dispatch-send-unknown', 'answer', async (h) => (h.store.setProposal(pending({ kind: 'dispatch', target: 'nope' })), h.dispatcher.approve(h.client, 'p-1', 'U_HUMAN')))));
-test('pollers record: dispatch Send twice changes nothing', () =>
-  withDispatch(() => record('dispatch-send-twice', 'answer', async (h) => (h.store.setProposal(pending({ status: 'sent', approvedBy: 'U1' })), h.dispatcher.approve(h.client, 'p-1', 'U_HUMAN')))));
-test('pollers record: dispatch Dismiss', () =>
-  withDispatch(() => record('dispatch-dismiss', 'answer', async (h) => (h.store.setProposal(pending({})), h.dispatcher.dismiss('p-1', 'U_HUMAN')))));
-
-const proposalFile = (over: Record<string, unknown>) => ({
-  id: 'p-2',
-  kind: 'message',
-  target: 'C0TARGET1',
-  text: 'FYI the release is out.',
-  refs: [],
-  rationale: '',
-  session: 'thread:9.1',
-  createdAt: '2026-10-15T07:00:00.000Z',
-  ...over,
-});
-// The `propose` host tool hands the dispatcher a record (hostrouter.ts); what the agent is told is
-// asserted here, what Slack sees is the snapshot — the same calls the outbox path made.
-async function propose(h: H, record: unknown, expect: Record<string, unknown>): Promise<void> {
-  const out = await h.dispatcher.propose('alpha', record);
-  for (const [k, v] of Object.entries(expect)) assert.deepEqual((out as Record<string, unknown>)[k], v, `propose → ${k}`);
-  await quiesce(h);
-}
-test('pollers record: propose — gated proposal rendered in its thread', () =>
-  withDispatch(() =>
-    record('propose-gated', 'answer', async (h) => {
-      h.store.patchChat('thread:9.1', 'alpha', { inflight: { channel: 'C_HOME', statusTs: '9.2', startedAt: '2026-10-15T07:00:00.000Z' } });
-      await propose(h, proposalFile({}), { ok: true, id: 'p-2', status: 'pending', gate: 'buttons' });
-    }),
-  ));
-test('pollers record: propose — auto-approved task executes and renders', () =>
-  withDispatch(() =>
-    record('propose-auto', 'answer', async (h) => {
-      h.store.patchChat('thread:9.1', 'alpha', { inflight: { channel: 'C_HOME', statusTs: '9.2', startedAt: '2026-10-15T07:00:00.000Z' } });
-      await propose(h, proposalFile({ id: 'p-3', kind: 'dispatch', target: 'beta', text: 'Bump the SDK.' }), { ok: true, id: 'p-3', status: 'sent', gate: 'auto' });
-    }),
-  ));
-// The proposing conversation is found by its full key, so a thread outside the project's own channel
-// and a DM render where the turn runs — not in the bound channel (the fallback the bare-ts lookup hit).
-test('pollers record: propose — a proposal from a thread outside the project channel renders in that thread', () =>
-  withDispatch(() =>
-    record('propose-thread-elsewhere', 'answer', async (h) => {
-      h.store.patchChat('thread:9.1', 'alpha', { inflight: { channel: 'C_OTHER', statusTs: '9.2', msgThreadTs: '9.1', startedAt: '2026-10-15T07:00:00.000Z' } });
-      await propose(h, proposalFile({}), { ok: true, id: 'p-2', status: 'pending', gate: 'buttons' });
-    }),
-  ));
-test('pollers record: propose — a proposal from a DM renders in the DM', () =>
-  withDispatch(() =>
-    record('propose-dm', 'answer', async (h) => {
-      h.store.patchChat('dm:D0DM:alpha', 'alpha', { inflight: { channel: 'D0DM', statusTs: '9.3', startedAt: '2026-10-15T07:00:00.000Z' } });
-      await propose(h, proposalFile({ session: 'dm:D0DM:alpha' }), { ok: true, id: 'p-2', status: 'pending', gate: 'buttons' });
-    }),
-  ));
-test('pollers record: propose — rejected and duplicate records', () =>
-  withDispatch(() =>
-    record('propose-rejected', 'answer', async (h) => {
-      h.store.setProposal(pending({ id: 'p-2' }));
-      await propose(h, proposalFile({}), { ok: true, id: 'p-2', duplicate: true });
-      await propose(h, { not: 'a proposal' }, { ok: false, error: 'bad id' });
-    }),
-  ));

@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SandboxDriverKind } from './config.js';
 import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
-import type { DispatchConfig } from './dispatch.js';
 import { validateSourcesConfig } from './sources/config.js';
 import type { SourcesConfig } from './sources/types.js';
 import { validateMessagingConfig, type MessagingConfig } from './messaging/config.js';
@@ -79,9 +78,6 @@ export interface ProjectConfig {
   // reaches the Claude process (scrub.ts). Default TRUE for every project — the API boundary
   // is the one place a pasted secret can't be recalled from. `false` opts a project out.
   scrubSecrets?: boolean;
-  // Dispatch primitive tuning (dispatch.ts, DISPATCH=1): targets that execute without the Send
-  // click and the per-day cap. Absent = every proposal is gated, cap 5.
-  dispatch?: DispatchConfig;
   // External systems the BOT reads on this project's behalf (mail, chat, calendar, files) into
   // a scrubbed archive under data/<slug>/ that the sandbox will later get read-only. Tokens live
   // in ~/.config/coach-aven/sources/<slug>/ and are bootstrapped with `orch sources auth`. See
@@ -178,15 +174,11 @@ export function loadProjects(path: string): ProjectsRegistry {
         throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    if (p.dispatch !== undefined) {
-      const dc = p.dispatch;
-      if (!dc || typeof dc !== 'object' || Array.isArray(dc)) throw new Error(`${path}: project "${p.slug}" dispatch must be an object`);
-      if (dc.auto !== undefined && (!Array.isArray(dc.auto) || dc.auto.some((x) => typeof x !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/.test(x)))) {
-        throw new Error(`${path}: project "${p.slug}" dispatch.auto must be an array of project slugs or channel ids`);
-      }
-      if (dc.maxPerDay !== undefined && (!Number.isInteger(dc.maxPerDay) || dc.maxPerDay < 0 || dc.maxPerDay > 100)) {
-        throw new Error(`${path}: project "${p.slug}" dispatch.maxPerDay must be an integer in [0, 100]`);
-      }
+    // The dispatch primitive is retired (OpenSpec `retire-agent-dispatch` D4): a leftover block changes nothing,
+    // so it warns once per load, naming the project, and is dropped — never a refusal to start.
+    if ((p as { dispatch?: unknown }).dispatch !== undefined) {
+      log.warn(`${path}: project "${p.slug}" dispatch is retired — agent messaging replaces it; the block is ignored`);
+      delete (p as { dispatch?: unknown }).dispatch;
     }
     for (const s of p.mcp ?? []) {
       if (!s.name || (!s.command && !s.url)) {

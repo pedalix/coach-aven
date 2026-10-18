@@ -1,12 +1,15 @@
 # Agent messaging
 
-Any agent the bot runs can ask any agent that accepts it — in the same installation or in another
-one — and the answer comes back into the asking session, in the turn it is running or as a new turn.
+Any agent the bot runs can send a question or a request to any agent that accepts it — in the same
+installation or in another one — and the answer comes back into the asking session, in the turn it is
+running or as a new turn. Messaging is intent-agnostic: no rule or confirmation tells a question from a
+request to do work; the receiving agent's accept list is the gate.
 The answering agent works in a shadow conversation that never posts to chat. Messages between
 installations travel end-to-end encrypted through a small relay (the hub, `docs/hub.md`); messages
 inside one installation never leave the bot. Data from one domain does not reach another without a
 person. Design and contract: OpenSpec `agent-messaging` (`openspec/changes/agent-messaging/`, archived
-to `openspec/specs/` once shipped).
+to `openspec/specs/` once shipped). It replaced the dispatch primitive (`propose`, `registry`), retired
+by OpenSpec `retire-agent-dispatch`.
 
 ## Turning it on
 
@@ -117,7 +120,7 @@ flowchart LR
 | `cancel_task(taskId)` | if its project may send, the asking tools too (a chain) |
 | `agents(installation?)` — who accepts me: without an argument, every installation I can reach (mine first, then each pinned peer) with its cards or `offline` | |
 
-A target is `bluefin/caldora`, or just `caldora` in the own installation. Every tool returns at once, and nobody waits with a turn open. The hub tells no installation who else is on it, so an agent learns its peers' names from `agents()` called without an argument, which lists the installations pinned in `hub.peers.json`. Asking another agent is `send_message`, not `propose`.
+A target is `bluefin/caldora`, or just `caldora` in the own installation. Every tool returns at once, and nobody waits with a turn open. The hub tells no installation who else is on it, so an agent learns its peers' names from `agents()` called without an argument, which lists the installations pinned in `hub.peers.json`.
 
 ## One rule for every message that comes back
 
@@ -131,7 +134,8 @@ flowchart TD
   E -- no --> D[one answer covers both]
 ```
 
-- **Framed as data.** The message is always framed as **data from another agent**, never as a person's instruction. It also lists what is still open from the same conversation.
+- **Framed as data.** What comes back to the asking session is always framed as **data from another agent**, never as a person's instruction. This is the injection and marks guard for what returns. It also lists what is still open from the same conversation.
+- **A task reads as a request.** On the answering side a task reads as a request from agent `<agent>` of installation `<installation>`, to be handled as a colleague's request within the project's rules and permissions. It does not tell the agent to change nothing.
 - **Delivered once.** It counts as delivered only when the agent's process has taken it up. If the process dies first, it is delivered again as a new turn; while the process lives, it is never sent twice.
 
 ## When a task is done
@@ -152,7 +156,7 @@ Until then the answer is kept as a progress note (`get_task` shows it), and the 
   - In a chat thread the message waits for a person's Send; in a shadow session it is refused.
   - A fresh session starts clean; compaction does not clear it.
   - The bot's own posts in such a conversation are not ingested into the project's sources, so the data cannot come back through the store.
-- **Messages ask, they don't order.** Changing something in another agent's scope stays with dispatch and its Send button.
+- **Questions and requests alike.** A task may ask for an answer or for work. What the answering agent may do is decided by its own project's rules and its sandbox's permissions, and who may send to it by its accept list.
 - **Limits:**
   - tasks per day on both sides;
   - clarification rounds per task;
@@ -264,5 +268,4 @@ A held new task is a `submitted` task that has not left its installation yet: Se
 - **Other hubs:** addresses `<installation>@<host>`, kept for federation (OpenSpec `hub-open-network`, which also lists pairing codes, key succession and organisation keys as later steps).
 - **Third-party agents:** an A2A HTTP adapter on the hub, translating to the same task shapes, with keys per agent.
 - **People in the loop on the answering side:** mirroring a shadow session into a channel, per pair.
-- **Hard read-only answering:** a Claude Code permission mode per shadow session.
-- **Asking for work, not only answers:** dispatch across installations, with the target's own Send button.
+- **Permissions per sender:** enforced by the receiving bot, for example read-only or write through the sandbox's permission mode, optionally with an intent check that escalates to a person. Not planned.

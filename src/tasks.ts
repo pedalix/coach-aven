@@ -15,7 +15,6 @@ import {
   repoCheckout,
   projectCwd,
 } from './project.js';
-import { dispatch } from './dispatch.js';
 import type { HostServerRoute } from './hosttools.js';
 import { buildSystemPrompt } from './prompt.js';
 import type { GitFlow, McpServerSpec } from './projects.js';
@@ -281,7 +280,6 @@ export async function openChat(
     slackUrl: opts.slackUrl,
     packageRepos: reachableDependencyRepos(opts.repos, facts.dependsOnRepos(opts.slug)),
     sourcesEnabled,
-    dispatchEnabled: dispatch.enabled,
     ...(opts.messagingSend ? { messagingSend: true } : {}),
     gitFlow: opts.gitFlow,
     // Resolved again here (loadProjects already validated it) so the prompt sees the same

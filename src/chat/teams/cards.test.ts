@@ -42,7 +42,6 @@ const messages: Record<string, MessageView> = {
   questionDone: { kind: 'question', questions: [] as never, picks: new Map(), multi: false, qid: 'q1', done: true },
   heldAsk: { kind: 'heldAsk', held: { id: 'a'.repeat(24), kind: 'task', target: 'northwind/ledger', text: 'Which orders failed today?', why: 'this conversation holds data from bluefin, and northwind does not have it' }, state: 'pending' },
   heldAskSent: { kind: 'heldAsk', held: { id: 'a'.repeat(24), kind: 'reply', target: 'northwind/ledger', text: 'B2C.', why: 'w' }, state: 'sent', by: 'U_HUMAN' },
-  relayed: { kind: 'relayed', text: 'Heads-up from alpha', from: 'alpha', by: 'approved by Pat' },
   autofix: { kind: 'autofixNotice', watch: { repo: 'Org/alpha', number: 7 } as never, notes: ['CI failed', 'review requested changes'] },
   ticketHeader: { kind: 'ticketHeader', ticket: { id: 'SUP-1', summary: 'Checkout fails' } as never, url: 'https://yt/SUP-1', extras: 'P1' },
   ticketCard: { kind: 'ticketCard', ticket: { id: 'SUP-1', summary: 'Checkout fails' } as never, url: 'https://yt/SUP-1', attachmentNames: [], flaggedBy: 'Sam' },

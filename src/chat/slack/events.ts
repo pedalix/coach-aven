@@ -31,7 +31,6 @@ import {
   YT_PROMPT_INPUT,
   YT_PROMPT_NOW,
 } from './blocks.js';
-import type { Dispatcher } from '../../dispatchrun.js';
 import { log } from '../../log.js';
 import type { Messaging } from '../../messaging/service.js';
 
@@ -51,8 +50,6 @@ export interface EventDeps {
   // through for ack() reasons, so WRITE-capable button handlers re-check it here — an
   // offboarded workspace clicking a stale button must not fire a turn.
   servedTenant: (tenantId: string | undefined) => boolean;
-  // Dispatch primitive (DISPATCH=1): Send / Dismiss on a proposal (dispatchrun.ts).
-  dispatcher?: Dispatcher;
   // Agent messaging: Send / Dismiss on a held message (agent-messaging D9).
   messaging?: () => Messaging | undefined;
 }
@@ -87,7 +84,6 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     servedTenant,
     actor,
     prefixFor: (t: string | undefined) => channels.prefixFor(t),
-    dispatcher: deps.dispatcher,
     ...(deps.messaging ? { messaging: deps.messaging } : {}),
   });
   const messages = createMessages({ store, reg, engine, channels, homeTeamId, actor, parkDmPick: core.parkDmPick });

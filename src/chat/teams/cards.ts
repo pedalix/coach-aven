@@ -11,7 +11,6 @@ import type { DialogView, HomeView, MessageView, PrivateView } from '../views.js
 import type { ProjectConfig } from '../../projects.js';
 import { fmtElapsed, prUrls } from '../../format.js';
 import { homeBullets, plural } from '../slack/blocks.js';
-import { proposalText } from '../../dispatch.js';
 import { markdownToTeams, mrkdwnToTeams, MAX_TEAMS_TEXT } from './format.js';
 import { BAD_REASONS } from '../../feedback.js';
 import type { Tally } from '../../feedback.js';
@@ -108,8 +107,6 @@ export function renderMessageView(v: MessageView): TeamsMessage {
           v.projects.slice(0, 20).map((p) => execute(p.slug, 'dm_pick_project', `${v.pid}:${p.slug}`)),
         ),
       };
-    case 'proposal':
-      return { text: mrkdwnToTeams(proposalText(v.proposal)) };
     case 'heldAsk': {
       // agent-messaging D9: the held message with Send / Dismiss while pending (the same action ids as Slack).
       const what = v.held.kind === 'task' ? `a task for **${v.held.target}**` : `a reply to **${v.held.target}**`;
@@ -123,8 +120,6 @@ export function renderMessageView(v: MessageView): TeamsMessage {
         ),
       };
     }
-    case 'relayed':
-      return { text: `${mrkdwnToTeams(v.text)}\n\n_proposed by **${v.from}** · ${mrkdwnToTeams(v.by)}_` };
     case 'autofixNotice':
       return { text: `🔧 ${v.watch.repo}#${v.watch.number}: ${v.notes.join('; ')}` };
     case 'ticketHeader':

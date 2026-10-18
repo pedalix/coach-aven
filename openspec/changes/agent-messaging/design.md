@@ -276,9 +276,9 @@ The bot keeps its own clock on tasks, in both transports. A task with no message
   - the tools;
   - answers arrive later in this conversation, as quoted data;
   - never pass one domain's data to another;
-  - messages ask, they do not order.
+  - ~~messages ask, they do not order~~. Removed by `retire-agent-dispatch` (its D3): messaging is intent-agnostic.
 
-  With `DISPATCH` too, the dispatch paragraph's "ONLY way" sentence names both. Projects without `messaging` keep today's text byte-exact, and a new golden pins the variant.
+  ~~With `DISPATCH` too, the dispatch paragraph's "ONLY way" sentence names both.~~ Dispatch is retired (`retire-agent-dispatch`). Projects without `messaging` keep today's text byte-exact, and a new golden pins the variant.
 
 ### D10. Shadow conversations and when a task completes
 `src/chat/shadow/driver.ts` implements `ChatDriver` over an append-only journal.
@@ -329,8 +329,8 @@ engine.liveTurn(shadow, key, undefined, undefined, key, project, wrapTask(...), 
 
 A shadow turn that can be neither reattached nor replayed ends its task `failed` with the answering side's error.
 
-**`wrapTask`** (pure, golden-tested) frames the text as a question from another agent:
-- answer it and change nothing: no commits, PRs, tickets, chat messages, memory notes or files left in the workspace;
+**`wrapTask`** (pure, golden-tested) frames the text as a request from another agent (changed by `retire-agent-dispatch` D3: it names the sending agent and its installation, and asks for it to be handled as a colleague's request within the project's rules and permissions):
+- ~~answer it and change nothing: no commits, PRs, tickets, chat messages, memory notes or files left in the workspace~~;
 - ask back with `request_input` if needed, and keep working while waiting if there is something useful to do;
 - when the project may send: other agents may be asked (depth and marks permitting), and the answer waits for them;
 - the first line is the answer in one sentence.

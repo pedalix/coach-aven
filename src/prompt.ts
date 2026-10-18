@@ -1,4 +1,3 @@
-import { DISPATCH_PROMPT_PARAGRAPH } from './dispatch.js';
 import { MESSAGING_PROMPT_PARAGRAPH } from './messaging/wrap.js';
 import { repoName } from './project.js';
 import { SOURCES_PROMPT_PARAGRAPH } from './sources/mcp.js';
@@ -30,8 +29,6 @@ export interface SystemPromptInputs {
   packageRepos?: string[];
   // ProjectConfig.sources set → the `sources` MCP server is injected; tell the agent how to use it.
   sourcesEnabled?: boolean;
-  // DISPATCH=1 → the `host` MCP server (propose) is injected; absent by default, so the prod goldens hold.
-  dispatchEnabled?: boolean;
   // ProjectConfig.messaging.send → the messaging tools are on `host` (agent-messaging D9); absent → today's text.
   messagingSend?: boolean;
   // ProjectConfig.gitFlow; absent → "pr".
@@ -164,15 +161,6 @@ export function buildSystemPrompt(inp: SystemPromptInputs): string {
   }
   if (sourcesEnabled) {
     lines.push('', SOURCES_PROMPT_PARAGRAPH);
-  }
-  if (inp.dispatchEnabled) {
-    // With messaging, propose is no longer the ONLY way beyond the thread: the sentence names both.
-    lines.push(
-      '',
-      inp.messagingSend
-        ? DISPATCH_PROMPT_PARAGRAPH.replace('is the ONLY way to reach beyond this thread', 'and the messaging tools (below) are the only ways to reach beyond this thread')
-        : DISPATCH_PROMPT_PARAGRAPH,
-    );
   }
   if (inp.messagingSend) {
     lines.push('', MESSAGING_PROMPT_PARAGRAPH);

@@ -189,8 +189,8 @@ Halden is a five-person product company. One project, one channel, one agent.
 - **Not a chat of its own.** It lives in Slack or Teams. A web chat was designed and deliberately
   not built (OpenSpec `web-chat-driver`); for a trial, Slack in your own workspace is the way in.
 - **Not autonomous deployment.** The agent opens pull requests; people merge. The bot's own side
-  effects, a dispatch to another project, a fix on a pull request, a comment back to the tracker,
-  wait for a person's button (dispatch is off by default). Inside its sandbox the agent runs
+  effects, a fix on a pull request, a comment back to the tracker, wait for a person's button; a
+  request to another agent goes only to an agent whose accept list names the sender. Inside its sandbox the agent runs
   Claude Code with its permission prompts off; the prompt tells it to ask, with buttons in the
   chat, before anything risky, and the hard limits sit outside the sandbox: a per-project token
   whose pushes and merges stop at your branch protection, and the MCP tools the project declares

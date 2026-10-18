@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Store } from './state.js';
@@ -339,4 +339,17 @@ test('messaging — per-tenant export and purge cover tasks, held messages and m
   assert.equal(counts.marks, 1);
   assert.equal(store.messagingTasks().out.length, 1, 'home’s task stays');
   assert.deepEqual(store.getMarks('thread:home'), { bluefin: ['bluefin'] });
+});
+
+test('retired dispatch records: proposals and daily dispatch counts are dropped once, on load, and stay gone after a reload (retire-agent-dispatch D4)', () => {
+  const path = join(mkdtempSync(join(tmpdir(), 'aven-store-')), 'state.json');
+  writeFileSync(path, JSON.stringify({ projects: { caldora: { createdAt: 'x' } }, proposals: { 'p-1': { id: 'p-1' }, 'p-2': { id: 'p-2' } }, dispatches: { 'owen-ops|20261018': 2 } }));
+  new Store(path);
+  const saved = JSON.parse(readFileSync(path, 'utf8'));
+  assert.equal('proposals' in saved, false);
+  assert.equal('dispatches' in saved, false);
+  assert.deepEqual(saved.projects, { caldora: { createdAt: 'x' } }, 'everything else is kept');
+  const again = readFileSync(path, 'utf8');
+  new Store(path);
+  assert.equal(readFileSync(path, 'utf8'), again, 'a second load finds nothing to drop and writes nothing');
 });
