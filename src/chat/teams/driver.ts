@@ -233,7 +233,13 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
   // installation has them on; else — or when Teams refuses the targeted send — the person's
   // 1:1 chat with a pointer; in place when it already is a 1:1 (or no chat can be opened —
   // better visible than lost).
-  async function privately(c: TeamsActionCtx, view: PrivateView): Promise<void> {
+  // The last private reply per (place, person): what `replace` rewrites. A targeted message
+  // cannot be edited, so the targeted path always sends anew; the 1:1 fallback edits its last
+  // message and posts its pointer in the thread once (the canary 2026-10-18 showed two
+  // pointers per `/status`: one for "Gathering…", one for the report).
+  const lastPrivate = new Map<string, { conv: string; id: string; pointer: boolean }>();
+  const privateKey = (c: TeamsActionCtx) => `${c.conv}#${c.thread ?? ''}#${c.user ?? ''}`;
+  async function privately(c: TeamsActionCtx, view: PrivateView, replace = false): Promise<void> {
     const m = renderPrivateView(view);
     if (c.direct || !c.user) {
       await sendTo(c.conv, c.thread, m);
@@ -256,7 +262,16 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
       await sendTo(c.conv, c.thread, m);
       return;
     }
-    await sendTo(personal, undefined, m);
+    const key = privateKey(c);
+    const last = lastPrivate.get(key);
+    // An edit carries text or a card, never both (the Connector's rule); a mixed view is sent anew.
+    if (replace && last && last.conv === personal && !(m.text !== undefined && m.card)) {
+      await api.update(personal, last.id, toActivity(m));
+      return;
+    }
+    const sent = await sendTo(personal, undefined, m);
+    lastPrivate.set(key, { conv: personal, id: sent.id, pointer: true });
+    if (replace && last?.pointer) return; // the pointer already stands for this exchange
     await sendTo(c.conv, c.thread, { text: '↗ _Answered you privately — see our 1:1 chat._' }).catch(() => {});
   }
 
@@ -321,8 +336,8 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
       return deepLink(msg.conv, msg.id, opts.tenantId);
     },
 
-    async reply(to: Interaction, view: PrivateView): Promise<void> {
-      await privately(ctxOf(to), view);
+    async reply(to: Interaction, view: PrivateView, opts?: { replace?: boolean }): Promise<void> {
+      await privately(ctxOf(to), view, opts?.replace === true);
     },
 
     async conversationName(): Promise<string | undefined> {
