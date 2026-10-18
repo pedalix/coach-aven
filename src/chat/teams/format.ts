@@ -28,6 +28,24 @@ const SHORTCODES: Record<string, string> = {
   link: '🔗',
   '+1': '👍',
   '-1': '👎',
+  // The core's own short texts (`say()` in the router, the pollers' posts): every code the
+  // shared code emits, so Teams never shows `:bar_chart:` as written.
+  bar_chart: '📊',
+  envelope_with_arrow: '📩',
+  eye: '👁️',
+  lock: '🔒',
+  brain: '🧠',
+  broom: '🧹',
+  rocket: '🚀',
+  checkered_flag: '🏁',
+  large_green_circle: '🟢',
+  white_circle: '⚪️',
+  tada: '🎉',
+  bulb: '💡',
+  pencil2: '✏️',
+  speech_balloon: '💬',
+  calendar: '📅',
+  clock1: '🕐',
 };
 
 // Slack mrkdwn → Teams markdown. Bold is the one construct that differs (`*x*` vs `**x**`);

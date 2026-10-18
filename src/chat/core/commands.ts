@@ -28,7 +28,7 @@ import { snapshotLog, memoryRepoDir, readSnapshotFile } from '../../memjournal.j
 import { HOUSEKEEPING_DEFAULT_CRON, HOUSEKEEPING_DEFAULT_SPEC, pruneThreshold } from '../../housekeeping.js';
 import { countOpenPRs, getPrMeta, ciStatusForSha, listReviews } from '../../github.js';
 import { CMD, MAX_SLACK_TEXT, info, errText, shortRepo, notConfiguredText } from '../slack/blocks.js';
-import type { ChatCommand, ChatDriver } from '../driver.js';
+import type { Actor, ChatCommand, ChatDriver } from '../driver.js';
 import type { PrivateView, ProjectStatus, StatusReport } from '../views.js';
 import { log } from '../../log.js';
 
@@ -49,6 +49,10 @@ export interface CommandDeps {
   // TEAMS_OPERATORS — the one tenant is "home" there, and a client's whole tenant must not
   // hold the operator keys.
   isOperator?: (user: string | undefined) => boolean;
+  // `/aven home` → the driver's Home surface for the caller. Slack has the App Home tab and
+  // leaves this unset (the verb stays a question to the agent, as today); Teams has no tab, so
+  // the Home card is posted into the 1:1 chat on demand.
+  home?: (who: Actor & { user: string }, d: ChatDriver) => Promise<void>;
   // After `/aven reload` swapped the registry: what else changed (agent messaging re-reads its
   // peers and the acceptance of open tasks), in words — appended to the reply when there is any.
   onReload?: () => string[];
@@ -111,7 +115,7 @@ function sourcesStatus(p: ProjectConfig, intervalMin: number): string {
 }
 
 export function createCommands(deps: CommandDeps) {
-  const { cfg, store, reg, engine, channels, pollers, homeTeamId, isOperator } = deps;
+  const { cfg, store, reg, engine, channels, pollers, homeTeamId, isOperator, home } = deps;
 
   // Gather a live snapshot for `/aven status`, scoped to ONE tenant (tid: undefined =
   // home): its projects, its sessions/turns (a shared slug must not reveal the other
@@ -452,9 +456,15 @@ export function createCommands(deps: CommandDeps) {
     }
 
     // Read-only surfaces stay open to viewers; everything else needs drive clearance.
-    const VIEWER_VERBS = new Set(['status', 'usage', 'users', 'access', 'memory', 'prompt']);
+    const VIEWER_VERBS = new Set(['status', 'usage', 'users', 'access', 'memory', 'prompt', 'home']);
     if (!canDrive && !VIEWER_VERBS.has(verb ?? '')) {
       await say(deniedText(access));
+      return;
+    }
+
+    // `/aven home` → the Home surface where the platform has no tab of its own (Teams).
+    if (verb === 'home' && home) {
+      await home(cmd.actor, d);
       return;
     }
 
