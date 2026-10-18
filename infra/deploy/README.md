@@ -15,7 +15,7 @@ happens **inside the sandboxes**, not on this box — so the footprint here is t
 
 - **No nginx, no ports, no TLS.** Socket Mode dials *out* to Slack, so nothing
   touches the host's `80/443`. (The optional multi-workspace OAuth callback and
-  `orch sources serve` do need a reverse proxy — `README.md` → *Multi-workspace installs*,
+  `orch sources serve` do need a reverse proxy — `docs/multitenancy.md` → *Enabling multi-workspace installs*,
   `nginx-sources.conf.example`.)
 - **No Docker.** A plain systemd unit (`Restart=always`) is the whole runtime.
   `tsx` runs as a Node `--import` loader, so the service's main PID is `node` and

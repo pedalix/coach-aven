@@ -38,6 +38,24 @@
 
 ---
 
+## Enabling multi-workspace installs (operator steps)
+
+Set `SLACK_CLIENT_ID` + `SLACK_CLIENT_SECRET` + `SLACK_STATE_SECRET` and the bot serves
+`/slack/install` on `SLACK_OAUTH_PORT`; other workspaces install from that link (enable
+Public Distribution in the Slack app admin, register your `https://<host>/slack/oauth_redirect`).
+Per-workspace tokens land in `state.json`; events still ride the one Socket Mode connection.
+The `workspaces` block in `projects.config.json` maps each team id to the slugs it may see:
+
+```jsonc
+"workspaces": { "T0YOURHOME1": ["shop", "monitoring"], "T0CLIENT001": ["monitoring"] }
+```
+
+No block = single-tenant. With it, membership is explicit-only and every record carries
+the owning team — admit a client workspace only on a build that includes slice 2 (the status
+note above). The rest of this page is the decision record behind it.
+
+---
+
 ## 0. TL;DR
 
 | | **Option A — Slack Connect** (channel = tenant) | **Option B — Workspace multi-tenancy** (app per workspace) |
@@ -207,8 +225,8 @@ These are needed regardless of which Slack model we pick.
 - **Daytona isolation level.** Either namespace sandboxes by tenant prefix (cheap, container-level
   isolation — already our model for trusted code), or per-tenant Daytona org+key (real
   quota/audit separation; depends on Daytona multi-org support).
-- **Resource planning.** One warm Sail sandbox per (tenant × project) adds up fast; the README
-  already warns ~10 is heavy. Autostop/caps/quotas matter more as clients multiply.
+- **Resource planning.** One warm Sail sandbox per (tenant × project) adds up fast; the README's
+  gotchas put it at ≥2 vCPU / 4 GiB per warm Sail sandbox. Autostop/caps/quotas matter more as clients multiply.
 
 ---
 

@@ -14,8 +14,8 @@ Decided once, before any product was picked, and not renegotiated per feature.
 - **No model in the control plane.** The orchestrator and the sources daemon run deterministic
   code. Thinking happens in sandboxes, under the team's own subscription. The bench (`src/lab/`)
   and the CLI probe may call a model on the operator's machine; production never does.
-- **Long-lived secrets never reach the model.** Tokens are minted on the host per project, at
-  every session open for GitHub (an hour) and at most daily for the gateway (a day); only the
+- **Long-lived secrets never reach the model.** Tokens are minted on the host per project, before
+  every turn for GitHub (an hour) and at most daily for the gateway (a day); only the
   token enters a sandbox, never the App key or the client secret; every turn and every ingested
   message, ticket, transcript and activity record is scrubbed of secret-shaped strings first
   (`src/scrub.ts`).

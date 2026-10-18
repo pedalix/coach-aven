@@ -17,7 +17,7 @@ or a person lives in an installation's private ops repo (`infra/<slug>/`).
 - [Sources](sources.md): mail, chat, calendars and trackers into a scrubbed store the agent queries.
 - [Attribution](attribution.md): which client and initiative a call, message or ticket belongs to;
   rules first, a model second, people's answers as the evidence.
-- [Multi-workspace installs](multitenancy.md).
+- [Multi-workspace installs](multitenancy.md#enabling-multi-workspace-installs-operator-steps).
 
 ## Run an installation
 
@@ -25,6 +25,7 @@ or a person lives in an installation's private ops repo (`infra/<slug>/`).
 - [`infra/deploy/README.md`](../infra/deploy/README.md): deploy onto a plain Linux host; the ops repo template.
 - [Runtime config](runtime-config.md): `.env`, `projects.config.json`, prompts, MCP, the gateway, flags.
 - [Sandbox drivers](sandbox-drivers.md): Daytona, or containers on a host you own.
+- [Sandbox images](../snapshot/README.md): the `laravel` and `plain` variants, the build, the Claude Code CLI pin.
 - [Microsoft Teams](teams.md) and [Teams pitfalls](teams-pitfalls.md): the second chat driver.
 - [Local dev](local-dev.md): running beside a production bot without colliding with it.
 - [Rollout ledger](rollout.md): `main` → canary → prod, and the flags in flight.
@@ -35,5 +36,7 @@ or a person lives in an installation's private ops repo (`infra/<slug>/`).
 - [The stream-json contract](stream-json-contract.md) and the [CLI probe](cli-probe.md).
 - [Fixtures](fixtures.md): the recorded snapshots and goldens.
 - [Project facts](project-facts.md): derived, machine-written state with provenance.
+- [Contributor guide](../CLAUDE.md): commands, conventions, where things live in `src/`; the rules
+  for a PR are in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 - [The lab](lab.md): the bench for the ingest pipeline.
 - `openspec/specs/`: the behaviour of record. `openspec list`: what is in flight.

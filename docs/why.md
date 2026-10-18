@@ -69,8 +69,8 @@ this page says where a rule is enforced by a mechanism and where it is a rule th
   token can push, so protect the default branch on GitHub with required reviews; then "people
   merge" is a rule GitHub enforces, not the model.
 - **Long-lived secrets never reach the model.** What enters a sandbox is short-lived and scoped:
-  the GitHub token is minted for the project's repositories only, fresh each time a conversation's
-  session opens and good for an hour; a gateway token is minted on the host at most once a day and
+  the GitHub token is minted for the project's repositories only, fresh before every turn and good
+  for an hour; a gateway token is minted on the host at most once a day and
   only the token enters the sandbox; every user turn and every ingested message, ticket, transcript
   and activity record is scrubbed of secret-shaped strings before the model sees it.
 - **The project is the unit.** Channels bind to projects; the system prompt has three layers (the

@@ -77,7 +77,8 @@ Laravel Sail keeps working.
      is never mounted (`docs/sources.md` → "Replica").
 
    The image itself stays deployment-wide (`SNAPSHOT_IMAGE`), so a plain project lives on
-   an instance whose fleet image is the plain variant. Options shape CREATION only: an
+   an instance whose fleet image is the plain variant (how the variants are built and the
+   CLI pinned: `snapshot/README.md`). Options shape CREATION only: an
    existing `proj-<slug>` keeps the flags it was born with — `docker rm` it on the sandbox
    host and the next turn recreates it with the new ones.
 
