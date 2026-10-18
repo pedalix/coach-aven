@@ -58,9 +58,13 @@ describe('Installations connect outbound and prove their key', () => {
     expect(await waitClosed(rotated)).toEqual({ code: 4003, reason: 'reserved' });
   });
 
-  it('Hint and claim differ: closed before any envelope is accepted', async () => {
+  it('Hint and claim differ: closed before any envelope is accepted — and a version-2 `auth` without a hint is no exception', async () => {
     const c = await login('northwind', 'northwind', { hint: 'bluefin' });
     expect(await waitClosed(c)).toEqual({ code: 4003, reason: 'hint mismatch' });
+    const bare = await connect(); // no `?as=`: forwarded, so that a version-1 bot meets `unsupported version` instead
+    const ch = await bare.next((f) => f.t === 'challenge');
+    bare.send({ t: 'auth', v: 2, name: 'home', key: keyOf('home').x, sig: await sign('home', challengeText('hub.example', 'home', keyOf('home').x, ch.nonce)) });
+    expect(await waitClosed(bare)).toEqual({ code: 4003, reason: 'hint mismatch' });
   });
 
   it('Version 1 client: its `auth` is refused `unsupported version`', async () => {
