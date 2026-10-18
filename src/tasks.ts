@@ -194,7 +194,7 @@ async function prepareChat(
 
 /**
  * What every session openChat spawns or reattaches shares for agent skills: a multi-repo project's
- * checkouts as `--add-dir` (project.ts repoSkillDirs; none with REPO_SKILLS=0 or a single repo), and, for
+ * checkouts as `--add-dir` (project.ts repoSkillDirs; only with REPO_SKILLS=1, never for a single repo), and, for
  * a project that offers skills, a recorder of the commands its `init` reports (skills.ts
  * recordSessionCommands). Exported for its test; both `new ClaudeSession` below spread it.
  */

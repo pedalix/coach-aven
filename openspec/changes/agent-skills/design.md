@@ -33,7 +33,7 @@ What the repos of an operator's multi-repo projects carry today (from their defa
 - The receiving installation alone decides which skills are shown and whether a named skill is valid.
 - A task that names a skill runs that skill: the bot invokes it, the prompt does not just mention it.
 - An agent without skills works exactly as today.
-- Prod's multi-repo projects get their repos' skills with the next tag.
+- Multi-repo projects can load their repos' skills, off until an installation switches it on.
 
 **Non-Goals:**
 - Narrowing per sender, routing, permissions or pricing by skill. The design only places their hooks.
@@ -42,22 +42,23 @@ What the repos of an operator's multi-repo projects carry today (from their defa
 
 ## Decisions
 
-### S1. Repo skills load for every multi-repo project (bucket 1)
+### S1. Repo skills for multi-repo projects, behind `REPO_SKILLS=1` (bucket 3)
 `repoSkillDirs` (`src/project.ts`) gives each repo checkout of a project with more than one repo, and the session's command line ends with `--add-dir` and those directories (`addDirArgs`, last on the line because `--add-dir` takes every argument after it).
-- **On by default.** A multi-repo session should see what a Claude Code started in each of its repos sees; that it did not was a defect of our folder layout. So this is a bug fix, not a flag to canary per project.
-- **The kill switch** is `REPO_SKILLS=0` (also `false`, `off`, `no`) for the whole installation.
-- **What changes for prod:** its multi-repo projects' sessions gain their repos' skills and legacy `.claude/commands/` — mostly OpenSpec workflow skills and `/opsx` commands, plus a few Laravel development helpers. A skill defined in two repos loads twice, and `/name` runs the first `--add-dir`'s. The ledger row names the watch point (skills the agent starts using on its own) and the kill-switch steps.
-- **Both drivers** run the same command line; the Daytona driver passes it unchanged. The canary installations are single-repo, so the multi-repo path has no canary run: it rests on the live measurement and the tests.
-- **Single-repo projects are unchanged:** their session starts in the repo. A spawn line without `addDirs` is byte-identical (test).
+- **Off by default.** Only `REPO_SKILLS=1` turns it on, for the installation; unset or anything else, every spawn line is byte-identical to before (tests compare the multi-repo line both ways). Decided in review: prod does not get repo skills for now.
+- **Why a flag and not a bug fix.** A multi-repo session should see what a Claude Code started in each repo sees, but switching it on changes what every session of those projects can do, people's sessions included. What it brings today: mostly OpenSpec workflow skills and `/opsx` commands, plus a few Laravel development helpers; a skill defined in two repos loads twice, and `/name` runs the first `--add-dir`'s; `--add-dir` loads each repo's legacy `.claude/commands/` too. So it waits for a skill worth it, per installation.
+- **Turning it on:** `REPO_SKILLS=1` in the installation's ops `.env`, an export, a restart. Running and reattached sessions keep their old line until they end or `🔄 Restart session`.
+- **Both drivers** run the same command line; the Daytona driver passes it unchanged. The canary installations are single-repo, so the multi-repo path has no canary run yet: it rests on the live measurement and the tests.
+- **Single-repo projects are unaffected either way:** their session starts in the repo.
 
 Alternatives:
-- *A per-project opt-in* (the previous plan): prod's many multi-repo projects would each need a config line before their skills load.
+- *On by default, with a kill switch* (the first version of this PR): prod's multi-repo sessions would change at the tag, for skills nobody asked to offer yet.
+- *A per-project opt-in:* finer, but a second place to configure; an installation-wide switch is enough while no installation needs it per project.
 - *Starting in one "main" repo* loses the others' skills.
 - *Symlinking the repos' skills into the project folder* writes into checkouts and repeats what `--add-dir` does natively.
 
 ### S2. Skills are found, not declared
 A scanner runs at prepare time beside the dependency scanner (`src/skills.ts`, called from `prepareChat`), only for a project whose card offers skills (`messaging.skills` set). No other project gets an extra command.
-- **Where it looks:** exactly where the session loads skills (`skillOrigins`): the working directory, and for a multi-repo project each `--add-dir` checkout. With `REPO_SKILLS=0` the repos' skills are not the session's, so they are not scanned either.
+- **Where it looks:** exactly where the session loads skills (`skillOrigins`): the working directory, and for a multi-repo project with `REPO_SKILLS=1` each `--add-dir` checkout. Without it the repos' skills are not the session's, so they are not scanned either.
 - **What it reads:** only each `SKILL.md`'s frontmatter, printed by `awk` in the sandbox, at most 120 lines of at most 1000 characters (`head`, `cut`). The parser is pure and tested:
   - plain and quoted scalars, `|` and `>` block scalars, plain values continued on indented lines;
   - block and flow lists.
@@ -139,7 +140,7 @@ A task with a skill starts its shadow conversation with `/<skill> ` followed by 
 
 ## Risks / Trade-offs
 
-- **[Repo skills change prod's multi-repo sessions]** OpenSpec workflow skills, `/opsx` commands and a few development helpers become available to the agent; duplicates load twice. → The ledger row names the watch point and the kill-switch steps; `REPO_SKILLS=0` with an export and a restart turns it off for new sessions.
+- **[Turning repo skills on changes multi-repo sessions]** OpenSpec workflow skills, `/opsx` commands and a few development helpers become available to the agent; duplicates load twice. → Off by default; the ledger row names what turning it on brings, the watch point and the steps.
 - **[`"*"` offers development helpers]** To every sender the agent accepts, in sessions that run with permissions bypassed. → Documented; list names unless every skill is meant for other agents. Roles per sender are the planned lever.
 - **[A skill's description was written for its repo's developers]** The operator chooses what to expose, and better text goes into the repo's `SKILL.md`, where the agent itself benefits.
 - **[The CLI changes how skills load or run]** The two scenarios become contract scenarios once recorded, and a bump re-checks them.
@@ -148,10 +149,10 @@ A task with a skill starts its shadow conversation with `/<skill> ` followed by 
 
 ## Migration Plan
 
-Merge: repo skills is bucket 1, skills in messaging bucket 2. Then:
+Merge: repo skills is bucket 3 (off), skills in messaging bucket 2. Then:
 1. On the canary installations, put a skill's name in a project's `messaging.skills` and `/aven reload`.
 2. From the home tenant agent, `agents()` shows the skill.
 3. Run a task naming it: the answering session starts with the slash invocation. Run one naming an unknown skill: it is rejected with the list.
-4. Prod takes repo skills with the next tag. Watch its multi-repo projects' sessions for skills the agent starts using on its own.
+4. Repo skills stay off everywhere; an installation switches `REPO_SKILLS=1` on when a skill worth it exists, and watches its multi-repo sessions for skills the agent starts using on its own.
 
-**Rollback.** `REPO_SKILLS=0` for repo skills; drop `messaging.skills`, or revert. Records carrying `skill` stay readable by older code.
+**Rollback.** Remove `REPO_SKILLS=1`; drop `messaging.skills`, or revert. Records carrying `skill` stay readable by older code.

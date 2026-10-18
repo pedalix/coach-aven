@@ -8,7 +8,7 @@ test('retired switches: DISPATCH set to 1 or true warns once at boot, and nothin
   assert.deepEqual(retiredEnvWarnings({}), []);
 });
 
-test('REPO_SKILLS — on unless it says 0/false/off/no (agent-skills: a kill switch, not an opt-in)', () => {
-  for (const v of [undefined, '', '1', 'true', 'on', 'yes']) assert.equal(repoSkillsEnv(v), true, String(v));
-  for (const v of ['0', 'false', 'FALSE', 'off', 'no', ' 0 ']) assert.equal(repoSkillsEnv(v), false, v);
+test('REPO_SKILLS — opt-in (agent-skills, bucket 3): exactly 1 turns it on; unset or anything else keeps it off', () => {
+  for (const v of ['1', ' 1 ']) assert.equal(repoSkillsEnv(v), true, v);
+  for (const v of [undefined, '', '0', 'true', 'on', 'yes', 'false', '2']) assert.equal(repoSkillsEnv(v), false, String(v));
 });

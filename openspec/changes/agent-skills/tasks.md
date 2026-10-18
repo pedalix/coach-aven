@@ -3,10 +3,10 @@
 - [x] 0.1 The MODIFIED requirements ("Discovery through agent cards", "Agent tools mirror A2A operations", "Terminal states are reported") carry the text of `hub-open-network` and `retire-agent-dispatch` as merged (#40–#44). Verify: `openspec validate agent-skills --strict`.
 - [ ] 0.2 Archive in order: `agent-messaging` → `hub-open-network` → `retire-agent-dispatch` → `agent-skills`. Verify: each `openspec archive`, then `openspec validate --all --strict`.
 
-## 1. Repo skills for multi-repo projects (bucket 1)
+## 1. Repo skills for multi-repo projects (bucket 3, `REPO_SKILLS=1`)
 
-- [x] 1.1 `src/config.ts`: `REPO_SKILLS`, on unless `0`/`false`/`off`/`no` (`repoSkillsEnv`). Verify: `src/config.test.ts` ("REPO_SKILLS — on unless…").
-- [x] 1.2 `src/project.ts`: `repoSkillDirs` (each checkout of a multi-repo project; none for a single repo or with the switch off) and `skillOrigins` (where the session loads skills). Verify: `src/project.test.ts`.
+- [x] 1.1 `src/config.ts`: `REPO_SKILLS`, on only with exactly `1` (`repoSkillsEnv`); off by default. Verify: `src/config.test.ts` ("REPO_SKILLS — opt-in…").
+- [x] 1.2 `src/project.ts`: `repoSkillDirs` (each checkout of a multi-repo project with `REPO_SKILLS=1`; none otherwise, never for a single repo) and `skillOrigins` (where the session loads skills). Verify: `src/project.test.ts`, `src/tasks.wiring.test.ts` (off: the multi-repo line byte-identical; on: `--add-dir` per repo; single repo unaffected).
 - [x] 1.3 `src/claudeSession.ts`: `addDirs` → `--add-dir <dirs…>` last on the spawn line; `src/tasks.ts` passes them to every session it opens. Verify: `src/claudeSession.test.ts` ("repo skills — … none → byte-identical"), and the existing spawn-line tests unchanged.
 
 ## 2. Finding skills
@@ -47,9 +47,9 @@
 ## 6. Docs and rollout
 
 - [x] 6.1 `docs/agent-messaging.md` (skills: cards, `messaging.skills`, the `"*"` warning, only what runs, `send_message` `skill`, `unknown skill`, free-text arguments, a `SKILL.md` example with `tags` and `examples`), `docs/runtime-config.md` (`REPO_SKILLS`: what a project gains, the kill-switch steps), `.env.example` (`REPO_SKILLS`), `docs/project-facts.md` (`project_skills`, `session_commands`), `docs/cli-probe.md` (scenario files, the two scenarios). Reviewed in the PR.
-- [x] 6.2 `docs/rollout.md`: two rows — repo skills (bucket 1, `REPO_SKILLS=0` kill switch, prod changes at the tag) and skills in messaging (bucket 2). No Slack command or interaction changes, so the Home tab needs no update. Verify: `scripts/public-guard.sh` in CI.
+- [x] 6.2 `docs/rollout.md`: two rows — repo skills (bucket 3, `REPO_SKILLS=1`, off everywhere; what turning it on brings, and the steps) and skills in messaging (bucket 2). No Slack command or interaction changes, so the Home tab needs no update. Verify: `scripts/public-guard.sh` in CI.
 
 ## 7. Canary
 
 - [ ] 7.1 On a canary installation, list a project skill in `messaging.skills`, `/aven reload`, and check from the home tenant agent: `agents()` shows it; a task naming it starts with the slash invocation; a task naming an unknown skill is rejected with the list. Recorded in the PR or the ledger row.
-- [ ] 7.2 After the tag: on prod, a multi-repo project's session lists its repos' skills; watch for skills the agent starts using on its own.
+- [ ] 7.2 When an installation switches `REPO_SKILLS=1` on: a multi-repo project's session lists its repos' skills; watch for skills the agent starts using on its own.

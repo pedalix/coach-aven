@@ -6,14 +6,28 @@ import { join } from 'node:path';
 import type { Config } from './config.js';
 import { FactStore } from './facts.js';
 import { sessionWiring } from './tasks.js';
+import { addDirArgs, claudeLaunch } from './claudeSession.js';
 
-const cfg = (repoSkills = true) => ({ sandbox: { workDir: '/root/work' }, repoSkills }) as unknown as Config;
+const cfg = (repoSkills = false) => ({ sandbox: { workDir: '/root/work' }, repoSkills }) as unknown as Config;
 
-test('sessionWiring — a multi-repo project\'s sessions get --add-dir for every checkout; a single repo, or REPO_SKILLS=0, none', () => {
+const MULTI = { slug: 'acme-suite', repos: ['AcmeOrg/acme-admin', 'AcmeOrg/acme-shop'] };
+const SINGLE = { slug: 'caldora', repos: ['Org/caldora'] };
+// The spawn line a session with this wiring gets (claudeSession.ts), from the project folder as cwd.
+const line = (w: { addDirs?: string[] }) => claudeLaunch({ ...(w.addDirs ? { extraArgs: addDirArgs(w.addDirs) } : {}) }).command('/root/work/acme-suite');
+
+test('sessionWiring — REPO_SKILLS off (the default): a multi-repo spawn line is byte-identical to today; a single repo, too', () => {
   const facts = new FactStore(mkdtempSync(join(tmpdir(), 'aven-wiring-')));
-  assert.deepEqual(sessionWiring(cfg(), { slug: 'acme-suite', repos: ['AcmeOrg/acme-admin', 'AcmeOrg/acme-shop'] }, facts).addDirs, ['/root/work/acme-suite/acme-admin', '/root/work/acme-suite/acme-shop']);
-  assert.deepEqual(sessionWiring(cfg(), { slug: 'caldora', repos: ['Org/caldora'] }, facts), {});
-  assert.deepEqual(sessionWiring(cfg(false), { slug: 'acme-suite', repos: ['AcmeOrg/acme-admin', 'AcmeOrg/acme-shop'] }, facts), {});
+  assert.deepEqual(sessionWiring(cfg(), MULTI, facts), {});
+  assert.equal(line(sessionWiring(cfg(), MULTI, facts)), claudeLaunch({}).command('/root/work/acme-suite'));
+  assert.deepEqual(sessionWiring(cfg(), SINGLE, facts), {});
+});
+
+test('sessionWiring — REPO_SKILLS=1: --add-dir with every checkout of a multi-repo project, last on the line; a single repo is unaffected', () => {
+  const facts = new FactStore(mkdtempSync(join(tmpdir(), 'aven-wiring-')));
+  const w = sessionWiring(cfg(true), MULTI, facts);
+  assert.deepEqual(w.addDirs, ['/root/work/acme-suite/acme-admin', '/root/work/acme-suite/acme-shop']);
+  assert.ok(line(w).endsWith(`'--add-dir' '/root/work/acme-suite/acme-admin' '/root/work/acme-suite/acme-shop' `));
+  assert.deepEqual(sessionWiring(cfg(true), SINGLE, facts), {});
 });
 
 test('sessionWiring — only a project that offers skills records its sessions\' init commands', () => {

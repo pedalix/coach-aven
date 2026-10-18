@@ -5,7 +5,7 @@
 > - **The receiving installation decides what is offered.** The project's `messaging.skills` lists the skills that may be shown, or `"*"`; nothing is shown by default. Every sender the agent accepts sees the same set; narrowing per sender comes later, with roles.
 > - **A task that names a skill starts with that skill.** The answering session's first message invokes the skill explicitly, so the bot decides how the task runs instead of leaving it to the prompt.
 > - **An agent without skills works as today.** Its card says so (`skills: []`), and it takes general requests.
-> - **Multi-repo projects load their repos' skills from the start.** Prod has many multi-repo projects and goes on the next tag, so `--add-dir` for each repo is on by default, as a bug fix, with the kill switch `REPO_SKILLS=0`. Single-repo projects already do.
+> - **Multi-repo projects can load their repos' skills, off by default.** `REPO_SKILLS=1` passes `--add-dir` for each repo; prod does not get it for now (decided in review). An installation switches it on when a skill worth it exists. Single-repo projects already load their repo's skills.
 > - **The first real use must work.** The two CLI facts it rests on were verified live on the pinned CLI before the code was written, and the code does not need a fallback.
 
 ## Why
@@ -26,7 +26,7 @@ Measured on the pinned CLI (2.1.292), in a project sandbox:
 
 ## What Changes
 
-- **Repo skills (bucket 1).** Every session of a multi-repo project starts with `--add-dir <checkout>` for each repo. `REPO_SKILLS=0` turns it off for the installation.
+- **Repo skills (bucket 3).** With `REPO_SKILLS=1`, every session of a multi-repo project starts with `--add-dir <checkout>` for each repo. Off by default: every spawn line stays as it was.
 - **Finding skills.** At prepare time, for a project whose card offers skills, a scanner in the sandbox reads every `SKILL.md` where the session loads skills. It records the project fact `project_skills`: name, description, tags, examples, origin and provenance.
   - A name defined twice is withheld from the card until renamed, with a warning naming both places.
   - Malformed keys are logged and skipped.
@@ -71,7 +71,7 @@ None.
 ## Impact
 
 - **Rollout.**
-  - **Bucket 1 for repo skills:** a bug fix — a multi-repo session now sees what a Claude Code started in each repo sees. It changes prod at the tag: multi-repo projects mostly gain OpenSpec workflow skills and `/opsx` commands, plus a few Laravel development helpers; duplicates across repos load twice. `REPO_SKILLS=0` is the kill switch.
+  - **Bucket 3 for repo skills:** `REPO_SKILLS=1`, off everywhere; switched on per installation when a skill worth it exists. What it brings: mostly OpenSpec workflow skills and `/opsx` commands, plus a few Laravel development helpers; duplicates across repos load twice.
   - **Bucket 2 for skills in messaging:** only projects with a `messaging` block; the configuration is additive, and cards of those projects gain `skills: []`. Prod has no `messaging` block yet.
   - Two ledger rows in `docs/rollout.md`.
 - **Code.**

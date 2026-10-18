@@ -11,7 +11,7 @@ import type { ProjectSkill } from './messaging/skills.js';
 // ask for one). Which skills those are is read from the environment, never typed into a config: the
 // `.claude/skills/<dir>/SKILL.md` files the session itself loads — the session's working directory (a
 // single-repo project's checkout; a multi-repo project's folder) and, for a multi-repo project, each repo
-// checkout passed with `--add-dir` (claudeSession.ts; REPO_SKILLS=0 turns that off, and then the repos'
+// checkout passed with `--add-dir` (claudeSession.ts; only with REPO_SKILLS=1 — without it the repos'
 // skills are not the session's, so they are not scanned either). Bundled CLI skills and plugin skills are
 // not the project's to offer and are never read.
 //

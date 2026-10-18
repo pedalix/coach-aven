@@ -83,9 +83,9 @@ export function projectCwd(cfg: Config, slug: string, repos: string[]): string {
 // The directories a session loads Claude Code skills from beyond its cwd (OpenSpec agent-skills): a
 // multi-repo project's sessions start in the project folder, where no repo's `.claude/skills` is visible,
 // so each checkout goes to `--add-dir` — measured on CLI 2.1.292: the repos' skills then appear in `init`.
-// Empty for a single-repo project (its cwd is the repo) and with REPO_SKILLS=0.
+// Only with REPO_SKILLS=1 (bucket 3, off by default); always empty for a single-repo project (its cwd is the repo).
 export function repoSkillDirs(cfg: Config, slug: string, repos: string[]): string[] {
-  return repos.length > 1 && cfg.repoSkills !== false ? repos.map((r) => repoCheckout(cfg, slug, r)) : [];
+  return repos.length > 1 && cfg.repoSkills === true ? repos.map((r) => repoCheckout(cfg, slug, r)) : [];
 }
 
 // Where the skills scanner looks (skills.ts): exactly where the session loads skills from — its cwd, and

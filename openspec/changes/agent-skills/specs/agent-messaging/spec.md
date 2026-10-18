@@ -3,7 +3,7 @@
 ### Requirement: Skills come from the project's Claude Code skills
 The skills an agent can offer SHALL be the Claude Code skills its own sessions load from the project:
 - every `.claude/skills/<folder>/SKILL.md` in the session's working directory, which is the repo for a single-repo project and the project folder for a multi-repo one;
-- and, for a multi-repo project, every such file in each repo checkout ("A multi-repo project's sessions load their repos' skills").
+- and, for a multi-repo project of an installation with `REPO_SKILLS=1`, every such file in each repo checkout ("A multi-repo project's sessions load their repos' skills").
 
 When a session of a project that offers skills is prepared, the bot SHALL read these files in the sandbox and record, as the project fact `project_skills`:
 - each skill's id, which is its folder name (the CLI resolves `/name` by folder), and its `description`;
@@ -40,15 +40,19 @@ Each such name SHALL be logged once with its reason.
 - **THEN** the skill is recorded without tags, and the scan logs that `tags` is not a list
 
 ### Requirement: A multi-repo project's sessions load their repos' skills
-Every session of a project with more than one repo SHALL start with `--add-dir <checkout>` for each repo, so it loads each repo's own skills as a Claude Code started in that repo would. A single-repo project's session starts in its repo and SHALL be unchanged. The installation's `REPO_SKILLS=0` SHALL turn this off for every project.
+When the installation sets `REPO_SKILLS=1`, every session of a project with more than one repo SHALL start with `--add-dir <checkout>` for each repo, so it loads each repo's own skills as a Claude Code started in that repo would. Without it — unset or any other value — every session's command line SHALL be unchanged. A single-repo project's session starts in its repo and SHALL be unchanged either way.
 
-#### Scenario: Multi-repo project
-- **WHEN** a session of acme-suite, with repos acme-admin and acme-shop, starts
+#### Scenario: Off by default
+- **WHEN** a session of acme-suite, with repos acme-admin and acme-shop, starts on an installation without `REPO_SKILLS=1`
+- **THEN** its command line is byte-identical to the one before this change, and the repos' skills are neither loaded nor offered
+
+#### Scenario: Switched on
+- **WHEN** the installation sets `REPO_SKILLS=1` and a session of acme-suite starts
 - **THEN** its command line ends with `--add-dir` and both checkouts, and the skills of both repos are available in the session
 
-#### Scenario: Kill switch
-- **WHEN** the installation sets `REPO_SKILLS=0`
-- **THEN** no session gains `--add-dir`, and the repos' skills are neither loaded nor offered
+#### Scenario: Single repo
+- **WHEN** a session of caldora, with one repo, starts, with or without `REPO_SKILLS=1`
+- **THEN** its command line is unchanged
 
 ### Requirement: The receiving installation decides which skills are offered
 A project's `messaging.skills` SHALL list the names of the skills its card offers, or be `"*"` for all of its skills that can be offered; absent, it SHALL offer none. Every sender the agent accepts SHALL see the same set, at most 32 skills. A listed name the scan did not find SHALL not be offered and SHALL be logged once. Before the project's first scan, the card SHALL offer none, for a list as for `"*"`.

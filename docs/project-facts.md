@@ -71,7 +71,7 @@ long as the App installation covers the package repos (it is installed org-wide)
 right after the dependency scanner, only for a project whose agent card offers skills
 (`messaging.skills` set). Inside the sandbox it prints the frontmatter of every
 `.claude/skills/<folder>/SKILL.md` where the session loads skills: its working directory, and for
-a multi-repo project each repo passed with `--add-dir` (`REPO_SKILLS`, `docs/runtime-config.md`).
+a multi-repo project each repo passed with `--add-dir` (only with `REPO_SKILLS=1`, `docs/runtime-config.md`).
 
 ```json
 {

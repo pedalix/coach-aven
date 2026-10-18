@@ -109,7 +109,7 @@ test('seedGitHubAuth tolerant (ROUTINE_GUARD): a transient gh failure is retried
 // ── repo skills (OpenSpec agent-skills) ────────────────────────────────────────────────────────────
 const skillCfg = (repoSkills: boolean) => ({ sandbox: { workDir: '/root/work' }, repoSkills }) as unknown as Config;
 
-test('repoSkillDirs — a multi-repo project loads every checkout with --add-dir; a single-repo project needs none (its cwd is the repo); REPO_SKILLS=0 turns it off', () => {
+test('repoSkillDirs — with REPO_SKILLS=1 a multi-repo project loads every checkout with --add-dir; off (the default), none; a single-repo project never needs any (its cwd is the repo)', () => {
   assert.deepEqual(repoSkillDirs(skillCfg(true), 'acme-suite', ['AcmeOrg/acme-admin', 'AcmeOrg/acme-shop']), ['/root/work/acme-suite/acme-admin', '/root/work/acme-suite/acme-shop']);
   assert.deepEqual(repoSkillDirs(skillCfg(true), 'caldora', ['Org/caldora']), []);
   assert.deepEqual(repoSkillDirs(skillCfg(false), 'acme-suite', ['AcmeOrg/acme-admin', 'AcmeOrg/acme-shop']), []);
