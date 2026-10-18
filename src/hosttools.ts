@@ -25,7 +25,6 @@ export interface JsonRpc {
 export interface HostCaller {
   slug: string;
   conversationKey: string;
-  teamId?: string;
 }
 
 /** One in-process server as the session registers it: a name the CLI addresses, and the handler for its messages. */

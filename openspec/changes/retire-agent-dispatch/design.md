@@ -91,6 +91,14 @@ D3 above replaces the plan's original D3, which kept "Messages ask; they do not 
 - The goldens `src/fixtures/messaging/task.txt`, `src/fixtures/messaging/reply.txt` and `src/fixtures/prompt/multi-repo-messaging.txt` are re-captured on purpose.
 - `answer.txt` is unchanged.
 
+**Accepted risks (from the PR review).** The task frame stays plain and transparent, so it is easy to debug. It restricts neither the work nor where the task's data goes. Two consequences are accepted for now.
+1. **An accepted peer can approve a risky step itself.** In a shadow conversation an AskUserQuestion goes to the asking agent as `request_input`, because nobody can click there. So there is no person on either side.
+2. **What a task carries can be saved where marks do not follow.** On the answering side, the task's data can end up in memory notes, tickets or commits. Marks stay per conversation, so saved data is a way around them.
+
+The mitigations:
+- **Accept lists.** They grant all of this only to trusted senders, and an existing grant now also allows requests for work. `docs/agent-messaging.md` says so.
+- **Roles per sender in `accept`.** A role such as reader or contributor, enforced by the receiving bot (for example through the sandbox permission mode), is the planned lever for both risks. It is not built in this change.
+
 ### D4. Leftovers fail soft, loudly
 Every leftover is handled without stopping the bot:
 - **`DISPATCH` in an environment** gets one warning at boot (`config: DISPATCH is retired — agent messaging replaces it`).

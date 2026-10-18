@@ -178,6 +178,24 @@ test('events record: cancel_turn denied', () =>
     await t.receiver.send(action(CLIENT, 'cancel_turn', 't1-1', 'C_CLIENT'));
   }));
 
+// ── retired dispatch: a proposal card from before keeps its buttons in old threads ──
+for (const which of ['dispatch_send', 'dispatch_dismiss']) {
+  test(`events: ${which} on a proposal card posted before dispatch was retired is acknowledged and the card says nothing was sent`, async () => {
+    const t = await twin();
+    try {
+      await t.receiver.send({ ...action(HOME, which, 'p-1'), message: { ts: '5.5' } });
+      await new Promise((r) => setTimeout(r, 30));
+      const updates = t.api.calls.filter((c) => c.method === 'chat.update');
+      assert.equal(updates.length, 1, 'the click reaches a handler (Bolt acks it there) and rewrites the card once');
+      assert.equal((updates[0]!.payload as { ts?: string }).ts, '5.5');
+      assert.match(JSON.stringify(updates[0]!.payload), /Proposals were retired — nothing was sent/);
+      assert.deepEqual(t.log, [], 'no turn, nothing sent');
+    } finally {
+      await t.stop();
+    }
+  });
+}
+
 // ── agent messaging: the held-message card (agent-messaging task 4.7) ──
 const HELD = { id: 'a'.repeat(24), task: 'a'.repeat(24), kind: 'task' as const, slug: 'alpha', key: 'thread:5.1', target: 'northwind/ledger', text: 'Which orders failed today?', why: 'this conversation holds data from bluefin, and northwind does not have it', createdAt: '1970-01-01T00:00:00.000Z' };
 const fakeMessaging = (log: unknown[]) =>

@@ -852,7 +852,7 @@ export function homeBullets(opts: { messaging?: boolean } = {}): string[] {
   return [
     ...(opts.messaging
       ? [
-          '• *Agents asking agents* — an agent configured to send can ask other agents, in this installation or another one; the answer arrives in its own thread as quoted data from that agent, and its trail shows when an answer folded into a running turn. When a thread holds another client\'s data, a message that would carry it elsewhere waits as a *✋ Held* card: anyone who may drive the thread can *Send* it (once) or *Dismiss* it.',
+          '• *Agents asking agents* — an agent configured to send can ask other agents or request work from them, in this installation or another one; the answer arrives in its own thread as quoted data from that agent, and its trail shows when an answer folded into a running turn. When a thread holds another client\'s data, a message that would carry it elsewhere waits as a *✋ Held* card: anyone who may drive the thread can *Send* it (once) or *Dismiss* it.',
           `• *Audit asks* — \`${CMD} asks\` lists the recent tasks between agents (held first, with cost), \`${CMD} asks <task id>\` shows a transcript, \`${CMD} asks cancel <task id>\` cancels one. _(Operators' home workspace only.)_`,
         ]
       : []),

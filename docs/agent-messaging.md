@@ -157,6 +157,10 @@ Until then the answer is kept as a progress note (`get_task` shows it), and the 
   - A fresh session starts clean; compaction does not clear it.
   - The bot's own posts in such a conversation are not ingested into the project's sources, so the data cannot come back through the store.
 - **Questions and requests alike.** A task may ask for an answer or for work. What the answering agent may do is decided by its own project's rules and its sandbox's permissions, and who may send to it by its accept list.
+  - **Grant `accept` only to senders you trust with work.** A grant made when messaging only asked now also allows requests for work.
+  - **Nobody approves for you in a shadow session (accepted risk).** A question the answering agent would put to a person (AskUserQuestion) goes to the asking agent, so an accepted peer can approve a risky step itself.
+  - **Saved data escapes marks (accepted risk).** What a task carries can be saved on the answering side, in memory notes, tickets or commits, where marks do not follow. The task frame stays plain on purpose, so it is easy to debug.
+  - **Planned:** roles per sender in `accept` (reader / contributor), enforced by the receiving bot, for both risks.
 - **Limits:**
   - tasks per day on both sides;
   - clarification rounds per task;

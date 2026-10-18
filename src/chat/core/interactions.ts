@@ -132,9 +132,18 @@ export function createInteractions(deps: InteractionDeps): Interactions {
       await d.update(a.msg, view).catch((e) => log.error(`held ${id}: message update: ${e instanceof Error ? e.message : String(e)}`));
     };
 
+  // A proposal card posted before the dispatch primitive was retired (OpenSpec `retire-agent-dispatch`) still
+  // carries Send / Dismiss in old threads: the click is acknowledged and the card says nothing was sent,
+  // the way a stale question is handled, instead of a dead control.
+  const retiredProposal: ActionHandler = async (a, d) => {
+    if (a.msg) await d.update(a.msg, { kind: 'text', text: '⌛ Proposals were retired — nothing was sent' }).catch(() => {});
+  };
+
   const actions: Record<string, ActionHandler> = {
     held_send: decideHeld(true),
     held_dismiss: decideHeld(false),
+    dispatch_send: retiredProposal,
+    dispatch_dismiss: retiredProposal,
 
     // ✖ Cancel → abort that turn (the queued next one then starts). Steering → gated.
     cancel_turn: async (a, d) => {

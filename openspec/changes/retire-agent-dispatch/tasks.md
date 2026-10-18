@@ -36,6 +36,16 @@
 
   Verify: `src/messaging/wrap.test.ts` (new assertion: no "change nothing" or "not instructions" in the task frame), `src/prompt.test.ts`, `src/messaging/service.test.ts`.
 
+- [x] 2.7 Review fixes (PR #44):
+  - The task frame stays plain, with no restriction on the work or on where its data goes. The two accepted risks (an accepted peer approving a risky step; task data saved where marks do not follow) and their mitigations are in design D3 and `docs/agent-messaging.md`.
+  - Old proposal buttons (`dispatch_send` / `dispatch_dismiss`) are acknowledged and rewrite the card to "⌛ Proposals were retired — nothing was sent".
+  - `state.json` drops `proposals` / `dispatches` in memory only; the next normal save persists it.
+  - A journal line with an old `{slug, proposalId}` origin replays without loss.
+  - `HostCaller.teamId` is gone (nothing read it).
+  - The Home messaging bullet reads "ask other agents or request work from them". No Home recording carries the messaging bullet, so it is pinned by an assertion in `blocks.test.ts`.
+
+  Verify: `src/chat/slack/events.record.test.ts` (retired buttons), `src/state.test.ts`, `src/queuejournal.test.ts`, `src/messaging/wrap.test.ts`, `src/chat/slack/blocks.test.ts`.
+
 ## 3. Docs
 
 - [x] 3.1 `docs/runtime-config.md`: replace "Dispatch (`DISPATCH`)" (from line 318) with two lines: the flag is retired, and agent messaging (`docs/agent-messaging.md`) is the way to reach beyond a thread. Reviewed in the PR.

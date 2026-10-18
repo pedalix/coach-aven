@@ -7,7 +7,8 @@
 //
 // - wrapTask: a task, in the answering agent's shadow conversation — a request from another agent, handled
 //   as a colleague's request within the project's rules and permissions; ask back with request_input; the
-//   first line of the final answer is the result.
+//   first line of the final answer is the result. Deliberately plain: no restriction on the work, nor on
+//   where its data may be saved (retire-agent-dispatch D3, accepted risks).
 // - wrapAnswer: whatever comes back on a task (an answer, a question asked back, an end with its reason),
 //   in the asking conversation — as data, never an instruction from a person (the injection and marks
 //   guard for what comes back), with the original question, so it stands on its own after a fresh session,

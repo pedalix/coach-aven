@@ -1,6 +1,6 @@
 ## Context
 
-- **Dispatch exists, within one installation only** (`agent-dispatch`, `src/dispatch.ts` + `src/dispatchrun.ts`). A `propose` host tool, then buttons, then `engine.liveTurn` in the target's channel and a pointer back. It needs a chat channel on both ends and a human click. It is for work in another agent's scope, and it stays as it is.
+- **Dispatch existed, within one installation only** (`agent-dispatch`; dispatch, retired by `retire-agent-dispatch`). A `propose` host tool, then buttons, then `engine.liveTurn` in the target's channel and a pointer back. It needed a chat channel on both ends and a human click. Agent messaging has since replaced it, for requests to do work as well as questions.
 - **Host tools** (`host-tools`) are served in-process over the session's control channel (`src/hosttools.ts`, `src/hostrouter.ts`).
   - `HostCaller` carries `slug`, `conversationKey` and `teamId`, so a tool knows exactly which conversation called it.
   - Tool calls time out at `HOST_TIMEOUT_MS` (30 s), so anything long must return early.
@@ -44,7 +44,7 @@
 - No effect on a project without a `messaging` configuration, nor on an installation without any.
 
 **Non-Goals:**
-- Asking another agent to change something (commits, tickets, chat messages). Messages ask; work in another agent's scope stays with dispatch and its Send button.
+- ~~Asking another agent to change something (commits, tickets, chat messages).~~ No longer a non-goal: messaging carries requests to do work too (dispatch, retired by `retire-agent-dispatch`, D3).
 - People as addressees: the protocol carries agents, and who drove the sending turn stays in the sender's audit.
 - Admin operations over the hub, a public A2A endpoint, MCP Tasks, mirroring shadow conversations into chat.
 
@@ -233,9 +233,9 @@ Outgoing envelopes are written to `state.json` before sending and cleared on `ro
 The bot keeps its own clock on tasks, in both transports. A task with no message for the hub's expiry plus one day ends `failed: expired` locally, and the asker is told. So a task cannot stay open forever because an envelope was lost before the hub (hub recreated, backlog cap), or because a shadow conversation never answered.
 
 ### D9. Agent tools mirror A2A operations
-`host` is registered when `DISPATCH=1` or when the session's project has a `messaging` configuration (`host-tools`). Today only the former registers it.
-- Without `DISPATCH`, `host` lists the messaging tools only.
-- A shadow conversation never gets `propose` or `registry`: nobody can click there, and an auto-listed target would execute without anyone.
+`host` is registered when the session's project has a `messaging` configuration (`host-tools`). It once also existed with `DISPATCH=1` (dispatch, retired by `retire-agent-dispatch`).
+- `host` lists the messaging tools only.
+- A shadow conversation never got `propose` or `registry`: nobody can click there. Both tools are gone with dispatch.
 - Servers are registered when a session opens, so sessions already open get the tools after `🔄 Restart session`.
 
 | Tool | A2A operation | Who has it | Returns |
@@ -255,7 +255,7 @@ The bot keeps its own clock on tasks, in both transports. A task with no message
   2. Parses the target: `<installation>/<agent>`, or `<agent>` for the own installation.
      - An unknown installation is an error.
      - A local agent that does not exist, or does not accept the caller, is an error that lists the local agents that accept it.
-  3. Resolves the **reply target**, the place answers will come back to, the way `dispatchrun.ts` resolves a proposal's thread:
+  3. Resolves the **reply target**, the place answers will come back to, the way the dispatch primitive resolved a proposal's thread (dispatch, retired by `retire-agent-dispatch`):
      - while a turn runs, its `inflight` gives channel and thread;
      - otherwise the conversation key gives the tenant and the thread or DM, and the project's bound channel gives the channel.
 
@@ -393,7 +393,7 @@ Otherwise the message gets its own turn: `engine.liveTurn(driver, channel, undef
 - The "end the turn with the question" rule: `request_input` lets the answering agent keep working.
 
 ### D12. How a late message reaches a persistent Claude Code session (measured, partly documented)
-The answer and the reply reach the agent as a **stream-json user message** written to the session's stdin, between markers that say whose data it is. A person's message and a dispatched task (`wrapDispatch`) use the same mechanism. It is not a tool result: the call that started the task returned long before.
+The answer and the reply reach the agent as a **stream-json user message** written to the session's stdin, between markers that say whose data it is. A person's message uses the same mechanism, as a dispatched task (`wrapDispatch`) once did (dispatch, retired by `retire-agent-dispatch`). It is not a tool result: the call that started the task returned long before.
 
 The stream-json input accepts an optional `priority` on a user message (`now` | `next` | `later`, default `next`). It was measured with the `cli-probe` harness:
 - CLI 2.1.282 (the fleet's pin) and 2.1.302;

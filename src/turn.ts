@@ -448,10 +448,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       return existing;
     }
     const prior = store.getChat(key);
-    // Who the bot-served tools see as the caller: this session's own project, conversation and
-    // tenant — fixed here, never taken from anything the agent writes (hosttools.ts).
-    const tenantId = splitTeam(key).tenantId;
-    const caller: HostCaller = { slug: project.slug, conversationKey: key, ...(tenantId ? { teamId: tenantId } : {}) };
+    // Who the bot-served tools see as the caller: this session's own project and conversation —
+    // fixed here, never taken from anything the agent writes (hosttools.ts).
+    const caller: HostCaller = { slug: project.slug, conversationKey: key };
     const chat = await openSession(cfg, store, {
       slug: project.slug,
       repos: project.repos,

@@ -181,16 +181,16 @@ export class Store {
   // `path` is injectable so tests can use a throwaway file instead of the real state.json.
   constructor(private readonly path: string = STATE_PATH) {
     this.data = existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as StateShape) : { projects: {} };
-    // The dispatch primitive is retired (OpenSpec `retire-agent-dispatch` D4): its records are dropped
-    // once, on the first load that finds them, and the counts logged.
+    // The dispatch primitive is retired (OpenSpec `retire-agent-dispatch` D4): its records are dropped in
+    // memory on load, and the bot's next normal save persists that. Never a save here: a read-only CLI
+    // (`orch routines list`, `--from-install`) loads the store too and must not rewrite state.json under the bot.
     const legacy = this.data as StateShape & { proposals?: Record<string, unknown>; dispatches?: Record<string, number> };
     if (legacy.proposals !== undefined || legacy.dispatches !== undefined) {
       const proposals = Object.keys(legacy.proposals ?? {}).length;
       const dispatches = Object.keys(legacy.dispatches ?? {}).length;
       delete legacy.proposals;
       delete legacy.dispatches;
-      this.save();
-      log.info(`state: dropped the retired dispatch records — ${proposals} proposal(s), ${dispatches} daily count(s)`);
+      log.info(`state: dropping the retired dispatch records — ${proposals} proposal(s), ${dispatches} daily count(s) — on the next save`);
     }
   }
 

@@ -65,7 +65,7 @@ These are one capability, not three features: ask an agent, get the answer back 
   - for projects configured to send: `send_message`, `get_task`, `cancel_task`, `agents`;
   - for shadow conversations: `request_input`.
 
-  All of them return at once. `host` is registered with `DISPATCH=1` or a `messaging` configuration. A prompt paragraph tells sending agents how answers come back.
+  All of them return at once. `host` is registered with a `messaging` configuration (it once also was with `DISPATCH=1`; dispatch, retired by `retire-agent-dispatch`). A prompt paragraph tells sending agents how answers come back.
 - **Delivery into a running turn.** `ClaudeSession.inject` writes a stream-json user message without waiting for its own `result`, and the CLI folds it in at the next tool boundary. With no turn running, a normal turn starts. A message counts as delivered only when the CLI echoes it (`--replay-user-messages`). It is written again only when the process died before the echo, and each write carries a `uuid`, so a `result` settles only its own message.
 - **Shadow conversations** on the answering side:
   - a quiet `ChatDriver` (`src/chat/shadow/`) that journals the turn instead of posting it;
@@ -91,7 +91,7 @@ These are one capability, not three features: ask an agent, get the answer back 
 
 ## Out of scope
 
-- Asking another agent to change something. Messages ask; work in another agent's scope stays with dispatch and its Send button.
+- ~~Asking another agent to change something.~~ No longer out of scope: messaging carries requests to do work too (dispatch, retired by `retire-agent-dispatch`, D3).
 - Admin operations over the hub (reload, run a routine, sandbox status).
 - A public A2A HTTP endpoint for third-party agents; that would be a later adapter on the hub.
 - MCP Tasks (`tasks/*`): Claude Code does not drive them, and the tools return immediately instead.

@@ -341,15 +341,16 @@ test('messaging — per-tenant export and purge cover tasks, held messages and m
   assert.deepEqual(store.getMarks('thread:home'), { bluefin: ['bluefin'] });
 });
 
-test('retired dispatch records: proposals and daily dispatch counts are dropped once, on load, and stay gone after a reload (retire-agent-dispatch D4)', () => {
+test('retired dispatch records: dropped in memory on load, persisted by the next normal save — a read-only load writes nothing (retire-agent-dispatch D4)', () => {
   const path = join(mkdtempSync(join(tmpdir(), 'aven-store-')), 'state.json');
-  writeFileSync(path, JSON.stringify({ projects: { caldora: { createdAt: 'x' } }, proposals: { 'p-1': { id: 'p-1' }, 'p-2': { id: 'p-2' } }, dispatches: { 'owen-ops|20261018': 2 } }));
-  new Store(path);
+  const before = JSON.stringify({ projects: { caldora: { createdAt: 'x' } }, proposals: { 'p-1': { id: 'p-1' }, 'p-2': { id: 'p-2' } }, dispatches: { 'owen-ops|20261018': 2 } });
+  writeFileSync(path, before);
+  const store = new Store(path);
+  assert.equal(readFileSync(path, 'utf8'), before, 'loading writes nothing — a read-only CLI never rewrites state.json under the bot');
+  store.addRoutine(routine());
   const saved = JSON.parse(readFileSync(path, 'utf8'));
   assert.equal('proposals' in saved, false);
   assert.equal('dispatches' in saved, false);
   assert.deepEqual(saved.projects, { caldora: { createdAt: 'x' } }, 'everything else is kept');
-  const again = readFileSync(path, 'utf8');
-  new Store(path);
-  assert.equal(readFileSync(path, 'utf8'), again, 'a second load finds nothing to drop and writes nothing');
+  assert.equal(Object.keys(saved.routines).length, 1);
 });
