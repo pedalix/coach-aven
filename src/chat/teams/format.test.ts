@@ -24,7 +24,10 @@ test('outbound mentions: <@id> → <at>Name</at> + entity when the name is known
 test('mrkdwn → Teams markdown: bold, links, shortcodes', () => {
   assert.equal(mrkdwnToTeams(':information_source: *Config reloaded* — see <https://x.y/z|the log>'), 'ℹ️ **Config reloaded** — see [the log](https://x.y/z)');
   assert.equal(mrkdwnToTeams(':x: boom <https://a.b/c>'), '❌ boom https://a.b/c');
-  assert.equal(mrkdwnToTeams('• *Status* — `/aven status`'), '• **Status** — `/aven status`');
+  // The router's hints name the Slack slash command; on Teams the verb follows the slash.
+  assert.equal(mrkdwnToTeams('• *Status* — `/aven status`'), '• **Status** — `/status`');
+  assert.equal(mrkdwnToTeams('_Manage:_ `/aven routines` · `/aven users allow @user`'), '_Manage:_ `/routines` · `/users allow @user`');
+  assert.equal(mrkdwnToTeams('a bare `/aven` or /aven status in prose stays'), 'a bare `/aven` or /aven status in prose stays');
   assert.equal(mrkdwnToTeams('**already** bold and 2*3*4 math'), '**already** bold and 2*3*4 math');
   assert.equal(mrkdwnToTeams(':unknown_code: stays'), ':unknown_code: stays');
   // The router's own short texts: seen rendered as written on the canary (2026-10-18).
