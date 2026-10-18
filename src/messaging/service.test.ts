@@ -13,7 +13,8 @@ import type { MessageView } from '../chat/views.js';
 import type { ProjectConfig, RegistryRef } from '../projects.js';
 import type { TurnOpts } from '../turn.js';
 import type { ChatSession } from '../tasks.js';
-import type { InjectOutcome } from '../claudeSession.js';
+import type { InjectOutcome, TurnUsage } from '../claudeSession.js';
+import { UsageLog } from '../metering.js';
 import { LocalTransport } from './local.js';
 import { memoryStore } from './transport.js';
 import { createMessaging, NUDGE_TEXT, type Messaging, type MessagingEngine } from './service.js';
@@ -48,9 +49,13 @@ interface Harness {
   canceled: string[];
   closed: string[];
   tool: (key: string, slug: string) => { slug: string; conversationKey: string };
+  usage: UsageLog;
 }
 
-function harness(projects: ProjectConfig[], o: { scripts?: Record<string, Script>; peers?: Record<string, unknown>; hub?: Any } = {}): Harness {
+function harness(
+  projects: ProjectConfig[],
+  o: { scripts?: Record<string, Script>; peers?: Record<string, unknown>; hub?: Any; turnUsage?: (t: Turn) => TurnUsage | undefined } = {},
+): Harness {
   const dir = mkdtempSync(join(tmpdir(), 'aven-msg-'));
   const store = new Store(join(dir, 'state.json'));
   const reg: RegistryRef = { current: { projects } } as unknown as RegistryRef;
@@ -88,7 +93,7 @@ function harness(projects: ProjectConfig[], o: { scripts?: Record<string, Script
       opts?.onStart?.();
       const script = h.scripts[project.slug];
       const answer = script ? await script(t, h) : undefined;
-      if (answer !== undefined) await opts?.onAnswer?.(answer);
+      if (answer !== undefined) await opts?.onAnswer?.(answer, o.turnUsage?.(t));
       await opts?.onSettle?.('ok');
     },
     turnOn: (key) => {
@@ -105,6 +110,7 @@ function harness(projects: ProjectConfig[], o: { scripts?: Record<string, Script
     hasKey: (key) => running.has(key),
   };
   const local = new LocalTransport(memoryStore(), { installation: 'home' });
+  const usage = new UsageLog(join(dir, 'usage'));
   const svc = createMessaging({
     installation: 'home',
     store,
@@ -117,10 +123,11 @@ function harness(projects: ProjectConfig[], o: { scripts?: Record<string, Script
     shadow: shadowDriver({ dir: join(dir, 'shadow') }),
     platform: 'slack',
     driverFor: () => chat,
+    usageLog: usage,
     sink,
   });
   local.onDeliver((x) => svc.onDelivery(local, x));
-  Object.assign(h, { svc, store, reg, turns, posts, events, captured, running, scripts: o.scripts ?? {}, canceled, closed, tool: (key: string, slug: string) => ({ slug, conversationKey: key }) });
+  Object.assign(h, { svc, store, reg, turns, posts, events, captured, running, scripts: o.scripts ?? {}, canceled, closed, usage, tool: (key: string, slug: string) => ({ slug, conversationKey: key }) });
   // owen-ops's thread has a turn running (the tool is called inside it): its reply target.
   store.patchChat(OWEN, 'owen-ops', { inflight: { channel: 'C0OWEN', statusTs: '1700000000.000200', msgThreadTs: '1700000000.000100', startedAt: new Date().toISOString() } });
   return h;
@@ -149,9 +156,38 @@ test('accepted in the same installation: the task runs in a shadow conversation 
   assert.match(answerTurn.question, /> Orders dropped 40 % after the 14:10 deploy\./);
   const out = h.store.getOutTask(data(r).taskId)!;
   assert.equal(out.state, 'completed');
+  assert.equal(out.cost, undefined, 'nothing metered, no figure: no cost reported');
   assert.equal(h.store.getInTask('home', out.id)!.state, 'completed');
   assert.deepEqual(h.closed, [shadowTurn.key], 'the shadow session is closed when its task ends');
   assert.equal(h.posts.length, 0, 'nothing posted in any channel');
+});
+
+test('cost (D17): the final status reports the task’s metered turns plus the answering one; over the asker’s costWarnUsd, ask.cost.high', async () => {
+  const h = harness([owenOps({ messaging: { send: true, costWarnUsd: 0.5 } }), caldora()], {
+    scripts: {
+      caldora: (t, hh) => {
+        // An earlier turn of the same task (a clarification round), metered with the task id; and a
+        // record written before per-turn cost, which has no figure of its own and counts nothing.
+        const taskId = (t.opts!.origin as { taskId: string }).taskId;
+        const at = new Date().toISOString();
+        hh.usage.record({ at, key: t.key, slug: 'caldora', kind: 'turn', status: 'ok', elapsedMs: 5, usage: { costUsd: 0.25, costUsdCumulative: 0.25 }, taskId } as never);
+        hh.usage.record({ at, key: t.key, slug: 'caldora', kind: 'turn', status: 'ok', elapsedMs: 5, usage: { costUsd: 9 }, taskId } as never);
+        hh.usage.record({ at, key: 'thread:other', slug: 'caldora', kind: 'turn', status: 'ok', elapsedMs: 5, usage: { costUsd: 7, costUsdCumulative: 7 } } as never);
+        return 'Orders dropped 40 % after the 14:10 deploy.';
+      },
+    },
+    // The answering turn is metered only after it settles: its figure comes with the answer.
+    turnUsage: (t) => (t.slug === 'caldora' ? { costUsd: 0.4, costUsdCumulative: 0.65 } : undefined),
+  });
+  const r = send(h, 'caldora', 'Why did orders drop on 2026-10-16?');
+  await flush(20);
+  const out = h.store.getOutTask(data(r).taskId)!;
+  assert.equal(out.state, 'completed');
+  assert.equal(out.cost, 0.65);
+  assert.ok(
+    h.events.some((l) => l === `messaging ask.cost.high task=${out.id} slug=home/caldora cost=0.65`),
+    h.events.filter((l) => l.includes('cost')).join('\n') || 'no cost event',
+  );
 });
 
 test('agent that does not accept the caller: in the own installation, an error that lists who does — not whether it exists', async () => {

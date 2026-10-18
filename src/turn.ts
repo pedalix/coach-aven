@@ -20,7 +20,7 @@ import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase, splitTeam } from './teamkeys.js';
 import type { HostCaller, HostServerRoute } from './hosttools.js';
 import { DraftStore } from './drafts.js';
-import { UsageLog, aggregateUsage, usageSummaryText } from './metering.js';
+import { UsageLog, aggregateUsage, usageSummaryText, type TurnUsage } from './metering.js';
 import { RateLimitTracker, type RateLimitInfo } from './ratelimit.js';
 import { FeedbackLog, joinUsage, feedbackSummaryText, tallyFor, type FeedbackRecord, type Tally } from './feedback.js';
 import { log } from './log.js';
@@ -127,8 +127,10 @@ export interface TurnOpts {
   ytDraftFor?: string;
   autoPost?: (text: string) => Promise<{ url: string; group: string }>;
   // Called with the final answer after it is delivered (routine runs rewrite their top-level
-  // parent to the answer's headline — routinerun.ts). Errors are swallowed.
-  onAnswer?: (text: string) => Promise<void>;
+  // parent to the answer's headline — routinerun.ts), and with what the turn used: it is metered
+  // only once it settles, after this call, so a caller that reports a cost reads it here (a shadow
+  // turn's task, agent-messaging D17). Errors are swallowed.
+  onAnswer?: (text: string, usage?: TurnUsage) => Promise<void>;
   // Called exactly once when the turn settles — after onAnswer on success, with the error's
   // message on failure, bare on cancel. doTurn never rejects on a turn error (it renders errText
   // in the thread), so without this a caller cannot tell a failed run from a delivered one; the
@@ -1004,7 +1006,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         },
       };
       await deliver(view, '✅ Done — answer posted below');
-      if (opts?.onAnswer) await opts.onAnswer(capped).catch(() => {});
+      if (opts?.onAnswer) await opts.onAnswer(capped, session?.lastUsage()).catch(() => {});
       // Latch the flag the first turn whose answer carries a PR URL — the session panel
       // shows whether this thread has produced a PR.
       if (!store.getChat(key)?.prCreated && prUrls(capped).length)
