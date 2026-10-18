@@ -1,6 +1,6 @@
-## 0. Prerequisite
+## 0. Order with `agent-messaging`
 
-- [ ] 0.1 Archive `agent-messaging` once its canary run (7.7) is recorded. Its 4.6a is moot until a Teams installation ingests its own workspace, so carry it as a follow-up. Archiving first puts `messaging-hub` and `agent-messaging` into `openspec/specs/`, where these deltas apply. Verify: `openspec archive agent-messaging`, then `openspec validate hub-open-network --strict`.
+- [ ] 0.1 Before archiving this change, archive `agent-messaging`. Its canary run (7.7) needs prod, and prod joins the hub only on version 2 (5.4). Its 4.6a is moot until a Teams installation ingests its own workspace, so carry it as a follow-up. The implementation does not wait for either. Verify: `openspec archive agent-messaging`, then `openspec validate hub-open-network --strict`.
 
 ## 1. Protocol version 2 (pure, shared)
 
