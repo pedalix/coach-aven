@@ -18,6 +18,6 @@ Deploying from the operator's ops repo:
 3. Optionally, run `wrangler secret put SENTRY_DSN` and set `SENTRY_ENVIRONMENT`: warnings, errors and uncaught exceptions then go to Sentry (`src/report.ts`).
 4. Run `wrangler deploy`.
 
-On an open hub an installation joins by connecting. Reserving its name, or revoking it (reserved for `null`), is an edit of `HUB_CONFIG` plus a deploy; the first request after the deploy applies it.
+On an open hub an installation joins by connecting. Reserving its name, or revoking it (reserved for `null`, online or not), is an edit of `HUB_CONFIG` plus a deploy; the first request after the deploy applies it. Dropping a reservation leaves the name bound to the key that last used it. `/health` fails while the configuration does not parse.
 
 The protocol, frames and envelope, is shared with the bot: `src/messaging/protocol.ts`, which imports nothing from `node:`.

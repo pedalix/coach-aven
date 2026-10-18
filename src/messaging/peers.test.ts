@@ -66,3 +66,12 @@ test('peer removed by a reload: its open tasks end `failed: peer removed` both w
   assert.equal(store.getOutTask('c'.repeat(24))?.state, 'working', 'another peer’s task is untouched');
   assert.equal(store.getInTask('northwind', 'd'.repeat(24))?.state, 'failed');
 });
+
+test('lookups by own property: a peer named `constructor` is pinned only when the file pins it', async () => {
+  const { isPinned, pinnedKeys, droppedPeers } = await import('./peers.js');
+  assert.equal(isPinned({}, 'constructor'), false);
+  assert.equal(pinnedKeys({}, 'constructor'), undefined);
+  const k = [{ sign: 'A'.repeat(43), box: 'A'.repeat(43) }];
+  assert.deepEqual(pinnedKeys({ constructor: k } as never, 'constructor'), k);
+  assert.deepEqual(droppedPeers({ constructor: k } as never, {}), ['constructor']);
+});

@@ -9,8 +9,9 @@
 //   expired  — expiry reports owed to a sender (by envelope id), delivered now or on its next connection
 //   removed  — tombstones: a released or revoked name, so its removal reaches those who allowed it even
 //              with an empty outbox; cleared when the name is claimed again
-//   names    — the names claimed first come, first served: the key, when claimed and last seen. Reserved
-//              names live in the configuration, not here
+//   names    — every name a key holds, claimed first come, first served or admitted as reserved: the key,
+//              when bound and last seen. A reserved name's binding outlives its reservation: dropped from
+//              the configuration, the name stays with the key that last used it
 //   allow    — each installation's allow list: whom it hears from (N3)
 //   claims   — new names claimed per IP address per day (the claim limit)
 export const SCHEMA_VERSION = 2;
@@ -160,7 +161,7 @@ export class HubStore {
   nameOfKey(key: string): string | undefined {
     return this.sql.exec<{ name: string }>(`SELECT name FROM names WHERE key = ?`, key).toArray()[0]?.name;
   }
-  claimedNames(): NameRow[] {
+  boundNames(): NameRow[] {
     return this.sql.exec<NameRow>(`SELECT * FROM names ORDER BY name`).toArray();
   }
   /** Bind a free name to a key; a tombstone of an earlier holder is lifted. */
@@ -168,9 +169,16 @@ export class HubStore {
     this.sql.exec(`INSERT INTO names (name, key, claimed_at, last_seen) VALUES (?, ?, ?, ?)`, name, key, now, now);
     this.sql.exec(`DELETE FROM removed WHERE name = ?`, name);
   }
-  /** The claim goes, nothing else: the name became reserved for the same key. */
-  unclaim(name: string): void {
-    this.sql.exec(`DELETE FROM names WHERE name = ?`, name);
+  /**
+   * Bind a reserved name to the key that used it (a rotation moves the binding to the new key). The
+   * caller has released any other name this key held: one key, one name.
+   */
+  bind(name: string, key: string, now: number): void {
+    this.sql.exec(
+      `INSERT INTO names (name, key, claimed_at, last_seen) VALUES (?, ?, ?, ?) ON CONFLICT (name) DO UPDATE SET key = excluded.key, last_seen = excluded.last_seen`,
+      name, key, now, now,
+    );
+    this.sql.exec(`DELETE FROM removed WHERE name = ?`, name);
   }
   /** Mark a claimed name seen; rounded to the hour, so an idle hub writes once per connection at most. */
   touch(name: string, now: number): void {
@@ -180,12 +188,12 @@ export class HubStore {
     return this.sql.exec<{ name: string }>(`SELECT name FROM names WHERE last_seen < ? ORDER BY name`, before).toArray().map((r) => r.name);
   }
 
-  /** New names claimed from one IP address on one day (UTC day number). */
-  claimCount(ip: string, day: number): number {
-    return this.sql.exec<{ count: number }>(`SELECT count FROM claims WHERE ip = ? AND day = ?`, ip, day).toArray()[0]?.count ?? 0;
+  /** New names claimed from one address bucket (net.ts: an IPv4 address, an IPv6 /64) on one day (UTC day number). */
+  claimCount(bucket: string, day: number): number {
+    return this.sql.exec<{ count: number }>(`SELECT count FROM claims WHERE ip = ? AND day = ?`, bucket, day).toArray()[0]?.count ?? 0;
   }
-  countClaim(ip: string, day: number): void {
-    this.sql.exec(`INSERT INTO claims (ip, day, count) VALUES (?, ?, 1) ON CONFLICT (ip, day) DO UPDATE SET count = count + 1`, ip, day);
+  countClaim(bucket: string, day: number): void {
+    this.sql.exec(`INSERT INTO claims (ip, day, count) VALUES (?, ?, 1) ON CONFLICT (ip, day) DO UPDATE SET count = count + 1`, bucket, day);
     this.sql.exec(`DELETE FROM claims WHERE day < ?`, day - 1);
   }
 

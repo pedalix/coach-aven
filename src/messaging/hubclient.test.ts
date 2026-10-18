@@ -443,3 +443,18 @@ test('routed records are kept for an expiry report only until the bot’s own ta
   assert.deepEqual(store.load().map((r) => r.env.id), [env.id], 'the stale one pruned on the next settle');
   c.stop();
 });
+
+test('a peer named like an Object.prototype member: `constructor` unpinned is unknown on send, and unpinned on delivery — never a crash', async () => {
+  const hub = fakeHub();
+  const { c, sink } = client(hub);
+  c.onDeliver(async () => assert.fail('no handler for an unpinned sender'));
+  c.start();
+  await hub.admit();
+  const env: Envelope = { v: 2, id: id(), from: 'home/owen-ops', to: 'constructor/x', method: 'ask', task: TASK };
+  assert.deepEqual(await c.send(env, payload()), { rejected: 'unknown installation' });
+  hub.last.push({ t: 'deliver', seq: 30, env: { ...fromBluefin(), from: 'constructor' } });
+  await flush();
+  assert.deepEqual(hub.last.frames('ack'), [{ t: 'ack', seq: 30 }]);
+  assert.match(sink.lines.find((l) => l.includes('hub.envelope.bad_signature'))!, /from=constructor .*key=unpinned/);
+  c.stop();
+});

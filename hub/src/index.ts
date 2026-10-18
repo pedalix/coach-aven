@@ -4,8 +4,9 @@
 // wrappers do nothing.
 import { instrumentDurableObjectWithSentry, withSentry } from '@sentry/cloudflare';
 import { INSTALLATION_RE } from '../../src/messaging/protocol.js';
+import { parseHubConfig } from './config.js';
 import { Hub as HubObject, type Env } from './hub.js';
-import { sentryOptions } from './report.js';
+import { log, sentryOptions } from './report.js';
 
 export const Hub = instrumentDurableObjectWithSentry((env: Env) => sentryOptions(env), HubObject);
 
@@ -20,7 +21,17 @@ export default withSentry((env: Env) => sentryOptions(env), {
       // One object for every installation today; `idFromName(as)` gives each its own when the hub needs it.
       return env.HUB.get(env.HUB.idFromName('hub')).fetch(request);
     }
-    if (url.pathname === '/health') return new Response('ok');
+    if (url.pathname === '/health') {
+      // Healthy means it can admit anyone: a configuration that does not parse (the version-1 shape, a
+      // misspelt key) admits nobody, so the check a deploy waits for fails on it.
+      try {
+        parseHubConfig(env.HUB_CONFIG);
+      } catch (e) {
+        log('error', 'hub.config.invalid', { error: e instanceof Error ? e.message : String(e) });
+        return new Response('bad config', { status: 503 });
+      }
+      return new Response('ok');
+    }
     return new Response('not found', { status: 404 });
   },
 } satisfies ExportedHandler<Env>);

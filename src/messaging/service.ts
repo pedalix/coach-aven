@@ -36,6 +36,7 @@ import { acceptCountKey, isOpen, sendCountKey, type DeliveryRecord, type HeldMes
 import type { Delivery, PeerTransport } from './transport.js';
 import { wrapAnswer, wrapReply, wrapTask, type OpenTask } from './wrap.js';
 import { expireIdleTasks } from './expiry.js';
+import { isPinned } from './peers.js';
 
 /** The turn engine as the service uses it. */
 export type MessagingEngine = Pick<TurnEngine, 'liveTurn' | 'turnOn' | 'noteInjection' | 'liveSession' | 'sessionFor' | 'isAsk' | 'cancelKey' | 'closeSession' | 'retireSession' | 'hasKey'>;
@@ -96,7 +97,7 @@ export function createMessaging(d: MessagingDeps) {
     return !!m && accepts(m.accept, sender, { ownInstallation: d.installation, ownDomain: domainOfProject(slug), senderDomain });
   };
   const transportFor = (installation: string): PeerTransport | undefined =>
-    installation === d.installation ? d.local : d.hub && installation in d.peers() ? d.hub : undefined;
+    installation === d.installation ? d.local : d.hub && isPinned(d.peers(), installation) ? d.hub : undefined;
 
   // ── envelopes ───────────────────────────────────────────────────────────────────────────────
   function post(h: Omit<EnvelopeHeader, 'v' | 'id'> & { id?: string }, payload: Payload): void {
@@ -533,7 +534,7 @@ export function createMessaging(d: MessagingDeps) {
     const inst = typeof installation === 'string' && installation ? installation : d.installation;
     const me = { installation: d.installation, agent: c.slug };
     if (inst === d.installation) return { ok: true, data: { installation: inst, agents: localCards(me, domainOfKey(c.conversationKey)) } };
-    if (!(inst in d.peers()) || !d.hub) return { ok: false, error: `unknown installation "${inst}"; known: ${[d.installation, ...Object.keys(d.peers()).sort()].join(', ')}` };
+    if (!isPinned(d.peers(), inst) || !d.hub) return { ok: false, error: `unknown installation "${inst}"; known: ${[d.installation, ...Object.keys(d.peers()).sort()].join(', ')}` };
     // The hub shows a peer online only when the two have pinned each other (hub-open-network, N4).
     if (!d.hub.presence().online.includes(inst)) return { ok: true, data: { installation: inst, offline: true, note: `offline, or ${inst} has not pinned ${d.installation}` } };
     const req = newId();

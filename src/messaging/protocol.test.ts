@@ -16,6 +16,7 @@ import {
   parseSealed,
   parseTarget,
   parseWireEnvelope,
+  KEY_RE,
   sealedOf,
   signingText,
   wireHeaderOf,
@@ -26,8 +27,8 @@ const FIXTURE = JSON.parse(readFileSync(new URL('../fixtures/messaging/envelope.
   envelope: Record<string, unknown>;
   sealed: Record<string, unknown> & { payload: Record<string, unknown> };
 };
-/** A public key's shape (43 base64url characters); the value is made up. */
-const KEY = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopq';
+/** A public key's shape (43 base64url characters, canonical); the value is made up. */
+const KEY = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopA';
 
 test('targets — <installation>/<agent>, or a bare agent of the own installation; ids validated', () => {
   assert.deepEqual(parseTarget('bluefin/caldora', 'home'), { installation: 'bluefin', agent: 'caldora' });
@@ -114,6 +115,16 @@ test('crypto texts — fixed order; the AAD binds the envelope id, the derivatio
   assert.notEqual(signingText(env.env), signingText({ ...env.env, ct: 'other' }));
   assert.equal(kdfInfo('ZXBo', 'Ym94'), 'coach-aven-hub/2|ZXBo|Ym94', 'the ephemeral key and the receiver’s encryption key, no names');
   assert.equal(challengeText('hub.example', 'home', KEY, 'n0nce'), `coach-aven-hub/2|hub.example|home|${KEY}|n0nce`);
+});
+
+test('keys — only the canonical base64url spelling of 32 bytes: one key cannot pass as several', () => {
+  assert.equal(KEY_RE.test(KEY), true);
+  const endings = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const accepted = [...endings].filter((c) => KEY_RE.test(KEY.slice(0, 42) + c));
+  assert.deepEqual(accepted.join(''), 'AEIMQUYcgkosw048', 'the 43rd character carries 4 bits and 2 zero bits');
+  assert.equal(KEY_RE.test(KEY.slice(0, 42) + 'B'), false, 'decodes to the same bytes as …A, so it is refused');
+  assert.equal(KEY_RE.test(KEY + 'A'), false);
+  assert.equal(parseClientFrame({ t: 'auth', v: 2, name: 'home', key: KEY.slice(0, 42) + 'B', sig: 's' }), undefined);
 });
 
 test('frames — `auth` version 2; the version-1 shape is `auth-unsupported`; malformed and unknown frames dropped', () => {

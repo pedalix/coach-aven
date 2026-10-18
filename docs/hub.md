@@ -17,12 +17,16 @@ installations, never agents: agent names, the method and the task id travel seal
 ## Names
 
 - **Uniqueness.** An installation's name (`[a-z0-9-]{1,32}`) is unique on its hub.
-- **Claiming.** The first key that connects with a free name gets it, and one key holds one name.
-- **Release.** A claimed name whose key has not connected for `idleDays` (180) is released. The installations
-  that pinned it hear that it was removed, and anyone may claim it again.
+- **Claiming.** The first key that connects with a free name gets it, and one key holds one name. New
+  names are limited per address and day: per IPv4 address, or per IPv6 /64.
+- **Release.** A name whose key has not connected for `idleDays` (180) is released, unless it is
+  reserved. The installations that pinned it hear that it was removed, and anyone may claim it again.
 - **Reserved names.** The hub's configuration reserves names, for the keys listed (an operator's own
   installations) or for nobody (`null`). `local` and `hub` are reserved for nobody on every hub. A reserved
   name is never released, and no other key can take it.
+- **Bindings are stored.** The hub stores every name's binding to the key that last used it, whether the
+  name was claimed or admitted as reserved. Dropping a name from `reserved` ends its protection, not its
+  binding: it stays with that key, as a claimed name would.
 - **The key is the identity, the name only a handle.** Peers pin keys, so a name that changes hands can
   neither read nor forge anything: its new key fails every pin, and the receiver logs `bad signature from
   <name>`.
@@ -50,8 +54,10 @@ installations, never agents: agent names, the method and the task id travel seal
      - `pairEnvelopes` (200) and `pairBytes` (10 MB): what one sender may have waiting for one recipient;
      - `backlogEnvelopes` (1000) and `backlogBytes` (50 MB): what may wait for one recipient from everyone;
      - `allowMax` (1000): installations one allow list may name.
-   - A configuration in the version-1 shape (`{"installations": …}`) is refused: the hub admits nobody, and
-     logs `hub.config.invalid` naming the expected shape.
+   - A configuration in the version-1 shape (`{"installations": …}`) is refused, and so is any key the hub
+     does not know, at any level: a misspelt `"registraton": "closed"` must not leave a hub open. The hub
+     then admits nobody, logs `hub.config.invalid` naming the problem, and `/health` answers 503, so the
+     check after a deploy fails.
 
    Keep the readable copy in the ops repo (`hub.config.json`). It holds public keys only.
 3. Sentry, optional: `wrangler secret put SENTRY_DSN` (the bots' DSN will do), and a `SENTRY_ENVIRONMENT`
@@ -96,6 +102,9 @@ and the schema version. A deploy drops every socket, and the bots reconnect.
   - An installation sees another online only when the two pinned each other.
   - A removal reaches the installations that pinned the removed name.
   - No installation learns the list of names on the hub.
+- **Allow lists are cheap.** An unchanged list changes nothing and tells nobody anything. A changed one
+  sends a fresh view only where a relationship changed: an installation that does not allow the sender
+  hears nothing. The hub takes at most 10 lists per connection in 10 minutes, and ignores the rest.
 - **Quotas.** If either limit is reached, the envelope is refused `rejected: backlog`:
   - 1000 envelopes or 50 MB waiting for one recipient;
   - 200 envelopes or 10 MB from one sender to one recipient, so one peer cannot fill a mailbox for the
@@ -104,20 +113,26 @@ and the schema version. A deploy drops every socket, and the bots reconnect.
 ## Removing an installation
 
 To cut an installation off, reserve its name for nobody (`"northwind": null`) and deploy. On its first
-request the hub:
+request the hub does all of this, whether the installation is connected or not, and with or without
+envelopes waiting for it:
 - tombstones the name (`revoked`);
 - drops its outbox and allow list, and closes its connection;
 - reports it removed to the installations that pinned it, whose open tasks with it end
-  `failed: peer removed`.
+  `failed: peer removed` (an offline one hears of it when it next connects).
 
-Dropping a name from `reserved` does not cut it off; it only ends the protection.
+Reserving a name for another key does the same to whoever holds it now, and the new key takes the name
+when it connects.
+
+Dropping a name from `reserved` cuts nobody off. It ends the protection: the name stays bound to the
+key that last used it, and is released like any claimed name after `idleDays` without a connection.
 
 Dropping a peer from one installation's `hub.peers.json` and running `/aven reload` ends that
 installation's tasks with the peer, and stops the hub delivering from it there.
 
 ## Rotating keys
 
-- **A reserved name:**
+- **A reserved name** (keep the old and the new key listed together until the bot uses the new one; a key
+  that disappears from the list revokes the name if it was the one bound):
   1. Run `orch hub keygen --rotate`. It makes new keys and keeps the previous encryption key for 14 days,
      so envelopes sealed to it before the peers updated still open.
   2. Add the new signing key to the name's `reserved` list next to the old one, giving the old one a
@@ -159,16 +174,17 @@ Nothing in the protocol depends on the bot's clock at a finer grain than days: t
   - the task records in `state.json`, both directions, with the last message;
   - the conversations' marks;
   - the shadow journals in `shadow/<origin>/<task id>.jsonl`: other agents' questions and this
-    installation's answers, kept 30 days and pruned with the task records;
-  - the routed envelopes' clear headers (no ciphertext), until the task expiry, so that an expiry report
-    finds its task.
+    installation's answers, kept 30 days and pruned with the task records.
+- **On every sending installation:** the clear message of each envelope the hub routed, without its
+  ciphertext or payload, kept in `state.json` until the task expiry, so that an expiry report — which
+  names only the envelope id — finds its task.
 
-  None of it goes to the ops repo.
+None of it goes to the ops repo.
 - **On the hub:**
   - sealed envelopes until acknowledged or expired (7 days), each with its two installations, id, size and
     times;
-  - the claimed names (name, key, when claimed and last seen), the allow lists, the tombstones, and the
-    claim counts per address per day.
+  - every name's binding (name, key, when bound and last seen), the allow lists, the tombstones, and the
+    claim counts per address (an IPv4 address, an IPv6 /64) per day.
 
   No agent names, methods or task ids.
 
@@ -185,8 +201,10 @@ Nothing in the protocol depends on the bot's clock at a finer grain than days: t
   JSON line.
   - With a `SENTRY_DSN` secret it also sends the warnings and errors among them to Sentry, along with any
     uncaught exception.
-  - Tags are `area=hub`, `event`, `reason` and `installation`. There is one event per event, reason and
-    installation per hour, because a bot that is refused redials every minute.
+  - Tags are `area=hub`, `event`, `reason` and, for an admitted installation, `installation`. There is one
+    event per event, reason and installation per hour, because a bot that is refused redials every minute.
+  - A refusal names the client's claim as `claimed`, which is not a tag. So refusals are deduped on the
+    reason alone, and whoever invents names cannot turn them into events. The dedupe memory is bounded.
   - How loud a refusal is depends on whose business it is:
     - a reserved name claimed with another key is an error: the operator's own bot is misconfigured, or
       someone is posing as it;

@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createPrivateKey, sign } from 'node:crypto';
 import { generateKeyFile, open, seal, signChallenge, verifyChallenge, type KeyFile, type PeerKey } from './seal.js';
-import type { Sealed, WireHeader } from './protocol.js';
+import { signingText, type Sealed, type WireEnvelope, type WireHeader } from './protocol.js';
 
 const header: WireHeader = { v: 2, id: '5f0c1d2e3a4b59687a6b5c4d', from: 'home', to: 'bluefin' };
 const content: Sealed = {
@@ -14,6 +15,12 @@ const content: Sealed = {
 const home = generateKeyFile();
 const bluefin = generateKeyFile();
 const homeKeys: PeerKey[] = [{ sign: home.signing.public, box: home.encryption.public }];
+/** A valid signature by `k` over `env` as it now reads: what a sender could forge with its own key. */
+const resign = (env: WireEnvelope, k: KeyFile): WireEnvelope => {
+  const { sig: _old, ...unsigned } = env;
+  const key = createPrivateKey({ key: { kty: 'OKP', crv: 'Ed25519', x: k.signing.public, d: k.signing.private }, format: 'jwk' });
+  return { ...unsigned, sig: sign(null, Buffer.from(signingText(unsigned)), key).toString('base64url') };
+};
 
 test('seal / open — round trip; the wire shows the installations and nothing else', () => {
   const env = seal(header, content, { signing: home.signing, recipientBox: bluefin.encryption.public });
@@ -33,11 +40,10 @@ test('tampered envelope — an altered ciphertext or sender fails the signature,
   assert.deepEqual(open({ ...env, from: 'northwind' }, { senderKeys: homeKeys, own: bluefin }), { ok: false, reason: 'bad_signature' });
 });
 
-test('re-targeted envelope — moved to another installation in clear, it fails the signature; re-signed, it does not decrypt', () => {
+test('re-targeted envelope — moved to another installation in clear, it fails the signature; validly re-signed, it does not decrypt (the AAD binds `to`)', () => {
   const env = seal(header, content, { signing: home.signing, recipientBox: bluefin.encryption.public });
   assert.deepEqual(open({ ...env, to: 'northwind' }, { senderKeys: homeKeys, own: bluefin }), { ok: false, reason: 'bad_signature' });
-  const resigned = seal({ ...header, to: 'northwind' }, {}, { signing: home.signing, recipientBox: bluefin.encryption.public });
-  assert.equal(open({ ...env, to: 'northwind', sig: resigned.sig }, { senderKeys: homeKeys, own: bluefin }).ok, false);
+  assert.deepEqual(open(resign({ ...env, to: 'northwind' }, home), { senderKeys: homeKeys, own: bluefin }), { ok: false, reason: 'decrypt_failed' });
 });
 
 test('wrong sender — signed with another installation’s key: refused', () => {
@@ -65,8 +71,7 @@ test('replayed ciphertext — under a new envelope id it does not open, even re-
   const moved = { ...env, id: '000000000000000000000001' };
   assert.deepEqual(open(moved, { senderKeys: homeKeys, own: bluefin }), { ok: false, reason: 'bad_signature' });
   // Even a valid signature over the new id cannot open it: the id is in the AAD.
-  const resigned = seal({ ...header, id: moved.id }, {}, { signing: home.signing, recipientBox: bluefin.encryption.public });
-  assert.equal(open({ ...moved, sig: resigned.sig }, { senderKeys: homeKeys, own: bluefin }).ok, false);
+  assert.deepEqual(open(resign(moved, home), { senderKeys: homeKeys, own: bluefin }), { ok: false, reason: 'decrypt_failed' });
 });
 
 test('rotation grace — the previous encryption key opens until its notAfter; a retired signing key verifies nothing', () => {

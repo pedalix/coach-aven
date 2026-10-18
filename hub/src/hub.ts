@@ -12,8 +12,9 @@
 // loses nothing, and keep-alive pings are answered by the runtime without waking the object.
 import { DurableObject } from 'cloudflare:workers';
 import { challengeText, parseClientFrame, parseWireEnvelope, type HubFrame, type Removed, type WireEnvelope } from '../../src/messaging/protocol.js';
-import { keysValidAt, parseHubConfig, reservedNameOfKey, type HubConfig } from './config.js';
+import { keysValidAt, parseHubConfig, reservation, reservedNameOfKey, type HubConfig } from './config.js';
 import { randomNonce, verifyEd25519 } from './crypto.js';
+import { claimBucket } from './net.js';
 import { HubStore } from './store.js';
 import { log, type Level, type SentryEnv } from './report.js';
 
@@ -37,6 +38,9 @@ interface Attachment {
   /** The key it authenticated with: a later configuration may stop admitting it. */
   key?: string;
   authedAt?: number;
+  /** The `allow` throttle: when this connection's current window started, and lists taken in it. */
+  allowWindow?: number;
+  allowCount?: number;
 }
 
 /**
@@ -60,6 +64,10 @@ type Refusal = keyof typeof REFUSALS;
 
 const DAY_MS = 86_400_000;
 const AUTH_TIMEOUT_MS = 10_000;
+/** A bot sends its allow list after each hello and after a reload that changed it: 10 in 10 minutes is plenty. */
+const ALLOW_PER_WINDOW = 10;
+const ALLOW_WINDOW_MS = 10 * 60_000;
+const sameSet = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
 
 export class Hub extends DurableObject<Env> {
   private readonly store: HubStore;
@@ -79,26 +87,30 @@ export class Hub extends DurableObject<Env> {
   }
 
   /**
-   * Apply a (new) configuration to the names held now:
-   * - a claimed name the configuration reserves for nobody, or for other keys, is revoked;
-   * - a claimed name it reserves for the same key just becomes reserved;
-   * - a connected name reserved for nobody now is revoked; one reserved for keys that no longer include
-   *   the one it authenticated with is disconnected (`reserved`), and keeps its name.
+   * Apply a (new) configuration to the names held now. Every binding is stored — claimed names and
+   * reserved ones alike, the key that last used each — so this sees offline names too:
+   * - a name reserved for nobody now, or for keys that do not list the key it is bound to, is revoked:
+   *   tombstoned, its outbox and allow list dropped, its connection closed, and reported to the
+   *   installations that allow it — connected or not, with an outbox or without;
+   * - a name no longer reserved stays bound to its key, as a claimed name: dropping a reservation ends the
+   *   protection, not the binding;
+   * - a live connection whose key the configuration still lists but no longer accepts (a rotation past its
+   *   `notAfter`) is disconnected (`reserved`), and the name stays.
    */
   alignWithConfig(cfg: HubConfig): void {
     const now = Date.now();
-    for (const row of this.store.claimedNames()) {
-      if (!(row.name in cfg.reserved)) continue;
-      const keys = cfg.reserved[row.name];
-      if (keys && keysValidAt(keys, now).some((k) => k.key === row.key)) this.store.unclaim(row.name); // reserved now: never released
-      else this.removeName(row.name, 'revoked');
+    for (const row of this.store.boundNames()) {
+      const keys = reservation(cfg, row.name);
+      if (keys === undefined) continue;
+      if (keys === null || !keys.some((k) => k.key === row.key)) this.removeName(row.name, 'revoked');
     }
     for (const ws of this.ctx.getWebSockets()) {
       const a = this.att(ws);
-      if (!a.installation || !(a.installation in cfg.reserved)) continue;
-      const keys = cfg.reserved[a.installation];
+      if (!a.installation) continue;
+      const keys = reservation(cfg, a.installation);
+      if (keys === undefined) continue;
       if (keys === null) this.removeName(a.installation, 'revoked');
-      else if (!keysValidAt(keys ?? [], now).some((k) => k.key === a.key)) {
+      else if (!keysValidAt(keys, now).some((k) => k.key === a.key)) {
         ws.serializeAttachment({ ...a, installation: undefined });
         ws.close(4003, 'reserved');
         for (const peer of this.edges(a.installation)) this.presenceTo(peer);
@@ -186,8 +198,10 @@ export class Hub extends DurableObject<Env> {
   }
 
   private refuse(ws: WebSocket, reason: Refusal, name?: string): void {
-    // Logged without key material (no signature, no key).
-    log(REFUSALS[reason], 'hub.auth.refused', { reason, ...(name ? { installation: name } : {}) });
+    // Logged without key material (no signature, no key). The name is the client's claim, not an
+    // installation the hub admitted: `claimed`, so it is no Sentry tag and the reporter dedupes these on
+    // the reason alone — whoever invents names cannot turn them into events.
+    log(REFUSALS[reason], 'hub.auth.refused', { reason, ...(name ? { claimed: name } : {}) });
     ws.close(4003, reason);
   }
 
@@ -208,7 +222,7 @@ export class Hub extends DurableObject<Env> {
     if (!frame) return; // a kind this hub does not know: ignored (additive protocol)
     if (frame.t === 'send') return this.route(ws, a.installation, frame.env);
     if (frame.t === 'ack') return this.store.ack(a.installation, frame.seq);
-    if (frame.t === 'allow') return this.allow(a.installation, frame.installations);
+    if (frame.t === 'allow') return this.allow(ws, a, frame.installations);
     // a second `auth` on an authenticated socket changes nothing
   }
 
@@ -218,20 +232,30 @@ export class Hub extends DurableObject<Env> {
    * free name is claimed for `key` now.
    */
   private admit(cfg: HubConfig, name: string, key: string, ip: string, now: number): Refusal | undefined {
-    if (name in cfg.reserved) {
-      const keys = cfg.reserved[name];
-      if (!keys || !keysValidAt(keys, now).some((k) => k.key === key)) return 'reserved';
-      if (this.store.isTombstoned(name)) this.store.lift(name);
+    const reserved = reservation(cfg, name);
+    if (reserved !== undefined) {
+      if (!reserved || !keysValidAt(reserved, now).some((k) => k.key === key)) return 'reserved';
+      // Stored like a claim, so that the binding outlives the reservation and a revocation finds it
+      // offline. One key, one name: a name this key held before is released.
+      const other = this.store.nameOfKey(key);
+      if (other !== undefined && other !== name) this.removeName(other, 'released');
+      this.store.bind(name, key, now);
       return undefined;
     }
     const row = this.store.nameRow(name);
-    if (row) return row.key === key ? undefined : 'name taken';
-    if (reservedNameOfKey(cfg, key) !== undefined || this.store.nameOfKey(key) !== undefined) return 'key holds a name';
+    if (row?.key === key) return undefined;
+    // The key before the name: a key that holds a name learns nothing about other names, so probing
+    // which names exist costs a claim each (and the claim limit).
+    const held = reservedNameOfKey(cfg, key) ?? this.store.nameOfKey(key);
+    if (held !== undefined && held !== name) return 'key holds a name';
+    if (row) return 'name taken';
+    // Closed registration claims nothing new; names already bound keep working for their keys.
     if (cfg.registration === 'closed') return 'closed';
+    const bucket = claimBucket(ip);
     const day = Math.floor(now / DAY_MS);
-    if (this.store.claimCount(ip, day) >= cfg.limits.claimsPerIpPerDay) return 'claim limit';
+    if (this.store.claimCount(bucket, day) >= cfg.limits.claimsPerIpPerDay) return 'claim limit';
     this.store.claim(name, key, now);
-    this.store.countClaim(ip, day);
+    this.store.countClaim(bucket, day);
     log('info', 'hub.name.claimed', { installation: name });
     return undefined;
   }
@@ -262,40 +286,63 @@ export class Hub extends DurableObject<Env> {
     for (const peer of this.edges(name)) this.presenceTo(peer);
   }
 
-  /** A new allow list (N3): it governs envelopes routed from now on; both sides of every changed edge get a fresh view. */
-  private allow(installation: string, peers: string[]): void {
-    const cfg = this.config();
-    const max = cfg?.limits.allowMax ?? peers.length;
-    const list = peers.filter((p) => p !== installation);
-    if (list.length > max) log('warn', 'hub.allow.capped', { installation, size: list.length, max });
+  /**
+   * A new allow list (N3): it governs envelopes routed from now on. Only views that change are sent: the
+   * sender's own when one of its edges or the removals it hears of change, and a peer's only when its
+   * edge with the sender changed — an installation that does not allow the sender hears nothing, not
+   * even an empty frame, however often the sender lists it. Throttled per connection.
+   */
+  private allow(ws: WebSocket, a: Attachment, peers: string[]): void {
+    const installation = a.installation!;
+    const now = Date.now();
+    const fresh = a.allowWindow === undefined || now - a.allowWindow >= ALLOW_WINDOW_MS;
+    const count = fresh ? 1 : (a.allowCount ?? 0) + 1;
+    ws.serializeAttachment({ ...a, allowWindow: fresh ? now : a.allowWindow, allowCount: count } satisfies Attachment);
+    if (count > ALLOW_PER_WINDOW) {
+      if (count === ALLOW_PER_WINDOW + 1) log('warn', 'hub.allow.throttled', { installation, max: ALLOW_PER_WINDOW });
+      return;
+    }
+    const max = this.config()?.limits.allowMax ?? peers.length;
+    const wanted = peers.filter((p) => p !== installation);
+    if (wanted.length > max) log('warn', 'hub.allow.capped', { installation, size: wanted.length, max });
+    const list = wanted.slice(0, max);
     const before = this.store.allowOf(installation);
-    this.store.setAllow(installation, list.slice(0, max));
-    this.presenceTo(installation);
-    for (const p of new Set([...before, ...list])) this.presenceTo(p);
+    if (sameSet(before, list)) return;
+    const mutual = (l: readonly string[]): Set<string> => new Set(l.filter((p) => this.store.allows(p, installation)));
+    const tombstoned = new Set(this.store.tombstones().map((t) => t.name));
+    const edgesBefore = mutual(before);
+    const heardBefore = before.filter((p) => tombstoned.has(p));
+    this.store.setAllow(installation, list);
+    const edgesAfter = mutual(list);
+    const changed = [...new Set([...edgesBefore, ...edgesAfter])].filter((p) => edgesBefore.has(p) !== edgesAfter.has(p));
+    if (changed.length || !sameSet(heardBefore, list.filter((p) => tombstoned.has(p)))) this.presenceTo(installation);
+    for (const p of changed) this.presenceTo(p);
   }
 
-  /** Whether an installation holds a name here now: reserved for keys, or claimed, and not removed. */
+  /** Whether an installation holds a name here now: reserved for keys, or bound, and not removed. */
   private holds(cfg: HubConfig, name: string): boolean {
     if (this.store.isTombstoned(name)) return false;
-    return name in cfg.reserved ? cfg.reserved[name] !== null : this.store.nameRow(name) !== undefined;
+    const reserved = reservation(cfg, name);
+    return reserved !== undefined ? reserved !== null : this.store.nameRow(name) !== undefined;
   }
 
   private async route(ws: WebSocket, sender: string, raw: Record<string, unknown>): Promise<void> {
     const id = typeof raw.id === 'string' ? raw.id : '';
-    const to = typeof raw.to === 'string' ? raw.to : undefined;
     const size = JSON.stringify(raw).length;
-    const reject = (reason: string): void => {
-      log('warn', 'hub.rejected', { from: sender, ...(to ? { to } : {}), ...(id ? { env_id: id } : {}), size, reason });
+    // Logged from the parsed envelope only: a malformed one's fields may hold anything, an agent address
+    // or a task included, and the hub logs installations.
+    const reject = (reason: string, env?: WireEnvelope): void => {
+      log('warn', 'hub.rejected', { from: sender, ...(env ? { to: env.to, env_id: env.id } : {}), size, reason });
       this.send(ws, { t: 'rejected', id, reason });
     };
     const parsed = parseWireEnvelope(raw);
     if (!parsed.ok) return reject(parsed.reason === 'unsupported version' ? 'unsupported version' : 'malformed');
     const env = parsed.env;
     const cfg = this.config();
-    if (!cfg) return reject('unavailable');
+    if (!cfg) return reject('unavailable', env);
     // A name nobody holds, a removed one, and one that does not allow the sender look the same: the hub
     // does not tell a sender who exists (N3).
-    if (!this.holds(cfg, env.to) || !this.store.allows(env.to, sender)) return reject('unknown installation');
+    if (!this.holds(cfg, env.to) || !this.store.allows(env.to, sender)) return reject('unknown installation', env);
     if (this.store.wasRouted(env.id)) return this.send(ws, { t: 'routed', id: env.id }); // re-sent after a restart
     // The sender is the authenticated installation, whatever the envelope names; only the known fields travel on.
     const stored: WireEnvelope = { v: env.v, id: env.id, from: sender, to: env.to, eph: env.eph, ct: env.ct, sig: env.sig };
@@ -303,7 +350,7 @@ export class Hub extends DurableObject<Env> {
     const all = this.store.outboxSize(env.to);
     const pair = this.store.pairSize(env.to, sender);
     const l = cfg.limits;
-    if (all.count >= l.backlogEnvelopes || all.bytes + text.length > l.backlogBytes || pair.count >= l.pairEnvelopes || pair.bytes + text.length > l.pairBytes) return reject('backlog');
+    if (all.count >= l.backlogEnvelopes || all.bytes + text.length > l.backlogBytes || pair.count >= l.pairEnvelopes || pair.bytes + text.length > l.pairBytes) return reject('backlog', env);
     const now = Date.now();
     const row = this.store.append({ installation: env.to, env_id: env.id, sender, size: text.length, routed_at: now, expires_at: now + this.expiryMs(), env: text });
     this.send(ws, { t: 'routed', id: env.id });
@@ -352,7 +399,7 @@ export class Hub extends DurableObject<Env> {
     if (cfg) {
       // A connection is a sign of life however long it lasts; then names silent for `idleDays` go.
       for (const name of this.connected()) this.store.touch(name, now);
-      for (const name of this.store.idleNames(now - cfg.limits.idleDays * DAY_MS)) if (!(name in cfg.reserved)) this.removeName(name, 'released');
+      for (const name of this.store.idleNames(now - cfg.limits.idleDays * DAY_MS)) if (reservation(cfg, name) === undefined) this.removeName(name, 'released');
     }
     let next = now + DAY_MS;
     for (const ws of this.ctx.getWebSockets()) {

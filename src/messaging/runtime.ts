@@ -16,7 +16,7 @@ import { log } from '../log.js';
 import type { RegistryRef } from '../projects.js';
 import type { Store } from '../state.js';
 import type { TurnDeps, TurnEngine } from '../turn.js';
-import { applyHubReports, HubClient } from './hubclient.js';
+import { applyHubReports, HubClient, type SocketFactory } from './hubclient.js';
 import { LocalTransport } from './local.js';
 import { droppedPeers, endTasksWithPeer, loadPeers, peersPath, type Peers } from './peers.js';
 import type { KeyFile } from './seal.js';
@@ -46,7 +46,7 @@ export interface MessagingRuntime {
   stop(): void;
 }
 
-export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRef; home: () => string | undefined; platform: 'slack' | 'teams'; shadowDir?: string }): MessagingRuntime {
+export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRef; home: () => string | undefined; platform: 'slack' | 'teams'; shadowDir?: string; /** Tests: the hub client's socket. */ socket?: SocketFactory }): MessagingRuntime {
   const ref: { current?: Messaging } = {};
   const shadow = shadowDriver({ dir: o.shadowDir ?? SHADOW_DIR });
   const env = o.cfg.messaging;
@@ -82,7 +82,7 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
         } catch (e) {
           log.error(`agent messaging: HUB_KEY_PATH ${env.hub.keyPath} unreadable (${e instanceof Error ? e.message : String(e)}) — run \`orch hub keygen\`; the hub client does not start`);
         }
-        if (keys) hub = new HubClient({ url: env.hub.url, installation: env.installation, keys, peers: () => peers.current, store: o.store.messagingRecords('hub') });
+        if (keys) hub = new HubClient({ url: env.hub.url, installation: env.installation, keys, peers: () => peers.current, store: o.store.messagingRecords('hub'), ...(o.socket ? { socket: o.socket } : {}) });
       }
       const driverOrNone = (t: string | undefined): ChatDriver | undefined => {
         try {

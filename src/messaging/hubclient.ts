@@ -32,7 +32,7 @@ import { domainClaimOk, joinEnvelope, parseAddress, parseHubFrame, parseSealed, 
 import { fingerprint, open, seal, signChallenge, type KeyFile } from './seal.js';
 import { TASK_EXPIRY_MS } from './expiry.js';
 import type { Delivery, OutboxRecord, PeerTransport, RecordStore, SendOutcome } from './transport.js';
-import { endTasksWithPeer, validKeys, type Peers } from './peers.js';
+import { endTasksWithPeer, pinnedKeys, validKeys, type Peers } from './peers.js';
 import { isOpen, type InTask, type OutTask } from './records.js';
 import type { Store } from '../state.js';
 
@@ -129,7 +129,7 @@ export class HubClient implements PeerTransport {
    */
   async send(env: Envelope, payload?: Payload): Promise<SendOutcome> {
     const peer = parseAddress(env.to)?.installation;
-    const keys = peer ? validKeys(this.o.peers()[peer], new Date()) : [];
+    const keys = peer ? validKeys(pinnedKeys(this.o.peers(), peer), new Date()) : [];
     if (!peer || !keys.length) return { rejected: 'unknown installation' };
     if (!payload || !parseAddress(env.from)) return { rejected: 'malformed' };
     const wire = seal(wireHeaderOf(env), sealedOf(env, payload), { signing: this.o.keys.signing, recipientBox: keys[0]!.box });
@@ -414,7 +414,7 @@ export class HubClient implements PeerTransport {
       return drop();
     }
     const sender = wire.from;
-    const pinned = this.o.peers()[sender];
+    const pinned = pinnedKeys(this.o.peers(), sender);
     const bad = (name: 'hub.envelope.bad_signature' | 'hub.envelope.decrypt_failed', key: string): void => emit(name, { from: sender, env_id: wire.id, key }, { sink: this.o.sink });
     if (!pinned?.length) {
       bad('hub.envelope.bad_signature', 'unpinned');

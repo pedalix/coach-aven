@@ -26,18 +26,22 @@ Constraints: no new dependency on either side; no new bot setting; the local pat
 ## Decisions
 
 ### N1. Names: a registry in the hub, first come first served
-The object's SQLite gains `names(name PRIMARY KEY, key UNIQUE, claimed_at, last_seen)` and `claims(ip, day, count)`. Reserved names are not stored there: they live in the configuration only.
+The object's SQLite gains `names(name PRIMARY KEY, key UNIQUE, claimed_at, last_seen)` and `claims(ip, day, count)`. `names` holds every binding:
+- a claim;
+- the key a reserved name was last admitted with: a rotation moves the binding to the new key, and a key that held another name releases it.
+
+The reservations themselves live in the configuration. Lookups in it go by own property only (`reservation()`): `constructor` is a valid name.
 - **Claiming.** `auth` names the name and the key.
   - A reserved name admits its configured keys.
   - A bound name admits its bound key.
-  - A free name is bound if registration is `open`, the key holds no name, and the claim limit of the client's IP (`CF-Connecting-IP`) allows it.
+  - Otherwise, the key comes before the name: a key holding another name gets `key holds a name`, so it learns nothing about which names exist. Then a bound name gets `name taken`.
+  - A free name is bound if registration is `open` and the claim limit allows it. The limit counts the client's address (`CF-Connecting-IP`): an IPv4 address, or an IPv6 /64 (`net.ts`).
 - **Last seen.** It is updated on every authentication, rounded to the hour, so it costs one write per connection.
 - **Releasing.** The alarm releases names idle longer than `idleDays` (not reserved ones). A release tombstones the name (`removed(name, at, reason)`), drops its outbox and allow list, and reports it.
-- **Aligning with the configuration.** On the first request after a deploy, the object aligns with the configuration, as it aligned enrolment before:
-  - a claimed name now reserved for nobody, or for keys other than its bound one, is revoked: tombstoned, its socket closed, its outbox dropped;
-  - a claimed name now reserved for its own key just loses its claim row, and stays;
-  - a connected reserved name whose key the configuration no longer lists is disconnected (`reserved`), and keeps its name;
-  - a name dropped from `reserved` keeps working: the protection ends, nobody is cut off.
+- **Aligning with the configuration.** On the first request after a deploy, the object aligns with the configuration, as it aligned enrolment before. Every stored binding is checked, so offline names are covered too:
+  - a name now reserved for nobody, or for keys that do not list its bound key, is revoked: tombstoned, its outbox and allow list dropped, its socket closed, and reported to the installations that allow it;
+  - a name dropped from `reserved` keeps its binding: the protection ends, nobody is cut off, and the name is released after `idleDays` like any claim;
+  - a live connection whose key is still listed but past its `notAfter` is disconnected (`reserved`); the name and its binding stay.
 - **Claiming again.** It clears the tombstone, so a name can change hands. The peers' pins are what make that safe (N5).
 - **One key per claimed name.** A reserved name rotates with `notAfter` as today. Key succession for claimed names comes later, with a migration to a list of keys.
 
@@ -52,8 +56,9 @@ Alternatives:
 - **The answer** is `{t:"auth", v: 2, name, key, sig}`, with `sig = Ed25519("coach-aven-hub/2|<host>|<name>|<key>|<nonce>")`.
   - The key travels because a free name has no key to look up.
   - The host keeps a signature from being replayed at another hub.
+- **Keys** are accepted in their one canonical base64url spelling only (`KEY_RE`, shared by the bot, the hub and the configuration). A lenient decoder reads other endings as the same 32 bytes, so one key would otherwise pass as several and hold several names.
 - **Refusals.** A refused `auth` closes the socket with a reason the bot logs. It reuses its existing `hub.connect.failed` event, an error that reaches Sentry, with the hub's reason. The reasons: `unsupported version`, `hint mismatch`, `bad signature`, `name taken`, `key holds a name`, `reserved`, `closed`, `claim limit`, `not authenticated` (anything before a well-formed `auth`), `bad config`.
-  - The hub logs the same reason as `hub.auth.refused`, with the claimed name and never the key.
+  - The hub logs the same reason as `hub.auth.refused`, with the claimed name as `claimed` and never the key. `claimed` is not a Sentry tag, so the reporter dedupes refusals on the reason alone: invented names cannot become events. The reporter's dedupe memory is bounded (256 keys).
   - Levels differ, because on an open hub most refusals are other people's business:
     - `reserved` (a reserved name claimed with another key) and `bad config` are errors;
     - `unsupported version`, `hint mismatch` and `bad signature` are warnings;
@@ -62,7 +67,11 @@ Alternatives:
 
 ### N3. The allow list is the pinned peers
 - **The frame.** A new client frame, `{t:"allow", installations: [...]}`, is sent after `hello` and whenever the pinned peers change on `/aven reload`.
-- **Storage.** The hub keeps it in `allow(installation, peer)`, replacing the whole set, capped at `allowMax` entries.
+- **Storage.** The hub keeps it in `allow(installation, peer)`, replacing the whole set, capped at `allowMax` entries. The capped list is what counts everywhere.
+- **Cheap to send, quiet to receive.**
+  - An unchanged list does nothing.
+  - A changed one sends a fresh view only to the sender, when its edges or the removals it hears of changed, and to the peers whose edge with the sender changed. An installation that does not allow the sender hears nothing, not even an empty frame, however often the sender lists it.
+  - Each connection may send 10 lists in 10 minutes; the hub ignores the rest and logs `hub.allow.throttled`.
 - **Routing.** The `send` check becomes: the recipient's name is bound, not tombstoned, and its allow list holds the sender.
 - **The bot's list** is `Object.keys(peers.current)`. Pins already decide whose envelopes the installation can verify, so the hub only drops early what the receiver would drop anyway, before it takes backlog.
 - **No reason that reveals a name.** A free name, a released one and one that does not allow the sender all get `rejected: unknown installation`. The bot words it for the agent as "unknown installation, or it has not pinned `<this installation>`".
@@ -109,7 +118,7 @@ Alternatives:
 ```
 
 - `local` and `hub` are reserved for nobody in code.
-- A configuration in the version-1 shape (`installations`) fails parsing. The object then refuses every connection with a logged error, so a stale secret can never open a hub.
+- A configuration in the version-1 shape (`installations`), or with any key the parser does not know at any level, fails parsing. The object then refuses every connection with a logged error, and `/health` answers 503, so a stale or misspelt secret can never open a hub and a deploy's health check catches it. `registration` stays `open` when absent.
 - **The place for later admission modes:** one function, `admit(claim, cfg, registry)`, the only place that reads `registration`. Invites, domain proofs and organisation signatures are new values and new branches there.
 
 ### N8. No compatibility, one cut-over
@@ -171,6 +180,14 @@ Implementation choices that differ from the text above as first proposed. Each i
 - N2: refusals reuse the bot's `hub.connect.failed` event (the plan named `hub.connect.refused`); two more reasons (`not authenticated`, `bad config`); a level per reason; a connection without a hint is forwarded.
 - N5: expiry reports find their task in the hub client's routed records, not in new `envIds` on the task records; a sealed `to` with no such agent is the service's `not accepted`.
 - N8: the receiver no longer tells the sender of an envelope of another version (the hub does, at send time); the version-1 `onUnsupported` hook is gone; version-1 outbox records end `rejected: unsupported version`.
+
+### After review (PR #40)
+- N1: the reservation path stores the binding too, so a dropped reservation leaves the name with its key and a revocation finds offline names. Closed registration claims nothing new but admits names already bound. The key is checked before the name, which removes the existence oracle. The claim limit counts IPv6 per /64.
+- N2: keys are canonical only. Refusals log the client's name as `claimed` and are deduped on the reason; the dedupe map is bounded.
+- N3: allow lists do nothing when unchanged; presence goes only to changed edges, from the capped list; lists are throttled per connection.
+- N5: a rejected envelope is logged from parsed fields only, never the raw `to` or `id` of a malformed one.
+- N7: unknown configuration keys are refused at every level; `/health` fails on a configuration that does not parse.
+- Own-property lookups everywhere a name indexes an object (`reservation()`, `pinnedKeys()`/`isPinned()`): `constructor` is a valid name.
 
 ## Open Questions
 

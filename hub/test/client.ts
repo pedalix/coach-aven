@@ -1,6 +1,7 @@
 // A bot-side test client for the hub: connects through the Worker with the name it claims (`?as=`),
 // answers the challenge in version 2 with a test key, and collects frames.
 import { env, exports } from 'cloudflare:workers';
+import { runInDurableObject } from 'cloudflare:test';
 import { challengeText } from '../../src/messaging/protocol.js';
 import { bytesToB64u } from '../src/crypto.js';
 
@@ -99,11 +100,27 @@ export async function login(name: string, key: string | TestKey = name, o: { ip?
   return c;
 }
 
-/** Send an allow list and wait for the fresh view the hub answers it with. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Any = any;
+/** What the hub stores as `name`'s allow list now. */
+export async function storedAllow(name: string): Promise<string[]> {
+  const stub = (env as Any).HUB.get((env as Any).HUB.idFromName('hub'));
+  return (await (runInDurableObject as Any)(stub, (_i: unknown, state: DurableObjectState) =>
+    state.storage.sql.exec(`SELECT peer FROM allow WHERE installation = ? ORDER BY peer`, name).toArray().map((r) => r.peer as string))) as string[];
+}
+
+/**
+ * Send an allow list and wait until the hub stored it. The hub answers nothing when the list is unchanged,
+ * and sends views only where an edge changed, so there is no frame to wait for in general.
+ */
 export async function allow(c: Client, installations: string[]): Promise<void> {
-  const from = c.frames.length;
   c.send({ t: 'allow', installations });
-  await c.next((f) => f.t === 'presence', 2000, from);
+  const want = JSON.stringify([...new Set(installations.filter((i) => i !== c.name))].sort());
+  const t0 = Date.now();
+  while (JSON.stringify(await storedAllow(c.name!)) !== want) {
+    if (Date.now() - t0 > 2000) throw new Error(`allow list of ${c.name} not stored as ${want}`);
+    await new Promise((r) => setTimeout(r, 5));
+  }
 }
 
 /** Make the clients' installations pin each other: every one allows all the others. */

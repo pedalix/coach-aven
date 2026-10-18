@@ -6,13 +6,15 @@ The hub SHALL bind a name to the first signing key that claims it when all of th
 - the name is free and not reserved;
 - the hub's registration is `open`.
 
-Under `closed` registration, the hub SHALL admit reserved names only. A bound name SHALL admit only its key. A key SHALL hold at most one name.
+Under `closed` registration, the hub SHALL claim no new name: it admits reserved names and names already bound, each for its key. A bound name SHALL admit only its key. A key SHALL hold at most one name. When a key that holds a name claims another, the hub SHALL refuse it with `key holds a name`, whether the other name is taken or free.
+
+The hub SHALL store every binding: a claim, and the key a reserved name was last admitted with. A name dropped from the reserved names SHALL stay bound to the key that last used it.
 
 The hub's configuration SHALL list reserved names. Each reserved name is bound either to one or more keys, each with an optional expiry for rotation, or to nobody. Another key SHALL never claim a reserved name, and a reserved name SHALL never be released. `local` and `hub` SHALL be reserved for nobody even when the configuration does not list them.
 
-Claims of new names SHALL be limited per IP address per day (default 5). A name whose key has not connected for the configured number of days (default 180) SHALL be released. A released name, and a name the configuration revokes, SHALL be reported as removed, as an installation removed from the hub is. A released name SHALL be free to claim again.
+Claims of new names SHALL be limited per address per day (default 5): per IPv4 address, or per IPv6 /64. A name whose key has not connected for the configured number of days (default 180) SHALL be released. A released name, and a name the configuration revokes, SHALL be reported as removed, as an installation removed from the hub is. A released name SHALL be free to claim again.
 
-A configuration in the version-1 shape (a map of `installations`) SHALL stop the hub from admitting anyone and SHALL be logged as an error, so a stale configuration never opens a hub.
+A configuration in the version-1 shape (a map of `installations`), or with a key the hub does not know at any level, SHALL stop the hub from admitting anyone and SHALL be logged as an error, so that a stale or misspelt configuration never opens a hub. The hub's health check SHALL fail while the configuration does not parse.
 
 #### Scenario: First claim
 - **WHEN** a client connects with a key the hub has not seen and claims the free name `quillon` while registration is `open`
@@ -23,16 +25,20 @@ A configuration in the version-1 shape (a map of `installations`) SHALL stop the
 - **THEN** the hub refuses the connection with `name taken`, and `quillon` stays bound to the first key
 
 #### Scenario: One name per key
-- **WHEN** the key bound to `quillon` claims `quillon-2`
-- **THEN** the hub refuses the connection with `key holds a name`
+- **WHEN** the key bound to `quillon` claims `quillon-2`, which is taken, or `quillon-3`, which is free
+- **THEN** the hub refuses both with `key holds a name`
 
 #### Scenario: Reserved name
 - **WHEN** a key that the configuration does not reserve `bluefin` for claims `bluefin`, while registration is `open` and before `bluefin` has ever connected
 - **THEN** the hub refuses the connection
 
 #### Scenario: Closed registration
-- **WHEN** registration is `closed` and a key claims a name that is not reserved
-- **THEN** the hub refuses the connection
+- **WHEN** registration is `closed`, a key claims a free name, and the key bound to `quillon` connects as `quillon`
+- **THEN** the hub refuses the first with `closed` and admits the second
+
+#### Scenario: Reservation dropped
+- **WHEN** `home`, reserved for its key and connected before, is dropped from the reserved names, and another key claims `home`
+- **THEN** the hub refuses that key with `name taken`, and `home`'s own key keeps connecting as `home`
 
 #### Scenario: Silent name
 - **WHEN** the key of `quillon` has not connected for 180 days
@@ -43,11 +49,11 @@ A configuration in the version-1 shape (a map of `installations`) SHALL stop the
 - **THEN** the hub refuses that claim, and the names already bound keep working
 
 #### Scenario: Old configuration
-- **WHEN** the hub starts with a configuration in the version-1 shape
-- **THEN** it admits no connection and logs an error that names the expected shape
+- **WHEN** the hub starts with a configuration in the version-1 shape, or with a misspelt key such as `registraton`
+- **THEN** it admits no connection, logs an error that names the problem, and its health check fails
 
 ### Requirement: Each installation tells the hub whom it hears from
-After authenticating, an installation SHALL send the hub its allow list: the installations from which it accepts envelopes. The hub SHALL keep the latest list for each installation across connections and deploys. A new list SHALL apply to envelopes routed after it arrives; envelopes already in the outbox SHALL stay. An installation that has never sent a list SHALL have an empty one.
+After authenticating, an installation SHALL send the hub its allow list: the installations from which it accepts envelopes. The hub SHALL keep the latest list for each installation across connections and deploys. A new list SHALL apply to envelopes routed after it arrives; envelopes already in the outbox SHALL stay. An installation that has never sent a list SHALL have an empty one. An unchanged list SHALL change nothing and tell nobody anything. The hub SHALL keep at most `allowMax` installations of a list, and MAY ignore lists that one connection sends faster than its limit.
 
 #### Scenario: Peer added
 - **WHEN** `bluefin` sends an allow list that adds `home`
@@ -78,7 +84,7 @@ It SHALL NOT decide which agent may ask which.
 - **THEN** nothing is stored, and `northwind` receives `rejected: unknown installation`, the same answer as for a name nobody holds
 
 #### Scenario: Installation removed
-- **WHEN** the operator revokes the name `northwind` in the hub's configuration and redeploys
+- **WHEN** the operator revokes the name `northwind` in the hub's configuration and redeploys, while `northwind` is connected or not
 - **THEN** the hub refuses `northwind`'s connections, drops its outbox, answers envelopes for it with `rejected: unknown installation`, and reports `northwind` as removed to every installation whose allow list names it, at once or when that installation next connects, even if `northwind`'s outbox was empty
 
 ## MODIFIED Requirements
@@ -171,6 +177,10 @@ The hub SHALL tell an authenticated installation which installations are connect
 #### Scenario: One-sided allow list
 - **WHEN** `home` allows `northwind`, and `northwind` does not allow `home`
 - **THEN** `home` never sees `northwind` connect or disconnect
+
+#### Scenario: Listed by a stranger
+- **WHEN** `quillon` lists `home`, `home` does not allow `quillon`, and `quillon` reconnects and sends its list again
+- **THEN** `home` receives no frame because of it
 
 #### Scenario: Nothing about strangers
 - **WHEN** a newly named installation connects

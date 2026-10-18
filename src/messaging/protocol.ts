@@ -25,8 +25,13 @@ export const SIG_CONTEXT = 'coach-aven-hub/2';
  * other hubs (federation, not built).
  */
 export const INSTALLATION_RE = /^[a-z0-9-]{1,32}$/;
-/** A public key as `orch hub keygen` prints it: 32 raw bytes, base64url without padding. */
-export const KEY_RE = /^[A-Za-z0-9_-]{43}$/;
+/**
+ * A public key as `orch hub keygen` prints it: 32 raw bytes, base64url without padding, in its one
+ * canonical spelling — the 43rd character carries 4 bits and 2 zero bits, so only 16 letters may end it.
+ * A lenient decoder reads the other 48 endings as the same bytes: compared as strings, one key would then
+ * pass as several (and hold several names on a hub).
+ */
+export const KEY_RE = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
 /** An agent name: a project slug. */
 export const AGENT_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 /** A tenant's domain tag: the first 8 hex of the SHA-256 of its tenant id (design D14). */

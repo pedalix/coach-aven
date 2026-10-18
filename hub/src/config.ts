@@ -9,7 +9,8 @@
 //     "limits"?: { "claimsPerIpPerDay": 5, "idleDays": 180, ... } }
 //
 // A version-1 configuration (`{"installations": …}`) is refused, loudly: read as version 2 it would be an
-// open hub with nothing reserved — the opposite of what its operator wrote.
+// open hub with nothing reserved — the opposite of what its operator wrote. So is any key this parser
+// does not know, at every level: a misspelt `"registraton": "closed"` must not leave a hub open.
 import { INSTALLATION_RE, KEY_RE } from '../../src/messaging/protocol.js';
 
 export interface SignKey {
@@ -50,46 +51,65 @@ export interface HubConfig {
 /** Reserved for nobody on every hub: the bot's default INSTALLATION_ID, and the hub's own name. */
 export const BUILT_IN_RESERVED = ['local', 'hub'] as const;
 
+const isObject = (x: unknown): x is Record<string, unknown> => typeof x === 'object' && x !== null && !Array.isArray(x);
+/** Refuse keys outside `allowed`: the configuration is small, and a typo in it must fail, not fall back. */
+function onlyKeys(x: Record<string, unknown>, allowed: readonly string[], where: string): void {
+  const unknown = Object.keys(x).filter((k) => !allowed.includes(k));
+  if (unknown.length) throw new Error(`HUB_CONFIG: unknown ${unknown.length > 1 ? 'keys' : 'key'} ${unknown.map((k) => JSON.stringify(k)).join(', ')} in ${where}`);
+}
+
 /** Parse and validate the secret; a bad configuration fails loudly instead of admitting the wrong installations. */
 export function parseHubConfig(raw: string | undefined): HubConfig {
   if (!raw) throw new Error('HUB_CONFIG is not set');
-  const j = JSON.parse(raw) as Record<string, unknown> | null;
-  if (!j || typeof j !== 'object' || Array.isArray(j)) throw new Error('HUB_CONFIG must be an object');
-  if ('installations' in j) {
+  const j = JSON.parse(raw) as unknown;
+  if (!isObject(j)) throw new Error('HUB_CONFIG must be an object');
+  if (Object.hasOwn(j, 'installations')) {
     throw new Error('HUB_CONFIG is in the version-1 shape ({"installations": …}); version 2 is {"registration": "open"|"closed", "reserved": {"<name>": {"sign": [{"key": …}]} | null}, "limits"?: {…}} — see docs/hub.md');
   }
+  onlyKeys(j, ['registration', 'reserved', 'limits'], 'the configuration');
   const registration = j.registration ?? 'open';
   if (registration !== 'open' && registration !== 'closed') throw new Error(`HUB_CONFIG: registration must be "open" or "closed", not ${JSON.stringify(registration)}`);
   const rawReserved = j.reserved ?? {};
-  if (typeof rawReserved !== 'object' || rawReserved === null || Array.isArray(rawReserved)) throw new Error('HUB_CONFIG: reserved must be an object of names');
+  if (!isObject(rawReserved)) throw new Error('HUB_CONFIG: reserved must be an object of names');
   const reserved: HubConfig['reserved'] = {};
-  for (const [name, v] of Object.entries(rawReserved as Record<string, unknown>)) {
+  for (const [name, v] of Object.entries(rawReserved)) {
     if (!INSTALLATION_RE.test(name)) throw new Error(`HUB_CONFIG: bad name ${JSON.stringify(name)}`);
     if (v === null) {
       reserved[name] = null;
       continue;
     }
     if ((BUILT_IN_RESERVED as readonly string[]).includes(name)) throw new Error(`HUB_CONFIG: "${name}" is reserved for nobody on every hub`);
-    const sign = (v as { sign?: unknown })?.sign;
+    if (!isObject(v)) throw new Error(`HUB_CONFIG: ${name} must be {"sign": [...]} or null`);
+    onlyKeys(v, ['sign'], `reserved.${name}`);
+    const sign = v.sign;
     if (!Array.isArray(sign) || !sign.length) throw new Error(`HUB_CONFIG: ${name} has no signing key (reserve it for nobody with null)`);
-    reserved[name] = sign.map((k) => {
-      if (!k || typeof k.key !== 'string' || !KEY_RE.test(k.key) || (k.notAfter !== undefined && (typeof k.notAfter !== 'string' || Number.isNaN(Date.parse(k.notAfter))))) {
+    reserved[name] = sign.map((k: unknown) => {
+      if (!isObject(k)) throw new Error(`HUB_CONFIG: ${name} has a bad key entry`);
+      onlyKeys(k, ['key', 'notAfter'], `reserved.${name}.sign`);
+      if (typeof k.key !== 'string' || !KEY_RE.test(k.key) || (k.notAfter !== undefined && (typeof k.notAfter !== 'string' || Number.isNaN(Date.parse(k.notAfter))))) {
         throw new Error(`HUB_CONFIG: ${name} has a bad key entry`);
       }
-      return { key: k.key, ...(k.notAfter ? { notAfter: k.notAfter } : {}) };
+      return { key: k.key, ...(typeof k.notAfter === 'string' ? { notAfter: k.notAfter } : {}) };
     });
   }
   for (const name of BUILT_IN_RESERVED) reserved[name] = null;
   const limits: Limits = { ...DEFAULT_LIMITS };
   const rawLimits = j.limits ?? {};
-  if (typeof rawLimits !== 'object' || rawLimits === null || Array.isArray(rawLimits)) throw new Error('HUB_CONFIG: limits must be an object');
-  for (const [k, v] of Object.entries(rawLimits as Record<string, unknown>)) {
-    if (!(k in DEFAULT_LIMITS)) throw new Error(`HUB_CONFIG: unknown limit ${JSON.stringify(k)}`);
+  if (!isObject(rawLimits)) throw new Error('HUB_CONFIG: limits must be an object');
+  onlyKeys(rawLimits, Object.keys(DEFAULT_LIMITS), 'limits');
+  for (const [k, v] of Object.entries(rawLimits)) {
     if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) throw new Error(`HUB_CONFIG: limit ${k} must be a positive integer`);
     limits[k as keyof Limits] = v;
   }
   return { registration, reserved, limits };
 }
+
+/**
+ * A name's reservation: its keys, null (nobody), or undefined (not reserved). Always through this: any
+ * `[a-z0-9-]{1,32}` is a name, `constructor` included, and `name in cfg.reserved` would find
+ * Object.prototype's.
+ */
+export const reservation = (cfg: HubConfig, name: string): SignKey[] | null | undefined => (Object.hasOwn(cfg.reserved, name) ? cfg.reserved[name] : undefined);
 
 /** The keys among `keys` that authenticate at `now`. */
 export const keysValidAt = (keys: readonly SignKey[], now: number): SignKey[] => keys.filter((k) => k.notAfter === undefined || Date.parse(k.notAfter) > now);
