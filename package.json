@@ -11,7 +11,7 @@
   "engines": {
     "node": ">=22.12"
   },
-  "description": "CoachAven — a Slack coding agent running per-project Claude Code sandboxes on self-hosted Daytona.",
+  "description": "CoachAven — a Slack coding agent running per-project Claude Code sandboxes as containers on a Docker host you own.",
   "bin": {
     "orch": "./src/cli.ts"
   },

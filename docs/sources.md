@@ -386,7 +386,7 @@ channels, and `stuck({days: 5, project: "CG"})` per initiative.
 ## Remote access
 
 The agent never reaches the store itself: the bot answers its `sources` calls over the session
-channel, wherever the sandbox runs (Daytona on another host included). What *Remote access* is about
+channel, wherever the sandbox runs (a Docker host other than the bot's included). What *Remote access* is about
 is the other hop — a store that does not live on the bot host. `orch sources serve` is that store's
 HTTP face:
 

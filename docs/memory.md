@@ -149,10 +149,11 @@ marriage of the existing scheduler (`src/schedule.ts`) with project memory. A "d
 
 ### Mental model (source of truth = the sandbox)
 
-Our sandboxes are warm and `autoDeleteInterval: -1` — they survive normal stop/start, so
-**the live in-sandbox auto memory is the working source of truth and is effectively
-durable** in day-to-day operation. A from-scratch rebuild (swapping the snapshot image, a
-Daytona-side loss, a critical bug) is the **rare exception**, not a routine event.
+Our sandboxes are warm, and nothing in the bot deletes one — a container keeps its disk
+through every stop/start, the idle stop's included — so **the live in-sandbox auto memory is
+the working source of truth and is effectively durable** in day-to-day operation. A
+from-scratch rebuild (a container removed to take a new image or new flags, a lost sandbox
+host, a critical bug) is the **rare exception**, not a routine event.
 
 So dreaming is framed around *quality*, with persistence as a secondary safety net:
 
@@ -216,7 +217,7 @@ deploy-excluded). One repo per project → no cross-project collision.
   digest), so `git log` reads as a changelog of dreams and any past state is recoverable by
   checkout. `/aven memory log` shows the history.
 - **Restructurable:** the journal is plain git — compact, branch, or roll back a bad dream.
-- **Durability:** on the rare rebuild (image swap, Daytona loss), `restoreMemoryIfEmpty`
+- **Durability:** on the rare rebuild (image swap, a lost sandbox host), `restoreMemoryIfEmpty`
   seeds a fresh sandbox from the journal HEAD — but only when the sandbox has no memory yet,
   so a warm sandbox (the newer source of truth) is never overwritten.
 - **Offline reads:** `/aven memory` serves the journaled host copy without waking the

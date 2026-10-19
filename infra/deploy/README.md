@@ -9,8 +9,8 @@ it and what it talks to belongs in that repo, not in this file.
 ## Why systemd and not Docker / nginx
 
 CoachAven is just the **control plane**: one long-lived Node process that holds a
-Slack **Socket-Mode** connection and drives sandboxes (Daytona over HTTPS, or ssh-docker
-over SSH — `docs/sandbox-drivers.md`). All the heavy work (Claude Code, Sail stacks, builds)
+Slack **Socket-Mode** connection and drives sandboxes (containers on a Docker host, over
+SSH — `docs/sandbox-drivers.md`). All the heavy work (Claude Code, Sail stacks, builds)
 happens **inside the sandboxes**, not on this box — so the footprint here is tiny.
 
 - **No nginx, no ports, no TLS.** Socket Mode dials *out* to Slack, so nothing
