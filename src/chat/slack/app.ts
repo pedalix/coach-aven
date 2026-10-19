@@ -68,7 +68,7 @@ export async function runSlack(cfg: Config): Promise<void> {
   }
   // The registry travels as a mutable REF so a future runtime reload can swap `.current`
   // without re-wiring the engine/pollers/handlers that captured it.
-  const reg: RegistryRef = { current: loadProjects(cfg.projectsConfigPath) };
+  const reg: RegistryRef = { current: loadProjects(cfg.projectsConfigPath, cfg.daytonaDefault) };
   const store = new Store();
   // Two constructions: classic single-workspace (static token; no HTTP listener) vs OAuth
   // multi-workspace. With `oauth` set, the App carries NO default token — Bolt authorizes

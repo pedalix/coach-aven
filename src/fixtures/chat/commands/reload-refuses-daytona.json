@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":x: <registry-dir>/projects.config.json: project \"beta\" driver is \"daytona\", but the Daytona sandbox driver was removed and \"ssh-docker\" is the only driver — to move the project, change that setting to \"ssh-docker\" or drop it (docs/sandbox-drivers.md → Moving a project to ssh-docker), or keep running the last release that has the Daytona driver\n_The previous config stays active._"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

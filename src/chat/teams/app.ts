@@ -36,7 +36,7 @@ export async function runTeams(cfg: Config): Promise<void> {
   if (!teams) {
     throw new Error('Set TEAMS_APP_ID, TEAMS_APP_PASSWORD and TEAMS_TENANT_ID (the infra/teams module outputs) to run the Teams bot.');
   }
-  const reg: RegistryRef = { current: loadProjects(cfg.projectsConfigPath) };
+  const reg: RegistryRef = { current: loadProjects(cfg.projectsConfigPath, cfg.daytonaDefault) };
   const store = new Store();
   const tenantId = teams.tenantId;
 

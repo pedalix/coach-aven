@@ -64,7 +64,7 @@ function recordingEngine(store: Store) {
   return { engine, log, busy };
 }
 
-async function twin(o: { asks?: CommandDeps['asks'] } = {}) {
+async function twin(o: { asks?: CommandDeps['asks']; projectsConfigPath?: string } = {}) {
   const reg = {
     current: {
       projects: [
@@ -90,15 +90,19 @@ async function twin(o: { asks?: CommandDeps['asks'] } = {}) {
     { C_HOME: 'aven-alpha', C_BETA: 'aven-beta', C_CLIENT: 'aven-beta', C_MEM: `aven-${MEM}` },
     { F_HIDDEN: { id: 'F_HIDDEN', name: 'secret.pdf', mimetype: 'application/pdf', url_private_download: 'https://files/secret.pdf', size: 9 } },
   );
-  const cfg = { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 }, projectsConfigPath: '/nonexistent/projects.config.json' } as unknown as Config;
+  const cfg = { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 }, projectsConfigPath: o.projectsConfigPath ?? '/nonexistent/projects.config.json' } as unknown as Config;
   registerEvents(app, { cfg, store, reg: reg as never, engine: rec.engine, channels, botUserId: `UBOT_${HOME}`, homeTeamId: HOME, servedTenant });
   registerCommands(app, { cfg, store, reg: reg as never, engine: rec.engine, channels, pollers, homeTeamId: HOME, ...(o.asks ? { asks: o.asks } : {}) });
-  return { receiver, api, store, ...rec, pollerLog, stop };
+  return { receiver, api, store, reg, ...rec, pollerLog, stop };
 }
 type Twin = Awaited<ReturnType<typeof twin>>;
 
-async function record(dir: string, name: string, run: (t: Twin) => Promise<void>, o: { asks?: CommandDeps['asks'] } = {}): Promise<void> {
-  const t = await twin(o);
+// `registry`: a projects config file for the case (`/aven reload` reads one), written to a scratch
+// directory that the recording names `<registry-dir>`, so the snapshot does not depend on the machine.
+async function record(dir: string, name: string, run: (t: Twin) => Promise<void>, o: { asks?: CommandDeps['asks']; registry?: unknown } = {}): Promise<void> {
+  const regDir = o.registry === undefined ? undefined : mkdtempSync(join(tmpdir(), 'aven-cmdrec-reg-'));
+  if (regDir) writeFileSync(join(regDir, 'projects.config.json'), JSON.stringify(o.registry));
+  const t = await twin({ ...(o.asks ? { asks: o.asks } : {}), ...(regDir ? { projectsConfigPath: join(regDir, 'projects.config.json') } : {}) });
   try {
     await run(t);
     await new Promise((r) => setTimeout(r, 30));
@@ -107,12 +111,14 @@ async function record(dir: string, name: string, run: (t: Twin) => Promise<void>
       engine: t.log,
       pollers: t.pollerLog,
     };
+    const text = JSON.stringify(got, null, 2) + '\n';
     const file = SNAP(dir, name);
-    if (UPDATE) writeFileSync(file, JSON.stringify(got, null, 2) + '\n');
+    if (UPDATE) writeFileSync(file, regDir ? text.replaceAll(regDir, '<registry-dir>') : text);
     assert.ok(existsSync(file), `missing snapshot ${file} — run with UPDATE_SNAPSHOTS=1`);
-    assert.deepEqual(JSON.parse(JSON.stringify(got)), JSON.parse(readFileSync(file, 'utf8')));
+    assert.deepEqual(JSON.parse(regDir ? text.replaceAll(regDir, '<registry-dir>') : text), JSON.parse(readFileSync(file, 'utf8')));
   } finally {
     await t.stop();
+    if (regDir) rmSync(regDir, { recursive: true, force: true });
   }
 }
 
@@ -221,6 +227,17 @@ C('usage', (t) => t.receiver.send(cmd('usage 7')));
 C('usage-client', (t) => t.receiver.send(cmd('usage', { team: CLIENT, channel: 'C_CLIENT' })));
 C('reload-fails', (t) => t.receiver.send(cmd('reload')));
 C('reload-client', (t) => t.receiver.send(cmd('reload', { team: CLIENT, channel: 'C_CLIENT' })));
+// The registry file now names the removed driver for beta (OpenSpec retire-daytona-driver D3): the reload
+// is refused with the error, and the registry in use stays — every project keeps its sandbox and sessions.
+test('commands record: reload-refuses-daytona', async () => {
+  const registry = { projects: [{ slug: 'alpha', repos: ['Org/alpha'] }, { slug: 'beta', repos: ['Org/beta'], driver: 'daytona' }, { slug: MEM, repos: ['Org/mem'] }] };
+  await record('commands', 'reload-refuses-daytona', async (t) => {
+    const before = t.reg.current;
+    await t.receiver.send(cmd('reload'));
+    assert.equal(t.reg.current, before, 'the previous registry stays active');
+    assert.deepEqual(t.reg.current.projects.find((p) => p.slug === 'beta'), { slug: 'beta', repos: ['Org/beta'] }, 'beta keeps its sandbox');
+  }, { registry });
+});
 C('access', (t) => t.receiver.send(cmd('access')));
 C('access-unbound', (t) => t.receiver.send(cmd('access', { channel: 'C_RANDOM' })));
 C('schedule', (t) => t.receiver.send(cmd('schedule weekdays 9:00 | what shipped yesterday')));

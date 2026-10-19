@@ -530,7 +530,7 @@ export function createCommands(deps: CommandDeps) {
       }
       try {
         const before = reg.current.projects.map((p) => p.slug);
-        const next = loadProjects(cfg.projectsConfigPath);
+        const next = loadProjects(cfg.projectsConfigPath, cfg.daytonaDefault);
         reg.current = next;
         const after = next.projects.map((p) => p.slug);
         const added = after.filter((s) => !before.includes(s));

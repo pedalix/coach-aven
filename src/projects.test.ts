@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadProjects } from './projects.js';
 import { log } from './log.js';
+import { ConfigError } from './sources/errors.js';
 
 // Each case gets its own throwaway config dir (loadProjects reads projects.d/ relative
 // to the config file's location, so the fixture must be a real directory on disk).
@@ -262,5 +263,52 @@ test('dispatch is retired: a leftover `dispatch` block warns once, naming the pr
     assert.match(String(warn.mock.calls[0]!.arguments[0]), /project "alpha" dispatch is retired — agent messaging replaces it; the block is ignored/);
     assert.equal('dispatch' in reg.projects[0]!, false, 'the block is dropped');
     assert.equal(reg.projects[0]!.systemPrompt, 'json prompt');
+  });
+});
+
+// ── the sandbox driver after the Daytona driver's removal (OpenSpec retire-daytona-driver D3/D4) ────────
+
+const refused = (re: RegExp) => (e: Error) => e instanceof ConfigError && re.test(e.message);
+
+test('driver — "daytona" is refused at load, naming the project, its field, the removal and the fix (D3)', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ projects: [BASE.projects[0], { slug: 'acme-shop', repos: ['Org/shop'], driver: 'daytona' }] }));
+    assert.throws(() => loadProjects(cfg), refused(/: project "acme-shop" driver is "daytona", but the Daytona sandbox driver was removed and "ssh-docker" is the only driver — to move the project, change that setting to "ssh-docker" or drop it \(docs\/sandbox-drivers\.md → Moving a project to ssh-docker\), or keep running the last release that has the Daytona driver$/));
+    assert.throws(() => loadProjects(cfg), (e: Error) => e.message.startsWith(`${cfg}: `), 'the file is named first, like every load error');
+  });
+});
+
+test('driver — a typo or any other value is refused naming the accepted "ssh-docker" — it used to select Daytona silently (D3)', () => {
+  withConfigDir((_dir, cfg) => {
+    for (const driver of ['ssh-dokcer', 'kubernetes', '', null, 42]) {
+      writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'acme-shop', repos: ['Org/shop'], driver }] }));
+      assert.throws(() => loadProjects(cfg), refused(/project "acme-shop" driver must be "ssh-docker", the only sandbox driver; got /), JSON.stringify(driver));
+    }
+  });
+});
+
+test('driver — an absent field and "ssh-docker" load without a warning; so does a registry where every project names ssh-docker under an old Daytona default (D11 proof 2)', (t) => {
+  withConfigDir((_dir, cfg) => {
+    const warn = t.mock.method(log, 'warn', () => {});
+    writeFileSync(cfg, JSON.stringify({ projects: [BASE.projects[0], { ...BASE.projects[1], driver: 'ssh-docker' }] }));
+    assert.deepEqual(loadProjects(cfg).projects.map((p) => p.driver), [undefined, 'ssh-docker']);
+    writeFileSync(cfg, JSON.stringify({ projects: BASE.projects.map((p) => ({ ...p, driver: 'ssh-docker' })) }));
+    for (const old of ['DAYTONA_API_URL', 'SANDBOX_DRIVER'] as const) {
+      assert.deepEqual(loadProjects(cfg, old).projects.map((p) => p.slug), ['alpha', 'beta'], `${old}: nothing would move`);
+    }
+    assert.equal(warn.mock.callCount(), 0);
+  });
+});
+
+test('driver — under an old Daytona default, the projects without a field are refused, all named, with the setting and the fix (D4)', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'acme-shop', repos: ['Org/shop'] }] }));
+    assert.throws(() => loadProjects(cfg, 'DAYTONA_API_URL'), refused(/: project "acme-shop" has no "driver", and DAYTONA_API_URL without SANDBOX_DRIVER made Daytona this installation's default, but the Daytona sandbox driver was removed and "ssh-docker" is the only driver — to move it, give it "driver": "ssh-docker" or set SANDBOX_DRIVER=ssh-docker \(docs\/sandbox-drivers\.md → Moving a project to ssh-docker\), or keep running the last release that has the Daytona driver$/));
+    assert.deepEqual(loadProjects(cfg).projects.map((p) => p.slug), ['acme-shop'], 'no old default: it loads, on ssh-docker');
+    writeFileSync(cfg, JSON.stringify(BASE));
+    assert.throws(() => loadProjects(cfg, 'SANDBOX_DRIVER'), refused(/: projects "alpha" and "beta" have no "driver", and SANDBOX_DRIVER=daytona made Daytona this installation's default, .* — to move them, give each "driver": "ssh-docker" or set SANDBOX_DRIVER=ssh-docker /));
+    // A reload that adds a project without the field: refused, naming that one project.
+    writeFileSync(cfg, JSON.stringify({ projects: [{ ...BASE.projects[0], driver: 'ssh-docker' }, { slug: 'newbie', repos: ['Org/newbie'] }] }));
+    assert.throws(() => loadProjects(cfg, 'DAYTONA_API_URL'), refused(/: project "newbie" has no "driver", and DAYTONA_API_URL without SANDBOX_DRIVER/));
   });
 });

@@ -4,9 +4,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadConfig } from '../../config.js';
 
-const BASE = { SNAPSHOT_IMAGE: 'img', SNAPSHOT_NAME: 'snap', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', GITHUB_TOKEN: 'ghp_x' };
+const BASE = { SNAPSHOT_IMAGE: 'img', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', GITHUB_TOKEN: 'ghp_x' };
 const TEAMS = { TEAMS_APP_ID: 'app', TEAMS_APP_PASSWORD: 'pw', TEAMS_TENANT_ID: 'tenant' };
-const KEYS = [...Object.keys(BASE), ...Object.keys(TEAMS), 'TEAMS_PORT', 'TEAMS_OPERATORS', 'TEAMS_TARGETED', 'TEAMS_STATUS_MIN_MS', 'TEAMS_TRACE'];
+// Tests never load .env, but a developer shell may export these: the driver settings change what loadConfig
+// returns or whether it throws (a SANDBOX_DRIVER other than ssh-docker or daytona is refused).
+const KEYS = [...Object.keys(BASE), ...Object.keys(TEAMS), 'TEAMS_PORT', 'TEAMS_OPERATORS', 'TEAMS_TARGETED', 'TEAMS_STATUS_MIN_MS', 'TEAMS_TRACE', 'SANDBOX_DRIVER', 'DAYTONA_API_URL'];
 
 function withEnv<T>(env: Record<string, string>, fn: () => T): T {
   const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));

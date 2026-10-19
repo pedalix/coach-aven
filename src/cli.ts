@@ -8,7 +8,7 @@ import { initSentry, captureError, flushSentry } from './sentry.js';
 import { registerSourcesCommands } from './sources/cli.js';
 import { registerRoutinesCommands } from './routinescli.js';
 import { registerHubCommands } from './messaging/cli.js';
-import { UsageError } from './sources/errors.js';
+import { ConfigError, UsageError } from './sources/errors.js';
 import { unknownCommandText } from './chat/drivers.js';
 
 const program = new Command();
@@ -52,6 +52,14 @@ program.parseAsync(process.argv).catch(async (err) => {
   if (err instanceof UsageError) {
     process.stderr.write(`${err.message}\n`);
     process.exit(2);
+  }
+  // A configuration the bot refuses to run on (a setting that would move a project to another sandbox,
+  // OpenSpec retire-daytona-driver D3/D4): one line, no stack, so it stays among the last journal lines
+  // the deploy's health check prints; exit 1, and nothing to Sentry — it is the operator's fix, not an
+  // incident, and the unit's restarts would repeat it every few seconds.
+  if (err instanceof ConfigError) {
+    process.stderr.write(`${err.message}\n`);
+    process.exit(1);
   }
   log.error(err instanceof Error ? err.stack || err.message : String(err));
   captureError(err);
