@@ -56,5 +56,5 @@
 
 ## 7. Canary
 
-- [ ] 7.1 On a canary installation, list a project skill in `messaging.skills`, `/aven reload`, and check from the home tenant agent: `agents()` shows it; a task naming it starts with the slash invocation; a task naming an unknown skill is rejected with the list. Recorded in the PR or the ledger row.
+- [ ] 7.1 (2026-10-19: no installation lists `messaging.skills` yet — the staging `platform` project is the candidate once its repo's skills are confirmed; the check needs the home tenant agent, i.e. a Slack ask) On a canary installation, list a project skill in `messaging.skills`, `/aven reload`, and check from the home tenant agent: `agents()` shows it; a task naming it starts with the slash invocation; a task naming an unknown skill is rejected with the list. Recorded in the PR or the ledger row.
 - [ ] 7.2 When an installation switches `REPO_SKILLS=1` on: a multi-repo project's session lists its repos' skills; watch for skills the agent starts using on its own.
