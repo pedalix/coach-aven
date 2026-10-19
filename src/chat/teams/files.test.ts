@@ -77,6 +77,7 @@ test('activityShape (TEAMS_TRACE): the shape of an activity for the journal — 
     attachmentTag: false,
     entities: ['clientInfo'],
     channelData: ['teamsChannelId', 'teamsTeamId', 'channel', 'team', 'tenant'],
+    team: ['aadGroupId', 'id'],
     attachments: [
       { contentType: 'reference', name: 'brief.docx', contentUrl: 'example.sharepoint.example', urlHash: createHash('sha1').update('https://example.sharepoint.example/sites/Platform/Shared Documents/General/brief.docx').digest('hex').slice(0, 8), content: ['uniqueId', 'fileType'] },
       { contentType: 'text/html', content: 'string', html: ['p'] },
@@ -179,4 +180,21 @@ test('read-back retries: the upload is attached in Graph after the activity — 
   assert.deepEqual(await channelMessageFiles({ groupId: 'g1', channelId: 'c', rootId: '1', messageId: '2' }, 'GRAPH', graphFetch(seen404, 404), wait), []);
   assert.equal(seen404.length, READ_BACK_DELAYS_MS.length);
   assert.deepEqual(READ_BACK_DELAYS_MS[0], 0);
+});
+
+test('read-back without aadGroupId in the activity: the group id comes from the Connector, once; none at all is a warning and no files', async () => {
+  const a = load('message-channel-reply');
+  const stripped: InboundActivity = { ...a, channelData: { team: { id: '19:TEAM1@thread.tacv2' } } };
+  const asked: string[] = [];
+  const seen: string[] = [];
+  const tok = { ...tokens, fetch: graphFetch(seen), groupIdOf: async (id: string) => (asked.push(id), 'g-from-connector') };
+  const m = normalizeMessage(stripped, TENANT, () => true, tok);
+  if (m.kind !== 'message') throw new Error(m.kind);
+  const got = await m.msg.files();
+  assert.equal(got?.refs.length, 1);
+  assert.deepEqual(asked, ['19:TEAM1@thread.tacv2']);
+  assert.ok(seen[0]!.includes('/teams/g-from-connector/channels/'));
+  const none = normalizeMessage(stripped, TENANT, () => true, { ...tokens, fetch: graphFetch(seen) });
+  if (none.kind === 'message') assert.equal(await none.msg.files(), undefined);
+  assert.equal(seen.length, 2, 'no Graph call without a group id');
 });
