@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript, transportArgv, LOCAL_HOST, deleteSandboxScript, SshDockerDriver } from './sshdocker.js';
+import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript, transportArgv, LOCAL_HOST, deleteSandboxScript, SshDockerDriver, bootScript, stopSandboxScript, type SshRun, type SshRunOpts } from './sshdocker.js';
 import type { Config } from './config.js';
+import { sandboxActivity } from './idlestop.js';
 
 test('sq — single-quotes and survives embedded quotes', () => {
   assert.equal(sq('plain'), `'plain'`);
@@ -52,19 +53,24 @@ test('streamSessionScript — replays from byte 1, follows, dies with the pid', 
   assert.ok(s.includes(`grep -q '^State:.*Z'`));
 });
 
-test('runningProbeScript — zombie counts as down, id is validated', () => {
-  const s = runningProbeScript('12345');
+test('runningProbeScript — zombie counts as down, the pid must hold this session\'s FIFO, ids are validated', () => {
+  const s = runningProbeScript('claude-sess-1-2', '12345');
   assert.ok(s.includes(`kill -0 '12345'`));
   assert.ok(s.includes(`grep -q '^State:.*Z'`)); // zombies pass kill -0 — must be excluded
+  // Identity, not just liveness: pids restart from 1 with every container start, so a reattach
+  // record from before a boot can name a pid some other process holds now.
+  assert.ok(s.includes(`[ "$(readlink /proc/'12345'/fd/0 2>/dev/null)" = '/tmp/aven-sess/claude-sess-1-2/in' ]`));
   assert.ok(s.includes('echo up') && s.includes('echo down'));
-  assert.throws(() => runningProbeScript('1; reboot')); // cmdId round-trips via state.json
+  assert.throws(() => runningProbeScript('claude-sess-1-2', '1; reboot')); // cmdId round-trips via state.json
+  assert.throws(() => runningProbeScript('../x', '12345'));
 });
 
 test('ensureSandboxScript — reuses, wakes, or creates; --init and labels survive', () => {
   const s = ensureSandboxScript('proj-caldora', 'caldora', 'ghcr.io/x/dind:pilot', '--runtime sysbox-runc');
   assert.ok(s.includes(`docker inspect -f '{{.State.Running}}' 'proj-caldora'`));
   assert.ok(s.includes('outcome=ready'));
-  assert.ok(s.includes(`docker start 'proj-caldora' >/dev/null || exit 1`));
+  // A failed start is tried once more after two seconds: with the idle stop, starts are routine.
+  assert.ok(s.includes(`docker start 'proj-caldora' >/dev/null || { sleep 2; docker start 'proj-caldora' >/dev/null; } || exit 1; outcome=started`));
   assert.ok(s.includes('--init')); // no tini → session processes rot as zombies
   // No daemon restart policy: the daemon would start the container before the host fs
   // is exported (Docker Desktop/WSL) and bind mounts come up empty. The orchestrator
@@ -193,3 +199,186 @@ test('SshDockerDriver.deleteSandbox — refuses a project sandbox before touchin
   await assert.rejects(driver.deleteSandbox('caldora'), /refusing to delete sandbox/);
 });
 
+
+// ── the idle stop (OpenSpec sandbox-idle-stop) ─────────────────────────────
+
+test('ensureSandboxScript — the boot step runs after the probes, on stderr, before the outcome line', () => {
+  const s = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged');
+  const lines = s.split('\n');
+  const step = lines.findIndex((l) => l.startsWith('docker exec -e AVEN_BOOT="$boot" -e AVEN_OUTCOME="$outcome" '));
+  assert.ok(step > lines.findIndex((l) => l.includes('outcome=revived')), 'after the exec probe and its recycle');
+  assert.equal(lines[step - 1], `boot=$(docker inspect -f '{{.State.StartedAt}}' 'proj-caldora' 2>/dev/null)`);
+  assert.ok(lines.slice(step).join('\n').endsWith(`>&2 || true\necho "$outcome"`), 'best effort, never on stdout');
+  assert.ok(s.includes('hk:dockerd='), 'a dind project brings dockerd back on a new boot');
+  const plain = ensureSandboxScript('proj-owen-ops', 'owen-ops', 'img', '', [{ source: '/srv/a', target: '/data', mode: 'ro' }], false);
+  assert.ok(plain.includes('aven:fresh-boot') && !plain.includes('hk:dockerd='), 'a plain project gets the cleanup, no guard');
+  assert.ok(plain.indexOf('AVEN_BOOT') > plain.indexOf('still empty after recycle'), 'after the mount probe too');
+});
+
+test('bootScript — same boot: nothing; first sight of a running container: marker only; any other boot: wipe, marker, guard', () => {
+  const s = bootScript(true);
+  const lines = s.split('\n');
+  assert.equal(lines[0], 'd=/tmp/aven-sess');
+  assert.ok(lines.indexOf('[ -n "$AVEN_BOOT" ] || exit 0') < lines.findIndex((l) => l.startsWith('rm -rf')), 'no boot time → nothing is removed');
+  assert.ok(s.includes('[ "$seen" = "$AVEN_BOOT" ] && exit 0'));
+  // A container running since before this step shipped keeps its live sessions.
+  assert.ok(s.includes(`if [ -z "$seen" ] && [ "$AVEN_OUTCOME" = ready ]; then mkdir -p "$d" && printf '%s' "$AVEN_BOOT" > "$d/.boot"; exit 0; fi`));
+  assert.ok(s.includes(`rm -rf "$d"; mkdir -p "$d"; printf '%s' "$AVEN_BOOT" > "$d/.boot"\necho aven:fresh-boot`));
+  assert.ok(s.trim().endsWith('fi'), 'the dockerd guard closes it');
+  assert.equal(bootScript(false).includes('dockerd'), false);
+});
+
+test('stopSandboxScript — by name, labels proven in the same call, the inner dockerd first on dind, then docker stop', () => {
+  const s = stopSandboxScript('proj-caldora', 'caldora', 'coach-aven', true);
+  assert.ok(s.startsWith(`info=$(docker inspect -f '{{.State.Running}}|{{index .Config.Labels "managedBy"}}|{{index .Config.Labels "project"}}' 'proj-caldora' 2>/dev/null) || { docker version >/dev/null 2>&1 || exit 1; echo missing; exit 0; }`));
+  assert.ok(s.includes(`if [ "$mb" != 'coach-aven' ] || [ "$pj" != 'caldora' ]; then echo "foreign managedBy=$mb, project=$pj"; exit 0; fi`));
+  assert.ok(s.includes('[ "$running" = true ] || { echo not-running; exit 0; }'));
+  const lines = s.split('\n');
+  const inner = lines.findIndex((l) => l.startsWith(`docker exec 'proj-caldora' sh -c `));
+  const stop = lines.indexOf(`docker stop -t 10 'proj-caldora' >/dev/null || exit 1`);
+  assert.ok(inner > lines.findIndex((l) => l.includes('not-running')) && stop > inner, 'labels → running → inner dockerd → stop');
+  assert.ok(lines[inner]!.includes('kill -TERM') && lines[inner]!.includes('/var/run/docker.pid') && lines[inner]!.includes('-lt 30'));
+  assert.equal(lines.at(-1), 'echo stopped');
+  assert.equal(stopSandboxScript('proj-owen-ops', 'owen-ops', 'coach-aven', false).includes('docker.pid'), false, 'no inner dockerd on a plain project');
+  assert.ok(stopSandboxScript('proj-x', 'x', `it's`, false).includes(`[ "$mb" != 'it'\\''s' ]`), 'the label value is quoted');
+  assert.throws(() => stopSandboxScript('x; docker rm -f proj-y', 'x', 'coach-aven', false));
+  assert.throws(() => stopSandboxScript('proj-x', 'x y', 'coach-aven', false));
+});
+
+// A fake sandbox host: answers the driver's host scripts and in-container calls by what they contain.
+function fakeHost(answer: (remoteCmd: string, script: string, opts: SshRunOpts) => Promise<{ code?: number; stdout?: string; stderr?: string }> | { code?: number; stdout?: string; stderr?: string }) {
+  const seen: { cmd: string; script: string }[] = [];
+  const run: SshRun = async (_host, remoteCmd, opts = {}) => {
+    const script = typeof opts.stdin === 'string' ? opts.stdin : opts.stdin ? opts.stdin.toString('utf8') : '';
+    seen.push({ cmd: remoteCmd, script });
+    const r = await answer(remoteCmd, script, opts);
+    return { code: r.code ?? 0, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+  };
+  const cfg = { sshDocker: { host: 'sandboxes.example', runtime: 'privileged' }, snapshot: { image: 'img' }, sandbox: { namePrefix: 'proj-' } } as unknown as Config;
+  return { seen, driver: new SshDockerDriver(cfg, run) };
+}
+const isEnsure = (s: string) => s.includes('outcome=ready');
+const isStop = (s: string) => s.includes('echo stopped');
+const isPeek = (s: string) => s.includes(`|| echo missing`) && !isStop(s);
+
+test('SshDockerDriver — every handle call is activity: in flight while it runs; a stream counts by its chunks, never in flight', async () => {
+  let release!: () => void;
+  let chunk!: (c: string) => void;
+  let endStream!: () => void;
+  const { driver } = fakeHost(async (cmd, script, opts) => {
+    if (isEnsure(script)) return { stdout: 'ready\n' };
+    if (script.includes('sleep 5')) await new Promise<void>((r) => (release = r));
+    if (script.includes('tail -c +1 -f')) {
+      chunk = opts.onStdout!;
+      await new Promise<void>((r) => (endStream = r));
+    }
+    return { stdout: 'ok' };
+  });
+  const h = await driver.ensureSandbox('proj-track', 'track');
+  const before = sandboxActivity.view('proj-track').lastActivity;
+  const exec = h.exec('sleep 5');
+  assert.equal(sandboxActivity.view('proj-track').inFlight, 1);
+  release();
+  await exec;
+  assert.equal(sandboxActivity.view('proj-track').inFlight, 0);
+  assert.ok(sandboxActivity.view('proj-track').lastActivity >= before);
+  const stream = h.streamSessionCommandLogs('claude-sess-1-1', '42', () => {});
+  await new Promise((r) => setImmediate(r));
+  assert.equal(sandboxActivity.view('proj-track').inFlight, 0, 'an open stream is not a call in flight');
+  const t = sandboxActivity.view('proj-track').lastActivity;
+  await new Promise((r) => setTimeout(r, 5));
+  chunk('{"type":"assistant"}\n');
+  assert.ok(sandboxActivity.view('proj-track').lastActivity > t, 'a chunk is activity');
+  endStream();
+  await stream;
+  await h.uploadFile(Buffer.from('x'), '/root/a');
+  assert.equal(sandboxActivity.view('proj-track').inFlight, 0);
+});
+
+test('SshDockerDriver — a peek records nothing; a failing warm-up still clears the parked mark', async () => {
+  const { driver } = fakeHost((_cmd, script) => (isPeek(script) ? { stdout: 'false\n' } : { code: 1, stdout: '', stderr: 'Error response from daemon: cannot start' }));
+  sandboxActivity.park('proj-peek');
+  const before = sandboxActivity.view('proj-peek');
+  const h = await driver.getSandbox('proj-peek');
+  assert.equal(h?.started, false);
+  assert.deepEqual(sandboxActivity.view('proj-peek'), before, 'getSandbox is host-level: no touch, mark kept');
+  await assert.rejects(driver.ensureSandbox('proj-peek', 'peek'), /ensureSandbox proj-peek failed \(exit 1\)/);
+  assert.equal(sandboxActivity.view('proj-peek').parked, false, 'any attempt may have started the container');
+});
+
+test('SshDockerDriver.stopSandbox — the re-check comes first; a stop ends the sessions before the mark and before a queued warm-up runs', async () => {
+  const order: string[] = [];
+  let releaseStop!: () => void;
+  const { driver, seen } = fakeHost(async (_cmd, script) => {
+    if (isStop(script)) {
+      order.push('stop-script');
+      await new Promise<void>((r) => (releaseStop = r));
+      return { stdout: 'stopped\n' };
+    }
+    if (isEnsure(script)) {
+      order.push(`ensure-script parked=${sandboxActivity.view('proj-lock').parked}`);
+      return { stdout: 'started\n', stderr: 'aven:fresh-boot\nhk:dockerd=restarted\n' };
+    }
+    if (isPeek(script)) {
+      order.push('peek-script');
+      return { stdout: 'false\n' };
+    }
+    return {};
+  });
+  // Work arrived since the sweep looked: no host call at all.
+  assert.deepEqual(await driver.stopSandbox({ name: 'proj-lock', slug: 'lock', dind: true, recheck: () => false, onStopped: () => order.push('sessions') }), { kind: 'skipped' });
+  assert.equal(seen.length, 0);
+  const stop = driver.stopSandbox({
+    name: 'proj-lock',
+    slug: 'lock',
+    dind: true,
+    recheck: () => true,
+    onStopped: () => order.push(`sessions parked=${sandboxActivity.view('proj-lock').parked}`),
+  });
+  await new Promise((r) => setImmediate(r));
+  const peek = driver.getSandbox('proj-lock'); // housekeeping or /aven memory during the stop
+  const wake = driver.ensureSandbox('proj-lock', 'lock'); // a turn during the stop
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(order, ['stop-script'], 'the peek and the warm-up wait for the stop');
+  releaseStop();
+  const out = await stop;
+  assert.equal(out.kind, 'stopped');
+  assert.equal((await peek)?.started, false, 'the peek reports the state after the stop');
+  await wake;
+  assert.deepEqual(order, ['stop-script', 'sessions parked=false', 'peek-script', 'ensure-script parked=false']);
+  assert.ok(seen.find((x) => isStop(x.script))!.script.includes(`'coach-aven'`), 'the label value is this installation\'s SANDBOX_MANAGED_BY');
+});
+
+test('SshDockerDriver.stopSandbox — not ours, not running or missing: parked, nothing ended; a failing host throws with docker\'s words', async () => {
+  for (const [stdout, kind] of [['foreign managedBy=someone-else, project=x\n', 'foreign'], ['not-running\n', 'not-running'], ['missing\n', 'missing']] as const) {
+    const name = `proj-out-${kind}`;
+    const { driver } = fakeHost(() => ({ stdout }));
+    let ended = false;
+    const out = await driver.stopSandbox({ name, slug: 'x', dind: false, recheck: () => true, onStopped: () => (ended = true) });
+    assert.equal(out.kind, kind);
+    if (out.kind === 'foreign') assert.equal(out.labels, 'managedBy=someone-else, project=x');
+    assert.equal(ended, false);
+    assert.equal(sandboxActivity.view(name).parked, true);
+  }
+  const { driver } = fakeHost(() => ({ code: 255, stderr: 'ssh: connect to host sandboxes.example port 22: Connection refused' }));
+  await assert.rejects(
+    driver.stopSandbox({ name: 'proj-out-down', slug: 'x', dind: false, recheck: () => true, onStopped: () => {} }),
+    /stopSandbox proj-out-down failed \(exit 255\)[\s\S]*Connection refused/,
+  );
+  assert.equal(sandboxActivity.view('proj-out-down').parked, false);
+});
+
+test('SshDockerDriver — two warm-ups of one container never run their scripts at the same time', async () => {
+  let active = 0;
+  let maxActive = 0;
+  const { driver } = fakeHost(async (_cmd, script) => {
+    if (!isEnsure(script)) return {};
+    active++;
+    maxActive = Math.max(maxActive, active);
+    await new Promise((r) => setTimeout(r, 5));
+    active--;
+    return { stdout: 'ready\n' };
+  });
+  await Promise.all([driver.ensureSandbox('proj-two', 'two'), driver.ensureSandbox('proj-two', 'two'), driver.ensureSandbox('proj-other', 'other')]);
+  assert.equal(maxActive, 2, 'proj-two serialized; proj-other alongside');
+});

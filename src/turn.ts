@@ -14,7 +14,8 @@ import { openChat, type ChatSession } from './tasks.js';
 import { createDriver } from './driver.js';
 import { fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
-import type { AskQuestion, QuestionAnswers, OnQuestion } from './claudeSession.js';
+import { STREAM_HARD_MAX_MS, STREAM_MAX_MS, type AskQuestion, type QuestionAnswers, type OnQuestion } from './claudeSession.js';
+import { STALE_HOLD_MARGIN_MS, type SandboxUse } from './idlestop.js';
 import { MAX_SLACK_TEXT, errText, alertOps } from './chat/slack/blocks.js';
 import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase, splitTeam } from './teamkeys.js';
@@ -98,6 +99,13 @@ export interface TurnEngine {
   // journaled turns that were still QUEUED (their user messages would otherwise be lost).
   resumeInflightTurns(driverFor: DriverForTenant): Map<string, Promise<void>>;
   resumeQueuedTurns(driverFor: DriverForTenant, recovering: Map<string, Promise<void>>): void;
+  // ── the idle stop (OpenSpec sandbox-idle-stop, design D4/D7) ──
+  // What the sweep reads before it stops a project's sandbox: held (a turn being accepted, queued,
+  // running or recovered, a one-off ask), lingering work of its live sessions, a pending wakeup.
+  sandboxUse(slug: string): SandboxUse;
+  // The sweep stopped the project's sandbox (called under the sandbox's lock): end its live sessions'
+  // processes in memory and forget their reattach coordinates; each conversation resumes next time.
+  sandboxStopped(slug: string, idleMinutes: number): void;
   questions: QuestionRegistry;
   // A turn's tool-call trail (for the "🧭 Show steps" button) — live from the moment the
   // turn is queued, kept after it settles; undefined once evicted or after a restart.
@@ -209,12 +217,15 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // every turn. On a cache miss (e.g. after a restart) we rebuild, resuming the
   // persisted Claude conversation id. LRU-capped: entries otherwise accumulate one per
   // thread ever touched, forever. Evicting is safe — the persisted sessionKey/cmdId lets
-  // sessionFor reattach to a still-running claude, and a dead one rebuilds via --resume.
-  const live = new Map<string, ChatSession>();
+  // sessionFor reattach to a still-running claude, and a dead one rebuilds via --resume;
+  // an evicted conversation's process is left to the sandbox's idle stop. Each entry keeps
+  // its project, so the idle stop places a live session without its chat record (which
+  // retention may have pruned) — sandboxUse/sandboxStopped.
+  const live = new Map<string, { chat: ChatSession; slug: string }>();
   const MAX_LIVE = 100;
-  function touchLive(key: string, chat: ChatSession): void {
+  function touchLive(key: string, chat: ChatSession, slug: string): void {
     live.delete(key); // re-insert → newest in the Map's insertion order (poor-man's LRU)
-    live.set(key, chat);
+    live.set(key, { chat, slug });
     for (const k of live.keys()) {
       if (live.size <= MAX_LIVE) break;
       if (queues.has(k) || asking.has(k)) continue; // never evict under an active turn
@@ -238,6 +249,28 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // `queues` chain, so projectBusy() must consult this too — otherwise a dream wouldn't see a
   // live Q&A turn (or another dream) writing the same project's memory.
   const asking = new Set<string>();
+  // The idle stop's holds (OpenSpec sandbox-idle-stop, design D4): every turn this engine accepted
+  // and has not settled, every one-off ask, every restart recovery — with its project, so the first
+  // turn of a new thread counts while it still waits for a slot (it has no chat record yet), and a
+  // message still being acknowledged counts before its turn is queued. `since` restarts when the
+  // work starts (the turn left its key's queue, the ask got its slot): a hold older than the turn
+  // hard cap plus a margin is a hang before the watchdog was armed, and stops holding.
+  const holds = new Map<number, { key: string; slug: string; since: number }>();
+  let holdSeq = 0;
+  function hold(key: string, slug: string): { restart(): void; release(): void } {
+    const id = ++holdSeq;
+    holds.set(id, { key, slug, since: Date.now() });
+    return {
+      restart: () => {
+        const h = holds.get(id);
+        if (h) h.since = Date.now();
+      },
+      release: () => void holds.delete(id),
+    };
+  }
+  // The longest a turn's work runs: the watchdog kills at the hard cap, or at the soft deadline
+  // when the hard cap is set below it (claudeSession.ts armDeadlines).
+  const TURN_CAP_MS = Math.max(STREAM_MAX_MS, STREAM_HARD_MAX_MS);
   // Agent messaging (D11): the turn running on each key, and every turn accepted per key.
   const current = new Map<string, { turnId: string; startedAt: number; automatic: boolean; injected: number }>();
   const turnsByKey = new Map<string, Set<string>>();
@@ -444,8 +477,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   ): Promise<ChatSession> {
     const existing = live.get(key);
     if (existing) {
-      touchLive(key, existing);
-      return existing;
+      touchLive(key, existing.chat, existing.slug);
+      return existing.chat;
     }
     const prior = store.getChat(key);
     // Who the bot-served tools see as the caller: this session's own project and conversation —
@@ -504,7 +537,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
           usage,
         }),
     });
-    touchLive(key, chat);
+    touchLive(key, chat, project.slug);
     return chat;
   }
 
@@ -521,7 +554,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // ephemeral fallback where we can't stream progress.
   async function runAsk(key: string, project: ProjectConfig, question: string): Promise<string> {
     asking.add(key); // mark in flight so projectBusy() sees it (dreams + /aven Q&A)
+    const held = hold(key, project.slug); // the sandbox stays up while it runs (sandboxUse)
     await acquireSlot(); // asks and dreams count against the same global cap
+    held.restart();
     const start = Date.now();
     let chat: ChatSession | undefined;
     let status: 'ok' | 'error' = 'error';
@@ -534,6 +569,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     } finally {
       releaseSlot();
       asking.delete(key);
+      held.release();
       usageLog.record({
         at: new Date().toISOString(),
         key,
@@ -575,10 +611,11 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // knows its sandbox handle already); falls back to killing the PERSISTED session-command
   // directly when nothing's cached (evicted, or the bot restarted since). Either way, unlike
   // touchLive's LRU eviction or state.ts's pruneChats — which deliberately leave the
-  // sandbox-side process for the sandbox's own idle lifecycle to reap — this is an explicit
-  // "throw the conversation away", so it kills the process now rather than orphaning it.
+  // sandbox-side process to the sandbox's idle stop (Daytona's own; the bot's on ssh-docker,
+  // idlestop.ts) — this is an explicit "throw the conversation away", so it kills the
+  // process now rather than leaving it to the next stop.
   async function restartSession(key: string, project: ProjectConfig): Promise<void> {
-    const cached = live.get(key);
+    const cached = live.get(key)?.chat;
     if (cached) {
       await cached.close().catch(() => {});
       live.delete(key);
@@ -612,7 +649,11 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // shows "in queue" right away). Turns for the same key run strictly one at a time;
   // canceling the running one lets the next start. msgTs is the user's message to react
   // to (undefined for /aven).
-  async function liveTurn(
+  //
+  // The turn holds its project's sandbox (sandboxUse) from the first instant — before the
+  // acknowledgements acceptTurn awaits, so the idle stop never stops a sandbox under a message it
+  // is still accepting — until it settles, or until its acceptance fails.
+  function liveTurn(
     chat: ChatDriver,
     channel: string,
     msgTs: string | undefined,
@@ -624,6 +665,22 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     // YouTrack ticket files). Optional so the many other call sites are unaffected.
     attachments?: { refs: AttachmentRef[]; bearer: string },
     opts?: TurnOpts,
+  ): Promise<void> {
+    const held = hold(key, project.slug);
+    return acceptTurn(chat, channel, msgTs, threadTs, key, project, question, attachments, opts, held).finally(held.release);
+  }
+
+  async function acceptTurn(
+    chat: ChatDriver,
+    channel: string,
+    msgTs: string | undefined,
+    threadTs: string | undefined,
+    key: string,
+    project: ProjectConfig,
+    question: string,
+    attachments: { refs: AttachmentRef[]; bearer: string } | undefined,
+    opts: TurnOpts | undefined,
+    held: { restart(): void },
   ): Promise<void> {
     if (isNote(question)) {
       // Human-only note — leave the agent out entirely; just acknowledge we skipped it.
@@ -694,7 +751,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     const prev = queues.get(key) ?? Promise.resolve();
     const mine = prev
       .catch(() => {})
-      .then(() => doTurn(chat, channel, msgTs, threadTs, ts, key, project, question, turnId, ac, attachments, opts));
+      .then(() => {
+        held.restart(); // its own work starts now: the stale-hold clock counts from here
+        return doTurn(chat, channel, msgTs, threadTs, ts, key, project, question, turnId, ac, attachments, opts);
+      });
     queues.set(key, mine);
     const ofKey = turnsByKey.get(key) ?? new Set<string>();
     ofKey.add(turnId);
@@ -1103,12 +1163,16 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         recovering.set(chat.threadTs, recoverShadow(chat.threadTs, project, inf.uuid, shadow));
         continue;
       }
+      // Held until the recovery settled: the idle stop must not stop the sandbox under a turn it
+      // is reattaching to (sandboxUse). Registered now, before the driver lookup can skip it.
+      const held = hold(chat.threadTs, project.slug);
       let driver: ChatDriver;
       try {
         driver = driverFor(chat.teamId);
       } catch (e) {
         log.error(`resume ${chat.threadTs}: ${e instanceof Error ? e.message : String(e)}`);
         store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
+        held.release();
         continue;
       }
       const status: MsgRef = { conv: inf.channel, id: inf.statusTs, ...(inf.msgThreadTs ? { thread: inf.msgThreadTs } : {}) };
@@ -1169,6 +1233,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
             .catch(() => {});
         } finally {
           store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
+          held.release();
         }
       })();
       recovering.set(chat.threadTs, recovery);
@@ -1177,6 +1242,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   }
 
   async function recoverShadow(key: string, project: ProjectConfig, uuid: string | undefined, shadow: NonNullable<TurnDeps['shadow']>): Promise<void> {
+    const held = hold(key, project.slug); // synchronous: before resumeInflightTurns returns (sandboxUse)
     const start = Date.now();
     let r: { ok: boolean; status: string; text: string } = { ok: false, status: 'error', text: '' };
     let cs: ChatSession | undefined;
@@ -1190,6 +1256,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       r = { ok: false, status: 'error', text: e instanceof Error ? e.message : String(e) };
     } finally {
       store.patchChat(key, project.slug, { inflight: undefined });
+      held.release();
     }
     const origin = shadow.opts(key)?.origin;
     usageLog.record({
@@ -1281,6 +1348,57 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     }
   }
 
+  // ── the idle stop (OpenSpec sandbox-idle-stop, design D4/D7) ───────────────────────────────
+  // Pulled by the sweep each time it decides (never pushed as leases: a release that never comes
+  // cannot pin a sandbox, and the engine stays the one owner of turn state).
+  function sandboxUse(slug: string): SandboxUse {
+    const now = Date.now();
+    let stale = false;
+    for (const h of holds.values()) {
+      if (h.slug !== slug) continue;
+      if (now - h.since < TURN_CAP_MS + STALE_HOLD_MARGIN_MS) return { held: true };
+      stale = true;
+    }
+    let background = false;
+    let injected = false;
+    let selfTurn = false;
+    let wakeupDueAt: number | undefined;
+    for (const e of live.values()) {
+      if (e.slug !== slug) continue;
+      const st = e.chat.idleState();
+      background ||= st.background > 0;
+      injected ||= st.injected > 0;
+      selfTurn ||= st.selfTurn;
+      if (st.wakeupDueAt !== undefined) wakeupDueAt = Math.max(wakeupDueAt ?? 0, st.wakeupDueAt);
+    }
+    const lingering = background ? 'background' : injected ? 'injected' : selfTurn ? 'self-turn' : stale ? 'stale-hold' : undefined;
+    return { held: false, ...(lingering ? { lingering } : {}), ...(wakeupDueAt !== undefined ? { wakeupDueAt } : {}) };
+  }
+
+  // Under the stopped sandbox's lock, in this order: every live session of the project ends its
+  // process in memory (no sandbox call; it stays in the live map, so the next turn only reopens
+  // with --resume), then the stored coordinates go in one write (a restart must not reattach by
+  // pid). A conversation whose background work or self-started turn the stop cut short hears it
+  // once — except a shadow conversation, whose idle-notify target is its task's completion rule.
+  function sandboxStopped(slug: string, idleMinutes: number): void {
+    const notice =
+      `⏹ The sandbox was stopped after ${idleMinutes} min without activity — the background work still running ` +
+      'in this conversation ended with it. Ask me to run it again if you still need the result.';
+    for (const [key, e] of live) {
+      if (e.slug !== slug) continue;
+      try {
+        e.chat.processEnded(isShadowKey(key) ? undefined : notice);
+      } catch (err) {
+        log.warn(`idle stop: ending ${key}'s process failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    try {
+      store.forgetSessionProcesses(slug);
+    } catch (err) {
+      log.warn(`idle stop: forgetting ${slug}'s session processes failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   return {
     liveTurn,
     runAsk,
@@ -1300,24 +1418,26 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       const c = current.get(key);
       if (c) c.injected++;
     },
-    liveSession: (key) => live.get(key),
+    liveSession: (key) => live.get(key)?.chat,
     isAsk: (key) => asking.has(key),
     cancelKey: (key) => {
       for (const turnId of turnsByKey.get(key) ?? []) running.get(turnId)?.abort();
     },
     closeSession: async (key) => {
-      const s = live.get(key);
+      const s = live.get(key)?.chat;
       live.delete(key);
       await s?.close().catch(() => {});
     },
     retireSession: async (key, slug) => {
-      const s = live.get(key);
+      const s = live.get(key)?.chat;
       live.delete(key);
       await s?.close().catch(() => {});
       store.patchChat(key, slug, { sessionKey: undefined, cmdId: undefined }); // the sessionId stays: the next turn resumes
     },
     resumeInflightTurns,
     resumeQueuedTurns,
+    sandboxUse,
+    sandboxStopped,
     trail: (turnId) => trails.get(turnId),
     ytDraft: (draftId) => drafts.get(draftId),
     usageReport: (days) => {

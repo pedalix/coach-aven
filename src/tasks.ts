@@ -25,7 +25,7 @@ import { FactStore } from './facts.js';
 import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './deps.js';
 import { recordSessionCommands, scanProjectSkills } from './skills.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
-import { ClaudeSession, type InjectOutcome, type OnQuestion, type TurnUsage } from './claudeSession.js';
+import { ClaudeSession, type InjectOutcome, type OnQuestion, type SessionIdleState, type TurnUsage } from './claudeSession.js';
 
 // Project facts (facts/<slug>.json) — derived, machine-written state; today just the
 // `depends_on_repos` fact the deps scanner writes at prepare time and the token mint reads.
@@ -113,8 +113,17 @@ export interface ChatSession {
   ): Promise<{ preamble: string; skipped: { name: string; reason: string }[] }>;
   // Kill the sandbox-side persistent session-command and mark this object dead — an
   // explicit "forget this conversation" (vs. the LRU/prune paths, which only drop the
-  // reference and let the sandbox's own idle lifecycle reap the process eventually).
+  // reference and leave the process to the sandbox's idle stop: the provider's own on Daytona,
+  // the bot's on ssh-docker — idlestop.ts).
   close(): Promise<void>;
+  // What the idle stop must not cut short silently (ClaudeSession.idleState); none when no live
+  // process. Read by the engine's sandboxUse (OpenSpec sandbox-idle-stop).
+  idleState(): SessionIdleState;
+  // The idle stop stopped the sandbox under this conversation's process: end it without a sandbox
+  // call (ClaudeSession.markExited), so the next ask reopens with --resume. With `notice`, a process
+  // that still listed background work or ran a turn of its own says so once through the
+  // idle-notify target — where that work's 🔔 Background update would have gone.
+  processEnded(notice?: string): void;
   // Point (or clear) the callback for a background Task/Agent that finishes AFTER its
   // owning turn already settled (see ClaudeSession.onIdleResult). Callers re-set this on
   // every turn so it always targets the CURRENT channel/thread — it self-heals across
@@ -316,7 +325,8 @@ export async function openChat(
     if (a) opts.onOpen?.({ ...a, ledger: session!.hasLedger() });
   };
 
-  // Wake the sandbox (it auto-stops on idle) + re-seed the CC token, the GitHub token, &
+  // Wake the sandbox (it is stopped when idle — by Daytona, or by the bot's idle stop on
+  // ssh-docker) + re-seed the CC token, the GitHub token, &
   // MCP config, then (re)open the persistent Claude process if we don't have a live one.
   // Re-seeding the GitHub token EVERY turn is load-bearing: it's a ~1h installation token,
   // so a warm sandbox that handled the first message would otherwise hit "Bad credentials"
@@ -332,7 +342,10 @@ export async function openChat(
         await seedMcpConfig(sandbox, mcp);
         await seedGatewayAuth(sandbox, opts.slug, mcp);
       });
-      return session;
+      // The process may have ended while this warm-up waited — the idle stop ends a project's
+      // sessions under the sandbox's lock, before the warm-up queued behind it runs. Reopen now
+      // rather than hand ask() a dead session to fail and retry.
+      if (session && !session.isDead()) return session;
     }
     return withSandboxLock(opts.slug, async () => {
       if (session && !session.isDead()) return session;
@@ -498,6 +511,14 @@ export async function openChat(
     hasLedger: () => session?.hasLedger() ?? false,
     injectRefusal: () => (session ? session.injectRefusal() : 'session not open'),
     backgroundTasks: () => session?.backgroundTasks() ?? [],
+    idleState: () => session?.idleState() ?? { background: 0, injected: 0, selfTurn: false },
+    processEnded: (notice) => {
+      const s = session;
+      if (!s || s.isDead()) return;
+      const cut = s.idleState();
+      s.markExited();
+      if (notice && (cut.background > 0 || cut.selfTurn)) idleNotify?.(notice);
+    },
     pendingTurnTakenUp: () => session?.pendingTurnTakenUp() ?? false,
     inject: (text, o) => (session ? session.inject(text, o) : Promise.resolve({ kind: 'refused', reason: 'session not open' } as InjectOutcome)),
     recoverInjected: async (o) => (await ensureSession()).recoverInjected(o),

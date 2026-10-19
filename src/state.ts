@@ -270,6 +270,24 @@ export class Store {
     this.save();
   }
 
+  // The idle stop stopped this project's sandbox (OpenSpec sandbox-idle-stop, design D7): every
+  // session process in it ended, so no chat of the project may be reattached by pid after a bot
+  // restart. Drops `sessionKey`/`cmdId` from every chat of the slug that has them and no turn in
+  // flight (recovery owns those), in ONE write, and nothing else: `sessionId` stays (the next turn
+  // resumes the conversation), `ledger` stays, and `updatedAt` stays — patchChat would stamp it,
+  // and every stop would then restart the 45-day retention of every conversation in the project.
+  forgetSessionProcesses(slug: string): number {
+    let n = 0;
+    for (const rec of Object.values(this.data.chats ?? {})) {
+      if (rec.slug !== slug || rec.inflight || (rec.sessionKey === undefined && rec.cmdId === undefined)) continue;
+      delete rec.sessionKey;
+      delete rec.cmdId;
+      n++;
+    }
+    if (n) this.save();
+    return n;
+  }
+
   // ── Teams: the service URL seen on the last inbound activity ──
   getTeamsServiceUrl(): string | undefined {
     return this.data.teams?.serviceUrl;

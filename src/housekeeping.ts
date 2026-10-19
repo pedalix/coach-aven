@@ -46,7 +46,10 @@ export function dockerdGuardCmd(): string {
 // The full janitor script: dockerd guard, disk report, and — only ABOVE the disk
 // threshold — a conservative docker prune. Guardrails (docs/housekeeping.md):
 //   • NEVER `--volumes` — Sail volumes hold project databases.
-//   • Only stopped containers, dangling/old unused images (>7 days), build cache.
+//   • Only stopped containers, dangling/old unused images (>7 days), build cache — and never
+//     a container Docker Compose manages: with the idle stop (OpenSpec sandbox-idle-stop) a
+//     stopped Sail stack is an idle project's normal state, and removing its containers would
+//     also free their images for the image prune; the next `sail up -d` would rebuild.
 //   • Always report reclaimable space (the "what would be pruned" visibility line),
 //     prune only past the threshold; log markers either way.
 // Output is `hk:` marker lines parsed by parseHousekeepingReport. With a CLI pin the pass
@@ -63,7 +66,7 @@ export function housekeepingScript(thresholdPct: number, cliPin?: string, dind =
     // Reclaimable space per docker's own accounting — visibility even when not pruning.
     `docker system df --format '{{.Type}}:{{.Reclaimable}}' 2>/dev/null | tr '\\n' ' ' | sed 's/^/hk:reclaimable=/;s/ $//' && echo ""`,
     `if docker info >/dev/null 2>&1 && [ "$usage" -ge ${thresholdPct} ]; then`,
-    `  docker container prune -f >/dev/null 2>&1`,
+    `  docker container prune -f --filter "label!=com.docker.compose.project" >/dev/null 2>&1`,
     `  docker image prune -af --filter "until=168h" >/dev/null 2>&1`,
     `  docker builder prune -f >/dev/null 2>&1`,
     `  after=$(df -P / | awk 'NR==2 {gsub(/%/,""); print $5}')`,

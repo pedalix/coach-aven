@@ -370,6 +370,26 @@ starts using on its own. The canary installations are single-repo, so the multi-
 3. Sessions already running, and sessions the restart reattaches, keep their old command line until they end, or until
    `🔄 Restart session` in their thread. Turning it off is the same with the line removed.
 
+## Sandbox idle stop (`SANDBOX_AUTOSTOP_MINUTES`)
+
+A project's sandbox stops after `SANDBOX_AUTOSTOP_MINUTES` without activity, and the next turn wakes it and
+resumes the conversation with `--resume`. Daytona stops its sandboxes itself; on ssh-docker, which has no idle
+lifecycle, the bot does it (OpenSpec `sandbox-idle-stop`; what counts as activity, what holds a container and
+the log lines: `docs/sandbox-drivers.md` → *Idle stop*). Without it every conversation touched since a container
+started keeps its `claude` process (~200 MB each), and the agent's Sail stacks keep running.
+
+| Setting | Where | What |
+|---|---|---|
+| `SANDBOX_AUTOSTOP_MINUTES` | `.env` | Idle minutes before a sandbox stops. Unset, empty or only spaces: 30. `0` or negative: never. On ssh-docker a value between 0 and 10 is raised to 10, with a warning at boot. Not a number: the bot does not start. |
+| `STREAM_HARD_MAX_MINUTES` | `.env` | The turn hard cap (60), and also how long background work, an unanswered injected message, a turn the CLI started on its own or a call that has not returned may keep an otherwise idle ssh-docker container up. |
+| `SANDBOX_NAME_PREFIX` | `.env` | Installations that share a Docker host must use distinct prefixes: the idle stop and the wake's session cleanup assume one bot per container. |
+
+**Read at boot.** Change the value in the installation's `.env` in its ops repo, `npm run ops -- <slug> export`,
+restart the bot. Setting `0` stops the sweep; a container it already stopped wakes on its next turn. An
+installation that still sets the key from its Daytona days gets that value on ssh-docker too — decide it on
+purpose. The canary log line at boot: `idle stop: sandboxes without an idle stop of their own (ssh-docker) stop
+after <m> min without activity`.
+
 ## Dispatch (`DISPATCH`) — retired
 
 The dispatch primitive (`propose`, `registry`, proposals with Send / Dismiss) was retired by OpenSpec

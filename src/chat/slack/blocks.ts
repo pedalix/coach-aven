@@ -864,7 +864,7 @@ export function homeBullets(opts: { messaging?: boolean } = {}): string[] {
     "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).",
     '• *Stop me* — hit *✖ Cancel* on any working message.',
     '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the tool-by-tool trail in a pop-up; a very long run comes condensed.',
-    "• *Background agents* — if I kick off a background subagent that's still running when I reply, I'll follow up with a new *🔔 Background update* message in the thread once it finishes.",
+    "• *Background agents* — if I kick off a background subagent that's still running when I reply, I'll follow up with a new *🔔 Background update* message in the thread once it finishes. (A sandbox nobody uses goes to sleep; background work that keeps it silent for an hour ends then, and the update says so.)",
     "• *Long tasks* — if a task runs long I won't cut it off: past ~15 minutes the working message stops ticking and turns into a *🌙 Working in the background* card (*🧭 Show steps* still live, *✖ Cancel* still stops me), and the answer arrives as a *new message* in the thread when it's done.",
     `• *Review a PR* — \`${CMD} review <PR url or #number> [low|med|high]\` posts a read-only review here (works in DMs too). \`${CMD} review auto on|off [effort]\` reviews new PRs automatically _(managed from the project's owner workspace)_.`,
     `• *Watch a PR* — \`${CMD} autofix <PR>\` pings here on CI failures / new reviews with a *Fix* button (\`${CMD} autofix off <PR>\` / \`list\`).`,

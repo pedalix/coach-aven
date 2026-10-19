@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { LEDGER_ARGS } from '../../claudeSession.js';
 import type { ProbeCtx } from '../ctx.js';
 import type { Frame, Scenario } from '../types.js';
-import { answeredIn, CAPITAL, CHAIN, kindOf, resultTextOf, SIDE, toolResults, toolUses } from './lib.js';
+import { answeredIn, blocks, CAPITAL, CHAIN, kindOf, resultTextOf, SIDE, toolResults, toolUses } from './lib.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -431,6 +431,41 @@ const foldInOpus: Scenario<ProbeCtx> = {
   },
 };
 
+// The idle stop (OpenSpec sandbox-idle-stop, design D4) waits for a pending ScheduleWakeup until it is
+// due, and reads the call and its result off the stream: `delaySeconds` on the tool_use, `scheduledFor`
+// on the tool result's `tool_use_result` (shapes as Claude Code writes them in its transcripts). What a
+// headless stream-json session does with it is recorded here: those fields, whether the pending wakeup
+// is listed by `background_tasks_changed` (then it would linger as a background task as well), and
+// whether it fires at all — as a turn of the CLI's own with no message written, like a background
+// completion. The minimum delay is 60 s, aligned to the minute: up to two minutes of waiting.
+const scheduleWakeup: Scenario<ProbeCtx> = {
+  meta: {
+    id: 'schedule-wakeup',
+    contract: false,
+    runs: 1,
+    timeoutMs: 5 * 60 * S,
+    hypothesis:
+      'A ScheduleWakeup in a headless session schedules a wakeup whose tool result carries `scheduledFor`; it is not listed in `background_tasks_changed`; when due, the CLI runs a turn of its own (`system/init` … `result`) with no message written.',
+  },
+  async run(ctx) {
+    await ctx.send('Call the ScheduleWakeup tool once with delaySeconds 60, reason "probe" and prompt "Reply with only: WOKE". Then reply with only: SCHEDULED');
+    const use = await ctx.precondition(ctx.is.toolUse('ScheduleWakeup'), 90 * S, 'the model calls ScheduleWakeup');
+    const id = String(toolUses(use).find((b) => b.name === 'ScheduleWakeup')?.id ?? '');
+    const first = await ctx.precondition(ctx.is.result, 90 * S, 'the turn finishes');
+    const toolResult = ctx.frames.find((f) => f.type === 'user' && blocks(f).some((b) => b?.type === 'tool_result' && b.tool_use_id === id)) as Any;
+    const woke = await ctx.expect((f) => ctx.is.result(f) && resultTextOf(f).includes('WOKE'), 200 * S, 'the wakeup runs a turn of its own');
+    const between = ctx.frames.slice(ctx.frames.indexOf(first) + 1, ctx.frames.indexOf(woke));
+    ctx.check(between.some(ctx.is.init), 'the woken turn starts with system/init');
+    const listed = ctx.frames.some((f) => f.type === 'system' && f.subtype === 'background_tasks_changed' && (((f as Any).tasks as unknown[]) ?? []).length > 0);
+    return {
+      toolUseResultKeys: Object.keys(toolResult?.tool_use_result ?? {}).sort(),
+      scheduledForIsNumber: typeof toolResult?.tool_use_result?.scheduledFor === 'number',
+      listedInBackgroundTasks: listed,
+      firedAfterMs: (ctx.timeOf(woke) ?? 0) - (ctx.timeOf(first) ?? 0),
+    };
+  },
+};
+
 const taskNotificationMidTurn: Scenario<ProbeCtx> = {
   meta: {
     id: 'task-notification-mid-turn',
@@ -523,6 +558,7 @@ export const DELIVERY: Scenario<ProbeCtx>[] = [
   finalTextRace,
   foldInOpus,
   taskNotificationMidTurn,
+  scheduleWakeup,
   eventKinds('event-kinds', ECHO, 'The echo of a message written mid-tool comes after that tool’s result.', false),
   eventKinds(
     'event-kinds-hooks',

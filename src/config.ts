@@ -314,7 +314,7 @@ export function loadConfig(): Config {
       disk: num('SANDBOX_DISK', 20),
     },
     sandbox: {
-      autoStopMinutes: num('SANDBOX_AUTOSTOP_MINUTES', 30),
+      autoStopMinutes: autoStopMinutesEnv(process.env.SANDBOX_AUTOSTOP_MINUTES),
       workDir: process.env.SANDBOX_WORK_DIR || '/root/work',
       namePrefix: process.env.SANDBOX_NAME_PREFIX || 'proj-',
     },
@@ -355,6 +355,20 @@ export function loadConfig(): Config {
         }
       : undefined,
   };
+}
+
+/**
+ * SANDBOX_AUTOSTOP_MINUTES: idle minutes before a project sandbox stops — Daytona's own idle stop, and
+ * the bot's on ssh-docker (OpenSpec sandbox-idle-stop, which also applies a 10-minute floor there).
+ * Trimmed: unset, empty or only spaces → 30 (`num()` read spaces as 0, i.e. "never"); 0 or negative →
+ * never; not a number → the boot fails naming the key.
+ */
+export function autoStopMinutesEnv(raw: string | undefined): number {
+  const v = (raw ?? '').trim();
+  if (!v) return 30;
+  const n = Number(v);
+  if (Number.isNaN(n)) throw new Error(`Env var SANDBOX_AUTOSTOP_MINUTES must be a number, got: ${raw}`);
+  return n;
 }
 
 /** REPO_SKILLS: exactly `1` → on (agent-skills: repo skills load in multi-repo projects); unset or anything else → off. */

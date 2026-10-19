@@ -65,6 +65,8 @@ class DaytonaHandle implements SandboxHandle {
   }
 }
 
+// No stopSandbox: Daytona stops an idle sandbox itself (autoStopInterval below), so the bot's idle
+// sweep never asks this driver (OpenSpec sandbox-idle-stop).
 export class DaytonaDriver implements SandboxDriver {
   private readonly daytona: Daytona;
 

@@ -94,6 +94,9 @@ function fakeOpenChat(o: FakeOpts): typeof openChat {
       pendingTurnTakenUp: () => false,
       inject: async () => ({ kind: 'refused', reason: 'spawned without the message ledger' }),
       recoverInjected: async () => ({ kind: 'refused', reason: 'spawned without the message ledger' }),
+      // The idle stop (sandbox-idle-stop): nothing lingering, never stopped in these scenarios.
+      idleState: () => ({ background: 0, injected: 0, selfTurn: false }),
+      processEnded: () => {},
     };
     return session;
   }) as unknown as typeof openChat;

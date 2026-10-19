@@ -82,7 +82,10 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   exec, persistent process sessions). Implementations: `src/daytona.ts` (the ONLY file
   allowed to import `@daytonaio/sdk`) and `src/sshdocker.ts` (containers on our own host
   over SSH). Selected by `SANDBOX_DRIVER` env, overridable per project via the `driver`
-  field in projects.config.json — see `docs/sandbox-drivers.md`.
+  field in projects.config.json — see `docs/sandbox-drivers.md`. `src/idlestop.ts` — the
+  **idle stop** for a provider without one (ssh-docker): the activity record the driver
+  writes, the rule (holds, wakeups, lingering work), the once-a-minute sweep started with
+  the pollers (OpenSpec `sandbox-idle-stop`).
 - `src/projects.ts` / `infra/<slug>/projects.config.json` (an installation's ops repo) — per-project repos, MCP,
   prompt. System prompts live as markdown beside the config (`projects.d/<slug>.md`, wins
   over the JSON field). Read at boot; `/aven reload` re-reads at runtime (new sessions
