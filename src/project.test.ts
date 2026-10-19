@@ -25,7 +25,7 @@ test('seedGatewayAuth: writes the helper + a 600 token file per gateway entry; s
     uploadFile: async (b: Buffer, p: string) => void (uploads[p] = b.toString()),
     exec: async (c: string) => (execs.push(c), { exitCode: 0, result: '' }),
   } as unknown as SandboxHandle;
-  const asked: string[] = [];
+  const asked: unknown[] = [];
   await seedGatewayAuth(
     sandbox,
     'caldora',
@@ -33,13 +33,32 @@ test('seedGatewayAuth: writes the helper + a 600 token file per gateway entry; s
       { name: 'gw', url: 'https://engine.example.com/gw/caldora/mcp', auth: 'gateway-m2m' },
       { name: 'grafana', url: 'https://observe.example.com/mcp' },
     ],
-    { get: async (slug, aud) => (asked.push(`${slug}|${aud}`), 'TOKEN') },
+    { get: async (slug, target) => (asked.push([slug, target]), 'TOKEN') },
   );
-  assert.deepEqual(asked, ['caldora|https://engine.example.com/gw/caldora/mcp']);
+  // An entry without `oauth` asks with its url and nothing else — the registry's Auth0 path.
+  assert.deepEqual(asked, [['caldora', { url: 'https://engine.example.com/gw/caldora/mcp' }]]);
   assert.equal(uploads['/root/.aven/gw-token-gw'], 'TOKEN');
   assert.ok(uploads['/root/.aven/gw-headers.sh'].startsWith('#!/bin/sh'));
   assert.ok(execs.some((c) => c === 'chmod 600 /root/.aven/gw-token-gw'));
   assert.ok(!Object.keys(uploads).some((p) => p.includes('grafana')));
+});
+
+test('seedGatewayAuth: an oauth entry hands its request to the registry; the token file is the same', async () => {
+  const uploads: Record<string, string> = {};
+  const sandbox = {
+    uploadFile: async (b: Buffer, p: string) => void (uploads[p] = b.toString()),
+    exec: async () => ({ exitCode: 0, result: '' }),
+  } as unknown as SandboxHandle;
+  const asked: unknown[] = [];
+  const oauth = { tokenUrl: 'https://idp.example/oauth2/token', scope: 'gw-caldora/bot' };
+  await seedGatewayAuth(
+    sandbox,
+    'caldora',
+    [{ name: 'gw', url: 'http://gw.internal.example:4600/gw/caldora/mcp', auth: 'gateway-m2m', oauth }],
+    { get: async (slug, target) => (asked.push([slug, target]), 'COGNITO-TOKEN') },
+  );
+  assert.deepEqual(asked, [['caldora', { url: 'http://gw.internal.example:4600/gw/caldora/mcp', oauth }]]);
+  assert.equal(uploads['/root/.aven/gw-token-gw'], 'COGNITO-TOKEN');
 });
 
 test('seedGatewayAuth: a mint failure does not throw (the turn goes on without gateway tools)', async () => {

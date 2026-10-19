@@ -2,7 +2,7 @@ import type { SandboxHandle } from './driver.js';
 import type { Config } from './config.js';
 import type { McpServerSpec } from './projects.js';
 import { buildMcpServers, GATEWAY_DIR, GATEWAY_HELPER_PATH, GATEWAY_HELPER_SCRIPT, gatewayTokenPath } from './mcp.js';
-import { gatewayTokens } from './gwtoken.js';
+import { gatewayTokens, type GatewayTarget } from './gwtoken.js';
 import { dockerdGuardCmd } from './housekeeping.js';
 import { captureError } from './sentry.js';
 import { cliUpgradeCmd, parseCliMarkers, cliUpgradeNotice } from './cliversion.js';
@@ -176,17 +176,19 @@ export async function seedMcpConfig(
   return MCP_CONFIG_PATH;
 }
 
-// Gateway auth (McpServerSpec.auth === 'gateway-m2m'): write the project bot's current M2M
-// token + the headers helper into the sandbox. Called every turn beside seedMcpConfig, so the
-// file always holds a token with ≥ 1 h left (gwtoken.ts refreshes under that); a long-lived
-// claude that hits 401 re-runs the helper and reads the fresh file. The M2M client SECRET
-// never enters the sandbox — only the 24 h token does. A mint failure is reported and the
-// turn goes on without gateway tools rather than failing the whole turn.
+// Gateway auth (McpServerSpec.auth === 'gateway-m2m'): write the project bot's current token
+// + the headers helper into the sandbox. Called every turn beside seedMcpConfig, so the file
+// always holds a token inside its refresh margin (gwtoken.ts: under min(1 h, half its
+// lifetime) it is replaced); a long-lived claude that hits 401 re-runs the helper and reads the
+// fresh file. The client SECRET never enters the sandbox — only the short-lived token does. The
+// registry gets the whole entry (its url, and its `oauth` request when set) and picks the mint.
+// A mint failure is reported and the turn goes on without gateway tools rather than failing the
+// whole turn.
 export async function seedGatewayAuth(
   sandbox: SandboxHandle,
   slug: string,
   mcp: McpServerSpec[] | undefined,
-  tokens: { get(slug: string, audience: string): Promise<string> } = gatewayTokens,
+  tokens: { get(slug: string, target: GatewayTarget): Promise<string> } = gatewayTokens,
 ): Promise<void> {
   const specs = (mcp ?? []).filter((s) => s.auth === 'gateway-m2m' && s.url);
   if (!specs.length) return;
@@ -195,7 +197,7 @@ export async function seedGatewayAuth(
   await sandbox.exec(`chmod 700 ${GATEWAY_HELPER_PATH}`, { check: true });
   for (const s of specs) {
     try {
-      const token = await tokens.get(slug, s.url!);
+      const token = await tokens.get(slug, { url: s.url!, ...(s.oauth ? { oauth: s.oauth } : {}) });
       await sandbox.uploadFile(Buffer.from(token), gatewayTokenPath(s.name));
       await sandbox.exec(`chmod 600 ${gatewayTokenPath(s.name)}`, { check: true });
     } catch (e) {

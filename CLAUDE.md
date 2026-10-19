@@ -99,9 +99,9 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   `seal.ts` (E2E), `local.ts`/`hubclient.ts` (transports), `marks.ts`, `wrap.ts`, `runtime.ts` (the composition roots'
   half); shadow conversations journal through `src/chat/shadow/driver.ts`. `hub/` is the relay — a Cloudflare Worker with
   its own package and tests (`docs/hub.md`).
-- `src/gwtoken.ts` — Auth0 M2M tokens for the MCP gateway (`mcp` entry with `auth: "gateway-m2m"`):
-  cached/single-flight mint in the orchestrator, only the token goes into the sandbox — see
-  `docs/runtime-config.md` → *MCP gateway*.
+- `src/gwtoken.ts` — OAuth client-credentials tokens for the MCP gateway (`mcp` entry with `auth: "gateway-m2m"`):
+  Auth0 by default, any RFC 6749 server via the entry's `oauth` object; cached/single-flight mint in the orchestrator,
+  only the token goes into the sandbox — see `docs/runtime-config.md` → *MCP gateway*.
 - `src/sources/` — per-project ingestion (mail, chat, calendars, trackers, recorded calls, local activity)
   into a scrubbed store the agent queries over MCP (`docs/sources.md`); `src/sources/attribution/` is the
   attribution layer — the ladder, the item floor, the shadow learning loop — architecture, status and

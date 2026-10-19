@@ -69,6 +69,26 @@ test('buildMcpServers: a gateway-m2m entry gets the headersHelper, static header
   });
 });
 
+// Claude Code has an `oauth` key of its own on http servers (its own login flow); the bot's
+// token request must never leak into the sandbox's config and switch that on.
+test('buildMcpServers: an oauth entry stays bot-side — the sandbox sees the same server as without it', () => {
+  const servers = buildMcpServers(
+    [{
+      name: 'gw',
+      url: 'http://gw.internal.example:4600/gw/caldora/mcp',
+      auth: 'gateway-m2m',
+      oauth: { tokenUrl: 'https://idp.example/oauth2/token', scope: 'gw-caldora/bot' },
+    }],
+    {},
+  );
+  assert.deepEqual(servers.gw, {
+    type: 'http',
+    url: 'http://gw.internal.example:4600/gw/caldora/mcp',
+    headers: {},
+    headersHelper: GATEWAY_HELPER_PATH,
+  });
+});
+
 test('GATEWAY_HELPER_SCRIPT prints the bearer from the per-server token file and the session id', async () => {
   const { execFileSync } = await import('node:child_process');
   const { mkdtempSync, writeFileSync } = await import('node:fs');

@@ -65,6 +65,31 @@ test('validation: mcp entries need a name and a command or url', () => {
   });
 });
 
+test('validation: an oauth object loads on a gateway-m2m entry; a malformed one fails the load naming the project', () => {
+  const gw = (oauth: unknown, extra: Record<string, unknown> = { auth: 'gateway-m2m' }) => ({
+    projects: [{ slug: 'caldora', repos: ['O/r'], mcp: [{ name: 'gw', url: 'http://gw.internal.example:4600/gw/caldora/mcp', ...extra, oauth }] }],
+  });
+  withConfigDir((_dir, cfg) => {
+    const oauth = { tokenUrl: 'https://idp.example/oauth2/token', scope: 'gw-caldora/bot' };
+    writeFileSync(cfg, JSON.stringify(gw(oauth)));
+    assert.deepEqual(loadProjects(cfg).projects[0].mcp?.[0].oauth, oauth);
+    const refused: [unknown, Record<string, unknown> | undefined, RegExp][] = [
+      [oauth, {}, /project "caldora" mcp "gw": "oauth" only goes on an entry with "auth": "gateway-m2m"/],
+      [{}, undefined, /project "caldora" mcp "gw" oauth\.tokenUrl must be an https URL/],
+      [{ tokenUrl: 'http://idp.example/oauth2/token' }, undefined, /project "caldora" mcp "gw" oauth\.tokenUrl must be an https URL/],
+      [{ ...oauth, scope: 7 }, undefined, /oauth\.scope must be a non-empty string/],
+      [{ ...oauth, audience: false }, undefined, /oauth\.audience must be a non-empty string/],
+      [{ ...oauth, resource: {} }, undefined, /oauth\.resource must be a non-empty string/],
+      [{ ...oauth, clientAuth: 'jwt' }, undefined, /oauth\.clientAuth must be "basic" or "post"/],
+      [{ ...oauth, clientSecret: 'leaked' }, undefined, /client credentials go in the env/],
+    ];
+    for (const [o, extra, re] of refused) {
+      writeFileSync(cfg, JSON.stringify(gw(o, extra)));
+      assert.throws(() => loadProjects(cfg), (e: Error) => re.test(e.message) && e.message.includes(cfg), JSON.stringify(o));
+    }
+  });
+});
+
 test('validation: slug and repos are required', () => {
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'a', repos: [] }] }));
