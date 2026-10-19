@@ -135,16 +135,17 @@ export function createCommands(deps: CommandDeps) {
     }
 
     let states = new Map<string, string>();
-    let daytonaOk = true;
+    let sandboxesOk = true;
     try {
-      // The fleet may span providers (per-project `driver`) — merge the state maps of
-      // every provider actually in use. Any provider failing degrades to the ⚠️ flag.
+      // One listing per driver kind in use (per-project `driver`, else SANDBOX_DRIVER: today
+      // only ssh-docker), merged. A listing that cannot answer throws — an unreachable host
+      // or a stopped Docker daemon — and degrades to the ⚠️ flag, never to "not created".
       const kinds = new Set(myProjects.map((p) => p.driver ?? cfg.sandboxDriver));
       for (const kind of kinds) {
         for (const [n, s] of await createDriver(cfg, kind).listStates()) states.set(n, s);
       }
     } catch {
-      daytonaOk = false;
+      sandboxesOk = false;
     }
 
     const prCounts = await Promise.all(
@@ -180,7 +181,7 @@ export function createCommands(deps: CommandDeps) {
     return {
       projects,
       turnsInFlight: engine.runningCount(),
-      daytonaOk,
+      sandboxesOk,
       githubOk,
       claudeQuota: tid === undefined ? rateLimitStatusLine(engine.claudeQuota()) : undefined,
     };

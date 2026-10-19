@@ -460,6 +460,16 @@ function errTail(r: SshResult): string {
   return s ? `\n--- stderr ---\n${s.slice(-1000)}` : '';
 }
 
+// The listing's verdict (OpenSpec retire-daytona-driver D8): the state map, or an error carrying
+// ssh's/docker's own words. A non-zero exit is a listing that could not answer — ssh's 255 when the
+// host is unreachable, docker's 1 when its daemon is down — and it used to parse as an EMPTY map:
+// /aven status then showed ✅ with every project "not created" through an outage. Throwing turns
+// that into the ⚠️ flag, and the CLI probe's leftover sweep fails early with the real cause.
+export function listingStates(r: SshResult): Map<string, string> {
+  if (r.code !== 0) throw new Error(`sandbox listing failed (exit ${r.code})${errTail(r)}`);
+  return parseContainerStates(r.stdout);
+}
+
 // ── the driver ──────────────────────────────────────────────────────────────
 
 class SshDockerHandle implements SandboxHandle {
@@ -693,7 +703,7 @@ export class SshDockerDriver implements SandboxDriver {
     const r = await this.onHost(
       `docker ps -a --filter label=managedBy=${sq(sandboxManagedBy())} --format '{{.Names}}\t{{.State}}'`,
     );
-    return parseContainerStates(r.stdout);
+    return listingStates(r);
   }
 
   // The idle sweep's stop (idlestop.ts; design D5–D7 of sandbox-idle-stop). Under the container's

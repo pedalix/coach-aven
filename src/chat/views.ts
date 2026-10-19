@@ -125,7 +125,7 @@ export interface SessionPanelInfo {
 export interface ProjectStatus {
   slug: string;
   repos: number;
-  state?: string; // Daytona sandbox state; undefined = sandbox never created
+  state?: string; // the driver's sandbox state ('started'/'stopped'); undefined = never created, or the listing failed
   sessions: number; // conversations bound to this project in state.json
   active: number; // conversations with a turn in flight right now
   openPRs?: number; // undefined = couldn't be determined
@@ -137,7 +137,8 @@ export interface ProjectStatus {
 export interface StatusReport {
   projects: ProjectStatus[];
   turnsInFlight: number;
-  daytonaOk: boolean;
+  // Did the sandbox listing answer? A host that cannot be reached is a failed listing, never an empty one.
+  sandboxesOk: boolean;
   githubOk: boolean;
   // Subscription quota line (ratelimit.ts) — operator info about OUR one Claude plan, so
   // only the home workspace's report carries it.
