@@ -1,6 +1,6 @@
-// Project skills, as agent-skills relies on them (OpenSpec `agent-skills`, lean v1). Exploratory until the
-// first recording on a probed version (the probe needs a CLI_PROBE_TOKEN run): then both become contract
-// scenarios, so a CLI bump re-checks them. Verified by hand on 2.1.292 in a project sandbox (design.md).
+// Project skills, as agent-skills relies on them (OpenSpec `agent-skills`, lean v1). Contract scenarios,
+// recorded on every probed version, so a CLI bump re-checks them; their replay assertions are in
+// claudeSession.recorded.test.ts. First verified by hand on 2.1.292 in a project sandbox (design.md).
 import { LEDGER_ARGS } from '../../claudeSession.js';
 import type { ProbeCtx } from '../ctx.js';
 import type { Scenario } from '../types.js';
@@ -29,7 +29,7 @@ const skillsOf = (ctx: ProbeCtx): string[] => ((ctx.frames.find(ctx.is.init) as 
 const addDirLoadsSkills: Scenario<ProbeCtx> = {
   meta: {
     id: 'add-dir-loads-skills',
-    contract: false,
+    contract: true,
     runs: 1,
     // As the bot launches a multi-repo session: two absolute checkouts after one `--add-dir`, last on the line.
     files: { 'repo-a/.claude/skills/probe-alpha/SKILL.md': markerSkill('probe-alpha'), 'repo-b/.claude/skills/probe-beta/SKILL.md': markerSkill('probe-beta') },
@@ -50,7 +50,7 @@ const addDirLoadsSkills: Scenario<ProbeCtx> = {
 const skillSlashViaStdin: Scenario<ProbeCtx> = {
   meta: {
     id: 'skill-slash-via-stdin',
-    contract: false,
+    contract: true,
     runs: 1,
     files: { '.claude/skills/probe-marker/SKILL.md': markerSkill('probe-marker') },
     // As every shadow session runs: with the message ledger.

@@ -32,7 +32,8 @@
 
 - [x] 5.1 Scenario `files`: seeded into the CLI's working directory before it starts, by the local and the sandbox transport; paths stay inside it. Verify: `src/cliprobe/runner.test.ts` ("a scenario's `files` are seeded…"), `src/cliprobe/ctx.test.ts` ("seedPathOk…").
 - [x] 5.2 Exploratory scenarios `add-dir-loads-skills` and `skill-slash-via-stdin` (`src/cliprobe/scenarios/skills.ts`). Verify: `npm run cli-probe -- list`.
-- [ ] 5.3 Record both on every probed version (needs `CLI_PROBE_TOKEN`, on the operator's machine), then make them contract scenarios. Verify: `npm run cli-probe -- run add-dir-loads-skills skill-slash-via-stdin --cli 2.1.292` (and 2.1.282), then `src/cliprobe/gate.test.ts`. Until then the facts rest on the manual verification in design.md (Context).
+- [x] 5.3 Record both on every probed version (needs `CLI_PROBE_TOKEN`, on the operator's machine), then make them contract scenarios. Verify: `npm run cli-probe -- run add-dir-loads-skills skill-slash-via-stdin --cli 2.1.292` (and 2.1.282), then `src/cliprobe/gate.test.ts`. Until then the facts rest on the manual verification in design.md (Context).
+  Done 2026-10-19: recorded on 2.1.282 and 2.1.292 with an installation's subscription token handed to the probe on purpose; both hold and are contract scenarios.
 
 ## 5b. After the review of #50
 

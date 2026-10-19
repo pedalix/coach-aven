@@ -69,6 +69,8 @@ interface Replay {
   // The background-task list's length after every background_tasks_changed.
   bg: number[];
   mismatches: number;
+  // The names every system/init reported (onInitCommands): agent-skills reads a session's skills from there.
+  initCommands: string[][];
 }
 
 const FOLD = '↩ injected message folded in';
@@ -76,7 +78,7 @@ const FOLD = '↩ injected message folded in';
 // Drive the bot's session through a recording: a process start opens a session (with --resume when the
 // probe resumed), the probe's user message becomes the bot's send(), its interrupt the bot's cancel.
 async function replay(lines: Line[], o: { hostServers?: HostServerRoute[]; answers?: (qs: AskQuestion[]) => Record<string, string> } = {}): Promise<Replay> {
-  const r: Replay = { sessions: [], writes: [], recordedIn: [], turns: [], idle: [], rate: [], steps: [], questions: [], injects: [], bg: [], mismatches: 0 };
+  const r: Replay = { sessions: [], writes: [], recordedIn: [], turns: [], idle: [], rate: [], steps: [], questions: [], injects: [], bg: [], mismatches: 0, initCommands: [] };
   let turnPending = false;
   const procs: ReturnType<typeof fakeProcess>[] = [];
   const collect = (): void => {
@@ -100,7 +102,7 @@ async function replay(lines: Line[], o: { hostServers?: HostServerRoute[]; answe
       procs.push(proc);
       // A process spawned with the ledger's flags is a session with the message ledger (agent-messaging D13).
       const ledger = l.argv?.includes('--replay-user-messages') ?? false;
-      session = new ClaudeSession(proc.handle, { cwd: '/probe/work', resumeSessionId: i >= 0 ? l.argv![i + 1] : undefined, hostServers: o.hostServers, ledger });
+      session = new ClaudeSession(proc.handle, { cwd: '/probe/work', resumeSessionId: i >= 0 ? l.argv![i + 1] : undefined, hostServers: o.hostServers, ledger, onInitCommands: (names) => void r.initCommands.push(names) });
       session.onIdleResult = (t) => r.idle.push(t);
       session.onLedgerMismatch = () => void r.mismatches++;
       session.onRateLimit = (x) => r.rate.push(x);
@@ -264,6 +266,25 @@ Object.assign(ASSERT, {
     const r = await replay(lines);
     assert.ok(r.bg.some((n) => n > 0), `a running background task is seen (${JSON.stringify(r.bg)})`);
     assert.equal(r.bg.at(-1), 0, 'and the list is empty when it ends');
+  },
+});
+// Project skills (OpenSpec agent-skills): what the bot reads from init, and a `/<skill>` message settling.
+Object.assign(ASSERT, {
+  async 'add-dir-loads-skills'(_v: string, lines: Line[]) {
+    const r = await replay(lines);
+    assert.equal(r.turns[0]?.status, 'ok');
+    const names = r.initCommands.flat();
+    assert.ok(names.includes('probe-alpha') && names.includes('probe-beta'), `the bot reads both --add-dir skills from init (got ${JSON.stringify(names.filter((n) => n.startsWith('probe')))})`);
+  },
+  async 'skill-slash-via-stdin'(_v: string, lines: Line[]) {
+    const r = await replay(lines);
+    assert.equal(r.turns.length, 1, 'the /<skill> message is one turn');
+    assert.equal(r.turns[0]!.status, 'ok', 'it settles on its result');
+    assert.equal(r.turns[0]!.resultText, lastResult(lines).result);
+    assert.match(r.turns[0]!.resultText, /SKILL-RAN\s+final-word-xyz/, 'the skill ran with the whole text');
+    assert.equal(r.mismatches, 0, 'the ledger sees the command message’s own echo');
+    assert.ok(r.initCommands.flat().includes('probe-marker'), 'the bot reads the project skill from init');
+    assert.deepEqual(ofType(r.writes, isUser), ofType(r.recordedIn, isUser), 'the bot writes the /<skill> message as the probe did, uuid included');
   },
 });
 const PENDING: Record<string, string> = {};
