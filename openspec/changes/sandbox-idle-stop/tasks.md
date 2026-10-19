@@ -38,8 +38,8 @@
 - [x] 6.2 `.env.example` and `infra/deploy/ops.example/.env.example`: the `SANDBOX_AUTOSTOP_MINUTES` comment covers both drivers (Daytona: the provider stops; ssh-docker: the bot stops, floor 10; `0` = never), and the distinct-prefix rule for a shared host. Verify: public-guard clean; `npm test` (the CLI-probe gate reads `.env.example`).
 - [x] 6.3 `CLAUDE.md` architecture pointers: `src/idlestop.ts` (the activity record, the idle rule, the sweep) beside `src/driver.ts`/`src/sshdocker.ts`. Verify: read-through.
 - [x] 6.4 Ledger row at the top of `docs/rollout.md`, as drafted in design D12. Verify: the row is in the PR diff; public-guard clean.
-- [ ] 6.5 `npm run typecheck && npm test`, then the PR titled for the release notes ("ssh-docker sandboxes stop after 30 idle minutes, like Daytona did"), label `fix`, the body naming the rollout (bucket 1 by maintainer decision, the visible effects) and the ledger row. Verify: CI green.
-- [ ] 6.6 The PR body tells the unmerged `retire-daytona-driver` change what moves: `SANDBOX_AUTOSTOP_MINUTES` leaves its D5 list of retired keys (it now means the ssh-docker idle stop), and its D9 idle-stop row points to this change. That change is edited on its own branch, not here. Verify: the note is in the PR body.
+- [x] 6.5 `npm run typecheck && npm test`, then the PR titled for the release notes ("ssh-docker: stop idle project containers after 30 minutes, as Daytona did", #65), label `fix`, the body naming the rollout (bucket 1 by maintainer decision, the visible effects) and the ledger row. Verify: CI green.
+- [x] 6.6 The PR body tells the unmerged `retire-daytona-driver` change what moves: `SANDBOX_AUTOSTOP_MINUTES` leaves its D5 list of retired keys (it now means the ssh-docker idle stop), and its D9 idle-stop row points to this change. That change is edited on its own branch, not here. Verify: the note is in the PR body.
 
 ## 7. CLI probe
 
@@ -66,4 +66,4 @@
 - [x] 10.6 `runSsh` (exported for the test): a local-mode call with a timeout runs in its own process group, and the timeout kills the group. Verify: `src/sshdocker.test.ts` (a script that sleeps past its timeout returns at the timeout, and its output never arrives; a call without a timeout as before).
 - [x] 10.7 Out of `pollers.ts` and `tasks.ts` into `src/idlestop.ts`, with tests: `candidateList` (registry, project record, stored name, one mismatch warning, dind per project, an invalid block as the default), `idleStopPlan` (the minutes and the boot lines), `stopCutWork` (who hears about a stop). Verify: `src/idlestop.test.ts`; `src/tasks.wiring.test.ts` pins `processEnded`'s use of `stopCutWork`.
 - [x] 10.8 Texts: the Home tab sentence (true on every driver and setting; re-snapshotted, only that sentence in the three fixtures), the `managedBy` comments (`src/sandboxopts.ts`, `.env.example`, the neutral-defaults ledger row), `src/housekeeping.ts`'s header, the docs (*Idle stop*: the sessions bullet, the off switch and what it does not turn off, starting a container before `docker exec`), D12 without a copy of the ledger row, neutral figures, one wording for the wake log line, the wakeup scenario. Verify: `npm test`; public-guard.
-- [ ] 10.9 The ledger row names the PR once it exists. Verify: `docs/rollout.md`.
+- [x] 10.9 The ledger row names the PR once it exists (#65). Verify: `docs/rollout.md`.
