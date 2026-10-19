@@ -39,8 +39,10 @@ export async function provisionTooling(
   }
 }
 
-// Make sure dockerd is alive before a turn runs. The dind entrypoint starts it once and
-// nothing supervises it — when it dies, Laravel Sail (the php/composer/artisan shims)
+// Make sure dockerd is alive before a turn runs. No entrypoint starts it (the container
+// runs `sleep`): this guard does, as does the first warm-up after each start of a
+// docker-in-docker container (sshdocker.ts bootScript), and nothing supervises it
+// after that — when it dies, Laravel Sail (the php/composer/artisan shims)
 // silently breaks until someone pokes the sandbox (this bit us: the Grafana MCP was
 // docker-run based and stayed "not connected" for days). Cheap when healthy (~one
 // `docker info`); also part of the nightly housekeeping routine.

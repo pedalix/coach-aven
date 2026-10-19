@@ -65,8 +65,8 @@ export interface CommandDeps {
 // Read a file from a project's Claude Code auto-memory dir (the sandbox copy). By default
 // we do NOT wake a stopped sandbox — this box can't run the whole fleet warm, so forcing a
 // start just to read can fail under resource pressure (and it's slow). `wake` (only set by
-// `/aven memory live`) opts into starting it. `filePath` is already sanitized. Raw Daytona
-// errors are wrapped so the user never sees an axios 500. Throws a friendly message otherwise.
+// `/aven memory live`) opts into starting it. `filePath` is already sanitized. A failed wake or
+// read is logged with the driver's own words (ssh's, docker's) and the user gets a friendly message.
 export async function readMemory(
   cfg: Config,
   project: ProjectConfig,

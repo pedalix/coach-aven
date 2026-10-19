@@ -1,5 +1,5 @@
 // Slack presentation layer: every Block Kit renderer plus the shared user-facing text
-// helpers (info/errText) and the CMD constant they embed. No Bolt handlers, no Daytona,
+// helpers (info/errText) and the CMD constant they embed. No Bolt handlers, no sandbox driver,
 // no state mutation (except the alert sink hook) — just payload shaping, so the Slack
 // wiring in events.ts/commands.ts stays thin.
 

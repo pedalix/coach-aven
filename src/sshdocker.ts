@@ -8,19 +8,18 @@ import { utf8Chunks } from './utf8.js';
 import { assertDeletable, resolveSandboxOptions, sandboxManagedBy, type Mount, type SandboxOptions } from './sandboxopts.js';
 
 // SshDockerDriver: sandboxes as Docker containers on a host we own, driven over SSH.
-// The self-hosted answer to Daytona's freeze (see driver.ts): one fixed-cost box runs
-// every project as a long-lived container (DinD via sysbox or --privileged, so Laravel
-// Sail keeps working), and the driver maps the SandboxDriver contract onto plain docker
-// + POSIX primitives:
+// The one sandbox driver (see driver.ts): one fixed-cost box runs every project as a
+// long-lived container (DinD via sysbox or --privileged, so Laravel Sail keeps working),
+// and the driver maps the SandboxDriver contract onto plain docker + POSIX primitives:
 //   • warm named sandbox  → `docker run -d --name proj-<slug> … sleep`, `docker start`
 //     (dockerd inside comes up via the ensureDockerd guard — at chat prep, and at the first
 //     warm-up after every boot of the container — so the image needs no entrypoint
 //     cooperation).
-//   • idle stop           → the bot's own (OpenSpec sandbox-idle-stop, idlestop.ts): the
-//     provider has no idle lifecycle, and the session code relies on one (every idle
-//     conversation's claude ends with the container, as on Daytona). Every handle call and
-//     every chunk of session output is recorded as activity here, the one place every caller
-//     goes through; warm-up, peek and stop of one container run under one lock.
+//   • idle stop           → the bot's own (OpenSpec sandbox-idle-stop, idlestop.ts): Docker
+//     has no idle lifecycle, and the session code relies on one (every idle conversation's
+//     claude ends with the container). Every handle call and every chunk of session output
+//     is recorded as activity here, the one place every caller goes through; warm-up, peek
+//     and stop of one container run under one lock.
 //   • exec / uploadFile   → `docker exec` with the SCRIPT (or file bytes) piped via
 //     stdin — nothing user-controlled is ever interpolated into a shell string.
 //   • persistent sessions → a FIFO + log file under /tmp/aven-sess/<key>/ inside the
@@ -46,7 +45,7 @@ const sessDir = (key: string): string => `${SESS_BASE}/${safeToken(key)}`;
 
 // ── pure script builders (pinned by sshdocker.test.ts) ─────────────────────
 
-// The in-container exec script: stderr folded into stdout (Daytona's exec returns one
+// The in-container exec script: stderr folded into stdout (the handle's exec returns one
 // combined `result`, and callers parse it), optional cwd/env, optional hard timeout.
 // The caller's command is embedded via sq — it may be a multi-line script (housekeeping).
 export function execScript(command: string, opts: ExecOpts = {}): string {
@@ -145,9 +144,9 @@ export function runningProbeScript(key: string, pid: string): string {
 //     same rule: its pid is alive and reads this directory's FIFO as its stdin, or, where that
 //     link cannot be read, is the pid its pid file names — so a session opened in this boot before
 //     a failed boot step could write the marker survives, with or without a readable link), write
-//     the marker, and on a dind project bring dockerd back (Daytona's image entrypoint did that on
-//     every start; ssh-docker's `sleep` entrypoint does not, and a continuing conversation never
-//     passes chat prep's guard, so its `sail up -d` would fail after every wake).
+//     the marker, and on a dind project bring dockerd back (the container's `sleep` entrypoint
+//     never starts it, and a continuing conversation never passes chat prep's guard, so its
+//     `sail up -d` would fail after every wake).
 // On a dind project the guard also runs, in any boot, when an idle stop left its mark: it stopped
 // the inner dockerd, and then the container did not stop (`docker stop` failed, or the bot died
 // in between) — same boot, no dockerd, and nothing else would bring it back for a continuing
@@ -306,7 +305,8 @@ export function ensureSandboxScript(
 // the kernel SIGKILLing every other process of the container — dockerd and every container it
 // runs (a Sail stack's database) included. dockerd on SIGTERM stops its containers with their own
 // grace first (measured: an inner container that traps SIGTERM gets it this way, and nothing
-// without). Daytona's stop was graceful there because its image ran dockerd as the entrypoint.
+// without). An image that ran dockerd as its entrypoint would get that grace from a plain
+// `docker stop`; ours runs `sleep`.
 // Before the signal it leaves a mark in the container: should the outer stop then fail (or the bot
 // die before it), the next warm-up's boot step finds a running container of the same boot with no
 // dockerd, and the mark tells it to bring dockerd back (bootScript).
@@ -340,8 +340,8 @@ const STOP_TIMEOUT_MS = 90_000;
 const PEEK_TIMEOUT_MS = 30_000;
 
 // `docker ps` lines ("name\tstate") → the state map /aven status renders. Docker's
-// `running` maps to Daytona's `started`; everything else (exited/created/paused) reads
-// as stopped — the same asleep/awake dichotomy the rest of the bot works with.
+// `running` maps to `started`; everything else (exited/created/paused) reads as
+// `stopped` — the same asleep/awake dichotomy the rest of the bot works with.
 export function parseContainerStates(out: string): Map<string, string> {
   const states = new Map<string, string>();
   for (const line of out.split('\n')) {
@@ -641,7 +641,7 @@ export class SshDockerDriver implements SandboxDriver {
   }
 
   private async warm(name: string, projectSlug: string, opts?: SandboxOptions): Promise<SandboxHandle> {
-    // Project options shape creation only; sshdocker is the one driver that can honour them.
+    // Project options shape creation only: an existing container keeps the flags it was created with.
     const o = resolveSandboxOptions(opts);
     const script = ensureSandboxScript(
       name,
