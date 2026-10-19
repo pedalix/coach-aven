@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { activityShape, htmlTags, hydrateTeamsFiles, isClientAsset, resolveShare, shareId, teamsFiles } from './files.js';
+import { activityShape, channelMessageFiles, htmlTags, hydrateTeamsFiles, isClientAsset, resolveShare, shareId, teamsFiles } from './files.js';
 import { normalizeMessage, type InboundActivity } from './events.js';
 
 const DIR = new URL('../../fixtures/chat/teams/activities/', import.meta.url).pathname;
@@ -100,4 +100,58 @@ test('an emoji or sticker in the text (the client CDN) is not a file; a pasted i
   assert.deepEqual(teamsFiles([pasted, emoji]).map((f) => f.name), ['pasted-image-1.png']);
   assert.deepEqual(teamsFiles([emoji]), []);
   assert.equal(isClientAsset('not a url'), false);
+});
+
+// Graph's view of a channel message with a paperclip upload: the `reference` attachment the activity
+// lacked, beside the card the bot itself posted (not a file).
+const GRAPH_MESSAGE = {
+  id: '1792149166061',
+  attachments: [
+    { id: 'e7b9', contentType: 'reference', contentUrl: 'https://example.sharepoint.example/sites/Platform/Shared Documents/General/IMG_0001.jpg', name: 'IMG_0001.jpg', content: null },
+    { id: 'c0de', contentType: 'application/vnd.microsoft.card.adaptive', contentUrl: null, name: null, content: '{}' },
+  ],
+};
+const GRAPH_ITEM = { name: 'IMG_0001.jpg', size: 4321, file: { mimeType: 'image/jpeg' }, '@microsoft.graph.downloadUrl': 'https://example.sharepoint.example/_layouts/download?tempauth=Y' };
+function graphFetch(seen: string[], status = 200): typeof fetch {
+  return (async (url: string, init?: { headers?: Record<string, string> }) => {
+    seen.push(`${url} ${init?.headers?.Authorization ?? ''}`);
+    if (status !== 200) return { ok: false, status, json: async () => ({}) };
+    return { ok: true, status, json: async () => (url.includes('/shares/') ? GRAPH_ITEM : GRAPH_MESSAGE) };
+  }) as unknown as typeof fetch;
+}
+
+test('channelMessageFiles: a reply and a root message read back through Graph; only reference attachments are files', async () => {
+  const seen: string[] = [];
+  const reply = await channelMessageFiles({ groupId: 'g1', channelId: '19:CHANNEL1@thread.tacv2', rootId: '1792148920804', messageId: '1792149166061' }, 'GRAPH', graphFetch(seen));
+  assert.deepEqual(reply, [{ kind: 'reference', name: 'IMG_0001.jpg', url: 'https://example.sharepoint.example/sites/Platform/Shared Documents/General/IMG_0001.jpg', mime: 'image/jpeg' }]);
+  assert.equal(seen[0], 'https://graph.microsoft.com/v1.0/teams/g1/channels/19%3ACHANNEL1%40thread.tacv2/messages/1792148920804/replies/1792149166061?$select=id,attachments Bearer GRAPH');
+  await channelMessageFiles({ groupId: 'g1', channelId: '19:CHANNEL1@thread.tacv2', rootId: '1792148920804', messageId: '1792148920804' }, 'GRAPH', graphFetch(seen));
+  assert.ok(seen[1]!.startsWith('https://graph.microsoft.com/v1.0/teams/g1/channels/19%3ACHANNEL1%40thread.tacv2/messages/1792148920804?$select='));
+  assert.deepEqual(await channelMessageFiles({ groupId: 'g1', channelId: 'c', rootId: '1', messageId: '2' }, 'GRAPH', graphFetch([], 403)), []);
+});
+
+test('a channel message that arrived without files is read back through Graph once the core acts; a 1:1 and an activity with files are not', async () => {
+  const seen: string[] = [];
+  const fetchFn = graphFetch(seen);
+  const reply = normalizeMessage(load('message-channel-reply'), TENANT, () => true, { ...tokens, fetch: fetchFn });
+  assert.equal(reply.kind, 'message');
+  if (reply.kind !== 'message') return;
+  assert.equal(reply.msg.hasFiles, false);
+  const got = await reply.msg.files();
+  assert.deepEqual(got?.refs.map((r) => [r.name, r.url, r.mime, r.size, r.auth]), [['IMG_0001.jpg', 'https://example.sharepoint.example/_layouts/download?tempauth=Y', 'image/jpeg', 4321, 'none']]);
+  assert.equal(seen.length, 2, 'the message, then its share');
+  assert.ok(seen[0]!.includes('/replies/1792149166061?'));
+  assert.ok(seen[1]!.includes('/shares/u!'));
+  // A root mention: the message itself, not a reply.
+  const mention = normalizeMessage(load('message-channel-mention'), TENANT, () => true, { ...tokens, fetch: graphFetch(seen) });
+  if (mention.kind === 'mention') await mention.msg.files();
+  assert.ok(seen[2]!.includes('/messages/1792148920804?$select='));
+  // Nothing to read back: a 1:1 message, an activity that carried its files, no tokens at all.
+  const dm = normalizeMessage(load('message-personal'), TENANT, () => true, { ...tokens, fetch: graphFetch(seen) });
+  if (dm.kind === 'message') assert.equal(await dm.msg.files(), undefined);
+  const withFile = normalizeMessage(load('message-channel-file'), TENANT, () => true, { ...tokens, fetch: graphFetch(seen) });
+  if (withFile.kind === 'message') await withFile.msg.files();
+  assert.equal(seen.filter((u) => u.includes('/messages/')).length, 2, 'no Graph read-back for the 1:1 or for the activity that carried its file');
+  const noTokens = normalizeMessage(load('message-channel-reply'), TENANT);
+  if (noTokens.kind === 'message') assert.equal(await noTokens.msg.files(), undefined);
 });

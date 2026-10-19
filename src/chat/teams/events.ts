@@ -20,7 +20,7 @@ import type { createCommands } from '../core/commands.js';
 import { rewriteMentions, stripBotMention } from './format.js';
 import { CMD } from '../slack/blocks.js';
 import { splitConversation, threadOf } from './keys.js';
-import { hydrateTeamsFiles, teamsFiles, type FileTokens } from './files.js';
+import { channelMessageFiles, hydrateTeamsFiles, teamsFiles, type ChannelMessageRef, type FileTokens } from './files.js';
 import type { AdaptiveCard } from './cards.js';
 import type { TeamsActionCtx, TeamsChatDriver } from './driver.js';
 import { RecentSet } from '../../recent.js';
@@ -40,6 +40,7 @@ export interface InboundActivity {
   replyToId?: string;
   entities?: { type: string; mentioned?: { id: string; name?: string }; text?: string }[];
   attachments?: { contentType?: string; contentUrl?: string; name?: string; content?: unknown }[];
+  channelData?: { team?: { aadGroupId?: string } };
   value?: unknown;
   action?: string; // installationUpdate: 'add' | 'remove'
 }
@@ -75,6 +76,10 @@ export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kin
     return { kind: 'command', cmd: { text: text.slice(1).replace(CMD_WORD, ''), conv, actor, ctx } };
   }
   const files = tokens ? teamsFiles(a.attachments) : [];
+  // A channel message without files in the activity may still carry an upload Teams left out
+  // (files.ts channelMessageFiles): read back through Graph, only once the core acts.
+  const groupId = a.channelData?.team?.aadGroupId;
+  const late: ChannelMessageRef | undefined = tokens && !direct && files.length === 0 && groupId ? { groupId, channelId: conv, rootId: root ?? a.id, messageId: a.id } : undefined;
   const msg: ChatMessage = {
     conv,
     id: a.id,
@@ -83,7 +88,13 @@ export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kin
     actor,
     direct,
     hasFiles: files.length > 0,
-    files: async () => (files.length ? hydrateTeamsFiles(files, tokens!) : undefined),
+    files: async () => {
+      if (files.length) return hydrateTeamsFiles(files, tokens!, tokens!.fetch);
+      if (!late) return undefined;
+      const graph = await tokens!.graphToken().catch(() => undefined);
+      const found = graph ? await channelMessageFiles(late, graph, tokens!.fetch).catch(() => []) : [];
+      return found.length ? hydrateTeamsFiles(found, tokens!, tokens!.fetch) : undefined;
+    },
     claim,
   };
   // In a 1:1 the client may still attach a mention entity (typing "@Aven …"); the chat has no
