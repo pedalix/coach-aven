@@ -6,7 +6,7 @@ import { loadConfig } from '../../config.js';
 
 const BASE = { SNAPSHOT_IMAGE: 'img', SNAPSHOT_NAME: 'snap', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', GITHUB_TOKEN: 'ghp_x' };
 const TEAMS = { TEAMS_APP_ID: 'app', TEAMS_APP_PASSWORD: 'pw', TEAMS_TENANT_ID: 'tenant' };
-const KEYS = [...Object.keys(BASE), ...Object.keys(TEAMS), 'TEAMS_PORT', 'TEAMS_OPERATORS', 'TEAMS_TARGETED', 'TEAMS_STATUS_MIN_MS'];
+const KEYS = [...Object.keys(BASE), ...Object.keys(TEAMS), 'TEAMS_PORT', 'TEAMS_OPERATORS', 'TEAMS_TARGETED', 'TEAMS_STATUS_MIN_MS', 'TEAMS_TRACE'];
 
 function withEnv<T>(env: Record<string, string>, fn: () => T): T {
   const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
@@ -32,7 +32,7 @@ test('a partial Teams config refuses to load, naming the missing keys', () => {
 
 test('the full block, with defaults and the optional knobs', () => {
   const t = withEnv({ ...BASE, ...TEAMS }, () => loadConfig().teams);
-  assert.deepEqual(t, { appId: 'app', appPassword: 'pw', tenantId: 'tenant', port: 3978, statusMinMs: 2000, operators: [], targeted: false });
-  const u = withEnv({ ...BASE, ...TEAMS, TEAMS_PORT: '4000', TEAMS_OPERATORS: 'a, b', TEAMS_TARGETED: '1', TEAMS_STATUS_MIN_MS: '500' }, () => loadConfig().teams);
-  assert.deepEqual(u, { appId: 'app', appPassword: 'pw', tenantId: 'tenant', port: 4000, statusMinMs: 500, operators: ['a', 'b'], targeted: true });
+  assert.deepEqual(t, { appId: 'app', appPassword: 'pw', tenantId: 'tenant', port: 3978, statusMinMs: 2000, operators: [], targeted: false, trace: false });
+  const u = withEnv({ ...BASE, ...TEAMS, TEAMS_PORT: '4000', TEAMS_OPERATORS: 'a, b', TEAMS_TARGETED: '1', TEAMS_STATUS_MIN_MS: '500', TEAMS_TRACE: '1' }, () => loadConfig().teams);
+  assert.deepEqual(u, { appId: 'app', appPassword: 'pw', tenantId: 'tenant', port: 4000, statusMinMs: 500, operators: ['a', 'b'], targeted: true, trace: true });
 });

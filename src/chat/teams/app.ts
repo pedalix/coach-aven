@@ -23,6 +23,7 @@ import { createCommands } from '../core/commands.js';
 import { setAlertSink, summary, type AlertLevel } from '../slack/blocks.js';
 import { teamsDriver, type OutActivity, type TeamsApi } from './driver.js';
 import { registerEvents, type TeamsAppLike } from './events.js';
+import { activityShape } from './files.js';
 import { withNetRetry } from '../../netretry.js';
 import { log } from '../../log.js';
 import { messagingRuntime } from '../../messaging/runtime.js';
@@ -46,7 +47,7 @@ export async function runTeams(cfg: Config): Promise<void> {
     clientSecret: teams.appPassword,
     tenantId,
     httpServerAdapter: new ExpressAdapter(server),
-    logger: sdkLogger(),
+    logger: sdkLogger(teams.trace),
   });
 
   // ── the driver's API seam over the SDK's Connector client ─────────────────
@@ -222,10 +223,13 @@ async function connector<T>(call: string, target: string, fn: () => Promise<T>):
   }
 }
 
-// The SDK logs through its own logger; route it into ours so the journal has one voice.
-function sdkLogger() {
+// The SDK logs through its own logger; route it into ours so the journal has one voice. Its debug
+// stream is dropped — except, with TEAMS_TRACE=1, the one line per inbound activity ("Handling activity",
+// the body): it reaches the journal as the activity's shape (files.ts activityShape), for the canary to
+// see what Teams really sent when a file or a message did not come through as expected.
+function sdkLogger(trace = false) {
   const l = {
-    debug: () => {},
+    debug: trace ? (...a: unknown[]) => { if (a[0] === 'Handling activity') log.info(`teams-trace: ${activityShape(a[1])}`); } : () => {},
     info: (...a: unknown[]) => log.info(`teams-sdk: ${a.map(String).join(' ')}`),
     warn: (...a: unknown[]) => log.warn(`teams-sdk: ${a.map(String).join(' ')}`),
     error: (...a: unknown[]) => log.error(`teams-sdk: ${a.map(String).join(' ')}`),
