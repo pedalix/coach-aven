@@ -32,7 +32,8 @@ test('a partial Teams config refuses to load, naming the missing keys', () => {
 
 test('the full block, with defaults and the optional knobs', () => {
   const t = withEnv({ ...BASE, ...TEAMS }, () => loadConfig().teams);
-  assert.deepEqual(t, { appId: 'app', appPassword: 'pw', tenantId: 'tenant', port: 3978, statusMinMs: 2000, operators: [], targeted: false, trace: false });
+  assert.deepEqual(t, { appId: 'app', appPassword: 'pw', tenantId: 'tenant', port: 3978, statusMinMs: 2000, operators: [], targeted: false, trace: 'off' });
   const u = withEnv({ ...BASE, ...TEAMS, TEAMS_PORT: '4000', TEAMS_OPERATORS: 'a, b', TEAMS_TARGETED: '1', TEAMS_STATUS_MIN_MS: '500', TEAMS_TRACE: '1' }, () => loadConfig().teams);
-  assert.deepEqual(u, { appId: 'app', appPassword: 'pw', tenantId: 'tenant', port: 4000, statusMinMs: 500, operators: ['a', 'b'], targeted: true, trace: true });
+  assert.deepEqual(u, { appId: 'app', appPassword: 'pw', tenantId: 'tenant', port: 4000, statusMinMs: 500, operators: ['a', 'b'], targeted: true, trace: 'shape' });
+  assert.equal(withEnv({ ...BASE, ...TEAMS, TEAMS_TRACE: 'full' }, () => loadConfig().teams)?.trace, 'full');
 });
