@@ -5,6 +5,7 @@ import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import { validateSourcesConfig } from './sources/config.js';
 import type { SourcesConfig } from './sources/types.js';
 import { validateMessagingConfig, type MessagingConfig } from './messaging/config.js';
+import { validateGatewayOAuth, type GatewayOAuth } from './gwtoken.js';
 import { log } from './log.js';
 
 // Registry of the projects the bot serves. ONE bot, MANY channels: each Slack channel
@@ -29,10 +30,16 @@ export interface McpServerSpec {
   url?: string;
   headers?: Record<string, string>;
   // `gateway-m2m`: a remote server behind the MCP gateway (engine.example.com/gw/<slug>/mcp)
-  // that the bot reaches as its Auth0 M2M client coach-aven-<slug>. The orchestrator mints and
-  // caches the token (gwtoken.ts) and writes it into the sandbox; Claude Code picks it up via
-  // the server's `headersHelper` (mcp.ts). Needs AUTH0_M2M_<SLUG>_ID/_SECRET + AUTH0_M2M_TOKEN_URL.
+  // that the bot reaches as its project's machine client. The orchestrator mints and caches the
+  // token (gwtoken.ts) and writes it into the sandbox; Claude Code picks it up via the server's
+  // `headersHelper` (mcp.ts). Without `oauth`: the Auth0 client coach-aven-<slug>, needs
+  // AUTH0_M2M_<SLUG>_ID/_SECRET + AUTH0_M2M_TOKEN_URL.
   auth?: 'gateway-m2m';
+  // Only on a `gateway-m2m` entry: mint with a standard OAuth 2.0 client-credentials request
+  // instead (any RFC 6749 server — Amazon Cognito first). No secret here: the client id and
+  // secret come from GATEWAY_OAUTH_<SLUG>_ID/_SECRET. Stays on the bot side — buildMcpServers
+  // never copies it into the sandbox's MCP config. See docs/runtime-config.md → *MCP gateway*.
+  oauth?: GatewayOAuth;
 }
 
 export const GIT_FLOWS = ['pr', 'direct'] as const;
@@ -187,6 +194,18 @@ export function loadProjects(path: string): ProjectsRegistry {
       if (s.auth === 'gateway-m2m' && (!s.url || !/^[A-Za-z0-9_-]+$/.test(s.name))) {
         // The name becomes a sandbox file name (gw-token-<name>) — keep it path-safe.
         throw new Error(`${path}: a gateway-m2m mcp entry needs a "url" and a [A-Za-z0-9_-] "name"`);
+      }
+      if (s.oauth !== undefined) {
+        // A malformed request (or a secret pasted into the config) fails the load, not the first
+        // turn of that project; the credentials themselves are checked at first mint, as today.
+        if (s.auth !== 'gateway-m2m') {
+          throw new Error(`${path}: project "${p.slug}" mcp "${s.name}": "oauth" only goes on an entry with "auth": "gateway-m2m"`);
+        }
+        try {
+          s.oauth = validateGatewayOAuth(s.oauth, `project "${p.slug}" mcp "${s.name}" oauth`);
+        } catch (e) {
+          throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
     }
   }

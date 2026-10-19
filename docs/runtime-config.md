@@ -111,6 +111,36 @@ A project can reach all its MCP sources through the gateway (bluefin-infra `engi
   `<source>_<tool>` (e.g. `youtrack_search_issues`); the project prompt should map them.
 - Name the entry `gw` — `steps.ts` renders `mcp__gw__<target>_<tool>` by target.
 
+### Another OAuth provider (e.g. Amazon Cognito)
+
+An installation whose identity provider is not Auth0 puts an `oauth` object on the gateway entry. The bot then
+mints with a standard OAuth 2.0 client-credentials request (RFC 6749 §4.4) instead of Auth0's:
+
+```json
+"mcp": [{
+  "name": "gw",
+  "url": "http://gw.internal.example:4600/gw/<slug>/mcp",
+  "auth": "gateway-m2m",
+  "oauth": { "tokenUrl": "https://idp.example/oauth2/token", "scope": "gw-<slug>/bot" }
+}]
+```
+
+- Fields: `tokenUrl` (https only), and optionally `scope` (sent as is — Cognito: `<resource-server>/<scope>`),
+  `audience` (servers that take Auth0's parameter), `resource` (RFC 8707), `clientAuth` (`basic`, the default:
+  HTTP Basic as RFC 6749 §2.3.1 and Cognito want; or `post`: id and secret in the form body). A malformed object,
+  or one carrying a credential, fails the config load naming the project.
+- Credentials: `GATEWAY_OAUTH_<SLUG>_ID` / `GATEWAY_OAUTH_<SLUG>_SECRET` in the bot's `.env` (the slug
+  upper-cased, other characters → `_`), read only for entries with `oauth`. The `AUTH0_M2M_*` names are not read
+  for such an entry, and nothing of `oauth` reaches the sandbox's MCP config.
+- Lifetime: the bot replaces a cached token once less than min(1 h, half its lifetime) is left. Give the bot's
+  client a **1-day** access token (Cognito: 5 minutes to 1 day, default 1 hour) for one mint per project per day;
+  a shorter lifetime works, with more mints.
+- **The gateway's half.** The bot never reads the token. Cognito's client-credentials tokens carry `client_id`
+  and a space-delimited `scope` and **no `aud`**, so the route cannot rely on an audience: leave `audiences` out
+  of the route's authentication (agentgateway: issuer + JWKS only) and authorize in the route policy by
+  `jwt.client_id` (e.g. `jwt.client_id == "<the bot's client id>"`) and/or the `scope` claim, so a token minted
+  for another project's route is refused there.
+
 **Rollback** (one edit): in `projects.config.json` move the project's `mcpDirectBackup` list back
 to `mcp` (a project may keep its pre-gateway list there), `npm run ops -- <slug> export`, `/aven reload`; running
 conversations keep the old config until their claude process ends (or restart the bot to recycle).
