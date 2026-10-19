@@ -195,7 +195,7 @@
   - `.env` and `hub.peers.json` on all three;
   - `messaging` on the canary projects
   Done: the checklist is in the body of #32; the steps themselves are the operator’s (they need the Cloudflare account and the ops repos).
-- [ ] 7.7 End-to-end on the canary — recorded in the PR:
+- [ ] 7.7 (in progress 2026-10-19 — what the canary has shown so far: two asks from the home tenant agent to the Teams staging installation's project completed with answers and costs (2026-10-18), the staging channel shows nothing of them, a stranger's envelope is refused by the hub; the prod items — owen-ops asking a prod project idle and busy — move to prod's own rollout with the tag (hub-open-network 0.1); left for a short session with the operator in Slack: a forwarding held → Send → Dismiss, a restart mid-flight, a sandbox killed before pickup, a clarification answered later, `/aven asks` on both sides, Sentry quiet) End-to-end on the canary — recorded in the PR:
   - a local ask on home;
   - owen-ops asks a prod project while idle and while busy;
   - a clarification answered the next day;
