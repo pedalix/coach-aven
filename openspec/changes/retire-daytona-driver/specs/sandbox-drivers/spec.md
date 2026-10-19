@@ -89,15 +89,17 @@ When every project names its driver, the old default moves nothing. The bot SHAL
 ### Requirement: Retired Daytona settings warn and change nothing
 These settings were read only by the Daytona driver or its SDK:
 - every variable whose name starts with `DAYTONA_`;
-- `SNAPSHOT_NAME`, `SANDBOX_CPU`, `SANDBOX_MEMORY`, `SANDBOX_DISK` and `SANDBOX_AUTOSTOP_MINUTES`;
+- `SNAPSHOT_NAME`, `SANDBOX_CPU`, `SANDBOX_MEMORY` and `SANDBOX_DISK`;
 - `SANDBOX_DRIVER=daytona`.
 
 They SHALL change nothing. The one exception is the refusal in the requirement "A project left on a Daytona default is refused, not moved". When the bot starts with any of them set to a non-empty value, it SHALL log one warning that names the ones present and asks the operator to remove them. For `SANDBOX_DRIVER`, the warning SHALL ask the operator to set `ssh-docker`. Unless that refusal applies, the bot SHALL then start.
 
-#### Scenario: An idle-stop setting left in the environment
-- **WHEN** the bot starts with `SANDBOX_DRIVER=ssh-docker` and `SANDBOX_AUTOSTOP_MINUTES=30`
-- **THEN** it logs one warning naming `SANDBOX_AUTOSTOP_MINUTES`, and starts
-- **AND** its sandboxes are created and kept exactly as without the setting
+`SANDBOX_AUTOSTOP_MINUTES` is not one of them. Daytona read it, and so does the bot's idle stop of ssh-docker containers (capability `sandbox-idle-stop`). It SHALL keep that meaning, and the warning SHALL NOT name it.
+
+#### Scenario: The idle-stop setting stays
+- **WHEN** the bot starts with `SANDBOX_DRIVER=ssh-docker` and `SANDBOX_AUTOSTOP_MINUTES=45`
+- **THEN** it logs no retired-setting warning, and starts
+- **AND** its idle-stop line at boot says that containers stop after 45 minutes without activity
 
 #### Scenario: Several leftovers
 - **WHEN** the bot starts with `SANDBOX_DRIVER=ssh-docker`, and with `SNAPSHOT_NAME`, `SANDBOX_CPU` and `DAYTONA_API_KEY` set
