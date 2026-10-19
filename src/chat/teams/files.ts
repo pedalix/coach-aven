@@ -10,6 +10,7 @@
 // `teamsFiles` is the sync, presence-only classification (every activity passes through it);
 // `hydrateTeamsFiles` runs only once the core decided to act on the message.
 
+import { createHash } from 'node:crypto';
 import type { AttachmentRef } from '../../attachments.js';
 import { log } from '../../log.js';
 
@@ -46,6 +47,18 @@ const MIME: Record<string, string> = {
 };
 const mimeOf = (name: string, fileType?: string): string => MIME[(fileType ?? name.split('.').pop() ?? '').toLowerCase()] ?? '';
 
+// An emoji or a sticker in the text arrives as one more `image/*` attachment, served from the Teams
+// client's static CDN — the person's message, not a file they sent (the canary saw the ✅ of a
+// message land in the sandbox as "pasted-image-2.png").
+const CLIENT_ASSET_HOSTS = new Set(['statics.teams.cdn.office.net', 'statics.teams.microsoft.com']);
+export function isClientAsset(url: string): boolean {
+  try {
+    return CLIENT_ASSET_HOSTS.has(new URL(url).host);
+  } catch {
+    return false;
+  }
+}
+
 export function teamsFiles(attachments: InboundAttachment[] | undefined): TeamsFile[] {
   const out: TeamsFile[] = [];
   let images = 0;
@@ -55,7 +68,7 @@ export function teamsFiles(attachments: InboundAttachment[] | undefined): TeamsF
     if (ct === DOWNLOAD_INFO && c.downloadUrl) {
       const name = a.name ?? 'file';
       out.push({ kind: 'download', name, url: c.downloadUrl, mime: mimeOf(name, c.fileType) });
-    } else if (ct.startsWith('image/') && a.contentUrl && !a.contentUrl.startsWith('data:')) {
+    } else if (ct.startsWith('image/') && a.contentUrl && !a.contentUrl.startsWith('data:') && !isClientAsset(a.contentUrl)) {
       // Teams names pasted images `image/*`; the bytes say what they are, the pipeline wants a
       // concrete type to accept them — PNG is what the paste path produces.
       const mime = ct === 'image/*' ? 'image/png' : ct;
@@ -72,13 +85,16 @@ export function teamsFiles(attachments: InboundAttachment[] | undefined): TeamsF
 
 /**
  * The shape of an inbound activity for the journal (TEAMS_TRACE=1, app.ts): type, scope, how long the text
- * is and whether it carries an `<attachment>` tag, and per attachment the content type, name, the host of
- * `contentUrl` and the keys of `content` — enough to see what Teams sent for a file the driver ignored,
- * never the text itself and never a URL (download URLs carry a temporary auth token).
+ * is and whether it carries an `<attachment>` tag, the entity types, the `channelData` keys, and per
+ * attachment the content type, name, the host of `contentUrl` and a short hash of it, the keys of `content` — and for the
+ * `text/html` echo the tags it is made of, as tag names with their attribute NAMES (`attachment[id]`,
+ * `img[src]`): a file the client embeds as markup shows up there. Enough to see what Teams sent for a file
+ * the driver ignored; never the text itself, never an attribute value, never a URL (download URLs carry
+ * a temporary auth token).
  */
 export function activityShape(body: unknown): string {
   if (typeof body !== 'object' || body === null) return JSON.stringify(String(body));
-  const a = body as { type?: string; name?: string; conversation?: { conversationType?: string }; text?: string; attachments?: InboundAttachment[] };
+  const a = body as { type?: string; name?: string; conversation?: { conversationType?: string }; text?: string; attachments?: InboundAttachment[]; entities?: { type?: string }[]; channelData?: Record<string, unknown> };
   const host = (url: string | undefined): string | undefined => {
     if (!url) return undefined;
     try {
@@ -91,10 +107,33 @@ export function activityShape(body: unknown): string {
     contentType: x.contentType,
     name: x.name,
     contentUrl: host(x.contentUrl),
+    // The same URL twice shows as the same hash (a client re-sending the previous image) — not the URL.
+    ...(x.contentUrl ? { urlHash: createHash('sha1').update(x.contentUrl).digest('hex').slice(0, 8) } : {}),
     content: x.content && typeof x.content === 'object' ? Object.keys(x.content as object) : typeof x.content,
+    ...(x.contentType === 'text/html' && typeof x.content === 'string' ? { html: htmlTags(x.content) } : {}),
   }));
   const text = a.text ?? '';
-  return JSON.stringify({ type: a.type, ...(a.name ? { name: a.name } : {}), scope: a.conversation?.conversationType, textLength: text.length, attachmentTag: /<attachment\b/i.test(text), attachments });
+  return JSON.stringify({
+    type: a.type,
+    ...(a.name ? { name: a.name } : {}),
+    scope: a.conversation?.conversationType,
+    textLength: text.length,
+    attachmentTag: /<attachment\b/i.test(text),
+    entities: (a.entities ?? []).map((e) => e.type ?? '?'),
+    channelData: a.channelData && typeof a.channelData === 'object' ? Object.keys(a.channelData) : [],
+    attachments,
+  });
+}
+
+// The tags of an HTML body as `name` or `name[attr,attr]`, in order, duplicates dropped: the markup's
+// shape without any of its text or attribute values.
+export function htmlTags(html: string): string[] {
+  const seen = new Set<string>();
+  for (const m of html.matchAll(/<([a-zA-Z][\w:-]*)((?:\s+[\w:-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?)*)\s*\/?>/g)) {
+    const attrs = [...(m[2] ?? '').matchAll(/([\w:-]+)(?:\s*=|\s|$)/g)].map((x) => x[1]!.toLowerCase());
+    seen.add(attrs.length ? `${m[1]!.toLowerCase()}[${attrs.join(',')}]` : m[1]!.toLowerCase());
+  }
+  return [...seen];
 }
 
 export interface FileTokens {
