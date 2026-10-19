@@ -92,6 +92,7 @@ export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kin
       if (files.length) return hydrateTeamsFiles(files, tokens!, tokens!.fetch);
       if (!late) return undefined;
       const graph = await tokens!.graphToken().catch(() => undefined);
+      if (!graph) log.warn(`teams files: no Graph token — the channel message ${late.messageId} cannot be read back for an upload`);
       const found = graph ? await channelMessageFiles(late, graph, tokens!.fetch).catch(() => []) : [];
       return found.length ? hydrateTeamsFiles(found, tokens!, tokens!.fetch) : undefined;
     },
