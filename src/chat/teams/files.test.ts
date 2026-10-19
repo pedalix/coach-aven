@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { activityShape, channelMessageFiles, htmlTags, hydrateTeamsFiles, isClientAsset, resolveShare, shareId, teamsFiles } from './files.js';
+import { activityShape, channelMessageFiles, htmlTags, hydrateTeamsFiles, isClientAsset, READ_BACK_DELAYS_MS, resolveShare, shareId, teamsFiles, type Sleep } from './files.js';
 import { normalizeMessage, type InboundActivity } from './events.js';
 
 const DIR = new URL('../../fixtures/chat/teams/activities/', import.meta.url).pathname;
@@ -112,22 +112,27 @@ const GRAPH_MESSAGE = {
   ],
 };
 const GRAPH_ITEM = { name: 'IMG_0001.jpg', size: 4321, file: { mimeType: 'image/jpeg' }, '@microsoft.graph.downloadUrl': 'https://example.sharepoint.example/_layouts/download?tempauth=Y' };
-function graphFetch(seen: string[], status = 200): typeof fetch {
+function graphFetch(seen: string[], status = 200, emptyFirst = 0): typeof fetch {
+  let reads = 0;
   return (async (url: string, init?: { headers?: Record<string, string> }) => {
     seen.push(`${url} ${init?.headers?.Authorization ?? ''}`);
     if (status !== 200) return { ok: false, status, json: async () => ({}) };
-    return { ok: true, status, json: async () => (url.includes('/shares/') ? GRAPH_ITEM : GRAPH_MESSAGE) };
+    if (url.includes('/shares/')) return { ok: true, status, json: async () => GRAPH_ITEM };
+    // Teams delivers the activity before the upload is attached in Graph: the first reads see none.
+    const body = reads++ < emptyFirst ? { ...GRAPH_MESSAGE, attachments: [] } : GRAPH_MESSAGE;
+    return { ok: true, status, json: async () => body };
   }) as unknown as typeof fetch;
 }
+const noWait: Sleep = async () => {};
 
 test('channelMessageFiles: a reply and a root message read back through Graph; only reference attachments are files', async () => {
   const seen: string[] = [];
-  const reply = await channelMessageFiles({ groupId: 'g1', channelId: '19:CHANNEL1@thread.tacv2', rootId: '1792148920804', messageId: '1792149166061' }, 'GRAPH', graphFetch(seen));
+  const reply = await channelMessageFiles({ groupId: 'g1', channelId: '19:CHANNEL1@thread.tacv2', rootId: '1792148920804', messageId: '1792149166061' }, 'GRAPH', graphFetch(seen), noWait);
   assert.deepEqual(reply, [{ kind: 'reference', name: 'IMG_0001.jpg', url: 'https://example.sharepoint.example/sites/Platform/Shared Documents/General/IMG_0001.jpg', mime: 'image/jpeg' }]);
   assert.equal(seen[0], 'https://graph.microsoft.com/v1.0/teams/g1/channels/19%3ACHANNEL1%40thread.tacv2/messages/1792148920804/replies/1792149166061?$select=id,attachments Bearer GRAPH');
-  await channelMessageFiles({ groupId: 'g1', channelId: '19:CHANNEL1@thread.tacv2', rootId: '1792148920804', messageId: '1792148920804' }, 'GRAPH', graphFetch(seen));
+  await channelMessageFiles({ groupId: 'g1', channelId: '19:CHANNEL1@thread.tacv2', rootId: '1792148920804', messageId: '1792148920804' }, 'GRAPH', graphFetch(seen), noWait);
   assert.ok(seen[1]!.startsWith('https://graph.microsoft.com/v1.0/teams/g1/channels/19%3ACHANNEL1%40thread.tacv2/messages/1792148920804?$select='));
-  assert.deepEqual(await channelMessageFiles({ groupId: 'g1', channelId: 'c', rootId: '1', messageId: '2' }, 'GRAPH', graphFetch([], 403)), []);
+  assert.deepEqual(await channelMessageFiles({ groupId: 'g1', channelId: 'c', rootId: '1', messageId: '2' }, 'GRAPH', graphFetch([], 403), noWait), []);
 });
 
 test('a channel message that arrived without files is read back through Graph once the core acts; a 1:1 and an activity with files are not', async () => {
@@ -154,4 +159,24 @@ test('a channel message that arrived without files is read back through Graph on
   assert.equal(seen.filter((u) => u.includes('/messages/')).length, 2, 'no Graph read-back for the 1:1 or for the activity that carried its file');
   const noTokens = normalizeMessage(load('message-channel-reply'), TENANT);
   if (noTokens.kind === 'message') assert.equal(await noTokens.msg.files(), undefined);
+});
+
+test('read-back retries: the upload is attached in Graph after the activity — read again after the pauses, give up after the last', async () => {
+  const waited: number[] = [];
+  const wait: Sleep = async (ms) => {
+    waited.push(ms);
+  };
+  const seen: string[] = [];
+  const found = await channelMessageFiles({ groupId: 'g1', channelId: 'c', rootId: '1', messageId: '2' }, 'GRAPH', graphFetch(seen, 200, 2), wait);
+  assert.equal(found.length, 1);
+  assert.equal(seen.length, 3);
+  assert.deepEqual(waited, READ_BACK_DELAYS_MS.slice(1));
+  // Really no file: every attempt, then nothing.
+  const none = await channelMessageFiles({ groupId: 'g1', channelId: 'c', rootId: '1', messageId: '2' }, 'GRAPH', graphFetch([], 200, 99), wait);
+  assert.deepEqual(none, []);
+  // Not found yet counts as "again", a refusal ends it.
+  const seen404: string[] = [];
+  assert.deepEqual(await channelMessageFiles({ groupId: 'g1', channelId: 'c', rootId: '1', messageId: '2' }, 'GRAPH', graphFetch(seen404, 404), wait), []);
+  assert.equal(seen404.length, READ_BACK_DELAYS_MS.length);
+  assert.deepEqual(READ_BACK_DELAYS_MS[0], 0);
 });

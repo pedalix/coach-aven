@@ -154,23 +154,50 @@ export interface FileTokens {
  * with the app's Graph token (RSC `ChannelMessage.Read.Group`, granted when the app was added to the
  * team) and its `reference` attachments become the channel-document shape `hydrateTeamsFiles` already
  * resolves through `/shares`. A refusal (no RSC consent, a message gone) is one warning and no files.
+ *
+ * Teams delivers the activity BEFORE the upload is attached to the message in Graph (the canary's first
+ * read-back came back empty; the same message had the file a minute later), so an empty answer is read
+ * again after a pause, a few times (READ_BACK_DELAYS_MS) — a message that really has no file costs the
+ * last delay, a few seconds, once. Every read-back logs its outcome: the journal is the only place that
+ * says how often Teams leaves a file out and how late Graph is.
  */
+export const READ_BACK_DELAYS_MS = [0, 2000, 5000];
+export type Sleep = (ms: number) => Promise<void>;
+const sleep: Sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export interface ChannelMessageRef {
   groupId: string; // channelData.team.aadGroupId — the team's Microsoft 365 group
   channelId: string; // `19:…@thread.tacv2`
   rootId: string; // the thread's root message
   messageId: string; // the message itself; equal to rootId for a root message
 }
-export async function channelMessageFiles(ref: ChannelMessageRef, graphToken: string, fetchFn: typeof fetch = fetch): Promise<TeamsFile[]> {
+export async function channelMessageFiles(ref: ChannelMessageRef, graphToken: string, fetchFn: typeof fetch = fetch, wait: Sleep = sleep, delays: number[] = READ_BACK_DELAYS_MS): Promise<TeamsFile[]> {
   const root = `https://graph.microsoft.com/v1.0/teams/${ref.groupId}/channels/${encodeURIComponent(ref.channelId)}/messages/${ref.rootId}`;
   const url = `${ref.messageId === ref.rootId ? root : `${root}/replies/${ref.messageId}`}?$select=id,attachments`;
-  const res = await fetchFn(url, { headers: { Authorization: `Bearer ${graphToken}` } });
-  if (!res.ok) {
-    log.warn(`teams files: Graph refused the channel message ${ref.messageId}: HTTP ${res.status}`);
-    return [];
+  for (let attempt = 0; attempt < delays.length; attempt++) {
+    if (delays[attempt]! > 0) await wait(delays[attempt]!);
+    let res: Response;
+    try {
+      res = await fetchFn(url, { headers: { Authorization: `Bearer ${graphToken}` } });
+    } catch (e) {
+      log.warn(`teams files: Graph read-back of ${ref.messageId} failed (attempt ${attempt + 1}): ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+    if (res.status === 404) {
+      // Not there yet, or gone: the next attempt tells which.
+      log.info(`teams files: Graph read-back of ${ref.messageId}: not found yet (attempt ${attempt + 1})`);
+      continue;
+    }
+    if (!res.ok) {
+      log.warn(`teams files: Graph refused the channel message ${ref.messageId}: HTTP ${res.status}`);
+      return [];
+    }
+    const m = (await res.json()) as { attachments?: { contentType?: string | null; contentUrl?: string | null; name?: string | null }[] | null };
+    const all = m.attachments ?? [];
+    const files = teamsFiles(all.map((a) => ({ contentType: a.contentType ?? undefined, contentUrl: a.contentUrl ?? undefined, name: a.name ?? undefined })));
+    log.info(`teams files: Graph read-back of ${ref.messageId}: ${all.length} attachment(s), ${files.length} file(s) (attempt ${attempt + 1})`);
+    if (files.length) return files;
   }
-  const m = (await res.json()) as { attachments?: { contentType?: string | null; contentUrl?: string | null; name?: string | null }[] | null };
-  return teamsFiles((m.attachments ?? []).map((a) => ({ contentType: a.contentType ?? undefined, contentUrl: a.contentUrl ?? undefined, name: a.name ?? undefined })));
+  return [];
 }
 
 // Graph: a sharing URL → the drive item (name, size, pre-authorized download URL). The share
