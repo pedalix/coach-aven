@@ -94,7 +94,7 @@ export function teamsFiles(attachments: InboundAttachment[] | undefined): TeamsF
  */
 export function activityShape(body: unknown): string {
   if (typeof body !== 'object' || body === null) return JSON.stringify(String(body));
-  const a = body as { type?: string; name?: string; conversation?: { conversationType?: string }; text?: string; attachments?: InboundAttachment[]; entities?: { type?: string }[]; channelData?: Record<string, unknown> };
+  const a = body as { type?: string; name?: string; conversation?: { conversationType?: string }; text?: string; attachments?: InboundAttachment[]; entities?: { type?: string }[]; channelData?: Record<string, unknown> & { team?: Record<string, unknown> } };
   const host = (url: string | undefined): string | undefined => {
     if (!url) return undefined;
     try {
@@ -121,6 +121,8 @@ export function activityShape(body: unknown): string {
     attachmentTag: /<attachment\b/i.test(text),
     entities: (a.entities ?? []).map((e) => e.type ?? '?'),
     channelData: a.channelData && typeof a.channelData === 'object' ? Object.keys(a.channelData) : [],
+    // The team's keys: whether `aadGroupId` travels with the activity (the read-back needs it).
+    team: a.channelData?.team && typeof a.channelData.team === 'object' ? Object.keys(a.channelData.team) : [],
     attachments,
   });
 }
@@ -144,6 +146,10 @@ export interface FileTokens {
   graphToken(): Promise<string | undefined>;
   // The fetch to use (tests inject a fake); global fetch otherwise.
   fetch?: typeof fetch;
+  // The team's Microsoft 365 group id for a Teams team id (`19:…@thread.tacv2`), through the Connector's
+  // team details — for an activity whose `channelData.team` has no `aadGroupId` (the read-back needs
+  // the group id). Cached by app.ts; absent in the pure tests.
+  groupIdOf?(teamId: string): Promise<string | undefined>;
 }
 
 /**

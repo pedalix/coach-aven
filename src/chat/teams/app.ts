@@ -91,6 +91,7 @@ export async function runTeams(cfg: Config): Promise<void> {
   // ids — the latter matched through the `aadObjectId` every activity of that person carries.
   const operators = new Set(teams.operators);
   const aadOf = new Map<string, string>();
+  const groupIds = new Map<string, string>(); // Teams team id → Microsoft 365 group id (files.groupIdOf)
   const isOperator = (user: string | undefined) => !!user && (operators.has(user) || operators.has(aadOf.get(user) ?? ''));
   const driverFor = () => driver; // one tenant: every record resolves to the same driver
 
@@ -147,6 +148,14 @@ export async function runTeams(cfg: Config): Promise<void> {
     files: {
       botToken: async () => (await tokens.getBotToken())?.toString(),
       graphToken: async () => (await tokens.getAppGraphToken(tenantId))?.toString(),
+      // The team's group id when the activity does not carry it: the Connector's team details, once per team.
+      groupIdOf: async (teamId) => {
+        const cached = groupIds.get(teamId);
+        if (cached) return cached;
+        const details = (await connector('team', teamId, () => apiFor().teams.getById(teamId))) as { aadGroupId?: string };
+        if (details.aadGroupId) groupIds.set(teamId, details.aadGroupId);
+        return details.aadGroupId;
+      },
     },
   });
 

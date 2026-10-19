@@ -40,7 +40,7 @@ export interface InboundActivity {
   replyToId?: string;
   entities?: { type: string; mentioned?: { id: string; name?: string }; text?: string }[];
   attachments?: { contentType?: string; contentUrl?: string; name?: string; content?: unknown }[];
-  channelData?: { team?: { aadGroupId?: string } };
+  channelData?: { team?: { id?: string; aadGroupId?: string } };
   value?: unknown;
   action?: string; // installationUpdate: 'add' | 'remove'
 }
@@ -77,9 +77,10 @@ export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kin
   }
   const files = tokens ? teamsFiles(a.attachments) : [];
   // A channel message without files in the activity may still carry an upload Teams left out
-  // (files.ts channelMessageFiles): read back through Graph, only once the core acts.
-  const groupId = a.channelData?.team?.aadGroupId;
-  const late: ChannelMessageRef | undefined = tokens && !direct && files.length === 0 && groupId ? { groupId, channelId: conv, rootId: root ?? a.id, messageId: a.id } : undefined;
+  // (files.ts channelMessageFiles): read back through Graph, only once the core acts. The group id
+  // comes with the activity or, failing that, from the Connector's team details (tokens.groupIdOf).
+  const team = a.channelData?.team;
+  const late: Omit<ChannelMessageRef, 'groupId'> | undefined = tokens && !direct && files.length === 0 ? { channelId: conv, rootId: root ?? a.id, messageId: a.id } : undefined;
   const msg: ChatMessage = {
     conv,
     id: a.id,
@@ -91,9 +92,14 @@ export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kin
     files: async () => {
       if (files.length) return hydrateTeamsFiles(files, tokens!, tokens!.fetch);
       if (!late) return undefined;
+      const groupId = team?.aadGroupId ?? (team?.id && tokens!.groupIdOf ? await tokens!.groupIdOf(team.id).catch(() => undefined) : undefined);
+      if (!groupId) {
+        log.warn(`teams files: no group id for the channel message ${late.messageId} (team ${team?.id ?? 'unknown'}) — an upload cannot be read back`);
+        return undefined;
+      }
       const graph = await tokens!.graphToken().catch(() => undefined);
       if (!graph) log.warn(`teams files: no Graph token — the channel message ${late.messageId} cannot be read back for an upload`);
-      const found = graph ? await channelMessageFiles(late, graph, tokens!.fetch).catch(() => []) : [];
+      const found = graph ? await channelMessageFiles({ ...late, groupId }, graph, tokens!.fetch).catch(() => []) : [];
       return found.length ? hydrateTeamsFiles(found, tokens!, tokens!.fetch) : undefined;
     },
     claim,
