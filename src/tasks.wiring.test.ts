@@ -47,3 +47,14 @@ test('openChat — every `new ClaudeSession` in tasks.ts spreads the session wir
   for (const b of blocks) assert.match(b, /\.\.\.wiring,/);
   assert.match(src, /const wiring = sessionWiring\(cfg, opts, facts\);/);
 });
+
+// The idle stop's notice (OpenSpec sandbox-idle-stop D7): the engine hands it to every live session of the
+// stopped project, and only the rule in idlestop.ts (stopCutWork, tested there) decides which thread hears
+// it — a regression here would post it into every conversation of a project at every quiet half hour.
+test('openChat — processEnded ends the process first, then posts the stop notice only where stopCutWork says so', () => {
+  const src = readFileSync(new URL('./tasks.ts', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('processEnded: (notice) => {'), src.indexOf('pendingTurnTakenUp:'));
+  assert.match(body, /const cut = s\.idleState\(\);\s*s\.markExited\(\);/);
+  assert.match(body, /if \(notice && stopCutWork\(cut\)\) idleNotify\?\.\(notice\);/);
+  assert.equal(body.match(/idleNotify/g)?.length, 1, 'no other path posts');
+});

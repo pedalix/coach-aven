@@ -75,9 +75,10 @@ distinct inhabitants of the same scheduler.
 - **An asleep sandbox**: on Daytona the pass is skipped (`sandbox asleep — skipped`) — a
   stopped sandbox gathers no garbage, and waking the fleet nightly would defeat its
   auto-stop. On ssh-docker, where the bot owns the idle stop, the pass wakes the container
-  and its summary starts with `woke ·`; containers there never slept before, so the janitor
-  keeps running as it did, and the idle stop puts the container back to sleep. A missing
-  sandbox is never created.
+  while the stop is on, and its summary starts with `woke ·`; containers there never slept
+  before, so the janitor keeps running as it did, and the idle stop puts the container back
+  to sleep. With `SANDBOX_AUTOSTOP_MINUTES=0` nothing would stop it again, so the pass skips
+  it as before. A missing sandbox is never created.
 - **Skip if a turn is in flight** for the project (visible via `queues`) — never reap state
   out from under a live user turn.
 - **Deterministic core**, with an optional LLM-assisted step only where judgment is needed

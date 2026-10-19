@@ -15,7 +15,7 @@ import { createDriver } from './driver.js';
 import { fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
 import { STREAM_HARD_MAX_MS, STREAM_MAX_MS, type AskQuestion, type QuestionAnswers, type OnQuestion } from './claudeSession.js';
-import { STALE_HOLD_MARGIN_MS, type SandboxUse } from './idlestop.js';
+import { monoNow, STALE_HOLD_MARGIN_MS, type SandboxUse } from './idlestop.js';
 import { MAX_SLACK_TEXT, errText, alertOps } from './chat/slack/blocks.js';
 import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase, splitTeam } from './teamkeys.js';
@@ -209,6 +209,8 @@ export interface TurnDeps {
     opts: (key: string) => TurnOpts | undefined;
     recovered: (key: string, r: { ok: boolean; status: string; text: string }) => Promise<void>;
   };
+  // The idle stop's monotonic clock for the holds (idlestop.ts monoNow); tests pass a fake one.
+  clock?: () => number;
 }
 
 export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, deps: TurnDeps = {}): TurnEngine {
@@ -255,15 +257,18 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // message still being acknowledged counts before its turn is queued. `since` restarts when the
   // work starts (the turn left its key's queue, the ask got its slot): a hold older than the turn
   // hard cap plus a margin is a hang before the watchdog was armed, and stops holding.
+  // Their age is measured on the idle stop's monotonic clock, like the watchdog's timers: a host
+  // suspend during a turn must not make its hold look stuck when the watchdog has not fired either.
+  const clock = deps.clock ?? monoNow;
   const holds = new Map<number, { key: string; slug: string; since: number }>();
   let holdSeq = 0;
   function hold(key: string, slug: string): { restart(): void; release(): void } {
     const id = ++holdSeq;
-    holds.set(id, { key, slug, since: Date.now() });
+    holds.set(id, { key, slug, since: clock() });
     return {
       restart: () => {
         const h = holds.get(id);
-        if (h) h.since = Date.now();
+        if (h) h.since = clock();
       },
       release: () => void holds.delete(id),
     };
@@ -1352,7 +1357,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // Pulled by the sweep each time it decides (never pushed as leases: a release that never comes
   // cannot pin a sandbox, and the engine stays the one owner of turn state).
   function sandboxUse(slug: string): SandboxUse {
-    const now = Date.now();
+    const now = clock();
     let stale = false;
     for (const h of holds.values()) {
       if (h.slug !== slug) continue;
@@ -1362,7 +1367,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     let background = false;
     let injected = false;
     let selfTurn = false;
-    let wakeupDueAt: number | undefined;
+    let wakeupDueAt: number | undefined; // the CLI's own due time: wall clock, epoch ms
     for (const e of live.values()) {
       if (e.slug !== slug) continue;
       const st = e.chat.idleState();
@@ -1372,7 +1377,11 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       if (st.wakeupDueAt !== undefined) wakeupDueAt = Math.max(wakeupDueAt ?? 0, st.wakeupDueAt);
     }
     const lingering = background ? 'background' : injected ? 'injected' : selfTurn ? 'self-turn' : stale ? 'stale-hold' : undefined;
-    return { held: false, ...(lingering ? { lingering } : {}), ...(wakeupDueAt !== undefined ? { wakeupDueAt } : {}) };
+    return {
+      held: false,
+      ...(lingering ? { lingering } : {}),
+      ...(wakeupDueAt !== undefined ? { wakeupInMs: wakeupDueAt - Date.now() } : {}),
+    };
   }
 
   // Under the stopped sandbox's lock, in this order: every live session of the project ends its

@@ -385,10 +385,12 @@ started keeps its `claude` process (~200 MB each), and the agent's Sail stacks k
 | `SANDBOX_NAME_PREFIX` | `.env` | Installations that share a Docker host must use distinct prefixes: the idle stop and the wake's session cleanup assume one bot per container. |
 
 **Read at boot.** Change the value in the installation's `.env` in its ops repo, `npm run ops -- <slug> export`,
-restart the bot. Setting `0` stops the sweep; a container it already stopped wakes on its next turn. An
-installation that still sets the key from its Daytona days gets that value on ssh-docker too — decide it on
-purpose. The canary log line at boot: `idle stop: sandboxes without an idle stop of their own (ssh-docker) stop
-after <m> min without activity`.
+restart the bot. Setting `0` stops the sweep and housekeeping's wake of an asleep container; a container it
+already stopped wakes on its next turn. It does not turn off what every ssh-docker warm-up and reattach now does
+regardless (the boot step, the session identity check, the `docker start` retry; `docs/sandbox-drivers.md` →
+*Idle stop*, *Off switch*) — a revert does. An installation that still sets the key from its Daytona days gets
+that value on ssh-docker too — decide it on purpose. The canary log line at boot: `idle stop: sandboxes without
+an idle stop of their own (ssh-docker) stop after <m> min without activity`.
 
 ## Dispatch (`DISPATCH`) — retired
 

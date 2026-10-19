@@ -47,8 +47,7 @@ import { listOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js
 import { createDriver, type SandboxDriver } from './driver.js';
 import type { SandboxDriverKind } from './config.js';
 import { STREAM_HARD_MAX_MS, STREAM_MAX_MS } from './claudeSession.js';
-import { createIdleSweep, idleStopMinutes, sandboxActivity, SWEEP_EVERY_MS, type SweepCandidate } from './idlestop.js';
-import { resolveSandboxOptions } from './sandboxopts.js';
+import { candidateList, createIdleSweep, housekeepingSandboxStep, idleStopPlan, monoNow, sandboxActivity, SWEEP_EVERY_MS } from './idlestop.js';
 import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
 import { housekeepingScript, parseHousekeepingReport, pruneThreshold } from './housekeeping.js';
 import { cliUpgradeNotice, cliPinDrift, fetchCliDistTags } from './cliversion.js';
@@ -127,6 +126,9 @@ export function createPollers(
   // revocation) — a live token alone is not authorization.
   const tenantHasProject = (tenantId: string | undefined, slug: string): boolean =>
     teamProjects(reg.current, tenantId ?? home(), home()).some((p) => p.slug === slug);
+  // The idle stop's setting (OpenSpec sandbox-idle-stop), read once: the sweep (startIdleStop) and
+  // housekeeping's wake of an asleep sandbox both run only while it is on.
+  const idleStop = idleStopPlan(cfg.sandbox.autoStopMinutes);
   // An error that escapes a poller tick is unexpected (the GitHub helpers degrade quietly on
   // their own), so it means a real bug or a systemic outage — log it AND raise a Sentry issue
   // rather than swallowing it. Used for both the first tick and every interval tick so a broken
@@ -305,12 +307,14 @@ export function createPollers(
   // Housekeeping: the deterministic sandbox janitor (docs/housekeeping.md) — dockerd
   // guard, threshold-gated docker prune, proactive worktree reap. No LLM, silent (log +
   // the routine's lastSummary, like dreams). Skipped while the project has a live turn
-  // (never reap state out from under one). An asleep sandbox: on a provider that stops its
-  // sandboxes itself (Daytona) it is skipped — a stopped sandbox accumulates no new garbage, and
-  // waking the fleet nightly defeats auto-stop. Where the bot owns the idle stop (ssh-docker,
-  // OpenSpec sandbox-idle-stop D13) it is woken for the pass: containers there never slept before,
-  // so the janitor keeps running as it did — the prune matters more where every container shares
-  // the host's disk — and the idle sweep stops it again. A missing sandbox is never created here.
+  // (never reap state out from under one). An asleep sandbox (housekeepingSandboxStep): on a
+  // provider that stops its sandboxes itself (Daytona) it is skipped — a stopped sandbox
+  // accumulates no new garbage, and waking the fleet nightly defeats auto-stop. Where the bot owns
+  // the idle stop (ssh-docker, OpenSpec sandbox-idle-stop D13) and it is on, it is woken for the
+  // pass: containers there never slept before, so the janitor keeps running as it did — the prune
+  // matters more where every container shares the host's disk — and the idle sweep stops it
+  // again. With the stop off (SANDBOX_AUTOSTOP_MINUTES=0) nothing would stop it again, so it is
+  // skipped as before. A missing sandbox is never created here.
   function fireHousekeeping(project: ProjectConfig, r: RoutineRecord): boolean {
     if (engine.projectBusy(project.slug)) return false;
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
@@ -319,12 +323,15 @@ export function createPollers(
         const driver = createDriver(cfg, project.driver);
         const name = `${cfg.sandbox.namePrefix}${project.slug}`;
         let sandbox = await driver.getSandbox(name);
-        let woke = false;
-        if (sandbox && !sandbox.started && driver.stopSandbox) {
-          sandbox = await driver.ensureSandbox(name, project.slug, project.sandbox);
-          woke = true;
-        }
-        if (!sandbox || !sandbox.started) {
+        const step = housekeepingSandboxStep({
+          exists: !!sandbox,
+          started: !!sandbox?.started,
+          driverStops: !!driver.stopSandbox,
+          idleStopOn: idleStop.minutes > 0,
+        });
+        const woke = step === 'wake';
+        if (woke) sandbox = await driver.ensureSandbox(name, project.slug, project.sandbox);
+        if (!sandbox?.started) {
           store.patchRoutine(r.id, { lastSummary: 'sandbox asleep — skipped' });
           return;
         }
@@ -706,22 +713,16 @@ export function createPollers(
 
   // The idle stop (OpenSpec sandbox-idle-stop, idlestop.ts): once a minute, stop each project
   // container whose provider has no idle stop of its own (ssh-docker) once it has been idle for
-  // SANDBOX_AUTOSTOP_MINUTES — floor 10 there, 0 = off. Started only here, i.e. only in a chat bot
-  // process once recovery and the queue replay are under way (both hold their sandboxes): never in
-  // tests, the CLI probe, the sources daemon or a one-off CLI command. The sweep's start is the
-  // floor of every idle clock, so a restart never counts as idleness.
-  //
-  // Candidates are the projects with a project record, by its STORED sandboxName — the name their
-  // turns use (a prefix changed since the record was made would otherwise point the stop at another
-  // container) — never a listing; the stop proves the labels by name (design D10).
+  // SANDBOX_AUTOSTOP_MINUTES — floor 10 there, 0 = off (idleStopPlan). Started only here, i.e. only in
+  // a chat bot process once recovery and the queue replay are under way (both hold their
+  // sandboxes): never in tests, the CLI probe, the sources daemon or a one-off CLI command. The
+  // sweep's start is the floor of every idle clock, so a restart never counts as idleness. Wiring
+  // only: the candidates (candidateList), the rule and the sweep are idlestop.ts's, with tests.
   function startIdleStop(): void {
-    const { minutes, raised } = idleStopMinutes(cfg.sandbox.autoStopMinutes);
-    if (minutes <= 0) {
-      log.info('idle stop: off (SANDBOX_AUTOSTOP_MINUTES ≤ 0)');
+    if (idleStop.warn) log.warn(idleStop.warn);
+    if (idleStop.minutes <= 0) {
+      log.info(idleStop.info);
       return;
-    }
-    if (raised) {
-      log.warn(`SANDBOX_AUTOSTOP_MINUTES=${cfg.sandbox.autoStopMinutes} is below the idle stop's floor — ssh-docker sandboxes stop after ${minutes} min`);
     }
     sandboxActivity.start();
     const drivers = new Map<SandboxDriverKind, SandboxDriver | null>();
@@ -738,30 +739,15 @@ export function createPollers(
       }
       return drivers.get(kind) ?? null;
     };
-    const nameWarned = new Set<string>();
     const sweep = createIdleSweep({
-      candidates: () => {
-        const out: SweepCandidate[] = [];
-        for (const p of reg.current.projects) {
-          const kind = p.driver ?? cfg.sandboxDriver;
-          if (!driverOf(kind)?.stopSandbox) continue;
-          const rec = store.getProject(p.slug);
-          if (!rec) continue; // never had a turn: no container
-          const computed = `${cfg.sandbox.namePrefix}${p.slug}`;
-          if (rec.sandboxName !== computed && !nameWarned.has(p.slug)) {
-            nameWarned.add(p.slug);
-            log.warn(`idle stop: project '${p.slug}' runs in '${rec.sandboxName}' (state.json) but SANDBOX_NAME_PREFIX gives '${computed}' — the idle stop follows the stored name`);
-          }
-          let dind = true;
-          try {
-            dind = resolveSandboxOptions(p.sandbox).dind;
-          } catch {
-            /* validated at boot (loadProjects) — the default shape otherwise */
-          }
-          out.push({ slug: p.slug, name: rec.sandboxName, kind, dind });
-        }
-        return out;
-      },
+      candidates: candidateList({
+        projects: () => reg.current.projects,
+        defaultKind: cfg.sandboxDriver,
+        driverStops: (kind) => !!driverOf(kind as SandboxDriverKind)?.stopSandbox,
+        storedName: (slug) => store.getProject(slug)?.sandboxName,
+        namePrefix: cfg.sandbox.namePrefix,
+        warn: (l) => log.warn(l),
+      }),
       stopper: (kind) => {
         const d = driverOf(kind as SandboxDriverKind);
         return d?.stopSandbox ? (req) => d.stopSandbox!(req) : undefined;
@@ -769,12 +755,12 @@ export function createPollers(
       use: (slug) => engine.sandboxUse(slug),
       stopped: (slug, idleMinutes) => engine.sandboxStopped(slug, idleMinutes),
       activity: sandboxActivity,
-      now: Date.now,
-      autoStopMs: minutes * 60_000,
+      now: monoNow,
+      autoStopMs: idleStop.minutes * 60_000,
       hardCapMs: Math.max(STREAM_MAX_MS, STREAM_HARD_MAX_MS),
       log: { info: (l) => log.info(l), warn: (l) => log.warn(l) },
     });
-    log.info(`idle stop: sandboxes without an idle stop of their own (ssh-docker) stop after ${minutes} min without activity`);
+    log.info(idleStop.info);
     setInterval(() => void sweep.tick().catch(pollFail('idle-stop')), SWEEP_EVERY_MS);
   }
 

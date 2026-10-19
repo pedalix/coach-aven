@@ -26,6 +26,7 @@ import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './dep
 import { recordSessionCommands, scanProjectSkills } from './skills.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
 import { ClaudeSession, type InjectOutcome, type OnQuestion, type SessionIdleState, type TurnUsage } from './claudeSession.js';
+import { stopCutWork } from './idlestop.js';
 
 // Project facts (facts/<slug>.json) — derived, machine-written state; today just the
 // `depends_on_repos` fact the deps scanner writes at prepare time and the token mint reads.
@@ -517,7 +518,9 @@ export async function openChat(
       if (!s || s.isDead()) return;
       const cut = s.idleState();
       s.markExited();
-      if (notice && (cut.background > 0 || cut.selfTurn)) idleNotify?.(notice);
+      // Only where the stop cut work short (idlestop.ts stopCutWork): every other conversation of
+      // the project ends silently — a stop posts into no thread that had nothing running.
+      if (notice && stopCutWork(cut)) idleNotify?.(notice);
     },
     pendingTurnTakenUp: () => session?.pendingTurnTakenUp() ?? false,
     inject: (text, o) => (session ? session.inject(text, o) : Promise.resolve({ kind: 'refused', reason: 'session not open' } as InjectOutcome)),

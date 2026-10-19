@@ -4,11 +4,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   SandboxActivity,
+  candidateList,
   createIdleSweep,
+  housekeepingSandboxStep,
   idleStopDue,
   idleStopMinutes,
+  idleStopPlan,
+  monoNow,
+  stopCutWork,
   WAKEUP_GRACE_MS,
   type ActivityView,
+  type IdleProject,
   type SandboxUse,
   type StopOutcome,
   type StopRequest,
@@ -47,6 +53,15 @@ test('activity — a tracked call is in flight while it runs and touches at its 
   now = 900;
   await assert.rejects(a.track('proj-x', async () => { throw new Error('exec refused'); }), /exec refused/);
   assert.deepEqual(a.view('proj-x'), { lastActivity: 900, inFlight: 0, parked: false });
+});
+
+test('activity — the default clock is monotonic: a wall-clock jump (a host suspend, an NTP step) is not idle time', (t) => {
+  const a = new SandboxActivity();
+  a.start();
+  a.touch('proj-x');
+  const last = a.view('proj-x').lastActivity;
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() + 2 * 60 * MIN }); // the wall clock jumps two hours
+  assert.ok(monoNow() - last < MIN, 'the idle clock did not move with it');
 });
 
 test('activity — the parked mark survives touches and only unpark clears it', () => {
@@ -110,11 +125,11 @@ test('rule — a held container is never stopped, however long it has been silen
 });
 
 test('rule — a pending wakeup is waited for until two minutes after it is due', () => {
-  assert.deepEqual(due(40, { wakeupDueAt: NOW + 20 * MIN }), { stop: false, reason: 'wakeup' });
-  assert.deepEqual(due(40, { wakeupDueAt: NOW - WAKEUP_GRACE_MS + 1 }), { stop: false, reason: 'wakeup' });
-  assert.deepEqual(due(40, { wakeupDueAt: NOW - 3 * MIN }), { stop: true, idleMs: 40 * MIN });
+  assert.deepEqual(due(40, { wakeupInMs: 20 * MIN }), { stop: false, reason: 'wakeup' });
+  assert.deepEqual(due(40, { wakeupInMs: -WAKEUP_GRACE_MS + 1 }), { stop: false, reason: 'wakeup' });
+  assert.deepEqual(due(40, { wakeupInMs: -3 * MIN }), { stop: true, idleMs: 40 * MIN });
   // A wakeup does not make a recently active container due.
-  assert.deepEqual(due(10, { wakeupDueAt: NOW - 30 * MIN }), { stop: false, reason: 'recent' });
+  assert.deepEqual(due(10, { wakeupInMs: -30 * MIN }), { stop: false, reason: 'recent' });
 });
 
 test('rule — lingering work postpones the stop up to the turn hard cap, then the stop names it', () => {
@@ -137,6 +152,70 @@ test('idleStopMinutes — off at zero or below, the floor below ten, the value o
   assert.deepEqual(idleStopMinutes(0.5), { minutes: 10, raised: true });
   assert.deepEqual(idleStopMinutes(10), { minutes: 10, raised: false });
   assert.deepEqual(idleStopMinutes(45), { minutes: 45, raised: false });
+});
+
+test('idleStopPlan — the minutes and the lines the bot logs when the sweep starts (off, raised to the floor, as set)', () => {
+  assert.deepEqual(idleStopPlan(0), { minutes: 0, info: 'idle stop: off (SANDBOX_AUTOSTOP_MINUTES ≤ 0)' });
+  assert.deepEqual(idleStopPlan(-5), { minutes: 0, info: 'idle stop: off (SANDBOX_AUTOSTOP_MINUTES ≤ 0)' });
+  assert.deepEqual(idleStopPlan(5), {
+    minutes: 10,
+    info: 'idle stop: sandboxes without an idle stop of their own (ssh-docker) stop after 10 min without activity',
+    warn: "SANDBOX_AUTOSTOP_MINUTES=5 is below the idle stop's floor — ssh-docker sandboxes stop after 10 min",
+  });
+  assert.deepEqual(idleStopPlan(30), { minutes: 30, info: 'idle stop: sandboxes without an idle stop of their own (ssh-docker) stop after 30 min without activity' });
+});
+
+test('stopCutWork — a stop is told only where it cut background work or a turn of the CLI\'s own', () => {
+  assert.equal(stopCutWork({ background: 0, selfTurn: false }), false, 'an idle conversation: nothing posted');
+  assert.equal(stopCutWork({ background: 2, selfTurn: false }), true, 'background tasks still listed');
+  assert.equal(stopCutWork({ background: 0, selfTurn: true }), true, 'a turn the CLI started on its own');
+  // Only an unanswered injected message: the deliverer sends it again as a turn — no notice. (A
+  // process that had already ended reports all zeros: claudeSession.test.ts, idle state.)
+  const onlyInjected = { background: 0, injected: 1, selfTurn: false };
+  assert.equal(stopCutWork(onlyInjected), false);
+});
+
+test('housekeepingSandboxStep — wake an asleep sandbox only where the bot stops it again; never create one', () => {
+  const step = (exists: boolean, started: boolean, driverStops: boolean, idleStopOn: boolean) => housekeepingSandboxStep({ exists, started, driverStops, idleStopOn });
+  assert.equal(step(true, true, true, true), 'run');
+  assert.equal(step(true, true, false, false), 'run', 'an awake sandbox runs on every driver, with the stop on or off');
+  assert.equal(step(true, false, true, true), 'wake', 'ssh-docker with the idle stop on: woken, stopped again after the window');
+  assert.equal(step(true, false, true, false), 'skip', 'SANDBOX_AUTOSTOP_MINUTES=0: nothing would stop it again');
+  assert.equal(step(true, false, false, true), 'skip', 'Daytona stops its own sandboxes: waking the fleet nightly would defeat it');
+  assert.equal(step(false, false, true, true), 'skip', 'a missing sandbox is never created');
+});
+
+test('candidateList — registry projects the bot stops, with a project record, by the stored name; one warning per project for a prefix mismatch', () => {
+  const projects: IdleProject[] = [
+    { slug: 'caldora' }, // default driver, default sandbox shape
+    { slug: 'bluefin', sandbox: { privileged: false, dind: false } },
+    { slug: 'harbor', driver: 'daytona' }, // its provider stops it
+    { slug: 'newbie' }, // never had a turn
+    { slug: 'renamed' },
+    { slug: 'broken', sandbox: { privileged: false, dind: true } }, // refused at boot; read as the default
+  ];
+  const stored: Record<string, string> = { caldora: 'proj-caldora', bluefin: 'proj-bluefin', harbor: 'proj-harbor', renamed: 'old-renamed', broken: 'proj-broken' };
+  const warns: string[] = [];
+  const list = candidateList({
+    projects: () => projects,
+    defaultKind: 'ssh-docker',
+    driverStops: (kind) => kind === 'ssh-docker',
+    storedName: (slug) => stored[slug],
+    namePrefix: 'proj-',
+    warn: (l) => warns.push(l),
+  });
+  const expected: SweepCandidate[] = [
+    { slug: 'caldora', name: 'proj-caldora', kind: 'ssh-docker', dind: true },
+    { slug: 'bluefin', name: 'proj-bluefin', kind: 'ssh-docker', dind: false },
+    { slug: 'renamed', name: 'old-renamed', kind: 'ssh-docker', dind: true },
+    { slug: 'broken', name: 'proj-broken', kind: 'ssh-docker', dind: true },
+  ];
+  assert.deepEqual(list(), expected);
+  assert.deepEqual(list(), expected, 'every tick reads the registry again');
+  assert.deepEqual(warns, ["idle stop: project 'renamed' runs in 'old-renamed' (state.json) but SANDBOX_NAME_PREFIX gives 'proj-renamed' — the idle stop follows the stored name"], 'once per bot start');
+  projects.push({ slug: 'added' }); // /aven reload
+  stored.added = 'proj-added';
+  assert.deepEqual(list().at(-1), { slug: 'added', name: 'proj-added', kind: 'ssh-docker', dind: true });
 });
 
 // ── the sweep ──────────────────────────────────────────────────────────────
@@ -270,6 +349,46 @@ test('sweep — the host does not answer: one warning, backoff 1, 2, 4 … 15 mi
   h.now = 91 * MIN;
   await s.tick();
   assert.deepEqual(h.infos, ["idle stop of 'proj-caldora' works again", "sandbox 'proj-caldora' stopped after 91 min idle (ssh-docker, 0.4s)"]);
+});
+
+test('sweep — a re-check that finds work after a failure is no proof the host is back: no "works again", the outage goes on without a new warning', async () => {
+  const { h, s } = sweep([cand('caldora')]);
+  h.outcomes.set('proj-caldora', new Error('ssh: connect to host sandboxes.example port 22: Connection refused'));
+  h.now = 31 * MIN;
+  await s.tick();
+  assert.equal(h.warns.length, 1);
+  h.outcomes.set('proj-caldora', async () => ({ kind: 'skipped' })); // a turn arrived while the stop waited for the lock
+  h.now = 32 * MIN;
+  await s.tick();
+  assert.deepEqual(h.infos, [], 'the host was not asked');
+  h.outcomes.set('proj-caldora', new Error('ssh: connect to host sandboxes.example port 22: Connection refused'));
+  h.now = 33 * MIN;
+  await s.tick();
+  assert.equal(h.warns.length, 1, 'the same outage: no second warning');
+  assert.equal(h.calls.length, 3);
+  h.now = 34 * MIN;
+  await s.tick();
+  assert.equal(h.calls.length, 3, 'and its backoff kept growing (2 min after the second failure)');
+});
+
+test('sweep — an outage that ended while the container had work: the next failure, much later, warns again', async () => {
+  const { h, s } = sweep([cand('caldora')]);
+  h.outcomes.set('proj-caldora', new Error('ssh: connect to host sandboxes.example port 22: Connection refused'));
+  h.now = 31 * MIN;
+  await s.tick();
+  assert.equal(h.warns.length, 1);
+  h.uses.set('caldora', { held: true }); // busy for hours: no stop is tried, so nothing clears the record
+  for (let m = 32; m <= 300; m += 10) {
+    h.now = m * MIN;
+    await s.tick();
+  }
+  assert.equal(h.calls.length, 1);
+  h.uses.delete('caldora');
+  h.now = 400 * MIN; // idle again; the host is down again, a new outage
+  await s.tick();
+  assert.equal(h.calls.length, 2);
+  assert.equal(h.warns.length, 2, 'a new outage gets its own warning');
+  assert.match(h.warns[1]!, /retrying in 1 min$/, 'and starts the backoff over');
 });
 
 test('sweep — a driver kind without a stopper (its provider stops sandboxes itself) is never asked', async () => {

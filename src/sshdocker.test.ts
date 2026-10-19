@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript, transportArgv, LOCAL_HOST, deleteSandboxScript, SshDockerDriver, bootScript, stopSandboxScript, type SshRun, type SshRunOpts } from './sshdocker.js';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript, transportArgv, LOCAL_HOST, deleteSandboxScript, SshDockerDriver, bootScript, stopSandboxScript, runSsh, type SshRun, type SshRunOpts } from './sshdocker.js';
 import type { Config } from './config.js';
 import { sandboxActivity } from './idlestop.js';
 
@@ -59,7 +63,11 @@ test('runningProbeScript — zombie counts as down, the pid must hold this sessi
   assert.ok(s.includes(`grep -q '^State:.*Z'`)); // zombies pass kill -0 — must be excluded
   // Identity, not just liveness: pids restart from 1 with every container start, so a reattach
   // record from before a boot can name a pid some other process holds now.
-  assert.ok(s.includes(`[ "$(readlink /proc/'12345'/fd/0 2>/dev/null)" = '/tmp/aven-sess/claude-sess-1-2/in' ]`));
+  assert.ok(s.startsWith(`f=$(readlink /proc/'12345'/fd/0 2>/dev/null)\n`));
+  assert.ok(s.includes(`[ "$f" = '/tmp/aven-sess/claude-sess-1-2/in' ]`));
+  // An unreadable link (no readlink, a runtime that hides it) is not proof of death: the session's
+  // own pid file decides, as before — never a second claude on a live conversation.
+  assert.ok(s.includes(`{ [ -z "$f" ] && [ "$(cat '/tmp/aven-sess/claude-sess-1-2/pid' 2>/dev/null)" = '12345' ]; }`));
   assert.ok(s.includes('echo up') && s.includes('echo down'));
   assert.throws(() => runningProbeScript('claude-sess-1-2', '1; reboot')); // cmdId round-trips via state.json
   assert.throws(() => runningProbeScript('../x', '12345'));
@@ -215,17 +223,89 @@ test('ensureSandboxScript — the boot step runs after the probes, on stderr, be
   assert.ok(plain.indexOf('AVEN_BOOT') > plain.indexOf('still empty after recycle'), 'after the mount probe too');
 });
 
-test('bootScript — same boot: nothing; first sight of a running container: marker only; any other boot: wipe, marker, guard', () => {
+test('bootScript — a new boot is a changed marker (or first sight of a start); only provably dead sessions go; the dind guard also after an unfinished stop', () => {
   const s = bootScript(true);
   const lines = s.split('\n');
   assert.equal(lines[0], 'd=/tmp/aven-sess');
-  assert.ok(lines.indexOf('[ -n "$AVEN_BOOT" ] || exit 0') < lines.findIndex((l) => l.startsWith('rm -rf')), 'no boot time → nothing is removed');
-  assert.ok(s.includes('[ "$seen" = "$AVEN_BOOT" ] && exit 0'));
-  // A container running since before this step shipped keeps its live sessions.
-  assert.ok(s.includes(`if [ -z "$seen" ] && [ "$AVEN_OUTCOME" = ready ]; then mkdir -p "$d" && printf '%s' "$AVEN_BOOT" > "$d/.boot"; exit 0; fi`));
-  assert.ok(s.includes(`rm -rf "$d"; mkdir -p "$d"; printf '%s' "$AVEN_BOOT" > "$d/.boot"\necho aven:fresh-boot`));
-  assert.ok(s.trim().endsWith('fi'), 'the dockerd guard closes it');
-  assert.equal(bootScript(false).includes('dockerd'), false);
+  assert.ok(s.includes('if [ -n "$AVEN_BOOT" ] && [ "$seen" != "$AVEN_BOOT" ]; then'), 'no boot time, or the same boot → not new');
+  // First sight of a RUNNING container (no marker, `ready`): marker only — its live sessions are not touched.
+  assert.ok(s.includes('  if [ -n "$seen" ] || [ "$AVEN_OUTCOME" != ready ]; then new=1; fi'));
+  // Never the whole directory: each session directory goes unless its pid is alive and reads its FIFO.
+  assert.equal(s.includes('rm -rf "$d"'), false);
+  assert.ok(s.includes(`= "$s/in" ] && continue\n    [ -d "$s" ] && rm -rf "$s"`));
+  const guard = lines.indexOf('if [ -n "$new" ] || [ -e "$d/.dockerd-stopped" ]; then');
+  assert.ok(guard > lines.indexOf('  echo aven:fresh-boot'), 'the guard after the cleanup');
+  assert.equal(lines[guard + 1], '  rm -f "$d/.dockerd-stopped"');
+  assert.ok(lines[guard + 2]!.includes('hk:dockerd='));
+  assert.equal(bootScript(false).includes('dockerd'), false, 'a plain project has no dockerd to bring back');
+});
+
+// The in-container scripts, run for real by the local sh (Linux: /proc), with a temp directory in place of
+// /tmp/aven-sess: a session started by the driver's own script, the probe, and the boot step around it.
+test('session scripts for real — the probe proves identity; a new boot removes only sessions that are provably gone', { skip: process.platform !== 'linux' }, async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'aven-sess-'));
+  const at = (script: string) => script.replaceAll('/tmp/aven-sess', root);
+  const sh = (script: string, env: Record<string, string> = {}) =>
+    execFileSync('sh', ['-c', at(script)], { env: { ...process.env, ...env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const pid = sh(startSessionScript('claude-sess-t-1', 'exec sleep 30')).trim();
+  const holder = existsSync(join(root, 'claude-sess-t-1', 'holder')) ? readFileSync(join(root, 'claude-sess-t-1', 'holder'), 'utf8').trim() : '';
+  t.after(() => {
+    for (const p of [pid, holder]) if (/^\d+$/.test(p)) spawnSync('kill', [p]);
+    rmSync(root, { recursive: true, force: true });
+  });
+  assert.match(pid, /^\d+$/);
+  assert.match(holder, /^\d+$/);
+  for (let i = 0; i < 100; i++) {
+    try {
+      if (readlinkSync(`/proc/${pid}/fd/0`) === join(root, 'claude-sess-t-1', 'in')) break;
+    } catch {
+      /* not open yet */
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  const probe = (key: string, p: string) => sh(runningProbeScript(key, p)).trim();
+  assert.equal(probe('claude-sess-t-1', pid), 'up');
+  assert.equal(probe('claude-sess-t-2', pid), 'down', 'alive, but another session\'s process');
+  assert.equal(probe('claude-sess-t-1', holder), 'down', 'a pid some other process holds now (a reused pid after a restart)');
+  assert.equal(probe('claude-sess-t-1', '4194305'), 'down', 'above any pid_max: never alive');
+
+  const dir = (key: string, p: string) => {
+    mkdirSync(join(root, key), { recursive: true });
+    writeFileSync(join(root, key, 'pid'), p);
+  };
+  const boot = (b: string, outcome: string) => sh(bootScript(false), { AVEN_BOOT: b, AVEN_OUTCOME: outcome }).trim();
+  const left = () => readdirSync(root).sort();
+  const marker = () => readFileSync(join(root, '.boot'), 'utf8');
+  // First sight of a running container (no marker, `ready`): the marker only, nothing removed.
+  dir('claude-sess-dead', '4194305');
+  assert.equal(boot('B0', 'ready'), '');
+  assert.deepEqual(left(), ['.boot', 'claude-sess-dead', 'claude-sess-t-1']);
+  assert.equal(marker(), 'B0');
+  assert.equal(boot('B0', 'ready'), '', 'the same boot: nothing');
+  assert.equal(boot('', 'started'), '', 'no boot time: nothing');
+  assert.deepEqual(left(), ['.boot', 'claude-sess-dead', 'claude-sess-t-1']);
+  // A new boot whose first warm-up could not write the marker, then a session opened in it: the next
+  // warm-up sees a marker from the earlier boot — dead and reused pids go, the live session stays.
+  dir('claude-sess-reused', holder);
+  assert.equal(boot('B1', 'ready'), 'aven:fresh-boot');
+  assert.deepEqual(left(), ['.boot', 'claude-sess-t-1']);
+  assert.equal(marker(), 'B1');
+  assert.equal(probe('claude-sess-t-1', pid), 'up');
+  // A start the bot made (`started`) with no marker at all is a new boot as well.
+  rmSync(join(root, '.boot'));
+  dir('claude-sess-dead', '4194305');
+  assert.equal(boot('B2', 'started'), 'aven:fresh-boot');
+  assert.deepEqual(left(), ['.boot', 'claude-sess-t-1']);
+  assert.ok(existsSync(join(root, 'claude-sess-t-1', 'in')));
+});
+
+test('runSsh — local mode: a timeout ends the whole call, the processes its script started included', { skip: process.platform !== 'linux' }, async () => {
+  const t0 = Date.now();
+  const r = await runSsh(LOCAL_HOST, 'sh -s', { stdin: 'sleep 5\necho finished\n', timeoutMs: 300 });
+  assert.ok(Date.now() - t0 < 3000, `returned after ${Date.now() - t0} ms`);
+  assert.equal(r.stdout.includes('finished'), false);
+  assert.notEqual(r.code, 0);
+  assert.equal((await runSsh(LOCAL_HOST, 'sh -s', { stdin: 'echo hi\n' })).stdout, 'hi\n', 'a call without a timeout as before');
 });
 
 test('stopSandboxScript — by name, labels proven in the same call, the inner dockerd first on dind, then docker stop', () => {
@@ -238,6 +318,8 @@ test('stopSandboxScript — by name, labels proven in the same call, the inner d
   const stop = lines.indexOf(`docker stop -t 10 'proj-caldora' >/dev/null || exit 1`);
   assert.ok(inner > lines.findIndex((l) => l.includes('not-running')) && stop > inner, 'labels → running → inner dockerd → stop');
   assert.ok(lines[inner]!.includes('kill -TERM') && lines[inner]!.includes('/var/run/docker.pid') && lines[inner]!.includes('-lt 30'));
+  // The mark for the boot step comes before the signal: a stop that ends here still gets dockerd back.
+  assert.ok(lines[inner]!.indexOf(': > /tmp/aven-sess/.dockerd-stopped') < lines[inner]!.indexOf('kill -TERM'));
   assert.equal(lines.at(-1), 'echo stopped');
   assert.equal(stopSandboxScript('proj-owen-ops', 'owen-ops', 'coach-aven', false).includes('docker.pid'), false, 'no inner dockerd on a plain project');
   assert.ok(stopSandboxScript('proj-x', 'x', `it's`, false).includes(`[ "$mb" != 'it'\\''s' ]`), 'the label value is quoted');

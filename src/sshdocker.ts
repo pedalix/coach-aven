@@ -110,10 +110,20 @@ export function streamSessionScript(key: string): string {
 // reboot, the idle stop, a restart by hand) can name a pid that some unrelated process holds
 // now, and a bare `kill -0` would pass it. The recorded pid is the `sh -c` the session script
 // started with `< "$d/in"`, so /proc/<pid>/fd/0 resolves to that path (measured, busybox
-// readlink); a recycled pid never does.
+// readlink; every live session of a canary container matched); a recycled pid never does.
+// Where the link cannot be read at all — no readlink in the image, a runtime that hides another
+// process's descriptors — the probe falls back to the liveness rule it had before, tightened by
+// the session's own pid file naming that pid: a live session is never reported gone only because
+// the runtime would not say (that would start a second claude on its conversation), and the
+// directory of a session from a previous boot does not outlive the first warm-up of the next one
+// (bootScript).
 export function runningProbeScript(key: string, pid: string): string {
   const p = sq(safeToken(pid));
-  return `${aliveCond(p)} && [ "$(readlink /proc/${p}/fd/0 2>/dev/null)" = ${sq(`${sessDir(key)}/in`)} ] && echo up || echo down`;
+  const d = sessDir(key);
+  return [
+    `f=$(readlink /proc/${p}/fd/0 2>/dev/null)`,
+    `if ${aliveCond(p)} && { [ "$f" = ${sq(`${d}/in`)} ] || { [ -z "$f" ] && [ "$(cat ${sq(`${d}/pid`)} 2>/dev/null)" = ${p} ]; }; }; then echo up; else echo down; fi`,
+  ].join('\n');
 }
 
 // The boot step of every warm-up (design D8 of sandbox-idle-stop), run inside the container with
@@ -123,25 +133,43 @@ export function runningProbeScript(key: string, pid: string): string {
 //   • no marker and `ready` → write it only: a container this code never saw boot — one running
 //     since before this step existed, whose live sessions must not be touched;
 //   • otherwise (a fresh start, a recycle, a marker from an earlier boot — a container started by
-//     a warm-up whose probe then failed, by a host reboot or by hand) → every session directory
-//     belongs to a process that ended with the old boot: remove them all, write the marker, and
-//     on a dind project bring dockerd back (Daytona's image entrypoint did that on every start;
-//     ssh-docker's `sleep` entrypoint does not, and a continuing conversation never passes chat
-//     prep's guard, so its `sail up -d` would fail after every wake).
+//     a warm-up whose probe then failed, by a host reboot or by hand) → a new boot: remove every
+//     session directory whose process is not provably alive in it (the identity rule of the
+//     probe above, strictly: a directory is kept only if its pid is alive and reads this
+//     directory's FIFO as its stdin — so a session opened in this boot before a failed boot step
+//     could write the marker survives), write the marker, and on a dind project bring dockerd
+//     back (Daytona's image entrypoint did that on every start; ssh-docker's `sleep` entrypoint
+//     does not, and a continuing conversation never passes chat prep's guard, so its
+//     `sail up -d` would fail after every wake).
+// On a dind project the guard also runs, in any boot, when an idle stop left its mark: it stopped
+// the inner dockerd, and then the container did not stop (`docker stop` failed, or the bot died
+// in between) — same boot, no dockerd, and nothing else would bring it back for a continuing
+// conversation.
 // Prints `aven:fresh-boot` and the guard's `hk:dockerd=` marker (the caller sends both to stderr).
 // An empty boot time (the inspect failed) removes nothing.
 export function bootScript(dind: boolean): string {
   return [
     `d=${SESS_BASE}`,
-    `[ -n "$AVEN_BOOT" ] || exit 0`,
     `seen=$(cat "$d/.boot" 2>/dev/null)`,
-    `[ "$seen" = "$AVEN_BOOT" ] && exit 0`,
-    `if [ -z "$seen" ] && [ "$AVEN_OUTCOME" = ready ]; then mkdir -p "$d" && printf '%s' "$AVEN_BOOT" > "$d/.boot"; exit 0; fi`,
-    `rm -rf "$d"; mkdir -p "$d"; printf '%s' "$AVEN_BOOT" > "$d/.boot"`,
-    `echo aven:fresh-boot`,
-    ...(dind ? [dockerdGuardCmd()] : []),
+    `new=`,
+    `if [ -n "$AVEN_BOOT" ] && [ "$seen" != "$AVEN_BOOT" ]; then`,
+    `  if [ -n "$seen" ] || [ "$AVEN_OUTCOME" != ready ]; then new=1; fi`,
+    `  mkdir -p "$d" && printf '%s' "$AVEN_BOOT" > "$d/.boot"`,
+    `fi`,
+    `if [ -n "$new" ]; then`,
+    `  for s in "$d"/*/; do`,
+    `    s=\${s%/}`,
+    `    p=$(cat "$s/pid" 2>/dev/null)`,
+    `    [ -n "$p" ] && ${aliveCond('"$p"')} && [ "$(readlink "/proc/$p/fd/0" 2>/dev/null)" = "$s/in" ] && continue`,
+    `    [ -d "$s" ] && rm -rf "$s"`,
+    `  done`,
+    `  echo aven:fresh-boot`,
+    `fi`,
+    ...(dind ? [`if [ -n "$new" ] || [ -e "$d/${DOCKERD_STOPPED_MARK}" ]; then`, `  rm -f "$d/${DOCKERD_STOPPED_MARK}"`, `  ${dockerdGuardCmd()}`, `fi`] : []),
   ].join('\n');
 }
+// Left by an idle stop that stopped the inner dockerd (stopSandboxScript), for the boot step above.
+const DOCKERD_STOPPED_MARK = '.dockerd-stopped';
 
 // Warm the named container and hand back what happened: ready | started | created |
 // revived. The container's own process is just sleep — claude/dockerd/etc. start on
@@ -272,11 +300,16 @@ export function ensureSandboxScript(
 // runs (a Sail stack's database) included. dockerd on SIGTERM stops its containers with their own
 // grace first (measured: an inner container that traps SIGTERM gets it this way, and nothing
 // without). Daytona's stop was graceful there because its image ran dockerd as the entrypoint.
+// Before the signal it leaves a mark in the container: should the outer stop then fail (or the bot
+// die before it), the next warm-up's boot step finds a running container of the same boot with no
+// dockerd, and the mark tells it to bring dockerd back (bootScript).
 export function stopSandboxScript(name: string, slug: string, managedBy: string, dind: boolean): string {
   const n = sq(safeToken(name));
   const innerDockerdStop = [
     `p=$(cat /var/run/docker.pid 2>/dev/null)`,
-    `[ -n "$p" ] && kill -TERM "$p" 2>/dev/null || exit 0`,
+    `[ -n "$p" ] || exit 0`,
+    `mkdir -p ${SESS_BASE} && : > ${SESS_BASE}/${DOCKERD_STOPPED_MARK}`,
+    `kill -TERM "$p" 2>/dev/null || exit 0`,
     `i=0`,
     `while ${aliveCond('"$p"')} && [ $i -lt ${INNER_DOCKERD_STOP_S} ]; do sleep 1; i=$((i+1)); done`,
   ].join('; '); // one line of the host script
@@ -344,17 +377,35 @@ export function transportArgv(host: string, remoteCmd: string): { cmd: string; a
   return { cmd: 'ssh', args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', host, remoteCmd] };
 }
 
-function runSsh(host: string, remoteCmd: string, opts: SshRunOpts = {}): Promise<SshResult> {
+// A timeout must end the whole call. Over ssh, killing ssh does: the remote side goes with the
+// connection. In local mode the remote command runs right here under `sh -c`, and the docker CLIs
+// it started hold the output pipes open after their shell is killed — the call would outlive its
+// timeout by as long as they run, and a hung stop would hold its container's lock (idlestop.ts)
+// with it. So a local call with a timeout runs in a process group of its own, and the timeout
+// kills the group. Calls without a timeout (the session log tail) are spawned exactly as before.
+export function runSsh(host: string, remoteCmd: string, opts: SshRunOpts = {}): Promise<SshResult> {
   return new Promise((resolve, reject) => {
     const t = transportArgv(host, remoteCmd);
+    const group = host === LOCAL_HOST && !!opts.timeoutMs && opts.timeoutMs > 0;
     const child = spawn(t.cmd, t.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
+      ...(group ? { detached: true } : {}),
     });
     let stdout = '';
     let stderr = '';
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (opts.timeoutMs && opts.timeoutMs > 0) {
-      timer = setTimeout(() => child.kill('SIGKILL'), opts.timeoutMs);
+      timer = setTimeout(() => {
+        if (group && child.pid) {
+          try {
+            process.kill(-child.pid, 'SIGKILL');
+            return;
+          } catch {
+            /* the group is gone already — fall through to the child itself */
+          }
+        }
+        child.kill('SIGKILL');
+      }, opts.timeoutMs);
     }
     // Decoded incrementally (src/utf8.ts): a per-chunk toString splits multibyte chars.
     const out = utf8Chunks();
@@ -582,18 +633,20 @@ export class SshDockerDriver implements SandboxDriver {
       );
     }
     // The boot step's markers (bootScript): the old boot's sessions were cleared, and dockerd's
-    // state after the guard. A dockerd that would not start is worth a warning, not a failed
-    // warm-up: turns that need no Sail still work, and chat prep's guard reports it to Sentry.
+    // state after the guard (a new boot, or an idle stop's mark). A dockerd that would not start is
+    // worth a warning, not a failed warm-up: turns that need no Sail still work, and chat prep's
+    // guard reports it to Sentry.
     const fresh = /^aven:fresh-boot$/m.test(r.stderr);
     const dockerd = r.stderr.match(/^hk:dockerd=(\w+)$/m)?.[1];
-    const boot = fresh ? ` — new boot: session files reset${dockerd ? `, dockerd ${dockerd}` : ''}` : '';
+    const notes = [...(fresh ? ['new boot: session files reset'] : []), ...(dockerd ? [`dockerd ${dockerd}`] : [])];
+    const boot = notes.length ? ` — ${notes.join(', ')}` : '';
     // A revive means the host wedged the container under us (exec refused, or a bind
     // mount that attached to nothing) — worth a WARN (it reaches Sentry), not a silent heal.
     if (outcome === 'revived') {
       log.warn(`sandbox '${name}' was up but unhealthy — recycled it (ssh-docker)${boot}:${errTail(r)}`);
     } else if (dockerd === 'failed') {
       log.warn(`sandbox '${name}' ${outcome} (ssh-docker)${boot}`);
-    } else if (outcome !== 'ready' || fresh) {
+    } else if (outcome !== 'ready' || boot) {
       log.info(`sandbox '${name}' ${outcome} (ssh-docker)${boot}`);
     }
     return new SshDockerHandle(this.host, name, true, this.run);

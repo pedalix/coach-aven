@@ -74,7 +74,10 @@ export function isDefaultSandbox(o: ResolvedSandboxOptions): boolean {
 
 // The `managedBy` label every sandbox of this deployment carries, and the filter `/aven status`
 // lists them by. An installation whose sandboxes already carry another value keeps it with
-// SANDBOX_MANAGED_BY (a change orphans nothing — the label is only read for the status listing).
+// SANDBOX_MANAGED_BY. The value must equal the label on the existing containers: the status
+// listing filters by it, and the idle stop (OpenSpec sandbox-idle-stop) stops a container only if
+// the label matches — a mismatch leaves every container running for good, with one
+// `carries managedBy=…` warning per container per bot start.
 export const sandboxManagedBy = (): string => process.env.SANDBOX_MANAGED_BY || 'coach-aven';
 
 // Throwaway sandboxes a tool creates for itself and deletes when it is done — today only the CLI

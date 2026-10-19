@@ -5,16 +5,29 @@
 // conversation touched since a container started kept its process (and the agent's Sail stack
 // kept running) until the container restarted.
 //
-// Three parts, all pure or injected so they are tested without Docker:
+// The parts, all pure or injected so they are tested without Docker:
 //   • SandboxActivity — what the bot did in each container and when (every handle call, every
 //     chunk of session output; recorded by the ssh-docker driver, the one choke point every
 //     caller goes through), the per-container lock that serializes warm-up, peek and stop, and
 //     the parked mark;
 //   • idleStopDue — the rule (design D2): holds never stop, a pending wakeup is waited for,
 //     lingering work postpones up to the turn hard cap, quiet time against the window;
-//   • createIdleSweep — the once-a-minute check that asks the driver to stop a due container,
-//     re-deciding under that container's lock (design D5/D6).
+//   • createIdleSweep and candidateList — the once-a-minute check that asks the driver to stop a
+//     due container, re-deciding under that container's lock (design D5/D6), over the stored
+//     sandbox names of this installation's projects (D10);
+//   • the small decisions around it, each pinned by a test: the configured minutes and the boot
+//     lines (idleStopPlan), whether a stop cut work its conversation must hear about
+//     (stopCutWork), what the nightly housekeeping does with an asleep sandbox
+//     (housekeepingSandboxStep).
 // The engine's view (holds, sessions) comes from turn.ts; the stop itself from the driver.
+//
+// Every duration is measured on the monotonic clock (monoNow), the one the turn watchdog's timers
+// run on. A host suspend or a wall-clock step is not idle time: a laptop that slept for an hour
+// during a turn would otherwise find, at the first check after it wakes, the turn's hold "stuck"
+// and the container "idle", before the watchdog (which did not see that hour either) had any
+// reason to end the turn. Only a wakeup's due time is the CLI's wall-clock time; the engine hands
+// the rule how far away it is (SandboxUse.wakeupInMs).
+import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 
 /** The ssh-docker stop never runs sooner than this after the last activity (design D9). */
 export const IDLE_STOP_FLOOR_MINUTES = 10;
@@ -26,11 +39,16 @@ export const STALE_HOLD_MARGIN_MS = 5 * 60_000;
 export const SWEEP_EVERY_MS = 60_000;
 /** Minutes before a failed stop of one container is tried again, by consecutive failures. */
 const BACKOFF_MINUTES = [1, 2, 4, 8, 15] as const;
+/** A failure this old belongs to an outage that ended while the container had work (no stop was tried). */
+const OUTAGE_OVER_MS = 2 * BACKOFF_MINUTES[BACKOFF_MINUTES.length - 1]! * 60_000;
+
+/** The idle stop's clock: monotonic milliseconds (libuv's, like every timer's), never the wall clock. */
+export const monoNow = (): number => performance.now();
 
 // ── the activity record ─────────────────────────────────────────────────────
 
 export interface ActivityView {
-  lastActivity: number; // epoch ms, never before the sweep started
+  lastActivity: number; // monotonic ms (monoNow), never before the sweep started
   inFlight: number; // calls into the container that have not returned
   parked: boolean; // the sweep has nothing to do here until a warm-up (stopped, missing, foreign)
 }
@@ -43,7 +61,7 @@ export class SandboxActivity {
   private readonly recs = new Map<string, { last: number; inFlight: number; parked: boolean }>();
   private readonly locks = new Map<string, Promise<unknown>>();
 
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(private readonly now: () => number = monoNow) {}
 
   /** The sweep starts: no idle clock counts from before this moment (a restart is not idleness). */
   start(): void {
@@ -121,11 +139,13 @@ export type LingerKind = 'background' | 'injected' | 'self-turn' | 'stale-hold' 
 export interface SandboxUse {
   held: boolean;
   lingering?: Exclude<LingerKind, 'call'>;
-  wakeupDueAt?: number; // the latest pending ScheduleWakeup of the project's live sessions, epoch ms
+  // How far away the latest pending ScheduleWakeup of the project's live sessions is, in ms
+  // (negative once it is due): its due time is the CLI's, on the wall clock.
+  wakeupInMs?: number;
 }
 
 export interface IdleInputs {
-  now: number;
+  now: number; // monotonic, like activity.lastActivity
   autoStopMs: number;
   hardCapMs: number;
   activity: ActivityView;
@@ -143,7 +163,7 @@ export function idleStopDue(i: IdleInputs): IdleDecision {
   const idleMs = i.now - i.activity.lastActivity;
   if (idleMs < i.autoStopMs) return { stop: false, reason: 'recent' };
   // Known due time, bounded by the CLI's one-hour clamp: waited for exactly, not cut at the bound.
-  if (i.use.wakeupDueAt !== undefined && i.now < i.use.wakeupDueAt + WAKEUP_GRACE_MS) return { stop: false, reason: 'wakeup' };
+  if (i.use.wakeupInMs !== undefined && i.use.wakeupInMs > -WAKEUP_GRACE_MS) return { stop: false, reason: 'wakeup' };
   const lingering: LingerKind | undefined = i.use.lingering ?? (i.activity.inFlight > 0 ? 'call' : undefined);
   if (lingering) {
     if (idleMs < Math.max(i.autoStopMs, i.hardCapMs)) return { stop: false, reason: 'lingering' };
@@ -159,6 +179,40 @@ export function idleStopMinutes(configured: number): { minutes: number; raised: 
   return { minutes: configured, raised: false };
 }
 
+/**
+ * The idle stop as the bot process runs it (pollers.ts): the minutes (0 = off: no sweep, and no
+ * housekeeping wake either) and the lines it logs when it starts — the canary's proof of the setting.
+ */
+export function idleStopPlan(configured: number): { minutes: number; info: string; warn?: string } {
+  const { minutes, raised } = idleStopMinutes(configured);
+  if (minutes <= 0) return { minutes: 0, info: 'idle stop: off (SANDBOX_AUTOSTOP_MINUTES ≤ 0)' };
+  return {
+    minutes,
+    info: `idle stop: sandboxes without an idle stop of their own (ssh-docker) stop after ${minutes} min without activity`,
+    ...(raised ? { warn: `SANDBOX_AUTOSTOP_MINUTES=${configured} is below the idle stop's floor — ssh-docker sandboxes stop after ${minutes} min` } : {}),
+  };
+}
+
+/**
+ * Whether a stop cut short work its conversation must hear about (design D7): background tasks the
+ * CLI still listed, or a turn it was running on its own — work whose 🔔 Background update would
+ * otherwise never come. An unanswered injected message is not: the deliverer sends it again as a
+ * turn. A process that had already ended reports nothing (ClaudeSession.idleState).
+ */
+export const stopCutWork = (s: { background: number; selfTurn: boolean }): boolean => s.background > 0 || s.selfTurn;
+
+/**
+ * What the nightly housekeeping pass does with a project's sandbox (design D13): runs in an awake
+ * one; wakes an asleep one only where the bot owns the idle stop AND it is on, so the stop puts it
+ * back to sleep — on a provider that stops its own sandboxes (Daytona), or with
+ * SANDBOX_AUTOSTOP_MINUTES=0, an asleep sandbox is skipped as before; a missing one is never created.
+ */
+export function housekeepingSandboxStep(s: { exists: boolean; started: boolean; driverStops: boolean; idleStopOn: boolean }): 'run' | 'wake' | 'skip' {
+  if (!s.exists) return 'skip';
+  if (s.started) return 'run';
+  return s.driverStops && s.idleStopOn ? 'wake' : 'skip';
+}
+
 // ── the sweep ───────────────────────────────────────────────────────────────
 
 /** One project container the sweep may stop: the stored sandbox name of a project in the registry. */
@@ -167,6 +221,58 @@ export interface SweepCandidate {
   name: string;
   kind: string; // the driver kind, for the stopper and the log line
   dind: boolean; // the stop asks the inner dockerd to shut its containers down first
+}
+
+/** A registry project as the candidate list reads it (projects.ts ProjectConfig). */
+export interface IdleProject {
+  slug: string;
+  driver?: string;
+  sandbox?: SandboxOptions;
+}
+
+export interface CandidateDeps {
+  projects(): readonly IdleProject[]; // the registry as it is now (/aven reload changes it)
+  defaultKind: string; // SANDBOX_DRIVER, for a project without its own `driver`
+  driverStops(kind: string): boolean; // that kind's driver has stopSandbox (Daytona does not)
+  storedName(slug: string): string | undefined; // the project record's sandboxName; none → never had a turn
+  namePrefix: string;
+  warn(line: string): void;
+}
+
+/**
+ * The sweep's candidates (design D10): every registry project on a driver the bot stops, that has a
+ * project record — by the record's STORED sandbox name, the one its turns use (a prefix changed since
+ * the record was made would otherwise point the stop at another container); one warning per project
+ * per bot start when it differs from the prefix's. Never a listing: the stop proves the labels by name.
+ */
+export function candidateList(d: CandidateDeps): () => SweepCandidate[] {
+  const warned = new Set<string>();
+  return () => {
+    const out: SweepCandidate[] = [];
+    for (const p of d.projects()) {
+      const kind = p.driver ?? d.defaultKind;
+      if (!d.driverStops(kind)) continue;
+      const name = d.storedName(p.slug);
+      if (!name) continue;
+      const computed = `${d.namePrefix}${p.slug}`;
+      if (name !== computed && !warned.has(p.slug)) {
+        warned.add(p.slug);
+        d.warn(`idle stop: project '${p.slug}' runs in '${name}' (state.json) but SANDBOX_NAME_PREFIX gives '${computed}' — the idle stop follows the stored name`);
+      }
+      out.push({ slug: p.slug, name, kind, dind: dindOf(p.sandbox) });
+    }
+    return out;
+  };
+}
+
+// The project's dind answer; a block that does not validate (loadProjects refuses it at boot, so only
+// a hand-edited registry gets here) reads as the default shape, docker-in-docker.
+function dindOf(sandbox: SandboxOptions | undefined): boolean {
+  try {
+    return resolveSandboxOptions(sandbox).dind;
+  } catch {
+    return resolveSandboxOptions(undefined).dind;
+  }
 }
 
 /** What the sweep hands a driver's stopSandbox (driver.ts). */
@@ -181,7 +287,7 @@ export interface StopRequest {
 }
 
 export type StopOutcome =
-  | { kind: 'skipped' } // the re-check found work
+  | { kind: 'skipped' } // the re-check found work: the host was not asked
   | { kind: 'stopped'; ms: number }
   | { kind: 'not-running' }
   | { kind: 'missing' }
@@ -195,7 +301,7 @@ export interface SweepDeps {
   use(slug: string): SandboxUse;
   stopped(slug: string, idleMinutes: number): void; // the engine ends the project's sessions
   activity: Pick<SandboxActivity, 'view'>;
-  now(): number;
+  now(): number; // monotonic (monoNow), the activity record's clock
   autoStopMs: number;
   hardCapMs: number;
   log: { info(line: string): void; warn(line: string): void };
@@ -214,12 +320,19 @@ const errMsg = (e: unknown): string => (e instanceof Error ? e.message : String(
 export function createIdleSweep(deps: SweepDeps): { tick(): Promise<void> } {
   let running = false;
   const foreignWarned = new Set<string>();
-  const failures = new Map<string, { count: number; retryAt: number }>();
+  const failures = new Map<string, { count: number; at: number; retryAt: number }>();
   const decide = (c: SweepCandidate): IdleDecision =>
     idleStopDue({ now: deps.now(), autoStopMs: deps.autoStopMs, hardCapMs: deps.hardCapMs, activity: deps.activity.view(c.name), use: deps.use(c.slug) });
 
   async function one(c: SweepCandidate): Promise<void> {
-    const failed = failures.get(c.name);
+    let failed = failures.get(c.name);
+    // Only a stop the host answered ends an outage. A container that had work while the host came
+    // back was never asked, so its record outlives the outage: past twice the longest backoff it is
+    // dropped, and the next failure is a new outage with its own warning.
+    if (failed && deps.now() - failed.at > OUTAGE_OVER_MS) {
+      failures.delete(c.name);
+      failed = undefined;
+    }
     if (failed && deps.now() < failed.retryAt) return;
     if (!decide(c).stop) return;
     const stop = deps.stopper(c.kind);
@@ -242,10 +355,13 @@ export function createIdleSweep(deps: SweepDeps): { tick(): Promise<void> } {
       // A host-level failure: back off per container, one warning per outage (not one a minute).
       const count = (failed?.count ?? 0) + 1;
       const wait = BACKOFF_MINUTES[Math.min(count, BACKOFF_MINUTES.length) - 1]!;
-      failures.set(c.name, { count, retryAt: deps.now() + wait * 60_000 });
+      const at = deps.now();
+      failures.set(c.name, { count, at, retryAt: at + wait * 60_000 });
       if (count === 1) deps.log.warn(`idle stop of '${c.name}' failed: ${errMsg(e)} — retrying in ${wait} min`);
       return;
     }
+    // Work arrived under the lock: no host call was made, so it proves nothing about an outage.
+    if (out.kind === 'skipped') return;
     if (failed) {
       failures.delete(c.name);
       deps.log.info(`idle stop of '${c.name}' works again`);

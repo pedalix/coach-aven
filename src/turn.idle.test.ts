@@ -41,7 +41,7 @@ interface FakeSession {
   asks: number;
 }
 
-function harness(o: { ask?: (s: FakeSession, ctx: { onQuestion?: (q: never[]) => Promise<unknown> }) => Promise<string>; adopt?: () => Promise<{ ok: boolean; status: string; text: string }>; seed?: (store: Store) => void } = {}) {
+function harness(o: { ask?: (s: FakeSession, ctx: { onQuestion?: (q: never[]) => Promise<unknown> }) => Promise<string>; adopt?: () => Promise<{ ok: boolean; status: string; text: string }>; seed?: (store: Store) => void; clock?: () => number } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'aven-idle-'));
   const store = new Store(join(dir, 'state.json'));
   o.seed?.(store);
@@ -79,6 +79,7 @@ function harness(o: { ask?: (s: FakeSession, ctx: { onQuestion?: (q: never[]) =>
     usageLog: new UsageLog(join(dir, 'usage')),
     feedbackLog: new FeedbackLog(join(dir, 'feedback')),
     drafts: new DraftStore(join(dir, 'drafts')),
+    ...(o.clock ? { clock: o.clock } : {}),
   });
   return { engine, store, sessions };
 }
@@ -179,22 +180,34 @@ test('holds — an agent question nobody answers holds; a one-off ask holds; a r
   assert.deepEqual(h3.engine.sandboxUse('alpha'), { held: false });
 });
 
-test('holds — a hold older than the turn hard cap plus the margin stops holding: it lingers as a stale hold', async (t) => {
-  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+test('holds — a hold older than the turn hard cap plus the margin stops holding: it lingers as a stale hold', async () => {
+  let now = 1_000_000; // the idle stop's monotonic clock
   const hang = gate();
-  const { engine } = harness({ ask: async () => (await hang.wait, 'late') });
+  const { engine } = harness({ ask: async () => (await hang.wait, 'late'), clock: () => now });
   const turn = engine.liveTurn(chatDriver(), 'C1', undefined, '1700000000.000001', 'thread:1700000000.000001', ALPHA, 'hang');
   await flush();
-  t.mock.timers.tick(60 * 60_000 + STALE_HOLD_MARGIN_MS - 1000);
+  now += 60 * 60_000 + STALE_HOLD_MARGIN_MS - 1000;
   assert.deepEqual(engine.sandboxUse('alpha'), { held: true });
-  t.mock.timers.tick(2000);
+  now += 2000;
   assert.deepEqual(engine.sandboxUse('alpha'), { held: false, lingering: 'stale-hold' });
   hang.open();
   await turn;
   assert.deepEqual(engine.sandboxUse('alpha'), { held: false });
 });
 
-test('lingering — background tasks, an unanswered injected message, a turn of the CLI\'s own; the latest wakeup of the project', async () => {
+test('holds — measured on the monotonic clock: a wall-clock jump during a turn (a laptop that slept for hours) leaves its hold a hold', async (t) => {
+  const hang = gate();
+  const { engine } = harness({ ask: async () => (await hang.wait, 'late') }); // the real clock (monoNow)
+  const turn = engine.liveTurn(chatDriver(), 'C1', undefined, '1700000000.000001', 'thread:1700000000.000001', ALPHA, 'long');
+  await flush();
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() + 3 * 60 * 60_000 }); // the watchdog's timers did not see these hours either
+  assert.deepEqual(engine.sandboxUse('alpha'), { held: true });
+  t.mock.timers.reset();
+  hang.open();
+  await turn;
+});
+
+test('lingering — background tasks, an unanswered injected message, a turn of the CLI\'s own; the latest wakeup of the project', async (t) => {
   const { engine, sessions } = harness();
   await engine.liveTurn(chatDriver(), 'C1', undefined, '1700000000.000001', 'thread:1700000000.000001', ALPHA, 'one');
   await engine.liveTurn(chatDriver(), 'C1', undefined, '1700000000.000002', 'thread:1700000000.000002', ALPHA, 'two');
@@ -205,10 +218,14 @@ test('lingering — background tasks, an unanswered injected message, a turn of 
   assert.deepEqual(engine.sandboxUse('alpha'), { held: false, lingering: 'self-turn' });
   a2!.state = { background: 0, injected: 1, selfTurn: false };
   assert.deepEqual(engine.sandboxUse('alpha'), { held: false, lingering: 'injected' }, 'injected outranks a self-started turn');
+  // A wakeup's due time is the CLI's, on the wall clock: the rule gets how far away it is.
+  t.mock.timers.enable({ apis: ['Date'], now: 1_000 });
   a1!.state = { background: 2, injected: 0, selfTurn: false, wakeupDueAt: 5_000 };
   a2!.state = { background: 0, injected: 0, selfTurn: false, wakeupDueAt: 9_000 };
   b1!.state = { background: 0, injected: 0, selfTurn: false, wakeupDueAt: 99_000 };
-  assert.deepEqual(engine.sandboxUse('alpha'), { held: false, lingering: 'background', wakeupDueAt: 9_000 }, 'only alpha\'s sessions, the latest wakeup');
+  assert.deepEqual(engine.sandboxUse('alpha'), { held: false, lingering: 'background', wakeupInMs: 8_000 }, 'only alpha\'s sessions, the latest wakeup');
+  t.mock.timers.tick(10_000);
+  assert.equal(engine.sandboxUse('alpha').wakeupInMs, -2_000, 'past due: negative (the rule waits two more minutes)');
 });
 
 test('sandboxStopped — ends only that project\'s live sessions, the notice everywhere but a shadow conversation, coordinates forgotten; the next turn asks the same session', async () => {

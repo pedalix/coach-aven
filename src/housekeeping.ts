@@ -3,8 +3,9 @@
 // Deterministic shell on the routines scheduler, no LLM. This module is the PURE part:
 // building the in-sandbox script and parsing its report — so the guardrails (no volume
 // pruning, threshold-gated deletion, marker format) are pinned by tests. The fire logic
-// (skip-if-busy, skip-if-asleep) lives in pollers.ts; the dockerd guard is also run at
-// every chat prep (project.ts ensureDockerd) so a dead daemon can't linger for days.
+// (skip-if-busy; an asleep sandbox is skipped on Daytona and woken where the bot owns the idle
+// stop and it is on — idlestop.ts housekeepingSandboxStep) lives in pollers.ts; the dockerd guard
+// is also run at every chat prep (project.ts ensureDockerd) so a dead daemon can't linger for days.
 import { cliUpgradeCmd, cliVersionCmd, parseCliMarkers, type CliMarkers } from './cliversion.js';
 
 // Defaults for the `/aven housekeeping on` routine (in ROUTINE_TZ). 04:30: after the
