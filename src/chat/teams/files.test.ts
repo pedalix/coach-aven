@@ -4,7 +4,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { activityShape, hydrateTeamsFiles, resolveShare, shareId, teamsFiles } from './files.js';
+import { createHash } from 'node:crypto';
+import { activityShape, htmlTags, hydrateTeamsFiles, isClientAsset, resolveShare, shareId, teamsFiles } from './files.js';
 import { normalizeMessage, type InboundActivity } from './events.js';
 
 const DIR = new URL('../../fixtures/chat/teams/activities/', import.meta.url).pathname;
@@ -74,13 +75,29 @@ test('activityShape (TEAMS_TRACE): the shape of an activity for the journal — 
     scope: 'channel',
     textLength: 'the brief'.length,
     attachmentTag: false,
+    entities: ['clientInfo'],
+    channelData: ['teamsChannelId', 'teamsTeamId', 'channel', 'team', 'tenant'],
     attachments: [
-      { contentType: 'reference', name: 'brief.docx', contentUrl: 'example.sharepoint.example', content: ['uniqueId', 'fileType'] },
-      { contentType: 'text/html', content: 'string' },
+      { contentType: 'reference', name: 'brief.docx', contentUrl: 'example.sharepoint.example', urlHash: createHash('sha1').update('https://example.sharepoint.example/sites/Platform/Shared Documents/General/brief.docx').digest('hex').slice(0, 8), content: ['uniqueId', 'fileType'] },
+      { contentType: 'text/html', content: 'string', html: ['p'] },
     ],
   });
   const image = JSON.parse(activityShape(load('message-channel-image')));
-  assert.deepEqual(image.attachments[0], { contentType: 'image/*', contentUrl: 'smba.trafficmanager.net', content: 'undefined' });
+  assert.deepEqual({ ...image.attachments[0], urlHash: undefined }, { contentType: 'image/*', contentUrl: 'smba.trafficmanager.net', content: 'undefined', urlHash: undefined });
+  assert.match(image.attachments[0].urlHash, /^[0-9a-f]{8}$/);
   assert.ok(!activityShape(load('message-personal-file')).includes('tempauth'));
   assert.equal(activityShape('x'), '"x"');
+});
+
+test('htmlTags: the markup without its text or values — a file embedded as markup is visible', () => {
+  assert.deepEqual(htmlTags('<p>see <b>this</b></p><attachment id="abc-123"></attachment><img src="https://x.example/a.png" alt=\'p\' width=12/>'), ['p', 'b', 'attachment[id]', 'img[src,alt,width]']);
+  assert.deepEqual(htmlTags('plain text'), []);
+});
+
+test('an emoji or sticker in the text (the client CDN) is not a file; a pasted image beside it is', () => {
+  const emoji = { contentType: 'image/*', contentUrl: 'https://statics.teams.cdn.office.net/evergreen-assets/personal-expressions/v2/assets/emoticons/yes/default/20_f.png' };
+  const pasted = load('message-channel-image').attachments![0]!;
+  assert.deepEqual(teamsFiles([pasted, emoji]).map((f) => f.name), ['pasted-image-1.png']);
+  assert.deepEqual(teamsFiles([emoji]), []);
+  assert.equal(isClientAsset('not a url'), false);
 });
