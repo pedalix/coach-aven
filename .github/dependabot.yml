@@ -1,5 +1,4 @@
-# Dependabot: security updates only (version-update PRs are off — open-pull-requests-limit 0),
-# and the ignore list below applies to both.
+# Dependabot: security updates only (version-update PRs are off — open-pull-requests-limit 0).
 version: 2
 updates:
   - package-ecosystem: npm
@@ -7,7 +6,3 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 0
-    ignore:
-      # Pinned on purpose: the self-hosted Daytona server is frozen (OSS frozen 06/2026), and the SDK
-      # must match it — bump only by hand after testing against the real instance (docs/sandbox-drivers.md).
-      - dependency-name: "@daytonaio/sdk"

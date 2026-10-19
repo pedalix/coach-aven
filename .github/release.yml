@@ -6,6 +6,11 @@ changelog:
     labels:
       - norelease
   categories:
+    # First, so the notes lead with it: label `breaking` a change an installation must act on
+    # before it upgrades (OpenSpec retire-daytona-driver D12).
+    - title: ⚠️ Breaking
+      labels:
+        - breaking
     - title: ✨ Features
       labels:
         - feature

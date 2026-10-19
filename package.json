@@ -25,7 +25,6 @@
     "release": "bash scripts/release.sh"
   },
   "dependencies": {
-    "@daytonaio/sdk": "0.187.0",
     "@microsoft/teams.api": "2.1.0",
     "@microsoft/teams.apps": "2.1.0",
     "@octokit/auth-app": "^7.1.5",
