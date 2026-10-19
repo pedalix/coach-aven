@@ -9,7 +9,7 @@
 
 import express from 'express';
 import { App, ExpressAdapter } from '@microsoft/teams.apps';
-import type { Config } from '../../config.js';
+import type { Config, TeamsConfig } from '../../config.js';
 import { Store } from '../../state.js';
 import { loadProjects, type RegistryRef, resolveByChannel } from '../../projects.js';
 import { createTurnEngine } from '../../turn.js';
@@ -24,6 +24,7 @@ import { setAlertSink, summary, type AlertLevel } from '../slack/blocks.js';
 import { teamsDriver, type OutActivity, type TeamsApi } from './driver.js';
 import { registerEvents, type TeamsAppLike } from './events.js';
 import { activityShape } from './files.js';
+import { scrubText } from '../../scrub.js';
 import { withNetRetry } from '../../netretry.js';
 import { log } from '../../log.js';
 import { messagingRuntime } from '../../messaging/runtime.js';
@@ -49,6 +50,28 @@ export async function runTeams(cfg: Config): Promise<void> {
     httpServerAdapter: new ExpressAdapter(server),
     logger: sdkLogger(teams.trace),
   });
+
+  // TEAMS_TRACE=full: every Connector request and response in the journal (method, URL, body — scrubbed,
+  // cut), and every Graph call the file path makes. The interceptor is registered once on the app's
+  // client; clones (apiFor) inherit it. Errors stay the connector()'s to report.
+  if (teams.trace === 'full') {
+    (app.api.http as { use(i: unknown): unknown }).use({
+      request: (ctx: { config: { method?: string; url?: string; data?: unknown } }) => {
+        log.info(`teams-http → ${(ctx.config.method ?? 'get').toUpperCase()} ${ctx.config.url ?? ''}${ctx.config.data !== undefined ? ` ${traced(ctx.config.data, 4000)}` : ''}`);
+        return ctx.config;
+      },
+      response: (ctx: { res: { status?: number; data?: unknown; config?: { method?: string; url?: string } } }) => {
+        log.info(`teams-http ← ${ctx.res.status ?? '?'} ${(ctx.res.config?.method ?? 'get').toUpperCase()} ${ctx.res.config?.url ?? ''}${ctx.res.data !== undefined && ctx.res.data !== '' ? ` ${traced(ctx.res.data, 4000)}` : ''}`);
+        return ctx.res;
+      },
+    });
+  }
+  const tracedFetch: typeof fetch = async (input, init) => {
+    const res = await fetch(input, init);
+    const body = await res.clone().text().catch(() => '');
+    log.info(`teams-graph ${(init?.method ?? 'GET').toUpperCase()} ${String(input)} ← ${res.status}${body ? ` ${traced(body, 4000)}` : ''}`);
+    return res;
+  };
 
   // ── the driver's API seam over the SDK's Connector client ─────────────────
   // Proactive sends (pollers, recovery) need the tenant's service URL; inbound activities carry
@@ -149,6 +172,7 @@ export async function runTeams(cfg: Config): Promise<void> {
       botToken: async () => (await tokens.getBotToken())?.toString(),
       graphToken: async () => (await tokens.getAppGraphToken(tenantId))?.toString(),
       // The team's group id when the activity does not carry it: the Connector's team details, once per team.
+      ...(teams.trace === 'full' ? { fetch: tracedFetch } : {}),
       groupIdOf: async (teamId) => {
         const cached = groupIds.get(teamId);
         if (cached) return cached;
@@ -232,13 +256,28 @@ async function connector<T>(call: string, target: string, fn: () => Promise<T>):
   }
 }
 
+// What a traced body looks like in the journal: JSON, secrets scrubbed, cut at `max` — the same
+// scrubber the model boundary uses (scrub.ts), so a token in a payload never reaches the journal.
+function traced(v: unknown, max = 16_000): string {
+  const text = typeof v === 'string' ? v : JSON.stringify(v) ?? String(v);
+  const out = scrubText(text).text;
+  return out.length > max ? `${out.slice(0, max)}… (${out.length} chars)` : out;
+}
+
 // The SDK logs through its own logger; route it into ours so the journal has one voice. Its debug
-// stream is dropped — except, with TEAMS_TRACE=1, the one line per inbound activity ("Handling activity",
-// the body): it reaches the journal as the activity's shape (files.ts activityShape), for the canary to
-// see what Teams really sent when a file or a message did not come through as expected.
-function sdkLogger(trace = false) {
+// stream is dropped — except, with TEAMS_TRACE: 'shape' logs the one line per inbound activity
+// ("Handling activity", the body) as the activity's shape (files.ts activityShape); 'full' logs that
+// body whole (scrubbed) and every other debug line, for a staging installation collecting what Teams
+// really sends when a file or a message does not come through as expected.
+function sdkLogger(trace: TeamsConfig['trace'] = 'off') {
+  const debug =
+    trace === 'full'
+      ? (...a: unknown[]) => log.info(a[0] === 'Handling activity' ? `teams-trace: ${traced(a[1])}` : `teams-sdk-debug: ${a.map((x) => (typeof x === 'string' ? x : traced(x, 4000))).join(' ')}`)
+      : trace === 'shape'
+        ? (...a: unknown[]) => { if (a[0] === 'Handling activity') log.info(`teams-trace: ${activityShape(a[1])}`); }
+        : () => {};
   const l = {
-    debug: trace ? (...a: unknown[]) => { if (a[0] === 'Handling activity') log.info(`teams-trace: ${activityShape(a[1])}`); } : () => {},
+    debug,
     info: (...a: unknown[]) => log.info(`teams-sdk: ${a.map(String).join(' ')}`),
     warn: (...a: unknown[]) => log.warn(`teams-sdk: ${a.map(String).join(' ')}`),
     error: (...a: unknown[]) => log.error(`teams-sdk: ${a.map(String).join(' ')}`),

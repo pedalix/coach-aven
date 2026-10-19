@@ -26,6 +26,12 @@ import type { TeamsActionCtx, TeamsChatDriver } from './driver.js';
 import { RecentSet } from '../../recent.js';
 import { log } from '../../log.js';
 
+// A failure on the file path is journaled (and so reaches Sentry) with what was being done, never swallowed.
+const failed = (what: string) => (e: unknown) => {
+  log.error(`teams files: ${what}: ${e instanceof Error ? e.message : String(e)}`);
+  return undefined;
+};
+
 // The slice of a Bot Framework activity we read. Typed here, not with the SDK's classes, so
 // the normalizers stay pure and the fixtures stay plain JSON.
 export interface InboundActivity {
@@ -92,14 +98,14 @@ export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kin
     files: async () => {
       if (files.length) return hydrateTeamsFiles(files, tokens!, tokens!.fetch);
       if (!late) return undefined;
-      const groupId = team?.aadGroupId ?? (team?.id && tokens!.groupIdOf ? await tokens!.groupIdOf(team.id).catch(() => undefined) : undefined);
+      const groupId = team?.aadGroupId ?? (team?.id && tokens!.groupIdOf ? await tokens!.groupIdOf(team.id).catch(failed(`the group id of team ${team.id}`)) : undefined);
       if (!groupId) {
         log.warn(`teams files: no group id for the channel message ${late.messageId} (team ${team?.id ?? 'unknown'}) — an upload cannot be read back`);
         return undefined;
       }
-      const graph = await tokens!.graphToken().catch(() => undefined);
+      const graph = await tokens!.graphToken().catch(failed('the Graph token'));
       if (!graph) log.warn(`teams files: no Graph token — the channel message ${late.messageId} cannot be read back for an upload`);
-      const found = graph ? await channelMessageFiles({ ...late, groupId }, graph, tokens!.fetch).catch(() => []) : [];
+      const found = graph ? ((await channelMessageFiles({ ...late, groupId }, graph, tokens!.fetch).catch(failed(`the read-back of ${late.messageId}`))) ?? []) : [];
       return found.length ? hydrateTeamsFiles(found, tokens!, tokens!.fetch) : undefined;
     },
     claim,

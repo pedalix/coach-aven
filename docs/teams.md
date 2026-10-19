@@ -80,7 +80,9 @@ Admins are the installation's operators, full stop: there is no automatic promot
   are split; the card with the buttons rides on the last part.
 - **Secrets.** The client secret rotates yearly by `terraform apply`; update `.env`, restart.
 - **Tracing.** `TEAMS_TRACE=1` adds one journal line per inbound activity (`teams-trace: {…}`): type, scope,
-  text length and the attachments' content types, names and hosts — never the text or a URL. Turn it on when a file
-  or a message does not reach the bot as expected, read what Teams actually sent, turn it off.
+  text length and the attachments' content types, names and hosts — never the text or a URL. `TEAMS_TRACE=full`
+  journals the whole inbound body, every Connector request and response (`teams-http → / ←`) and every Graph call
+  of the file path (`teams-graph`), secrets scrubbed, bodies cut at a few KB — for a staging installation that
+  collects what Teams really sends; people's messages land in the journal, so never on a production one.
 - **Health.** `journalctl -u <service>` shows `Teams bot running (:3978) — N project(s), M channel-bound`
   at boot; `curl -X POST https://<host>/api/messages` must answer 401 (token validation on).

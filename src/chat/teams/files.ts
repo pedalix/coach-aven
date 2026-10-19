@@ -178,26 +178,29 @@ export interface ChannelMessageRef {
 }
 export async function channelMessageFiles(ref: ChannelMessageRef, graphToken: string, fetchFn: typeof fetch = fetch, wait: Sleep = sleep, delays: number[] = READ_BACK_DELAYS_MS): Promise<TeamsFile[]> {
   const root = `https://graph.microsoft.com/v1.0/teams/${ref.groupId}/channels/${encodeURIComponent(ref.channelId)}/messages/${ref.rootId}`;
-  const url = `${ref.messageId === ref.rootId ? root : `${root}/replies/${ref.messageId}`}?$select=id,attachments`;
+  // The whole message, never `$select=id,attachments`: for a reply Graph answers that with 200 and an
+  // EMPTY body (seen on a real tenant 2026-10-19 — the first read-backs died on the JSON parse, silently).
+  const url = ref.messageId === ref.rootId ? root : `${root}/replies/${ref.messageId}`;
   for (let attempt = 0; attempt < delays.length; attempt++) {
     if (delays[attempt]! > 0) await wait(delays[attempt]!);
-    let res: Response;
+    let m: { attachments?: { contentType?: string | null; contentUrl?: string | null; name?: string | null }[] | null };
     try {
-      res = await fetchFn(url, { headers: { Authorization: `Bearer ${graphToken}` } });
+      const res = await fetchFn(url, { headers: { Authorization: `Bearer ${graphToken}` } });
+      if (res.status === 404) {
+        // Not there yet, or gone: the next attempt tells which.
+        log.info(`teams files: Graph read-back of ${ref.messageId}: not found yet (attempt ${attempt + 1})`);
+        continue;
+      }
+      if (!res.ok) {
+        log.warn(`teams files: Graph refused the channel message ${ref.messageId}: HTTP ${res.status}`);
+        return [];
+      }
+      m = (await res.json()) as typeof m;
     } catch (e) {
+      // A network error or a body that is not JSON (the empty 200 above): this attempt, not the file.
       log.warn(`teams files: Graph read-back of ${ref.messageId} failed (attempt ${attempt + 1}): ${e instanceof Error ? e.message : String(e)}`);
       continue;
     }
-    if (res.status === 404) {
-      // Not there yet, or gone: the next attempt tells which.
-      log.info(`teams files: Graph read-back of ${ref.messageId}: not found yet (attempt ${attempt + 1})`);
-      continue;
-    }
-    if (!res.ok) {
-      log.warn(`teams files: Graph refused the channel message ${ref.messageId}: HTTP ${res.status}`);
-      return [];
-    }
-    const m = (await res.json()) as { attachments?: { contentType?: string | null; contentUrl?: string | null; name?: string | null }[] | null };
     const all = m.attachments ?? [];
     const files = teamsFiles(all.map((a) => ({ contentType: a.contentType ?? undefined, contentUrl: a.contentUrl ?? undefined, name: a.name ?? undefined })));
     log.info(`teams files: Graph read-back of ${ref.messageId}: ${all.length} attachment(s), ${files.length} file(s) (attempt ${attempt + 1})`);
@@ -225,14 +228,18 @@ export async function resolveShare(url: string, graphToken: string, fetchFn: typ
 // pipeline reports as "file access not granted" — the person sees why, the turn goes on.
 export async function hydrateTeamsFiles(files: TeamsFile[], tokens: FileTokens, fetchFn: typeof fetch = fetch): Promise<{ refs: AttachmentRef[]; bearer: string }> {
   const refs: AttachmentRef[] = [];
-  const bearer = (await tokens.botToken().catch(() => undefined)) ?? '';
+  const oops = (what: string) => (e: unknown) => {
+    log.error(`teams files: ${what}: ${e instanceof Error ? e.message : String(e)}`);
+    return undefined;
+  };
+  const bearer = (await tokens.botToken().catch(oops('the bot token'))) ?? '';
   let graph: string | undefined | null = null; // null: not asked yet
   for (const f of files) {
     if (f.kind === 'download') refs.push({ name: f.name, url: f.url, mime: f.mime, size: 0, auth: 'none' });
     else if (f.kind === 'image') refs.push({ name: f.name, url: bearer ? f.url : '', mime: f.mime, size: 0 });
     else {
-      if (graph === null) graph = await tokens.graphToken().catch(() => undefined);
-      const item = graph ? await resolveShare(f.url, graph, fetchFn).catch(() => undefined) : undefined;
+      if (graph === null) graph = await tokens.graphToken().catch(oops('the Graph token'));
+      const item = graph ? await resolveShare(f.url, graph, fetchFn).catch(oops(`resolving the share of ${f.name}`)) : undefined;
       refs.push({ name: item?.name ?? f.name, url: item?.downloadUrl ?? '', mime: item?.mime ?? f.mime, size: item?.size ?? 0, auth: 'none' });
     }
   }

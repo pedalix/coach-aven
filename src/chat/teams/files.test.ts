@@ -113,14 +113,17 @@ const GRAPH_MESSAGE = {
   ],
 };
 const GRAPH_ITEM = { name: 'IMG_0001.jpg', size: 4321, file: { mimeType: 'image/jpeg' }, '@microsoft.graph.downloadUrl': 'https://example.sharepoint.example/_layouts/download?tempauth=Y' };
-function graphFetch(seen: string[], status = 200, emptyFirst = 0): typeof fetch {
+function graphFetch(seen: string[], status = 200, emptyFirst = 0, brokenFirst = 0): typeof fetch {
   let reads = 0;
   return (async (url: string, init?: { headers?: Record<string, string> }) => {
     seen.push(`${url} ${init?.headers?.Authorization ?? ''}`);
     if (status !== 200) return { ok: false, status, json: async () => ({}) };
     if (url.includes('/shares/')) return { ok: true, status, json: async () => GRAPH_ITEM };
+    const n = reads++;
+    // Graph's empty 200 (a `$select` on a reply): a body that is not JSON.
+    if (n < brokenFirst) return { ok: true, status, json: async () => { throw new SyntaxError('Unexpected end of JSON input'); } };
     // Teams delivers the activity before the upload is attached in Graph: the first reads see none.
-    const body = reads++ < emptyFirst ? { ...GRAPH_MESSAGE, attachments: [] } : GRAPH_MESSAGE;
+    const body = n < brokenFirst + emptyFirst ? { ...GRAPH_MESSAGE, attachments: [] } : GRAPH_MESSAGE;
     return { ok: true, status, json: async () => body };
   }) as unknown as typeof fetch;
 }
@@ -130,9 +133,9 @@ test('channelMessageFiles: a reply and a root message read back through Graph; o
   const seen: string[] = [];
   const reply = await channelMessageFiles({ groupId: 'g1', channelId: '19:CHANNEL1@thread.tacv2', rootId: '1792148920804', messageId: '1792149166061' }, 'GRAPH', graphFetch(seen), noWait);
   assert.deepEqual(reply, [{ kind: 'reference', name: 'IMG_0001.jpg', url: 'https://example.sharepoint.example/sites/Platform/Shared Documents/General/IMG_0001.jpg', mime: 'image/jpeg' }]);
-  assert.equal(seen[0], 'https://graph.microsoft.com/v1.0/teams/g1/channels/19%3ACHANNEL1%40thread.tacv2/messages/1792148920804/replies/1792149166061?$select=id,attachments Bearer GRAPH');
+  assert.equal(seen[0], 'https://graph.microsoft.com/v1.0/teams/g1/channels/19%3ACHANNEL1%40thread.tacv2/messages/1792148920804/replies/1792149166061 Bearer GRAPH');
   await channelMessageFiles({ groupId: 'g1', channelId: '19:CHANNEL1@thread.tacv2', rootId: '1792148920804', messageId: '1792148920804' }, 'GRAPH', graphFetch(seen), noWait);
-  assert.ok(seen[1]!.startsWith('https://graph.microsoft.com/v1.0/teams/g1/channels/19%3ACHANNEL1%40thread.tacv2/messages/1792148920804?$select='));
+  assert.equal(seen[1], 'https://graph.microsoft.com/v1.0/teams/g1/channels/19%3ACHANNEL1%40thread.tacv2/messages/1792148920804 Bearer GRAPH');
   assert.deepEqual(await channelMessageFiles({ groupId: 'g1', channelId: 'c', rootId: '1', messageId: '2' }, 'GRAPH', graphFetch([], 403), noWait), []);
 });
 
@@ -146,12 +149,12 @@ test('a channel message that arrived without files is read back through Graph on
   const got = await reply.msg.files();
   assert.deepEqual(got?.refs.map((r) => [r.name, r.url, r.mime, r.size, r.auth]), [['IMG_0001.jpg', 'https://example.sharepoint.example/_layouts/download?tempauth=Y', 'image/jpeg', 4321, 'none']]);
   assert.equal(seen.length, 2, 'the message, then its share');
-  assert.ok(seen[0]!.includes('/replies/1792149166061?'));
+  assert.ok(seen[0]!.includes('/replies/1792149166061 '));
   assert.ok(seen[1]!.includes('/shares/u!'));
   // A root mention: the message itself, not a reply.
   const mention = normalizeMessage(load('message-channel-mention'), TENANT, () => true, { ...tokens, fetch: graphFetch(seen) });
   if (mention.kind === 'mention') await mention.msg.files();
-  assert.ok(seen[2]!.includes('/messages/1792148920804?$select='));
+  assert.ok(seen[2]!.includes('/messages/1792148920804 '));
   // Nothing to read back: a 1:1 message, an activity that carried its files, no tokens at all.
   const dm = normalizeMessage(load('message-personal'), TENANT, () => true, { ...tokens, fetch: graphFetch(seen) });
   if (dm.kind === 'message') assert.equal(await dm.msg.files(), undefined);
@@ -197,4 +200,13 @@ test('read-back without aadGroupId in the activity: the group id comes from the 
   const none = normalizeMessage(stripped, TENANT, () => true, { ...tokens, fetch: graphFetch(seen) });
   if (none.kind === 'message') assert.equal(await none.msg.files(), undefined);
   assert.equal(seen.length, 2, 'no Graph call without a group id');
+});
+
+test('read-back: a 200 whose body is not JSON (Graph on a reply with $select) is one failed attempt, not a silent end', async () => {
+  const waited: number[] = [];
+  const seen: string[] = [];
+  const found = await channelMessageFiles({ groupId: 'g1', channelId: 'c', rootId: '1', messageId: '2' }, 'GRAPH', graphFetch(seen, 200, 0, 1), async (ms) => { waited.push(ms); });
+  assert.equal(found.length, 1);
+  assert.equal(seen.length, 2);
+  assert.deepEqual(waited, [READ_BACK_DELAYS_MS[1]]);
 });

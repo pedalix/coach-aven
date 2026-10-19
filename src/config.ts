@@ -246,9 +246,10 @@ export interface TeamsConfig {
   statusMinMs: number;
   operators: string[];
   targeted: boolean;
-  // TEAMS_TRACE=1: one journal line per inbound activity with its shape (type, scope, attachment content
-  // types/names/hosts) — what Teams really sends, for a file the driver did not recognise. Never the text.
-  trace: boolean;
+  // TEAMS_TRACE: 'shape' (=1) — one journal line per inbound activity with its shape (type, scope, attachment
+  // content types/names/hosts), never the text; 'full' — the whole inbound body and every API request and
+  // response, secrets scrubbed, for a staging installation collecting what Teams really sends. Else 'off'.
+  trace: 'off' | 'shape' | 'full';
 }
 
 // Any of the three TEAMS_* ids set → all three must be (a half-configured Teams installation
@@ -268,7 +269,7 @@ function teamsConfig(): TeamsConfig | undefined {
     statusMinMs: num('TEAMS_STATUS_MIN_MS', 2000),
     operators: (process.env.TEAMS_OPERATORS || '').split(',').map((s) => s.trim()).filter(Boolean),
     targeted: process.env.TEAMS_TARGETED === '1',
-    trace: process.env.TEAMS_TRACE === '1',
+    trace: process.env.TEAMS_TRACE === 'full' ? 'full' : process.env.TEAMS_TRACE === '1' ? 'shape' : 'off',
   };
 }
 
