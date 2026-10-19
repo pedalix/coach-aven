@@ -224,7 +224,7 @@ interface Harness {
   now: number;
   activity: SandboxActivity;
   uses: Map<string, SandboxUse>;
-  stopped: { slug: string; minutes: number; parkedAtCall: boolean }[];
+  stopped: { slug: string; minutes: number; cut: string[]; parkedAtCall: boolean }[];
   infos: string[];
   warns: string[];
   calls: string[];
@@ -253,7 +253,7 @@ function sweep(cands: SweepCandidate[], o: { kinds?: Record<string, boolean> } =
             return out;
           },
     use: (slug) => h.uses.get(slug) ?? { held: false },
-    stopped: (slug, minutes) => h.stopped.push({ slug, minutes, parkedAtCall: h.activity.view(`proj-${slug}`).parked }),
+    stopped: (slug, minutes, cut) => h.stopped.push({ slug, minutes, cut: [...cut], parkedAtCall: h.activity.view(`proj-${slug}`).parked }),
     activity: h.activity,
     now: () => h.now,
     autoStopMs: 30 * MIN,
@@ -273,7 +273,7 @@ test('sweep — nothing due, no stop call; due → stopped, sessions ended befor
   h.now = 31 * MIN;
   await s.tick();
   assert.deepEqual(h.calls, ['proj-caldora']);
-  assert.deepEqual(h.stopped, [{ slug: 'caldora', minutes: 31, parkedAtCall: false }], 'onStopped runs before the parked mark');
+  assert.deepEqual(h.stopped, [{ slug: 'caldora', minutes: 31, cut: [], parkedAtCall: false }], 'onStopped runs before the parked mark');
   assert.deepEqual(h.infos, ["sandbox 'proj-caldora' stopped after 31 min idle (ssh-docker, 0.4s)"]);
   assert.deepEqual(h.warns, []);
   h.now = 90 * MIN;
@@ -291,6 +291,25 @@ test('sweep — work that arrives between the first check and the stop: the re-c
   await s.tick();
   assert.deepEqual(h.stopped, []);
   assert.deepEqual([...h.infos, ...h.warns], []);
+});
+
+test('sweep — who hears about a stop is what the re-check read under the lock, not the first look and not the view once the container died', async () => {
+  const { h, s } = sweep([cand('caldora')]);
+  h.uses.set('caldora', { held: false, lingering: 'background', cut: ['thread:1700000000.000009'] }); // the first look
+  h.outcomes.set('proj-caldora', async (req) => {
+    h.uses.set('caldora', { held: false, lingering: 'background', cut: ['thread:1700000000.000001'] }); // while it waited for the lock
+    if (!req.recheck()) return { kind: 'skipped' };
+    // docker stop: the in-container log tails die with PID 1 and their end reaches the bot before the
+    // stop returns — the processes are ended, and list nothing any more, when its handler runs.
+    h.uses.set('caldora', { held: false });
+    req.onStopped();
+    h.activity.park(req.name);
+    return { kind: 'stopped', ms: 300 };
+  });
+  h.now = 61 * MIN;
+  await s.tick();
+  assert.deepEqual(h.stopped.map((x) => x.cut), [['thread:1700000000.000001']]);
+  assert.deepEqual(h.warns, ["sandbox 'proj-caldora' stopped after 61 min idle (ssh-docker, 0.3s) — background tasks were still listed"]);
 });
 
 test('sweep — a stop forced past lingering work warns with its cause', async () => {

@@ -26,7 +26,6 @@ import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './dep
 import { recordSessionCommands, scanProjectSkills } from './skills.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
 import { ClaudeSession, type InjectOutcome, type OnQuestion, type SessionIdleState, type TurnUsage } from './claudeSession.js';
-import { stopCutWork } from './idlestop.js';
 
 // Project facts (facts/<slug>.json) — derived, machine-written state; today just the
 // `depends_on_repos` fact the deps scanner writes at prepare time and the token mint reads.
@@ -121,9 +120,10 @@ export interface ChatSession {
   // process. Read by the engine's sandboxUse (OpenSpec sandbox-idle-stop).
   idleState(): SessionIdleState;
   // The idle stop stopped the sandbox under this conversation's process: end it without a sandbox
-  // call (ClaudeSession.markExited), so the next ask reopens with --resume. With `notice`, a process
-  // that still listed background work or ran a turn of its own says so once through the
-  // idle-notify target — where that work's 🔔 Background update would have gone.
+  // call (ClaudeSession.markExited), so the next ask reopens with --resume. `notice` is given only to
+  // a conversation whose process still listed background work or ran a turn of its own when the stop
+  // was decided (the engine's sandboxUse in the stop's re-check); it is posted once through the
+  // idle-notify target — where that work's 🔔 Background update would have gone (endStoppedSession).
   processEnded(notice?: string): void;
   // Point (or clear) the callback for a background Task/Agent that finishes AFTER its
   // owning turn already settled (see ClaudeSession.onIdleResult). Callers re-set this on
@@ -227,6 +227,20 @@ async function sessionTranscriptValid(
   const path = `/root/.claude/projects/${cwd.replace(/\//g, '-')}/${id}.jsonl`;
   const r = await sandbox.exec(`test -s ${path} && grep -ql '"uuid"' ${path} && echo ok || echo no`);
   return r.result.trim() === 'ok';
+}
+
+/**
+ * ChatSession.processEnded (OpenSpec sandbox-idle-stop, design D7): the idle stop stopped the sandbox
+ * under `session`'s process. End it here, without a sandbox call, unless its log stream's end already
+ * did — usually it has: with --init the in-container tail dies with PID 1, so the stream closes before
+ * `docker stop` returns. Then post `notice` when one is given, either way. Whether to give one is not
+ * decided here: by now the process is ended and lists nothing; the engine decided it before the stop,
+ * while the process still ran (sandboxUse in the stop's re-check, idlestop.ts stopCutWork). Exported
+ * for its test (turn.idle.test.ts drives it over a real ClaudeSession).
+ */
+export function endStoppedSession(session: ClaudeSession | undefined, notify: ((text: string) => void) | undefined, notice?: string): void {
+  if (session && !session.isDead()) session.markExited();
+  if (notice) notify?.(notice);
 }
 
 export async function openChat(
@@ -513,15 +527,7 @@ export async function openChat(
     injectRefusal: () => (session ? session.injectRefusal() : 'session not open'),
     backgroundTasks: () => session?.backgroundTasks() ?? [],
     idleState: () => session?.idleState() ?? { background: 0, injected: 0, selfTurn: false },
-    processEnded: (notice) => {
-      const s = session;
-      if (!s || s.isDead()) return;
-      const cut = s.idleState();
-      s.markExited();
-      // Only where the stop cut work short (idlestop.ts stopCutWork): every other conversation of
-      // the project ends silently — a stop posts into no thread that had nothing running.
-      if (notice && stopCutWork(cut)) idleNotify?.(notice);
-    },
+    processEnded: (notice) => endStoppedSession(session, idleNotify, notice),
     pendingTurnTakenUp: () => session?.pendingTurnTakenUp() ?? false,
     inject: (text, o) => (session ? session.inject(text, o) : Promise.resolve({ kind: 'refused', reason: 'session not open' } as InjectOutcome)),
     recoverInjected: async (o) => (await ensureSession()).recoverInjected(o),

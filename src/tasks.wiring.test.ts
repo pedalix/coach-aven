@@ -48,13 +48,14 @@ test('openChat — every `new ClaudeSession` in tasks.ts spreads the session wir
   assert.match(src, /const wiring = sessionWiring\(cfg, opts, facts\);/);
 });
 
-// The idle stop's notice (OpenSpec sandbox-idle-stop D7): the engine hands it to every live session of the
-// stopped project, and only the rule in idlestop.ts (stopCutWork, tested there) decides which thread hears
-// it — a regression here would post it into every conversation of a project at every quiet half hour.
-test('openChat — processEnded ends the process first, then posts the stop notice only where stopCutWork says so', () => {
+// The idle stop's notice (OpenSpec sandbox-idle-stop D7): which conversation hears it is decided by the engine
+// before the stop, while the processes still run (sandboxUse in the stop's re-check: idlestop.test.ts,
+// turn.idle.test.ts). The session's end only posts what it is given — also when the log stream's end has
+// already marked the process ended, as it usually has after a stop (endStoppedSession, driven over a real
+// ClaudeSession in turn.idle.test.ts). Pinned here: openChat's processEnded is exactly that, through this
+// conversation's own idle-notify target (where its 🔔 Background updates go).
+test('openChat — processEnded hands its notice to endStoppedSession with this conversation\'s idle-notify target', () => {
   const src = readFileSync(new URL('./tasks.ts', import.meta.url), 'utf8');
-  const body = src.slice(src.indexOf('processEnded: (notice) => {'), src.indexOf('pendingTurnTakenUp:'));
-  assert.match(body, /const cut = s\.idleState\(\);\s*s\.markExited\(\);/);
-  assert.match(body, /if \(notice && stopCutWork\(cut\)\) idleNotify\?\.\(notice\);/);
-  assert.equal(body.match(/idleNotify/g)?.length, 1, 'no other path posts');
+  assert.match(src, /\n {4}processEnded: \(notice\) => endStoppedSession\(session, idleNotify, notice\),\n/);
+  assert.equal(src.match(/endStoppedSession\(/g)?.length, 2, 'its definition and that one call');
 });

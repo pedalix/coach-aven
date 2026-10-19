@@ -62,13 +62,14 @@ test('runningProbeScript — zombie counts as down, the pid must hold this sessi
   assert.ok(s.includes(`kill -0 '12345'`));
   assert.ok(s.includes(`grep -q '^State:.*Z'`)); // zombies pass kill -0 — must be excluded
   // Identity, not just liveness: pids restart from 1 with every container start, so a reattach
-  // record from before a boot can name a pid some other process holds now.
-  assert.ok(s.startsWith(`f=$(readlink /proc/'12345'/fd/0 2>/dev/null)\n`));
-  assert.ok(s.includes(`[ "$f" = '/tmp/aven-sess/claude-sess-1-2/in' ]`));
-  // An unreadable link (no readlink, a runtime that hides it) is not proof of death: the session's
-  // own pid file decides, as before — never a second claude on a live conversation.
-  assert.ok(s.includes(`{ [ -z "$f" ] && [ "$(cat '/tmp/aven-sess/claude-sess-1-2/pid' 2>/dev/null)" = '12345' ]; }`));
-  assert.ok(s.includes('echo up') && s.includes('echo down'));
+  // record from before a boot can name a pid some other process holds now. An unreadable link (no
+  // readlink, a runtime that hides it) is not proof of death: the session's own pid file decides, as
+  // before — never a second claude on a live conversation.
+  assert.ok(
+    s.includes(
+      `&& { f=$(readlink /proc/'12345'/fd/0 2>/dev/null); [ "$f" = '/tmp/aven-sess/claude-sess-1-2/in' ] || { [ -z "$f" ] && [ "$(cat '/tmp/aven-sess/claude-sess-1-2/pid' 2>/dev/null)" = '12345' ]; }; }; then echo up; else echo down; fi`,
+    ),
+  );
   assert.throws(() => runningProbeScript('claude-sess-1-2', '1; reboot')); // cmdId round-trips via state.json
   assert.throws(() => runningProbeScript('../x', '12345'));
 });
@@ -230,9 +231,16 @@ test('bootScript — a new boot is a changed marker (or first sight of a start);
   assert.ok(s.includes('if [ -n "$AVEN_BOOT" ] && [ "$seen" != "$AVEN_BOOT" ]; then'), 'no boot time, or the same boot → not new');
   // First sight of a RUNNING container (no marker, `ready`): marker only — its live sessions are not touched.
   assert.ok(s.includes('  if [ -n "$seen" ] || [ "$AVEN_OUTCOME" != ready ]; then new=1; fi'));
-  // Never the whole directory: each session directory goes unless its pid is alive and reads its FIFO.
+  // Never the whole directory: each session directory goes unless the probe's own rule calls its process
+  // up — its pid alive and reading its FIFO, or, where that link cannot be read, the pid its pid file names.
   assert.equal(s.includes('rm -rf "$d"'), false);
-  assert.ok(s.includes(`= "$s/in" ] && continue\n    [ -d "$s" ] && rm -rf "$s"`));
+  assert.ok(
+    s.includes(
+      `    [ -n "$p" ] && kill -0 "$p" 2>/dev/null && ! grep -q '^State:.*Z' "/proc/""$p""/status" 2>/dev/null && ` +
+        `{ f=$(readlink /proc/"$p"/fd/0 2>/dev/null); [ "$f" = "$s/in" ] || { [ -z "$f" ] && [ "$(cat "$s/pid" 2>/dev/null)" = "$p" ]; }; } && continue\n` +
+        `    [ -d "$s" ] && rm -rf "$s"`,
+    ),
+  );
   const guard = lines.indexOf('if [ -n "$new" ] || [ -e "$d/.dockerd-stopped" ]; then');
   assert.ok(guard > lines.indexOf('  echo aven:fresh-boot'), 'the guard after the cleanup');
   assert.equal(lines[guard + 1], '  rm -f "$d/.dockerd-stopped"');
@@ -297,6 +305,58 @@ test('session scripts for real — the probe proves identity; a new boot removes
   assert.equal(boot('B2', 'started'), 'aven:fresh-boot');
   assert.deepEqual(left(), ['.boot', 'claude-sess-t-1']);
   assert.ok(existsSync(join(root, 'claude-sess-t-1', 'in')));
+});
+
+// The same scripts where the bot cannot read another process's stdin link (no readlink in the image, a runtime
+// that hides the descriptors): a `readlink` that answers nothing. The probe falls back to the session's own pid
+// file, and the boot step applies that very rule — it never removes the files of a session the probe would
+// call up, which would make the probe call a live process gone and a reattach start a second claude on its
+// conversation (found in the final check: the boot step used to require the readable link).
+test('session scripts for real, the stdin link unreadable — the probe falls back to the pid file; a new boot keeps what the probe calls up', { skip: process.platform !== 'linux' }, async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'aven-sess-'));
+  const bin = mkdtempSync(join(tmpdir(), 'aven-bin-'));
+  writeFileSync(join(bin, 'readlink'), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+  const at = (script: string) => script.replaceAll('/tmp/aven-sess', root);
+  const sh = (script: string, env: Record<string, string> = {}) =>
+    execFileSync('sh', ['-c', at(script)], { env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, ...env }, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const pid = sh(startSessionScript('claude-sess-u-1', 'exec sleep 30')).trim();
+  const holder = existsSync(join(root, 'claude-sess-u-1', 'holder')) ? readFileSync(join(root, 'claude-sess-u-1', 'holder'), 'utf8').trim() : '';
+  t.after(() => {
+    for (const p of [pid, holder]) if (/^\d+$/.test(p)) spawnSync('kill', [p]);
+    rmSync(root, { recursive: true, force: true });
+    rmSync(bin, { recursive: true, force: true });
+  });
+  assert.match(pid, /^\d+$/);
+  assert.match(holder, /^\d+$/);
+  for (let i = 0; i < 100; i++) {
+    try {
+      if (readlinkSync(`/proc/${pid}/fd/0`) === join(root, 'claude-sess-u-1', 'in')) break;
+    } catch {
+      /* not open yet */
+    }
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  assert.match(sh('readlink /proc/self/fd/0; echo "[$?]"'), /^\[[1-9][0-9]*\]\n$/, 'the scripts get no answer from readlink here');
+  const probe = (key: string, p: string) => sh(runningProbeScript(key, p)).trim();
+  assert.equal(probe('claude-sess-u-1', pid), 'up', 'its own pid file names it');
+  assert.equal(probe('claude-sess-u-2', pid), 'down', 'another session\'s key: no pid file of it names this pid');
+  assert.equal(probe('claude-sess-u-1', holder), 'down', 'alive, but not the pid its session recorded');
+  assert.equal(probe('claude-sess-u-1', '4194305'), 'down', 'never alive');
+
+  const dir = (key: string, p: string) => {
+    mkdirSync(join(root, key), { recursive: true });
+    writeFileSync(join(root, key, 'pid'), p);
+  };
+  // A marker from an earlier boot: the start after it went unrecorded, and the session above opened since.
+  writeFileSync(join(root, '.boot'), 'B1');
+  dir('claude-sess-dead', '4194305');
+  dir('claude-sess-reused', holder); // an earlier boot's pid file naming a pid some live process holds now
+  assert.equal(sh(bootScript(false), { AVEN_BOOT: 'B2', AVEN_OUTCOME: 'ready' }).trim(), 'aven:fresh-boot');
+  assert.deepEqual(readdirSync(root).sort(), ['.boot', 'claude-sess-reused', 'claude-sess-u-1'], 'the dead pid\'s directory goes');
+  assert.equal(probe('claude-sess-u-1', pid), 'up', 'the live session keeps its files, and the probe still finds it');
+  // The fallback's cost, the rule before the identity check: a directory whose pid file names a pid a live
+  // process holds now is kept, and reads as up. Only where the link cannot be read — with it, the test above.
+  assert.equal(probe('claude-sess-reused', holder), 'up');
 });
 
 test('runSsh — local mode: a timeout ends the whole call, the processes its script started included', { skip: process.platform !== 'linux' }, async () => {
@@ -448,6 +508,38 @@ test('SshDockerDriver.stopSandbox — not ours, not running or missing: parked, 
     /stopSandbox proj-out-down failed \(exit 255\)[\s\S]*Connection refused/,
   );
   assert.equal(sandboxActivity.view('proj-out-down').parked, false);
+});
+
+test('SshDockerDriver.getSandbox — a peek the host never answers ends at its own timeout: the lock opens and the next warm-up runs', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const order: string[] = [];
+  const { driver } = fakeHost(async (_cmd, script, opts) => {
+    if (isPeek(script)) {
+      // A Docker daemon that stopped answering: nothing comes back. Like runSsh, the transport ends the
+      // call at the timeout it was given (in local mode by killing its process group: the runSsh test
+      // above), with no output. A peek given none would hold the container's lock for good.
+      assert.equal(opts.timeoutMs, 30_000, 'a peek runs under the lock: it carries a timeout of its own');
+      await new Promise((r) => setTimeout(r, opts.timeoutMs));
+      order.push('peek-ended');
+      return { code: 1 };
+    }
+    if (isEnsure(script)) {
+      order.push('ensure-script');
+      return { stdout: 'ready\n' };
+    }
+    return {};
+  });
+  const peek = driver.getSandbox('proj-hung'); // nightly housekeeping, /aven memory, the dream journal
+  const wake = driver.ensureSandbox('proj-hung', 'hung'); // the next turn of the project
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(order, [], 'the warm-up waits behind the peek');
+  t.mock.timers.tick(29_999);
+  for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
+  assert.deepEqual(order, []);
+  t.mock.timers.tick(1);
+  assert.equal(await peek, undefined, 'no answer reads as no sandbox, as an unreachable host always did');
+  await wake;
+  assert.deepEqual(order, ['peek-ended', 'ensure-script']);
 });
 
 test('SshDockerDriver — two warm-ups of one container never run their scripts at the same time', async () => {

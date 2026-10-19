@@ -753,7 +753,7 @@ export function createPollers(
         return d?.stopSandbox ? (req) => d.stopSandbox!(req) : undefined;
       },
       use: (slug) => engine.sandboxUse(slug),
-      stopped: (slug, idleMinutes) => engine.sandboxStopped(slug, idleMinutes),
+      stopped: (slug, idleMinutes, cut) => engine.sandboxStopped(slug, idleMinutes, cut),
       activity: sandboxActivity,
       now: monoNow,
       autoStopMs: idleStop.minutes * 60_000,

@@ -15,7 +15,7 @@ import { createDriver } from './driver.js';
 import { fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
 import { STREAM_HARD_MAX_MS, STREAM_MAX_MS, type AskQuestion, type QuestionAnswers, type OnQuestion } from './claudeSession.js';
-import { monoNow, STALE_HOLD_MARGIN_MS, type SandboxUse } from './idlestop.js';
+import { monoNow, STALE_HOLD_MARGIN_MS, stopCutWork, type SandboxUse } from './idlestop.js';
 import { MAX_SLACK_TEXT, errText, alertOps } from './chat/slack/blocks.js';
 import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase, splitTeam } from './teamkeys.js';
@@ -101,11 +101,13 @@ export interface TurnEngine {
   resumeQueuedTurns(driverFor: DriverForTenant, recovering: Map<string, Promise<void>>): void;
   // ── the idle stop (OpenSpec sandbox-idle-stop, design D4/D7) ──
   // What the sweep reads before it stops a project's sandbox: held (a turn being accepted, queued,
-  // running or recovered, a one-off ask), lingering work of its live sessions, a pending wakeup.
+  // running or recovered, a one-off ask), lingering work of its live sessions, a pending wakeup, and
+  // the conversations a stop now would cut short.
   sandboxUse(slug: string): SandboxUse;
   // The sweep stopped the project's sandbox (called under the sandbox's lock): end its live sessions'
   // processes in memory and forget their reattach coordinates; each conversation resumes next time.
-  sandboxStopped(slug: string, idleMinutes: number): void;
+  // `cut` is SandboxUse.cut as the stop's re-check read it, before the container died: those hear why.
+  sandboxStopped(slug: string, idleMinutes: number, cut: readonly string[]): void;
   questions: QuestionRegistry;
   // A turn's tool-call trail (for the "🧭 Show steps" button) — live from the moment the
   // turn is queued, kept after it settles; undefined once evicted or after a restart.
@@ -1368,35 +1370,40 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     let injected = false;
     let selfTurn = false;
     let wakeupDueAt: number | undefined; // the CLI's own due time: wall clock, epoch ms
-    for (const e of live.values()) {
+    const cut: string[] = [];
+    for (const [key, e] of live) {
       if (e.slug !== slug) continue;
       const st = e.chat.idleState();
       background ||= st.background > 0;
       injected ||= st.injected > 0;
       selfTurn ||= st.selfTurn;
       if (st.wakeupDueAt !== undefined) wakeupDueAt = Math.max(wakeupDueAt ?? 0, st.wakeupDueAt);
+      if (stopCutWork(st)) cut.push(key);
     }
     const lingering = background ? 'background' : injected ? 'injected' : selfTurn ? 'self-turn' : stale ? 'stale-hold' : undefined;
     return {
       held: false,
       ...(lingering ? { lingering } : {}),
       ...(wakeupDueAt !== undefined ? { wakeupInMs: wakeupDueAt - Date.now() } : {}),
+      ...(cut.length ? { cut } : {}),
     };
   }
 
   // Under the stopped sandbox's lock, in this order: every live session of the project ends its
   // process in memory (no sandbox call; it stays in the live map, so the next turn only reopens
   // with --resume), then the stored coordinates go in one write (a restart must not reattach by
-  // pid). A conversation whose background work or self-started turn the stop cut short hears it
-  // once — except a shadow conversation, whose idle-notify target is its task's completion rule.
-  function sandboxStopped(slug: string, idleMinutes: number): void {
+  // pid). A conversation whose background work or self-started turn the stop cut short — `cut`, as
+  // the stop's re-check read it while the processes still ran — hears it once, whether or not its
+  // log stream's end has marked its process ended already; except a shadow conversation, whose
+  // idle-notify target is its task's completion rule.
+  function sandboxStopped(slug: string, idleMinutes: number, cut: readonly string[]): void {
     const notice =
       `⏹ The sandbox was stopped after ${idleMinutes} min without activity — the background work still running ` +
       'in this conversation ended with it. Ask me to run it again if you still need the result.';
     for (const [key, e] of live) {
       if (e.slug !== slug) continue;
       try {
-        e.chat.processEnded(isShadowKey(key) ? undefined : notice);
+        e.chat.processEnded(cut.includes(key) && !isShadowKey(key) ? notice : undefined);
       } catch (err) {
         log.warn(`idle stop: ending ${key}'s process failed: ${err instanceof Error ? err.message : String(err)}`);
       }

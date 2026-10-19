@@ -142,6 +142,12 @@ export interface SandboxUse {
   // How far away the latest pending ScheduleWakeup of the project's live sessions is, in ms
   // (negative once it is due): its due time is the CLI's, on the wall clock.
   wakeupInMs?: number;
+  // The conversations (live-session keys) whose process a stop now would cut short (stopCutWork).
+  // Not an input of the rule: the sweep keeps the value its re-check read under the container's
+  // lock, right before the stop, and hands it to the engine once the container stopped (design D7)
+  // — by then the stopped container's log streams have usually ended those processes already, and
+  // with them what they listed.
+  cut?: string[];
 }
 
 export interface IdleInputs {
@@ -197,7 +203,9 @@ export function idleStopPlan(configured: number): { minutes: number; info: strin
  * Whether a stop cut short work its conversation must hear about (design D7): background tasks the
  * CLI still listed, or a turn it was running on its own — work whose 🔔 Background update would
  * otherwise never come. An unanswered injected message is not: the deliverer sends it again as a
- * turn. A process that had already ended reports nothing (ClaudeSession.idleState).
+ * turn. A process that had already ended reports nothing (ClaudeSession.idleState), so it is asked
+ * BEFORE the stop, while the processes still run (the engine's sandboxUse in the stop's re-check:
+ * SandboxUse.cut) — asked after it, the stopped container's log streams have usually ended them.
  */
 export const stopCutWork = (s: { background: number; selfTurn: boolean }): boolean => s.background > 0 || s.selfTurn;
 
@@ -299,7 +307,8 @@ export interface SweepDeps {
   candidates(): SweepCandidate[];
   stopper(kind: string): Stopper | undefined; // undefined: that provider stops its sandboxes itself
   use(slug: string): SandboxUse;
-  stopped(slug: string, idleMinutes: number): void; // the engine ends the project's sessions
+  // The engine ends the project's sessions; `cut` (SandboxUse.cut as the re-check read it) hear why.
+  stopped(slug: string, idleMinutes: number, cut: readonly string[]): void;
   activity: Pick<SandboxActivity, 'view'>;
   now(): number; // monotonic (monoNow), the activity record's clock
   autoStopMs: number;
@@ -321,8 +330,12 @@ export function createIdleSweep(deps: SweepDeps): { tick(): Promise<void> } {
   let running = false;
   const foreignWarned = new Set<string>();
   const failures = new Map<string, { count: number; at: number; retryAt: number }>();
-  const decide = (c: SweepCandidate): IdleDecision =>
-    idleStopDue({ now: deps.now(), autoStopMs: deps.autoStopMs, hardCapMs: deps.hardCapMs, activity: deps.activity.view(c.name), use: deps.use(c.slug) });
+  // One read of the engine's view per decision: the rule's inputs and who a stop now would cut short.
+  const read = (c: SweepCandidate): { decision: IdleDecision; cut: readonly string[] } => {
+    const use = deps.use(c.slug);
+    const decision = idleStopDue({ now: deps.now(), autoStopMs: deps.autoStopMs, hardCapMs: deps.hardCapMs, activity: deps.activity.view(c.name), use });
+    return { decision, cut: use.cut ?? [] };
+  };
 
   async function one(c: SweepCandidate): Promise<void> {
     let failed = failures.get(c.name);
@@ -334,10 +347,15 @@ export function createIdleSweep(deps: SweepDeps): { tick(): Promise<void> } {
       failed = undefined;
     }
     if (failed && deps.now() < failed.retryAt) return;
-    if (!decide(c).stop) return;
+    if (!read(c).decision.stop) return;
     const stop = deps.stopper(c.kind);
     if (!stop) return;
     let decision: IdleDecision | undefined;
+    // Who hears about the stop is fixed by the re-check, under the container's lock, while the
+    // processes still run. Not after: with --init the in-container log tails die with PID 1, so the
+    // stopped container's streams usually end before `docker stop` returns, and an ended process
+    // lists nothing any more (SandboxUse.cut, design D7).
+    let cut: readonly string[] = [];
     const minutes = (): number => (decision?.stop ? Math.floor(decision.idleMs / 60_000) : 0);
     let out: StopOutcome;
     try {
@@ -346,10 +364,10 @@ export function createIdleSweep(deps: SweepDeps): { tick(): Promise<void> } {
         slug: c.slug,
         dind: c.dind,
         recheck: () => {
-          decision = decide(c);
+          ({ decision, cut } = read(c));
           return decision.stop;
         },
-        onStopped: () => deps.stopped(c.slug, minutes()),
+        onStopped: () => deps.stopped(c.slug, minutes(), cut),
       });
     } catch (e) {
       // A host-level failure: back off per container, one warning per outage (not one a minute).

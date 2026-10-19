@@ -99,7 +99,7 @@ than the `--privileged` hammer.
 |---|---|
 | Warm sandbox | `docker run -d --init --name proj-<slug> …` with `sleep` under docker's init and **no restart policy**; dockerd starts via the `ensureDockerd` guard — at chat prep, and at the first warm-up after every start of the container |
 | Auto-stop | **The bot's own** (there is no provider to do it): stopped after `SANDBOX_AUTOSTOP_MINUTES` (default 30, floor 10, `0` = never) without activity — see *Idle stop* below |
-| Wake | `docker start` (retried once) on the first turn after a stop — the idle stop's, or a host/daemon reboot's. Deliberately NOT `--restart unless-stopped`: a daemon-started container races the host filesystem export (Docker Desktop/WSL) and its bind mounts come up empty. Every warm-up also probes each bind mount (non-empty host dir ⇒ non-empty target) and stop+starts a container whose mount attached to nothing. The first warm-up after each start of the container — whoever started it — removes the session directories whose process did not survive the start (a directory stays only while its pid is alive and reads its FIFO) and, on a docker-in-docker project, brings dockerd back before the turn goes on, as a Daytona start did (a boot marker, `/tmp/aven-sess/.boot`, tells a new start from a warm container; the first warm-up of a container already running when this shipped only writes it) |
+| Wake | `docker start` (retried once) on the first turn after a stop — the idle stop's, or a host/daemon reboot's. Deliberately NOT `--restart unless-stopped`: a daemon-started container races the host filesystem export (Docker Desktop/WSL) and its bind mounts come up empty. Every warm-up also probes each bind mount (non-empty host dir ⇒ non-empty target) and stop+starts a container whose mount attached to nothing. The first warm-up after each start of the container — whoever started it — removes the session directories whose process did not survive the start (a directory stays only while its pid is alive and reads its FIFO, or, where the runtime does not let the bot read that link, is the pid its pid file names: the running check's own rule) and, on a docker-in-docker project, brings dockerd back before the turn goes on, as a Daytona start did (a boot marker, `/tmp/aven-sess/.boot`, tells a new start from a warm container; the first warm-up of a container already running when this shipped only writes it) |
 | exec / upload | `docker exec` with the script (or file bytes) piped via stdin — no shell-quoting of payloads |
 | Persistent claude | FIFO + `out.log` under `/tmp/aven-sess/<key>/` in the container; snapshot = `cat`, tail = `tail -f`; survives bot restarts like Daytona session commands. A session counts as running only while its recorded pid is alive and its stdin is that session's FIFO, so a pid reused after a restart never passes (where the runtime does not let the bot read that link at all, the session's own pid file decides, as before). The processes end with an idle stop; the conversation resumes with `--resume` on its next turn |
 | `/aven status` | `docker ps` states mapped to started/stopped (`💤 stopped` for an idle project) |
@@ -125,6 +125,12 @@ wakes it and continues the same conversation.
   started on its own, a call that has not returned, a turn hold older than the hard cap. Past that
   the stop goes ahead with a warning naming the cause, and a conversation whose background work it
   ended gets one 🔔 Background update saying so.
+- **After a bot restart** the bot sees this only for the conversations it has reattached since: a
+  turn that was running is recovered at once, every other conversation at its next turn. Until
+  then, the background tasks, self-started turns and pending wakeups of a conversation are
+  invisible: they neither hold nor postpone the stop, so its process is stopped
+  `SANDBOX_AUTOSTOP_MINUTES` after the bot started, with no notice in its thread. Their results were
+  never posted after a restart anyway (nothing listens until that conversation's next turn).
 - **The stop**: by name, and only if the container's `managedBy`/`project` labels are this
   installation's (checked in the same host call). On a docker-in-docker project the inner dockerd
   gets SIGTERM first and up to 30 s to stop its containers (a Sail stack) with their own grace — a
@@ -141,7 +147,9 @@ wakes it and continues the same conversation.
 - **Log lines**: `sandbox '<name>' stopped after <m> min idle (ssh-docker, <s>s)` (a warning with the
   cause when lingering work was cut), `idle stop of '<name>' failed: …` (one per outage, retried with
   a backoff from 1 to 15 minutes), `idle stop: '<name>' carries managedBy=…` (a container with one of
-  our names and another label: left running, one warning per start of the bot). On a wake:
+  our names and another label: left running, one warning per start of the bot), `sandbox '<name>':
+  no answer to a state check …` (a peek — housekeeping, `/aven memory` — runs under the container's
+  lock, so it gives up after 30 s; it then reads as no sandbox). On a wake:
   `sandbox '<name>' started (ssh-docker) — new boot: session files reset, dockerd restarted`. At the
   bot's start: `idle stop: sandboxes without an idle stop of their own (ssh-docker) stop after <m> min
   without activity`, or `idle stop: off (SANDBOX_AUTOSTOP_MINUTES ≤ 0)`.

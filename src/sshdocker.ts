@@ -104,26 +104,33 @@ export function streamSessionScript(key: string): string {
   ].join('\n');
 }
 
-// The sessionCommandRunning probe: the stream watcher's liveness rule, plus identity — the
-// process's standard input must be THIS session's FIFO. A pid alone is not an identity: pids
-// start again from 1 at every container start, so a reattach record from before a boot (a host
-// reboot, the idle stop, a restart by hand) can name a pid that some unrelated process holds
-// now, and a bare `kill -0` would pass it. The recorded pid is the `sh -c` the session script
-// started with `< "$d/in"`, so /proc/<pid>/fd/0 resolves to that path (measured, busybox
-// readlink; every live session of a canary container matched); a recycled pid never does.
-// Where the link cannot be read at all — no readlink in the image, a runtime that hides another
-// process's descriptors — the probe falls back to the liveness rule it had before, tightened by
-// the session's own pid file naming that pid: a live session is never reported gone only because
-// the runtime would not say (that would start a second claude on its conversation), and the
-// directory of a session from a previous boot does not outlive the first warm-up of the next one
-// (bootScript).
+// A session's process is alive and is that session's own — as a shell condition over three shell
+// words (quoted literals, or "$var" expansions): the pid, the session's FIFO and its pid file.
+// Liveness is the stream watcher's rule; identity is the process's standard input: the recorded pid
+// is the `sh -c` the session script started with `< "$d/in"`, so /proc/<pid>/fd/0 resolves to that
+// path (measured, busybox readlink; every live session of a canary container matched), and a pid
+// that some other process holds now never does. Where the link cannot be read at all — no readlink
+// in the image, a runtime that hides another process's descriptors — the session's own pid file
+// naming that pid decides instead, the rule before the identity check.
+// ONE rule for the probe and the boot step's cleanup (bootScript): a cleanup stricter than the probe
+// removes the files of a session the probe calls up, the probe then calls that live process gone,
+// and a reattach starts a second claude on its conversation and worktree.
+const sessionAliveCond = (pid: string, fifo: string, pidFile: string): string =>
+  `${aliveCond(pid)} && { f=$(readlink /proc/${pid}/fd/0 2>/dev/null); [ "$f" = ${fifo} ] || { [ -z "$f" ] && [ "$(cat ${pidFile} 2>/dev/null)" = ${pid} ]; }; }`;
+
+// The sessionCommandRunning probe (sessionAliveCond). A pid alone is not an identity: pids start
+// again from 1 at every container start, so a reattach record from before a boot (a host reboot,
+// the idle stop, a restart by hand) can name a pid that some unrelated process holds now, and a bare
+// `kill -0` would pass it. The fallback where the link cannot be read keeps a live session from
+// ever being reported gone only because the runtime would not say; its price, only there, is the
+// old rule's: a reattach record from before a boot whose pid a live process holds now reads as up
+// while its session directory is on disk — and that directory can outlast the next boot's first
+// warm-up: a warm-up that first sees the container running removes nothing, and a new boot's
+// cleanup keeps whatever this rule calls up (bootScript).
 export function runningProbeScript(key: string, pid: string): string {
   const p = sq(safeToken(pid));
   const d = sessDir(key);
-  return [
-    `f=$(readlink /proc/${p}/fd/0 2>/dev/null)`,
-    `if ${aliveCond(p)} && { [ "$f" = ${sq(`${d}/in`)} ] || { [ -z "$f" ] && [ "$(cat ${sq(`${d}/pid`)} 2>/dev/null)" = ${p} ]; }; }; then echo up; else echo down; fi`,
-  ].join('\n');
+  return `if ${sessionAliveCond(p, sq(`${d}/in`), sq(`${d}/pid`))}; then echo up; else echo down; fi`;
 }
 
 // The boot step of every warm-up (design D8 of sandbox-idle-stop), run inside the container with
@@ -134,13 +141,13 @@ export function runningProbeScript(key: string, pid: string): string {
 //     since before this step existed, whose live sessions must not be touched;
 //   • otherwise (a fresh start, a recycle, a marker from an earlier boot — a container started by
 //     a warm-up whose probe then failed, by a host reboot or by hand) → a new boot: remove every
-//     session directory whose process is not provably alive in it (the identity rule of the
-//     probe above, strictly: a directory is kept only if its pid is alive and reads this
-//     directory's FIFO as its stdin — so a session opened in this boot before a failed boot step
-//     could write the marker survives), write the marker, and on a dind project bring dockerd
-//     back (Daytona's image entrypoint did that on every start; ssh-docker's `sleep` entrypoint
-//     does not, and a continuing conversation never passes chat prep's guard, so its
-//     `sail up -d` would fail after every wake).
+//     session directory whose process the probe above would not call up (sessionAliveCond, the
+//     same rule: its pid is alive and reads this directory's FIFO as its stdin, or, where that
+//     link cannot be read, is the pid its pid file names — so a session opened in this boot before
+//     a failed boot step could write the marker survives, with or without a readable link), write
+//     the marker, and on a dind project bring dockerd back (Daytona's image entrypoint did that on
+//     every start; ssh-docker's `sleep` entrypoint does not, and a continuing conversation never
+//     passes chat prep's guard, so its `sail up -d` would fail after every wake).
 // On a dind project the guard also runs, in any boot, when an idle stop left its mark: it stopped
 // the inner dockerd, and then the container did not stop (`docker stop` failed, or the bot died
 // in between) — same boot, no dockerd, and nothing else would bring it back for a continuing
@@ -160,7 +167,7 @@ export function bootScript(dind: boolean): string {
     `  for s in "$d"/*/; do`,
     `    s=\${s%/}`,
     `    p=$(cat "$s/pid" 2>/dev/null)`,
-    `    [ -n "$p" ] && ${aliveCond('"$p"')} && [ "$(readlink "/proc/$p/fd/0" 2>/dev/null)" = "$s/in" ] && continue`,
+    `    [ -n "$p" ] && ${sessionAliveCond('"$p"', '"$s/in"', '"$s/pid"')} && continue`,
     `    [ -d "$s" ] && rm -rf "$s"`,
     `  done`,
     `  echo aven:fresh-boot`,
@@ -328,6 +335,9 @@ export function stopSandboxScript(name: string, slug: string, managedBy: string,
 const INNER_DOCKERD_STOP_S = 30;
 // Inspect + the inner dockerd's wait + `docker stop -t 10`, with room to spare.
 const STOP_TIMEOUT_MS = 90_000;
+// A peek is one `docker inspect` (well under a second, ssh included); what it waits for longest is
+// the per-container lock, which this does not count.
+const PEEK_TIMEOUT_MS = 30_000;
 
 // `docker ps` lines ("name\tstate") → the state map /aven status renders. Docker's
 // `running` maps to Daytona's `started`; everything else (exited/created/paused) reads
@@ -383,6 +393,12 @@ export function transportArgv(host: string, remoteCmd: string): { cmd: string; a
 // timeout by as long as they run, and a hung stop would hold its container's lock (idlestop.ts)
 // with it. So a local call with a timeout runs in a process group of its own, and the timeout
 // kills the group. Calls without a timeout (the session log tail) are spawned exactly as before.
+// The price, local mode only: such a call is out of a terminal's reach (Node's `detached` gives it
+// a session of its own). Ctrl-C in the terminal that runs the bot (SIGINT to its foreground process
+// group) or closing that terminal ends the bot but not a timed call it had in flight (a warm-up, a
+// stop, an exec with a timeout): that call runs on until it ends by itself, since its timeout ended
+// with the bot. Under systemd nothing changes: stopping the unit signals every process in its
+// cgroup (KillMode=control-group, the default), whatever its group or session.
 export function runSsh(host: string, remoteCmd: string, opts: SshRunOpts = {}): Promise<SshResult> {
   return new Promise((resolve, reject) => {
     const t = transportArgv(host, remoteCmd);
@@ -517,7 +533,8 @@ class SshDockerHandle implements SandboxHandle {
 
   sessionCommandRunning(sessionKey: string, cmdId: string): Promise<boolean> {
     // cmdId is the in-container pid; the probe also checks that the pid's stdin is this
-    // session's FIFO, so a pid recycled after a container restart reads as gone (see the script).
+    // session's FIFO, so a pid recycled after a container restart reads as gone (where the
+    // runtime lets the bot read that link; see the script for where it does not).
     return this.tracked(async () => {
       const r = await this.inContainer(runningProbeScript(sessionKey, cmdId));
       return r.stdout.trim() === 'up';
@@ -653,15 +670,22 @@ export class SshDockerDriver implements SandboxDriver {
   }
 
   // A peek: never starts anything, records nothing — but waits for a stop of the container that
-  // is under way, and reports the state after it.
+  // is under way, and reports the state after it. It runs under the container's lock, so it has a
+  // timeout of its own: on a Docker daemon that stopped answering, a peek without one (nightly
+  // housekeeping, /aven memory, the dream journal) would hold the lock for good, and every warm-up of
+  // the container would wait behind it — the project's turns sitting at "Preparing…" with no error
+  // instead of failing at the warm-up's own timeout. No answer reads as no sandbox, as an unreachable
+  // host always did, and is logged.
   getSandbox(name: string): Promise<SandboxHandle | undefined> {
     return sandboxActivity.exclusive(name, async () => {
       const r = await this.onHost(
         `docker inspect -f '{{.State.Running}}' ${sq(safeToken(name))} 2>/dev/null || echo missing`,
+        { timeoutMs: PEEK_TIMEOUT_MS },
       );
       const state = r.stdout.trim();
-      if (state !== 'true' && state !== 'false') return undefined;
-      return new SshDockerHandle(this.host, name, state === 'true', this.run);
+      if (state === 'true' || state === 'false') return new SshDockerHandle(this.host, name, state === 'true', this.run);
+      if (state !== 'missing') log.warn(`sandbox '${name}': no answer to a state check (exit ${r.code}) — read as no sandbox${errTail(r)}`);
+      return undefined;
     });
   }
 
