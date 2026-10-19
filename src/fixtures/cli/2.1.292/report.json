@@ -7,13 +7,39 @@
   "anthropicSdk": "0.131.0"
  },
  "transport": "local",
- "date": "2026-10-17",
+ "date": "2026-10-19",
  "models": [
   "claude-haiku-5-5",
   "claude-opus-5-5"
  ],
- "totalCostUsd": 3.898575,
+ "totalCostUsd": 3.983414200000001,
  "scenarios": [
+  {
+   "id": "add-dir-loads-skills",
+   "contract": true,
+   "hypothesis": "A skill folder under each `--add-dir` directory is a session skill: both are listed in `system/init` `skills` (a multi-repo project loads its repos’ skills this way).",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "listed": "[\"probe-alpha\",\"probe-beta\"]"
+     },
+     "costUsd": 0.040798600000000004,
+     "durationMs": 3848
+    }
+   ],
+   "costUsd": 0.040798600000000004,
+   "recording": {
+    "file": "add-dir-loads-skills.jsonl",
+    "sha256": "c54080f6c4abc96b6a3f47f99d0802a46f4f3238fc73dde3868f7f5a9bf1e481"
+   },
+   "transport": "local"
+  },
   {
    "id": "ask-user-question",
    "contract": true,
@@ -1181,6 +1207,32 @@
    "transport": "local"
   },
   {
+   "id": "skill-slash-via-stdin",
+   "contract": true,
+   "hypothesis": "A user message `/<skill> <text>` written to stream-json stdin runs that project skill with the whole text, every line of it, as its arguments; unknown frontmatter keys (`tags`, `examples`) do not stop it from loading.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "result": "SKILL-RAN final-word-xyz"
+     },
+     "costUsd": 0.0440406,
+     "durationMs": 5425
+    }
+   ],
+   "costUsd": 0.0440406,
+   "recording": {
+    "file": "skill-slash-via-stdin.jsonl",
+    "sha256": "e00e6fcbc30c49532b7b953461a37e4327cca9e9d0baee1845a1d826872dfc75"
+   },
+   "transport": "local"
+  },
+  {
    "id": "subagent-background",
    "contract": false,
    "hypothesis": "With a background subagent (the default) the parent turn ends at once; a message then gets its own turn, and the subagent’s report comes as an unsolicited turn.",
@@ -1391,7 +1443,7 @@
  ],
  "catalogue": {
   "assistant": {
-   "count": 187,
+   "count": 190,
    "fields": [
     "agent_id",
     "message",
@@ -1411,7 +1463,7 @@
    ]
   },
   "command_lifecycle": {
-   "count": 35,
+   "count": 38,
    "fields": [
     "command_uuid",
     "session_id",
@@ -1451,7 +1503,7 @@
    ]
   },
   "rate_limit_event": {
-   "count": 41,
+   "count": 43,
    "fields": [
     "rate_limit_info",
     "session_id",
@@ -1488,7 +1540,7 @@
    ]
   },
   "result/success": {
-   "count": 47,
+   "count": 49,
    "fields": [
     "api_error_status",
     "duration_api_ms",
@@ -1639,7 +1691,7 @@
    ]
   },
   "system/init": {
-   "count": 52,
+   "count": 54,
    "fields": [
     "agents",
     "analytics_disabled",
@@ -1745,7 +1797,7 @@
    ]
   },
   "system/thinking_tokens": {
-   "count": 96,
+   "count": 98,
    "fields": [
     "estimated_tokens",
     "estimated_tokens_delta",
@@ -1775,7 +1827,7 @@
    ]
   },
   "user (replay)": {
-   "count": 53,
+   "count": 54,
    "fields": [
     "isReplay",
     "message",
@@ -1796,7 +1848,7 @@
    "frameKind": "assistant",
    "path": "$.thinking_duration_ms",
    "detail": "not declared",
-   "count": 43,
+   "count": 44,
    "first": {
     "file": "ask-user-question.jsonl",
     "line": 6
@@ -1835,10 +1887,10 @@
    "frameKind": "rate_limit_event",
    "path": "$.rate_limit_info.unifiedWindows",
    "detail": "not declared",
-   "count": 41,
+   "count": 43,
    "first": {
-    "file": "ask-user-question.jsonl",
-    "line": 9
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 5
    }
   },
   {
@@ -1874,7 +1926,7 @@
    "frameKind": "result/success",
    "path": "$.first_request_input_tokens",
    "detail": "not declared",
-   "count": 6,
+   "count": 7,
    "first": {
     "file": "echo-at-take-up.jsonl",
     "line": 21
@@ -1900,10 +1952,10 @@
    "frameKind": "result/success",
    "path": "$.safety_stops",
    "detail": "not declared",
-   "count": 47,
+   "count": 49,
    "first": {
-    "file": "ask-user-question.jsonl",
-    "line": 16
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 6
    }
   },
   {
@@ -1913,10 +1965,10 @@
    "frameKind": "result/success",
    "path": "$.subagent_stats",
    "detail": "not declared",
-   "count": 47,
+   "count": 49,
    "first": {
-    "file": "ask-user-question.jsonl",
-    "line": 16
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 6
    }
   },
   {
@@ -1991,9 +2043,9 @@
    "frameKind": "system/init",
    "path": "$.analytics_disabled",
    "detail": "not declared",
-   "count": 52,
+   "count": 54,
    "first": {
-    "file": "ask-user-question.jsonl",
+    "file": "add-dir-loads-skills.jsonl",
     "line": 3
    }
   },
@@ -2004,9 +2056,9 @@
    "frameKind": "system/init",
    "path": "$.memory_paths",
    "detail": "not declared",
-   "count": 52,
+   "count": 54,
    "first": {
-    "file": "ask-user-question.jsonl",
+    "file": "add-dir-loads-skills.jsonl",
     "line": 3
    }
   },
@@ -2017,9 +2069,9 @@
    "frameKind": "system/init",
    "path": "$.messaging_socket_path",
    "detail": "not declared",
-   "count": 52,
+   "count": 54,
    "first": {
-    "file": "ask-user-question.jsonl",
+    "file": "add-dir-loads-skills.jsonl",
     "line": 3
    }
   },
@@ -2030,9 +2082,9 @@
    "frameKind": "system/init",
    "path": "$.per_turn_effort_active",
    "detail": "not declared",
-   "count": 52,
+   "count": 54,
    "first": {
-    "file": "ask-user-question.jsonl",
+    "file": "add-dir-loads-skills.jsonl",
     "line": 3
    }
   },
@@ -2043,9 +2095,9 @@
    "frameKind": "system/init",
    "path": "$.plugins[].source",
    "detail": "not declared",
-   "count": 156,
+   "count": 162,
    "first": {
-    "file": "ask-user-question.jsonl",
+    "file": "add-dir-loads-skills.jsonl",
     "line": 3
    }
   },
@@ -2056,9 +2108,9 @@
    "frameKind": "system/init",
    "path": "$.product_feedback_disabled",
    "detail": "not declared",
-   "count": 52,
+   "count": 54,
    "first": {
-    "file": "ask-user-question.jsonl",
+    "file": "add-dir-loads-skills.jsonl",
     "line": 3
    }
   },
@@ -2121,7 +2173,7 @@
    "frameKind": "command_lifecycle",
    "path": "$",
    "detail": "no declared kind matches its literal fields",
-   "count": 35,
+   "count": 38,
    "first": {
     "file": "cancel-async-message.jsonl",
     "line": 10
@@ -2134,10 +2186,10 @@
    "frameKind": "assistant",
    "path": "$.message.content[].citations",
    "detail": "required, missing",
-   "count": 75,
+   "count": 77,
    "first": {
-    "file": "ask-user-question.jsonl",
-    "line": 7
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 4
    }
   },
   {
@@ -2147,10 +2199,10 @@
    "frameKind": "assistant",
    "path": "$.message.usage.fallback_credit",
    "detail": "required, missing",
-   "count": 187,
+   "count": 190,
    "first": {
-    "file": "ask-user-question.jsonl",
-    "line": 6
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 4
    }
   },
   {
@@ -2160,10 +2212,10 @@
    "frameKind": "assistant",
    "path": "$.message.usage.iterations",
    "detail": "required, missing",
-   "count": 187,
+   "count": 190,
    "first": {
-    "file": "ask-user-question.jsonl",
-    "line": 6
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 4
    }
   },
   {
@@ -2173,10 +2225,10 @@
    "frameKind": "assistant",
    "path": "$.message.usage.output_tokens_details",
    "detail": "required, missing",
-   "count": 187,
+   "count": 190,
    "first": {
-    "file": "ask-user-question.jsonl",
-    "line": 6
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 4
    }
   },
   {
@@ -2186,10 +2238,10 @@
    "frameKind": "assistant",
    "path": "$.message.usage.server_tool_use",
    "detail": "required, missing",
-   "count": 187,
+   "count": 190,
    "first": {
-    "file": "ask-user-question.jsonl",
-    "line": 6
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 4
    }
   },
   {
@@ -2212,10 +2264,10 @@
    "frameKind": "result/success",
    "path": "$.usage.iterations[].model",
    "detail": "required, missing",
-   "count": 46,
+   "count": 48,
    "first": {
-    "file": "ask-user-question.jsonl",
-    "line": 16
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 6
    }
   },
   {
@@ -2329,9 +2381,9 @@
    "frameKind": "user",
    "path": "$.parent_tool_use_id",
    "detail": "required, missing",
-   "count": 68,
+   "count": 70,
    "first": {
-    "file": "ask-user-question.jsonl",
+    "file": "add-dir-loads-skills.jsonl",
     "line": 2
    }
   }
