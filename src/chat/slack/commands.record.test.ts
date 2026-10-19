@@ -214,14 +214,8 @@ C('denied-write-verb', async (t) => {
   await t.receiver.send(cmd('schedule daily 9:00 | x', { team: CLIENT, channel: 'C_CLIENT' }));
 });
 C('status', async (t) => {
-  const saved = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('DAYTONA_')));
-  for (const k of Object.keys(saved)) delete process.env[k];
-  try {
-    t.store.patchChat('thread:9.1', 'alpha', { sessionId: 's' });
-    await t.receiver.send(cmd('status'));
-  } finally {
-    Object.assign(process.env, saved);
-  }
+  t.store.patchChat('thread:9.1', 'alpha', { sessionId: 's' });
+  await t.receiver.send(cmd('status'));
 });
 C('usage', (t) => t.receiver.send(cmd('usage 7')));
 C('usage-client', (t) => t.receiver.send(cmd('usage', { team: CLIENT, channel: 'C_CLIENT' })));
@@ -288,15 +282,8 @@ const withMemory = async (run: () => Promise<void>) => {
 };
 C('memory-index', (t) => withMemory(() => t.receiver.send(cmd('memory', { channel: 'C_MEM' }))));
 C('memory-topic', (t) => withMemory(() => t.receiver.send(cmd('memory deploys', { channel: 'C_MEM' }))));
-C('memory-live-no-sandbox', async (t) => {
-  const saved = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('DAYTONA_')));
-  for (const k of Object.keys(saved)) delete process.env[k];
-  try {
-    await t.receiver.send(cmd('memory live', { channel: 'C_MEM' }));
-  } finally {
-    Object.assign(process.env, saved);
-  }
-});
+// The twin's configuration has no driver settings, so building the driver fails like a missing host.
+C('memory-live-no-sandbox', (t) => t.receiver.send(cmd('memory live', { channel: 'C_MEM' })));
 C('prompt', (t) => t.receiver.send(cmd('prompt')));
 C('prompt-none', (t) => t.receiver.send(cmd('prompt', { channel: 'C_BETA' })));
 C('prompt-unbound', (t) => t.receiver.send(cmd('prompt', { channel: 'C_RANDOM' })));

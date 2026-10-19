@@ -1,11 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_SANDBOX_OPTIONS, assertDeletable, isDefaultSandbox, parseMount, resolveSandboxOptions } from './sandboxopts.js';
+import { DEFAULT_SANDBOX_OPTIONS, assertDeletable, parseMount, resolveSandboxOptions } from './sandboxopts.js';
 
 test('resolveSandboxOptions — absent/empty → fleet defaults (privileged dind, no mounts)', () => {
   assert.deepEqual(resolveSandboxOptions(undefined), DEFAULT_SANDBOX_OPTIONS);
   assert.deepEqual(resolveSandboxOptions({}), DEFAULT_SANDBOX_OPTIONS);
-  assert.equal(isDefaultSandbox(resolveSandboxOptions({})), true);
 });
 
 test('resolveSandboxOptions — unprivileged plain project with a read-only data mount', () => {
@@ -13,7 +12,6 @@ test('resolveSandboxOptions — unprivileged plain project with a read-only data
   assert.equal(o.privileged, false);
   assert.equal(o.dind, false);
   assert.deepEqual(o.mounts, [{ source: '/srv/owen-ops/sources', target: '/data/sources', mode: 'ro' }]);
-  assert.equal(isDefaultSandbox(o), false);
 });
 
 test('resolveSandboxOptions — privileged:false without dind:false is a contradiction', () => {

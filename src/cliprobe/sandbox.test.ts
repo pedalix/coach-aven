@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { claudeLaunch } from '../claudeSession.js';
 import { CLI_PATH_ENV } from '../cliversion.js';
 import type { ExecOpts, SandboxDriver, SandboxHandle } from '../driver.js';
-import { SANDBOX_WORK_DIR, sandboxTransport } from './sandbox.js';
+import { SshDockerDriver } from '../sshdocker.js';
+import { driverFromEnv, SANDBOX_WORK_DIR, sandboxTransport } from './sandbox.js';
 
 // A fake driver whose listing also holds an installation's project sandboxes.
 function fakeDriver(o: { upgradeTo?: string; states?: Record<string, string> } = {}) {
@@ -80,4 +81,24 @@ test('sandboxTransport — the run fails midway: a wrong version after the upgra
   const { driver, calls } = fakeDriver({ upgradeTo: '2.1.260', states: {} });
   await assert.rejects(sandboxTransport({ driver, runId: 'r1', version: '2.1.282', token: 't' }), /runs Claude Code 2\.1\.260 after the upgrade step, not 2\.1\.282/);
   assert.equal(calls.at(-1), 'delete cli-probe-r1');
+});
+
+// The probe's own environment picks the driver (OpenSpec retire-daytona-driver D3): SANDBOX_DRIVER stays
+// required there, and only ssh-docker is accepted — a leftover `daytona` stops the run in the bot's words,
+// before a driver (let alone a sandbox) exists.
+const PROBE_ENV = { SNAPSHOT_IMAGE: 'registry.example/sandbox-plain:1', SSHDOCKER_HOST: 'sandboxes.example' };
+
+test('driverFromEnv — ssh-docker: the bot’s driver, labelled for the report', () => {
+  const d = driverFromEnv({ ...PROBE_ENV, SANDBOX_DRIVER: 'ssh-docker' });
+  assert.ok(d.driver instanceof SshDockerDriver);
+  assert.equal(d.label, 'sandbox (ssh-docker)');
+});
+
+test('driverFromEnv — daytona is refused with the removal and the fix; a missing or unknown SANDBOX_DRIVER names ssh-docker', () => {
+  assert.throws(
+    () => driverFromEnv({ ...PROBE_ENV, SANDBOX_DRIVER: 'daytona' }),
+    (e: Error) => /^SANDBOX_DRIVER is "daytona", but the Daytona sandbox driver was removed and "ssh-docker" is the only driver/.test(e.message) && /keep running the last release that has the Daytona driver/.test(e.message),
+  );
+  assert.throws(() => driverFromEnv(PROBE_ENV), /needs SANDBOX_DRIVER=ssh-docker in the probe’s environment/);
+  assert.throws(() => driverFromEnv({ ...PROBE_ENV, SANDBOX_DRIVER: 'kubernetes' }), /SANDBOX_DRIVER must be "ssh-docker", the only sandbox driver; got "kubernetes"/);
 });
