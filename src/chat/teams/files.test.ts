@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { hydrateTeamsFiles, resolveShare, shareId, teamsFiles } from './files.js';
+import { activityShape, hydrateTeamsFiles, resolveShare, shareId, teamsFiles } from './files.js';
 import { normalizeMessage, type InboundActivity } from './events.js';
 
 const DIR = new URL('../../fixtures/chat/teams/activities/', import.meta.url).pathname;
@@ -66,4 +66,21 @@ test('a message with files tells the core so (hasFiles) only when the adapter ha
   if (n.kind === 'message') assert.equal(n.msg.hasFiles, true);
   const bare = normalizeMessage(a, TENANT);
   if (bare.kind === 'message') assert.equal(bare.msg.hasFiles, false);
+});
+
+test('activityShape (TEAMS_TRACE): the shape of an activity for the journal — no text, no URL', () => {
+  assert.deepEqual(JSON.parse(activityShape(load('message-channel-file'))), {
+    type: 'message',
+    scope: 'channel',
+    textLength: 'the brief'.length,
+    attachmentTag: false,
+    attachments: [
+      { contentType: 'reference', name: 'brief.docx', contentUrl: 'example.sharepoint.example', content: ['uniqueId', 'fileType'] },
+      { contentType: 'text/html', content: 'string' },
+    ],
+  });
+  const image = JSON.parse(activityShape(load('message-channel-image')));
+  assert.deepEqual(image.attachments[0], { contentType: 'image/*', contentUrl: 'smba.trafficmanager.net', content: 'undefined' });
+  assert.ok(!activityShape(load('message-personal-file')).includes('tempauth'));
+  assert.equal(activityShape('x'), '"x"');
 });

@@ -70,6 +70,33 @@ export function teamsFiles(attachments: InboundAttachment[] | undefined): TeamsF
   return out;
 }
 
+/**
+ * The shape of an inbound activity for the journal (TEAMS_TRACE=1, app.ts): type, scope, how long the text
+ * is and whether it carries an `<attachment>` tag, and per attachment the content type, name, the host of
+ * `contentUrl` and the keys of `content` — enough to see what Teams sent for a file the driver ignored,
+ * never the text itself and never a URL (download URLs carry a temporary auth token).
+ */
+export function activityShape(body: unknown): string {
+  if (typeof body !== 'object' || body === null) return JSON.stringify(String(body));
+  const a = body as { type?: string; name?: string; conversation?: { conversationType?: string }; text?: string; attachments?: InboundAttachment[] };
+  const host = (url: string | undefined): string | undefined => {
+    if (!url) return undefined;
+    try {
+      return new URL(url).host;
+    } catch {
+      return url.startsWith('data:') ? 'data:' : '(not a url)';
+    }
+  };
+  const attachments = (a.attachments ?? []).map((x) => ({
+    contentType: x.contentType,
+    name: x.name,
+    contentUrl: host(x.contentUrl),
+    content: x.content && typeof x.content === 'object' ? Object.keys(x.content as object) : typeof x.content,
+  }));
+  const text = a.text ?? '';
+  return JSON.stringify({ type: a.type, ...(a.name ? { name: a.name } : {}), scope: a.conversation?.conversationType, textLength: text.length, attachmentTag: /<attachment\b/i.test(text), attachments });
+}
+
 export interface FileTokens {
   // The bot's own token (the Connector's): reads pasted images.
   botToken(): Promise<string | undefined>;
