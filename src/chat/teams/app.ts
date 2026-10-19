@@ -24,6 +24,7 @@ import { setAlertSink, summary, type AlertLevel } from '../slack/blocks.js';
 import { teamsDriver, type OutActivity, type TeamsApi } from './driver.js';
 import { registerEvents, type TeamsAppLike } from './events.js';
 import { activityShape } from './files.js';
+import { hasReplyChains } from './keys.js';
 import { scrubText } from '../../scrub.js';
 import { withNetRetry } from '../../netretry.js';
 import { log } from '../../log.js';
@@ -139,7 +140,8 @@ export async function runTeams(cfg: Config): Promise<void> {
   const messaging = messagingRuntime({ cfg, store, reg, home: () => tenantId, platform: 'teams' });
   const hostRoutes = createHostRouter({ tz: ROUTINE_TZ, messaging: messaging.messaging });
   const engine = createTurnEngine(cfg, store, reg, { hostRoutes, shadow: messaging.turnDeps });
-  const channels = createChannels(reg, () => tenantId);
+  // Team channels map by id only (teams-chat-driver): no single-project fallback there, 1:1 chats keep it.
+  const channels = createChannels(reg, () => tenantId, { boundOnly: hasReplyChains });
   messaging.start({ engine, driverFor, usageLog: new UsageLog(), tz: ROUTINE_TZ });
   const pollers = createPollers(cfg, store, reg, driverFor, engine, channels, () => tenantId);
 
