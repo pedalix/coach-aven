@@ -45,7 +45,17 @@ export interface Channels {
 // id in the registry still overrides. Names cached per id. Holds the registry REF (not a
 // snapshot) so a runtime config reload is visible immediately. `home()` is late-bound:
 // the home tenant id is only known after the boot auth.test resolves it (slack.ts).
-export function createChannels(reg: RegistryRef, home: () => string | undefined): Channels {
+export interface ChannelsOptions {
+  // Conversations that map to a project ONLY through an explicit binding: the single-project fallback
+  // below never applies to them, and an unbound one is told so. The Teams driver passes its team
+  // channels here (OpenSpec teams-chat-driver: a channel maps by id only; a mention in an unbound
+  // channel gets "not connected" and no turn) — the canary found a mention in a fresh channel driving
+  // the installation's one project. Slack passes nothing: a single-project workspace keeps answering
+  // in any channel the bot is in, as today.
+  boundOnly?: (conversation: string) => boolean;
+}
+
+export function createChannels(reg: RegistryRef, home: () => string | undefined, opts: ChannelsOptions = {}): Channels {
   const prefix = process.env.SLACK_CHANNEL_PREFIX || 'aven-';
   const prefixFor = (tenantId: string | undefined): string =>
     workspacePrefix(reg.current, tenantId) ?? prefix;
@@ -120,14 +130,17 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined)
         }
       }
     }
-    if (!project && mine.length === 1) project = mine[0];
+    const boundOnly = opts.boundOnly?.(channel) === true;
+    if (!project && mine.length === 1 && !boundOnly) project = mine[0];
     if (!project) {
       const slugs = mine.map((p) => p.slug).join(', ');
       return {
         question,
-        error: mine.length
-          ? `This channel isn't bound to a project. Use a \`${p}{project}\` channel (e.g. \`${p}${mine[0].slug}\`), or prefix your question with a slug — one of: ${slugs}.`
-          : `This workspace has no projects configured yet.`,
+        error: !mine.length
+          ? `This workspace has no projects configured yet.`
+          : boundOnly
+            ? `This channel isn't connected to a project — an operator binds a channel to one by its id in the project registry.`
+            : `This channel isn't bound to a project. Use a \`${p}{project}\` channel (e.g. \`${p}${mine[0].slug}\`), or prefix your question with a slug — one of: ${slugs}.`,
       };
     }
     return { project, question };
