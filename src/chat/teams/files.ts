@@ -142,6 +142,35 @@ export interface FileTokens {
   // An application Graph token for the tenant: resolves channel documents; undefined when the
   // tenant has not consented Files.Read.All (the file is then reported as not readable).
   graphToken(): Promise<string | undefined>;
+  // The fetch to use (tests inject a fake); global fetch otherwise.
+  fetch?: typeof fetch;
+}
+
+/**
+ * Where Teams does NOT put a channel upload (seen 2026-10-19 on a real tenant, design D7 amended): the
+ * activity for a message with a file attached through the paperclip in a channel — a reply or a
+ * mention — carries neither the `reference` attachment nor the `<attachment>` tag in its text; the same
+ * message read through Graph has both. So a channel message that arrived without files is read back
+ * with the app's Graph token (RSC `ChannelMessage.Read.Group`, granted when the app was added to the
+ * team) and its `reference` attachments become the channel-document shape `hydrateTeamsFiles` already
+ * resolves through `/shares`. A refusal (no RSC consent, a message gone) is one warning and no files.
+ */
+export interface ChannelMessageRef {
+  groupId: string; // channelData.team.aadGroupId — the team's Microsoft 365 group
+  channelId: string; // `19:…@thread.tacv2`
+  rootId: string; // the thread's root message
+  messageId: string; // the message itself; equal to rootId for a root message
+}
+export async function channelMessageFiles(ref: ChannelMessageRef, graphToken: string, fetchFn: typeof fetch = fetch): Promise<TeamsFile[]> {
+  const root = `https://graph.microsoft.com/v1.0/teams/${ref.groupId}/channels/${encodeURIComponent(ref.channelId)}/messages/${ref.rootId}`;
+  const url = `${ref.messageId === ref.rootId ? root : `${root}/replies/${ref.messageId}`}?$select=id,attachments`;
+  const res = await fetchFn(url, { headers: { Authorization: `Bearer ${graphToken}` } });
+  if (!res.ok) {
+    log.warn(`teams files: Graph refused the channel message ${ref.messageId}: HTTP ${res.status}`);
+    return [];
+  }
+  const m = (await res.json()) as { attachments?: { contentType?: string | null; contentUrl?: string | null; name?: string | null }[] | null };
+  return teamsFiles((m.attachments ?? []).map((a) => ({ contentType: a.contentType ?? undefined, contentUrl: a.contentUrl ?? undefined, name: a.name ?? undefined })));
 }
 
 // Graph: a sharing URL → the drive item (name, size, pre-authorized download URL). The share

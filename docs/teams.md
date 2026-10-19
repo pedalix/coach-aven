@@ -63,7 +63,7 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 | YouTrack `ping` owners | the same `youtrack.ping` list, with Teams user ids (`29:…`); each becomes a real mention (the bot looks the name up in the channel roster once) |
 | `AVEN_ALERT_CHANNEL` | the same; a Teams channel id the app is in |
 
-| files on a message | 1:1 uploads (needs `supports_files` in the module → `supportsFiles`), pasted images anywhere, documents shared in a channel (through Microsoft Graph — the module's `supports_files` adds `Files.Read.All`, an admin consents once). A file the bot cannot reach is named in the reply as "file access not granted" |
+| files on a message | 1:1 uploads (needs `supports_files` in the module → `supportsFiles`), pasted images anywhere, documents and photos attached in a channel (through Microsoft Graph — the module's `supports_files` adds `Files.Read.All`, an admin consents once). A channel upload is not in the activity Teams delivers at all: the driver reads the message back through Graph with the team's RSC consent (`ChannelMessage.Read.Group`) and takes the file from there — give the upload a word of text, a file alone is not a message to the bot. An emoji in the text is not a file. A file the bot cannot reach is named in the reply as "file access not granted" |
 
 Admins are the installation's operators, full stop: there is no automatic promotion of team owners (considered and dropped — an installation's operators are the whole role model it needs; `open` mode lets everyone in a bound channel drive the agent anyway).
 
