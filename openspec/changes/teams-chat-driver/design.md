@@ -35,7 +35,7 @@ Legend: **=** same behaviour; **≈** same outcome, different mechanism; **later
 | DM with project picker | 1:1 chat with project picker (skipped for one project) | = | 1 |
 | Group DM | Group chat: @mention only | ≈ | 1 |
 | 👀 reaction on the user's message | Typing indicator + the status card that appears at once | ≈ | 1 |
-| `!` note: no turn, 🤫 reaction | No turn, no acknowledgement (bots cannot react) | ≈ | 1 |
+| `!` note: no turn, 🤫 reaction | No turn, a 🤐 reaction — Teams renders no 🤫 (the Connector accepts any id and shows only its own set; checked on a tenant 2026-10-19) | ≈ | 1 |
 | Live status message, edited in place | Status card updated in place, coalesced to ≥ 2 s per message | ≈ | 1 |
 | ✖ Cancel, 🧭 Show steps (modal), 🔄 Restart | Card actions; Show steps opens a dialog | = | 1 |
 | 🌙 Working in the background, 🔔 Background update | Same cards, proactive messages in the thread | = | 1 |

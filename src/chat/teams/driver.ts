@@ -55,11 +55,14 @@ export interface TeamsApi {
 }
 
 // Teams' reaction ids for the core's marks (the `<codepoint>_<name>` form the Connector takes).
+// The Connector answers 200 to ANY id and Teams shows only the ones in its reaction set — so each
+// of these was seen rendered on a real tenant (2026-10-19). Slack's 🤫 for a note has no Teams
+// counterpart (`1f92b_shushingface` is accepted and never shown); 🤐 is the nearest that renders.
 const REACTION: Record<Mark, string> = {
   working: '1f440_eyes',
   done: '2705_whiteheavycheckmark',
   failed: '274c_crossmark',
-  note: '1f92b_shushingface',
+  note: '1f910_zippermouthface',
 };
 
 export interface TeamsDriverOpts {
