@@ -66,7 +66,7 @@ export interface ReportScenario {
   costUsd: number;
   runs: RunOutcome[];
   recording: { file: string; sha256: string };
-  /** How the runs reached the CLI: `local`, or `sandbox (ssh-docker)` / `sandbox (Daytona)`. */
+  /** How the runs reached the CLI: `local`, or `sandbox (<driver>)`, i.e. `sandbox (ssh-docker)`. */
   transport?: string;
 }
 

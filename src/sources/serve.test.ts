@@ -90,7 +90,7 @@ test('no sources project mounts a replica any more — with or without its own `
     { slug: 'local', ...base },
     { slug: 'remote', ...base, mcp: [{ name: 'sources', url: 'https://engine.example/gw/remote/mcp', auth: 'gateway-m2m' }] },
   ] }));
-  const reg = loadProjects(cfg);
+  const reg = loadProjects(cfg, undefined);
   const mounts = (slug: string) => (reg.projects.find((p) => p.slug === slug)!.sandbox?.mounts ?? []).map((m) => m.split(':')[1]);
   assert.deepEqual(mounts('local'), [], 'served by the bot over the control channel (hostrouter.ts)');
   assert.deepEqual(mounts('remote'), [], 'reached at its own url');

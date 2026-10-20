@@ -5,8 +5,8 @@ You will get an acknowledgement within a few days; fixes ship as a tagged releas
 bug bounty.
 
 In scope: the orchestrator (`src/`), the sandbox images (`snapshot/`), the deploy tooling
-(`infra/deploy/`, `infra/teams/`). Out of scope: third-party services the bot talks to (Slack, GitHub, Daytona,
-Anthropic) and installations you do not operate.
+(`infra/deploy/`, `infra/teams/`). Out of scope: third-party services the bot talks to (Slack, GitHub, Anthropic)
+and installations you do not operate.
 
 What the design assumes: the sandbox is the untrusted side (the model runs there with a
 per-project, short-lived GitHub token and only the MCP endpoints the project declares); the

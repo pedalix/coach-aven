@@ -307,14 +307,14 @@ export function createPollers(
   // Housekeeping: the deterministic sandbox janitor (docs/housekeeping.md) — dockerd
   // guard, threshold-gated docker prune, proactive worktree reap. No LLM, silent (log +
   // the routine's lastSummary, like dreams). Skipped while the project has a live turn
-  // (never reap state out from under one). An asleep sandbox (housekeepingSandboxStep): on a
-  // provider that stops its sandboxes itself (Daytona) it is skipped — a stopped sandbox
-  // accumulates no new garbage, and waking the fleet nightly defeats auto-stop. Where the bot owns
-  // the idle stop (ssh-docker, OpenSpec sandbox-idle-stop D13) and it is on, it is woken for the
-  // pass: containers there never slept before, so the janitor keeps running as it did — the prune
-  // matters more where every container shares the host's disk — and the idle sweep stops it
-  // again. With the stop off (SANDBOX_AUTOSTOP_MINUTES=0) nothing would stop it again, so it is
-  // skipped as before. A missing sandbox is never created here.
+  // (never reap state out from under one). An asleep sandbox (housekeepingSandboxStep): where the
+  // bot owns the idle stop (the driver has stopSandbox — ssh-docker; OpenSpec sandbox-idle-stop
+  // D13) and it is on, it is woken for the pass: the janitor keeps running as it did before the
+  // idle stop — the prune matters more where every container shares the host's disk — and the
+  // idle sweep stops it again. With the stop off (SANDBOX_AUTOSTOP_MINUTES=0) nothing would stop
+  // it again, so it is skipped — as it is on a driver whose provider stops its sandboxes itself: a
+  // stopped sandbox accumulates no new garbage, and waking the fleet nightly would defeat that
+  // stop. A missing sandbox is never created here.
   function fireHousekeeping(project: ProjectConfig, r: RoutineRecord): boolean {
     if (engine.projectBusy(project.slug)) return false;
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });

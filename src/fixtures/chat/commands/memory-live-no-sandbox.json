@@ -22,7 +22,7 @@
       "payload": {
         "response_type": "ephemeral",
         "replace_original": true,
-        "text": ":x: DAYTONA_API_URL/_API_KEY/_ORGANIZATION_ID are not set — required for the daytona sandbox driver"
+        "text": ":x: SSHDOCKER_HOST is not set — required for the ssh-docker sandbox driver"
       }
     }
   ],

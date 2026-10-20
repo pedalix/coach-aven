@@ -169,7 +169,7 @@ test('ProbeCtx — chained waits catch frames that arrived in one burst; a wait 
   await assert.rejects(ctx.expect(ctx.is.result, 100, 'a result after the second write'), PredictionMissed, 'the earlier result is not matched again');
 });
 
-test('ProbeCtx — a transport that copies stdin to stdout (a Daytona session): the copy is recorded as `echo`, never as a CLI frame', async () => {
+test('ProbeCtx — a transport that copies stdin to stdout (a session whose output carries its input): the copy is recorded as `echo`, never as a CLI frame', async () => {
   const { transport } = fakeTransport((w, emit) => {
     emit(w); // the transport's copy, byte for byte
     if (w.type === 'user') {

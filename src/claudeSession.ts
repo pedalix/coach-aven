@@ -371,11 +371,11 @@ interface Injected {
   resolve: (o: InjectOutcome) => void;
 }
 
-// A persistent `claude` process driven over Daytona stdin/stdout in bidirectional
-// stream-json mode (the Happy model). Spawn ONCE; push user turns to stdin; read NDJSON
-// events from stdout; the `result` event marks turn completion and the process stays
-// alive for the next turn. Cancel via a control_request{interrupt} written to stdin —
-// NEVER by killing the process (killing corrupts the conversation + zombies the cmd).
+// A persistent `claude` process driven over its sandbox session's stdin/stdout (SandboxHandle's
+// session calls) in bidirectional stream-json mode (the Happy model). Spawn ONCE; push user
+// turns to stdin; read NDJSON events from stdout; the `result` event marks turn completion
+// and the process stays alive for the next turn. Cancel via a control_request{interrupt}
+// written to stdin — NEVER by killing the process (killing corrupts the conversation).
 export class ClaudeSession {
   private sessionKey: string;
   private cmdId?: string;
@@ -507,7 +507,7 @@ export class ClaudeSession {
   isDead(): boolean {
     return this.dead;
   }
-  // The Daytona session-command coordinates, for persistence → a restarted bot reattaches.
+  // The sandbox session command's coordinates, for persistence → a restarted bot reattaches.
   attachInfo(): { sessionKey: string; cmdId: string } | undefined {
     return this.cmdId ? { sessionKey: this.sessionKey, cmdId: this.cmdId } : undefined;
   }
@@ -981,7 +981,8 @@ export class ClaudeSession {
       this.bgTasks = Array.isArray(ev.tasks) ? ev.tasks : [];
     } else if (t === 'user' && ev.isReplay === true && typeof ev.uuid === 'string') {
       // The echo of a message, written when the CLI takes it up (--replay-user-messages, ledger only).
-      // A Daytona session's copy of what we wrote has no isReplay and is ignored like any user frame.
+      // A transport's copy of what we wrote (a session whose output carries its input) has no isReplay
+      // and is ignored like any user frame.
       if (this.opts.ledger) this.onEcho(ev.uuid, !!ev.origin && typeof ev.origin === 'object');
     } else if (t === 'assistant' && Array.isArray(ev.message?.content)) {
       this.turnStarted = true;

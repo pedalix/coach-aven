@@ -1,5 +1,5 @@
 // Slack presentation layer: every Block Kit renderer plus the shared user-facing text
-// helpers (info/errText) and the CMD constant they embed. No Bolt handlers, no Daytona,
+// helpers (info/errText) and the CMD constant they embed. No Bolt handlers, no sandbox driver,
 // no state mutation (except the alert sink hook) — just payload shaping, so the Slack
 // wiring in events.ts/commands.ts stays thin.
 
@@ -718,7 +718,7 @@ export function statusReportBlocks(r: StatusReport): any[] {
     const line = `• *${p.slug}* — ${bits.join(' · ')}`;
     return p.sources ? `${line}\n    ↳ ${p.sources}` : line;
   });
-  const health = `_Daytona ${r.daytonaOk ? '✅' : '⚠️'} · GitHub ${r.githubOk ? '✅' : '⚠️'} · Slack ✅_`;
+  const health = `_Sandboxes ${r.sandboxesOk ? '✅' : '⚠️'} · GitHub ${r.githubOk ? '✅' : '⚠️'} · Slack ✅_`;
   const quota = r.claudeQuota ? `\n_${r.claudeQuota}_` : '';
   return [{ type: 'section', text: { type: 'mrkdwn', text: `${head}\n\n${lines.join('\n')}\n\n${health}${quota}` } }];
 }

@@ -31,7 +31,7 @@ import { SOURCE_KINDS, type SourceKind } from './types.js';
 
 function project(slug: string): ProjectConfig {
   const cfg = loadConfig();
-  const reg = loadProjects(cfg.projectsConfigPath);
+  const reg = loadProjects(cfg.projectsConfigPath, cfg.daytonaDefault);
   const p = reg.projects.find((x) => x.slug === slug);
   if (!p) throw new UsageError(`unknown project "${slug}" (known: ${reg.projects.map((x) => x.slug).join(', ')})`);
   return p;
@@ -155,7 +155,8 @@ export function registerSourcesCommands(program: Command): void {
     .action(async (o: { listen: string; only?: string }) => {
       const token = process.env[DAEMON_TOKEN_ENV] ?? '';
       if (!token) throw new UsageError(`${DAEMON_TOKEN_ENV} is not set — refusing to serve tenant stores unauthenticated`);
-      const reg = loadProjects(loadConfig().projectsConfigPath);
+      const cfg = loadConfig();
+      const reg = loadProjects(cfg.projectsConfigPath, cfg.daytonaDefault);
       const only = csv(o.only);
       const projects = reg.projects.filter((p) => p.sources && (!only || only.includes(p.slug)));
       const unknown = (only ?? []).filter((s) => !projects.some((p) => p.slug === s));

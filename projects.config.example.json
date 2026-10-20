@@ -20,7 +20,7 @@
         "SHOP",
         "CMS"
       ],
-      "driver": "daytona",
+      "driver": "ssh-docker",
       "systemPrompt": "Project context goes here (appended after the base prompt): domain, what each repo is and how they relate, merge/deploy-order rules, doc links. Repo coding conventions belong in each repo's own CLAUDE.md, not here.",
       "env": {},
       "mcp": [

@@ -72,7 +72,8 @@ Two rules keep the backlog honest.
   production as a deliberate step, then the default one release later, then retired. The ledger
   has a row per change with its gate (no flag has completed the whole cycle yet), and every work
   session starts by reading it and `git log <last tag>..main`.
-- **Release notes are pull request titles.** Label `feature`, `fix`, `ci` or `docs`; the tag
+- **Release notes are pull request titles.** Label `feature`, `fix`, `ci` or `docs`, and `breaking`
+  for a change an installation must act on before it upgrades (listed first); the tag
   triggers CI (typecheck, tests, the public guard, gitleaks) and the GitHub Release. No changelog
   edits, no version bumps.
 - **Installations deploy themselves.** The product repository publishes a release; an
@@ -146,8 +147,8 @@ The one-time admin steps, honestly:
   for a trial.
 - **Claude Code.** `claude setup-token` on a Claude Max subscription; there is no API-key mode
   today, and every project of the installation shares that subscription's limits.
-- **Sandboxes.** A Docker host you own, which can be the bot host to start, or a self-hosted
-  Daytona ([`sandbox-drivers.md`](sandbox-drivers.md)).
+- **Sandboxes.** A Docker host you own, which can be the bot host to start
+  ([`sandbox-drivers.md`](sandbox-drivers.md)).
 
 ## Roadmap: a vector, not a queue
 

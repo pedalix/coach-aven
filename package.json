@@ -11,7 +11,7 @@
   "engines": {
     "node": ">=22.12"
   },
-  "description": "CoachAven — a Slack coding agent running per-project Claude Code sandboxes on self-hosted Daytona.",
+  "description": "CoachAven — a Slack coding agent running per-project Claude Code sandboxes as containers on a Docker host you own.",
   "bin": {
     "orch": "./src/cli.ts"
   },
@@ -25,7 +25,6 @@
     "release": "bash scripts/release.sh"
   },
   "dependencies": {
-    "@daytonaio/sdk": "0.187.0",
     "@microsoft/teams.api": "2.1.0",
     "@microsoft/teams.apps": "2.1.0",
     "@octokit/auth-app": "^7.1.5",

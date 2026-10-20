@@ -1,4 +1,4 @@
-// Pure text/formatting helpers shared by the Slack layer. No Slack/Daytona deps, so they
+// Pure text/formatting helpers shared by the Slack layer. No Slack or sandbox deps, so they
 // unit-test in isolation (see format.test.ts).
 
 // Pull GitHub PR URLs out of an answer so we can surface them as clickable buttons

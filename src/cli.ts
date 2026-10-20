@@ -8,7 +8,7 @@ import { initSentry, captureError, flushSentry } from './sentry.js';
 import { registerSourcesCommands } from './sources/cli.js';
 import { registerRoutinesCommands } from './routinescli.js';
 import { registerHubCommands } from './messaging/cli.js';
-import { UsageError } from './sources/errors.js';
+import { cliExit } from './sources/errors.js';
 import { unknownCommandText } from './chat/drivers.js';
 
 const program = new Command();
@@ -23,8 +23,9 @@ program
   .action(async () => {
     const cfg = loadConfig();
     initSentry(cfg); // no-op unless SENTRY_DSN is set
-    for (const w of retiredEnvWarnings(process.env)) log.warn(w);
-    await runSlack(cfg);
+    // The retired-setting warnings are logged by the app once the projects configuration has loaded: a
+    // boot refused for a Daytona leftover prints the refusal alone (OpenSpec retire-daytona-driver D5).
+    await runSlack(cfg, retiredEnvWarnings(process.env));
   });
 
 program
@@ -33,8 +34,7 @@ program
   .action(async () => {
     const cfg = loadConfig();
     initSentry(cfg);
-    for (const w of retiredEnvWarnings(process.env)) log.warn(w);
-    await runTeams(cfg);
+    await runTeams(cfg, retiredEnvWarnings(process.env));
   });
 
 registerSourcesCommands(program);
@@ -48,13 +48,19 @@ program.on('command:*', (operands: string[]) => {
 });
 
 program.parseAsync(process.argv).catch(async (err) => {
-  // A wrong invocation is not an incident: plain message, exit 2, nothing to Sentry.
-  if (err instanceof UsageError) {
-    process.stderr.write(`${err.message}\n`);
-    process.exit(2);
+  // cliExit (sources/errors.ts, tested there): a wrong invocation (UsageError) is not an incident — plain
+  // message, exit 2, nothing to Sentry. Nor is a configuration the bot refuses to run on (ConfigError: a
+  // setting that would move a project to another sandbox, OpenSpec retire-daytona-driver D3/D4) — one
+  // line, no stack, so it stays among the last journal lines the deploy's health check prints; exit 1, and
+  // nothing to Sentry: it is the operator's fix, and the unit's restarts would repeat it every few seconds.
+  // Anything else is logged with its stack and reported.
+  const end = cliExit(err);
+  if (!end.incident) {
+    process.stderr.write(`${end.text}\n`);
+    process.exit(end.code);
   }
-  log.error(err instanceof Error ? err.stack || err.message : String(err));
+  log.error(end.text);
   captureError(err);
   await flushSentry();
-  process.exit(1);
+  process.exit(end.code);
 });

@@ -3,8 +3,8 @@
 // Deterministic shell on the routines scheduler, no LLM. This module is the PURE part:
 // building the in-sandbox script and parsing its report — so the guardrails (no volume
 // pruning, threshold-gated deletion, marker format) are pinned by tests. The fire logic
-// (skip-if-busy; an asleep sandbox is skipped on Daytona and woken where the bot owns the idle
-// stop and it is on — idlestop.ts housekeepingSandboxStep) lives in pollers.ts; the dockerd guard
+// (skip-if-busy; an asleep sandbox is woken where the bot owns the idle stop and it is on, and
+// skipped otherwise — idlestop.ts housekeepingSandboxStep) lives in pollers.ts; the dockerd guard
 // is also run at every chat prep (project.ts ensureDockerd) so a dead daemon can't linger for days.
 import { cliUpgradeCmd, cliVersionCmd, parseCliMarkers, type CliMarkers } from './cliversion.js';
 
@@ -19,8 +19,10 @@ export function pruneThreshold(raw: string | undefined = process.env.HOUSEKEEPIN
   return Number.isFinite(n) && n >= 1 && n <= 99 ? n : 80;
 }
 
-// Check dockerd and restart it if dead. The dind entrypoint starts dockerd exactly once
-// and nothing supervises it — a crashed daemon silently breaks Laravel Sail (the
+// Check dockerd and (re)start it if dead. No entrypoint starts dockerd — the container
+// runs `sleep` — so this guard does: at chat prep and, on a docker-in-docker project, at
+// the first warm-up after each start of the container (sshdocker.ts bootScript). Nothing
+// supervises it after that — a crashed daemon silently breaks Laravel Sail (the
 // php/composer/artisan shims) until someone pokes the sandbox. Prints ONE marker line:
 //   hk:dockerd=ok | restarted | failed
 // busybox-sh compatible (the sandbox is Alpine).

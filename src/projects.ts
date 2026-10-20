@@ -1,8 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SandboxDriverKind } from './config.js';
+import { daytonaDefaultRefusal, driverRefusal, type DaytonaDefault } from './driverkind.js';
 import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import { validateSourcesConfig } from './sources/config.js';
+import { ConfigError } from './sources/errors.js';
 import type { SourcesConfig } from './sources/types.js';
 import { validateMessagingConfig, type MessagingConfig } from './messaging/config.js';
 import { validateGatewayOAuth, type GatewayOAuth } from './gwtoken.js';
@@ -65,9 +67,11 @@ export interface ProjectConfig {
   gitFlow?: GitFlow;
   env?: Record<string, string>; // per-project env/secrets seeded into the sandbox (reserved)
   mcp?: McpServerSpec[]; // per-project MCP servers → materialized into --mcp-config in the sandbox
-  // Which sandbox provider hosts this project's sandbox (see driver.ts). Omitted → the
-  // deployment default (SANDBOX_DRIVER, currently daytona). Lets the fleet migrate
-  // provider by provider — e.g. move a docker-less project to ssh-docker first.
+  // Which sandbox driver hosts this project's sandbox (see driver.ts). Optional: omitted → the
+  // installation's SANDBOX_DRIVER, and either can only say "ssh-docker", the one driver since the
+  // Daytona driver's removal. loadProjects refuses any other value, and a project without the field
+  // under an old Daytona default (OpenSpec retire-daytona-driver D3/D4): both would move it to a new,
+  // empty sandbox. The templates still write "ssh-docker": earlier releases default to daytona.
   driver?: SandboxDriverKind;
   // Pin THIS project's sandbox Claude Code CLI (x.y.z), overriding CLAUDE_CLI_VERSION — the
   // canary knob: roll a new version on one low-traffic project first (cliversion.ts).
@@ -135,7 +139,11 @@ export interface RegistryRef {
   current: ProjectsRegistry;
 }
 
-export function loadProjects(path: string): ProjectsRegistry {
+// `daytonaDefault`: the setting that made Daytona the installation's default before the driver was
+// removed (Config.daytonaDefault), so the boot, `/aven reload` and the `orch sources` commands refuse the
+// same configurations in the same words. Required, though usually undefined: a caller that forgot it would
+// load every project an old default would move, and only the typecheck can see that omission.
+export function loadProjects(path: string, daytonaDefault: DaytonaDefault | undefined): ProjectsRegistry {
   if (!existsSync(path)) {
     throw new Error(
       `Project registry not found at ${path}. Copy projects.config.example.json → ` +
@@ -155,6 +163,15 @@ export function loadProjects(path: string): ProjectsRegistry {
       throw new Error(
         `${path}: project "${p.slug}" gitFlow must be one of ${GIT_FLOWS.map((f) => `"${f}"`).join(', ')}, got ${JSON.stringify(p.gitFlow)}`,
       );
+    }
+    // Any driver but ssh-docker is refused, never run elsewhere in its place (D3): `daytona` names the
+    // removed driver, and anything else is a typo — which used to select Daytona silently. A JSON `null`
+    // is an absent field, as it always was (the old selection read `driver ?? SANDBOX_DRIVER`): dropped
+    // here, so it loads where an absent field loads and is refused where one is (D4, below).
+    const driver: unknown = p.driver;
+    if (driver === null) delete (p as { driver?: unknown }).driver;
+    else if (driver !== undefined && driver !== 'ssh-docker') {
+      throw new ConfigError(`${path}: ${driverRefusal(`project "${p.slug}" driver`, driver)}`);
     }
     // Validate at boot: a bad mount or a privileged:false/dind:true contradiction must fail
     // here, not at the first turn of that project.
@@ -209,6 +226,13 @@ export function loadProjects(path: string): ProjectsRegistry {
       }
     }
   }
+  // Under an old Daytona default, a project without a `driver` field was meant to run on Daytona, and
+  // the new default would move it (D4): refused, every such project named at once. When each project
+  // names its driver, the old default moves nothing — it loads, and the setting only warns at boot.
+  if (daytonaDefault) {
+    const unset = reg.projects.filter((p) => p.driver === undefined).map((p) => p.slug);
+    if (unset.length) throw new ConfigError(`${path}: ${daytonaDefaultRefusal(unset, daytonaDefault)}`);
+  }
   // The workspaces block (when present) must reference real slugs — a typo would
   // silently hide a project from its tenant, so fail the boot instead.
   if (reg.workspaces) {
@@ -245,6 +269,21 @@ export function loadProjects(path: string): ProjectsRegistry {
       if (body) p.systemPrompt = body;
     }
   }
+  return reg;
+}
+
+// The registry a bot boots with (`orch slack`, `orch teams`): loadProjects under the installation's old
+// Daytona default, then the boot's warnings for retired settings — only once the configuration has
+// loaded (OpenSpec retire-daytona-driver D5). A boot that a Daytona leftover refuses prints the refusal
+// alone: a warning that its cause "changes nothing — remove it" would point at the wrong fix, since
+// deleting that setting lifts the refusal and the projects then move without a word.
+export function loadBootRegistry(
+  cfg: { projectsConfigPath: string; daytonaDefault?: DaytonaDefault },
+  bootWarnings: readonly string[],
+  warn: (line: string) => void = log.warn,
+): ProjectsRegistry {
+  const reg = loadProjects(cfg.projectsConfigPath, cfg.daytonaDefault);
+  for (const w of bootWarnings) warn(w);
   return reg;
 }
 

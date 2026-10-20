@@ -38,8 +38,7 @@ User turn (one compact JSON object per line, trailing `\n` is the frame delimite
 {"type":"user","message":{"role":"user","content":"<text>"}}
 ```
 
-Interrupt (clean cancel — NEVER kill the process; killing corrupts the conversation and
-zombies the Daytona command):
+Interrupt (clean cancel — NEVER kill the process: killing corrupts the conversation):
 ```json
 {"request_id":"<rand>","type":"control_request","request":{"subtype":"interrupt"}}
 ```
@@ -96,8 +95,22 @@ Parsing notes: stdout arrives in arbitrary chunks (not lines) — buffer and spl
 keep the partial tail. Wrap `JSON.parse` in try/catch and skip non-JSON lines (the CLI
 interleaves noise). Read `session_id` from both `system/init` and `result`.
 
-## Daytona transport mapping
+## Transport: the driver contract and the ssh-docker mapping
 
-- stdin write  → `sandbox.process.sendSessionCommandInput(sessionId, cmdId, line)`
-- stdout stream → `sandbox.process.getSessionCommandLogs(sessionId, cmdId, onStdout, onStderr)`
-- start         → `sandbox.process.executeSessionCommand(sessionId, {command, runAsync:true})`
+The bot never holds the CLI's pipes itself: the process runs in a session of the sandbox driver
+(`src/driver.ts`; the contract in `docs/sandbox-drivers.md` → *Adding a driver*), which outlives
+a bot restart. How ssh-docker (`src/sshdocker.ts`) maps it, under `/tmp/aven-sess/<key>/` in the
+project's container:
+
+- start → `startSessionCommand(key, command)`: a FIFO `in` as the CLI's stdin, held open by a
+  background writer so the CLI never sees EOF between turns; stdout and stderr to `out.log`; the
+  pid is the command id.
+- stdin write → `sendSessionInput(key, cmdId, line)`: `docker exec -i <container> sh -c 'cat > …/in'`
+  with the frame on stdin. The FIFO adds no copy of what is written to the output; on any
+  transport, only the CLI's own `isReplay` echo (`--replay-user-messages`) confirms delivery.
+- stdout stream → `streamSessionCommandLogs(key, cmdId, onStdout)`: `tail -c +1 -f out.log` until
+  the pid dies. Every (re)subscribe replays the whole log from the start; `ClaudeSession` skips
+  the prefix it already consumed.
+- reattach snapshot → `sessionCommandLogs(key, cmdId)`: `cat out.log`.
+- running? → `sessionCommandRunning(key, cmdId)`: the pid is alive, not a zombie, and its stdin
+  is this session's FIFO.
