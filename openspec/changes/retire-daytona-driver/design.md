@@ -1,6 +1,6 @@
 ## Context
 
-See proposal.md (Why). This is the code as it stands against origin/main at 2fab1da, with the idle-stop fix applied (`sandbox-idle-stop`, PR #65), which goes to `main` before this change. Line numbers here and in tasks.md are that code's:
+See proposal.md (Why). This is the code as it stands on origin/main at 2c309ff, the merge of the idle-stop fix (`sandbox-idle-stop`, PR #65, final head 4551e81), which went to `main` before this change. Line numbers here and in tasks.md are that code's:
 - **The selection.** `src/driver.ts` defines the `SandboxDriver` interface and `createDriver(cfg, kind)`. `kind` is the project's `driver` field, or else `SANDBOX_DRIVER`, whose code default is `daytona`. Only the exact string `ssh-docker` selects ssh-docker. Anything else that reaches `createDriver` selects Daytona: `daytona`, nothing at all, or a typo in a project's `driver` field. `loadConfig` checks `SANDBOX_DRIVER` against the two names, but the project field is not checked when the configuration loads.
 - **The settings.** `loadConfig` (`src/config.ts`):
   - builds the Daytona block when `DAYTONA_API_URL` is non-empty, and then requires the key and the organization. Without that block, the Daytona driver throws at first use, so a project could reach a working Daytona only when `DAYTONA_API_URL` was set;
@@ -18,22 +18,22 @@ See proposal.md (Why). This is the code as it stands against origin/main at 2fab
 - **The listing.** ssh-docker's `listStates` does not check the exit code of its `docker ps`. An unreachable host or a stopped Docker daemon therefore reads as an empty listing, not as a failure (D8).
 - **The installations.** Every installation we know of selects ssh-docker explicitly, both installation-wide and per project, and has no `DAYTONA_*` key. An installation may still carry one of the other retired keys, which ssh-docker already ignores.
 
-**Inventory.** At 2fab1da, 239 lines in 71 files said "daytona". Another 87 lines carried Daytona-only concepts without saying it. Thirteen of those carry `SANDBOX_AUTOSTOP_MINUTES` or `autoStopMinutes`, which the fix made ssh-docker's too, so they are no longer Daytona-only (D5). Eight more comments assumed Daytona's behaviour without naming it. The fix rewrote four of them, which now name Daytona, so four are left (task 1.9). With the fix applied, 308 lines in 82 files say "daytona". The fix added 44 of them in its own OpenSpec change (D14), and 25 in code, docs, templates and the ledger (tasks 1.2, 1.3, 1.9, 4.1, 4.2, 5.1, 5.4).
+**Inventory.** At 2fab1da, 239 lines in 71 files said "daytona". Another 87 lines carried Daytona-only concepts without saying it. Thirteen of those carry `SANDBOX_AUTOSTOP_MINUTES` or `autoStopMinutes`, which the fix made ssh-docker's too, so they are no longer Daytona-only (D5). Eight more comments assumed Daytona's behaviour without naming it. The fix rewrote four of them, which now name Daytona, so four are left (task 1.9). With the fix merged (2c309ff), 308 lines in 82 files say "daytona". The fix added 44 of them in its own OpenSpec change (D14), and 25 in code, docs, templates and the ledger (tasks 1.2, 1.3, 1.9, 4.1, 4.2, 5.1, 5.4).
 
 | Kind | Where | What happens |
 |---|---|---|
 | Delete | `src/daytona.ts` (233 lines), `src/daytona.test.ts`, `scripts/peek-sandbox.ts` | gone |
 | Delete | `@daytonaio/sdk` in `package.json` and `package-lock.json`; the Dependabot ignore entry | gone |
 | Delete | in `.env.example` and `infra/deploy/ops.example/.env.example`: the Daytona block, `SNAPSHOT_NAME`, `SANDBOX_CPU`/`_MEMORY`/`_DISK` | gone |
-| Delete | acme-shop's `"driver": "daytona"` in `projects.config.example.json` | gone |
+| Change | acme-shop's `"driver": "daytona"` in `projects.config.example.json` | `"ssh-docker"` (D6) |
 | Delete | `isDefaultSandbox` (`src/sandboxopts.ts`), the `DaytonaConnectionError` check (`src/netretry.ts:39`), the snapshot hint (`snapshot/build-and-push.sh:97`) | gone |
 | Delete | in tests: the `DAYTONA_*` env juggling in `src/chat/slack/commands.record.test.ts`, `SNAPSHOT_NAME` in `src/chat/teams/config.test.ts` | gone |
 | Keep | `SANDBOX_AUTOSTOP_MINUTES` and `Config.sandbox.autoStopMinutes`, with their template lines and the test stubs that set it; the optional `SandboxDriver.stopSandbox` (all from `sandbox-idle-stop`) | unchanged; their comments lose Daytona (D1, D5) |
 | Simplify | `src/config.ts`, `src/driver.ts`, `src/projects.ts`, `src/cliprobe/sandbox.ts` | one driver |
 | Simplify | `src/chat/views.ts`, `src/chat/core/commands.ts`, `src/chat/teams/cards.ts` (`daytonaOk` becomes `sandboxesOk`); `src/netretry.test.ts`; `src/idlestop.test.ts` (a driver without a stop) | neutral names |
-| Fix | `src/sshdocker.ts`: the listing fails on a non-zero exit (D8); `src/cli.ts`: a configuration refusal prints as one line (D3) | bug fixes |
+| Fix | `src/sshdocker.ts`: the listing fails on a non-zero exit, and `/aven status` then reads each project's sandbox as "unknown" and logs why (D8); `src/cli.ts`: a configuration refusal prints as one line (D3) | bug fixes |
 | Simplify | comments in about twenty files: `claudeSession.ts`, `tasks.ts`, `turn.ts`, `state.ts`, `pollers.ts`, `sshdocker.ts`, `housekeeping.ts`, `project.ts`, `idlestop.ts`, the "no Slack/Daytona deps" headers and others | true wording |
-| Visible text | Slack's `/aven status` health flag (`src/chat/slack/blocks.ts:721`); the missing-driver-settings error a user can meet in `/aven memory live` | `status.json` and `memory-live-no-sandbox.json` re-captured |
+| Visible text | Slack's `/aven status` health flag (`src/chat/slack/blocks.ts:721`), and its project lines while the listing fails; the missing-driver-settings error a user can meet in `/aven memory live` | `status.json` and `memory-live-no-sandbox.json` re-captured |
 | Docs | `docs/sandbox-drivers.md` (rewrite), `docs/local-dev.md`, `README.md`, `CLAUDE.md`, `SECURITY.md` | one driver |
 | Docs | `docs/{README,how-we-work,why,sources,observability,runtime-config,cli-probe,stream-json-contract,memory,housekeeping,multitenancy}.md` | one driver |
 | Docs | `infra/deploy/{README.md,deploy.sh,coach-aven.service.tmpl}`, `snapshot/{Dockerfile,plain/Dockerfile,build-and-push.sh}`, the `manage-project` skill, the package description | one driver |
@@ -53,7 +53,7 @@ Unaffected:
 
 **Goals:**
 - No Daytona code, dependency or setting is left. `SANDBOX_AUTOSTOP_MINUTES` stays, because it is ssh-docker's setting now (D5). No doc or template presents Daytona as current. History stays history.
-- A configuration that already selects ssh-docker sees no change except one word in Slack's `/aven status`, and the tests prove it. The other visible change is a ⚠️ when the sandbox host cannot be reached.
+- A configuration that already selects ssh-docker sees no change except one word in Slack's `/aven status`, and the tests prove it. The other visible change is a ⚠️, with each project's sandbox "unknown", when the sandbox host cannot be reached.
 - No project moves to a new sandbox unless its operator edits the configuration. A configuration in which every project names its driver is never refused for a Daytona leftover.
 - The seam for another driver stays, and it is documented.
 
@@ -94,7 +94,7 @@ Everything in the inventory's Delete rows goes. These stay:
 - Any other value but `ssh-docker` is refused the same way, naming the one accepted value. Today a typo in a project's `driver` silently selects Daytona, so this also fixes a latent bug.
 - A non-empty `SANDBOX_DRIVER` that is neither `ssh-docker` nor `daytona` stops the bot at boot, as today. D4 covers `SANDBOX_DRIVER=daytona`.
 - The error names the setting: the variable, or the project and its field. For `daytona`, it says the driver was removed and names the fix: move the project to ssh-docker and change or drop the setting, or keep running the last release that has the driver.
-- The refusals are thrown as a configuration error, which `orch` prints as one line, without a stack, and with exit code 1. The reasons:
+- The refusals are thrown as a configuration error, which `orch` prints as one line, without a stack, and with exit code 1 (`cliExit` in `src/sources/errors.ts`, which pins how `orch` ends on each kind of error). The reasons:
   - With a stack, the message line can fall outside the last twelve journal lines that the deploy's health check prints.
   - A refusal in the environment comes before Sentry starts, so the journal is the only place it shows.
   - Like a usage error, it is not sent to Sentry: it is a configuration error, not an incident, and the unit would repeat it every three seconds.
@@ -133,6 +133,7 @@ Everything in the inventory's Delete rows goes. These stay:
 - They refuse one more shape: `SANDBOX_DRIVER=daytona` with a project without a `driver` field, even where `DAYTONA_API_URL` was never set. That project could not have run on Daytona, but the operator wrote Daytona down, so the bot asks rather than guesses.
 - A configuration in which every project names its driver is never refused for a Daytona leftover, so the safety costs no false positive there.
 - Emptiness follows today's code. An empty `SANDBOX_DRIVER` counts as unset, because the code default is applied with `||`. An empty `DAYTONA_API_URL` never configured Daytona, because `loadConfig` tests it for truthiness. A guard written with `=== undefined` would let `SANDBOX_DRIVER=` through, so the tests pin both empty cases.
+- So does a project's field. Today's selection reads `driver ?? SANDBOX_DRIVER`, so a JSON `null` is an absent field: it loads where an absent field loads, and D4 refuses it where it refuses one. An empty string is not: the old code kept it and selected Daytona, so D3 refuses it.
 
 ### D5. Leftover Daytona-only settings warn once at boot
 **Recommendation.**
@@ -141,8 +142,8 @@ Everything in the inventory's Delete rows goes. These stay:
   - `SNAPSHOT_NAME`, `SANDBOX_CPU`, `SANDBOX_MEMORY` and `SANDBOX_DISK`;
   - `SANDBOX_DRIVER=daytona`.
 - `retiredEnvWarnings` adds one line that names the ones present with a non-empty value, for example `config: SNAPSHOT_NAME is retired with the Daytona sandbox driver and changes nothing — remove it`. For `SANDBOX_DRIVER=daytona`, the line asks the operator to set `ssh-docker`.
-- `orch slack` and `orch teams` log the line.
-- D4 is the one exception: under a Daytona default, a project without a `driver` field is refused, not warned about.
+- `orch slack` and `orch teams` log the line once the projects configuration has loaded (`loadBootRegistry`, shared by both apps).
+- D4 is the one exception: under a Daytona default, a project without a `driver` field is refused, not warned about. Such a boot prints the refusal alone. A line saying that the setting which caused it "changes nothing — remove it" would point at the wrong fix: deleting `DAYTONA_API_URL` or `SANDBOX_DRIVER=daytona` lifts the refusal, and the projects then move without a word.
 - `SANDBOX_AUTOSTOP_MINUTES` is not on the list. Daytona read it, and since `sandbox-idle-stop` the bot's idle stop of ssh-docker containers reads it too, with the same default (30) and meaning (`0` = never). An installation keeps its value, and the line never names it.
 
 **Alternatives.** Ignore them silently, or refuse to start.
@@ -199,7 +200,7 @@ The templates, the docs and the `manage-project` skill still write `SANDBOX_DRIV
 - ssh-docker's listing fails when its command exits non-zero, and the error carries the tail of its stderr. The two common cases are ssh's exit 255, when the host cannot be reached, and docker's exit 1, when its daemon is down. Today the exit code is ignored, so an outage reads as `Sandboxes ✅`, with every project "not created".
 - The check is a pure helper, pinned in `src/sshdocker.test.ts`: it turns the exit code, stdout and stderr into the state map, or into an error.
 - The CLI probe's leftover sweep reads the same listing, so it now fails early with the real cause.
-- Knowingly unchanged: when the listing fails, the per-project lines still read "not created", with the ⚠️ beside them.
+- When the listing fails, each project's sandbox reads "unknown" (Slack `⚠️ unknown`, the Teams card `unknown`), not "not created", and the bot's journal gets the listing's error. A failed listing is not an empty one, and the project lines say so too. The maintainer decided on 2026-10-20 that an unreachable host shows neither a green tick nor "not created" for every project. "unknown" is this design's proposal for the project lines, made after that decision, and it awaits the maintainer (*Open Questions*).
 - Out of scope: `getSandbox` still reads an unreachable host as "no sandbox". `/aven memory live` then says there is no sandbox yet, and housekeeping skips the project as asleep. Both are harmless.
 
 **Alternative.** Keep the word byte-identical in this change, and fix the label and the listing in a separate PR.
@@ -209,7 +210,7 @@ The templates, the docs and the `manage-project` skill still write `SANDBOX_DRIV
 - The new requirement says a failed listing shows ⚠️. That holds only once the listing reports its failures. Today the ⚠️ appears only when the driver cannot even be built, as without `SSHDOCKER_HOST`.
 - `/aven status` is a viewer verb, so users see the new word.
 - The Home tab's line ("a live view of sandboxes…") was already right and does not change.
-- The re-captured `status.json` pins the new word, and the helper's test pins the failure.
+- The re-captured `status.json` pins the new word and the "unknown" lines (its twin's listing fails), and the helper's test pins the failure.
 
 ### D9. What Daytona gave: the idle stop is done, the rest is out of scope and named
 | Daytona | ssh-docker today | Its own change? |
@@ -225,8 +226,9 @@ The templates, the docs and the `manage-project` skill still write `SANDBOX_DRIV
 **What the pin did.** It held `@daytonaio/sdk` at the version that matched the self-hosted server, because a newer SDK may call API that the frozen server lacks. Dependabot was told to ignore the package, security updates included. So an advisory whose only fix is a newer SDK could not be fixed. Upstream has meanwhile deprecated the package under that name.
 
 **After.** These numbers were measured on 2026-10-19 on a copy. The code PR measures them again and quotes them in its body.
-- `npm uninstall @daytonaio/sdk` takes the lockfile from 417 packages to 258. 159 are removed, none are added, and no version changes.
-- `npm audit` goes from 30 advisories (19 high, 11 moderate) to 1 moderate. The one left is OpenTelemetry core, through the error reporter. It is fixable within range, in a separate update.
+- Removing `@daytonaio/sdk` takes the lockfile from 417 packages to 258: 159 entries are removed and none are added. Two versions change: `@opentelemetry/instrumentation` and `@opentelemetry/api-logs`, which `main` resolves at 0.217.0 through the SDK's tree, are hoisted at 0.214.0, the version `@sentry/node` pins (re-measured 2026-10-20, in a clean clone).
+- A plain `npm uninstall` is not enough. It leaves those two nested under `@sentry/node`, where `@sentry/node-core` cannot find them: it imports `@opentelemetry/instrumentation` as an optional peer, which npm does not install. A clean `npm ci` then cannot load the error reporter, and the tests, the CLI probe's check and `orch` itself fail. Dropping the two nested entries and running `npm install --package-lock-only` hoists them, with `package.json` unchanged (task 3.1). A worktree inside the main checkout hides the fault, because Node falls back to the checkout's own `node_modules`, so the check runs in a clean clone.
+- `npm audit` goes from 30 vulnerable packages (19 high, 11 moderate), from 15 advisories, to 1 moderate package from 1 advisory. The one left is OpenTelemetry core, through the error reporter. It is fixable within range, in a separate update.
 - `.github/dependabot.yml` loses its `ignore` block and keeps "security updates only, no version-update PRs". With no exception left, security updates cover the whole tree.
 - CI keeps its steps. Nothing in it depends on the SDK, and `npm ci` stops printing the SDK's deprecation warning.
 
@@ -237,7 +239,7 @@ The templates, the docs and the `manage-project` skill still write `SANDBOX_DRIV
 ### D11. Bucket, proof, ledger, release order
 **Bucket.** Bucket 1, bug fix or invisible improvement. The PR body names each part, as `retire-agent-dispatch` did:
 - **The removal and the default flip:** dead code on every installation we know of, so the risk is that of a bug fix. Every installation sets `SANDBOX_DRIVER=ssh-docker`, so the code default goes unused. Proof 1 pins it.
-- **The status word and the listing check:** bug fixes. They change one visible word, and show a ⚠️ when the host cannot be reached.
+- **The status word and the listing check:** bug fixes. They change one visible word, and show a ⚠️ and "unknown" project lines when the host cannot be reached.
 - **The refusals (D3, D4):** inert on every installation we know of, because no project there would move. Only the tests exercise them.
 - **The warnings (D5):** one line at boot where a retired key remains.
 
@@ -253,16 +255,16 @@ There is no flag.
 3. A new `src/driver.test.ts`: `createDriver` returns the ssh-docker driver, with and without a `kind`.
 4. `src/sshdocker.test.ts`: the existing cases are unchanged, so the scripts the driver runs are byte-identical. One case is added, for the listing's exit check.
 5. The prompt goldens are unchanged.
-6. Every recorded chat call is unchanged, except three:
-   - `status.json` changes by one word;
+6. Every recorded chat call is unchanged, except four:
+   - `status.json` changes its flag word, and its project lines read "unknown", because the twin's listing fails;
    - `memory-live-no-sandbox.json` changes because the twin has no driver settings;
-   - `reload-refuses-daytona.json` is new.
+   - `reload-refuses-daytona.json` (D3) and `reload-refuses-daytona-default.json` (D4) are new.
 
 **Ledger.**
 - One row. It names the bucket parts above. What to watch:
-  - The home bot's first boot on `main` logs no `config:` warning, its idle-stop line at boot (`idle stop: … stop after <m> min without activity`) names the same minutes as before, and `/aven status` shows `Sandboxes ✅`.
-  - An installation that kept a retired key logs one warning at its first boot, naming the keys to delete. That is the only live exercise of D5.
-  - Only the tests cover the refusals.
+  - Before the home bot's first restart on the merged code, task 8.1's two checks on its configuration (task 7.4): a configuration with an old Daytona default would refuse there, and the sources daemon, which shares it, with it.
+  - The home bot's first boot on `main` logs no `config:` warning, its idle-stop line at boot (`idle stop: … stop after <m> min without activity`) names the same minutes as before, and `/aven status` shows `Sandboxes ✅`. If the canary takes `sandbox-idle-stop` in the same restart, there is no earlier line to compare with: the minutes are then the ones its `.env` sets, 30 when the key is unset.
+  - An installation that kept a retired key logs one warning at its first boot, naming the keys to delete. No installation we know of keeps one, so the tests cover the warnings, as they cover the refusals.
 
   The sandbox host's memory and the `claude` processes per container are the idle-stop fix's watch items, in its own row.
 - A *Retired* entry for the Daytona settings, as for `DISPATCH`.
@@ -280,7 +282,7 @@ The repository has been public since 2026-10-16, so someone may run the Daytona 
 - **The heading.** `.github/release.yml` gains a "⚠️ Breaking" category, listed first and matched by the label `breaking`. The PR carries that label alone, so the generated notes lead with the removal. Under `fix`, the label `retire-agent-dispatch` used, they would file it among the fixes.
 - **When the tag is cut,** one upgrade note goes at the top of the release notes:
 
-  "**Daytona sandbox driver removed.** An installation that runs Daytona stays on vX.Y.Z, the last release with it, until its projects run on ssh-docker (`docs/sandbox-drivers.md` → *Moving a project*). This release refuses to start when a project would move. That is a project whose `driver` is `daytona` or another unknown value. It is also a project without a `driver` field while `SANDBOX_DRIVER=daytona` is set, or while `DAYTONA_API_URL` is set and `SANDBOX_DRIVER` is not. Leftover Daytona settings only warn. `SANDBOX_AUTOSTOP_MINUTES` is not one of them: ssh-docker's idle stop reads it. Keep `SANDBOX_DRIVER=ssh-docker` set: earlier releases default to `daytona`."
+  "**Daytona sandbox driver removed.** An installation that runs Daytona stays on vX.Y.Z, the last release with it, until its projects run on ssh-docker (`docs/sandbox-drivers.md` → *Moving a project to ssh-docker*). This release refuses to start when a project would move. That is a project whose `driver` is `daytona` or another unknown value. It is also a project without a `driver` field while `SANDBOX_DRIVER=daytona` is set, or while `DAYTONA_API_URL` is set and `SANDBOX_DRIVER` is not. Leftover Daytona settings only warn. `SANDBOX_AUTOSTOP_MINUTES` is not one of them: ssh-docker's idle stop reads it. Keep `SANDBOX_DRIVER=ssh-docker` set: earlier releases default to `daytona`."
 - **The boot refusals (D3, D4) give the same advice,** so an operator who skips the notes still reads it.
 
 **Alternatives.**
@@ -291,7 +293,7 @@ The repository has been public since 2026-10-16, so someone may run the Daytona 
 - No installation we operate runs Daytona.
 - The repository has been public for three days.
 - The server version the SDK is pinned to is frozen.
-- A release that keeps the driver keeps the 29 advisories.
+- A release that keeps the driver keeps 14 of the 15 advisories (29 of the 30 vulnerable packages).
 - The refusal message is the deprecation notice.
 
 **Why the heading.** A note added by hand can be forgotten, and then a Daytona installation reads the removal among the fixes. The heading costs one block of YAML, and it serves every later breaking PR.
@@ -329,31 +331,34 @@ The repository has been public since 2026-10-16, so someone may run the Daytona 
 - **[The sources daemon shares the `.env` and the projects configuration]** → It refuses the same configurations as the bot (D3, D4). The operator sees both at deploy and fixes one file.
 - **[A rollback, or an older tag]** → Every earlier release defaults to `daytona`. Keep `SANDBOX_DRIVER=ssh-docker` set; the templates and docs write it (D6).
 - **[A boot refusal goes unseen]** → It is one line with no stack, so the deploy's health check prints it among its last lines (D3).
-- **[Users read a new word in `/aven status`, or a ⚠️ during an outage]** → "Sandboxes" reports the same check that "Daytona" did. The ⚠️ is the truth that ✅ hid.
+- **[Users read a new word in `/aven status`, or a ⚠️ during an outage]** → "Sandboxes" reports the same check that "Daytona" did. The ⚠️ is the truth that ✅ hid, and "unknown" the truth that "not created" hid.
 - **[A hosted sandbox service is needed later]** → The seam and *Adding a driver* stay. The old driver would not be the starting point anyway: its SDK is deprecated and pinned to a frozen server.
-- **[A re-captured fixture hides a slip]** → Two fixtures are re-captured and one is new, and their diff is reviewed word by word. Every other recording stays byte-identical.
+- **[A re-captured fixture hides a slip]** → Two fixtures are re-captured and two are new, and their diff is reviewed word by word. Every other recording stays byte-identical.
 
 ## Migration Plan
 
 1. The spec PR (this change), after the review. It has no runtime effect.
-2. The code PR, from a worktree with `/opsx:apply`, merged once CI is green. The home bot, and any installation that follows `main`, picks it up at its next restart. Watch four things:
+2. The code PR, from a worktree with `/opsx:apply`, merged once CI is green. The home bot, and any installation that follows `main`, picks it up at its next restart, after task 7.4's check of its configuration. Watch four things:
    - no `config:` warning on the home bot;
-   - its idle-stop line at boot, with the same minutes as before;
+   - its idle-stop line at boot, with the same minutes as before (D11 says what to compare with when `sandbox-idle-stop` arrives in the same restart);
    - `Sandboxes ✅` in its `/aven status`;
    - one warning on an installation that kept a retired key, until its operator deletes the key (task 7.1).
 3. The archive creates `openspec/specs/sandbox-drivers/` and modifies `openspec/specs/sandbox-idle-stop/`, which is archived first (task 7.3).
 4. Before the tag, each operator checks their installation (task 8.1). Then the tag, with the upgrade note (task 8.2).
 
-**Rollback:** revert the code PR. Nothing on disk or in `state.json` changes shape, and the sandboxes are untouched. The rollback is safe only while `SANDBOX_DRIVER=ssh-docker` stays set, because every earlier release defaults to `daytona` (D2, D6).
+**Rollback:** revert the code PR. Nothing on disk or in `state.json` changes shape, and the sandboxes are untouched. The rollback is safe only while `SANDBOX_DRIVER=ssh-docker` stays set, because every earlier release defaults to `daytona` (D2, D6). A checkout that has reinstalled its dependencies since the merge runs `npm ci` after the revert: the earlier code imports the SDK.
 
 ## Open Questions
 
-- **The refusal rule (D4).** Should the refusal look at its effect (recommended), or refuse the Daytona settings themselves (alternative a)? The effect-based rule has no false positives, but it needs the projects to decide. The setting-based rule is one check in `loadConfig`.
-- **The listing check (D8).** Should it ship in this change (recommended), or in a separate PR, with the spec scenario claiming only the label?
-- **The *Breaking* heading (D12).** Should `.github/release.yml` gain it (recommended), or should the release rely on the upgrade note added by hand at the tag?
-- **The default driver (D2).** Should ssh-docker be the default (recommended), or should `SANDBOX_DRIVER=ssh-docker` become mandatory, which makes rollback safe by construction?
-- **The per-project CPU and memory limits (D9).** The idle stop they were to follow is in, and `sandbox-idle-stop` names memory limits as its next step. Should that change open now (recommended, since it does not depend on this one), or after this one?
-- **The last release with Daytona (D12).** Which release the note names is decided when the tag is cut.
+- **The last release with Daytona (D12).** Which release the upgrade note names is decided when the tag is cut (task 8.2).
+- **What each project line shows while the listing fails (D8).** Proposed, awaiting the maintainer: "unknown" (Slack `⚠️ unknown`, the Teams card `unknown`), with the listing's error in the bot's journal. The maintainer ruled out a green tick and "not created" for every project; "unknown" was chosen when the review fixes were applied, and the maintainer has not confirmed it.
 
-Resolved since the reviews:
-- **Ending idle conversations' processes (D9).** `sandbox-idle-stop` does it, as its own fix that goes to `main` before this change, so the tag that carries this change already has it. It keeps `SANDBOX_AUTOSTOP_MINUTES` (D5).
+Resolved since the reviews (the maintainer, 2026-10-20, each as recommended):
+- **The refusal rule (D4).** The refusal looks at its effect: the bot refuses to start only where a project would actually move, never merely because a Daytona setting is still in the environment. Alternative (a), refusing the settings themselves, is not taken.
+- **The listing check (D8).** It ships in this change, so an unreachable sandbox host shows neither a green tick nor "not created" for every project: the flag shows ⚠️. What each project line shows instead is the open question above.
+- **The default driver (D2).** ssh-docker is the default, and both settings stay optional. The templates and docs keep `SANDBOX_DRIVER=ssh-docker` written out, so a rollback to an earlier release stays safe (D6).
+- **No deprecation release (D12).** The driver is deleted at once. The release notes tell an installation that runs Daytona to stay on the previous release.
+- **The *Breaking* heading (D12).** `.github/release.yml` gains it, matched by a new label, `breaking`. The boot refusal prints one line, with no stack and nothing sent to Sentry (D3).
+- **The per-project CPU and memory limits (D9).** A separate, later change. It does not depend on this one.
+- **What keeps its name, and what goes.** `SNAPSHOT_IMAGE` and `snapshot/` keep their names (D7). `.github/dependabot.yml` stays, without the SDK's ignore block (D10). `scripts/peek-sandbox.ts` is deleted (D13).
+- **Ending idle conversations' processes (D9).** `sandbox-idle-stop` does it, as its own fix, merged to `main` before this change (2c309ff), so the tag that carries this change already has it. It keeps `SANDBOX_AUTOSTOP_MINUTES` (D5).

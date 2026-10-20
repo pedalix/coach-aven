@@ -5,7 +5,7 @@ Which driver runs a project's sandbox, how an installation selects it, and what 
 ## ADDED Requirements
 
 ### Requirement: ssh-docker runs every sandbox
-The bot SHALL run every project's sandbox on the ssh-docker driver: a long-lived container on the Docker host named by `SSHDOCKER_HOST`, where `local` names the bot's own host. `SANDBOX_DRIVER` and a project's `driver` field SHALL be optional, and `ssh-docker` SHALL be the only driver they select. The requirements below say what any other value does. An empty `SANDBOX_DRIVER` SHALL count as unset. Setting either one to `ssh-docker`, or leaving both unset, SHALL give the same sandbox: the same container name, image and container flags.
+The bot SHALL run every project's sandbox on the ssh-docker driver: a long-lived container on the Docker host named by `SSHDOCKER_HOST`, where `local` names the bot's own host. `SANDBOX_DRIVER` and a project's `driver` field SHALL be optional, and `ssh-docker` SHALL be the only driver they select. The requirements below say what any other value does. An empty `SANDBOX_DRIVER` SHALL count as unset, and a project's `driver` set to `null` SHALL count as absent. Setting either one to `ssh-docker`, or leaving both unset, SHALL give the same sandbox: the same container name, image and container flags.
 
 #### Scenario: Every setting names ssh-docker
 - **WHEN** an installation sets `SANDBOX_DRIVER=ssh-docker`, every project in its configuration has `"driver": "ssh-docker"`, and none of the retired Daytona settings is set
@@ -27,7 +27,7 @@ A non-empty `SANDBOX_DRIVER` other than `ssh-docker` or `daytona` SHALL stop the
 
 The error SHALL name the setting and the accepted value. The setting is the variable, or the project and its `driver` field. For `daytona`, the error SHALL also say that the driver was removed, and name the fix: move the project to ssh-docker and change or drop the setting, or keep running the last release that has the driver. A refusal at boot SHALL be printed as one line, without a stack trace.
 
-The CLI probe's sandbox transport SHALL keep requiring `SANDBOX_DRIVER` in its own environment, and SHALL accept only `ssh-docker`. It SHALL refuse `daytona` with the same error before it creates a sandbox.
+The CLI probe's sandbox transport SHALL keep requiring `SANDBOX_DRIVER` in its own environment, and SHALL accept only `ssh-docker`. It SHALL refuse `daytona` before it creates a sandbox, with an error that says the driver was removed and asks for `SANDBOX_DRIVER=ssh-docker`.
 
 #### Scenario: A project still names Daytona at boot
 - **WHEN** the bot starts with a configuration in which project `acme-shop` has `"driver": "daytona"`
@@ -54,10 +54,10 @@ The CLI probe's sandbox transport SHALL keep requiring `SANDBOX_DRIVER` in its o
 
 #### Scenario: The CLI probe
 - **WHEN** an operator runs the CLI probe with the sandbox transport and `SANDBOX_DRIVER=daytona` in the probe's environment
-- **THEN** the probe stops with the same error, and no sandbox is created
+- **THEN** the probe stops with an error that says the driver was removed and names `SANDBOX_DRIVER=ssh-docker`, and no sandbox is created
 
 ### Requirement: A project left on a Daytona default is refused, not moved
-The installation's default driver was Daytona when `SANDBOX_DRIVER` is `daytona`, or when `SANDBOX_DRIVER` is unset or empty and `DAYTONA_API_URL` is set and non-empty. Under such a default, a project without a `driver` field was meant to run on Daytona. Every command that loads the projects configuration SHALL refuse such a project, at boot, at `/aven reload` and in the `orch sources` commands, as in the requirement "A setting that names a removed or unknown driver is refused". The error SHALL name the project, the setting that made Daytona the default, and the fix: give the project `"driver": "ssh-docker"`, or set `SANDBOX_DRIVER=ssh-docker`, once the project runs on ssh-docker; or keep running the last release that has the driver.
+The installation's default driver was Daytona when `SANDBOX_DRIVER` is `daytona`, or when `SANDBOX_DRIVER` is unset or empty and `DAYTONA_API_URL` is set and non-empty. Under such a default, a project without a `driver` field was meant to run on Daytona. Every command that loads the projects configuration SHALL refuse such a project, at boot, at `/aven reload` and in the `orch sources` commands, as in the requirement "A setting that names a removed or unknown driver is refused". The error SHALL name the project, the setting that made Daytona the default, and the fix: give the project `"driver": "ssh-docker"`, or set `SANDBOX_DRIVER=ssh-docker` and restart the bot, once the project runs on ssh-docker; or keep running the last release that has the driver.
 
 When every project names its driver, the old default moves nothing. The bot SHALL then start, and the setting SHALL only get the retired-setting warning.
 
@@ -92,7 +92,7 @@ These settings were read only by the Daytona driver or its SDK:
 - `SNAPSHOT_NAME`, `SANDBOX_CPU`, `SANDBOX_MEMORY` and `SANDBOX_DISK`;
 - `SANDBOX_DRIVER=daytona`.
 
-They SHALL change nothing. The one exception is the refusal in the requirement "A project left on a Daytona default is refused, not moved". When the bot starts with any of them set to a non-empty value, it SHALL log one warning that names the ones present and asks the operator to remove them. For `SANDBOX_DRIVER`, the warning SHALL ask the operator to set `ssh-docker`. Unless that refusal applies, the bot SHALL then start.
+They SHALL change nothing. The one exception is the refusal in the requirement "A project left on a Daytona default is refused, not moved". When the bot starts with any of them set to a non-empty value, it SHALL log one warning, once the projects configuration has loaded, that names the ones present and asks the operator to remove them. For `SANDBOX_DRIVER`, the warning SHALL ask the operator to set `ssh-docker`. Unless that refusal applies, the bot SHALL then start. A boot that the refusal stops SHALL print the refusal without the warning, which would tell the operator to remove the setting that caused it.
 
 `SANDBOX_AUTOSTOP_MINUTES` is not one of them. Daytona read it, and so does the bot's idle stop of ssh-docker containers (capability `sandbox-idle-stop`). It SHALL keep that meaning, and the warning SHALL NOT name it.
 
@@ -109,16 +109,21 @@ They SHALL change nothing. The one exception is the refusal in the requirement "
 - **WHEN** the bot starts with `SANDBOX_DRIVER=ssh-docker` and `DAYTONA_TARGET` set
 - **THEN** the warning names `DAYTONA_TARGET`
 
+#### Scenario: A refused boot prints the refusal alone
+- **WHEN** the bot starts with `DAYTONA_API_URL` set, no `SANDBOX_DRIVER`, and a project without a `driver` field
+- **THEN** it prints the refusal, and no retired-setting warning
+
 #### Scenario: A clean environment
 - **WHEN** none of these settings is set, or each one that is set is empty
 - **THEN** the bot logs no warning about them
 
 ### Requirement: The status report names sandboxes, not a provider
-`/aven status` SHALL report whether the sandbox listing answered, under a name that is not a provider's. On Slack that name is "Sandboxes", as the Teams status card already says "sandboxes". A listing whose Docker host cannot be reached, or whose command exits non-zero, SHALL count as a failed listing, not as an empty one.
+`/aven status` SHALL report whether the sandbox listing answered, under a name that is not a provider's. On Slack that name is "Sandboxes", as the Teams status card already says "sandboxes". A listing whose Docker host cannot be reached, or whose command exits non-zero, SHALL count as a failed listing, not as an empty one: each project's sandbox SHALL then read as unknown, never as not created.
 
 #### Scenario: The sandbox host cannot be reached
 - **WHEN** `/aven status` runs on Slack and the sandbox listing fails: its Docker host cannot be reached, or the listing exits non-zero
 - **THEN** the health line reads `Sandboxes ⚠️`, followed by the GitHub and Slack flags as before
+- **AND** each project's sandbox reads `unknown`, not `not created`
 
 #### Scenario: The listing answers
 - **WHEN** `/aven status` runs on Slack and the sandbox listing answers
