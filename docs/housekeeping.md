@@ -48,7 +48,10 @@ distinct inhabitants of the same scheduler.
 - ✅ **dockerd guard** — `docker info` + restart if dead (v1; also at every chat prep).
 - ✅ **Orphaned git worktrees** — proactively (v1), not only lazily on next prep.
 - ✅ **Disk & Docker hygiene** — stopped containers, unused images >7 days, build cache;
-  only past a disk threshold (`HOUSEKEEPING_DISK_PCT`, default 80%), NEVER volumes (v1).
+  only past a disk threshold (`HOUSEKEEPING_DISK_PCT`, default 80%), NEVER volumes (v1), and
+  never a container Docker Compose manages: since the idle stop (OpenSpec `sandbox-idle-stop`)
+  a stopped Sail stack is an idle project's normal state — its containers stay, and so do the
+  images they use, so the next `sail up -d` does not rebuild.
 - **Merged / abandoned feature branches** — prune branches whose PR merged or that are long
   dead. Never prune a branch with an open PR. (open)
 - **Wedged processes/sessions** — detect zombie or stuck `claude` processes / dead sessions
@@ -69,6 +72,13 @@ distinct inhabitants of the same scheduler.
 - A **`housekeeping` routine kind** on `src/schedule.ts`, gated like the others (skip
   projects with no recent activity; run at low-traffic hours; let the sandbox auto-stop
   again afterward).
+- **An asleep sandbox**: on Daytona the pass is skipped (`sandbox asleep — skipped`) — a
+  stopped sandbox gathers no garbage, and waking the fleet nightly would defeat its
+  auto-stop. On ssh-docker, where the bot owns the idle stop, the pass wakes the container
+  while the stop is on, and its summary starts with `woke ·`; containers there never slept
+  before, so the janitor keeps running as it did, and the idle stop puts the container back
+  to sleep. With `SANDBOX_AUTOSTOP_MINUTES=0` nothing would stop it again, so the pass skips
+  it as before. A missing sandbox is never created.
 - **Skip if a turn is in flight** for the project (visible via `queues`) — never reap state
   out from under a live user turn.
 - **Deterministic core**, with an optional LLM-assisted step only where judgment is needed

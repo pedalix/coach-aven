@@ -22,7 +22,8 @@ The original backend: our self-hosted Daytona at `<daytona-host>`. Note Daytona'
 open-source codebase was frozen in June 2026 — the instance keeps working, but pin the
 instance and `@daytonaio/sdk` versions and don't expect upstream fixes. Config:
 `DAYTONA_API_URL`, `DAYTONA_API_KEY`, `DAYTONA_ORGANIZATION_ID`, plus the snapshot vars
-(image, cpu/memory/disk, auto-stop).
+(image, cpu/memory/disk) and `SANDBOX_AUTOSTOP_MINUTES`, which Daytona applies itself
+(`autoStopInterval`). The same key drives the bot's own idle stop on ssh-docker (below).
 
 ## `ssh-docker`
 
@@ -96,12 +97,85 @@ than the `--privileged` hammer.
 
 | Concern | ssh-docker behavior |
 |---|---|
-| Warm sandbox | `docker run -d --name proj-<slug> …` with `sleep` as PID 1 and **no restart policy**; dockerd starts lazily via the existing `ensureDockerd` guard |
-| Auto-stop | None — an idle container on our own box costs nothing (`SANDBOX_AUTOSTOP_MINUTES` is ignored) |
-| Wake | `docker start` on the first turn after a stop — including after a host/daemon reboot. Deliberately NOT `--restart unless-stopped`: a daemon-started container races the host filesystem export (Docker Desktop/WSL) and its bind mounts come up empty. Every warm-up also probes each bind mount (non-empty host dir ⇒ non-empty target) and stop+starts a container whose mount attached to nothing |
+| Warm sandbox | `docker run -d --init --name proj-<slug> …` with `sleep` under docker's init and **no restart policy**; dockerd starts via the `ensureDockerd` guard — at chat prep, and at the first warm-up after every start of the container |
+| Auto-stop | **The bot's own** (there is no provider to do it): stopped after `SANDBOX_AUTOSTOP_MINUTES` (default 30, floor 10, `0` = never) without activity — see *Idle stop* below |
+| Wake | `docker start` (retried once) on the first turn after a stop — the idle stop's, or a host/daemon reboot's. Deliberately NOT `--restart unless-stopped`: a daemon-started container races the host filesystem export (Docker Desktop/WSL) and its bind mounts come up empty. Every warm-up also probes each bind mount (non-empty host dir ⇒ non-empty target) and stop+starts a container whose mount attached to nothing. The first warm-up after each start of the container — whoever started it — removes the session directories whose process did not survive the start (a directory stays only while its pid is alive and reads its FIFO, or, where the runtime does not let the bot read that link, is the pid its pid file names: the running check's own rule) and, on a docker-in-docker project, brings dockerd back before the turn goes on, as a Daytona start did (a boot marker, `/tmp/aven-sess/.boot`, tells a new start from a warm container; the first warm-up of a container already running when this shipped only writes it) |
 | exec / upload | `docker exec` with the script (or file bytes) piped via stdin — no shell-quoting of payloads |
-| Persistent claude | FIFO + `out.log` under `/tmp/aven-sess/<key>/` in the container; snapshot = `cat`, tail = `tail -f`; survives bot restarts like Daytona session commands |
-| `/aven status` | `docker ps` states mapped to started/stopped |
+| Persistent claude | FIFO + `out.log` under `/tmp/aven-sess/<key>/` in the container; snapshot = `cat`, tail = `tail -f`; survives bot restarts like Daytona session commands. A session counts as running only while its recorded pid is alive and its stdin is that session's FIFO, so a pid reused after a restart never passes (where the runtime does not let the bot read that link at all, the session's own pid file decides, as before). The processes end with an idle stop; the conversation resumes with `--resume` on its next turn |
+| `/aven status` | `docker ps` states mapped to started/stopped (`💤 stopped` for an idle project) |
+
+**Idle stop** (OpenSpec `sandbox-idle-stop`, `src/idlestop.ts`)
+
+Every conversation keeps its own `claude` process in the project's container, and the bot never
+ends one that went quiet: it relies on the sandbox stopping when nobody uses it, as Daytona's did.
+On ssh-docker the bot does that stop itself. Once a minute (from the pollers, so only in a running
+bot), it stops a project container that has been idle for `SANDBOX_AUTOSTOP_MINUTES`; the next turn
+wakes it and continues the same conversation.
+
+- **Activity** is every call the bot makes into the container (exec, upload, session start, input
+  and teardown, warm-up) and every chunk of session output — recorded in the driver, which every
+  caller passes. `/aven status`, `docker ps`, a peek that finds it asleep and an operator's own
+  `docker exec` are not activity. The idle clock never starts before the bot did.
+- **Never stopped** while a turn of the project is being accepted, queued, running (also waiting
+  for an answer to an agent question) or recovered after a restart, or a one-off ask or dream runs
+  on it — however long the turn is silent. A wakeup the agent scheduled (`ScheduleWakeup`) is waited
+  for until two minutes after it is due.
+- **Postponed, up to the turn hard cap** (`STREAM_HARD_MAX_MINUTES`, 60, of container silence):
+  background tasks the CLI lists, messages written into a session and not answered, a turn the CLI
+  started on its own, a call that has not returned, a turn hold older than the hard cap. Past that
+  the stop goes ahead with a warning naming the cause, and a conversation whose background work it
+  ended gets one 🔔 Background update saying so.
+- **After a bot restart** the bot sees this only for the conversations it has reattached since: a
+  turn that was running is recovered at once, every other conversation at its next turn. Until
+  then, the background tasks, self-started turns and pending wakeups of a conversation are
+  invisible: they neither hold nor postpone the stop, so its process is stopped
+  `SANDBOX_AUTOSTOP_MINUTES` after the bot started, with no notice in its thread. Their results were
+  never posted after a restart anyway (nothing listens until that conversation's next turn).
+- **The stop**: by name, and only if the container's `managedBy`/`project` labels are this
+  installation's (checked in the same host call). On a docker-in-docker project the inner dockerd
+  gets SIGTERM first and up to 30 s to stop its containers (a Sail stack) with their own grace — a
+  plain `docker stop` would end them with SIGKILL. Then `docker stop -t 10`; should that fail (or the
+  bot die in between), the container runs on without dockerd, and the next warm-up brings it back (a
+  mark the inner stop leaves, `/tmp/aven-sess/.dockerd-stopped`). Warm-up, peek and stop of one
+  container never overlap: a message that arrives during a stop waits for it (seconds; up to ~45 s
+  while an inner Sail stack shuts down), then wakes the container.
+- **The sessions**: the project's live sessions are ended in memory, their reattach coordinates in
+  `state.json` forgotten (one write; `sessionId` and the last-used time are kept), and the next turn
+  of each conversation resumes it with `--resume`. A conversation whose background work or
+  self-started turn the stop cut short gets the one 🔔 Background update above; no other
+  conversation gets anything.
+- **Log lines**: `sandbox '<name>' stopped after <m> min idle (ssh-docker, <s>s)` (a warning with the
+  cause when lingering work was cut), `idle stop of '<name>' failed: …` (one per outage, retried with
+  a backoff from 1 to 15 minutes), `idle stop: '<name>' carries managedBy=…` (a container with one of
+  our names and another label: left running, one warning per start of the bot), `sandbox '<name>':
+  no answer to a state check …` (a peek — housekeeping, `/aven memory` — runs under the container's
+  lock, so it gives up after 30 s; it then reads as no sandbox). On a wake:
+  `sandbox '<name>' started (ssh-docker) — new boot: session files reset, dockerd restarted`. At the
+  bot's start: `idle stop: sandboxes without an idle stop of their own (ssh-docker) stop after <m> min
+  without activity`, or `idle stop: off (SANDBOX_AUTOSTOP_MINUTES ≤ 0)`.
+- **Housekeeping**, where enabled and while the idle stop is on, wakes an asleep container for its
+  nightly pass (`docs/housekeeping.md`); the idle stop puts it back to sleep.
+- **Off switch**: `SANDBOX_AUTOSTOP_MINUTES=0` turns off the stops and housekeeping's wake (values
+  between 0 and 10 are raised to 10, with a warning). It does not turn off what every warm-up and
+  reattach now does on ssh-docker, stop or no stop: the boot step (old sessions' directories
+  removed, dockerd back on docker-in-docker), the identity check of a session's process, the
+  `docker start` retry, the per-container lock, the prune's compose filter. Their rollback is a
+  revert.
+- **One bot per container**: candidates are the stored sandbox names of this installation's
+  projects, and the labels cannot tell two installations apart when they share a `managedBy` value.
+  Installations that share a Docker host must use distinct `SANDBOX_NAME_PREFIX` values.
+
+**Looking inside a container**
+
+`scripts/peek-sandbox.ts` is Daytona-only. An ssh-docker container is a plain container on the
+sandbox host: `ssh <SSHDOCKER_HOST> docker exec -it <prefix><slug> sh` (in local mode just
+`docker exec -it <prefix><slug> sh`); `docker ps -a --filter label=managedBy=<SANDBOX_MANAGED_BY>`
+lists the installation's containers, and `docker exec <prefix><slug> ps` shows its `claude`
+processes. An idle container is usually stopped: `docker start <prefix><slug>` first (or
+`/aven memory live`, which wakes it). Your own `docker exec` is not activity for the idle stop, so a
+container can be stopped under a long session of yours: set `SANDBOX_AUTOSTOP_MINUTES=0` for long
+maintenance, or just start it again. A container started by hand stays up until the bot's next
+warm-up of it; from then on the idle stop applies again.
 
 **Enabling for one project**
 
@@ -144,7 +218,7 @@ docker's own stderr in that error instead of a bare exit code.
 
 **Not yet done**
 
-- A docker-less container variant (skip DinD runtime for projects that never run Sail) —
-  today every container gets the same runtime flag.
-- Sandbox-side housekeeping additions (session dir cleanup) — tracked with the general
-  Daytona-side cleanup backlog.
+- Per-container CPU and memory limits: the driver sets none, so the processes of a project
+  share the host's memory with every other project.
+- Ending idle conversations' processes inside a container that never goes idle (a busy project
+  with many threads keeps one `claude` per conversation touched since its last start).

@@ -1,5 +1,6 @@
 import type { SandboxOptions } from './sandboxopts.js';
 import type { Config, SandboxDriverKind } from './config.js';
+import type { StopOutcome, StopRequest } from './idlestop.js';
 import { DaytonaDriver } from './daytona.js';
 import { SshDockerDriver } from './sshdocker.js';
 
@@ -9,7 +10,8 @@ import { SshDockerDriver } from './sshdocker.js';
 // that switching providers (Daytona Cloud, a self-hosted Docker/sysbox box over SSH, …)
 // means writing one new driver, not touching the bot. The surface is deliberately the
 // EXACT set of operations the bot uses today — don't grow it speculatively:
-//   • a warm named sandbox per project: persistent disk, auto-stop on idle, wake on use
+//   • a warm named sandbox per project: persistent disk, stopped when idle (by the provider,
+//     or — where it has no idle lifecycle — by the bot: idlestop.ts), woken on use
 //   • exec + file upload
 //   • persistent process sessions with stdin, log snapshot AND live tail — the claude
 //     process lives in one and must survive bot restarts (reattach = snapshot + tail)
@@ -69,10 +71,17 @@ export interface SandboxDriver {
   // that already exists keeps the flags it was created with.
   ensureSandbox(name: string, projectSlug: string, opts?: SandboxOptions): Promise<SandboxHandle>;
   // Peek at a sandbox WITHOUT creating or waking it — undefined if it doesn't exist.
-  // Used by paths that must not defeat auto-stop (housekeeping, /aven memory).
+  // Used by paths that must not wake an idle sandbox (/aven memory, the dream journal; and
+  // housekeeping on a provider that stops its sandboxes itself).
   getSandbox(name: string): Promise<SandboxHandle | undefined>;
   // name → provider state string (e.g. 'started'/'stopped'), for /aven status.
   listStates(): Promise<Map<string, string>>;
+  // Stop a project's sandbox the idle sweep found idle (OpenSpec sandbox-idle-stop, idlestop.ts):
+  // re-decide under the sandbox's lock, stop it only if it is still idle and this installation's,
+  // and end its sessions (req.onStopped) before anything can wake it again. Only a driver whose
+  // provider has NO idle stop of its own implements it (ssh-docker); a driver without it is never
+  // asked (Daytona stops its sandboxes after SANDBOX_AUTOSTOP_MINUTES itself).
+  stopSandbox?(req: StopRequest): Promise<StopOutcome>;
   // Delete a THROWAWAY sandbox (the CLI probe's `cli-probe-<run>`); a missing one is not an error.
   // Every implementation refuses any other name first (sandboxopts.ts assertDeletable): code never
   // deletes a project's sandbox. The bot itself never calls this.

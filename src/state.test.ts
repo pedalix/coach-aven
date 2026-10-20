@@ -101,6 +101,43 @@ test('youtrack investigations — record, link, finish, and legacy dedup union',
   assert.ok(ids.has('ART-1')); // from legacy seen-set
 });
 
+test('forgetSessionProcesses — after an idle stop: coordinates of the slug gone in one write; sessionId, ledger, updatedAt and in-flight chats kept', () => {
+  const { store, path } = freshStore();
+  const DAY = 24 * 60 * 60_000;
+  store.patchChat('thread:a', 'caldora', { sessionId: 'sa', sessionKey: 'claude-sess-1-1', cmdId: '41', ledger: true });
+  store.patchChat('thread:b', 'caldora', { sessionId: 'sb', sessionKey: 'claude-sess-1-2', cmdId: '42' });
+  store.patchChat('thread:busy', 'caldora', {
+    sessionId: 'sc',
+    sessionKey: 'claude-sess-1-3',
+    cmdId: '43',
+    inflight: { channel: 'C1', statusTs: '1.2', startedAt: '2026-05-01T00:00:00Z' },
+  });
+  store.patchChat('thread:other', 'bluefin', { sessionId: 'sd', sessionKey: 'claude-sess-1-4', cmdId: '44' });
+  store.patchChat('thread:none', 'caldora', { sessionId: 'se' });
+  // Last used 44 days ago: the stop must not push its retention out.
+  const chats = (store as unknown as { data: { chats: Record<string, { updatedAt: string }> } }).data.chats;
+  chats['thread:a']!.updatedAt = new Date(Date.now() - 44 * DAY).toISOString();
+  const before = JSON.parse(JSON.stringify(chats));
+  let writes = 0;
+  const save = (store as unknown as { save: () => void }).save.bind(store);
+  (store as unknown as { save: () => void }).save = () => {
+    writes++;
+    save();
+  };
+
+  assert.equal(store.forgetSessionProcesses('caldora'), 2);
+  assert.equal(writes, 1, 'one write for the whole project');
+  assert.deepEqual(store.getChat('thread:a'), { threadTs: 'thread:a', slug: 'caldora', sessionId: 'sa', ledger: true, updatedAt: before['thread:a'].updatedAt });
+  assert.deepEqual(store.getChat('thread:b'), { threadTs: 'thread:b', slug: 'caldora', sessionId: 'sb', updatedAt: before['thread:b'].updatedAt });
+  assert.deepEqual(store.getChat('thread:busy'), before['thread:busy'], 'a turn in flight keeps its coordinates for recovery');
+  assert.deepEqual(store.getChat('thread:other'), before['thread:other'], 'another project is untouched');
+  assert.deepEqual(store.getChat('thread:none'), before['thread:none']);
+  assert.equal(new Store(path).getChat('thread:b')?.cmdId, undefined, 'persisted');
+  assert.equal(store.pruneChats(45 * DAY, Date.now() + 1 * DAY + 60_000), 1, 'still pruned at 45 days');
+  assert.equal(store.forgetSessionProcesses('caldora'), 0);
+  assert.equal(writes, 2, 'nothing to forget → no write (the prune above wrote once)');
+});
+
 test('pruneChats — drops idle records, keeps fresh ones and anything in flight', () => {
   const { store, path } = freshStore();
   const DAY = 24 * 60 * 60_000;

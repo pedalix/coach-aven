@@ -38,6 +38,9 @@ test('housekeeping script: threshold gates the prune, and volumes are NEVER prun
   const s = housekeepingScript(85);
   assert.match(s, /"\$usage" -ge 85/);
   assert.match(s, /docker container prune -f/);
+  // A stopped Sail stack (an idle project's normal state since the idle stop) keeps its containers,
+  // and so its images: only containers without a compose project label are pruned.
+  assert.match(s, /docker container prune -f --filter "label!=com\.docker\.compose\.project"/);
   assert.match(s, /docker image prune -af --filter "until=168h"/);
   assert.match(s, /docker builder prune -f/);
   // The guardrail: Sail volumes hold project databases — no volume pruning, ever.

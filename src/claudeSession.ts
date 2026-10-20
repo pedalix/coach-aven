@@ -264,7 +264,9 @@ function usageOf(ev: any, costs: CostDelta): TurnUsage | undefined {
 // the turn dies and the session is retired. Callers that did NOT wire onLongRunning keep
 // the old kill-at-soft behavior — a silent 60-minute wait would be worse than the error.
 export const STREAM_MAX_MS = (Number(process.env.STREAM_MAX_MINUTES) || 15) * 60_000;
-const STREAM_HARD_MAX_MS = (Number(process.env.STREAM_HARD_MAX_MINUTES) || 60) * 60_000;
+// Exported for the idle stop (idlestop.ts): the longest the bot lets a turn's work run is also how
+// long lingering work may keep an otherwise idle sandbox up.
+export const STREAM_HARD_MAX_MS = (Number(process.env.STREAM_HARD_MAX_MINUTES) || 60) * 60_000;
 const CANCEL_GRACE_MS = 10_000; // after interrupt, wait this long for the canceled result
 
 interface PendingTurn {
@@ -338,6 +340,24 @@ class McpCallBook {
   }
 }
 
+// What a live session tells the idle stop (OpenSpec sandbox-idle-stop, design D4) about work the
+// bot did not start and cannot see as a call: background tasks the CLI lists, messages written into
+// the session and not answered yet, a turn the CLI runs on its own (a background completion, a
+// wakeup firing), and a ScheduleWakeup timer still pending — a timer inside this process that prints
+// nothing while it waits, whose result the base prompt promises as a 🔔 Background update.
+export interface SessionIdleState {
+  background: number;
+  injected: number;
+  selfTurn: boolean;
+  wakeupDueAt?: number; // epoch ms
+}
+// ScheduleWakeup's delay bounds (the tool clamps `delaySeconds` to them; `clampedDelaySeconds` on its
+// result), and the slack for the CLI aligning `scheduledFor` to the minute: a due time is never kept
+// later than the call plus WAKEUP_MAX_S plus this, so a wakeup can never pin a sandbox for long.
+const WAKEUP_MIN_S = 60;
+const WAKEUP_MAX_S = 3600;
+const WAKEUP_ALIGN_MS = 2 * 60_000;
+
 // A message written with inject(), until its outcome is known.
 interface Injected {
   uuid: string;
@@ -397,6 +417,13 @@ export class ClaudeSession {
   private idleSince = Date.now();
   // The CLI's running background tasks (system/background_tasks_changed, replace semantics).
   private bgTasks: unknown[] = [];
+  // The CLI is in a turn — from system/init, an assistant message, a permission request or an echo
+  // until its `result` — on every session (unlike `running`, which only the ledger path resets). With
+  // no turn of ours pending, it is a turn the CLI started on its own (idleState().selfTurn).
+  private inTurn = false;
+  // The pending ScheduleWakeup (noteWakeup): its tool_use id, when it is due, and the latest due
+  // time the bot accepts for it.
+  private wakeup?: { id?: string; dueAt: number; capAt: number };
   // The CLI this process runs (system/init), for the per-session contract check (D12, task 4.3).
   private cli?: { version?: string; capabilities: string[] };
   // On reattach with the ledger: the snapshot's turns (the echoes each covered, and its result).
@@ -514,6 +541,26 @@ export class ClaudeSession {
     const p = this.pending;
     if (!p) return false;
     return p.uuid ? this.turnEchoes.some((e) => e.uuid === p.uuid) : this.turnStarted;
+  }
+  /** What the idle stop must not cut short silently (SessionIdleState). A dead process has none. */
+  idleState(): SessionIdleState {
+    if (this.dead) return { background: 0, injected: 0, selfTurn: false };
+    return {
+      background: this.bgTasks.length,
+      injected: this.injected.size,
+      selfTurn: this.inTurn && !this.pending,
+      ...(this.wakeup ? { wakeupDueAt: this.wakeup.dueAt } : {}),
+    };
+  }
+  /**
+   * The sandbox was stopped under this process (the idle stop, OpenSpec sandbox-idle-stop D7): end it
+   * here exactly as a closed log stream would — dead, background work and wakeup gone, unanswered
+   * injected messages `lost`, a pending turn settled as an error — without any call into the
+   * sandbox. Ends it before the stream's own end is observed, so no turn is handed a session whose
+   * process is gone. The stream's end afterwards changes nothing (onExit is idempotent).
+   */
+  markExited(): void {
+    this.onExit();
   }
 
   // Start the persistent process and begin streaming its stdout in the background.
@@ -757,6 +804,7 @@ export class ClaudeSession {
         if (ev.type === 'system' && ev.subtype === 'init') this.noteCli(ev);
         if (ev.type === 'system' && ev.subtype === 'background_tasks_changed') this.bgTasks = Array.isArray(ev.tasks) ? ev.tasks : [];
         if (ev.type === 'user' && ev.isReplay === true && typeof ev.uuid === 'string') echoes.push({ uuid: ev.uuid, internal: !!ev.origin && typeof ev.origin === 'object' });
+        this.noteWakeup(ev, Date.now()); // a call seen only now counts from now: later, never earlier
         calls.see(ev);
         if (ev.type === 'assistant' || ev.type === 'user' || ev.type === 'control_request') active = true;
         // Every replayed result goes through the cost tracker, in order, so it ends on the
@@ -782,6 +830,7 @@ export class ClaudeSession {
     this.turnEchoes = echoes;
     if (echoes.length) this.snapTurns.push({ echoes: echoes.map((e) => e.uuid) });
     this.running = active;
+    this.inTurn = active;
     if (lastEvent?.type === 'result' && lastResult) {
       this.snapshotResult = {
         status: lastResult.is_error ? 'error' : 'ok',
@@ -923,8 +972,10 @@ export class ClaudeSession {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private handle(ev: any): void {
     const t = ev?.type;
+    this.noteWakeup(ev, Date.now());
     if (t === 'system' && ev.subtype === 'init') {
       if (ev.session_id) this.claudeSessionId = ev.session_id; // initial + fork/compact
+      this.inTurn = true;
       this.noteCli(ev);
     } else if (t === 'system' && ev.subtype === 'background_tasks_changed') {
       this.bgTasks = Array.isArray(ev.tasks) ? ev.tasks : [];
@@ -935,6 +986,7 @@ export class ClaudeSession {
     } else if (t === 'assistant' && Array.isArray(ev.message?.content)) {
       this.turnStarted = true;
       this.running = true;
+      this.inTurn = true;
       // Subagent events stream through with parent_tool_use_id set — prefix their steps
       // with ↳N (the spawn order of their Task/Agent call) so parallel subagents stay
       // tellable apart. An unknown parent (reattach mid-turn) degrades to a bare ↳.
@@ -961,6 +1013,7 @@ export class ClaudeSession {
     } else if (t === 'control_request' && ev.request?.subtype === 'can_use_tool') {
       this.turnStarted = true;
       this.running = true;
+      this.inTurn = true;
       void this.handleCanUseTool(ev); // AskUserQuestion → Slack; everything else auto-allow
     } else if (t === 'control_request' && ev.request?.subtype === 'mcp_message') {
       // A bot-served MCP server's handshake or tool call (hosttools.ts) — answered here, on the
@@ -976,6 +1029,7 @@ export class ClaudeSession {
       if (info) this.onRateLimit?.(info);
     } else if (t === 'result') {
       this.turnStarted = true;
+      this.inTurn = false;
       if (ev.session_id) this.claudeSessionId = ev.session_id; // authoritative per-turn id
       const resultText = typeof ev.result === 'string' ? ev.result : '';
       if (this.opts.ledger) return this.onLedgerResult(ev, resultText);
@@ -990,6 +1044,35 @@ export class ClaudeSession {
           durationMs: typeof ev.duration_ms === 'number' ? ev.duration_ms : 0,
         });
         if (resultText && !ev.is_error) this.onIdleResult?.(resultText);
+      }
+    }
+  }
+
+  // A ScheduleWakeup call (sandbox-idle-stop D4): due at the call plus `delaySeconds` (clamped as the
+  // tool clamps it) until its result says when exactly (`tool_use_result.scheduledFor`, epoch ms,
+  // aligned to the minute by the CLI); `{ stop: true }` cancels; a new call replaces the pending one
+  // (the CLI keeps one "next wakeup"). Shapes as Claude Code writes them in its transcripts; the
+  // CLI probe's `schedule-wakeup` scenario records them headless.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private noteWakeup(ev: any, now: number): void {
+    if (ev?.type === 'assistant' && Array.isArray(ev.message?.content)) {
+      for (const b of ev.message.content) {
+        if (b?.type !== 'tool_use' || b.name !== 'ScheduleWakeup') continue;
+        const input = b.input ?? {};
+        if (input.stop === true) {
+          this.wakeup = undefined;
+          continue;
+        }
+        const delay = Number(input.delaySeconds);
+        if (!Number.isFinite(delay)) continue;
+        const seconds = Math.min(WAKEUP_MAX_S, Math.max(WAKEUP_MIN_S, delay));
+        this.wakeup = { ...(typeof b.id === 'string' ? { id: b.id } : {}), dueAt: now + seconds * 1000, capAt: now + WAKEUP_MAX_S * 1000 + WAKEUP_ALIGN_MS };
+      }
+    } else if (ev?.type === 'user' && this.wakeup?.id && Array.isArray(ev.message?.content)) {
+      const at = Number(ev.tool_use_result?.scheduledFor);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (Number.isFinite(at) && ev.message.content.some((c: any) => c?.type === 'tool_result' && c.tool_use_id === this.wakeup!.id)) {
+        this.wakeup.dueAt = Math.min(at, this.wakeup.capAt);
       }
     }
   }
@@ -1011,6 +1094,7 @@ export class ClaudeSession {
 
   private onEcho(uuid: string, internal: boolean): void {
     this.running = true;
+    this.inTurn = true;
     this.turnEchoes.push({ uuid, internal });
     const inj = this.injected.get(uuid);
     if (!inj || inj.echoed) return;
@@ -1111,7 +1195,10 @@ export class ClaudeSession {
     this.dead = true;
     // Background work ends with its process (D10); a message not answered yet is lost with it (measured:
     // an unechoed write does not survive the process) — the caller delivers it again as a turn.
+    // A pending wakeup and a turn of the CLI's own end with it too.
     this.bgTasks = [];
+    this.wakeup = undefined;
+    this.inTurn = false;
     for (const inj of [...this.injected.values()]) this.resolveInjected(inj.uuid, { kind: 'lost', takenUp: inj.echoed });
     this.settle({ status: 'error', resultText: 'claude process exited', isError: true });
   }

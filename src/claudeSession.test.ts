@@ -563,3 +563,104 @@ test('init commands (agent-skills) — a system/init reports its slash commands 
   await turn;
   assert.deepEqual(got, [['review', 'brand-profile', 'code-review']]);
 });
+
+// ── the idle stop (OpenSpec sandbox-idle-stop, design D4/D7) ─────────────────────────────────────
+const wakeupUse = (id: string, input: Record<string, unknown>) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', id, name: 'ScheduleWakeup', input }] } });
+const wakeupResult = (id: string, scheduledFor: number) => ({
+  type: 'user',
+  message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'Next wakeup scheduled.' }] },
+  tool_use_result: { scheduledFor, clampedDelaySeconds: 1500, wasClamped: false },
+});
+
+test('idle state — a ScheduleWakeup is pending from its call; its result gives the exact time; stop cancels; bounds hold', async () => {
+  const { session, push } = await openFake();
+  assert.equal(session.idleState().wakeupDueAt, undefined);
+  const t0 = Date.now();
+  push(wakeupUse('w1', { delaySeconds: 1500, reason: 'r', prompt: 'p' }));
+  const provisional = session.idleState().wakeupDueAt!;
+  assert.ok(provisional >= t0 + 1500_000 && provisional <= Date.now() + 1500_000);
+  push(wakeupResult('w1', t0 + 1555_000)); // the CLI aligned it to the minute
+  assert.equal(session.idleState().wakeupDueAt, t0 + 1555_000);
+  push(wakeupResult('other-id', t0 + 9_000_000)); // another tool's result changes nothing
+  assert.equal(session.idleState().wakeupDueAt, t0 + 1555_000);
+  push(wakeupUse('w2', { stop: true }));
+  assert.equal(session.idleState().wakeupDueAt, undefined, 'cancelled');
+  push(wakeupUse('w3', { delaySeconds: 99_999 }));
+  assert.ok(session.idleState().wakeupDueAt! <= Date.now() + 3600_000, 'clamped to the tool\'s hour');
+  push(wakeupResult('w3', Date.now() + 10 * 3600_000));
+  assert.ok(session.idleState().wakeupDueAt! <= Date.now() + 3600_000 + 120_000, 'never later than the call plus 62 minutes');
+});
+
+test('idle state — a turn the CLI starts on its own is a self-started turn until its result; a person\'s turn is not', async () => {
+  const { session, push } = await openFake();
+  assert.equal(session.idleState().selfTurn, false);
+  const turn = session.send('hello');
+  push({ type: 'system', subtype: 'init', session_id: 's1' });
+  push({ type: 'assistant', message: { content: [{ type: 'text', text: 'working' }] } });
+  assert.equal(session.idleState().selfTurn, false, 'our turn is pending');
+  push({ type: 'result', result: 'hi', is_error: false, session_id: 's1' });
+  await turn;
+  // A background task finished: the CLI runs a turn of its own (system/init → … → result).
+  push({ type: 'system', subtype: 'background_tasks_changed', tasks: [] });
+  push({ type: 'system', subtype: 'init', session_id: 's1' });
+  assert.equal(session.idleState().selfTurn, true);
+  push({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'sleep 2400' } }] } });
+  assert.equal(session.idleState().selfTurn, true);
+  push({ type: 'result', result: 'Background agent finished.', is_error: false, session_id: 's1' });
+  assert.equal(session.idleState().selfTurn, false);
+});
+
+test('idle state — background tasks and unanswered injected messages are counted; a dead process reports none', async () => {
+  const { session, push } = await openLedger();
+  push(init());
+  push(result('ready'));
+  push({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ id: 'b1' }, { id: 'b2' }] });
+  void session.inject('answer from caldora', { uuid: U1 });
+  await flushAll();
+  assert.deepEqual(session.idleState(), { background: 2, injected: 1, selfTurn: false });
+  session.markExited();
+  assert.deepEqual(session.idleState(), { background: 0, injected: 0, selfTurn: false });
+});
+
+test('markExited — the process is gone without a sandbox call: dead, send not open (a retry may reopen), injected lost, the stream end changes nothing', async () => {
+  const sb = fakeSandbox();
+  let end!: () => void;
+  let calls = 0;
+  const handle: SandboxHandle = {
+    ...sb.handle,
+    streamSessionCommandLogs: (_k, _c, cb) => (sb.handle.streamSessionCommandLogs(_k, _c, cb), new Promise<void>((r) => (end = r))),
+    exec: async () => (calls++, { exitCode: 0, result: '' }),
+    deleteSession: async () => void calls++,
+  };
+  const session = new ClaudeSession(handle, { cwd: '/tmp', ledger: true });
+  await session.open();
+  sb.push(init());
+  sb.push(result('ready'));
+  sb.push(wakeupUse('w1', { delaySeconds: 3000 }));
+  let lost: InjectOutcome | undefined;
+  void session.inject('answer from caldora', { uuid: U1 }).then((o) => (lost = o));
+  await flushAll();
+  const writes = sb.writes.length;
+  session.markExited();
+  await flushAll();
+  assert.equal(session.isDead(), true);
+  assert.deepEqual(lost, { kind: 'lost', takenUp: false }, 'the deliverer sends it again as a turn');
+  assert.equal(session.idleState().wakeupDueAt, undefined, 'a timer dies with its process');
+  assert.deepEqual(await session.send('next'), { status: 'error', resultText: 'session not open', isError: true, started: false });
+  assert.equal(calls, 0, 'no call into the stopped sandbox');
+  assert.equal(sb.writes.length, writes, 'nothing written');
+  end();
+  await flushAll();
+  assert.equal(session.isDead(), true);
+  assert.deepEqual(lost, { kind: 'lost', takenUp: false });
+});
+
+test('idle state — a reattach snapshot carries the pending wakeup and a turn of the CLI\'s own still running', async () => {
+  const at = Date.now() + 1800_000;
+  const snap = [init(), result('earlier'), wakeupUse('w1', { delaySeconds: 1800 }), wakeupResult('w1', at), result('scheduled'), { type: 'system', subtype: 'init', session_id: 's1' }, { type: 'assistant', message: { content: [{ type: 'text', text: 'checking the data' }] } }]
+    .map((e) => JSON.stringify(e))
+    .join('\n') + '\n';
+  const { session } = await openLedger(snap, true);
+  assert.equal(session.idleState().wakeupDueAt, at);
+  assert.equal(session.idleState().selfTurn, true);
+});
