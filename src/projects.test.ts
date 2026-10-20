@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadProjects } from './projects.js';
+import { loadBootRegistry, loadProjects } from './projects.js';
 import { log } from './log.js';
 import { ConfigError } from './sources/errors.js';
 
@@ -28,7 +28,7 @@ const BASE = {
 test('JSON-only config: systemPrompt comes from the JSON field', () => {
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify(BASE));
-    const reg = loadProjects(cfg);
+    const reg = loadProjects(cfg, undefined);
     assert.equal(reg.projects[0].systemPrompt, 'json prompt');
     assert.equal(reg.projects[1].systemPrompt, undefined);
   });
@@ -40,7 +40,7 @@ test('projects.d/<slug>.md wins over the JSON field; unknown-slug files are igno
     mkdirSync(join(dir, 'projects.d'));
     writeFileSync(join(dir, 'projects.d', 'alpha.md'), 'file prompt\nwith two lines\n');
     writeFileSync(join(dir, 'projects.d', 'ghost.md'), 'nobody reads this');
-    const reg = loadProjects(cfg);
+    const reg = loadProjects(cfg, undefined);
     assert.equal(reg.projects[0].systemPrompt, 'file prompt\nwith two lines');
     assert.equal(reg.projects[1].systemPrompt, undefined);
   });
@@ -51,7 +51,7 @@ test('an empty prompt file falls back to the JSON field', () => {
     writeFileSync(cfg, JSON.stringify(BASE));
     mkdirSync(join(dir, 'projects.d'));
     writeFileSync(join(dir, 'projects.d', 'alpha.md'), '\n  \n');
-    const reg = loadProjects(cfg);
+    const reg = loadProjects(cfg, undefined);
     assert.equal(reg.projects[0].systemPrompt, 'json prompt');
   });
 });
@@ -62,7 +62,7 @@ test('validation: mcp entries need a name and a command or url', () => {
       cfg,
       JSON.stringify({ projects: [{ slug: 'a', repos: ['O/r'], mcp: [{ name: 'x' }] }] }),
     );
-    assert.throws(() => loadProjects(cfg), /"command" or "url"/);
+    assert.throws(() => loadProjects(cfg, undefined), /"command" or "url"/);
   });
 });
 
@@ -73,7 +73,7 @@ test('validation: an oauth object loads on a gateway-m2m entry; a malformed one 
   withConfigDir((_dir, cfg) => {
     const oauth = { tokenUrl: 'https://idp.example/oauth2/token', scope: 'gw-caldora/bot' };
     writeFileSync(cfg, JSON.stringify(gw(oauth)));
-    assert.deepEqual(loadProjects(cfg).projects[0].mcp?.[0].oauth, oauth);
+    assert.deepEqual(loadProjects(cfg, undefined).projects[0].mcp?.[0].oauth, oauth);
     const refused: [unknown, Record<string, unknown> | undefined, RegExp][] = [
       [oauth, {}, /project "caldora" mcp "gw": "oauth" only goes on an entry with "auth": "gateway-m2m"/],
       [{}, undefined, /project "caldora" mcp "gw" oauth\.tokenUrl must be an https URL/],
@@ -86,7 +86,7 @@ test('validation: an oauth object loads on a gateway-m2m entry; a malformed one 
     ];
     for (const [o, extra, re] of refused) {
       writeFileSync(cfg, JSON.stringify(gw(o, extra)));
-      assert.throws(() => loadProjects(cfg), (e: Error) => re.test(e.message) && e.message.includes(cfg), JSON.stringify(o));
+      assert.throws(() => loadProjects(cfg, undefined), (e: Error) => re.test(e.message) && e.message.includes(cfg), JSON.stringify(o));
     }
   });
 });
@@ -94,7 +94,7 @@ test('validation: an oauth object loads on a gateway-m2m entry; a malformed one 
 test('validation: slug and repos are required', () => {
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'a', repos: [] }] }));
-    assert.throws(() => loadProjects(cfg), /at least one repo/);
+    assert.throws(() => loadProjects(cfg, undefined), /at least one repo/);
   });
 });
 
@@ -138,7 +138,7 @@ test('projectOwnerTeam — first listing tenant wins; home without a block', () 
 test('validation: workspaces slugs must exist', () => {
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify({ ...BASE, workspaces: { T0X11111: ['nope'] } }));
-    assert.throws(() => loadProjects(cfg), /unknown project "nope"/);
+    assert.throws(() => loadProjects(cfg, undefined), /unknown project "nope"/);
   });
 });
 
@@ -164,11 +164,11 @@ test('workspaces entry object form: projects + per-workspace channelPrefix', () 
 test('validation accepts the object form and still catches unknown slugs in it', () => {
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify({ ...BASE, workspaces: { T0X11111: { projects: ['nope'] } } }));
-    assert.throws(() => loadProjects(cfg), /unknown project "nope"/);
+    assert.throws(() => loadProjects(cfg, undefined), /unknown project "nope"/);
   });
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify({ ...BASE, workspaces: { T0X11111: { projects: ['alpha'], channelPrefix: '' } } }));
-    assert.deepEqual(teamProjects(loadProjects(cfg), 'T0X11111', 'T0HOME').map((p) => p.slug), ['alpha']);
+    assert.deepEqual(teamProjects(loadProjects(cfg, undefined), 'T0X11111', 'T0HOME').map((p) => p.slug), ['alpha']);
   });
 });
 
@@ -185,7 +185,7 @@ test('a project with sources gets the replica mount merged into its sandbox opti
           ],
         }),
       );
-      const reg = loadProjects(configPath);
+      const reg = loadProjects(configPath, undefined);
       const ops = reg.projects.find((p) => p.slug === 'ops')!;
       // Since host-tools the store never rides into the sandbox: the options are exactly the config's.
       assert.deepEqual(ops.sandbox, { privileged: false, dind: false }, 'no replica mount is injected');
@@ -195,7 +195,7 @@ test('a project with sources gets the replica mount merged into its sandbox opti
         configPath,
         JSON.stringify({ projects: [{ slug: 'ops', repos: ['Org/ops'], sandbox: { privileged: false, dind: false, mounts: ['/elsewhere:/data/sources'] }, sources: { slack: { workspaces: ['T1'] } } }] }),
       );
-      assert.deepEqual(loadProjects(configPath).projects[0]!.sandbox?.mounts, ['/elsewhere:/data/sources']);
+      assert.deepEqual(loadProjects(configPath, undefined).projects[0]!.sandbox?.mounts, ['/elsewhere:/data/sources']);
     } finally {
       delete process.env.AVEN_DATA_DIR;
     }
@@ -214,29 +214,29 @@ test('gitFlow: "pr" | "direct" accepted, absent stays undefined (→ pr); anythi
         ],
       }),
     );
-    const reg = loadProjects(cfg);
+    const reg = loadProjects(cfg, undefined);
     assert.deepEqual(reg.projects.map((p) => p.gitFlow), ['direct', 'pr', undefined]);
     // The mode is explicit only: a typo must not silently fall back to the PR flow.
     writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'ledger', repos: ['Org/ledger'], gitFlow: 'trunk' }] }));
-    assert.throws(() => loadProjects(cfg), /project "ledger" gitFlow must be one of "pr", "direct", got "trunk"/);
+    assert.throws(() => loadProjects(cfg, undefined), /project "ledger" gitFlow must be one of "pr", "direct", got "trunk"/);
     writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'ledger', repos: ['Org/ledger'], gitFlow: true }] }));
-    assert.throws(() => loadProjects(cfg), /gitFlow must be one of/);
+    assert.throws(() => loadProjects(cfg, undefined), /gitFlow must be one of/);
   });
 });
 
 test('the shipped projects.config.example.json loads', () => {
-  const reg = loadProjects(new URL('../projects.config.example.json', import.meta.url).pathname);
+  const reg = loadProjects(new URL('../projects.config.example.json', import.meta.url).pathname, undefined);
   assert.deepEqual(reg.projects.map((p) => p.slug), ['acme-shop', 'acme-cms', 'acme-monitoring', 'ops-plain']);
 });
 
 test('messaging: a valid block loads; an invalid one fails the boot naming the project', () => {
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify({ projects: [{ ...BASE.projects[0], messaging: { send: true, accept: ['home/owen-ops', '*'] } }, BASE.projects[1]] }));
-    const reg = loadProjects(cfg);
+    const reg = loadProjects(cfg, undefined);
     assert.deepEqual(reg.projects[0]!.messaging, { send: true, accept: ['home/owen-ops', '*'] });
     assert.equal(reg.projects[1]!.messaging, undefined, 'a project without the block keeps none');
     writeFileSync(cfg, JSON.stringify({ projects: [{ ...BASE.projects[0], messaging: { accept: ['bluefin/*'] } }] }));
-    assert.throws(() => loadProjects(cfg), /project "alpha" messaging\.accept: "bluefin\/\*" is not/);
+    assert.throws(() => loadProjects(cfg, undefined), /project "alpha" messaging\.accept: "bluefin\/\*" is not/);
   });
 });
 
@@ -247,7 +247,7 @@ test('messaging — shared project: the block is refused at load with an error n
       workspaces: { T0HOME0001: ['alpha', 'beta'], T0CLIENT01: ['alpha'] },
     };
     writeFileSync(cfg, JSON.stringify(shared));
-    const reg = loadProjects(cfg);
+    const reg = loadProjects(cfg, undefined);
     assert.equal(reg.projects[0]!.messaging, undefined, 'alpha is shared by two tenants: no messaging');
     assert.equal(reg.projects[0]!.systemPrompt, 'json prompt', 'and otherwise loads as before');
     assert.deepEqual(reg.projects[1]!.messaging, { send: true }, 'beta has one tenant: kept');
@@ -258,7 +258,7 @@ test('dispatch is retired: a leftover `dispatch` block warns once, naming the pr
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify({ projects: [{ ...BASE.projects[0], dispatch: { auto: ['beta'], maxPerDay: 3 } }, BASE.projects[1]] }));
     const warn = t.mock.method(log, 'warn', () => {});
-    const reg = loadProjects(cfg);
+    const reg = loadProjects(cfg, undefined);
     assert.equal(warn.mock.callCount(), 1);
     assert.match(String(warn.mock.calls[0]!.arguments[0]), /project "alpha" dispatch is retired — agent messaging replaces it; the block is ignored/);
     assert.equal('dispatch' in reg.projects[0]!, false, 'the block is dropped');
@@ -273,16 +273,18 @@ const refused = (re: RegExp) => (e: Error) => e instanceof ConfigError && re.tes
 test('driver — "daytona" is refused at load, naming the project, its field, the removal and the fix (D3)', () => {
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify({ projects: [BASE.projects[0], { slug: 'acme-shop', repos: ['Org/shop'], driver: 'daytona' }] }));
-    assert.throws(() => loadProjects(cfg), refused(/: project "acme-shop" driver is "daytona", but the Daytona sandbox driver was removed and "ssh-docker" is the only driver — to move the project, change that setting to "ssh-docker" or drop it \(docs\/sandbox-drivers\.md → Moving a project to ssh-docker\), or keep running the last release that has the Daytona driver$/));
-    assert.throws(() => loadProjects(cfg), (e: Error) => e.message.startsWith(`${cfg}: `), 'the file is named first, like every load error');
+    assert.throws(() => loadProjects(cfg, undefined), refused(/: project "acme-shop" driver is "daytona", but the Daytona sandbox driver was removed and "ssh-docker" is the only driver — to move the project, change that setting to "ssh-docker" or drop it \(docs\/sandbox-drivers\.md → Moving a project to ssh-docker\), or keep running the last release that has the Daytona driver$/));
+    assert.throws(() => loadProjects(cfg, undefined), (e: Error) => e.message.startsWith(`${cfg}: `), 'the file is named first, like every load error');
   });
 });
 
 test('driver — a typo or any other value is refused naming the accepted "ssh-docker" — it used to select Daytona silently (D3)', () => {
   withConfigDir((_dir, cfg) => {
-    for (const driver of ['ssh-dokcer', 'kubernetes', '', null, 42]) {
+    // '' is refused too: the old selection (`driver ?? SANDBOX_DRIVER`) kept it, and anything but
+    // "ssh-docker" selected Daytona. A null fell through to SANDBOX_DRIVER — the next test.
+    for (const driver of ['ssh-dokcer', 'kubernetes', '', 42]) {
       writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'acme-shop', repos: ['Org/shop'], driver }] }));
-      assert.throws(() => loadProjects(cfg), refused(/project "acme-shop" driver must be "ssh-docker", the only sandbox driver; got /), JSON.stringify(driver));
+      assert.throws(() => loadProjects(cfg, undefined), refused(/project "acme-shop" driver must be "ssh-docker", the only sandbox driver; got /), JSON.stringify(driver));
     }
   });
 });
@@ -291,7 +293,7 @@ test('driver — an absent field and "ssh-docker" load without a warning; so doe
   withConfigDir((_dir, cfg) => {
     const warn = t.mock.method(log, 'warn', () => {});
     writeFileSync(cfg, JSON.stringify({ projects: [BASE.projects[0], { ...BASE.projects[1], driver: 'ssh-docker' }] }));
-    assert.deepEqual(loadProjects(cfg).projects.map((p) => p.driver), [undefined, 'ssh-docker']);
+    assert.deepEqual(loadProjects(cfg, undefined).projects.map((p) => p.driver), [undefined, 'ssh-docker']);
     writeFileSync(cfg, JSON.stringify({ projects: BASE.projects.map((p) => ({ ...p, driver: 'ssh-docker' })) }));
     for (const old of ['DAYTONA_API_URL', 'SANDBOX_DRIVER'] as const) {
       assert.deepEqual(loadProjects(cfg, old).projects.map((p) => p.slug), ['alpha', 'beta'], `${old}: nothing would move`);
@@ -300,15 +302,41 @@ test('driver — an absent field and "ssh-docker" load without a warning; so doe
   });
 });
 
+test('driver — a JSON null is an absent field, as it always was: it loads without an old default, and D4 names it under one', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'acme-shop', repos: ['Org/shop'], driver: null }, { ...BASE.projects[1], driver: 'ssh-docker' }] }));
+    const reg = loadProjects(cfg, undefined);
+    assert.equal('driver' in reg.projects[0]!, false, 'dropped, so every reader sees an absent field');
+    assert.equal(reg.projects[1]!.driver, 'ssh-docker');
+    for (const old of ['DAYTONA_API_URL', 'SANDBOX_DRIVER'] as const) {
+      assert.throws(() => loadProjects(cfg, old), refused(/: project "acme-shop" has no "driver", and /), `${old}: it would move`);
+    }
+  });
+});
+
 test('driver — under an old Daytona default, the projects without a field are refused, all named, with the setting and the fix (D4)', () => {
   withConfigDir((_dir, cfg) => {
     writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'acme-shop', repos: ['Org/shop'] }] }));
-    assert.throws(() => loadProjects(cfg, 'DAYTONA_API_URL'), refused(/: project "acme-shop" has no "driver", and DAYTONA_API_URL without SANDBOX_DRIVER made Daytona this installation's default, but the Daytona sandbox driver was removed and "ssh-docker" is the only driver — to move it, give it "driver": "ssh-docker" or set SANDBOX_DRIVER=ssh-docker \(docs\/sandbox-drivers\.md → Moving a project to ssh-docker\), or keep running the last release that has the Daytona driver$/));
-    assert.deepEqual(loadProjects(cfg).projects.map((p) => p.slug), ['acme-shop'], 'no old default: it loads, on ssh-docker');
+    assert.throws(() => loadProjects(cfg, 'DAYTONA_API_URL'), refused(/: project "acme-shop" has no "driver", and DAYTONA_API_URL without SANDBOX_DRIVER made Daytona this installation's default, but the Daytona sandbox driver was removed and "ssh-docker" is the only driver — to move it, give it "driver": "ssh-docker" or set SANDBOX_DRIVER=ssh-docker and restart \(docs\/sandbox-drivers\.md → Moving a project to ssh-docker\), or keep running the last release that has the Daytona driver$/));
+    assert.deepEqual(loadProjects(cfg, undefined).projects.map((p) => p.slug), ['acme-shop'], 'no old default: it loads, on ssh-docker');
     writeFileSync(cfg, JSON.stringify(BASE));
-    assert.throws(() => loadProjects(cfg, 'SANDBOX_DRIVER'), refused(/: projects "alpha" and "beta" have no "driver", and SANDBOX_DRIVER=daytona made Daytona this installation's default, .* — to move them, give each "driver": "ssh-docker" or set SANDBOX_DRIVER=ssh-docker /));
+    assert.throws(() => loadProjects(cfg, 'SANDBOX_DRIVER'), refused(/: projects "alpha" and "beta" have no "driver", and SANDBOX_DRIVER=daytona made Daytona this installation's default, .* — to move them, give each "driver": "ssh-docker" or set SANDBOX_DRIVER=ssh-docker and restart /));
     // A reload that adds a project without the field: refused, naming that one project.
     writeFileSync(cfg, JSON.stringify({ projects: [{ ...BASE.projects[0], driver: 'ssh-docker' }, { slug: 'newbie', repos: ['Org/newbie'] }] }));
     assert.throws(() => loadProjects(cfg, 'DAYTONA_API_URL'), refused(/: project "newbie" has no "driver", and DAYTONA_API_URL without SANDBOX_DRIVER/));
+  });
+});
+
+test('loadBootRegistry — the boot\'s warnings come once the configuration loads, so a refused boot prints the refusal alone (D5)', () => {
+  withConfigDir((_dir, cfg) => {
+    const lines: string[] = [];
+    const warnings = ['config: DAYTONA_API_URL is retired with the Daytona sandbox driver and changes nothing — remove it'];
+    writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'acme-shop', repos: ['Org/shop'] }] }));
+    assert.throws(() => loadBootRegistry({ projectsConfigPath: cfg, daytonaDefault: 'DAYTONA_API_URL' }, warnings, (l) => lines.push(l)), refused(/project "acme-shop" has no "driver"/));
+    assert.equal(lines.length, 0, 'refused: no "remove it" for the setting that caused the refusal');
+    writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'acme-shop', repos: ['Org/shop'], driver: 'ssh-docker' }] }));
+    const reg = loadBootRegistry({ projectsConfigPath: cfg, daytonaDefault: 'DAYTONA_API_URL' }, warnings, (l) => lines.push(l));
+    assert.deepEqual(reg.projects.map((p) => p.slug), ['acme-shop']);
+    assert.deepEqual(lines, warnings, 'loaded: the stale default moves nothing, and the warning names it');
   });
 });

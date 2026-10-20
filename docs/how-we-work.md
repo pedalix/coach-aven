@@ -72,7 +72,8 @@ Two rules keep the backlog honest.
   production as a deliberate step, then the default one release later, then retired. The ledger
   has a row per change with its gate (no flag has completed the whole cycle yet), and every work
   session starts by reading it and `git log <last tag>..main`.
-- **Release notes are pull request titles.** Label `feature`, `fix`, `ci` or `docs`; the tag
+- **Release notes are pull request titles.** Label `feature`, `fix`, `ci` or `docs`, and `breaking`
+  for a change an installation must act on before it upgrades (listed first); the tag
   triggers CI (typecheck, tests, the public guard, gitleaks) and the GitHub Release. No changelog
   edits, no version bumps.
 - **Installations deploy themselves.** The product repository publishes a release; an

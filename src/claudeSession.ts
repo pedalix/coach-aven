@@ -374,9 +374,8 @@ interface Injected {
 // A persistent `claude` process driven over its sandbox session's stdin/stdout (SandboxHandle's
 // session calls) in bidirectional stream-json mode (the Happy model). Spawn ONCE; push user
 // turns to stdin; read NDJSON events from stdout; the `result` event marks turn completion
-// and the process stays
-// alive for the next turn. Cancel via a control_request{interrupt} written to stdin —
-// NEVER by killing the process (killing corrupts the conversation + zombies the cmd).
+// and the process stays alive for the next turn. Cancel via a control_request{interrupt}
+// written to stdin — NEVER by killing the process (killing corrupts the conversation).
 export class ClaudeSession {
   private sessionKey: string;
   private cmdId?: string;

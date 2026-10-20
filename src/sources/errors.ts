@@ -17,3 +17,15 @@ export class ConfigError extends Error {
     this.name = 'ConfigError';
   }
 }
+
+/**
+ * How `orch` ends on an error that reached its top level (src/cli.ts), as data so the contract is tested
+ * rather than read: a UsageError prints its message, exit 2; a ConfigError prints its message, exit 1 —
+ * neither with a stack, neither reported; anything else is an incident: its stack, logged and reported to
+ * Sentry, exit 1.
+ */
+export function cliExit(err: unknown): { text: string; code: 1 | 2; incident: boolean } {
+  if (err instanceof UsageError) return { text: err.message, code: 2, incident: false };
+  if (err instanceof ConfigError) return { text: err.message, code: 1, incident: false };
+  return { text: err instanceof Error ? err.stack || err.message : String(err), code: 1, incident: true };
+}

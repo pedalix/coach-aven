@@ -140,9 +140,10 @@ export interface RegistryRef {
 }
 
 // `daytonaDefault`: the setting that made Daytona the installation's default before the driver was
-// removed (Config.daytonaDefault) — every caller passes it, so the boot, `/aven reload` and the
-// `orch sources` commands refuse the same configurations in the same words.
-export function loadProjects(path: string, daytonaDefault?: DaytonaDefault): ProjectsRegistry {
+// removed (Config.daytonaDefault), so the boot, `/aven reload` and the `orch sources` commands refuse the
+// same configurations in the same words. Required, though usually undefined: a caller that forgot it would
+// load every project an old default would move, and only the typecheck can see that omission.
+export function loadProjects(path: string, daytonaDefault: DaytonaDefault | undefined): ProjectsRegistry {
   if (!existsSync(path)) {
     throw new Error(
       `Project registry not found at ${path}. Copy projects.config.example.json → ` +
@@ -164,9 +165,12 @@ export function loadProjects(path: string, daytonaDefault?: DaytonaDefault): Pro
       );
     }
     // Any driver but ssh-docker is refused, never run elsewhere in its place (D3): `daytona` names the
-    // removed driver, and anything else is a typo — which used to select Daytona silently.
+    // removed driver, and anything else is a typo — which used to select Daytona silently. A JSON `null`
+    // is an absent field, as it always was (the old selection read `driver ?? SANDBOX_DRIVER`): dropped
+    // here, so it loads where an absent field loads and is refused where one is (D4, below).
     const driver: unknown = p.driver;
-    if (driver !== undefined && driver !== 'ssh-docker') {
+    if (driver === null) delete (p as { driver?: unknown }).driver;
+    else if (driver !== undefined && driver !== 'ssh-docker') {
       throw new ConfigError(`${path}: ${driverRefusal(`project "${p.slug}" driver`, driver)}`);
     }
     // Validate at boot: a bad mount or a privileged:false/dind:true contradiction must fail
@@ -265,6 +269,21 @@ export function loadProjects(path: string, daytonaDefault?: DaytonaDefault): Pro
       if (body) p.systemPrompt = body;
     }
   }
+  return reg;
+}
+
+// The registry a bot boots with (`orch slack`, `orch teams`): loadProjects under the installation's old
+// Daytona default, then the boot's warnings for retired settings — only once the configuration has
+// loaded (OpenSpec retire-daytona-driver D5). A boot that a Daytona leftover refuses prints the refusal
+// alone: a warning that its cause "changes nothing — remove it" would point at the wrong fix, since
+// deleting that setting lifts the refusal and the projects then move without a word.
+export function loadBootRegistry(
+  cfg: { projectsConfigPath: string; daytonaDefault?: DaytonaDefault },
+  bootWarnings: readonly string[],
+  warn: (line: string) => void = log.warn,
+): ProjectsRegistry {
+  const reg = loadProjects(cfg.projectsConfigPath, cfg.daytonaDefault);
+  for (const w of bootWarnings) warn(w);
   return reg;
 }
 

@@ -17,7 +17,7 @@ import { createInstallationStore } from './installations.js';
 import { tenantOf } from '../../teamkeys.js';
 import { RecentSet } from '../../recent.js';
 import { eventLog, eventLogRaw, envelopeMeta } from '../../eventlog.js';
-import { loadProjects, entrySlugs, type RegistryRef } from '../../projects.js';
+import { loadBootRegistry, entrySlugs, type RegistryRef } from '../../projects.js';
 import { createTurnEngine } from '../../turn.js';
 import { createChannels } from '../../channels.js';
 import { createPollers, ROUTINE_TZ } from '../../pollers.js';
@@ -59,7 +59,10 @@ async function seedHomeInstallation(store: Store, botToken: string): Promise<str
   return teamId;
 }
 
-export async function runSlack(cfg: Config): Promise<void> {
+// `bootWarnings`: the retired-setting lines (config.ts retiredEnvWarnings), logged once the projects
+// configuration has loaded (loadBootRegistry) — a boot that a Daytona leftover refuses prints the refusal
+// alone (OpenSpec retire-daytona-driver D5).
+export async function runSlack(cfg: Config, bootWarnings: readonly string[]): Promise<void> {
   if (!cfg.slack) {
     throw new Error(
       'Set SLACK_APP_TOKEN plus SLACK_BOT_TOKEN (single-workspace) and/or ' +
@@ -68,7 +71,7 @@ export async function runSlack(cfg: Config): Promise<void> {
   }
   // The registry travels as a mutable REF so a future runtime reload can swap `.current`
   // without re-wiring the engine/pollers/handlers that captured it.
-  const reg: RegistryRef = { current: loadProjects(cfg.projectsConfigPath, cfg.daytonaDefault) };
+  const reg: RegistryRef = { current: loadBootRegistry(cfg, bootWarnings) };
   const store = new Store();
   // Two constructions: classic single-workspace (static token; no HTTP listener) vs OAuth
   // multi-workspace. With `oauth` set, the App carries NO default token — Bolt authorizes

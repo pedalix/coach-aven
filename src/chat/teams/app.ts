@@ -11,7 +11,7 @@ import express from 'express';
 import { App, ExpressAdapter } from '@microsoft/teams.apps';
 import type { Config, TeamsConfig } from '../../config.js';
 import { Store } from '../../state.js';
-import { loadProjects, type RegistryRef, resolveByChannel } from '../../projects.js';
+import { loadBootRegistry, type RegistryRef, resolveByChannel } from '../../projects.js';
 import { createTurnEngine } from '../../turn.js';
 import { createChannels } from '../../channels.js';
 import { createPollers, ROUTINE_TZ } from '../../pollers.js';
@@ -31,12 +31,13 @@ import { log } from '../../log.js';
 import { messagingRuntime } from '../../messaging/runtime.js';
 import { UsageLog } from '../../metering.js';
 
-export async function runTeams(cfg: Config): Promise<void> {
+// `bootWarnings`: as runSlack's — logged once the projects configuration has loaded (loadBootRegistry).
+export async function runTeams(cfg: Config, bootWarnings: readonly string[]): Promise<void> {
   const teams = cfg.teams;
   if (!teams) {
     throw new Error('Set TEAMS_APP_ID, TEAMS_APP_PASSWORD and TEAMS_TENANT_ID (the infra/teams module outputs) to run the Teams bot.');
   }
-  const reg: RegistryRef = { current: loadProjects(cfg.projectsConfigPath, cfg.daytonaDefault) };
+  const reg: RegistryRef = { current: loadBootRegistry(cfg, bootWarnings) };
   const store = new Store();
   const tenantId = teams.tenantId;
 

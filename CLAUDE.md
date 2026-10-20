@@ -32,7 +32,8 @@ process. This is the control plane; the heavy work runs in the sandboxes. See `R
   interaction MUST be reflected there in the same change, or it silently goes stale.
 - **Release notes are auto-generated from merged PR titles** (GitHub Releases — `CHANGELOG.md`
   is just a pointer there). So write clear, human-readable PR titles, and label PRs
-  (`feature`/`fix`/`ci`/`docs`) so they group per `.github/release.yml`. The git tag is the
+  (`feature`/`fix`/`ci`/`docs`, and `breaking` for a change an installation must act on before
+  it upgrades, listed first) so they group per `.github/release.yml`. The git tag is the
   version of record; `package.json`'s `version` is not maintained.
 - **Pure logic lives in its own module with tests.** Anything testable without Slack or a sandbox
   (parsing, matching, formatting) goes in a standalone file (e.g. `src/schedule.ts`) with a
@@ -83,8 +84,10 @@ process. This is the control plane; the heavy work runs in the sandboxes. See `R
   exec, persistent process sessions) and the seam for another provider: one file per driver,
   its SDK (if any) imported there alone. One implementation: `src/sshdocker.ts` (containers
   on a Docker host the installation runs, over SSH or locally). `SANDBOX_DRIVER` and a
-  project's `driver` field are optional and take only `ssh-docker`; anything else is refused
-  (`src/driverkind.ts`) — see `docs/sandbox-drivers.md`. `src/idlestop.ts` — the
+  project's `driver` field are optional and select only `ssh-docker`: a project `driver` naming
+  anything else, or a typo in `SANDBOX_DRIVER`, is refused; a leftover Daytona default is refused
+  only where it would move a project, and otherwise warns (`src/driverkind.ts`) — see
+  `docs/sandbox-drivers.md`. `src/idlestop.ts` — the
   **idle stop** for a provider without one (ssh-docker): the activity record the driver
   writes, the rule (holds, wakeups, lingering work), the once-a-minute sweep started with
   the pollers (OpenSpec `sandbox-idle-stop`).

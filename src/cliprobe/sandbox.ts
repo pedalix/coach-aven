@@ -119,9 +119,9 @@ export async function sandboxTransport(o: SandboxTransportOptions): Promise<Tran
 /**
  * The bot's driver, from the probe's OWN environment only (never an installation's configuration
  * files): SANDBOX_DRIVER, which must say `ssh-docker` — still required here, so a probe run never
- * guesses where its sandbox goes, and a leftover `daytona` is refused in the bot's words before any
- * sandbox exists — then SSHDOCKER_HOST / SSHDOCKER_RUNTIME, SNAPSHOT_IMAGE, and SANDBOX_NAME_PREFIX
- * for the delete guard.
+ * guesses where its sandbox goes, and a leftover `daytona` is refused before any sandbox exists, from
+ * the bot's words (driverkind.ts) with the probe's one fix: set the value — then SSHDOCKER_HOST /
+ * SSHDOCKER_RUNTIME, SNAPSHOT_IMAGE, and SANDBOX_NAME_PREFIX for the delete guard.
  */
 export function driverFromEnv(env: NodeJS.ProcessEnv): { driver: SandboxDriver; label: string } {
   const kind = env.SANDBOX_DRIVER;

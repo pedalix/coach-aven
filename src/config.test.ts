@@ -93,6 +93,13 @@ test('an old Daytona default is recorded, naming its setting, and refuses nothin
   assert.deepEqual(sandboxDriverEnv({ SANDBOX_DRIVER: '', DAYTONA_API_URL: 'https://daytona.example/api' }), byUrl, 'an empty SANDBOX_DRIVER counts as unset');
   assert.deepEqual(sandboxDriverEnv({ SANDBOX_DRIVER: 'ssh-docker', DAYTONA_API_URL: 'https://daytona.example/api' }), { sandboxDriver: 'ssh-docker' }, 'a leftover URL after the move');
   assert.deepEqual(sandboxDriverEnv({ DAYTONA_API_URL: '' }), { sandboxDriver: 'ssh-docker' }, 'an empty URL never configured Daytona');
+  // The old driver could not be built without the URL, so the other keys alone never made Daytona the
+  // default: they only warn (D5), and a project without a `driver` field loads.
+  assert.deepEqual(
+    sandboxDriverEnv({ DAYTONA_API_KEY: 'k', DAYTONA_ORGANIZATION_ID: 'o', DAYTONA_TARGET: 'eu' }),
+    { sandboxDriver: 'ssh-docker' },
+    'keys without the URL never made Daytona the default',
+  );
   const cfg = withEnv({ DAYTONA_API_URL: 'https://daytona.example/api', SNAPSHOT_IMAGE: 'img', CLAUDE_CODE_OAUTH_TOKEN: 't', GITHUB_TOKEN: 'g' }, () => loadConfig());
   assert.equal(cfg.sandboxDriver, 'ssh-docker');
   assert.equal(cfg.daytonaDefault, 'DAYTONA_API_URL', 'loadConfig carries it to loadProjects');

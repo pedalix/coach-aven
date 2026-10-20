@@ -23,6 +23,7 @@ import type { SlackChatDriver } from './driver.js';
 import { createTwinApp, mentionEnvelope, messageEnvelope } from './twin.js';
 import { CMD } from './blocks.js';
 import type { CommandDeps } from '../core/commands.js';
+import type { DaytonaDefault } from '../../driverkind.js';
 
 const UPDATE = process.env.UPDATE_SNAPSHOTS === '1';
 const SNAP = (dir: string, name: string) => new URL(`../../fixtures/chat/${dir}/${name}.json`, import.meta.url).pathname;
@@ -64,7 +65,7 @@ function recordingEngine(store: Store) {
   return { engine, log, busy };
 }
 
-async function twin(o: { asks?: CommandDeps['asks']; projectsConfigPath?: string } = {}) {
+async function twin(o: { asks?: CommandDeps['asks']; projectsConfigPath?: string; daytonaDefault?: DaytonaDefault } = {}) {
   const reg = {
     current: {
       projects: [
@@ -90,7 +91,11 @@ async function twin(o: { asks?: CommandDeps['asks']; projectsConfigPath?: string
     { C_HOME: 'aven-alpha', C_BETA: 'aven-beta', C_CLIENT: 'aven-beta', C_MEM: `aven-${MEM}` },
     { F_HIDDEN: { id: 'F_HIDDEN', name: 'secret.pdf', mimetype: 'application/pdf', url_private_download: 'https://files/secret.pdf', size: 9 } },
   );
-  const cfg = { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 }, projectsConfigPath: o.projectsConfigPath ?? '/nonexistent/projects.config.json' } as unknown as Config;
+  const cfg = {
+    sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 },
+    projectsConfigPath: o.projectsConfigPath ?? '/nonexistent/projects.config.json',
+    ...(o.daytonaDefault ? { daytonaDefault: o.daytonaDefault } : {}),
+  } as unknown as Config;
   registerEvents(app, { cfg, store, reg: reg as never, engine: rec.engine, channels, botUserId: `UBOT_${HOME}`, homeTeamId: HOME, servedTenant });
   registerCommands(app, { cfg, store, reg: reg as never, engine: rec.engine, channels, pollers, homeTeamId: HOME, ...(o.asks ? { asks: o.asks } : {}) });
   return { receiver, api, store, reg, ...rec, pollerLog, stop };
@@ -99,10 +104,20 @@ type Twin = Awaited<ReturnType<typeof twin>>;
 
 // `registry`: a projects config file for the case (`/aven reload` reads one), written to a scratch
 // directory that the recording names `<registry-dir>`, so the snapshot does not depend on the machine.
-async function record(dir: string, name: string, run: (t: Twin) => Promise<void>, o: { asks?: CommandDeps['asks']; registry?: unknown } = {}): Promise<void> {
+// `daytonaDefault`: the old Daytona default the twin's configuration carries, as loadConfig records it.
+async function record(
+  dir: string,
+  name: string,
+  run: (t: Twin) => Promise<void>,
+  o: { asks?: CommandDeps['asks']; registry?: unknown; daytonaDefault?: DaytonaDefault } = {},
+): Promise<void> {
   const regDir = o.registry === undefined ? undefined : mkdtempSync(join(tmpdir(), 'aven-cmdrec-reg-'));
   if (regDir) writeFileSync(join(regDir, 'projects.config.json'), JSON.stringify(o.registry));
-  const t = await twin({ ...(o.asks ? { asks: o.asks } : {}), ...(regDir ? { projectsConfigPath: join(regDir, 'projects.config.json') } : {}) });
+  const t = await twin({
+    ...(o.asks ? { asks: o.asks } : {}),
+    ...(regDir ? { projectsConfigPath: join(regDir, 'projects.config.json') } : {}),
+    ...(o.daytonaDefault ? { daytonaDefault: o.daytonaDefault } : {}),
+  });
   try {
     await run(t);
     await new Promise((r) => setTimeout(r, 30));
@@ -237,6 +252,25 @@ test('commands record: reload-refuses-daytona', async () => {
     assert.equal(t.reg.current, before, 'the previous registry stays active');
     assert.deepEqual(t.reg.current.projects.find((p) => p.slug === 'beta'), { slug: 'beta', repos: ['Org/beta'] }, 'beta keeps its sandbox');
   }, { registry });
+});
+// Under a stale Daytona default (DAYTONA_API_URL without SANDBOX_DRIVER) every running project names its
+// driver, and the registry file adds one that does not (D4): the reload is refused naming that project and
+// the setting, and the registry in use stays.
+test('commands record: reload-refuses-daytona-default', async () => {
+  const registry = {
+    projects: [
+      { slug: 'alpha', repos: ['Org/alpha'], driver: 'ssh-docker' },
+      { slug: 'beta', repos: ['Org/beta'], driver: 'ssh-docker' },
+      { slug: MEM, repos: ['Org/mem'], driver: 'ssh-docker' },
+      { slug: 'gamma', repos: ['Org/gamma'] },
+    ],
+  };
+  await record('commands', 'reload-refuses-daytona-default', async (t) => {
+    const before = t.reg.current;
+    await t.receiver.send(cmd('reload'));
+    assert.equal(t.reg.current, before, 'the previous registry stays active');
+    assert.equal(t.reg.current.projects.some((p) => p.slug === 'gamma'), false, 'gamma is not added');
+  }, { registry, daytonaDefault: 'DAYTONA_API_URL' });
 });
 C('access', (t) => t.receiver.send(cmd('access')));
 C('access-unbound', (t) => t.receiver.send(cmd('access', { channel: 'C_RANDOM' })));

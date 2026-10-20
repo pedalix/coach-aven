@@ -125,7 +125,7 @@ export interface SessionPanelInfo {
 export interface ProjectStatus {
   slug: string;
   repos: number;
-  state?: string; // the driver's sandbox state ('started'/'stopped'); undefined = never created, or the listing failed
+  state?: string; // the driver's sandbox state ('started'/'stopped'); undefined = never created; 'unknown' = the listing failed
   sessions: number; // conversations bound to this project in state.json
   active: number; // conversations with a turn in flight right now
   openPRs?: number; // undefined = couldn't be determined

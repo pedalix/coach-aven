@@ -84,8 +84,8 @@ test('sandboxTransport — the run fails midway: a wrong version after the upgra
 });
 
 // The probe's own environment picks the driver (OpenSpec retire-daytona-driver D3): SANDBOX_DRIVER stays
-// required there, and only ssh-docker is accepted — a leftover `daytona` stops the run in the bot's words,
-// before a driver (let alone a sandbox) exists.
+// required there, and only ssh-docker is accepted — a leftover `daytona` stops the run with the removal and
+// the fix (set the value: dropping it is refused too), before a driver (let alone a sandbox) exists.
 const PROBE_ENV = { SNAPSHOT_IMAGE: 'registry.example/sandbox-plain:1', SSHDOCKER_HOST: 'sandboxes.example' };
 
 test('driverFromEnv — ssh-docker: the bot’s driver, labelled for the report', () => {
@@ -97,7 +97,9 @@ test('driverFromEnv — ssh-docker: the bot’s driver, labelled for the report'
 test('driverFromEnv — daytona is refused with the removal and the fix; a missing or unknown SANDBOX_DRIVER names ssh-docker', () => {
   assert.throws(
     () => driverFromEnv({ ...PROBE_ENV, SANDBOX_DRIVER: 'daytona' }),
-    (e: Error) => /^SANDBOX_DRIVER is "daytona", but the Daytona sandbox driver was removed and "ssh-docker" is the only driver/.test(e.message) && /keep running the last release that has the Daytona driver/.test(e.message),
+    (e: Error) =>
+      /^SANDBOX_DRIVER is "daytona", but the Daytona sandbox driver was removed and "ssh-docker" is the only driver — set SANDBOX_DRIVER=ssh-docker, /.test(e.message) &&
+      /keep running the last release that has the Daytona driver/.test(e.message),
   );
   assert.throws(() => driverFromEnv(PROBE_ENV), /needs SANDBOX_DRIVER=ssh-docker in the probe’s environment/);
   assert.throws(() => driverFromEnv({ ...PROBE_ENV, SANDBOX_DRIVER: 'kubernetes' }), /SANDBOX_DRIVER must be "ssh-docker", the only sandbox driver; got "kubernetes"/);

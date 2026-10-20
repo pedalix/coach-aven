@@ -54,7 +54,7 @@ then gather only what changes. The field reference (shape in `src/projects.ts`):
 | `mcp` | Gateway projects: exactly `[{"name":"gw","url":"https://<gateway-host>/gw/<slug>/mcp","auth":"gateway-m2m"}]` (name MUST be `gw`). No MCP → `[]`. Direct entries (`url`+`headers` or `command`/`args`/`env`, secrets as `${VAR}` from runtime `.env`) are legacy. | new sessions |
 | `mcpDirectBackup` | Not read by the code — the pre-gateway direct list parked for rollback (move it back into `mcp` to bypass the gateway). Keep it when switching a project to `gw`. | — |
 | `youtrackProjects` | `["CG","CAR",…]` — YouTrack prefixes whose tagged tickets the investigation poller routes here. A new prefix ALSO needs the bot's read scope in your YouTrack proxy (`YT_MCP_SCOPES`, see Step 4) or the agent can't read the ticket (CAR-14 lesson). | reload |
-| `driver` | Set `"ssh-docker"`, the only driver. Omitted, it is the installation's `SANDBOX_DRIVER`: ssh-docker on current releases, but a rollback to an older one reads an omitted field as the removed driver unless `.env` sets `SANDBOX_DRIVER=ssh-docker`. Any other value is refused at boot and at `/aven reload`, never followed (`docs/sandbox-drivers.md`). | next turn |
+| `driver` | Set `"ssh-docker"`, the only driver. Omitted, it is the installation's `SANDBOX_DRIVER`: ssh-docker on current releases, but a rollback to an older one reads an omitted field as the removed driver unless `.env` sets `SANDBOX_DRIVER=ssh-docker`. A current release also refuses an omitted field while the installation keeps an old Daytona default (`SANDBOX_DRIVER=daytona`, or `DAYTONA_API_URL` without `SANDBOX_DRIVER`). Any other value is refused at boot and at `/aven reload`, never followed (`docs/sandbox-drivers.md`). | next turn |
 | `sandbox` | ssh-docker only: `{privileged, dind, mounts}` — container-creation flags; existing `proj-<slug>` must be `docker rm`'d to pick them up. | new container |
 | `cliVersion` | per-project Claude Code CLI pin (canary over `CLAUDE_CLI_VERSION`). | next chat prep |
 | `scrubSecrets` | default true; `false` opts out of redacting pasted secrets. | new sessions |
@@ -118,11 +118,13 @@ Edit `infra/<slug>/projects.config.json` (+ `projects.d/<slug>.md`). Minimal new
 }
 ```
 
-Validate with the real loader (same checks the bot runs on reload — workspaces slugs,
-gateway entry shape, sandbox options):
+Validate with the real loader (the checks the bot runs on reload — workspaces slugs,
+gateway entry shape, sandbox options, the `driver` value — except one that needs the
+installation's `.env`: under an old Daytona default the bot also refuses a project without a
+`driver` field, which this command cannot see; the entries this skill writes carry one):
 
 ```bash
-npx tsx -e "import('./src/projects.ts').then(m=>{const r=m.loadProjects('infra/<slug>/projects.config.json');console.log(r.projects.length,'projects:',r.projects.map(p=>p.slug).join(', '))})"
+npx tsx -e "import('./src/projects.ts').then(m=>{const r=m.loadProjects('infra/<slug>/projects.config.json',undefined);console.log(r.projects.length,'projects:',r.projects.map(p=>p.slug).join(', '))})"
 ```
 
 Must not throw. For direct `${VAR}` MCP refs, check each `VAR` is in `infra/<slug>/.env`; if a

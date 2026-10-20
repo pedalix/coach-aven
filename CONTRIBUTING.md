@@ -19,7 +19,8 @@ bar is: **nothing may change for production users as a side effect of a merge.**
 - Every behaviour change names its rollout bucket in the PR (`docs/rollout.md`): a bug fix,
   default-preserving with a test proving today's shape, or behind a flag that is off by
   default and canaried first — with its ledger row.
-- PR titles become the release notes; label `feature` / `fix` / `ci` / `docs`.
+- PR titles become the release notes; label `feature` / `fix` / `ci` / `docs`, and `breaking` for
+  a change an installation must act on before it upgrades (listed first in the release notes).
 - `main` is the canary; production runs the last tag.
 
 ## Keep installations out of the repo

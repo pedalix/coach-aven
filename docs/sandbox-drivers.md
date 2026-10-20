@@ -83,7 +83,7 @@ projects that run `sandbox.privileged: false` (plain image, no DinD) rather than
 | Wake | `docker start` (retried once) on the first turn after a stop — the idle stop's, or a host/daemon reboot's. Deliberately NOT `--restart unless-stopped`: a daemon-started container races the host filesystem export (Docker Desktop/WSL) and its bind mounts come up empty. Every warm-up also probes each bind mount (non-empty host dir ⇒ non-empty target) and stop+starts a container whose mount attached to nothing. The first warm-up after each start of the container — whoever started it — removes the session directories whose process did not survive the start (a directory stays only while its pid is alive and reads its FIFO, or, where the runtime does not let the bot read that link, is the pid its pid file names: the running check's own rule) and, on a docker-in-docker project, brings dockerd back before the turn goes on (a boot marker, `/tmp/aven-sess/.boot`, tells a new start from a warm container; the first warm-up of a container already running when this shipped only writes it) |
 | exec / upload | `docker exec` with the script (or file bytes) piped via stdin — no shell-quoting of payloads |
 | Persistent claude | FIFO + `out.log` under `/tmp/aven-sess/<key>/` in the container; snapshot = `cat`, tail = `tail -f` from the first byte; survives bot restarts. A session counts as running only while its recorded pid is alive and its stdin is that session's FIFO, so a pid reused after a restart never passes (where the runtime does not let the bot read that link at all, the session's own pid file decides, as before). The processes end with an idle stop; the conversation resumes with `--resume` on its next turn |
-| `/aven status` | `docker ps -a` filtered by the `managedBy` label, states mapped to started/stopped (`💤 stopped` for an idle project). A listing that exits non-zero — ssh's 255 when the host cannot be reached, docker's 1 when its daemon is down — shows `Sandboxes ⚠️`, never `✅` (the project lines then read "not created" beside it) |
+| `/aven status` | `docker ps -a` filtered by the `managedBy` label, states mapped to started/stopped (`💤 stopped` for an idle project). A listing that exits non-zero — ssh's 255 when the host cannot be reached, docker's 1 when its daemon is down — shows `Sandboxes ⚠️`, never `✅`, and each project's sandbox `⚠️ unknown`, never "not created"; the bot's journal gets the listing's error |
 
 **Idle stop** (OpenSpec `sandbox-idle-stop`, `src/idlestop.ts`)
 
@@ -193,16 +193,21 @@ docker's own stderr in that error instead of a bare exit code.
   Daytona driver's removal defaults to `daytona`: an installation that drops the line and later
   rolls back, or runs an older tag, sends every project without a `driver` field down a path
   where each turn fails.
-- **Any other value is refused, never followed.** A non-empty `SANDBOX_DRIVER` other than
-  `ssh-docker` stops the bot at boot; a project's `driver` other than `ssh-docker` is refused
-  wherever the projects configuration loads. Before the removal a misspelt `driver` selected
-  the other driver without a word; now the error names the setting and the accepted value.
+- **Any other value is refused where it would move a project, never followed.** A project's
+  `driver` other than `ssh-docker` is refused wherever the projects configuration loads (a JSON
+  `null` counts as an absent field, as it always did). A non-empty `SANDBOX_DRIVER` other than
+  `ssh-docker` or `daytona` stops the bot at boot. `SANDBOX_DRIVER=daytona` is refused only where a
+  project without a `driver` field would move, and otherwise only warns (*Retired: Daytona*).
+  Before the removal a misspelt `driver` selected the other driver without a word; now the error
+  names the setting and the accepted value.
 - **What a refusal looks like.** At boot the bot does not start: one line on stderr without a
   stack, exit 1, nothing sent to Sentry — so the deploy's health check, which prints the
   journal's last twelve lines, shows it (systemd restarts the unit and logs the same line until
-  its start limit). `/aven reload` replies with the same words, and the previous configuration
-  stays active. The `orch sources` commands, the sources daemon among them, refuse in the same
-  words.
+  its start limit). Such a boot prints the refusal alone: the warning for retired settings comes
+  only once the configuration has loaded. `/aven reload` replies with the same words, and the
+  previous configuration stays active; the fix `SANDBOX_DRIVER=ssh-docker` needs a restart, since a
+  reload re-reads the projects configuration, not `.env`. The `orch sources` commands, the sources
+  daemon among them, refuse in the same words.
 - Settings left from the Daytona driver are refused where they would move a project to a new
   sandbox, and otherwise only warn at boot: *Retired: Daytona*.
 
@@ -318,8 +323,9 @@ that removed it name it — until its projects run on ssh-docker (*Moving a proj
   - a project without a `driver` field while the installation's default was Daytona:
     `SANDBOX_DRIVER=daytona`, or a non-empty `DAYTONA_API_URL` while `SANDBOX_DRIVER` is unset or
     empty. One line names every such project.
-- **Otherwise ignored, with one warning at boot** (`orch slack`, `orch teams`) that names every one
-  set to a non-empty value: each `DAYTONA_*` variable (the bot read `DAYTONA_API_URL`,
+- **Otherwise ignored, with one warning at boot** (`orch slack`, `orch teams`, once the projects
+  configuration has loaded: a refused boot prints the refusal alone) that names every one set to a
+  non-empty value: each `DAYTONA_*` variable (the bot read `DAYTONA_API_URL`,
   `DAYTONA_API_KEY` and `DAYTONA_ORGANIZATION_ID`; the SDK read more straight from the environment,
   such as `DAYTONA_TARGET`), `SNAPSHOT_NAME`, `SANDBOX_CPU`, `SANDBOX_MEMORY`, `SANDBOX_DISK`, and
   `SANDBOX_DRIVER=daytona`, whose advice is to set `ssh-docker`. For example:

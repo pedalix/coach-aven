@@ -48,7 +48,7 @@ npm run cli-probe -- report 2.1.282                        # recompute catalogue
 - **Command line.** The probe starts the CLI with the bot's own command line (`claudeLaunch()` in `src/claudeSession.ts`) plus the scenario's extras: `--replay-user-messages`, hooks in the single `--settings`, partial messages.
 - **Cost.** The report shows each scenario's cost and the total, API-equivalent. Haiku 5.5 is the default model, about 0.02 USD a run; the full suite came to about 2 USD on 2.1.282 and 3.60 USD on 2.1.292.
 - **`--transport sandbox`.** It runs the CLI in a throwaway sandbox `cli-probe-<run>` through the bot's driver, so stdin goes the bot's way: the ssh-docker FIFO.
-  - The driver's settings come from the probe's own environment: `SANDBOX_DRIVER`, `SSHDOCKER_HOST` / `SSHDOCKER_RUNTIME`, `SNAPSHOT_IMAGE`, `SANDBOX_NAME_PREFIX`. `SANDBOX_DRIVER` is required and must be `ssh-docker`: any other value is refused in the bot's words before a sandbox is created.
+  - The driver's settings come from the probe's own environment: `SANDBOX_DRIVER`, `SSHDOCKER_HOST` / `SSHDOCKER_RUNTIME`, `SNAPSHOT_IMAGE`, `SANDBOX_NAME_PREFIX`. `SANDBOX_DRIVER` is required and must be `ssh-docker`: any other value is refused before a sandbox is created, and `daytona` is told that the driver was removed and to set `ssh-docker`.
   - The sandbox is deleted when the run ends. Leftovers are chosen by the `cli-probe-` name, and the driver refuses to delete a project's sandbox. A listing that cannot answer (the host unreachable, its Docker daemon down) stops the run with its error before anything is created.
 
 ## Reading a report
