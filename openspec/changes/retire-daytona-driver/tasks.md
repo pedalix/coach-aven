@@ -216,13 +216,13 @@
   - a *Retired* entry for the Daytona settings. `SANDBOX_AUTOSTOP_MINUTES` is not in it (D5).
 
   Verify: `grep -n 'retire-daytona-driver' docs/rollout.md` shows both the ledger row and the *Retired* entry, besides the `sandbox-idle-stop` row, which names this change. The public guard is clean. (2026-10-20, docs step: both carry `#TBD` in their PR column until the code PR has a number; task 6.2 fills it in, as `sandbox-idle-stop`'s row was.) (2026-10-20, rebased onto 2c309ff: the row's watch items also name the error reporter's two OpenTelemetry packages, which moved to 0.214.0 with 3.1's re-place step.)
-- [ ] 6.2 The PR:
+- [x] 6.2 The PR:
   - the D12 title;
   - the label `breaking` alone (D12). The repository has no such label yet (checked 2026-10-20): create it before labelling the PR, for example `gh label create breaking --description "An installation must act before it upgrades"`;
   - a body that names the bucket parts, the ledger row, the breaking note, and the counts measured in 3.1;
   - once the numbers exist: the PR column of the ledger row and of the *Retired* entry in `docs/rollout.md` (both `#TBD`, 6.1), and the spec PR's number in this PR's body.
 
-  Verify: CI `verify` is green: typecheck, tests, the cli-probe check, the public guard on the tree and on the PR text, and gitleaks.
+  Verify: CI `verify` is green: typecheck, tests, the cli-probe check, the public guard on the tree and on the PR text, and gitleaks. (2026-10-20: the label exists, created with the command above; the spec PR is #66 and this PR is #67, based on the spec branch; the ledger row and the *Retired* entry name #67, and this PR's body names #66. CI `verify` passed on this PR's first push, 7a63b2f.)
 
 ## 7. After the merge
 
