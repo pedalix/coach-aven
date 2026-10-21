@@ -25,6 +25,7 @@ import { FactStore } from './facts.js';
 import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './deps.js';
 import { recordSessionCommands, scanProjectSkills } from './skills.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
+import { log } from './log.js';
 import { ClaudeSession, type InjectOutcome, type OnQuestion, type SessionIdleState, type TurnUsage } from './claudeSession.js';
 
 // Project facts (facts/<slug>.json) — derived, machine-written state; today just the
@@ -473,7 +474,9 @@ export async function openChat(
             const path = inboxPath(turnId, i + 1, ref.name);
             await sandbox.uploadFile(data, path);
             kept.push({ path, name: ref.name });
-          } catch {
+          } catch (e) {
+            // The download or the sandbox write threw: journaled (and so in Sentry), the person sees the skip.
+            log.warn(`attachments: ${ref.name} skipped — ${e instanceof Error ? e.message : String(e)}`);
             skipped.push({ name: ref.name, reason: 'download failed' });
           }
         }
