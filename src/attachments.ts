@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { log } from './log.js';
 
 // Attachment ingestion: turn a file that arrived on Slack or a YouTrack ticket into a file
 // the in-sandbox Claude Code can actually Read. The heavy lifting downstream is free — Claude
@@ -199,12 +200,31 @@ export async function normalizeImage(
 export function downloadHeaders(ref: AttachmentRef, bearer: string): Record<string, string> {
   return ref.auth === 'none' ? {} : { Authorization: `Bearer ${bearer}` };
 }
+// Null = skipped as "download failed"; the journal says why (the person only sees the skip). The host,
+// never the URL: a download URL carries a temporary token. A Slack 403/redirect here means the bot
+// token lacks `files:read` (the manifest has it; an app installed before it was added must be reinstalled).
 export async function downloadAttachment(ref: AttachmentRef, bearer: string): Promise<Buffer | null> {
+  const host = (() => {
+    try {
+      return new URL(ref.url).host;
+    } catch {
+      return '(not a url)';
+    }
+  })();
   const res = await fetch(ref.url, { headers: downloadHeaders(ref, bearer) });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    log.warn(`attachments: ${ref.name}: HTTP ${res.status} from ${host}${res.status === 403 && host.endsWith('slack.com') ? ' — does the bot token have files:read?' : ''}`);
+    return null;
+  }
   const declared = Number(res.headers.get('content-length') ?? '');
-  if (Number.isFinite(declared) && declared > MAX_BYTES) return null;
+  if (Number.isFinite(declared) && declared > MAX_BYTES) {
+    log.warn(`attachments: ${ref.name}: ${declared} bytes declared, over the ${MAX_BYTES}-byte cap`);
+    return null;
+  }
   const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.byteLength > MAX_BYTES) return null;
+  if (buf.byteLength > MAX_BYTES) {
+    log.warn(`attachments: ${ref.name}: ${buf.byteLength} bytes, over the ${MAX_BYTES}-byte cap`);
+    return null;
+  }
   return buf;
 }

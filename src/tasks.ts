@@ -473,7 +473,9 @@ export async function openChat(
             const path = inboxPath(turnId, i + 1, ref.name);
             await sandbox.uploadFile(data, path);
             kept.push({ path, name: ref.name });
-          } catch {
+          } catch (e) {
+            // The download or the sandbox write threw: journaled (and so in Sentry), the person sees the skip.
+            log.warn(`attachments: ${ref.name} skipped — ${e instanceof Error ? e.message : String(e)}`);
             skipped.push({ name: ref.name, reason: 'download failed' });
           }
         }
