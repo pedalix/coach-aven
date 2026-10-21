@@ -3,6 +3,7 @@
 // design — Slack payloads are normalized here; what an interaction DOES lives in the
 // platform-neutral core (src/chat/core/interactions.ts), the actual work in the turn engine.
 
+import { withSlackTables } from './tables.js';
 import type bolt from '@slack/bolt';
 import { slackDriver, type SlackActionCtx } from './driver.js';
 import type { ChatAction, DialogSubmit } from '../driver.js';
@@ -126,7 +127,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
         conv: e.channel,
         id: e.ts,
         thread: e.thread_ts,
-        text: stripMention(e.text ?? ''),
+        text: withSlackTables(stripMention(e.text ?? ''), (e as { attachments?: unknown }).attachments),
         actor: { tenant: tenantOf(context), user: e.user },
         direct: false,
         ...filesOf(e.files, client, context.botToken),
@@ -164,7 +165,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
         conv: m.channel,
         id: m.ts,
         thread: m.thread_ts,
-        text: m.text ?? '',
+        text: withSlackTables(m.text ?? '', (m as { attachments?: unknown }).attachments),
         actor: { tenant: tenantOf(context), user: m.user },
         direct: m.channel_type === 'im',
         ...filesOf(m.files, client, context.botToken),
