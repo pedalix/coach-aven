@@ -102,4 +102,4 @@
   - owen-ops asks a staging project and gets the answer, with its cost in `/aven asks`;
   - a stranger's key claims a name, and its envelope for home gets `unknown installation`;
   - the hub's stored rows and logs name installations only.
-- [ ] 5.4 Prod joins later, on a tag that carries version 2: keygen, pins on both sides, `HUB_URL`. Neither archive waits for it.
+- [x] 5.4 (done 2026-10-21 on v0.42.0: keys generated on the prod box, its name reserved for that key and the hub redeployed, pins both ways, `HUB_URL` set; prod logs `hub client for <name> → … (1 pinned peer(s))`, home `(2 pinned peer(s))`; every prod project accepts asks from the home tenant agent) Prod joins later, on a tag that carries version 2: keygen, pins on both sides, `HUB_URL`. Neither archive waits for it.
