@@ -72,7 +72,7 @@ export function threadCardHtml(slug: string, t: ThreadSummary, last: Message | u
   const who = root.by ? (root.by.name ?? nameOf(root.by.id) ?? root.by.id) : 'Aven';
   const title = root.by ? plainText(root.text ?? '', 140) || messageBody(root, nameOf, slug).text : messageBody(root, nameOf, slug).text || 'Aven';
   const latest = last && last.id !== root.id ? messageBody(last, nameOf, slug).text : '';
-  return h`<a class="thread-card" id="thread-${root.id}" href="/r/${encodeURIComponent(slug)}/t/${encodeURIComponent(root.id)}"><div class="title">${title || '(empty)'}</div><div class="meta"><span class="who">${who}</span> · ${time(root.at)} · ${t.replies} ${t.replies === 1 ? 'reply' : 'replies'}${latest ? h` · <span class="latest">${latest.slice(0, 120)}</span>` : ''}</div></a>`;
+  return h`<a class="thread-card${root.visibleTo ? ' private' : ''}" id="thread-${root.id}" href="/r/${encodeURIComponent(slug)}/t/${encodeURIComponent(root.id)}"><div class="title">${title || '(empty)'}${root.visibleTo ? h` <span class="tag">only you</span>` : ''}</div><div class="meta"><span class="who">${who}</span> · ${time(root.at)} · ${t.replies} ${t.replies === 1 ? 'reply' : 'replies'}${latest ? h` · <span class="latest">${latest.slice(0, 120)}</span>` : ''}</div></a>`;
 }
 
 // The composer: the text, the files picked (or dropped / pasted — app.js), the send button; `/` opens the verb
@@ -98,6 +98,10 @@ export function homePage(content: Html): Html {
 
 export function loginPage(error?: string): Html {
   return h`<section class="login"><h1>Aven</h1><p>Sign in to reach your projects' agent.</p>${error ? h`<p class="error">${error}</p>` : ''}<p><a class="btn primary" href="/login">Sign in</a></p></section>`;
+}
+
+export function signedOutPage(): Html {
+  return h`<section class="login"><h1>Aven</h1><p>You are signed out.</p><p><a class="btn primary" href="/login">Sign in again</a></p></section>`;
 }
 
 export function deniedPage(email: string | undefined): Html {

@@ -22,6 +22,8 @@ export interface Oidc {
   authorizationUrl(p: { redirectUri: string; state: string; nonce: string; codeChallenge: string }): Promise<URL>;
   /** The callback: exchange the code, verify state and nonce, read the claims. Throws on anything else. */
   callback(currentUrl: URL, checks: { redirectUri: string; state: string; nonce: string; codeVerifier: string }): Promise<Identity>;
+  /** Where to send the browser to end the identity provider's session too (RP-initiated logout); undefined when the issuer has no such endpoint. */
+  endSessionUrl(p: { postLogoutRedirectUri: string }): Promise<URL | undefined>;
 }
 
 export interface Session {

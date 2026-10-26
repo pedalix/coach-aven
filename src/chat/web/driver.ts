@@ -56,12 +56,25 @@ export function webDriver(deps: WebDriverDeps): WebChatDriver {
   const dialogIds = deps.ids ? () => `d${deps.ids!()}` : () => newId('d');
   const listeners = new Map<string, Set<(p: UserPush) => void>>();
   const dialogs = new Map<string, string>(); // dialog id → user (bounded: the map is pruned past 1000)
+  // A push lands on the person's open pages — and on the page that opens next within a few seconds: a command
+  // typed at a room's top level opens its thread page, so the dialog it produces (`/help`, `/home`) would otherwise
+  // reach only the page being left (the first browser pass lost every such dialog). Each new stream replays the
+  // person's recent pushes once; a page that already showed one shows it again only if it is another tab.
+  const RECENT_MS = 15_000;
+  const recent = new Map<string, { at: number; push: UserPush }[]>();
+  const remember = (user: string, p: UserPush) => {
+    const now = Date.now();
+    const list = (recent.get(user) ?? []).filter((r) => now - r.at < RECENT_MS);
+    list.push({ at: now, push: p });
+    recent.set(user, list.slice(-5));
+  };
 
   function push(user: string, p: UserPush): boolean {
+    remember(user, p);
     const set = listeners.get(user);
     if (!set?.size) {
-      log.warn(`web: ${p.kind} for ${user} dropped — no open page`);
-      return false;
+      log.info(`web: ${p.kind} for ${user} waits for a page — none open right now`);
+      return true;
     }
     for (const fn of set) fn(p);
     return true;
@@ -85,6 +98,8 @@ export function webDriver(deps: WebDriverDeps): WebChatDriver {
       const set = listeners.get(user) ?? new Set();
       set.add(fn);
       listeners.set(user, set);
+      const now = Date.now();
+      for (const r of recent.get(user) ?? []) if (now - r.at < RECENT_MS) fn(r.push);
       return () => {
         set.delete(fn);
         if (!set.size) listeners.delete(user);
@@ -169,7 +184,7 @@ export function webDriver(deps: WebDriverDeps): WebChatDriver {
     async publishHome(user: string, view: HomeView): Promise<void> {
       // The Home page is served on GET /; `/home` and the first visit show it as a dialog on the open page.
       const html = renderHomeView(view, (slug) => `/r/${encodeURIComponent(slug)}`).html;
-      if (!push(user, { kind: 'dialog', id: dialogIds(), title: 'Aven', html })) throw new Error(`no open page for ${user}`);
+      push(user, { kind: 'dialog', id: dialogIds(), title: 'Aven', html });
     },
   };
 }

@@ -28,6 +28,10 @@ function fakeOidc(): Oidc & { calls: unknown[] } {
       calls.push(['auth', p]);
       return new URL(`https://idp.example/authorize?state=${p.state}&code_challenge=${p.codeChallenge}&redirect_uri=${encodeURIComponent(p.redirectUri)}`);
     },
+    async endSessionUrl({ postLogoutRedirectUri }) {
+      calls.push(['endSession', postLogoutRedirectUri]);
+      return new URL(`https://idp.example/logout?client_id=c1&post_logout_redirect_uri=${encodeURIComponent(postLogoutRedirectUri)}`);
+    },
     async callback(url, checks) {
       calls.push(['callback', url.search, checks]);
       if (url.searchParams.get('state') !== checks.state) throw new Error('state mismatch');
@@ -304,6 +308,7 @@ test('WEB_AUTH=none: the login sets the fixed local user; a logout clears the se
     const token = csrf('local', cookie);
     const out = await fetch(`http://127.0.0.1:${port}/logout`, { method: 'POST', headers: { cookie, 'x-csrf': token }, redirect: 'manual' });
     assert.equal(out.status, 303);
+    assert.equal(out.headers.get('location'), '/signed-out', 'no identity provider: signed out locally, onto the signed-out page');
     assert.ok(cookies(out).some((c) => c.startsWith(`${SESSION_COOKIE}=;`) && c.includes('Max-Age=0')));
   } finally {
     await local.server.close();
@@ -366,4 +371,16 @@ test('/help shows the Home cheat-sheet to the caller; the composer gets the verb
   assert.match(html, /<meta name="max-file-mb" content="20">/);
   assert.match(html, /data-conv="room:alpha" data-last="20/);
   assert.match(html, /id="file-input" multiple/);
+});
+
+test('sign out ends the identity provider\'s session too: the cookie is cleared and the browser goes to the end-session URL, which returns to /signed-out (no session needed)', async () => {
+  const cookie = sessionCookie('u1', 'Ann');
+  const token = csrf('u1', cookie);
+  const out = await post('/logout', {}, { cookie, 'x-csrf': token });
+  assert.equal(out.status, 303);
+  assert.equal(out.headers.get('location'), `https://idp.example/logout?client_id=c1&post_logout_redirect_uri=${encodeURIComponent('http://127.0.0.1:0/signed-out')}`);
+  assert.ok(cookies(out).some((c) => c.startsWith(`${SESSION_COOKIE}=;`) && c.includes('Max-Age=0')));
+  const page = await get('/signed-out');
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /You are signed out.*href="\/login"/s);
 });

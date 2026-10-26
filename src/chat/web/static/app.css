@@ -104,3 +104,4 @@ dialog#dlg::backdrop { background: rgba(0, 0, 0, 0.35); }
 .files li { margin: 0.15rem 0; }
 nav.side li a.unread::after { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-left: 0.4rem; vertical-align: middle; }
 #notify.on { border-color: var(--ok); }
+.thread-card.private { background: var(--private); }

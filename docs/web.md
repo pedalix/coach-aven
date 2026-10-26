@@ -102,6 +102,10 @@ inputs are a test suite (`src/chat/web/webformat.test.ts`).
 
 - **Health.** `journalctl -u <service>` shows `Web chat running (https://<host> ← 127.0.0.1:8787) — N project(s), M room(s)`
   at boot. The identity provider is reached once at boot (discovery): a wrong issuer fails the boot by name.
+- **Sign-out.** `Sign out` clears the session cookie and, when the issuer publishes an end-session endpoint (Cognito's
+  hosted UI does), ends the identity provider's session too — otherwise `/login` would sign the person straight back
+  in on the provider's live session. The provider returns the browser to `/signed-out` (register `https://<host>/signed-out`
+  as the client's logout URL); without such an endpoint the sign-out is local only.
 - **People.** Who logged in is in `state.json` (`webUsers`: id, name, e-mail, last login) — the names on posts and
   mentions come from there. The user id is the issuer's subject.
 - **Journal.** Logins (`web login: <e-mail>`), rejected POSTs (`web: rejected a POST … without a valid CSRF token`),
