@@ -17,7 +17,7 @@ import { createActorGate } from '../core/gates.js';
 import { createInteractions } from '../core/interactions.js';
 import { createMessages } from '../core/messages.js';
 import { createCommands } from '../core/commands.js';
-import { setAlertSink, summary, type AlertLevel } from '../slack/blocks.js';
+import { summary, type AlertLevel } from '../slack/blocks.js';
 import { teamsDriver, type OutActivity, type TeamsApi } from './driver.js';
 import { registerEvents, type TeamsAppLike } from './events.js';
 import { activityShape } from './files.js';
@@ -121,17 +121,18 @@ export const teamsSurface: SurfacePlugin = {
 
     // Operator error alerts → a Teams channel (AVEN_ALERT_CHANNEL = a channel id the app is in).
     const ALERT_CHANNEL = process.env.AVEN_ALERT_CHANNEL;
+    let alertSink: ((text: string, level: AlertLevel) => void) | undefined; // installed by the root, with every surface's
     const recentAlerts = new Map<string, number>();
     if (ALERT_CHANNEL) {
       const PREFIX: Record<AlertLevel, string> = { error: '🚨 CoachAven error:', warning: '⚠️ CoachAven:', info: '✅ CoachAven:' };
-      setAlertSink((text, level) => {
+      alertSink = (text: string, level: AlertLevel) => {
         const now = Date.now();
         const last = recentAlerts.get(text);
         if (last && now - last < 60_000) return;
         recentAlerts.set(text, now);
         if (recentAlerts.size > 200) recentAlerts.clear();
         void driver.post({ conv: ALERT_CHANNEL }, { kind: 'text', text: `${PREFIX[level]} ${text}`.slice(0, 2000) }).catch(() => {});
-      });
+      };
     }
 
     return {
@@ -141,12 +142,13 @@ export const teamsSurface: SurfacePlugin = {
       // Team channels map by id only (teams-chat-driver): no single-project fallback there, 1:1 chats keep it.
       channelsOptions: { boundOnly: hasReplyChains },
       hasHome: true,
-      async wire({ cfg, store, reg, engine, channels, pollers, messaging }: SharedDeps): Promise<WiredSurface> {
+      ...(alertSink ? { alerts: alertSink } : {}),
+      async wire({ cfg, store, reg, engine, channels, pollers, messaging, surface }: SharedDeps): Promise<WiredSurface> {
       const actor = createActorGate(store, tenantId);
       const servedTenant = (t: string | undefined) => t === tenantId;
-      const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', messaging: messaging.messaging });
-      const messages = createMessages({ store, reg, engine, channels, homeTeamId: tenantId, actor, parkDmPick: core.parkDmPick });
-      const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks });
+      const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', messaging: messaging.messaging, ...(surface ? { surface } : {}) });
+      const messages = createMessages({ store, reg, engine, channels, homeTeamId: tenantId, actor, parkDmPick: core.parkDmPick, ...(surface ? { surface } : {}) });
+      const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
 
       registerEvents(app as unknown as TeamsAppLike, {
         tenantId,

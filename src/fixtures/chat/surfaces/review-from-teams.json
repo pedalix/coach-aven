@@ -1,0 +1,25 @@
+{
+  "slack": [
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "C_ALPHA",
+        "text": "*🔍 Review of Org/alpha#8*\n\nLooks good: two nits, one question.\nDetails follow."
+      }
+    }
+  ],
+  "teams": [],
+  "engine": [
+    {
+      "liveTurn": {
+        "channel": "19:ALPHA@thread.tacv2",
+        "key": "teams:review:Org/alpha:8:alpha",
+        "slug": "alpha",
+        "question": "[Read-only PR review — med effort] Revie",
+        "automatic": true
+      }
+    }
+  ],
+  "result": true
+}

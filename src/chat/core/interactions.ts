@@ -11,7 +11,8 @@
 import type { Config } from '../../config.js';
 import type { Store } from '../../state.js';
 import { resolveBySlug, teamProjects, type RegistryRef } from '../../projects.js';
-import { withTeam } from '../../teamkeys.js';
+import { keyFor } from '../surfaces.js';
+import type { ChatDriverName } from '../drivers.js';
 import type { TurnEngine } from '../../turn.js';
 import { readMemory } from './commands.js';
 import { autofixPrompt, reportDraftPrompt, reportDeliveryContract } from '../../prompts.js';
@@ -34,6 +35,8 @@ export interface InteractionDeps {
   reg: RegistryRef;
   engine: TurnEngine;
   homeTeamId?: string;
+  // The surface these handlers serve (undefined = the default surface; its keys keep today's shapes).
+  surface?: ChatDriverName;
   servedTenant: (tenantId: string | undefined) => boolean;
   actor: ActorGate;
   // The viewer tenant's channel-name wildcard, for the home surface.
@@ -63,7 +66,7 @@ const parse = <T>(raw: string): T | undefined => {
 };
 
 export function createInteractions(deps: InteractionDeps): Interactions {
-  const { cfg, store, reg, engine, homeTeamId, servedTenant, actor } = deps;
+  const { cfg, store, reg, engine, homeTeamId, servedTenant, actor, surface } = deps;
 
   const pendingDmPicks = new Map<string, { channel: string; user: string; question: string }>();
   let dmPickSeq = 0;
@@ -246,7 +249,7 @@ export function createInteractions(deps: InteractionDeps): Interactions {
       if (a.msg) {
         await d.update({ conv: pending.channel, id: a.msg.id }, { kind: 'text', text: `▶️ Running on *${slug}*…` }).catch(() => {});
       }
-      const pickKey = withTeam(tenant, homeTeamId, `dm:${pending.channel}:${slug}`);
+      const pickKey = keyFor(surface, tenant, homeTeamId, `dm:${pending.channel}:${slug}`);
       await engine.liveTurn(d, pending.channel, undefined, undefined, pickKey, project, pending.question);
     },
 
@@ -346,7 +349,7 @@ export function createInteractions(deps: InteractionDeps): Interactions {
       if (!project) return;
       // Tenant-prefixed like the subscribe path — attribution, dedup and restart recovery all
       // resolve the clicking workspace's own credentials.
-      const key = withTeam(tenant, homeTeamId, `autofix:${v.repo}:${v.number}:${v.slug}`);
+      const key = keyFor(surface, tenant, homeTeamId, `autofix:${v.repo}:${v.number}:${v.slug}`);
       if (engine.hasKey(key)) return; // a fix is already running for this PR
       // automatic: it pushes commits on its own — an agent-messaging answer never folds into it (D11).
       await engine.liveTurn(d, v.channel, undefined, undefined, key, project, autofixPrompt(v.repo, v.number), undefined, { automatic: true });

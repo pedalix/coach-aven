@@ -11,7 +11,9 @@ import { localDate } from '../../routineguard.js';
 import type { Config } from '../../config.js';
 import type { Store } from '../../state.js';
 import { loadProjects, resolveBySlug, teamProjects, projectOwnerTeam, type ProjectConfig, type RegistryRef } from '../../projects.js';
-import { withTeam, splitTeam, normalizeTenant } from '../../teamkeys.js';
+import { splitTeam, normalizeTenant } from '../../teamkeys.js';
+import { keyFor } from '../surfaces.js';
+import type { ChatDriverName } from '../drivers.js';
 import { rateLimitStatusLine } from '../../ratelimit.js';
 import { effectiveAccess, mayDrive, isAdmin, deniedText, parseUsersCmd, applyUsersCmd, usersListText } from '../../access.js';
 import type { TurnEngine } from '../../turn.js';
@@ -44,6 +46,9 @@ export interface CommandDeps {
   // The home tenant id (resolved at boot). Every subcommand scopes to the CALLING
   // workspace's project subset; operator commands (reload, usage) are home-only.
   homeTeamId?: string;
+  // The surface these commands arrive on (undefined = the default surface; its keys keep today's shapes).
+  // Records a command creates (routines, watches, review settings) carry it, so their deliveries return there.
+  surface?: ChatDriverName;
   // Who, on the home tenant, is an operator: may run the operator verbs and manage access.
   // Absent (Slack): everyone in the home workspace, as always. Teams sets it from
   // TEAMS_OPERATORS — the one tenant is "home" there, and a client's whole tenant must not
@@ -115,7 +120,7 @@ function sourcesStatus(p: ProjectConfig, intervalMin: number): string {
 }
 
 export function createCommands(deps: CommandDeps) {
-  const { cfg, store, reg, engine, channels, pollers, homeTeamId, isOperator, home } = deps;
+  const { cfg, store, reg, engine, channels, pollers, homeTeamId, isOperator, home, surface } = deps;
 
   // Gather a live snapshot for `/aven status`, scoped to ONE tenant (tid: undefined =
   // home): its projects, its sessions/turns (a shared slug must not reveal the other
@@ -237,6 +242,7 @@ export function createCommands(deps: CommandDeps) {
     const rec = store.addRoutine({
       slug: project.slug,
       teamId: tid,
+      ...(surface ? { surface } : {}),
       channel: channelId,
       cron: sched.cron,
       tz: ROUTINE_TZ,
@@ -315,6 +321,7 @@ export function createCommands(deps: CommandDeps) {
       const rec = store.addRoutine({
         slug,
         teamId: tid,
+        ...(surface ? { surface } : {}),
         channel: channelId,
         cron: DREAM_DEFAULT_CRON,
         tz: ROUTINE_TZ,
@@ -362,6 +369,7 @@ export function createCommands(deps: CommandDeps) {
       const rec = store.addRoutine({
         slug,
         teamId: tid,
+        ...(surface ? { surface } : {}),
         channel: channelId,
         cron: HOUSEKEEPING_DEFAULT_CRON,
         tz: ROUTINE_TZ,
@@ -730,6 +738,7 @@ export function createCommands(deps: CommandDeps) {
             autoReviewSince: new Date().toISOString(),
             autoReviewChannel: cmd.conv,
             autoReviewTeam: tid,
+            ...(surface ? { autoReviewSurface: surface } : {}),
             autoReviewEffort: parseEffort(words[2]) ?? 'med',
           });
           const eff = store.getProjectSettings(project.slug).autoReviewEffort;
@@ -765,7 +774,7 @@ export function createCommands(deps: CommandDeps) {
         await say(`:x: Unknown project ${t.slug}.`);
         return;
       }
-      const fired = pollers.fireReview(d, project, t.repo, t.number, cmd.conv, effort, tid);
+      const fired = pollers.fireReview(d, project, t.repo, t.number, cmd.conv, effort, tid, surface);
       await say(fired
           ? `:eyes: Reviewing ${shortRepo(t.repo)}#${t.number} (${effort})…`
           : `:hourglass_flowing_sand: Already reviewing ${shortRepo(t.repo)}#${t.number}.`);
@@ -801,7 +810,7 @@ export function createCommands(deps: CommandDeps) {
       }
       // Tenant-prefixed store key: two teams watching the same PR of a shared repo keep
       // independent subscriptions (a bare field would last-write-win).
-      const watchKey = withTeam(tenant, homeTeamId, `${t.repo}#${t.number}`);
+      const watchKey = keyFor(surface, tenant, homeTeamId, `${t.repo}#${t.number}`);
 
       if (first === 'off') {
         const removed = store.deletePrWatch(watchKey);
@@ -822,6 +831,7 @@ export function createCommands(deps: CommandDeps) {
       const ci = await ciStatusForSha(cfg, t.repo, meta.headSha);
       const reviews = await listReviews(cfg, t.repo, t.number);
       store.setPrWatch(watchKey, {
+        ...(surface ? { surface } : {}),
         repo: t.repo,
         number: t.number,
         slug: t.slug,
@@ -846,7 +856,7 @@ export function createCommands(deps: CommandDeps) {
       await say(`Ask me something: \`${CMD} <your question>\``);
       return;
     }
-    const key = withTeam(tenant, homeTeamId, `cmd:${cmd.actor.user}:${project!.slug}`);
+    const key = keyFor(surface, tenant, homeTeamId, `cmd:${cmd.actor.user}:${project!.slug}`);
     const dm = await d.openDirect(cmd.actor.user); // undefined: no im:write — private fallback below
 
     if (dm) {

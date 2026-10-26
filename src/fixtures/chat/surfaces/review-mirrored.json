@@ -1,0 +1,26 @@
+{
+  "slack": [],
+  "teams": [
+    {
+      "op": "send",
+      "conv": "19:ALPHA@thread.tacv2",
+      "activity": {
+        "type": "message",
+        "text": "**🔍 Review of Org/alpha#7**\n\nLooks good: two nits, one question.\nDetails follow.",
+        "textFormat": "extendedmarkdown"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "liveTurn": {
+        "channel": "C_ALPHA",
+        "key": "review:Org/alpha:7:alpha",
+        "slug": "alpha",
+        "question": "[Read-only PR review — med effort] Revie",
+        "automatic": true
+      }
+    }
+  ],
+  "result": true
+}

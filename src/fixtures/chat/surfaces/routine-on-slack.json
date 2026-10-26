@@ -1,0 +1,44 @@
+{
+  "slack": [
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "C_ALPHA",
+        "text": "📋 what shipped · running…"
+      }
+    },
+    {
+      "method": "chat.update",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "C_ALPHA",
+        "ts": "1000.0001",
+        "text": "📋 what shipped — Looks good: two nits, one question."
+      }
+    }
+  ],
+  "teams": [],
+  "engine": [
+    {
+      "restartSession": {
+        "key": "cron:r1:alpha",
+        "slug": "alpha"
+      }
+    },
+    {
+      "liveTurn": {
+        "channel": "C_ALPHA",
+        "threadTs": "1000.0001",
+        "key": "thread:1000.0001",
+        "slug": "alpha",
+        "question": "[Scheduled read-only digest] Do NOT modi",
+        "routine": {
+          "id": "r1",
+          "label": "📋 what shipped"
+        }
+      }
+    }
+  ],
+  "result": true
+}

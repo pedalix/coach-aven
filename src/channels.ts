@@ -53,6 +53,10 @@ export interface ChannelsOptions {
   // the installation's one project. Slack passes nothing: a single-project workspace keeps answering
   // in any channel the bot is in, as today.
   boundOnly?: (conversation: string) => boolean;
+  // Which explicit binding of a project this surface's directory reads (`slackChannel`, `teamsChannel`):
+  // the driver's name. Absent: today's order (slackChannel, then teamsChannel), for a directory that
+  // serves one driver as before.
+  binding?: 'slack' | 'teams';
 }
 
 export function createChannels(reg: RegistryRef, home: () => string | undefined, opts: ChannelsOptions = {}): Channels {
@@ -81,10 +85,11 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined,
     project: ProjectConfig,
     tenantId?: string,
   ): Promise<string | undefined> {
-    // An explicit binding wins — `slackChannel` or, on a Teams installation, `teamsChannel`
-    // (an installation runs one driver, so at most one of them is set and meaningful).
-    if (project.slackChannel) return project.slackChannel;
-    if (project.teamsChannel) return project.teamsChannel;
+    // An explicit binding wins: the one of this surface's driver when the directory knows it (an
+    // installation with several surfaces binds a project on each), else `slackChannel` then `teamsChannel`.
+    const bound = opts.binding === 'teams' ? project.teamsChannel : opts.binding === 'slack' ? project.slackChannel : (project.slackChannel ?? project.teamsChannel);
+    if (bound) return bound;
+    if (opts.binding === 'teams') return undefined; // Teams channels have no name wildcard
     const cacheKey = `${tenantId ?? 'home'}:${project.slug}`;
     const cached = slugChannelCache.get(cacheKey);
     if (cached) return cached;

@@ -1,0 +1,46 @@
+{
+  "slack": [],
+  "teams": [
+    {
+      "op": "send",
+      "conv": "19:ALPHA@thread.tacv2",
+      "activity": {
+        "type": "message",
+        "text": "📋 what shipped · running…",
+        "textFormat": "extendedmarkdown"
+      }
+    },
+    {
+      "op": "update",
+      "conv": "19:ALPHA@thread.tacv2",
+      "id": "m1",
+      "activity": {
+        "type": "message",
+        "text": "📋 what shipped — Looks good: two nits, one question.",
+        "textFormat": "extendedmarkdown"
+      }
+    }
+  ],
+  "engine": [
+    {
+      "restartSession": {
+        "key": "teams:cron:r1:alpha",
+        "slug": "alpha"
+      }
+    },
+    {
+      "liveTurn": {
+        "channel": "19:ALPHA@thread.tacv2",
+        "threadTs": "m1",
+        "key": "teams:thread:m1",
+        "slug": "alpha",
+        "question": "[Scheduled read-only digest] Do NOT modi",
+        "routine": {
+          "id": "r1",
+          "label": "📋 what shipped"
+        }
+      }
+    }
+  ],
+  "result": true
+}

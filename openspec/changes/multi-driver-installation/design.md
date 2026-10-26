@@ -49,6 +49,12 @@ All surfaces start, then the pollers and the recovery. A surface that cannot sta
 ### D8. What proves "unchanged"
 The recorded Slack and Teams scenarios (`events.record`, `commands.record`, `pollers.record`, `turn.record`) run through the shared root with one surface and must be byte-identical. A new recorder test runs the root with two fake transports (one surface per driver kind) through: a thread on each, a routine created on each, a review with `deliverTo` both, a restart with a turn on each, an allow on one surface.
 
+## Changed while implementing
+
+- D4: instead of one `channelIdForSlug(…, surface)` the root builds one channel directory per surface (`ChannelsOptions.binding`) and the pollers ask for a surface's directory (`channelsFor`); the same answer, without a surface parameter on every directory call.
+- D4: a review on a project with `deliverTo` runs ONCE, in the conversation (or auto-review channel) it was asked from, and its answer is posted to the other delivery surfaces' channels — one turn, one cost, "appears on each surface" kept. A ticket investigation lands on one surface, the first delivery surface with a driver and a channel: its dialogs belong to that thread and a copy elsewhere would not open them.
+- Alerts: each surface prepares its alert sink and the root installs one that fans out to all of them.
+
 ## Risks / Trade-offs
 
 - [A key's first segment is overloaded: driver name, tenant id or kind] → `surfaces.ts` is the one parser; driver names are a closed set that never matches `TENANT_RE` or a key kind; property test over the three shapes.
