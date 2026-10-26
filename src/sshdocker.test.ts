@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, ensureSandboxScript, transportArgv, LOCAL_HOST, deleteSandboxScript, SshDockerDriver, bootScript, stopSandboxScript, runSsh, type SshRun, type SshRunOpts } from './sshdocker.js';
+import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, listingStates, ensureSandboxScript, transportArgv, LOCAL_HOST, deleteSandboxScript, SshDockerDriver, bootScript, stopSandboxScript, runSsh, type SshRun, type SshRunOpts } from './sshdocker.js';
 import type { Config } from './config.js';
 import { sandboxActivity } from './idlestop.js';
 
@@ -176,6 +176,22 @@ test('parseContainerStates — docker states map onto started/stopped', () => {
 test('parseContainerStates — empty/garbage input yields an empty map', () => {
   assert.equal(parseContainerStates('').size, 0);
   assert.equal(parseContainerStates('no-tabs-here\n').size, 0);
+});
+
+test('listingStates — exit 0 parses exactly as before; a listing that cannot answer throws with the tail of stderr, never reads as empty', () => {
+  const out = 'proj-caldora\trunning\nproj-bluefin-infra\texited\n';
+  assert.deepEqual(listingStates({ code: 0, stdout: out, stderr: '' }), parseContainerStates(out));
+  assert.equal(listingStates({ code: 0, stdout: '', stderr: '' }).size, 0, 'a host with no project container yet: empty, and fine');
+  assert.throws(
+    () => listingStates({ code: 255, stdout: '', stderr: 'ssh: connect to host sandboxes.example port 22: Connection timed out\n' }),
+    /^Error: sandbox listing failed \(exit 255\)\n--- stderr ---\nssh: connect to host sandboxes\.example port 22: Connection timed out$/,
+    'ssh: the host cannot be reached',
+  );
+  assert.throws(
+    () => listingStates({ code: 1, stdout: '', stderr: 'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?' }),
+    /sandbox listing failed \(exit 1\)\n--- stderr ---\nCannot connect to the Docker daemon/,
+    'docker: its daemon is down',
+  );
 });
 
 test('transportArgv — a real host goes over ssh in BatchMode with the remote command verbatim', () => {
@@ -555,4 +571,12 @@ test('SshDockerDriver — two warm-ups of one container never run their scripts 
   });
   await Promise.all([driver.ensureSandbox('proj-two', 'two'), driver.ensureSandbox('proj-two', 'two'), driver.ensureSandbox('proj-other', 'other')]);
   assert.equal(maxActive, 2, 'proj-two serialized; proj-other alongside');
+});
+
+test('SshDockerDriver.listStates — the host answers: the map; the host is down: a rejection with ssh\'s words (/aven status shows ⚠️)', async () => {
+  const up = fakeHost(() => ({ stdout: 'proj-caldora\trunning\n' }));
+  assert.deepEqual([...(await up.driver.listStates())], [['proj-caldora', 'started']]);
+  assert.ok(up.seen[0]!.script.startsWith(`docker ps -a --filter label=managedBy='coach-aven'`), 'the listing script is unchanged');
+  const down = fakeHost(() => ({ code: 255, stderr: 'ssh: connect to host sandboxes.example port 22: Connection refused' }));
+  await assert.rejects(down.driver.listStates(), /sandbox listing failed \(exit 255\)[\s\S]*Connection refused/);
 });

@@ -72,7 +72,7 @@ export interface ChatSession {
   // The Claude conversation id, known after the first turn. Persist it so a restarted
   // bot can resume the same thread via openChat({ resumeSessionId }).
   sessionId(): string | undefined;
-  // The running Daytona command's coordinates — persist so a restarted bot can REATTACH
+  // The running session command's coordinates — persist so a restarted bot can REATTACH
   // (openChat({ attach })) to the still-running claude instead of spawning a duplicate.
   attachInfo(): { sessionKey: string; cmdId: string } | undefined;
   // Recover the turn that was in flight when the bot last restarted: reattach + return its
@@ -114,8 +114,7 @@ export interface ChatSession {
   ): Promise<{ preamble: string; skipped: { name: string; reason: string }[] }>;
   // Kill the sandbox-side persistent session-command and mark this object dead — an
   // explicit "forget this conversation" (vs. the LRU/prune paths, which only drop the
-  // reference and leave the process to the sandbox's idle stop: the provider's own on Daytona,
-  // the bot's on ssh-docker — idlestop.ts).
+  // reference and leave the process to the sandbox's idle stop — the bot's, idlestop.ts).
   close(): Promise<void>;
   // What the idle stop must not cut short silently (ClaudeSession.idleState); none when no live
   // process. Read by the engine's sandboxUse (OpenSpec sandbox-idle-stop).
@@ -143,7 +142,7 @@ function withSandboxLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
   return run;
 }
 
-// Prepare a project's sandbox for the chat path: snapshot active, sandbox started,
+// Prepare a project's sandbox for the chat path: image present, sandbox started,
 // tooling + auth seeded, and ALL the project's repos cloned side by side. The GitHub
 // token is scoped to exactly these repos plus the dependency repos their manifests
 // reference (deps scanner → facts). cwd is the single repo's dir when there's one repo,
@@ -263,7 +262,7 @@ export async function openChat(
     avenSession?: string;
     // The project's sandbox provider (ProjectConfig.driver); omitted → deployment default.
     driver?: SandboxDriverKind;
-    // A still-running Daytona command from before a bot restart — reattach to it instead
+    // A still-running session command from before a bot restart — reattach to it instead
     // of spawning a fresh process (tried once; falls back to --resume if it's gone).
     attach?: { sessionKey: string; cmdId: string };
     // Called whenever a session (re)opens, with its command coords — persist immediately
@@ -341,9 +340,9 @@ export async function openChat(
     if (a) opts.onOpen?.({ ...a, ledger: session!.hasLedger() });
   };
 
-  // Wake the sandbox (it is stopped when idle — by Daytona, or by the bot's idle stop on
-  // ssh-docker) + re-seed the CC token, the GitHub token, &
-  // MCP config, then (re)open the persistent Claude process if we don't have a live one.
+  // Wake the sandbox (the bot's idle stop stops it when idle, idlestop.ts) + re-seed the CC
+  // token, the GitHub token, & MCP config, then (re)open the persistent Claude process if we
+  // don't have a live one.
   // Re-seeding the GitHub token EVERY turn is load-bearing: it's a ~1h installation token,
   // so a warm sandbox that handled the first message would otherwise hit "Bad credentials"
   // on a later `git push`/`gh pr create` (e.g. topping up commits on an open PR an hour on).

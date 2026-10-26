@@ -73,9 +73,10 @@ export interface ProjectConfig {
   gitFlow?: GitFlow;
   env?: Record<string, string>; // per-project env/secrets seeded into the sandbox (reserved)
   mcp?: McpServerSpec[]; // per-project MCP servers → materialized into --mcp-config in the sandbox
-  // Which sandbox provider hosts this project's sandbox (see driver.ts). Omitted → the
-  // deployment default (SANDBOX_DRIVER, currently daytona). Lets the fleet migrate
-  // provider by provider — e.g. move a docker-less project to ssh-docker first.
+  // Which sandbox driver hosts this project's sandbox (see driver.ts). Optional: omitted → the
+  // installation's SANDBOX_DRIVER, and either can only say "ssh-docker", the one driver since the
+  // Daytona driver's removal — loadProjects refuses any other value (OpenSpec retire-daytona-driver
+  // D3). The templates still write "ssh-docker": v0.42.0 and earlier releases default to daytona.
   driver?: SandboxDriverKind;
   // Pin THIS project's sandbox Claude Code CLI (x.y.z), overriding CLAUDE_CLI_VERSION — the
   // canary knob: roll a new version on one low-traffic project first (cliversion.ts).
@@ -172,6 +173,15 @@ export function loadProjects(path: string): ProjectsRegistry {
       if (!Array.isArray(p.deliverTo) || bad.length) {
         throw new Error(`${path}: project "${p.slug}" deliverTo must be an array of chat drivers (${CHAT_DRIVERS.join(', ')}), got ${JSON.stringify(p.deliverTo)}`);
       }
+    }
+    // ssh-docker is the only sandbox driver (OpenSpec retire-daytona-driver D3): any other value — `daytona`,
+    // or a typo, which used to select Daytona silently — fails the boot (and `/aven reload`) rather than move
+    // the project to a new, empty sandbox. A JSON null is an absent field, as the selection always read it.
+    const driver: unknown = p.driver;
+    if (driver != null && driver !== 'ssh-docker') {
+      throw new Error(
+        `${path}: project "${p.slug}" driver ${JSON.stringify(driver)}: the Daytona driver was removed after v0.42.0; ssh-docker is the only sandbox driver`,
+      );
     }
     // Validate at boot: a bad mount or a privileged:false/dind:true contradiction must fail
     // here, not at the first turn of that project.

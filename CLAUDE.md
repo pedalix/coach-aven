@@ -1,8 +1,9 @@
 # CoachAven — contributor guide
 
-A Slack coding agent: one Bolt **Socket-Mode** bot drives one warm **Daytona** sandbox per
-project, each running a persistent **Claude Code** process. This is the control plane; the
-heavy work runs in the sandboxes. See `README.md` and `docs/` for the full picture.
+A Slack coding agent: one Bolt **Socket-Mode** bot drives one warm sandbox per project — a
+Docker container on a host the installation runs — each running a persistent **Claude Code**
+process. This is the control plane; the heavy work runs in the sandboxes. See `README.md` and
+`docs/` for the full picture.
 
 ## Commands
 
@@ -33,7 +34,7 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   is just a pointer there). So write clear, human-readable PR titles, and label PRs
   (`feature`/`fix`/`ci`/`docs`) so they group per `.github/release.yml`. The git tag is the
   version of record; `package.json`'s `version` is not maintained.
-- **Pure logic lives in its own module with tests.** Anything testable without Slack/Daytona
+- **Pure logic lives in its own module with tests.** Anything testable without Slack or a sandbox
   (parsing, matching, formatting) goes in a standalone file (e.g. `src/schedule.ts`) with a
   `*.test.ts` beside it — don't bury it inside a chat driver (`src/chat/slack/`).
 - **Fictional names only.** Tests, fixtures, docs, comments, OpenSpec and commit/PR text use invented people,
@@ -79,10 +80,12 @@ heavy work runs in the sandboxes. See `README.md` and `docs/` for the full pictu
   on purpose and re-snapshot. Per project it varies only by `gitFlow` (`pr`/`direct`) and
   `sandbox.dind` (the Sail/DinD toolchain paragraph).
 - `src/driver.ts` — the provider-agnostic **sandbox driver** interface (warm sandboxes,
-  exec, persistent process sessions). Implementations: `src/daytona.ts` (the ONLY file
-  allowed to import `@daytonaio/sdk`) and `src/sshdocker.ts` (containers on our own host
-  over SSH). Selected by `SANDBOX_DRIVER` env, overridable per project via the `driver`
-  field in projects.config.json — see `docs/sandbox-drivers.md`. `src/idlestop.ts` — the
+  exec, persistent process sessions) and the seam for another provider: one file per driver,
+  its SDK (if any) imported there alone. One implementation: `src/sshdocker.ts` (containers
+  on a Docker host the installation runs, over SSH or locally). `SANDBOX_DRIVER` and a
+  project's `driver` field are optional and select only `ssh-docker`: any other value, `daytona`
+  included, is a configuration error (`SANDBOX_DRIVER` at boot, a project's `driver` at boot and
+  at `/aven reload`) — see `docs/sandbox-drivers.md`. `src/idlestop.ts` — the
   **idle stop** for a provider without one (ssh-docker): the activity record the driver
   writes, the rule (holds, wakeups, lingering work), the once-a-minute sweep started with
   the pollers (OpenSpec `sandbox-idle-stop`).

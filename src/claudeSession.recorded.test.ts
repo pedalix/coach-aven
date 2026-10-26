@@ -132,7 +132,7 @@ async function replay(lines: Line[], o: { hostServers?: HostServerRoute[]; answe
       }
       await ticks();
     } else if (l.dir === 'out' || l.dir === 'echo') {
-      // A transport's copy of stdin (a Daytona session) reaches the bot's parser like any line.
+      // A transport's copy of stdin (a session whose output carries its input) reaches the bot's parser like any line.
       proc!.push(l.frame);
       await ticks();
       if (l.frame.type === 'system' && l.frame.subtype === 'background_tasks_changed') r.bg.push(session!.backgroundTasks().length);

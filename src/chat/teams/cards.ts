@@ -191,7 +191,7 @@ export function renderPrivateView(v: PrivateView): TeamsMessage {
           `${p.jobs || p.dreams || p.hk ? ` · routines: ${p.jobs} jobs, ${p.dreams} dreams, ${p.hk} housekeeping` : ''}` +
           `${p.sources ? `\n  sources: ${p.sources}` : ''}`,
       );
-      const flags = [`sandboxes ${r.daytonaOk ? '✅' : '⚠️'}`, `GitHub ${r.githubOk ? '✅' : '⚠️'}`, `${plural(r.turnsInFlight, 'turn')} in flight`];
+      const flags = [`sandboxes ${r.sandboxesOk ? '✅' : '⚠️'}`, `GitHub ${r.githubOk ? '✅' : '⚠️'}`, `${plural(r.turnsInFlight, 'turn')} in flight`];
       return { text: `**CoachAven status**\n\n${rows.join('\n')}\n\n${flags.join(' · ')}${r.claudeQuota ? `\n\n${mrkdwnToTeams(r.claudeQuota)}` : ''}` };
     }
     case 'access':

@@ -70,8 +70,8 @@ export interface CommandDeps {
 // Read a file from a project's Claude Code auto-memory dir (the sandbox copy). By default
 // we do NOT wake a stopped sandbox — this box can't run the whole fleet warm, so forcing a
 // start just to read can fail under resource pressure (and it's slow). `wake` (only set by
-// `/aven memory live`) opts into starting it. `filePath` is already sanitized. Raw Daytona
-// errors are wrapped so the user never sees an axios 500. Throws a friendly message otherwise.
+// `/aven memory live`) opts into starting it. `filePath` is already sanitized. A failed wake or
+// read is logged with the driver's own words (ssh's, docker's) and the user gets a friendly message.
 export async function readMemory(
   cfg: Config,
   project: ProjectConfig,
@@ -140,16 +140,20 @@ export function createCommands(deps: CommandDeps) {
     }
 
     let states = new Map<string, string>();
-    let daytonaOk = true;
+    let sandboxesOk = true;
     try {
-      // The fleet may span providers (per-project `driver`) — merge the state maps of
-      // every provider actually in use. Any provider failing degrades to the ⚠️ flag.
+      // One listing per driver kind in use (per-project `driver`, else SANDBOX_DRIVER: today
+      // only ssh-docker), merged. A listing that cannot answer throws — an unreachable host
+      // or a stopped Docker daemon — and degrades to the ⚠️ flag with every project's sandbox
+      // "unknown", never to "not created" (OpenSpec retire-daytona-driver D4). The journal gets
+      // the reason (the listing's stderr tail); the user only needs the flag.
       const kinds = new Set(myProjects.map((p) => p.driver ?? cfg.sandboxDriver));
       for (const kind of kinds) {
         for (const [n, s] of await createDriver(cfg, kind).listStates()) states.set(n, s);
       }
-    } catch {
-      daytonaOk = false;
+    } catch (e) {
+      log.warn(`/aven status: the sandbox listing failed: ${e instanceof Error ? e.message : String(e)}`);
+      sandboxesOk = false;
     }
 
     const prCounts = await Promise.all(
@@ -171,7 +175,7 @@ export function createCommands(deps: CommandDeps) {
     const projects: ProjectStatus[] = myProjects.map((p, i) => ({
       slug: p.slug,
       repos: p.repos.length,
-      state: states.get(`${cfg.sandbox.namePrefix}${p.slug}`),
+      state: sandboxesOk ? states.get(`${cfg.sandbox.namePrefix}${p.slug}`) : 'unknown',
       sessions: sessionsBySlug.get(p.slug) ?? 0,
       active: activeBySlug.get(p.slug) ?? 0,
       openPRs: prCounts[i],
@@ -185,7 +189,7 @@ export function createCommands(deps: CommandDeps) {
     return {
       projects,
       turnsInFlight: engine.runningCount(),
-      daytonaOk,
+      sandboxesOk,
       githubOk,
       claudeQuota: tid === undefined ? rateLimitStatusLine(engine.claudeQuota()) : undefined,
     };

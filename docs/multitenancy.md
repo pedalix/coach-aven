@@ -96,7 +96,7 @@ most of "tenancy" under a different name:
 
 - **Slack**: one app, one bot token + one app token, Socket Mode (`config.ts`, `slack.ts`).
 - **Claude**: one `CLAUDE_CODE_OAUTH_TOKEN` (one Claude Max subscription) for all projects.
-- **Daytona**: one API key / org; one shared instance.
+- **Sandboxes**: one Docker host per installation (`SSHDOCKER_HOST`), every project's container on it.
 - **GitHub App**: one App (`pedalix-factory`), though it can be installed on many orgs.
 - **State/config**: a flat `projects.config.json` list and a single `state.json`, keyed by
   `thread:<ts>` / `dm:…` / `cmd:…` with **no tenant dimension**.
@@ -106,6 +106,12 @@ credentials** where today there's one global value. The two options differ mostl
 fans out**, and everything else is shared plumbing.
 
 ---
+
+> **Note (2026-10-20):** sections 2–6 are the option analysis of 2026-07, when sandboxes ran on a
+> self-hosted Daytona, and they stay as written. The Daytona driver has since been removed
+> (OpenSpec `retire-daytona-driver`): every sandbox is a container on the installation's Docker
+> host (`SSHDOCKER_HOST`, `docs/sandbox-drivers.md`). Where they name a Daytona key, org or
+> instance, read that host; for `makeDaytona(cfg)`, read `createDriver(cfg)`.
 
 ## 2. Option A — Slack Connect (channel = tenant)
 
@@ -290,8 +296,8 @@ figures from the claude CLI's `result` event (`usage` + `total_cost_usd`). `/ave
   gain a `team_id` prefix in the slice-2/3 re-keying and `teamOf()` picks it up with no
   migration. Until then everything aggregates as the home team — which is factually true.
 - **Sandbox-hours**: wall-clock agent-active time is the proxy for now. Real per-sandbox
-  hours would need provider-side accounting (Daytona usage API / docker stats) — do this
-  when a client is actually billed by sandbox time, not before.
+  hours would need accounting on the sandbox host (`docker stats`, container start and stop
+  times) — do this when a client is actually billed by sandbox time, not before.
 
 ### 7.2 Capacity: global turn cap — SHIPPED
 
@@ -332,7 +338,7 @@ in `state.json` `teamAccess`, keyed by raw tenant id):
 Data flows to be transparent about with clients (and to put in a DPA when one asks):
 
 - **Client code** is cloned into sandboxes on infrastructure we operate (today: our
-  Daytona host / the ssh-docker box). Transcripts of agent sessions (including code
+  ssh-docker host). Transcripts of agent sessions (including code
   excerpts) live inside the project's sandbox; consolidated memory is journaled to our
   disk (`memory/<slug>/`). Usage metering stores *counts only* — no message content.
 - **Prompts and diffs** transit Anthropic (Claude) under our account. Today that account

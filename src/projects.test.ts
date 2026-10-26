@@ -264,3 +264,27 @@ test('dispatch is retired: a leftover `dispatch` block warns once, naming the pr
     assert.equal(reg.projects[0]!.systemPrompt, 'json prompt');
   });
 });
+
+// ── the sandbox driver after the Daytona driver's removal (OpenSpec retire-daytona-driver D3) ────────────
+
+test('driver — absent, null or "ssh-docker" loads as before, without a warning', (t) => {
+  withConfigDir((_dir, cfg) => {
+    const warn = t.mock.method(log, 'warn', () => {});
+    writeFileSync(cfg, JSON.stringify({ projects: [BASE.projects[0], { ...BASE.projects[1], driver: 'ssh-docker' }, { slug: 'gamma', repos: ['Org/gamma'], driver: null }] }));
+    assert.deepEqual(loadProjects(cfg).projects.map((p) => p.driver), [undefined, 'ssh-docker', null]);
+    assert.equal(warn.mock.callCount(), 0);
+  });
+});
+
+test('driver — "daytona", a typo or any other value fails the load naming the project, like any invalid project setting (boot, /aven reload)', () => {
+  withConfigDir((_dir, cfg) => {
+    for (const driver of ['daytona', 'ssh-dokcer', '', 42]) {
+      writeFileSync(cfg, JSON.stringify({ projects: [BASE.projects[0], { slug: 'acme-shop', repos: ['Org/shop'], driver }] }));
+      assert.throws(
+        () => loadProjects(cfg),
+        { message: `${cfg}: project "acme-shop" driver ${JSON.stringify(driver)}: the Daytona driver was removed after v0.42.0; ssh-docker is the only sandbox driver` },
+        JSON.stringify(driver),
+      );
+    }
+  });
+});

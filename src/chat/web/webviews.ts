@@ -164,7 +164,7 @@ export function renderPrivateView(v: PrivateView, c: RenderCtx = {}): Rendered {
         (p) =>
           h`<li><strong>${p.slug}</strong> — ${p.state ?? 'not created'} · ${plural(p.repos, 'repo')} · ${plural(p.sessions, 'session')} (${p.active} active)${p.openPRs === undefined ? '' : ` · ${plural(p.openPRs, 'open PR')}`}${p.jobs || p.dreams || p.hk ? ` · routines: ${p.jobs} jobs, ${p.dreams} dreams, ${p.hk} housekeeping` : ''}${p.sources ? h`<br><span class="meta">sources: ${p.sources}</span>` : ''}</li>`,
       );
-      const flags = [`sandboxes ${r.daytonaOk ? '✅' : '⚠️'}`, `GitHub ${r.githubOk ? '✅' : '⚠️'}`, `${plural(r.turnsInFlight, 'turn')} in flight`];
+      const flags = [`sandboxes ${r.sandboxesOk ? '✅' : '⚠️'}`, `GitHub ${r.githubOk ? '✅' : '⚠️'}`, `${plural(r.turnsInFlight, 'turn')} in flight`];
       return { html: h`<p><strong>CoachAven status</strong></p><ul>${rows}</ul><p class="meta">${flags.join(' · ')}</p>${r.claudeQuota ? h`<div class="meta">${mk(r.claudeQuota, c)}</div>` : ''}`, text: 'CoachAven status' };
     }
     case 'access':

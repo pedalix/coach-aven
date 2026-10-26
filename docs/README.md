@@ -24,7 +24,7 @@ or a person lives in an installation's private ops repo (`infra/<slug>/`).
 - [`infra/README.md`](../infra/README.md): one installation = one ops repo at `infra/<slug>/`.
 - [`infra/deploy/README.md`](../infra/deploy/README.md): deploy onto a plain Linux host; the ops repo template.
 - [Runtime config](runtime-config.md): `.env`, `projects.config.json`, prompts, MCP, the gateway, flags.
-- [Sandbox drivers](sandbox-drivers.md): Daytona, or containers on a host you own.
+- [Sandbox drivers](sandbox-drivers.md): containers on a Docker host you own; the driver seam.
 - [Sandbox images](../snapshot/README.md): the `laravel` and `plain` variants, the build, the Claude Code CLI pin.
 - [Microsoft Teams](teams.md) and [Teams pitfalls](teams-pitfalls.md): the second chat driver.
 - [Local dev](local-dev.md): running beside a production bot without colliding with it.

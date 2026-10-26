@@ -83,6 +83,7 @@ Public repo: driver code, `docs/web.md` with placeholders, `.env.example` keys. 
 - **History stores the view model, not HTML**: every bot message is its last `MessageView` (or `PrivateView`) as JSON, re-rendered for each viewer on page load and on the stream — so a rating tally re-renders the answer after a restart too.
 - **The stream carries one conversation**: a thread or private page gets message elements, a room page gets thread cards; a `noop` frame advances the id past events the viewer may not see, so `Last-Event-ID` replays stay exact.
 - **No file uploads yet** (PR 2 / D7): `hasFiles` is false on every web message.
+- **One hostname per installation, path-routed** (D8 revisited): the Teams staging installation's origin certificate names its one host, and Teams uses only `/api/messages` there — so the web chat is served at that host's root (`location /api/messages` → the Teams port, everything else → the web port, `/stream` unbuffered) instead of a second hostname with a second certificate and DNS record. A dedicated hostname stays an option for an installation that wants one.
 
 ## Risks / Trade-offs
 

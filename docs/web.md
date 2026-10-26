@@ -42,7 +42,8 @@ same pollers. Mechanism only — your hostname, issuer and client ids live in yo
    are required together — the surface refuses to start naming the missing one; a public listener never runs without a login.
 3. **`deploy.env`**: `CHAT_DRIVER=web` for a web-only installation (`npm run ops -- <slug> install` renders `orch web`;
    `deploy` waits for `Web chat running` in the journal), or `CHAT_SURFACES=web` in `.env` beside an existing driver.
-4. **nginx**: a server block for the web host, TLS terminated there, proxying to `127.0.0.1:8787`. The stream is
+4. **nginx**: TLS terminated there, proxying to `127.0.0.1:8787` — on its own hostname, or at the root of a Teams
+   installation's host (Teams uses only `/api/messages`; keep that location on the Teams port). The stream is
    Server-Sent Events: turn proxy buffering off and lift the read timeout for `/stream`:
 
    ```nginx

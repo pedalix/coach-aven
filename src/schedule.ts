@@ -1,5 +1,5 @@
 // Pure scheduling logic for the report jobs: parse a friendly schedule into cron, match
-// cron against wall-clock time in a timezone. No Slack/Daytona deps, so it's unit-testable
+// cron against wall-clock time in a timezone. No Slack or sandbox deps, so it's unit-testable
 // in isolation (see schedule.test.ts).
 
 // Wall-clock parts a cron is matched against (day-of-week: Sun=0).

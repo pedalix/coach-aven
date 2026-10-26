@@ -1,16 +1,16 @@
-// Retry for transient NETWORK failures on control-plane calls (Daytona API first).
+// Retry for transient NETWORK failures on control-plane HTTP calls. Today's caller is the Teams
+// connector (chat/teams/app.ts, around its own retry of throttled answers); Slack's error text uses
+// stackHead below.
 //
-// Why: the first Daytona call of a turn after the bot was idle (restart, or ~45 min quiet) twice
-// died with "Client network socket disconnected before secure TLS connection was established"
-// (DaytonaConnectionError from SnapshotService.get in ensureImage, 2026-09-28 10:10 and 13:29 UTC).
-// The same call succeeded minutes later, but the turn — once an automatic YouTrack investigation
-// of a Critical ticket — was lost. A dropped handshake on a fresh/stale connection is exactly the
-// case a short retry absorbs.
+// Why: the first API call after the bot sat idle (a restart, or ~45 quiet minutes) has died with
+// "Client network socket disconnected before secure TLS connection was established" — twice on
+// 2026-09-28, against a sandbox provider's API since removed. The same call succeeded minutes
+// later, but the turn — once an automatic YouTrack investigation of a Critical ticket — was lost.
+// A dropped handshake on a fresh/stale connection is exactly the case a short retry absorbs.
 //
 // Only connection-level failures qualify: a 4xx/5xx HTTP answer, a not-found, a conflict or a
-// validation error is a real answer and must propagate unchanged. Pure module (no SDK import:
-// daytona.ts is the only file allowed to import @daytonaio/sdk), so the error is recognised by
-// name / code / message shape.
+// validation error is a real answer and must propagate unchanged. Pure module, no SDK import:
+// the error is recognised by code / message shape, whichever client threw it.
 
 const TRANSIENT_CODES = new Set([
   'ECONNRESET',
@@ -28,7 +28,7 @@ const TRANSIENT_CODES = new Set([
 const TRANSIENT_MESSAGE =
   /socket disconnected before secure TLS|socket hang up|ECONNRESET|ETIMEDOUT|EAI_AGAIN|network socket|connect ETIMEDOUT|read ECONNRESET/i;
 
-type ErrLike = { name?: unknown; code?: unknown; message?: unknown; cause?: unknown; status?: unknown; statusCode?: unknown };
+type ErrLike = { code?: unknown; message?: unknown; cause?: unknown; status?: unknown; statusCode?: unknown };
 
 // True when `err` (or its cause chain) is a connection-level failure worth one more try.
 export function isTransientNetworkError(err: unknown, depth = 0): boolean {
@@ -36,7 +36,6 @@ export function isTransientNetworkError(err: unknown, depth = 0): boolean {
   const e = err as ErrLike;
   // An HTTP status means the server answered — not a transport failure.
   if (typeof e.status === 'number' || typeof e.statusCode === 'number') return false;
-  if (e.name === 'DaytonaConnectionError') return true;
   if (typeof e.code === 'string' && TRANSIENT_CODES.has(e.code)) return true;
   if (typeof e.message === 'string' && TRANSIENT_MESSAGE.test(e.message)) return true;
   return isTransientNetworkError(e.cause, depth + 1);

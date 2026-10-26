@@ -37,7 +37,7 @@ const routines = [
 const privates: Record<string, PrivateView> = {
   text: { kind: 'text', text: ':white_check_mark: Session restarted — the next message starts fresh.' },
   markdown: { kind: 'markdown', markdown: '# Prompt\n\nYou are *Aven*.', title: 'System prompt — alpha', note: '_truncated_' },
-  statusReport: { kind: 'statusReport', report: { projects: [{ slug: 'alpha', repos: 2, state: 'started', sessions: 3, active: 1, openPRs: 2, jobs: 1, dreams: 1, hk: 0, sources: '12 items, fresh' }], turnsInFlight: 1, daytonaOk: true, githubOk: false, claudeQuota: '*Claude quota:* 40% used' } },
+  statusReport: { kind: 'statusReport', report: { projects: [{ slug: 'alpha', repos: 2, state: 'started', sessions: 3, active: 1, openPRs: 2, jobs: 1, dreams: 1, hk: 0, sources: '12 items, fresh' }], turnsInFlight: 1, sandboxesOk: true, githubOk: false, claudeQuota: '*Claude quota:* 40% used' } },
   access: { kind: 'access', project: { slug: 'alpha', repos: ['Org/alpha', 'Org/alpha-infra'], mcp: [{ name: 'grafana' }] } as never },
   routines: { kind: 'routines', routines: routines as never },
   routinesEmpty: { kind: 'routines', routines: [] },

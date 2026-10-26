@@ -288,7 +288,7 @@ run — its thread starts with the `[Routine state]` line and the journal shows 
 
 The bot serves some MCP servers to the agent **itself**, over the stream-json channel it already
 drives every turn through — no mount, no listener, no credential in the sandbox, the same on
-Daytona, ssh-docker and local docker (OpenSpec `host-tools`; pure part `src/hosttools.ts`, routes
+a remote Docker host and in local mode (OpenSpec `host-tools`; pure part `src/hosttools.ts`, routes
 `src/hostrouter.ts`, framing `src/claudeSession.ts`). This is Claude Code's in-process MCP
 mechanism, the one the Agent SDK uses: right after spawn the bot writes
 `control_request{initialize, sdkMcpServers: [names], sdkMcpServerConfigs: {timeouts}}`; the CLI then
@@ -368,8 +368,7 @@ A multi-repo project's sessions start in the project folder, where no repo's `.c
 `REPO_SKILLS=1`, every such session starts with `--add-dir <checkout>` for each repo, so it loads each repo's own Claude
 Code skills as a Claude Code started in that repo would (OpenSpec `agent-skills`); `--add-dir` also loads each repo's
 legacy `.claude/commands/`. Off by default: unset or anything else, every spawn line stays as it was. Single-repo
-projects are unaffected either way: their session starts in the repo. Both sandbox drivers run the same command line
-(the Daytona driver passes it unchanged).
+projects are unaffected either way: their session starts in the repo.
 
 | Setting | Where | What |
 |---|---|---|
@@ -392,8 +391,8 @@ starts using on its own. The canary installations are single-repo, so the multi-
 ## Sandbox idle stop (`SANDBOX_AUTOSTOP_MINUTES`)
 
 A project's sandbox stops after `SANDBOX_AUTOSTOP_MINUTES` without activity, and the next turn wakes it and
-resumes the conversation with `--resume`. Daytona stops its sandboxes itself; on ssh-docker, which has no idle
-lifecycle, the bot does it (OpenSpec `sandbox-idle-stop`; what counts as activity, what holds a container and
+resumes the conversation with `--resume`. Docker has no idle lifecycle, so the bot does the stop itself
+(OpenSpec `sandbox-idle-stop`; what counts as activity, what holds a container and
 the log lines: `docs/sandbox-drivers.md` → *Idle stop*). Without it every conversation touched since a container
 started keeps its `claude` process (~200 MB each), and the agent's Sail stacks keep running.
 
@@ -407,8 +406,8 @@ started keeps its `claude` process (~200 MB each), and the agent's Sail stacks k
 restart the bot. Setting `0` stops the sweep and housekeeping's wake of an asleep container; a container it
 already stopped wakes on its next turn. It does not turn off what every ssh-docker warm-up and reattach now does
 regardless (the boot step, the session identity check, the `docker start` retry; `docs/sandbox-drivers.md` →
-*Idle stop*, *Off switch*) — a revert does. An installation that still sets the key from its Daytona days gets
-that value on ssh-docker too — decide it on purpose. The canary log line at boot: `idle stop: sandboxes without
+*Idle stop*, *Off switch*) — a revert does. Every installation gets an idle stop from this key, 30 minutes when
+it is unset — decide the value on purpose. The canary log line at boot: `idle stop: sandboxes without
 an idle stop of their own (ssh-docker) stop after <m> min without activity`.
 
 ## Dispatch (`DISPATCH`) — retired
