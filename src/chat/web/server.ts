@@ -28,7 +28,7 @@ import { attachmentDisposition, findUpload, mimeOf, storeUpload, toRef } from '.
 import { MAX_FILES, isSupported } from '../../attachments.js';
 import { renderHomeView } from './webviews.js';
 import { Html, h } from './webformat.js';
-import { deniedPage, homePage, layout, loginPage, messageBody, messageHtml, privatePage, roomPage, threadCardHtml, threadPage, type Shell, type Viewer } from './pages.js';
+import { deniedPage, homePage, layout, loginPage, messageBody, messageHtml, privatePage, roomPage, signedOutPage, threadCardHtml, threadPage, type Shell, type Viewer } from './pages.js';
 import { LOGIN_COOKIE, LOGIN_MAX_AGE_MS, SESSION_COOKIE, SESSION_MAX_AGE_MS, checkCsrf, cookieHeader, csrfToken, isAllowed, open, openSession, parseCookies, seal, sealSession, type Oidc, type Session } from './auth.js';
 import { pkce } from './oidc.js';
 import type { WebChatDriver, WebCtx } from './driver.js';
@@ -114,6 +114,9 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     res.type(a.type).send(a.body);
   });
 
+  // Browsers ask for it on every page; there is none (the console would log a 404 on each load).
+  app.get('/favicon.ico', (_req, res) => void res.status(204).end());
+
   // ── login ───────────────────────────────────────────────────────────────────────────────────────
   const setSession = (res: Response, s: Session) => res.setHeader('Set-Cookie', cookieHeader(SESSION_COOKIE, sealSession(cfg.sessionSecret, s), { secure, maxAgeMs: SESSION_MAX_AGE_MS }));
   const safeNext = (raw: unknown): string => (typeof raw === 'string' && /^\/(?!\/)[^\s]*$/.test(raw) ? raw : '/');
@@ -164,6 +167,13 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     }
   });
 
+  // Where the identity provider sends the browser after ending its session (a registered logout URL): a page
+  // that needs no session and offers the way back in — never `/login` itself, which would start the next
+  // sign-in before the person sees anything.
+  app.get('/signed-out', (_req, res) => {
+    res.type('html').send(layout({ title: 'Signed out', projects: [] }, signedOutPage()));
+  });
+
   // ── the session gate ────────────────────────────────────────────────────────────────────────────
   const isApi = (req: Request) => req.path === '/stream' || req.path.startsWith('/post') || req.path === '/action' || req.path === '/dialog' || req.path === '/logout';
   app.use((req: Req, res, next) => {
@@ -204,9 +214,21 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     res.status(status).type('html').send(layout({ ...shell, viewer: viewerOf(req.session!), projects: rooms(), activity: activityFor(req.session!.user), verbs: VERBS, maxFileMb: cfg.maxFileMb }, content));
   const notFound = (req: Req, res: Response, what: string) => page(req, res, { title: 'Not found' }, homePage(h404(what)), 404);
 
-  app.post('/logout', (_req, res) => {
+  // Sign out: our cookie goes, and so does the identity provider's session when it offers an end-session
+  // endpoint — without that, `/login` would sign the person straight back in on the provider's live session
+  // (the first staging canary: "logout did not log me out"). The provider returns the browser to /signed-out.
+  app.post('/logout', async (_req, res) => {
     res.setHeader('Set-Cookie', cookieHeader(SESSION_COOKIE, '', { secure, clear: true }));
-    res.redirect(303, '/login');
+    let to = '/signed-out';
+    if (cfg.auth === 'oidc' && deps.oidc) {
+      try {
+        const end = await deps.oidc.endSessionUrl({ postLogoutRedirectUri: `${cfg.baseUrl}/signed-out` });
+        if (end) to = end.toString();
+      } catch (e) {
+        log.warn(`web logout: the end-session URL could not be built, signing out locally only — ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    res.redirect(303, to);
   });
 
   // ── pages ───────────────────────────────────────────────────────────────────────────────────────

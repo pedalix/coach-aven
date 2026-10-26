@@ -41,6 +41,22 @@ export function createOidc(s: OidcSettings): Oidc & { warmup(): Promise<void> } 
         code_challenge_method: 'S256',
       });
     },
+    async endSessionUrl({ postLogoutRedirectUri }) {
+      const c = await configuration();
+      const endpoint = c.serverMetadata().end_session_endpoint;
+      if (!endpoint) return undefined;
+      const url = new URL(endpoint);
+      // Cognito's hosted UI takes `client_id` + `logout_uri` (a registered logout URL); everyone else the
+      // RP-initiated-logout names, `post_logout_redirect_uri` with the client id (no id_token_hint: we keep no token).
+      if (url.hostname.endsWith('.amazoncognito.com')) {
+        url.searchParams.set('client_id', s.clientId);
+        url.searchParams.set('logout_uri', postLogoutRedirectUri);
+      } else {
+        url.searchParams.set('client_id', s.clientId);
+        url.searchParams.set('post_logout_redirect_uri', postLogoutRedirectUri);
+      }
+      return url;
+    },
     async callback(currentUrl, checks) {
       const c = await configuration();
       const tokens = await oc.authorizationCodeGrant(c, currentUrl, { pkceCodeVerifier: checks.codeVerifier, expectedState: checks.state, expectedNonce: checks.nonce, idTokenExpected: true });

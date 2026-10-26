@@ -100,6 +100,10 @@ export function loginPage(error?: string): Html {
   return h`<section class="login"><h1>Aven</h1><p>Sign in to reach your projects' agent.</p>${error ? h`<p class="error">${error}</p>` : ''}<p><a class="btn primary" href="/login">Sign in</a></p></section>`;
 }
 
+export function signedOutPage(): Html {
+  return h`<section class="login"><h1>Aven</h1><p>You are signed out.</p><p><a class="btn primary" href="/login">Sign in again</a></p></section>`;
+}
+
 export function deniedPage(email: string | undefined): Html {
   return h`<section class="denied"><h1>No access</h1><p>${email ? h`<strong>${email}</strong> is signed in but not on this installation's list.` : 'Your account is not on this installation\'s list.'} Ask the operator to add you.</p><form method="post" action="/logout"><button type="submit" class="btn">Sign out</button></form></section>`;
 }
