@@ -83,10 +83,11 @@ its own `SANDBOX_NAME_PREFIX`, `AVEN_DATA_DIR` and without the hub settings, or 
 | live status message, ✖ Cancel, 🧭 Show steps | the same, live for every viewer; Show steps opens a dialog that updates while the turn runs |
 | answer with PR buttons, 👍 / 👎 with tally, ⚙️ Session | the same; the reason and the session panel are dialogs and a private message |
 | agent questions | the same (buttons; Submit for multi-select) |
-| App Home tab | the Home page at `/`, and `/home` shows it as a dialog |
-| files | not yet (PR 2) |
-| routines, reviews, autofix, YouTrack, alerts | routines, dreams, housekeeping, reviews and the ✋ held card in PR 2; YouTrack and autofix later |
-| `/aven users` | read-only: everyone who logs in may drive; the operators are the admins |
+| App Home tab | the Home page at `/`; `/home` and `/help` show it as a dialog |
+| files on a message | 📎 Attach, drop or paste in the composer: up to 10 files, each under `WEB_MAX_FILE_MB`, of the types the agent can read (images, PDF, text, office documents) — a file over the limit or of another type is named and the message is not sent. Stored beside the conversation; a download needs the session and is served as an attachment |
+| routines, dreams, housekeeping, reviews, held cards | the same deliveries into the project's room (a routine opens a thread, replies there continue its session); autofix and YouTrack investigations later; ops alerts have no web channel yet |
+| `/aven users` | the same: everyone who logs in may drive (open mode); the operators (`WEB_OPERATORS`) are the admins |
+| notifications | the tab's title counts activity while it is in the background; the sidebar marks conversations this browser has not opened since their last activity; 🔔 Notify (once allowed) shows a browser notification for a bot answer while the tab is hidden |
 
 ## Security baseline
 
@@ -107,4 +108,6 @@ inputs are a test suite (`src/chat/web/webformat.test.ts`).
   denied people (`not on the allow-list`), a dialog with no open page (`dropped — no open page`). Failures on the
   core's path reach the thread and Sentry, as on every surface.
 - **Data.** `<data dir>/web/<slug>/*.jsonl` — inspectable, one event per line; a torn last line (a crash mid-write) is
-  dropped on load. Remove a file to forget a conversation; the session state in `state.json` is separate.
+  dropped on load. Remove a file to forget a conversation; the session state in `state.json` is separate. Uploads live
+  beside it in `files/room/` and `files/pc-<user>/` as `<id>__<name>`; nothing deletes them yet — part of the backup.
+- **nginx and uploads.** `client_max_body_size` must allow `WEB_MAX_FILE_MB` (the staging template sets 25m).

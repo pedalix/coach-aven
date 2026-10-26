@@ -168,3 +168,19 @@ test('downloadHeaders: the bearer goes with every ref except a pre-authorized on
   assert.deepEqual(downloadHeaders({ ...ref, auth: 'bearer' }, 'tok'), { Authorization: 'Bearer tok' });
   assert.deepEqual(downloadHeaders({ ...ref, auth: 'none' }, 'tok'), {});
 });
+
+test('a file: reference is read from disk under the size cap (the web chat\'s uploads); a missing file is a skipped download', async () => {
+  const { downloadAttachment, MAX_BYTES } = await import('./attachments.js');
+  const { mkdtempSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { pathToFileURL } = await import('node:url');
+  const dir = mkdtempSync(join(tmpdir(), 'aven-att-'));
+  const small = join(dir, 'notes.md');
+  writeFileSync(small, '# hi');
+  const buf = await downloadAttachment({ name: 'notes.md', url: pathToFileURL(small).href, mime: 'text/markdown', size: 4, auth: 'none' }, '');
+  assert.equal(buf?.toString(), '# hi');
+  const gone = await downloadAttachment({ name: 'gone.md', url: pathToFileURL(join(dir, 'gone.md')).href, mime: 'text/markdown', size: 0, auth: 'none' }, '');
+  assert.equal(gone, null);
+  assert.ok(MAX_BYTES > 0);
+});

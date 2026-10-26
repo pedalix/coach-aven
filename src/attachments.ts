@@ -1,3 +1,5 @@
+import { readFile, stat } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { log } from './log.js';
 
@@ -204,6 +206,21 @@ export function downloadHeaders(ref: AttachmentRef, bearer: string): Record<stri
 // never the URL: a download URL carries a temporary token. A Slack 403/redirect here means the bot
 // token lacks `files:read` (the manifest has it; an app installed before it was added must be reinstalled).
 export async function downloadAttachment(ref: AttachmentRef, bearer: string): Promise<Buffer | null> {
+  // A file the bot already holds (the web chat's uploads, OpenSpec web-chat-driver D7): read it from disk,
+  // under the same cap — no HTTP round trip to ourselves.
+  if (ref.url.startsWith('file:')) {
+    try {
+      const st = await stat(fileURLToPath(ref.url));
+      if (st.size > MAX_BYTES) {
+        log.warn(`attachments: ${ref.name}: ${st.size} bytes, over the ${MAX_BYTES}-byte cap`);
+        return null;
+      }
+      return await readFile(fileURLToPath(ref.url));
+    } catch (e) {
+      log.warn(`attachments: ${ref.name}: cannot read the stored file — ${e instanceof Error ? e.message : String(e)}`);
+      return null;
+    }
+  }
   const host = (() => {
     try {
       return new URL(ref.url).host;

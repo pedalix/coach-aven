@@ -63,7 +63,7 @@ export const webSurface: SurfacePlugin = {
         const core = createInteractions({ cfg, store, reg, engine, homeTeamId: org, servedTenant, actor, prefixFor: () => '', messaging: messaging.messaging, ...(surface ? { surface } : {}) });
         const messages = createMessages({ store, reg, engine, channels, homeTeamId: org, actor, parkDmPick: core.parkDmPick, ...(surface ? { surface } : {}) });
         const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: org, isOperator, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
-        const server = createWebServer({ cfg: web, store, reg, history, driver, core, messages, commands, ...(oidc ? { oidc } : {}) });
+        const server = createWebServer({ cfg: web, store, reg, history, driver, core, messages, commands, filesRoot: join(dataRoot(), 'web'), ...(oidc ? { oidc } : {}) });
         return {
           async start() {
             if (oidc) await oidc.warmup(); // a wrong issuer or an unreachable one fails the boot here, by name
