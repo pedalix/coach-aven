@@ -142,7 +142,9 @@ test('the OIDC round trip: login redirects to the issuer with PKCE and state; th
   const state2 = new URL(login2.headers.get('location')!).searchParams.get('state')!;
   const denied = await get(`/auth/callback?code=stranger&state=${state2}`, { cookie: cookies(login2).find((c) => c.startsWith('aven_login='))!.split(';')[0] });
   assert.equal(denied.status, 403);
-  assert.match(await denied.text(), /x@elsewhere\.example.*not on this installation/);
+  const deniedHtml = await denied.text();
+  assert.match(deniedHtml, /x@elsewhere\.example.*not on this installation/);
+  assert.match(deniedHtml, /href="\/signing-out"/, 'the denied page offers the provider\'s sign-out (no session of ours to post a logout with)');
   assert.ok(!cookies(denied).some((c) => c.startsWith(`${SESSION_COOKIE}=`) && !c.includes('Max-Age=0')), 'no session for a denied person');
 });
 
@@ -373,14 +375,37 @@ test('/help shows the Home cheat-sheet to the caller; the composer gets the verb
   assert.match(html, /id="file-input" multiple/);
 });
 
-test('sign out ends the identity provider\'s session too: the cookie is cleared and the browser goes to the end-session URL, which returns to /signed-out (no session needed)', async () => {
+test('sign out ends the identity provider\'s session too: the cookie is cleared, the browser lands on our hand-off page, which refreshes to the end-session URL (never a redirect from the form\'s POST: Chrome holds those to form-action \'self\'), and the provider returns to /signed-out (no session needed)', async () => {
   const cookie = sessionCookie('u1', 'Ann');
   const token = csrf('u1', cookie);
   const out = await post('/logout', {}, { cookie, 'x-csrf': token });
   assert.equal(out.status, 303);
-  assert.equal(out.headers.get('location'), `https://idp.example/logout?client_id=c1&post_logout_redirect_uri=${encodeURIComponent('http://127.0.0.1:0/signed-out')}`);
+  assert.equal(out.headers.get('location'), '/signing-out', 'same-origin: allowed by form-action self');
   assert.ok(cookies(out).some((c) => c.startsWith(`${SESSION_COOKIE}=;`) && c.includes('Max-Age=0')));
+  const handoff = await get('/signing-out'); // no cookie: the session is already gone
+  assert.equal(handoff.status, 200);
+  const end = `https://idp.example/logout?client_id=c1&amp;post_logout_redirect_uri=${encodeURIComponent('http://127.0.0.1:0/signed-out')}`;
+  const html = await handoff.text();
+  assert.ok(html.includes(`<meta http-equiv="refresh" content="0;url=${end}">`), 'the page refreshes to the end-session URL');
+  assert.ok(html.includes(`<a class="btn primary" href="${end}">Continue</a>`), 'and links it for a browser that waits');
+  assert.match(html, /<body class="out">/, 'no sidebar, no header: a page of nobody\'s');
   const page = await get('/signed-out');
   assert.equal(page.status, 200);
   assert.match(await page.text(), /You are signed out.*href="\/login"/s);
+});
+
+test('names come from the login records, live: a record whose name is just the id shows its e-mail, and a post stored with that name follows', async () => {
+  const at = new Date().toISOString();
+  h.store.putWebUser({ id: 'u9', name: 'u9', email: 'nine@corp.example', seenAt: at });
+  const cookie = sessionCookie('u9', 'u9'); // a session from that early login: the subject as the name
+  const token = csrf('u9', cookie);
+  assert.match(await (await get('/', { cookie })).text(), /<span class="viewer">nine@corp.example<\/span>/, 'the header');
+  await post('/post', { conv: 'room:alpha', text: 'from nine' }, { cookie, 'x-csrf': token });
+  const stored = h.history.conversation('room:alpha').all().find((m) => m.text === 'from nine')!;
+  assert.deepEqual(stored.by, { id: 'u9', name: 'u9' }, 'the post keeps the name it was made with');
+  assert.match(await (await get('/r/alpha', { cookie })).text(), /<span class="who">nine@corp.example<\/span>/, 'the thread card');
+  h.store.putWebUser({ id: 'u9', name: 'Nine Lee', email: 'nine@corp.example', seenAt: at }); // a later login with a name
+  const page = await (await get(`/r/alpha/t/${stored.id}`, { cookie })).text();
+  assert.match(page, /<span class="who">Nine Lee<\/span>/, 'the message');
+  assert.match(page, /<span class="viewer">Nine Lee<\/span>/);
 });

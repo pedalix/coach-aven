@@ -27,7 +27,7 @@ import { webDriver } from './driver.js';
 import { createOidc } from './oidc.js';
 import { isOperatorOf, type Oidc } from './auth.js';
 import { projectOfConv, roomConv } from './keys.js';
-import { createWebServer } from './server.js';
+import { createWebServer, webNameOf } from './server.js';
 
 export const webSurface: SurfacePlugin = {
   name: 'web',
@@ -39,7 +39,7 @@ export const webSurface: SurfacePlugin = {
     const filesRoot = join(dataRoot(), 'web');
     allowLocalFiles(filesRoot); // uploads are the one place a `file:` attachment reference may point (attachments.ts)
     const history = new History(filesRoot);
-    const nameOf = (id: string) => store.getWebUser(id)?.name;
+    const nameOf = webNameOf(store);
     const driver = webDriver({ history, baseUrl: web.baseUrl, nameOf });
     const oidc: (Oidc & { warmup(): Promise<void> }) | undefined = web.auth === 'oidc' && web.oidc ? createOidc(web.oidc) : undefined;
     const org = web.org;

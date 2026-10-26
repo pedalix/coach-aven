@@ -29,7 +29,11 @@ export function identityOf(claims: Record<string, unknown>, groupsClaim: string)
   const email = str('email');
   if (email) id.email = email;
   const names = [str('given_name'), str('family_name')].filter((x): x is string => !!x).join(' ');
-  const name = str('name') ?? (names || undefined) ?? str('preferred_username') ?? str('cognito:username') ?? email;
+  // The e-mail before Cognito's username: in a pool that signs people in by e-mail (`username_attributes = ["email"]`)
+  // `cognito:username` is the subject's UUID — a person's handle only when it is something else (the staging canary
+  // showed the UUID as the display name, 2026-10-26).
+  const username = str('cognito:username');
+  const name = str('name') ?? (names || undefined) ?? str('preferred_username') ?? email ?? (username && username !== sub ? username : undefined);
   if (name) id.name = name;
   return id;
 }

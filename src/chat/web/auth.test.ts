@@ -63,5 +63,9 @@ test('the identity from the ID token: a display name from name, given+family, th
   assert.equal(identityOf({ sub: 's1', given_name: 'Ann', family_name: 'Lee', email: 'a@x.example' }, 'groups').name, 'Ann Lee');
   assert.equal(identityOf({ sub: 's1', name: 'Ann L.', given_name: 'Ann' }, 'groups').name, 'Ann L.');
   assert.equal(identityOf({ sub: 's1', preferred_username: 'ann', groups: 'a, b' }, 'groups').name, 'ann');
+  // Cognito, a pool that signs in by e-mail: `cognito:username` is the subject's UUID — the e-mail is the name.
+  assert.equal(identityOf({ sub: 'd3d4-uuid', 'cognito:username': 'd3d4-uuid', email: 'ann@corp.example' }, 'cognito:groups').name, 'ann@corp.example');
+  assert.equal(identityOf({ sub: 'd3d4-uuid', 'cognito:username': 'd3d4-uuid' }, 'cognito:groups').name, undefined, 'a username that is the subject is no name');
+  assert.equal(identityOf({ sub: 's1', 'cognito:username': 'ann.lee' }, 'cognito:groups').name, 'ann.lee', 'a chosen username is a name when there is nothing better');
   assert.deepEqual(identityOf({ sub: 's1', groups: 'a, b' }, 'groups'), { sub: 's1', groups: ['a', 'b'] });
 });
