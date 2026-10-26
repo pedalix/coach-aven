@@ -1,6 +1,6 @@
 # Proposal
 
-> **Status: active again (2026-10-26).** The 2026-10-15 review ("do not build our own web chat; Slack for colleagues, Mostlymatter if ever") predates the first client who needs the web: Brandnamic's account managers and copywriters test the newsletter agent and asked for a web interface rather than Teams (their own tenant needs their admin and a published app; the operator's tenant means guest accounts). Mattermost would be one more server and one more chat tool for them; one-user LLM chat UIs have no shared threads, approvals or cards. The web driver as designed below is the fit, with its scope cut to what that use needs first.
+> **Status: active again (2026-10-26).** The 2026-10-15 review ("do not build our own web chat; Slack for colleagues, Mostlymatter if ever") predates the first client who needs the web: the client's account managers and copywriters test the newsletter agent and asked for a web interface rather than Teams (their own tenant needs their admin and a published app; the operator's tenant means guest accounts). Mattermost would be one more server and one more chat tool for them; one-user LLM chat UIs have no shared threads, approvals or cards. The web driver as designed below is the fit, with its scope cut to what that use needs first.
 
 ## Why
 

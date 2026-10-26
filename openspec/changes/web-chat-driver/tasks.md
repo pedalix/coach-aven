@@ -29,7 +29,7 @@
 ## 4. Canary
 
 - [ ] 4.1 End-to-end harness: the web surface on localhost with `WEB_AUTH=none` and a fake sandbox transport, every MVP spec scenario driven over HTTP (`src/chat/web/e2e.test.ts` or `npm run e2e:web`), re-runnable by anyone. Verify: the harness is green in CI (or documented as a local run if it needs a sandbox).
-- [ ] 4.2 The Teams staging installation with `CHAT_SURFACES=web` on a hostname behind its nginx: the newsletter project rebound from Teams to its web room, Brandnamic's people on the allow-list, a newsletter built end to end (stop 1, stop 2 with the preview link, upload on an explicit go-ahead, photos attached), reconnect, restart mid-turn. Verify: two-user live scenarios; `platform` on Teams unaffected.
+- [ ] 4.2 The Teams staging installation with `CHAT_SURFACES=web` on a hostname behind its nginx: the newsletter project rebound from Teams to its web room, the client's people on the allow-list, a newsletter built end to end (stop 1, stop 2 with the preview link, upload on an explicit go-ahead, photos attached), reconnect, restart mid-turn. Verify: two-user live scenarios; `platform` on Teams unaffected.
 
 ## 5. PR 3 — the rest of parity (when a client needs it)
 
