@@ -1,7 +1,7 @@
 {
   "messages": {
     "status": {
-      "html": "<div class=\"status\"><span class=\"spinner\" aria-hidden=\"true\"></span><div class=\"status-line\"><p>🔎 <strong>Working</strong> — 0:12\n• 📖 Read src/a.ts</p>\n</div></div><div class=\"actions\"><button type=\"button\" class=\"btn\" data-action=\"show_trail\" data-value=\"t1\">🧭 Show steps</button><button type=\"button\" class=\"btn danger\" data-action=\"cancel_turn\" data-value=\"t1\">✖ Cancel</button></div>",
+      "html": "<div class=\"status\"><span class=\"spinner\" aria-hidden=\"true\"></span><div class=\"status-line\"><p>🔎 <strong>Working</strong> — 0:12<br>\n• 📖 Read src/a.ts</p>\n</div></div><div class=\"actions\"><button type=\"button\" class=\"btn\" data-action=\"show_trail\" data-value=\"t1\">🧭 Show steps</button><button type=\"button\" class=\"btn danger\" data-action=\"cancel_turn\" data-value=\"t1\">✖ Cancel</button></div>",
       "text": "Working…"
     },
     "statusQueued": {

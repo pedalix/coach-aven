@@ -40,7 +40,10 @@ function part(v: unknown): string {
 
 const ALLOWED_LINK = /^(https?:\/\/|mailto:)/i;
 
-const md = new MarkdownIt({ html: false, linkify: false, typographer: false, breaks: false });
+// `breaks`: a single newline is a line break, as Slack and Teams show it — the core's status line puts each recent
+// step on its own line, and an agent's hard-wrapped answer keeps its lines (the first web canary showed the steps
+// of a status line run together into one paragraph).
+const md = new MarkdownIt({ html: false, linkify: false, typographer: false, breaks: true });
 // Only http(s) and mailto survive; markdown-it then renders a refused link as its text and a refused
 // image without a source (which the image rule below shows as a plain marker).
 md.validateLink = (url) => ALLOWED_LINK.test(url.trim());

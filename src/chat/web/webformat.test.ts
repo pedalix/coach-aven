@@ -47,6 +47,11 @@ test('markdown constructs the agent uses render: headings, lists, tables, emphas
   assert.match(out, /<strong>bold<\/strong> <em>it<\/em> <s>gone<\/s>/);
 });
 
+test('a single newline is a line break: the status line’s steps stay on their own lines, as on Slack', () => {
+  assert.equal(mrkdwnToHtml('🔎 *Working* — 0:12\n• 📖 Read src/a.ts\n• ✏️ Edit src/a.ts').html, '<p>🔎 <strong>Working</strong> — 0:12<br>\n• 📖 Read src/a.ts<br>\n• ✏️ Edit src/a.ts</p>\n');
+  assert.equal(markdownToHtml('line one\nline two').html, '<p>line one<br>\nline two</p>\n');
+});
+
 test('the core’s mrkdwn: bold, shortcode emoji, <url|label> links, `/aven verb` → `/verb`, mentions by name', () => {
   const out = mrkdwnToHtml(':information_source: *Working* — see <https://x.example/pr/7|PR 7> and `/aven status`; ping <@u1> and <@u9>', (id) => (id === 'u1' ? 'Ann' : undefined)).html;
   assert.match(out, /ℹ️ <strong>Working<\/strong> — see <a href="https:\/\/x\.example\/pr\/7"[^>]*>PR 7<\/a> and <code>\/status<\/code>; ping @Ann and @u9/);
