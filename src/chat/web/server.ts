@@ -343,12 +343,17 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     const meta: FileMeta[] = files.map((f) => ({ id: f.id, name: f.name, size: f.size }));
     c.append({ t: 'post', id, ...(thread ? { thread } : {}), by: { id: s.user, ...(s.name ? { name: s.name } : {}) }, text, ...(isCmd ? { cmd: true as const, visibleTo: s.user } : {}), ...(meta.length ? { files: meta } : {}) });
     const actor = { tenant: cfg.org, user: s.user };
-    const ctx: WebCtx = { conv, ...(thread ? { thread } : {}), user: s.user };
     if (isCmd) {
+      // A command typed at a room's top level is its own thread: the typed line is the root and the router's private
+      // replies go into it — the page the client opens for the post (the first web canary saw the replies land in the
+      // room's list as separate cards while the thread page stayed empty). In a thread or a private conversation the
+      // replies stay where the command was typed.
+      const replyThread = thread ?? (parsed.kind === 'room' ? id : undefined);
+      const ctx: WebCtx = { conv, ...(replyThread ? { thread: replyThread } : {}), user: s.user };
       const line = text.slice(1).replace(CMD_WORD, '');
       // `/help`: the web's own — the Home cheat-sheet, as a dialog on this page (the router knows no help verb).
-      if (/^help\b/i.test(line)) void core.home({ ...actor, user: s.user }, driver).catch(reported('help', conv, thread));
-      else void commands.run({ text: line, conv, actor, ctx }, driver).catch(reported('command', conv, thread));
+      if (/^help\b/i.test(line)) void core.home({ ...actor, user: s.user }, driver).catch(reported('help', conv, replyThread));
+      else void commands.run({ text: line, conv, actor, ctx }, driver).catch(reported('command', conv, replyThread));
     } else {
       const msg: ChatMessage = {
         conv,

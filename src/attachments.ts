@@ -1,5 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { isAbsolute, relative, resolve } from 'node:path';
 import sharp from 'sharp';
 import { log } from './log.js';
 
@@ -205,17 +206,38 @@ export function downloadHeaders(ref: AttachmentRef, bearer: string): Record<stri
 // Null = skipped as "download failed"; the journal says why (the person only sees the skip). The host,
 // never the URL: a download URL carries a temporary token. A Slack 403/redirect here means the bot
 // token lacks `files:read` (the manifest has it; an app installed before it was added must be reinstalled).
+// Where `file:` references may point: the directories a surface that stores uploads itself registers (the web
+// chat's files root). A `file:` URL outside them — or any at all while no surface registered a root — is refused,
+// so a reference relayed from a platform payload can never make the bot read its own disk into a sandbox.
+const localRoots: string[] = [];
+export function allowLocalFiles(root: string): void {
+  const r = resolve(root);
+  if (!localRoots.includes(r)) localRoots.push(r);
+}
+function underLocalRoot(path: string): boolean {
+  const abs = resolve(path);
+  return localRoots.some((root) => {
+    const rel = relative(root, abs);
+    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+  });
+}
+
 export async function downloadAttachment(ref: AttachmentRef, bearer: string): Promise<Buffer | null> {
   // A file the bot already holds (the web chat's uploads, OpenSpec web-chat-driver D7): read it from disk,
-  // under the same cap — no HTTP round trip to ourselves.
+  // under the same cap — no HTTP round trip to ourselves — and only from a registered root (allowLocalFiles).
   if (ref.url.startsWith('file:')) {
     try {
-      const st = await stat(fileURLToPath(ref.url));
+      const path = fileURLToPath(ref.url);
+      if (!underLocalRoot(path)) {
+        log.warn(`attachments: ${ref.name}: a file: reference outside the registered upload roots — refused`);
+        return null;
+      }
+      const st = await stat(path);
       if (st.size > MAX_BYTES) {
         log.warn(`attachments: ${ref.name}: ${st.size} bytes, over the ${MAX_BYTES}-byte cap`);
         return null;
       }
-      return await readFile(fileURLToPath(ref.url));
+      return await readFile(path);
     } catch (e) {
       log.warn(`attachments: ${ref.name}: cannot read the stored file — ${e instanceof Error ? e.message : String(e)}`);
       return null;

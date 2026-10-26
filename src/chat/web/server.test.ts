@@ -12,6 +12,7 @@ import { Store } from '../../state.js';
 import type { RegistryRef } from '../../projects.js';
 import type { Interactions } from '../core/interactions.js';
 import { History } from './history.js';
+import { allowLocalFiles } from '../../attachments.js';
 import { webDriver } from './driver.js';
 import { createWebServer, LOCAL_USER, type WebServer } from './server.js';
 import { csrfToken, sealSession, SESSION_COOKIE, type Identity, type Oidc } from './auth.js';
@@ -55,7 +56,7 @@ function recorder() {
     onMention: async (m: Msg) => void calls.push({ kind: 'mention', args: { conv: m.conv, id: m.id, thread: m.thread, text: m.text, direct: m.direct, ...(m.hasFiles ? { files: (await m.files())?.refs.map((r) => ({ name: r.name, mime: r.mime, auth: r.auth, file: r.url.startsWith('file:///') })) } : {}) } }),
     onMessage: async (m: Msg) => void calls.push({ kind: 'message', args: { conv: m.conv, id: m.id, thread: m.thread, text: m.text, direct: m.direct } }),
   };
-  const commands = { run: async (c: { text: string; conv: string }) => void calls.push({ kind: 'command', args: { text: c.text, conv: c.conv } }) };
+  const commands = { run: async (c: { text: string; conv: string; ctx: { thread?: string } }) => void calls.push({ kind: 'command', args: { text: c.text, conv: c.conv, thread: c.ctx.thread } }) };
   return { calls, core, messages: messages as never, commands: commands as never };
 }
 
@@ -67,6 +68,7 @@ function harness(over: Partial<WebConfig> = {}, oidc: Oidc | undefined = fakeOid
   const driver = webDriver({ history, baseUrl: 'http://127.0.0.1:0', nameOf: (id) => store.getWebUser(id)?.name, ids: () => `m${++seq}` });
   const rec = recorder();
   const cfg: WebConfig = { port: 0, bind: '127.0.0.1', baseUrl: 'http://127.0.0.1:0', auth: oidc ? 'oidc' : 'none', org: 'corp.example', operators: [], allow: ['ann@corp.example'], sessionSecret: SECRET, maxFileMb: 20, ...over };
+  allowLocalFiles(join(dir, 'web'));
   const server = createWebServer({ cfg, store, reg, history, driver, core: rec.core, messages: rec.messages, commands: rec.commands, filesRoot: join(dir, 'web'), ...(oidc ? { oidc } : {}), ids: () => `p${++seq}` });
   return { server, store, history, driver, rec, cfg, oidc };
 }
@@ -168,9 +170,20 @@ test('with a session: a forged POST is rejected and stores nothing; a proper pos
   const cmd = await post('/post', { conv: 'room:alpha', thread: id, text: '/aven status' }, { cookie, 'x-csrf': token });
   assert.equal(cmd.status, 200);
   await new Promise((r) => setImmediate(r));
-  assert.deepEqual(h.rec.calls.at(-1), { kind: 'command', args: { text: 'status', conv: 'room:alpha' } });
+  assert.deepEqual(h.rec.calls.at(-1), { kind: 'command', args: { text: 'status', conv: 'room:alpha', thread: id } });
   const typed = h.history.conversation('room:alpha').message(((await cmd.json()) as { id: string }).id)!;
   assert.deepEqual([typed.cmd, typed.visibleTo], [true, 'u1']);
+  // At a room's top level the typed command is its own thread: the replies go into it, and the client opens it.
+  const top = await post('/post', { conv: 'room:alpha', text: '/status' }, { cookie, 'x-csrf': token });
+  const topId = ((await top.json()) as { id: string; thread: string });
+  assert.equal(topId.thread, topId.id);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(h.rec.calls.at(-1), { kind: 'command', args: { text: 'status', conv: 'room:alpha', thread: topId.id } });
+  // In a private conversation there are no threads: the replies stay in the conversation.
+  const pc = await post('/post', { conv: 'pc:u1:alpha', text: '/status' }, { cookie, 'x-csrf': token });
+  assert.equal(pc.status, 200);
+  await new Promise((r) => setImmediate(r));
+  assert.equal((h.rec.calls.at(-1)!.args as { thread?: string }).thread, undefined);
 
   const priv = await post('/post', { conv: 'pc:u1:alpha', text: 'psst' }, { cookie, 'x-csrf': token });
   assert.equal(priv.status, 200);

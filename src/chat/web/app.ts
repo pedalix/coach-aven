@@ -20,6 +20,7 @@ import { createInteractions } from '../core/interactions.js';
 import { createMessages } from '../core/messages.js';
 import { createCommands } from '../core/commands.js';
 import { dataRoot } from '../../sources/paths.js';
+import { allowLocalFiles } from '../../attachments.js';
 import { log } from '../../log.js';
 import { History } from './history.js';
 import { webDriver } from './driver.js';
@@ -35,7 +36,9 @@ export const webSurface: SurfacePlugin = {
     if (!web) {
       throw new Error('Set WEB_OIDC_ISSUER, WEB_OIDC_CLIENT_ID, WEB_OIDC_CLIENT_SECRET, WEB_BASE_URL and WEB_SESSION_SECRET to run the web chat (or WEB_AUTH=none on a loopback listener, for local use).');
     }
-    const history = new History(join(dataRoot(), 'web'));
+    const filesRoot = join(dataRoot(), 'web');
+    allowLocalFiles(filesRoot); // uploads are the one place a `file:` attachment reference may point (attachments.ts)
+    const history = new History(filesRoot);
     const nameOf = (id: string) => store.getWebUser(id)?.name;
     const driver = webDriver({ history, baseUrl: web.baseUrl, nameOf });
     const oidc: (Oidc & { warmup(): Promise<void> }) | undefined = web.auth === 'oidc' && web.oidc ? createOidc(web.oidc) : undefined;
@@ -63,7 +66,7 @@ export const webSurface: SurfacePlugin = {
         const core = createInteractions({ cfg, store, reg, engine, homeTeamId: org, servedTenant, actor, prefixFor: () => '', messaging: messaging.messaging, ...(surface ? { surface } : {}) });
         const messages = createMessages({ store, reg, engine, channels, homeTeamId: org, actor, parkDmPick: core.parkDmPick, ...(surface ? { surface } : {}) });
         const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: org, isOperator, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
-        const server = createWebServer({ cfg: web, store, reg, history, driver, core, messages, commands, filesRoot: join(dataRoot(), 'web'), ...(oidc ? { oidc } : {}) });
+        const server = createWebServer({ cfg: web, store, reg, history, driver, core, messages, commands, filesRoot, ...(oidc ? { oidc } : {}) });
         return {
           async start() {
             if (oidc) await oidc.warmup(); // a wrong issuer or an unreachable one fails the boot here, by name
