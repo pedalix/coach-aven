@@ -6,7 +6,7 @@ Ends the processes of a project sandbox nobody is using, the way Daytona's idle 
 ## Requirements
 
 ### Requirement: An idle project container is stopped
-For every project whose sandbox driver has no idle stop of its own (ssh-docker), the bot SHALL stop the project's container once it has been idle for `SANDBOX_AUTOSTOP_MINUTES` minutes, and SHALL log one line naming the container, how long it was idle and how long the stop took. The next turn SHALL start it again, as SHALL `/aven memory live`; `/aven memory` SHALL find it asleep and leave it stopped, as it did on Daytona. A project on a driver whose provider stops idle sandboxes itself (Daytona) SHALL NOT be stopped by the bot.
+For every project whose sandbox driver has no idle stop of its own (ssh-docker), the bot SHALL stop the project's container once it has been idle for `SANDBOX_AUTOSTOP_MINUTES` minutes, and SHALL log one line naming the container, how long it was idle and how long the stop took. The next turn SHALL start it again, as SHALL `/aven memory live`; `/aven memory` SHALL find it asleep and leave it stopped. A project on a driver whose provider stops idle sandboxes itself SHALL NOT be stopped by the bot.
 
 #### Scenario: Thirty quiet minutes
 - **WHEN** `SANDBOX_AUTOSTOP_MINUTES` is unset and an ssh-docker project's container has had no activity and no work in progress for 30 minutes
@@ -21,8 +21,12 @@ For every project whose sandbox driver has no idle stop of its own (ssh-docker),
 - **THEN** the container is started, the turn runs and its answer is posted like any other
 
 #### Scenario: A Daytona project
-- **WHEN** a project runs on the Daytona driver
-- **THEN** the bot never stops its sandbox; Daytona's own idle stop applies as before
+- **WHEN** an installation's or a project's configuration names the removed Daytona driver
+- **THEN** that configuration is refused when it loads (capability `sandbox-drivers`), so the bot never starts or stops a sandbox for it
+
+#### Scenario: A driver whose provider stops its own sandboxes
+- **WHEN** a project runs on a driver whose provider stops idle sandboxes itself, so the driver offers the bot no stop
+- **THEN** the bot never stops that project's sandbox
 
 ### Requirement: Activity is what the bot does in the container
 A container's last activity SHALL be the latest of: the start or the end of any call the bot makes into it (a command, a file upload, starting, writing to or ending a session process, warming the container up), and any output the bot reads from one of its session processes. It SHALL NOT be earlier than the moment the bot started checking for idle containers. Listing containers and checking whether a container runs SHALL NOT count as activity. Idle time, and the age of a turn's hold, SHALL be measured on the monotonic clock the turn deadlines run on: time the host spent suspended, or a step of its wall clock, SHALL NOT count.
