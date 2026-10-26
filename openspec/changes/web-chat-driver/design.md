@@ -93,6 +93,12 @@ Public repo: driver code, `docs/web.md` with placeholders, `.env.example` keys. 
 - **`/help` is the web's**: the router has no help verb (Slack has the App Home tab); the web answers `/help` with the Home cheat-sheet as a dialog, as `/home` does.
 - **Alerts**: no web alert channel in this PR (`AVEN_ALERT_CHANNEL` stays Slack's and Teams'); a web installation alone sees alerts in its journal.
 
+## Changed after the staging canary (2026-10-26)
+
+- **Sign-out passes through a page of ours** (`/signing-out`): Chrome applies `form-action 'self'` to the redirects of a form submission, so the 303 from `POST /logout` straight to the provider's end-session endpoint was blocked ("Sending form data to … violates … form-action"); the POST now lands on a same-origin page that refreshes to the provider — a plain navigation, which no CSP directive governs. Reproduced and verified in a real Chrome (Playwright) against a fake provider on a second loopback origin. The denied page links the same hand-off: a denied person holds no session of ours to post a logout with.
+- **Display name: the e-mail before `cognito:username`**: in a pool that signs people in by e-mail (`username_attributes = ["email"]`) that claim is the subject's UUID — the first staging login showed it as the name. A username that equals the subject is never a name.
+- **Names resolve live from the login records**: pages, cards and the header read `webUsers` first and the stored snapshot (the post's `by.name`, the cookie's `name`) only as the fallback, and a record whose name is just the id shows its e-mail — so the records and posts of the first canary logins read right without a re-login or a migration.
+
 ## Security review (PR 2, self-review 2026-10-26)
 
 Checked on the branch — the `/security-review` skill is not available in this environment, so this is the author's pass over the attack surface; a second pair of eyes before the first client-shared deployment stays on the list.

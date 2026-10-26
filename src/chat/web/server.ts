@@ -28,7 +28,7 @@ import { attachmentDisposition, findUpload, mimeOf, storeUpload, toRef } from '.
 import { MAX_FILES, isSupported } from '../../attachments.js';
 import { renderHomeView } from './webviews.js';
 import { Html, h } from './webformat.js';
-import { deniedPage, homePage, layout, loginPage, messageBody, messageHtml, privatePage, roomPage, signedOutPage, threadCardHtml, threadPage, type Shell, type Viewer } from './pages.js';
+import { deniedPage, homePage, layout, loginPage, messageBody, messageHtml, privatePage, roomPage, signedOutPage, signingOutPage, threadCardHtml, threadPage, type Shell, type Viewer } from './pages.js';
 import { LOGIN_COOKIE, LOGIN_MAX_AGE_MS, SESSION_COOKIE, SESSION_MAX_AGE_MS, checkCsrf, cookieHeader, csrfToken, isAllowed, open, openSession, parseCookies, seal, sealSession, type Oidc, type Session } from './auth.js';
 import { pkce } from './oidc.js';
 import type { WebChatDriver, WebCtx } from './driver.js';
@@ -59,6 +59,14 @@ export interface WebServer {
 
 // A local-only user when WEB_AUTH=none (the e2e harness and local development).
 export const LOCAL_USER: Session = { user: 'local', name: 'Local user', iat: 0 };
+/** A person's display name from the login records (state.json `webUsers`), resolved live so a later login with a better
+ *  name reaches every page: the stored name unless it is just the id (a login that found no name once stored the subject
+ *  itself), then the e-mail. */
+export const webNameOf = (store: Store) => (id: string): string | undefined => {
+  const u = store.getWebUser(id);
+  if (!u) return undefined;
+  return u.name && u.name !== id ? u.name : (u.email ?? u.name);
+};
 const POSTS_PER_MINUTE = 30;
 const MAX_TEXT = 20_000;
 // The router's verbs (src/chat/core/commands.ts), for the composer's suggestions; `help` is the web's own: the Home
@@ -76,7 +84,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   const ids = deps.ids ?? (() => newId('m'));
   const now = deps.now ?? Date.now;
   const secure = cfg.baseUrl.startsWith('https://');
-  const nameOf = (id: string) => store.getWebUser(id)?.name;
+  const nameOf = webNameOf(store);
   const rooms = (): ProjectConfig[] => reg.current.projects.filter((p) => p.webRoom !== false);
   const roomOf = (slug: string): ProjectConfig | undefined => {
     const p = resolveBySlug(reg.current, slug);
@@ -173,6 +181,23 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   app.get('/signed-out', (_req, res) => {
     res.type('html').send(layout({ title: 'Signed out', projects: [] }, signedOutPage()));
   });
+  // The hand-off to the identity provider's end-session endpoint: a page of ours that refreshes to it. Chrome holds the
+  // redirects of a form submission to `form-action 'self'`, so a 303 from POST /logout straight to the provider is
+  // blocked ("Sending form data to … violates … form-action", the staging canary); a refresh from a page of ours is a
+  // plain navigation. No session needed — the cookie is already gone, and the denied page sends people here to sign in
+  // as someone else. Without an end-session endpoint it is the signed-out page.
+  app.get('/signing-out', async (_req, res) => {
+    let end: URL | undefined;
+    if (cfg.auth === 'oidc' && deps.oidc) {
+      try {
+        end = await deps.oidc.endSessionUrl({ postLogoutRedirectUri: `${cfg.baseUrl}/signed-out` });
+      } catch (e) {
+        log.warn(`web logout: the end-session URL could not be built, signing out locally only — ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    if (!end) return void res.redirect(303, '/signed-out');
+    res.type('html').send(layout({ title: 'Signing out', projects: [], refresh: end.toString() }, signingOutPage(end.toString())));
+  });
 
   // ── the session gate ────────────────────────────────────────────────────────────────────────────
   const isApi = (req: Request) => req.path === '/stream' || req.path.startsWith('/post') || req.path === '/action' || req.path === '/dialog' || req.path === '/logout';
@@ -197,7 +222,11 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     next();
   });
 
-  const viewerOf = (s: Session): Viewer => ({ user: s.user, ...(s.name ? { name: s.name } : {}), csrf: csrfToken(cfg.sessionSecret, s) });
+  // The header's name: the login records first (they follow the latest login), the cookie's as the fallback.
+  const viewerOf = (s: Session): Viewer => {
+    const name = nameOf(s.user) ?? s.name;
+    return { user: s.user, ...(name ? { name } : {}), csrf: csrfToken(cfg.sessionSecret, s) };
+  };
   // The sidebar's conversations and their last activity (the client marks what the viewer has not seen).
   const activityFor = (user: string): Record<string, string> => {
     const out: Record<string, string> = {};
@@ -216,19 +245,11 @@ export function createWebServer(deps: WebServerDeps): WebServer {
 
   // Sign out: our cookie goes, and so does the identity provider's session when it offers an end-session
   // endpoint — without that, `/login` would sign the person straight back in on the provider's live session
-  // (the first staging canary: "logout did not log me out"). The provider returns the browser to /signed-out.
-  app.post('/logout', async (_req, res) => {
+  // (the first staging canary: "logout did not log me out"). The provider is reached through /signing-out (above),
+  // never by a redirect from this POST, and returns the browser to /signed-out.
+  app.post('/logout', (_req, res) => {
     res.setHeader('Set-Cookie', cookieHeader(SESSION_COOKIE, '', { secure, clear: true }));
-    let to = '/signed-out';
-    if (cfg.auth === 'oidc' && deps.oidc) {
-      try {
-        const end = await deps.oidc.endSessionUrl({ postLogoutRedirectUri: `${cfg.baseUrl}/signed-out` });
-        if (end) to = end.toString();
-      } catch (e) {
-        log.warn(`web logout: the end-session URL could not be built, signing out locally only — ${e instanceof Error ? e.message : String(e)}`);
-      }
-    }
-    res.redirect(303, to);
+    res.redirect(303, cfg.auth === 'oidc' && deps.oidc ? '/signing-out' : '/signed-out');
   });
 
   // ── pages ───────────────────────────────────────────────────────────────────────────────────────

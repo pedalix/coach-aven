@@ -104,10 +104,16 @@ inputs are a test suite (`src/chat/web/webformat.test.ts`).
   at boot. The identity provider is reached once at boot (discovery): a wrong issuer fails the boot by name.
 - **Sign-out.** `Sign out` clears the session cookie and, when the issuer publishes an end-session endpoint (Cognito's
   hosted UI does), ends the identity provider's session too — otherwise `/login` would sign the person straight back
-  in on the provider's live session. The provider returns the browser to `/signed-out` (register `https://<host>/signed-out`
-  as the client's logout URL); without such an endpoint the sign-out is local only.
-- **People.** Who logged in is in `state.json` (`webUsers`: id, name, e-mail, last login) — the names on posts and
-  mentions come from there. The user id is the issuer's subject.
+  in on the provider's live session. The browser passes through `/signing-out`, a page of ours that refreshes to the
+  provider's endpoint: Chrome applies the page's `form-action 'self'` to the redirects of a form submission, so a
+  redirect from the `Sign out` POST straight to the provider would be blocked. The provider returns the browser to
+  `/signed-out` (register `https://<host>/signed-out` as the client's logout URL); without such an endpoint the
+  sign-out is local only. The denied page links `/signing-out` too — the way to come back as someone else.
+- **People.** Who logged in is in `state.json` (`webUsers`: id, name, e-mail, last login) — the names on posts,
+  cards and the header come from there, resolved live, so a later login with a better name reaches every page; a
+  record whose name is just the id shows its e-mail. The user id is the issuer's subject. The display name is the ID
+  token's `name`, else given + family name, else `preferred_username`, else the e-mail, else `cognito:username` when it
+  is not the subject (in a Cognito pool that signs people in by e-mail it is the subject's UUID).
 - **Journal.** Logins (`web login: <e-mail>`), rejected POSTs (`web: rejected a POST … without a valid CSRF token`),
   denied people (`not on the allow-list`), a dialog with no open page (`dropped — no open page`). Failures on the
   core's path reach the thread and Sentry, as on every surface.
