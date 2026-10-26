@@ -350,8 +350,17 @@ An installation runs one *default* chat driver — its run mode, `orch slack` or
 driver is a *surface*, over one turn engine, one set of pollers and one agent-messaging identity. A conversation belongs
 to the surface it started on for its whole life; the default surface's conversation keys keep the shapes a single-driver
 installation has (no migration), an additional surface's carry the driver's name first (`teams:thread:…`). Unset =
-the run mode only, exactly as before. The value is validated against the drivers this build has; **until PR 2 of
-that change naming an additional surface is refused at boot** ("not available yet"), so nothing half-starts.
+the run mode only, exactly as before. The value is validated against the drivers this build has; every surface is
+prepared before any starts, and one that cannot run (its settings missing, its port taken) fails the boot naming it,
+so nothing half-starts. Each surface keeps its own identities, access gate, operators, command prefix, Home and alert
+channel; a project is reachable from every surface it is bound on (`slackChannel`, `teamsChannel`), with one sandbox.
+
+Where background deliveries go: a routine delivers where it was created (its record remembers the surface). Deliveries
+no conversation started — auto-reviews, ticket investigations — go to the project's channel on the default surface,
+or, with `"deliverTo": ["slack", "teams"]` on the project, also to the surfaces named there: a review runs once and its
+answer is posted to the other surfaces' channels; a ticket investigation lands on one surface, the first in that list
+with a driver and a channel (its dialogs belong to that thread). The auto-review channel is the one `review auto on`
+was typed in, on that surface.
 
 ## Repo skills (`REPO_SKILLS`)
 

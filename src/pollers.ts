@@ -9,7 +9,9 @@ import { consumeRunRequests, controlDir } from './control.js';
 import type { Config } from './config.js';
 import type { Store, RoutineRecord } from './state.js';
 import { resolveBySlug, projectOwnerTeam, teamProjects, type ProjectConfig, type RegistryRef } from './projects.js';
-import { withTeam, normalizeTenant } from './teamkeys.js';
+import { normalizeTenant } from './teamkeys.js';
+import { keyFor } from './chat/surfaces.js';
+import type { ChatDriverName } from './chat/drivers.js';
 import type { TurnEngine } from './turn.js';
 import type { ChatDriver, DriverFor, DriverRef } from './chat/driver.js';
 import type { Channels } from './channels.js';
@@ -94,7 +96,16 @@ export interface Pollers {
     channel: string,
     effort?: ReviewEffort,
     tenant?: string,
+    surface?: ChatDriverName,
   ): boolean;
+}
+
+/** What the pollers need from an installation with several chat surfaces (multi-driver-installation). */
+export interface PollerSurfaces {
+  /** The channel directory of a surface; undefined for one the installation does not run. */
+  channelsFor?: (surface: ChatDriverName) => Channels | undefined;
+  /** The default surface's name: a `deliverTo` entry naming it is the default, not an extra delivery. */
+  defaultSurface?: ChatDriverName;
 }
 
 // Pollers are per-tenant since slice 2: every stored record (routine, watch, settings,
@@ -110,7 +121,18 @@ export function createPollers(
   engine: TurnEngine,
   channels: Channels,
   home: () => string | undefined,
+  surfaces: PollerSurfaces = {},
 ): Pollers {
+  // Surfaces (multi-driver-installation): a record's own surface, as `undefined` when it is the default
+  // (the key shapes of a single-driver installation), and where a project's conversation-less
+  // deliveries go — its default surface first, then every surface `deliverTo` names.
+  const asSurface = (s: string | undefined): ChatDriverName | undefined => (s && s !== surfaces.defaultSurface ? (s as ChatDriverName) : undefined);
+  const deliverySurfaces = (project: ProjectConfig): (ChatDriverName | undefined)[] => {
+    const out: (ChatDriverName | undefined)[] = [undefined];
+    for (const d of project.deliverTo ?? []) if (!out.includes(asSurface(d))) out.push(asSurface(d));
+    return out;
+  };
+  const channelsOf = (s: ChatDriverName | undefined): Channels | undefined => (s === undefined ? channels : surfaces.channelsFor?.(s));
   // Resolve a tenant's driver, or undefined with a log line (the per-record skip rule).
   // A record's driver: its surface (absent = default) and tenant (absent = home).
   const refOf = (r: { teamId?: string; surface?: string }): DriverRef => ({ ...(r.surface ? { surface: r.surface as DriverRef['surface'] } : {}), ...(r.teamId ? { tenantId: r.teamId } : {}) });
@@ -177,7 +199,7 @@ export function createPollers(
     }
     if (r.kind === 'dream') return fireDream(project, r);
     if (r.kind === 'housekeeping') return fireHousekeeping(project, r);
-    const legacyKey = withTeam(r.teamId, home(), `cron:${r.id}:${r.slug}`);
+    const legacyKey = keyFor(asSurface(r.surface), r.teamId, home(), `cron:${r.id}:${r.slug}`);
     if (routinesInFlight.has(r.id)) {
       log.info(`routine ${r.id} (${r.slug}): skipped — the previous run is still in flight`);
       return false; // don't stack
@@ -258,7 +280,7 @@ export function createPollers(
           await c.update({ conv: r.channel, id: ts }, { kind: 'line', text });
         },
       },
-      { legacyKey, threadKey: (ts) => withTeam(r.teamId, home(), `thread:${ts}`), label },
+      { legacyKey, threadKey: (ts) => keyFor(asSurface(r.surface), r.teamId, home(), `thread:${ts}`), label },
       project,
       prompt,
       onSettle ? { onSettle } : undefined,
@@ -286,7 +308,7 @@ export function createPollers(
   // (warm, survives stop/start); durability of the consolidated copy is future work.
   function fireDream(project: ProjectConfig, r: RoutineRecord): boolean {
     if (engine.projectBusy(project.slug)) return false; // don't dream over a live user turn
-    const key = withTeam(r.teamId, home(), `cron:${r.id}:${r.slug}`); // tenant-keyed → correct usage attribution
+    const key = keyFor(asSurface(r.surface), r.teamId, home(), `cron:${r.id}:${r.slug}`); // tenant-keyed → correct usage attribution
     store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
     void (async () => {
       try {
@@ -370,14 +392,41 @@ export function createPollers(
     channel: string,
     effort: ReviewEffort = 'med',
     tenant?: string,
+    surface?: ChatDriverName,
   ): boolean {
-    const key = withTeam(tenant, home(), `review:${repo}:${number}:${project.slug}`);
+    const own = asSurface(surface);
+    const key = keyFor(own, tenant, home(), `review:${repo}:${number}:${project.slug}`);
     if (engine.hasKey(key)) return false;
+    // The review runs once, in the conversation it was asked from (or the auto-review's channel); the
+    // project's other delivery surfaces get its answer posted, not a second turn (multi-driver-installation
+    // D4 — "appears in the project's channel on each surface").
+    const mirrors = deliverySurfaces(project).filter((s) => s !== own);
+    const title = `🔍 Review of ${repo}#${number}`;
+    const onAnswer = mirrors.length
+      ? async (text: string) => {
+          for (const s of mirrors) await mirror(s, project, tenant, title, text);
+        }
+      : undefined;
     // automatic: a poller's turn — an agent-messaging answer never folds into it (D11).
-    void engine.liveTurn(c, channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort), undefined, { automatic: true }).catch(
-      turnFail(`review ${repo}#${number}`),
-    );
+    void engine
+      .liveTurn(c, channel, undefined, undefined, key, project, reviewPrompt(repo, number, effort), undefined, { automatic: true, ...(onAnswer ? { onAnswer } : {}) })
+      .catch(turnFail(`review ${repo}#${number}`));
     return true;
+  }
+
+  // A delivery's copy on another surface of the project: that surface's driver and the project's channel
+  // there; a surface without either is logged and skipped (as a tenant without a driver is).
+  async function mirror(surface: ChatDriverName | undefined, project: ProjectConfig, tenant: string | undefined, title: string, markdown: string): Promise<void> {
+    const what = `${title} → ${surface ?? 'the default surface'}`;
+    const d = driverOrSkip({ ...(surface ? { surface } : {}), ...(tenant ? { tenantId: tenant } : {}) }, what);
+    if (!d) return;
+    const dir = channelsOf(surface);
+    const conv = dir ? await dir.channelIdForSlug(d, project, tenant) : undefined;
+    if (!conv) {
+      log.warn(`${what}: no channel for ${project.slug} there — not delivered`);
+      return;
+    }
+    await d.post({ conv }, { kind: 'text', text: `*${title}*\n\n${markdown}` }).catch((e) => log.warn(`${what}: ${e instanceof Error ? e.message : String(e)}`));
   }
 
   // Scheduler: every 60s, fire any routine due this wall-clock minute (see dueRoutines).
@@ -446,7 +495,7 @@ export function createPollers(
         // Settings are slug-keyed (one auto-review per project fleet-wide) — the enabling
         // tenant's token posts. Old records carry no team → home. A dead installation
         // skips the project rather than leaking home-token posts into a foreign channel.
-        const c = driverOrSkip({ tenantId: s.autoReviewTeam }, `auto-review ${project.slug}`);
+        const c = driverOrSkip({ ...(asSurface(s.autoReviewSurface) ? { surface: asSurface(s.autoReviewSurface) } : {}), ...(s.autoReviewTeam ? { tenantId: s.autoReviewTeam } : {}) }, `auto-review ${project.slug}`);
         if (!c) continue;
         const reviewed = store.reviewedPrKeys();
         for (const repo of project.repos) {
@@ -459,7 +508,7 @@ export function createPollers(
             const k = `${repo}#${p.number}`;
             store.markPrReviewed(k);
             reviewed.add(k);
-            if (fireReview(c, project, repo, p.number, s.autoReviewChannel, s.autoReviewEffort ?? 'med', s.autoReviewTeam))
+            if (fireReview(c, project, repo, p.number, s.autoReviewChannel, s.autoReviewEffort ?? 'med', s.autoReviewTeam, asSurface(s.autoReviewSurface)))
               log.info(`auto-review ${k} (${project.slug})`);
           }
         }
@@ -475,9 +524,9 @@ export function createPollers(
   function startAutofixPoller(): void {
     const tick = async (): Promise<void> => {
       for (const w of store.listPrWatches()) {
-        // The store key carries the tenant prefix (withTeam) — recompute it the same way
+        // The store key carries the surface and tenant prefixes (keyFor) — recompute it the same way
         // the subscribe path did, so patch/delete hit the right record.
-        const key = withTeam(w.teamId, home(), `${w.repo}#${w.number}`);
+        const key = keyFor(asSurface(w.surface), w.teamId, home(), `${w.repo}#${w.number}`);
         if (!tenantHasProject(w.teamId, w.slug)) continue; // revoked tenant — stay silent
         const c = driverOrSkip(refOf(w), `autofix ${w.repo}#${w.number}`);
         if (!c) continue;
@@ -523,11 +572,25 @@ export function createPollers(
       // undefined for home (the store convention).
       const owner = projectOwnerTeam(reg.current, project.slug, home());
       const teamId = normalizeTenant(owner, home());
-      const chat = driverOrSkip({ tenantId: teamId }, `youtrack ${ticket.id}`);
-      if (!chat) return false;
-      const channel = await channels.channelIdForSlug(chat, project, teamId);
-      if (!channel) {
-        log.error(`youtrack ${ticket.id}: channel ${channels.prefixFor(teamId)}${project.slug} not found — create it and invite the bot`);
+      // The investigation thread lives on ONE surface — the project's default, or the first of its delivery
+      // surfaces with a driver and a channel (the ticket dialogs belong to that thread; a copy elsewhere
+      // would not open them). Changed from the spec's "every surface named" for that reason.
+      let chat: ChatDriver | undefined;
+      let channel: string | undefined;
+      let surface: ChatDriverName | undefined;
+      for (const s of deliverySurfaces(project)) {
+        const d = driverOrSkip({ ...(s ? { surface: s } : {}), ...(teamId ? { tenantId: teamId } : {}) }, `youtrack ${ticket.id}`);
+        if (!d) continue;
+        const dir = channelsOf(s);
+        const ch = dir ? await dir.channelIdForSlug(d, project, teamId) : undefined;
+        if (!ch) continue;
+        chat = d;
+        channel = ch;
+        surface = s;
+        break;
+      }
+      if (!chat || !channel) {
+        log.error(`youtrack ${ticket.id}: channel ${channels.prefixFor(teamId)}${project.slug} not found on any delivery surface — create it and invite the bot`);
         return false;
       }
       const comments = await listComments(cfg, ticket.id);
@@ -578,11 +641,11 @@ export function createPollers(
       // session (the bot "owns" the thread via store.getChat) — and gives the finished answer its
       // follow-up buttons (answerBlocks attaches them only for `thread:` keys). Falls
       // back to a ticket-scoped key + top-level post if the header couldn't be sent (no rootTs).
-      const key = withTeam(teamId, home(), rootTs ? `thread:${rootTs}` : `youtrack:${ticket.id}:${project.slug}`);
+      const key = keyFor(surface, teamId, home(), rootTs ? `thread:${rootTs}` : `youtrack:${ticket.id}:${project.slug}`);
       // Persist the investigation BEFORE dispatch so the ticket→thread link and the dedup
       // survive an immediate crash; stamp finishedAt when the turn settles. `rootTs` ties the
       // ticket to `thread:<rootTs>` → chats → the Claude session.
-      store.recordInvestigation(ticket.id, { slug: project.slug, teamId, channel, rootTs, startedAt: new Date().toISOString() });
+      store.recordInvestigation(ticket.id, { slug: project.slug, teamId, ...(surface ? { surface } : {}), channel, rootTs, startedAt: new Date().toISOString() });
       void engine.liveTurn(chat, channel, undefined, rootTs, key, project, prompt, attachments, { automatic: true }) // a poller's turn (D11)
         .catch(turnFail(`youtrack ${ticket.id}`))
         .finally(() => store.finishInvestigation(ticket.id));

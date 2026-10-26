@@ -7,7 +7,8 @@
 
 import type { Store } from '../../state.js';
 import { teamProjects, type RegistryRef } from '../../projects.js';
-import { withTeam } from '../../teamkeys.js';
+import { keyFor } from '../surfaces.js';
+import type { ChatDriverName } from '../drivers.js';
 import type { TurnEngine } from '../../turn.js';
 import type { Channels } from '../../channels.js';
 import { info } from '../slack/blocks.js';
@@ -20,6 +21,9 @@ export interface MessageDeps {
   engine: TurnEngine;
   channels: Channels;
   homeTeamId?: string;
+  // The surface these handlers serve (multi-driver-installation); undefined = the installation's default
+  // surface, whose keys keep today's shapes. An additional surface's keys carry its name.
+  surface?: ChatDriverName;
   actor: ActorGate;
   // Park a DM's question until a project is picked (the interaction core owns the picks).
   parkDmPick: (pending: { channel: string; user: string; question: string }) => string;
@@ -28,7 +32,7 @@ export interface MessageDeps {
 const FILES_ONLY = 'Please take a look at the attached file(s).';
 
 export function createMessages(deps: MessageDeps) {
-  const { store, reg, engine, channels, homeTeamId, actor } = deps;
+  const { store, reg, engine, channels, homeTeamId, actor, surface } = deps;
 
   // @mention → a public thread, one session per thread. The thread is the mention's own
   // thread, or the mention itself when it starts one.
@@ -60,7 +64,7 @@ export function createMessages(deps: MessageDeps) {
     }
     if (!m.claim('mention')) return;
     const attachments = m.hasFiles ? await m.files() : undefined;
-    const key = withTeam(tenant, homeTeamId, `thread:${threadTs}`);
+    const key = keyFor(surface, tenant, homeTeamId, `thread:${threadTs}`);
     await engine.liveTurn(d, m.conv, m.id, threadTs, key, project!, question || FILES_ONLY, attachments);
   }
 
@@ -95,7 +99,7 @@ export function createMessages(deps: MessageDeps) {
         await d.post({ conv: m.conv }, { kind: 'text', text: info("I didn't catch a question — just type what you'd like me to do.") });
         return;
       }
-      const dmKey = withTeam(tenant, homeTeamId, `dm:${m.conv}:${project!.slug}`);
+      const dmKey = keyFor(surface, tenant, homeTeamId, `dm:${m.conv}:${project!.slug}`);
       await engine.liveTurn(d, m.conv, m.id, undefined, dmKey, project!, question || FILES_ONLY, await m.files());
       return;
     }
@@ -104,7 +108,7 @@ export function createMessages(deps: MessageDeps) {
     // this delivery's tenant's — in a shared channel the other side finds no conversation
     // under its key and exits here without claiming.
     if (!m.thread) return;
-    const key = withTeam(tenant, homeTeamId, `thread:${m.thread}`);
+    const key = keyFor(surface, tenant, homeTeamId, `thread:${m.thread}`);
     if (!engine.hasLive(key) && !store.getChat(key)) return;
     const { project, question, error } = await channels.pickProject(d, m.conv, m.text, tenant);
     if (error || !project) return;

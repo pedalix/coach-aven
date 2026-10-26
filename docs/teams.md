@@ -67,10 +67,12 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 
 Admins are the installation's operators, full stop: there is no automatic promotion of team owners (considered and dropped — an installation's operators are the whole role model it needs; `open` mode lets everyone in a bound channel drive the agent anyway).
 
-## Beside Slack, later
+## Beside Slack
 
-A Teams installation will be able to add other chat surfaces (`CHAT_SURFACES`, `docs/runtime-config.md`) once
-`multi-driver-installation` PR 2 lands; today an installation runs one driver.
+A Teams installation can run a Slack surface beside its Teams one (and the other way round): `CHAT_SURFACES=slack` in
+`.env` with the Slack app's tokens, a project bound on both (`teamsChannel` + `slackChannel`) — see `docs/runtime-config.md`
+→ *Chat surfaces*. Conversations stay on the surface they started on; operators, access and the Home surface are per
+surface.
 
 ## Operations notes
 

@@ -114,6 +114,7 @@ export interface ProjectSettings {
   // commands.ts; a per-(team,slug) split is deliberate non-scope while sharing is
   // a capability, not a feature.
   autoReviewTeam?: string;
+  autoReviewSurface?: string; // the surface `review auto on` was typed on (absent = the default driver)
   autoReviewEffort?: 'low' | 'med' | 'high'; // effort for auto-reviews (default med)
 }
 

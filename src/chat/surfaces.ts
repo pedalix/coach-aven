@@ -7,7 +7,7 @@
 
 import type { ChatDriver } from './driver.js';
 import { CHAT_DRIVERS, type ChatDriverName } from './drivers.js';
-import { splitTeam } from '../teamkeys.js';
+import { splitTeam, withTeam } from '../teamkeys.js';
 
 /** Which driver a record or key belongs to: its surface (undefined = default) and tenant (undefined = home). */
 export interface DriverRef {
@@ -22,6 +22,11 @@ export const isSurface = (s: unknown): s is ChatDriverName => typeof s === 'stri
 /** A key for an additional surface: the driver's name first. The default surface (undefined) leaves keys as they are. */
 export function withSurface(surface: ChatDriverName | undefined, key: string): string {
   return surface ? `${surface}:${key}` : key;
+}
+
+/** The conversation key of a surface: the tenant prefix of teamkeys.ts, then the surface segment. */
+export function keyFor(surface: ChatDriverName | undefined, tenantId: string | undefined, homeTenant: string | undefined, base: string): string {
+  return withSurface(surface, withTeam(tenantId, homeTenant, base));
 }
 
 /** The surface and tenant a key names, and its bare base. */

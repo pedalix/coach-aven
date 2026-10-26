@@ -67,6 +67,9 @@ place to run sandboxes.
 The bot's App Home tab lists every command and button.
 
 Microsoft Teams instead of Slack: the same bot with `orch teams` — [`docs/teams.md`](docs/teams.md)
+
+Both at once: `CHAT_SURFACES=teams` (or `slack`) in `.env` runs a second chat driver beside the run mode's, over the same
+projects and sandboxes — [`docs/runtime-config.md`](docs/runtime-config.md) → *Chat surfaces*.
 (one chat driver per installation; the bot identity comes from the `infra/teams/` Terraform module).
 
 Production: a systemd unit on any Linux box, deployed by `npm run ops -- <slug> deploy` or by

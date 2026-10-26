@@ -1,13 +1,13 @@
-// The chat composition root (OpenSpec `multi-driver-installation` D2): ONE turn engine, one channel
-// directory, one set of pollers and one agent-messaging runtime, and the chat drivers as surface
-// plugins over them. An installation's run mode (`orch slack`, `orch teams`) names its DEFAULT
-// surface; `CHAT_SURFACES` names additional ones. Until PR 2 of that change only the default
-// surface runs: naming another is refused at boot, loudly, so nothing half-starts.
+// The chat composition root (OpenSpec `multi-driver-installation` D2): ONE turn engine, one set of
+// pollers and one agent-messaging runtime, a channel directory per surface, and the chat drivers as
+// surface plugins over them. An installation's run mode (`orch slack`, `orch teams`) names its
+// DEFAULT surface; `CHAT_SURFACES` names additional ones. Every surface is prepared before any
+// starts: a surface that cannot run fails the boot, loudly, so nothing half-starts.
 //
-// Order of boot, the same both drivers had on their own: prepare the default surface (its SDK
-// clients and the home tenant it resolves) → messaging runtime (it needs the home tenant) → engine →
-// channels → pollers → wire the surface's handlers → recover in-flight and queued turns → start
-// the surface's connection or listener → pollers → retention → graceful shutdown.
+// Order of boot, the same each driver had on its own: prepare every surface (SDK clients, the home
+// tenant the default resolves) → messaging runtime (it needs the home tenant) → engine → channels →
+// pollers → wire each surface's handlers → recover in-flight and queued turns → start each surface's
+// connection or listener → pollers → retention → graceful shutdown.
 
 import type { Config } from '../config.js';
 import { Store } from '../state.js';
@@ -22,6 +22,7 @@ import { log } from '../log.js';
 import type { ChatDriver } from './driver.js';
 import type { ChatDriverName } from './drivers.js';
 import type { DriverFor } from './surfaces.js';
+import { setAlertSink, type AlertLevel } from './slack/blocks.js';
 
 /** What the root hands every surface once the shared pieces exist. */
 export interface SharedDeps {
@@ -34,6 +35,8 @@ export interface SharedDeps {
   messaging: MessagingRuntime;
   /** The driver of any surface + tenant of this installation (surfaces.ts). */
   driverFor: DriverFor;
+  /** This surface's name in conversation keys: undefined for the default surface (its keys keep today's shapes). */
+  surface?: ChatDriverName;
 }
 
 /** A surface after its handlers are wired: how to open and close it. */
@@ -57,6 +60,8 @@ export interface PreparedSurface {
   channelsOptions?: ChannelsOptions;
   /** Whether this surface has a home to serve: recovery and pollers run only then (a Slack OAuth installation without its home install has none). */
   hasHome: boolean;
+  /** Operator alerts to this surface's alert channel, when it has one; the root fans every alert out to all of them. */
+  alerts?: (text: string, level: AlertLevel) => void;
   /** Wire the surface's handlers over the shared pieces. */
   wire(shared: SharedDeps): Promise<WiredSurface>;
 }
@@ -78,39 +83,38 @@ async function plugin(name: ChatDriverName): Promise<SurfacePlugin> {
   }
 }
 
-export async function runChat(cfg: Config, defaultName: ChatDriverName): Promise<void> {
-  const extra = cfg.chatSurfaces.filter((n) => n !== defaultName);
-  if (extra.length) {
-    throw new Error(
-      `CHAT_SURFACES=${extra.join(',')}: additional chat surfaces are not available yet (multi-driver-installation PR 2) — ` +
-        `unset it, or run that driver as this installation's run mode (\`orch ${extra[0]}\`)`,
-    );
-  }
+export interface RunChatOptions {
+  /** Tests: the plugins to use instead of the drivers' modules, and a store on a throwaway path. */
+  plugins?: Partial<Record<ChatDriverName, SurfacePlugin>>;
+  store?: Store;
+}
+
+export async function runChat(cfg: Config, defaultName: ChatDriverName, options: RunChatOptions = {}): Promise<void> {
+  const names: ChatDriverName[] = [defaultName, ...cfg.chatSurfaces.filter((n) => n !== defaultName)];
   const reg: RegistryRef = { current: loadProjects(cfg.projectsConfigPath) };
-  const store = new Store();
-  const def = await (await plugin(defaultName)).prepare(cfg, store, reg);
-  const surfaces = new Map<ChatDriverName, PreparedSurface>([[defaultName, def]]);
+  const store = options.store ?? new Store();
+  // Every surface prepared before any starts (D7): a missing setting fails the boot naming the surface.
+  const surfaces = new Map<ChatDriverName, PreparedSurface>();
+  for (const name of names) {
+    const pl = options.plugins?.[name] ?? (await plugin(name));
+    try {
+      surfaces.set(name, await pl.prepare(cfg, store, reg));
+    } catch (e) {
+      throw new Error(`chat surface ${name}${name === defaultName ? '' : ' (CHAT_SURFACES)'} cannot start: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  const def = surfaces.get(defaultName)!;
 
   // Bot-served MCP servers (hostrouter.ts): `host` (agent messaging's tools) and the channel-served
   // `sources` are answered by this process over each session's control channel.
   // Agent messaging (OpenSpec agent-messaging): the shadow conversations' hooks go into the engine,
   // the service is started once the engine exists. Nothing reaches it without a `messaging` block.
-  const messaging = messagingRuntime({
-    cfg,
-    store,
-    reg,
-    home: () => def.homeTenantId(),
-    platform: defaultName,
-  });
-  const hostRoutes = createHostRouter({
-    tz: ROUTINE_TZ,
-    messaging: messaging.messaging,
-  });
-  const engine = createTurnEngine(cfg, store, reg, {
-    hostRoutes,
-    shadow: messaging.turnDeps,
-  });
-  const channels = createChannels(reg, () => def.homeTenantId(), def.channelsOptions);
+  const messaging = messagingRuntime({ cfg, store, reg, home: () => def.homeTenantId(), platform: defaultName });
+  const hostRoutes = createHostRouter({ tz: ROUTINE_TZ, messaging: messaging.messaging });
+  const engine = createTurnEngine(cfg, store, reg, { hostRoutes, shadow: messaging.turnDeps });
+  // One channel directory per surface: each reads its own driver's binding of a project.
+  const channelsOf = new Map<ChatDriverName, Channels>();
+  for (const [name, s] of surfaces) channelsOf.set(name, createChannels(reg, () => s.homeTenantId(), { ...(s.channelsOptions ?? {}), binding: name }));
   // Every non-event path (pollers, messaging, recovery) resolves a conversation's driver by its
   // surface and tenant; a surface this installation does not run is an error the caller logs and skips.
   const driverFor: DriverFor = (ref) => {
@@ -119,27 +123,22 @@ export async function runChat(cfg: Config, defaultName: ChatDriverName): Promise
     if (!s) throw new Error(`surface ${name} is not available on this installation`);
     return s.driverFor(ref.tenantId);
   };
-  messaging.start({
-    engine,
-    driverFor,
-    usageLog: new UsageLog(),
-    tz: ROUTINE_TZ,
+  messaging.start({ engine, driverFor, usageLog: new UsageLog(), tz: ROUTINE_TZ });
+  const pollers = createPollers(cfg, store, reg, driverFor, engine, channelsOf.get(defaultName)!, () => def.homeTenantId(), {
+    channelsFor: (name) => channelsOf.get(name),
+    defaultSurface: defaultName,
   });
-  const pollers = createPollers(cfg, store, reg, driverFor, engine, channels, () => def.homeTenantId());
+  // Operator alerts reach every surface that has an alert channel.
+  const sinks = [...surfaces.values()].map((s) => s.alerts).filter((f): f is NonNullable<typeof f> => !!f);
+  if (sinks.length) setAlertSink((text, level) => sinks.forEach((f) => f(text, level)));
 
-  const wired = await def.wire({
-    cfg,
-    store,
-    reg,
-    engine,
-    channels,
-    pollers,
-    messaging,
-    driverFor,
-  });
+  const wired = new Map<ChatDriverName, WiredSurface>();
+  for (const [name, s] of surfaces) {
+    wired.set(name, await s.wire({ cfg, store, reg, engine, channels: channelsOf.get(name)!, pollers, messaging, driverFor, ...(name === defaultName ? {} : { surface: name }) }));
+  }
 
   // Recovery order matters: reattach the turns that were RUNNING first, then replay the journaled
-  // ones that were still queued (a replay waits for its key's recovery). Both BEFORE the surface
+  // ones that were still queued (a replay waits for its key's recovery). Both BEFORE any surface
   // opens: the journal drain must happen while no new event can append to it, or a turn accepted in
   // the gap would be replayed as a duplicate. Each record resolves ITS OWN surface and tenant.
   if (def.hasHome) {
@@ -148,7 +147,17 @@ export async function runChat(cfg: Config, defaultName: ChatDriverName): Promise
     messaging.recover(recovering); // messages that were on their way, after their conversation's recovery
   }
 
-  await wired.start();
+  // Start in order; a surface that cannot open closes the ones already open and fails the boot (D7).
+  const started: WiredSurface[] = [];
+  for (const [name, w] of wired) {
+    try {
+      await w.start();
+      started.push(w);
+    } catch (e) {
+      for (const s of started) await s.stop();
+      throw new Error(`chat surface ${name} could not start: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
   if (def.hasHome) pollers.startAll();
 
   // Retention: without it, chats/reviewedPrs grow by one record per thread/PR forever and every
@@ -174,8 +183,8 @@ export async function runChat(cfg: Config, defaultName: ChatDriverName): Promise
   const shutdown = (sig: string) => {
     if (stopping) return;
     stopping = true;
-    log.info(`${sig} — closing ${wired.closing} and exiting (in-flight turns recover on the next boot)`);
-    void wired.stop().finally(() => process.exit(0));
+    log.info(`${sig} — closing ${[...wired.values()].map((w) => w.closing).join(', ')} and exiting (in-flight turns recover on the next boot)`);
+    void Promise.all([...wired.values()].map((w) => w.stop())).finally(() => process.exit(0));
     setTimeout(() => process.exit(0), 5000).unref(); // if the close wedges, exit anyway
   };
   process.once('SIGTERM', () => shutdown('SIGTERM'));

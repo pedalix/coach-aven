@@ -1,3 +1,4 @@
+import { CHAT_DRIVERS, type ChatDriverName } from './chat/drivers.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SandboxDriverKind } from './config.js';
@@ -52,6 +53,10 @@ export interface ProjectConfig {
   // A Teams installation binds by id only (channels have no name wildcard there): the channel's
   // `19:…@thread.tacv2` id, exactly as Teams delivers it (OpenSpec teams-chat-driver).
   teamsChannel?: string;
+  // Where deliveries that no conversation started (auto-reviews, ticket investigations) go when the
+  // installation runs several chat surfaces (OpenSpec multi-driver-installation): driver names; absent =
+  // the installation's default surface. A routine always delivers where it was created.
+  deliverTo?: ChatDriverName[];
   // Project-specific system-prompt layer, APPENDED after the orchestrator's base prompt
   // (never overrides it). Project context the orchestrator can't know: domain, what each
   // repo is + how they relate, merge/deploy-order rules, docs links. Repo CODING
@@ -155,6 +160,12 @@ export function loadProjects(path: string): ProjectsRegistry {
       throw new Error(
         `${path}: project "${p.slug}" gitFlow must be one of ${GIT_FLOWS.map((f) => `"${f}"`).join(', ')}, got ${JSON.stringify(p.gitFlow)}`,
       );
+    }
+    if (p.deliverTo !== undefined) {
+      const bad = Array.isArray(p.deliverTo) ? p.deliverTo.filter((d) => !(CHAT_DRIVERS as readonly string[]).includes(String(d))) : [p.deliverTo];
+      if (!Array.isArray(p.deliverTo) || bad.length) {
+        throw new Error(`${path}: project "${p.slug}" deliverTo must be an array of chat drivers (${CHAT_DRIVERS.join(', ')}), got ${JSON.stringify(p.deliverTo)}`);
+      }
     }
     // Validate at boot: a bad mount or a privileged:false/dind:true contradiction must fail
     // here, not at the first turn of that project.

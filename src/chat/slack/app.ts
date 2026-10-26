@@ -20,7 +20,7 @@ import { RecentSet } from '../../recent.js';
 import { eventLog, eventLogRaw, envelopeMeta } from '../../eventlog.js';
 import { registerCommands } from './commands.js';
 import { registerEvents } from './events.js';
-import { setAlertSink, summary, notConfiguredText, type AlertLevel } from './blocks.js';
+import { summary, notConfiguredText, type AlertLevel } from './blocks.js';
 import { log } from '../../log.js';
 
 const { App } = bolt;
@@ -217,6 +217,7 @@ export const slackSurface: SurfacePlugin = {
     // in). Free-tier Sentry can't alert to Slack; the bot is already a Slack app, so it self-reports.
     // Best-effort + deduped (skip a repeat of the same message within the window) to avoid storms.
     const ALERT_CHANNEL = process.env.AVEN_ALERT_CHANNEL;
+    let alertSink: ((text: string, level: AlertLevel) => void) | undefined; // installed by the root, with every surface's
     const ALERT_DEDUPE_MS = 60_000;
     const recentAlerts = new Map<string, number>();
     if (ALERT_CHANNEL && homeClient) {
@@ -226,7 +227,7 @@ export const slackSurface: SurfacePlugin = {
         warning: ':warning: CoachAven:',
         info: ':white_check_mark: CoachAven:',
       };
-      setAlertSink((text: string, level: AlertLevel) => {
+      alertSink = (text: string, level: AlertLevel) => {
         const now = Date.now();
         const last = recentAlerts.get(text);
         if (last && now - last < ALERT_DEDUPE_MS) return; // same error just posted — skip
@@ -235,7 +236,7 @@ export const slackSurface: SurfacePlugin = {
         void alerts
           .post({ conv: ALERT_CHANNEL }, { kind: 'text', text: `${PREFIX[level]} ${text}`.slice(0, 2000) })
           .catch(() => {}); // never let an alert failure cascade (no log.error here → no loop)
-      });
+      };
     }
 
     // Resolve our own bot user id so the message handler can ignore the very messages
@@ -249,9 +250,10 @@ export const slackSurface: SurfacePlugin = {
       homeTenantId: () => homeTeamId,
       driverFor: (t) => slackDriver(clientForTeam(t)),
       hasHome: !!homeClient,
-      async wire({ engine, channels, pollers, messaging }: SharedDeps): Promise<WiredSurface> {
-        registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, messaging: messaging.messaging });
-        registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId, onReload: () => messaging.reload(), asks: messaging.asks });
+      ...(alertSink ? { alerts: alertSink } : {}),
+      async wire({ engine, channels, pollers, messaging, surface }: SharedDeps): Promise<WiredSurface> {
+        registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, messaging: messaging.messaging, ...(surface ? { surface } : {}) });
+        registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
         return {
           async start() {
             await app.start();

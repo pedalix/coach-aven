@@ -239,3 +239,8 @@ export async function createTwinApp(
   });
   return { app, receiver, api, stop: () => api.stop() };
 }
+
+/** A Web API client pointed at a RecordingApi: for recorders that live outside this directory (the SDK import stays here). */
+export function recordingClient(url: string, token = 'xoxb-home'): bolt.webApi.WebClient {
+  return new bolt.webApi.WebClient(token, { slackApiUrl: url, retryConfig: { retries: 0 } });
+}

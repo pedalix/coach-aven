@@ -3,6 +3,7 @@
 // design — Slack payloads are normalized here; what an interaction DOES lives in the
 // platform-neutral core (src/chat/core/interactions.ts), the actual work in the turn engine.
 
+import type { ChatDriverName } from '../drivers.js';
 import { withSlackTables } from './tables.js';
 import type bolt from '@slack/bolt';
 import { slackDriver, type SlackActionCtx } from './driver.js';
@@ -47,6 +48,8 @@ export interface EventDeps {
   // The home tenant id (resolved at boot in both modes). Session keys stay BARE for the
   // home workspace and carry a tenant prefix for every other one — see teamkeys.ts.
   homeTeamId?: string;
+  // The surface this Slack listener is (undefined = the installation's default surface).
+  surface?: ChatDriverName;
   // The tenant-gate predicate (slack.ts). The gate middleware passes block_actions
   // through for ack() reasons, so WRITE-capable button handlers re-check it here — an
   // offboarded workspace clicking a stale button must not fire a turn.
@@ -86,8 +89,9 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     actor,
     prefixFor: (t: string | undefined) => channels.prefixFor(t),
     ...(deps.messaging ? { messaging: deps.messaging } : {}),
+    ...(deps.surface ? { surface: deps.surface } : {}),
   });
-  const messages = createMessages({ store, reg, engine, channels, homeTeamId, actor, parkDmPick: core.parkDmPick });
+  const messages = createMessages({ store, reg, engine, channels, homeTeamId, actor, parkDmPick: core.parkDmPick, ...(deps.surface ? { surface: deps.surface } : {}) });
 
   // ── Slack Connect double-envelope guard ─────────────────────────────────
   // In a shared channel with the app installed on BOTH sides, one message is delivered
