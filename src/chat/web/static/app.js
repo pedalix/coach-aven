@@ -13,6 +13,36 @@
   var thread = section ? section.getAttribute('data-thread') : null;
   var dlg = document.getElementById('dlg');
   var toastEl = document.getElementById('toast');
+  var verbs = (meta('verbs') || '').split(' ').filter(Boolean);
+  var maxFileMb = Number(meta('max-file-mb') || '20');
+
+  // ── seen / unread (per browser, localStorage): the sidebar marks conversations with activity this browser has not opened ──
+  var SEEN_KEY = 'aven.seen';
+  function seenMap() { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}'); } catch (e) { return {}; } }
+  function markSeen(c) { if (!c) return; try { var m = seenMap(); m[c] = new Date().toISOString(); localStorage.setItem(SEEN_KEY, JSON.stringify(m)); } catch (e) {} paintUnread(); }
+  function paintUnread() {
+    var m = seenMap();
+    document.querySelectorAll('nav.side a[data-conv]').forEach(function (a) {
+      var last = a.getAttribute('data-last') || '';
+      var seen = m[a.getAttribute('data-conv')] || '';
+      a.classList.toggle('unread', !!last && last > seen && a.getAttribute('data-conv') !== conv);
+    });
+  }
+  paintUnread();
+  if (conv) markSeen(conv);
+
+  // ── browser notifications while the tab is hidden (opt-in: the 🔔 button asks for the permission) ──
+  var notifyBtn = document.getElementById('notify');
+  function paintNotify() { if (!notifyBtn) return; var on = window.Notification && Notification.permission === 'granted'; notifyBtn.classList.toggle('on', !!on); notifyBtn.textContent = on ? '🔔 On' : '🔔 Notify'; }
+  if (notifyBtn) {
+    if (!window.Notification) notifyBtn.hidden = true;
+    else notifyBtn.addEventListener('click', function () { Notification.requestPermission().then(paintNotify); });
+    paintNotify();
+  }
+  function notify(text) {
+    if (!window.Notification || Notification.permission !== 'granted' || !document.hidden || !text) return;
+    try { var n = new Notification('Aven', { body: text.slice(0, 160), tag: 'aven-' + (conv || 'home') }); n.onclick = function () { window.focus(); n.close(); }; } catch (e) {}
+  }
 
   function toast(text, ms) {
     if (!toastEl) return;
@@ -51,7 +81,7 @@
   // ── the stream ──
   var unread = 0;
   var baseTitle = document.title;
-  function onVisible() { if (!document.hidden) { unread = 0; document.title = baseTitle; } }
+  function onVisible() { if (!document.hidden) { unread = 0; document.title = baseTitle; markSeen(conv); } }
   document.addEventListener('visibilitychange', onVisible);
   function noteActivity() { if (document.hidden) { unread++; document.title = '(' + unread + ') ' + baseTitle; } }
 
@@ -63,6 +93,8 @@
       replaceOrAppend('messages', 'msg-' + d.id, d.html);
       if (stick) scrollBottom();
       noteActivity();
+      if (!d.own) notify(d.text);
+      if (!document.hidden) markSeen(conv);
     });
     es.addEventListener('thread', function (e) {
       var d = JSON.parse(e.data);
@@ -119,29 +151,93 @@
     }
   });
 
-  // ── the composer ──
+  // ── the composer: text, files (picked, dropped or pasted), `/` suggestions ──
+  var pending = []; // files picked but not sent yet
+  var pendingEl = document.getElementById('pending');
+  function fmtSize(b) { return b < 1024 ? b + ' B' : b < 1048576 ? Math.round(b / 1024) + ' KB' : (b / 1048576).toFixed(1) + ' MB'; }
+  function paintPending() {
+    if (!pendingEl) return;
+    pendingEl.innerHTML = '';
+    pending.forEach(function (f, i) {
+      var li = document.createElement('li');
+      li.textContent = '📎 ' + f.name + ' · ' + fmtSize(f.size) + ' ';
+      var x = document.createElement('button'); x.type = 'button'; x.className = 'btn small'; x.textContent = '✕'; x.title = 'Remove';
+      x.addEventListener('click', function () { pending.splice(i, 1); paintPending(); });
+      li.appendChild(x);
+      pendingEl.appendChild(li);
+    });
+    pendingEl.hidden = !pending.length;
+  }
+  // The limit is checked here, before any byte leaves the browser: the post is not sent and the file is named.
+  function addFiles(list) {
+    Array.prototype.forEach.call(list, function (f) {
+      if (!f || !f.name) return;
+      if (f.size > maxFileMb * 1048576) { toast(f.name + ' is too large (limit ' + maxFileMb + ' MB)', 5000); return; }
+      if (pending.length >= 10) { toast('At most 10 files per message', 4000); return; }
+      pending.push(f);
+    });
+    paintPending();
+  }
+  function upload(f) {
+    return fetch('/upload?conv=' + encodeURIComponent(conv) + '&name=' + encodeURIComponent(f.name), { method: 'PUT', headers: { 'content-type': f.type || 'application/octet-stream', 'x-csrf': csrf || '' }, body: f, credentials: 'same-origin' })
+      .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j && j.error ? j.error : ('HTTP ' + r.status)); return j.id; }); });
+  }
   function send(form) {
     var ta = form.querySelector('textarea');
     var text = ta.value.trim();
-    if (!text || !conv) return;
+    if ((!text && !pending.length) || !conv) return;
     ta.disabled = true;
-    post('/post', { conv: conv, thread: thread, text: text })
+    var files = pending.slice();
+    var ids = [];
+    var chain = Promise.resolve();
+    files.forEach(function (f, i) {
+      chain = chain.then(function () { toast('Uploading ' + (i + 1) + '/' + files.length + ': ' + f.name, 60000); return upload(f).then(function (id) { ids.push(id); }); });
+    });
+    chain
+      .then(function () { return post('/post', { conv: conv, thread: thread, text: text, files: ids }); })
       .then(function (r) {
         ta.value = '';
         ta.disabled = false;
+        pending = []; paintPending();
+        if (toastEl) toastEl.hidden = true;
         ta.focus();
         // A top-level room post opens its thread: go there.
         if (!thread && conv.indexOf('room:') === 0 && r.thread) location.href = location.pathname.replace(/\/$/, '') + '/t/' + encodeURIComponent(r.thread);
         else scrollBottom();
       })
-      .catch(function (err) { ta.disabled = false; toast(err.message); });
+      .catch(function (err) { ta.disabled = false; toast(err.message, 5000); });
+  }
+  // `/verb` suggestions: a list under the textarea while the text is a lone slash-word; click or Tab completes.
+  var suggestEl = document.getElementById('suggest');
+  function paintSuggest(ta) {
+    if (!suggestEl) return;
+    var m = /^\/([a-z]*)$/i.exec(ta.value);
+    if (!m) { suggestEl.hidden = true; return; }
+    var hits = verbs.filter(function (v) { return v.indexOf(m[1].toLowerCase()) === 0; });
+    suggestEl.innerHTML = '';
+    hits.forEach(function (v) {
+      var li = document.createElement('li');
+      var b = document.createElement('button'); b.type = 'button'; b.className = 'btn small'; b.textContent = '/' + v;
+      b.addEventListener('click', function () { ta.value = '/' + v + ' '; suggestEl.hidden = true; ta.focus(); });
+      li.appendChild(b); suggestEl.appendChild(li);
+    });
+    suggestEl.hidden = !hits.length;
   }
   var composer = document.getElementById('composer');
   if (composer) {
     var ta = composer.querySelector('textarea');
     ta.addEventListener('keydown', function (e) {
+      if (e.key === 'Tab' && suggestEl && !suggestEl.hidden) { var first = suggestEl.querySelector('button'); if (first) { e.preventDefault(); first.click(); return; } }
+      if (e.key === 'Escape' && suggestEl) suggestEl.hidden = true;
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(composer); }
     });
+    ta.addEventListener('input', function () { paintSuggest(ta); });
+    ta.addEventListener('paste', function (e) { var items = e.clipboardData && e.clipboardData.files; if (items && items.length) { e.preventDefault(); addFiles(items); } });
+    var input = document.getElementById('file-input');
+    if (input) input.addEventListener('change', function () { addFiles(input.files); input.value = ''; });
+    composer.addEventListener('dragover', function (e) { e.preventDefault(); composer.classList.add('drop'); });
+    composer.addEventListener('dragleave', function () { composer.classList.remove('drop'); });
+    composer.addEventListener('drop', function (e) { e.preventDefault(); composer.classList.remove('drop'); if (e.dataTransfer && e.dataTransfer.files) addFiles(e.dataTransfer.files); });
     ta.focus();
   }
 

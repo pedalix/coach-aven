@@ -14,17 +14,17 @@
 - [x] 2.4 `webformat.ts` (markdown → safe HTML) and `webviews.ts` (status, answer, question, thread, room, Home). Verify: golden tests + hostile-input suite (script tags, event attributes, `javascript:` / `data:` links, nested HTML in code).
 - [x] 2.5 SSE stream with per-user visibility and `Last-Event-ID` resume; client script for swaps, posting, the composer. Verify: stream tests with two users and a reconnect.
 - [x] 2.6 Driver inbound/outbound wiring: top-level posts, thread replies, private conversations, `!` notes, status lifecycle with Cancel / Show steps / Restart, questions, recovery. Verify: the core turn scenarios of `chat-driver-interface` run against the web driver.
-- [ ] 2.7 `docs/web.md` (model, config, login, nginx with SSE, data dir, placeholders); ledger row "Web installation mode", gate `orch web`; PR. Verify: CI green, `scripts/public-guard.sh` clean.
+- [x] 2.7 `docs/web.md` (model, config, login, nginx with SSE, data dir, placeholders); ledger row "Web installation mode", gate `orch web`; PR. Verify: CI green, `scripts/public-guard.sh` clean. _(#80, merged 2026-10-26; canary on home and the Teams staging installation since then.)_
 
 ## 3. PR 2 — parity rest (bucket 3)
 
-- [ ] 3.1 Commands (MVP): `/status`, `/help`, `/home`, `/restart` with suggestions, private replies, the private-question form of `/`. Verify: those verb scenarios against the web driver; the rest answer "not on the web yet".
-- [ ] 3.2 Dialogs, feedback with live tally, Session panel, PR links, background / long-task entries. Verify: view snapshots + feedback record test.
-- [ ] 3.3 File upload, limits, protected download. Verify: upload tests (limit, rejected file named), headers on download.
-- [ ] 3.4 Background deliveries (MVP): routines, dream, housekeeping, reviews, alerts, the ✋ held-message card. Verify: the pollers scenarios of `chat-driver-interface` against the web driver, minus YouTrack and autofix.
-- [ ] 3.5 Access at the start: `open` mode for every logged-in user (the identity provider's pool is the allow-list), every room visible, operators from `WEB_OPERATORS`; `/users` read-only. Verify: access tests with web identities (operator vs member; a second organization id never passes the gate).
-- [ ] 3.6 Home page from the shared cheat-sheet source; unread counts and in-tab notifications. Verify: view snapshot; Slack `homeBlocks` snapshot unchanged.
-- [ ] 3.7 `/security-review` on the branch; findings fixed or recorded. Ledger row; PR. Verify: CI green.
+- [x] 3.1 Commands (MVP): `/status`, `/help`, `/home`, `/restart` with suggestions, private replies, the private-question form of `/`. Verify: those verb scenarios against the web driver; the rest answer "not on the web yet". _(Every router verb works on the web through the shared router; `/help` is the web's own (the Home dialog); Restart is the session panel's button, as on Slack.)_
+- [x] 3.2 Dialogs, feedback with live tally, Session panel, PR links, background / long-task entries. Verify: view snapshots + feedback record test.
+- [x] 3.3 File upload, limits, protected download. Verify: upload tests (limit, rejected file named), headers on download.
+- [x] 3.4 Background deliveries (MVP): routines, dream, housekeeping, reviews, alerts, the ✋ held-message card. Verify: the pollers scenarios of `chat-driver-interface` against the web driver, minus YouTrack and autofix.
+- [x] 3.5 Access at the start: `open` mode for every logged-in user (the identity provider's pool is the allow-list), every room visible, operators from `WEB_OPERATORS`; `/users` read-only. Verify: access tests with web identities (operator vs member; a second organization id never passes the gate).
+- [x] 3.6 Home page from the shared cheat-sheet source; unread counts and in-tab notifications. Verify: view snapshot; Slack `homeBlocks` snapshot unchanged.
+- [x] 3.7 `/security-review` on the branch; findings fixed or recorded. Ledger row; PR. Verify: CI green. _(The skill is not available here: a self-review recorded in design.md → Security review; a second pair of eyes before the first client-shared deployment stays open.)_
 
 ## 4. Canary
 

@@ -168,3 +168,30 @@ test('downloadHeaders: the bearer goes with every ref except a pre-authorized on
   assert.deepEqual(downloadHeaders({ ...ref, auth: 'bearer' }, 'tok'), { Authorization: 'Bearer tok' });
   assert.deepEqual(downloadHeaders({ ...ref, auth: 'none' }, 'tok'), {});
 });
+
+test('a file: reference is read from disk under the size cap (the web chat\'s uploads) — only from a registered root; a missing file is a skipped download', async () => {
+  const { allowLocalFiles, downloadAttachment, MAX_BYTES } = await import('./attachments.js');
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { pathToFileURL } = await import('node:url');
+  const dir = mkdtempSync(join(tmpdir(), 'aven-att-'));
+  const uploads = join(dir, 'web');
+  mkdirSync(uploads);
+  const small = join(uploads, 'notes.md');
+  writeFileSync(small, '# hi');
+  const secret = join(dir, 'env');
+  writeFileSync(secret, 'TOKEN=x');
+  const ref = { name: 'notes.md', url: pathToFileURL(small).href, mime: 'text/markdown', size: 4, auth: 'none' as const };
+  // No root registered: a file: reference from anywhere is refused (a platform payload could never read the disk).
+  assert.equal(await downloadAttachment(ref, ''), null);
+  allowLocalFiles(uploads);
+  assert.equal((await downloadAttachment(ref, ''))?.toString(), '# hi');
+  // Registered root or not, a path outside it stays refused — the root itself too.
+  assert.equal(await downloadAttachment({ ...ref, name: 'env', url: pathToFileURL(secret).href }, ''), null);
+  assert.equal(await downloadAttachment({ ...ref, name: 'web', url: pathToFileURL(uploads).href }, ''), null);
+  assert.equal(await downloadAttachment({ ...ref, url: pathToFileURL(join(uploads, '..', 'env')).href }, ''), null);
+  const gone = await downloadAttachment({ name: 'gone.md', url: pathToFileURL(join(uploads, 'gone.md')).href, mime: 'text/markdown', size: 0, auth: 'none' }, '');
+  assert.equal(gone, null);
+  assert.ok(MAX_BYTES > 0);
+});

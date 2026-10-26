@@ -37,12 +37,20 @@ export interface Author {
   name?: string;
 }
 
+/** A file attached to a person's post, as the message records it. */
+export interface FileMeta {
+  id: string;
+  name: string;
+  size: number;
+}
+
 export type HistoryEvent =
   // A new message. A person's post carries `by` and `text`; the bot's carries `view`. `thread` is the
   // root message's id for a reply (absent on a root and on every message of a private conversation).
   // `visibleTo`: only this person sees it (a private reply, a typed command). `cmd`: the text was a command.
-  // `priv`: a private reply's view (what Slack shows ephemerally), always with `visibleTo`.
-  | { t: 'post'; id: string; at: string; thread?: string; by?: Author; text?: string; view?: StoredView; priv?: PrivateView; visibleTo?: string; cmd?: true }
+  // `priv`: a private reply's view (what Slack shows ephemerally), always with `visibleTo`. `files`: what a
+  // person attached (files.ts stores the bytes; the id is the download key).
+  | { t: 'post'; id: string; at: string; thread?: string; by?: Author; text?: string; view?: StoredView; priv?: PrivateView; visibleTo?: string; cmd?: true; files?: FileMeta[] }
   | { t: 'update'; id: string; at: string; view?: StoredView; priv?: PrivateView }
   | { t: 'mark'; id: string; at: string; mark: Mark; op: 'add' | 'remove' }
   | { t: 'tally'; id: string; at: string; good: number; bad: number };
@@ -65,6 +73,7 @@ export interface Message {
   priv?: PrivateView;
   visibleTo?: string;
   cmd?: true;
+  files?: FileMeta[];
   marks: Mark[];
   tally?: { good: number; bad: number };
 }
@@ -119,6 +128,7 @@ export class Conversation {
         if (ev.priv) m.priv = ev.priv;
         if (ev.visibleTo) m.visibleTo = ev.visibleTo;
         if (ev.cmd) m.cmd = true;
+        if (ev.files?.length) m.files = ev.files;
         this.messages.set(ev.id, m);
         this.order.push(ev.id);
         return;

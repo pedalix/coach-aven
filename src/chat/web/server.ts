@@ -11,7 +11,7 @@
 
 import express, { type Request, type Response, type NextFunction } from 'express';
 import type { Server } from 'node:http';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import type { WebConfig } from '../../config.js';
 import type { Store } from '../../state.js';
 import { resolveBySlug, type ProjectConfig, type RegistryRef } from '../../projects.js';
@@ -22,11 +22,13 @@ import type { ChatAction, ChatMessage, DialogSubmit } from '../driver.js';
 import { CMD, errText } from '../slack/blocks.js';
 import { captureError } from '../../sentry.js';
 import { log } from '../../log.js';
-import { History, visibleFor, type Message, type Stored } from './history.js';
+import { History, visibleFor, type FileMeta, type Message, type Stored } from './history.js';
 import { newId, parseConv, privateConv, roomConv, userIdOf } from './keys.js';
+import { attachmentDisposition, findUpload, mimeOf, storeUpload, toRef } from './files.js';
+import { MAX_FILES, isSupported } from '../../attachments.js';
 import { renderHomeView } from './webviews.js';
 import { Html, h } from './webformat.js';
-import { deniedPage, homePage, layout, loginPage, messageHtml, privatePage, roomPage, threadCardHtml, threadPage, type Shell, type Viewer } from './pages.js';
+import { deniedPage, homePage, layout, loginPage, messageBody, messageHtml, privatePage, roomPage, threadCardHtml, threadPage, type Shell, type Viewer } from './pages.js';
 import { LOGIN_COOKIE, LOGIN_MAX_AGE_MS, SESSION_COOKIE, SESSION_MAX_AGE_MS, checkCsrf, cookieHeader, csrfToken, isAllowed, open, openSession, parseCookies, seal, sealSession, type Oidc, type Session } from './auth.js';
 import { pkce } from './oidc.js';
 import type { WebChatDriver, WebCtx } from './driver.js';
@@ -45,6 +47,8 @@ export interface WebServerDeps {
   /** Fresh message ids (tests: sequential). */
   ids?: () => string;
   now?: () => number;
+  /** Where uploads live (`<data dir>/web`, the history's root); files.ts lays them out per conversation. */
+  filesRoot: string;
 }
 
 export interface WebServer {
@@ -57,6 +61,9 @@ export interface WebServer {
 export const LOCAL_USER: Session = { user: 'local', name: 'Local user', iat: 0 };
 const POSTS_PER_MINUTE = 30;
 const MAX_TEXT = 20_000;
+// The router's verbs (src/chat/core/commands.ts), for the composer's suggestions; `help` is the web's own: the Home
+// cheat-sheet as a dialog (the router has no help verb — Slack has the App Home tab, Teams the Home card).
+const VERBS = ['help', 'home', 'status', 'access', 'memory', 'prompt', 'schedule', 'routines', 'review', 'autofix', 'dream', 'housekeeping', 'users', 'usage', 'asks', 'reload'];
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 const STATIC = new URL('./static/', import.meta.url).pathname;
 // The Slack spelling of a command (`/aven status`) is accepted too, so a hint copied from an answer works.
@@ -88,6 +95,8 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   app.set('trust proxy', 'loopback');
   app.use(express.json({ limit: '64kb' }));
   app.use(express.urlencoded({ extended: false, limit: '16kb' }));
+  // An upload is the file's bytes as the body (one request per file, app.js), capped at the configured size.
+  app.use('/upload', express.raw({ type: () => true, limit: `${cfg.maxFileMb}mb` }));
   app.use((_req, res, next) => {
     res.setHeader('Content-Security-Policy', CSP);
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -179,8 +188,20 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   });
 
   const viewerOf = (s: Session): Viewer => ({ user: s.user, ...(s.name ? { name: s.name } : {}), csrf: csrfToken(cfg.sessionSecret, s) });
+  // The sidebar's conversations and their last activity (the client marks what the viewer has not seen).
+  const activityFor = (user: string): Record<string, string> => {
+    const out: Record<string, string> = {};
+    for (const p of rooms()) {
+      for (const conv of [roomConv(p.slug), privateConv(user, p.slug)]) {
+        if (history.fileOf(conv) && !existsSync(history.fileOf(conv)!)) continue; // never opened: no file, no activity
+        const last = history.conversation(conv).all().at(-1)?.updatedAt;
+        if (last) out[conv] = last;
+      }
+    }
+    return out;
+  };
   const page = (req: Req, res: Response, shell: Omit<Shell, 'viewer' | 'projects'>, content: ReturnType<typeof homePage>, status = 200) =>
-    res.status(status).type('html').send(layout({ ...shell, viewer: viewerOf(req.session!), projects: rooms() }, content));
+    res.status(status).type('html').send(layout({ ...shell, viewer: viewerOf(req.session!), projects: rooms(), activity: activityFor(req.session!.user), verbs: VERBS, maxFileMb: cfg.maxFileMb }, content));
   const notFound = (req: Req, res: Response, what: string) => page(req, res, { title: 'Not found' }, homePage(h404(what)), 404);
 
   app.post('/logout', (_req, res) => {
@@ -262,7 +283,8 @@ export function createWebServer(deps: WebServerDeps): WebServer {
       }
       if (thread && root !== thread) return send('noop', ev.seq, {}); // another thread of the room
       if (!visibleFor(viewer, m.visibleTo)) return send('noop', ev.seq, {}); // someone else's private reply (the id still advances)
-      send('msg', ev.seq, { id: m.id, thread: m.thread, html: messageHtml(m, nameOf).html });
+      // `text` and `own`: for the client's notification while the tab is hidden (a person's own post never notifies).
+      send('msg', ev.seq, { id: m.id, thread: m.thread, html: messageHtml(m, nameOf, parsed.slug).html, text: messageBody(m, nameOf, parsed.slug).text, own: m.by?.id === viewer });
     };
     const last = Number(req.get('last-event-id') ?? req.query.since ?? NaN);
     if (Number.isFinite(last)) for (const ev of c.since(last)) frame(ev);
@@ -294,27 +316,44 @@ export function createWebServer(deps: WebServerDeps): WebServer {
 
   app.post('/post', (req: Req, res) => {
     const s = req.session!;
-    const body = (req.body ?? {}) as { conv?: unknown; thread?: unknown; text?: unknown };
+    const body = (req.body ?? {}) as { conv?: unknown; thread?: unknown; text?: unknown; files?: unknown };
     const conv = typeof body.conv === 'string' ? body.conv : '';
     const thread = typeof body.thread === 'string' && body.thread ? body.thread : undefined;
     const text = typeof body.text === 'string' ? body.text.trim().slice(0, MAX_TEXT) : '';
     const parsed = parseConv(conv);
     if (!parsed || !roomOf(parsed.slug)) return void res.status(404).json({ error: 'no such conversation' });
     if (parsed.kind === 'private' && parsed.user !== s.user) return void res.status(403).json({ error: 'not your conversation' });
-    if (!text) return void res.status(400).json({ error: 'empty message' });
     if (rateLimited(s.user)) return void res.status(429).json({ error: 'too many messages — wait a minute' });
     const c = history.conversation(conv);
     if (thread) {
       const root = c.message(thread);
       if (!root || root.thread || parsed.kind !== 'room') return void res.status(404).json({ error: 'no such thread' });
     }
+    // The files attached: uploaded before the post (PUT /upload), named by id, each found in this conversation's
+    // folder for this person — a stranger's id, another conversation's file or a private upload of someone else is
+    // simply not there.
+    const fileIds = Array.isArray(body.files) ? body.files.filter((x): x is string => typeof x === 'string') : [];
+    if (fileIds.length > MAX_FILES) return void res.status(400).json({ error: `at most ${MAX_FILES} files per message` });
+    const stored = fileIds.map((fid) => findUpload(deps.filesRoot, parsed.slug, fid, s.user));
+    if (stored.some((f) => !f)) return void res.status(400).json({ error: 'an attached file is unknown — attach it again' });
+    const files = stored as NonNullable<(typeof stored)[number]>[];
+    if (!text && !files.length) return void res.status(400).json({ error: 'empty message' });
     const id = ids();
     const isCmd = text.startsWith('/');
-    c.append({ t: 'post', id, ...(thread ? { thread } : {}), by: { id: s.user, ...(s.name ? { name: s.name } : {}) }, text, ...(isCmd ? { cmd: true as const, visibleTo: s.user } : {}) });
+    const meta: FileMeta[] = files.map((f) => ({ id: f.id, name: f.name, size: f.size }));
+    c.append({ t: 'post', id, ...(thread ? { thread } : {}), by: { id: s.user, ...(s.name ? { name: s.name } : {}) }, text, ...(isCmd ? { cmd: true as const, visibleTo: s.user } : {}), ...(meta.length ? { files: meta } : {}) });
     const actor = { tenant: cfg.org, user: s.user };
-    const ctx: WebCtx = { conv, ...(thread ? { thread } : {}), user: s.user };
     if (isCmd) {
-      void commands.run({ text: text.slice(1).replace(CMD_WORD, ''), conv, actor, ctx }, driver).catch(reported('command', conv, thread));
+      // A command typed at a room's top level is its own thread: the typed line is the root and the router's private
+      // replies go into it — the page the client opens for the post (the first web canary saw the replies land in the
+      // room's list as separate cards while the thread page stayed empty). In a thread or a private conversation the
+      // replies stay where the command was typed.
+      const replyThread = thread ?? (parsed.kind === 'room' ? id : undefined);
+      const ctx: WebCtx = { conv, ...(replyThread ? { thread: replyThread } : {}), user: s.user };
+      const line = text.slice(1).replace(CMD_WORD, '');
+      // `/help`: the web's own — the Home cheat-sheet, as a dialog on this page (the router knows no help verb).
+      if (/^help\b/i.test(line)) void core.home({ ...actor, user: s.user }, driver).catch(reported('help', conv, replyThread));
+      else void commands.run({ text: line, conv, actor, ctx }, driver).catch(reported('command', conv, replyThread));
     } else {
       const msg: ChatMessage = {
         conv,
@@ -323,8 +362,8 @@ export function createWebServer(deps: WebServerDeps): WebServer {
         text,
         actor,
         direct: parsed.kind === 'private',
-        hasFiles: false,
-        files: async () => undefined,
+        hasFiles: files.length > 0,
+        files: async () => (files.length ? { refs: files.map(toRef), bearer: '' } : undefined),
         claim: () => true,
       };
       // A top-level post in a room starts a thread (the core's mention path); a reply or a private line continues one.
@@ -332,6 +371,38 @@ export function createWebServer(deps: WebServerDeps): WebServer {
       void run.catch(reported('message', conv, thread ?? (parsed.kind === 'room' ? id : undefined)));
     }
     res.json({ id, ...(parsed.kind === 'room' ? { thread: thread ?? id } : {}) });
+  });
+
+  // An upload: the bytes of ONE file, named in the query, into this person's conversation. The size cap is the
+  // body parser's (413 names the file below); the type allow-list is the sandbox pipeline's (attachments.ts), applied
+  // here already so a refused file is named before the message is sent, not skipped after.
+  app.put('/upload', (req: Req, res) => {
+    const s = req.session!;
+    const conv = typeof req.query.conv === 'string' ? req.query.conv : '';
+    const name = typeof req.query.name === 'string' ? req.query.name.slice(0, 200) : '';
+    const parsed = parseConv(conv);
+    if (!parsed || !roomOf(parsed.slug) || (parsed.kind === 'private' && parsed.user !== s.user)) return void res.status(404).json({ error: 'no such conversation' });
+    if (!name) return void res.status(400).json({ error: 'the upload needs a file name' });
+    const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+    if (!data.byteLength) return void res.status(400).json({ error: `${name} is empty` });
+    if (!isSupported(mimeOf(name), name)) return void res.status(415).json({ error: `${name}: not a file type the agent can read (images, PDF, text, office documents)` });
+    if (rateLimited(s.user)) return void res.status(429).json({ error: 'too many uploads — wait a minute' });
+    const f = storeUpload(deps.filesRoot, conv, name, data);
+    log.info(`web: ${s.user} uploaded ${f.name} (${f.size} bytes) to ${conv}`);
+    res.json({ id: f.id, name: f.name, size: f.size });
+  });
+
+  // A download: the session, then the room's files or the viewer's own private ones (files.ts); served as an
+  // attachment with the type its name says and no sniffing, never rendered in the page's origin.
+  app.get('/files/:slug/:id', (req: Req, res) => {
+    const slug = String(req.params.slug);
+    if (!roomOf(slug)) return void res.status(404).json({ error: 'no such room' });
+    const f = findUpload(deps.filesRoot, slug, String(req.params.id), req.session!.user);
+    if (!f) return void res.status(404).json({ error: 'no such file' });
+    res.setHeader('Content-Disposition', attachmentDisposition(f.name));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.type(mimeOf(f.name));
+    res.sendFile(f.path);
   });
 
   app.post('/action', (req: Req, res) => {
@@ -385,6 +456,10 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   app.use((req: Req, res) => (isApi(req) ? res.status(404).json({ error: 'not found' }) : notFound(req, res, 'page')));
   app.use((err: unknown, req: Req, res: Response, _next: NextFunction) => {
     const status = (err as { status?: number }).status ?? 500;
+    if (status === 413 && req.path === '/upload') {
+      const name = typeof req.query.name === 'string' ? req.query.name.slice(0, 200) : 'the file';
+      return void res.status(413).json({ error: `${name} is too large (limit ${cfg.maxFileMb} MB)` });
+    }
     if (status >= 500) {
       log.error(`web ${req.method} ${req.path}: ${err instanceof Error ? err.message : String(err)}`);
       captureError(err, { subsystem: 'web' });

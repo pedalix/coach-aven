@@ -85,6 +85,28 @@ Public repo: driver code, `docs/web.md` with placeholders, `.env.example` keys. 
 - **No file uploads yet** (PR 2 / D7): `hasFiles` is false on every web message.
 - **One hostname per installation, path-routed** (D8 revisited): the Teams staging installation's origin certificate names its one host, and Teams uses only `/api/messages` there — so the web chat is served at that host's root (`location /api/messages` → the Teams port, everything else → the web port, `/stream` unbuffered) instead of a second hostname with a second certificate and DNS record. A dedicated hostname stays an option for an installation that wants one.
 
+## Changed while implementing (PR 2, 2026-10-26)
+
+- **Uploads without multipart**: one `PUT /upload?conv&name` per file with the bytes as the body (Express's raw parser, capped at `WEB_MAX_FILE_MB`), then the post names the file ids — no multipart dependency. The client checks the size before any byte leaves the browser and names the file; the server refuses an unsupported type with the file's name (415) and an oversized body with it (413).
+- **`file:` references**: an upload reaches the turn as an `AttachmentRef` with a `file:` URL that `attachments.ts` reads from disk (the one shared-code change; no other source produces such a URL). Everything after — allow-list, caps, image downscale, the sandbox inbox, the skipped notice — is the existing pipeline.
+- **Private uploads stay private**: files live under `files/room/` or `files/pc-<user>/`; a download looks in the room's folder and the viewer's own private folder only.
+- **`/help` is the web's**: the router has no help verb (Slack has the App Home tab); the web answers `/help` with the Home cheat-sheet as a dialog, as `/home` does.
+- **Alerts**: no web alert channel in this PR (`AVEN_ALERT_CHANNEL` stays Slack's and Teams'); a web installation alone sees alerts in its journal.
+
+## Security review (PR 2, self-review 2026-10-26)
+
+Checked on the branch — the `/security-review` skill is not available in this environment, so this is the author's pass over the attack surface; a second pair of eyes before the first client-shared deployment stays on the list.
+
+- **Login**: OIDC code flow with PKCE, `state` and `nonce` checked by openid-client; the login cookie carries verifier/state/nonce sealed with the session secret, 10 minutes; `next` is a same-origin path only (`safeNext`); nothing of the IdP's tokens is stored.
+- **Session**: signed HttpOnly cookie, Secure on https, SameSite=Lax, 12 h; opened in constant time; `WEB_AUTH=none` only on a loopback listener with a localhost base URL (config), and its secret is per boot unless set.
+- **CSRF**: every non-GET needs the session's token in `x-csrf` (or the `csrf` form field) plus `Sec-Fetch-Site` same-origin/none when present; the token is an HMAC of the session, never stored.
+- **Headers**: CSP `default-src 'none'`, scripts and styles from self only, no inline script, `frame-ancestors 'none'`, `base-uri 'none'`, `form-action 'self'`; `nosniff`, `no-referrer`, `X-Frame-Options: DENY`; `no-store` on pages and APIs.
+- **Rendering**: markdown with raw HTML off, links `http(s)`/`mailto` only, images as links, every attribute escaped by markdown-it, every template value by `h`; the hostile-input suite pins it. SSE frames are JSON; the client assigns `innerHTML` only from server-rendered fragments.
+- **Uploads**: body capped by the parser; name sanitized to `[A-Za-z0-9._-]` and the last path segment; the id is generated; the type allow-list of the sandbox pipeline applies before storage; downloads are `Content-Disposition: attachment` with an ASCII fallback name, `nosniff`, `private, no-store`; ids are matched by a strict pattern, paths never built from client input beyond the sanitized name; an id is found only in the room's folder or the viewer's own private folder.
+- **Limits**: JSON bodies 64 KB, text 20 000 chars, 30 posts or uploads per person per minute, 10 files per post, 25 MB per file in the pipeline.
+- **`/security-review` (the built-in skill, run after the plugin install, 2026-10-26)**: no HIGH or MEDIUM finding; one hardening note taken — `file:` references were dispatched by scheme alone, so a `file:` URL relayed from any platform payload would have read the bot's disk into a sandbox (no producer can emit one today; before this PR the scheme was a harmless fetch failure). Now `attachments.ts` reads `file:` only under a root the web surface registers (`allowLocalFiles`), refusing the root itself and anything outside it (tests).
+- **Open items** (not blockers for the canary): no retention or deletion of uploads and history; one shared rate limit for posts and uploads; the dialog stream has no per-dialog authorization beyond "the person who clicked"; operators' verbs (`/reload`, `/usage`) rely on `WEB_OPERATORS` — keep it set on a shared installation.
+
 ## Risks / Trade-offs
 
 - [XSS through agent output] → D4: no raw HTML, link allow-list, CSP, escaping templates, hostile-input tests; a security review (`/security-review`) before the first shared deployment.

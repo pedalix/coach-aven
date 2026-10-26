@@ -12,6 +12,7 @@ import { Store } from '../../state.js';
 import type { RegistryRef } from '../../projects.js';
 import type { Interactions } from '../core/interactions.js';
 import { History } from './history.js';
+import { allowLocalFiles } from '../../attachments.js';
 import { webDriver } from './driver.js';
 import { createWebServer, LOCAL_USER, type WebServer } from './server.js';
 import { csrfToken, sealSession, SESSION_COOKIE, type Identity, type Oidc } from './auth.js';
@@ -47,14 +48,15 @@ function recorder() {
   const core = {
     actions: { cancel_turn: async (a: unknown) => void calls.push({ kind: 'action:cancel_turn', args: a }) },
     submits: { feedback: async (s: unknown) => void calls.push({ kind: 'submit:feedback', args: s }) },
-    home: async () => {},
+    home: async (who: unknown) => void calls.push({ kind: 'home', args: who }),
     parkDmPick: () => 'dp1',
   } as unknown as Interactions;
+  type Msg = { conv: string; id: string; thread?: string; text: string; direct: boolean; hasFiles: boolean; files(): Promise<{ refs: { name: string; url: string; mime: string; auth?: string }[]; bearer: string } | undefined> };
   const messages = {
-    onMention: async (m: { conv: string; id: string; thread?: string; text: string; direct: boolean }) => void calls.push({ kind: 'mention', args: { conv: m.conv, id: m.id, thread: m.thread, text: m.text, direct: m.direct } }),
-    onMessage: async (m: { conv: string; id: string; thread?: string; text: string; direct: boolean }) => void calls.push({ kind: 'message', args: { conv: m.conv, id: m.id, thread: m.thread, text: m.text, direct: m.direct } }),
+    onMention: async (m: Msg) => void calls.push({ kind: 'mention', args: { conv: m.conv, id: m.id, thread: m.thread, text: m.text, direct: m.direct, ...(m.hasFiles ? { files: (await m.files())?.refs.map((r) => ({ name: r.name, mime: r.mime, auth: r.auth, file: r.url.startsWith('file:///') })) } : {}) } }),
+    onMessage: async (m: Msg) => void calls.push({ kind: 'message', args: { conv: m.conv, id: m.id, thread: m.thread, text: m.text, direct: m.direct } }),
   };
-  const commands = { run: async (c: { text: string; conv: string }) => void calls.push({ kind: 'command', args: { text: c.text, conv: c.conv } }) };
+  const commands = { run: async (c: { text: string; conv: string; ctx: { thread?: string } }) => void calls.push({ kind: 'command', args: { text: c.text, conv: c.conv, thread: c.ctx.thread } }) };
   return { calls, core, messages: messages as never, commands: commands as never };
 }
 
@@ -66,7 +68,8 @@ function harness(over: Partial<WebConfig> = {}, oidc: Oidc | undefined = fakeOid
   const driver = webDriver({ history, baseUrl: 'http://127.0.0.1:0', nameOf: (id) => store.getWebUser(id)?.name, ids: () => `m${++seq}` });
   const rec = recorder();
   const cfg: WebConfig = { port: 0, bind: '127.0.0.1', baseUrl: 'http://127.0.0.1:0', auth: oidc ? 'oidc' : 'none', org: 'corp.example', operators: [], allow: ['ann@corp.example'], sessionSecret: SECRET, maxFileMb: 20, ...over };
-  const server = createWebServer({ cfg, store, reg, history, driver, core: rec.core, messages: rec.messages, commands: rec.commands, ...(oidc ? { oidc } : {}), ids: () => `p${++seq}` });
+  allowLocalFiles(join(dir, 'web'));
+  const server = createWebServer({ cfg, store, reg, history, driver, core: rec.core, messages: rec.messages, commands: rec.commands, filesRoot: join(dir, 'web'), ...(oidc ? { oidc } : {}), ids: () => `p${++seq}` });
   return { server, store, history, driver, rec, cfg, oidc };
 }
 
@@ -77,6 +80,7 @@ const cookies = (res: Response): string[] => res.headers.getSetCookie();
 let s: WebServer;
 let base: string;
 let h: ReturnType<typeof harness>;
+const cfgOf = () => h.cfg;
 before(async () => {
   h = harness();
   s = h.server;
@@ -166,9 +170,20 @@ test('with a session: a forged POST is rejected and stores nothing; a proper pos
   const cmd = await post('/post', { conv: 'room:alpha', thread: id, text: '/aven status' }, { cookie, 'x-csrf': token });
   assert.equal(cmd.status, 200);
   await new Promise((r) => setImmediate(r));
-  assert.deepEqual(h.rec.calls.at(-1), { kind: 'command', args: { text: 'status', conv: 'room:alpha' } });
+  assert.deepEqual(h.rec.calls.at(-1), { kind: 'command', args: { text: 'status', conv: 'room:alpha', thread: id } });
   const typed = h.history.conversation('room:alpha').message(((await cmd.json()) as { id: string }).id)!;
   assert.deepEqual([typed.cmd, typed.visibleTo], [true, 'u1']);
+  // At a room's top level the typed command is its own thread: the replies go into it, and the client opens it.
+  const top = await post('/post', { conv: 'room:alpha', text: '/status' }, { cookie, 'x-csrf': token });
+  const topId = ((await top.json()) as { id: string; thread: string });
+  assert.equal(topId.thread, topId.id);
+  await new Promise((r) => setImmediate(r));
+  assert.deepEqual(h.rec.calls.at(-1), { kind: 'command', args: { text: 'status', conv: 'room:alpha', thread: topId.id } });
+  // In a private conversation there are no threads: the replies stay in the conversation.
+  const pc = await post('/post', { conv: 'pc:u1:alpha', text: '/status' }, { cookie, 'x-csrf': token });
+  assert.equal(pc.status, 200);
+  await new Promise((r) => setImmediate(r));
+  assert.equal((h.rec.calls.at(-1)!.args as { thread?: string }).thread, undefined);
 
   const priv = await post('/post', { conv: 'pc:u1:alpha', text: 'psst' }, { cookie, 'x-csrf': token });
   assert.equal(priv.status, 200);
@@ -293,4 +308,62 @@ test('WEB_AUTH=none: the login sets the fixed local user; a logout clears the se
   } finally {
     await local.server.close();
   }
+});
+
+test('files: a too-large upload is refused naming the file, an unsupported type too; an upload rides a post as a file: reference; downloads are attachments the viewer may see', async () => {
+  const cookie = sessionCookie('u1', 'Ann');
+  const token = csrf('u1', cookie);
+  const put = (name: string, body: Buffer | string, conv = 'room:alpha', headers: Record<string, string> = {}) =>
+    fetch(`${base}/upload?conv=${encodeURIComponent(conv)}&name=${encodeURIComponent(name)}`, { method: 'PUT', body, headers: { cookie, 'x-csrf': token, 'content-type': 'application/octet-stream', ...headers } });
+  const big = await put('huge.pdf', Buffer.alloc(cfgOf().maxFileMb * 1024 * 1024 + 1));
+  assert.equal(big.status, 413);
+  assert.deepEqual(await big.json(), { error: `huge.pdf is too large (limit ${cfgOf().maxFileMb} MB)` });
+  const exe = await put('tool.exe', 'MZ');
+  assert.equal(exe.status, 415);
+  assert.match(((await exe.json()) as { error: string }).error, /^tool\.exe: not a file type/);
+  assert.equal((await put('x.md', 'hi', 'pc:u2:alpha')).status, 404);
+  assert.equal((await fetch(`${base}/upload?conv=room:alpha&name=x.md`, { method: 'PUT', body: 'hi', headers: { cookie, 'content-type': 'text/plain' } })).status, 403, 'no CSRF token');
+
+  const ok = await put('../notes v1.md', '# notes');
+  assert.equal(ok.status, 200);
+  const up = (await ok.json()) as { id: string; name: string; size: number };
+  assert.deepEqual([up.name, up.size], ['notes_v1.md', 7]);
+  const posted = await post('/post', { conv: 'room:alpha', text: '', files: [up.id] }, { cookie, 'x-csrf': token });
+  assert.equal(posted.status, 200);
+  await new Promise((r) => setTimeout(r, 20));
+  const m = h.rec.calls.at(-1)!;
+  assert.equal(m.kind, 'mention');
+  assert.deepEqual((m.args as { files: unknown }).files, [{ name: 'notes_v1.md', mime: 'text/markdown', auth: 'none', file: true }]);
+  const { id } = (await posted.json()) as { id: string };
+  assert.deepEqual(h.history.conversation('room:alpha').message(id)!.files, [{ id: up.id, name: 'notes_v1.md', size: 7 }]);
+  assert.equal((await post('/post', { conv: 'room:alpha', text: 'x', files: ['fnope'] }, { cookie, 'x-csrf': token })).status, 400);
+
+  const dl = await get(`/files/alpha/${up.id}`, { cookie });
+  assert.equal(dl.status, 200);
+  assert.equal(dl.headers.get('content-disposition'), `attachment; filename="notes_v1.md"; filename*=UTF-8''notes_v1.md`);
+  assert.match(dl.headers.get('content-type') ?? '', /^text\/markdown/);
+  assert.equal(dl.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal(await dl.text(), '# notes');
+  // A private upload: its owner downloads it, another person gets nothing.
+  const priv = await put('secret.txt', 'psst', 'pc:u1:alpha');
+  const pid = ((await priv.json()) as { id: string }).id;
+  assert.equal((await get(`/files/alpha/${pid}`, { cookie })).status, 200);
+  assert.equal((await get(`/files/alpha/${pid}`, { cookie: sessionCookie('u2', 'Bo').split(';')[0] })).status, 404);
+  assert.equal((await get(`/files/alpha/../../etc`, { cookie })).status, 404);
+  const page = await get('/r/alpha/t/' + id, { cookie });
+  assert.match(await page.text(), new RegExp(`href="/files/alpha/${up.id}">📎 notes_v1.md</a>`));
+});
+
+test('/help shows the Home cheat-sheet to the caller; the composer gets the verbs and the file limit', async () => {
+  const cookie = sessionCookie('u1', 'Ann');
+  const token = csrf('u1', cookie);
+  const r = await post('/post', { conv: 'room:alpha', text: '/help' }, { cookie, 'x-csrf': token });
+  assert.equal(r.status, 200);
+  await new Promise((rs) => setTimeout(rs, 20));
+  assert.deepEqual(h.rec.calls.at(-1), { kind: 'home', args: { tenant: 'corp.example', user: 'u1' } });
+  const html = await (await get('/r/alpha', { cookie })).text();
+  assert.match(html, /<meta name="verbs" content="help home status [a-z ]+">/);
+  assert.match(html, /<meta name="max-file-mb" content="20">/);
+  assert.match(html, /data-conv="room:alpha" data-last="20/);
+  assert.match(html, /id="file-input" multiple/);
 });

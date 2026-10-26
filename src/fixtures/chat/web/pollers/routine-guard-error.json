@@ -1,0 +1,57 @@
+{
+  "events": {
+    "room:alpha": [
+      {
+        "t": "post",
+        "id": "m1",
+        "view": {
+          "kind": "text",
+          "text": "📋 what shipped · running…"
+        },
+        "at": "2026-10-15T07:00:00.000Z",
+        "seq": 1
+      },
+      {
+        "t": "update",
+        "id": "m1",
+        "view": {
+          "kind": "line",
+          "text": "⚠️ 📋 what shipped — failed: sandbox exploded"
+        },
+        "at": "2026-10-15T07:00:00.000Z",
+        "seq": 2
+      }
+    ],
+    "room:beta": []
+  },
+  "engine": [
+    {
+      "restartSession": {
+        "key": "cron:r1:alpha",
+        "slug": "alpha"
+      }
+    },
+    {
+      "liveTurn": {
+        "channel": "room:alpha",
+        "threadTs": "m1",
+        "key": "thread:m1",
+        "slug": "alpha",
+        "question": "[Routine state] Previous run of this routine: none recorded.\n\n[Scheduled read-only digest] Do NOT modify code, create branches, commit, or open PRs. Read-only: gather the requested information and post one concise summary. If nothing is noteworthy, say so briefly.\n\nwhat shipped",
+        "attachments": false,
+        "routine": {
+          "id": "r1",
+          "label": "📋 what shipped"
+        }
+      }
+    }
+  ],
+  "result": true,
+  "routines": [
+    {
+      "id": "r1",
+      "lastRunAt": "2026-10-15T07:00:00.000Z",
+      "lastOutcome": "error"
+    }
+  ]
+}
