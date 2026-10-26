@@ -4,6 +4,7 @@
 //
 // Every record that belongs to a conversation carries the conversation's key, and the store stamps the
 // tenant (`teamId`) from that key, as it does for chats — so per-tenant export and purge stay a filter.
+import type { ChatDriverName } from '../chat/drivers.js';
 import { isTerminal, type TaskState } from './a2a.js';
 import type { Marks } from './protocol.js';
 import type { OutboxRecord } from './transport.js';
@@ -16,7 +17,7 @@ export interface ReplyTarget {
   /** The asking conversation's key (tenant-prefixed). */
   key: string;
   /** The chat driver that renders it; `shadow` for a shadow conversation, whose key is its place. */
-  driver: 'slack' | 'teams' | 'shadow';
+  driver: ChatDriverName | 'shadow';
   channel?: string;
   /** The thread (Slack thread ts, Teams reply chain); absent for a channel-level DM. */
   thread?: string;

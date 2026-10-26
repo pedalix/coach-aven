@@ -391,3 +391,13 @@ test('retired dispatch records: dropped in memory on load, persisted by the next
   assert.deepEqual(saved.projects, { caldora: { createdAt: 'x' } }, 'everything else is kept');
   assert.equal(Object.keys(saved.routines).length, 1);
 });
+
+test('web users — the identity provider\'s people by user id, persisted, idempotent on an unchanged record', () => {
+  const { store, path } = freshStore();
+  store.putWebUser({ id: 'sub-1', name: 'Ann', email: 'ann@corp.example', seenAt: '2026-10-26T10:00:00.000Z' });
+  store.putWebUser({ id: 'sub-1', name: 'Ann', email: 'ann@corp.example', seenAt: '2026-10-26T10:00:00.000Z' });
+  store.putWebUser({ id: 'sub-2', seenAt: '2026-10-26T10:01:00.000Z' });
+  assert.equal(store.getWebUser('sub-1')?.name, 'Ann');
+  assert.equal(store.getWebUser('nope'), undefined);
+  assert.deepEqual(new Store(path).listWebUsers().map((u) => u.id), ['sub-1', 'sub-2']);
+});

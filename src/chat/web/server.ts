@@ -1,0 +1,416 @@
+// The web chat's HTTP server (OpenSpec web-chat-driver): pages, the live stream, the actions, the login —
+// over Express on a loopback listener behind the installation's reverse proxy. What it does is the
+// core's (src/chat/core/): a post becomes a ChatMessage or a ChatCommand, a click a ChatAction, a form a
+// DialogSubmit; what it renders is pages.ts / webviews.ts over the history store (history.ts).
+//
+// Security baseline (design D3/D4): every page and endpoint needs a session (pages redirect to the login,
+// endpoints answer 401); every POST needs the session's CSRF token in `x-csrf` (a form also carries it
+// in `csrf`) and a same-origin fetch; a strict CSP with no inline script; `no-store` on everything but
+// the assets; body limits; a per-person rate limit on posting. The login is OIDC with PKCE through
+// auth.ts/oidc.ts, or — on a loopback listener only, config.ts — a fixed local user.
+
+import express, { type Request, type Response, type NextFunction } from 'express';
+import type { Server } from 'node:http';
+import { readFileSync } from 'node:fs';
+import type { WebConfig } from '../../config.js';
+import type { Store } from '../../state.js';
+import { resolveBySlug, type ProjectConfig, type RegistryRef } from '../../projects.js';
+import type { Interactions } from '../core/interactions.js';
+import type { createMessages } from '../core/messages.js';
+import type { createCommands } from '../core/commands.js';
+import type { ChatAction, ChatMessage, DialogSubmit } from '../driver.js';
+import { CMD, errText } from '../slack/blocks.js';
+import { captureError } from '../../sentry.js';
+import { log } from '../../log.js';
+import { History, visibleFor, type Message, type Stored } from './history.js';
+import { newId, parseConv, privateConv, roomConv, userIdOf } from './keys.js';
+import { renderHomeView } from './webviews.js';
+import { Html, h } from './webformat.js';
+import { deniedPage, homePage, layout, loginPage, messageHtml, privatePage, roomPage, threadCardHtml, threadPage, type Shell, type Viewer } from './pages.js';
+import { LOGIN_COOKIE, LOGIN_MAX_AGE_MS, SESSION_COOKIE, SESSION_MAX_AGE_MS, checkCsrf, cookieHeader, csrfToken, isAllowed, open, openSession, parseCookies, seal, sealSession, type Oidc, type Session } from './auth.js';
+import { pkce } from './oidc.js';
+import type { WebChatDriver, WebCtx } from './driver.js';
+
+export interface WebServerDeps {
+  cfg: WebConfig;
+  store: Store;
+  reg: RegistryRef;
+  history: History;
+  driver: WebChatDriver;
+  core: Interactions;
+  messages: ReturnType<typeof createMessages>;
+  commands: ReturnType<typeof createCommands>;
+  /** The login round trip; absent under WEB_AUTH=none. */
+  oidc?: Oidc;
+  /** Fresh message ids (tests: sequential). */
+  ids?: () => string;
+  now?: () => number;
+}
+
+export interface WebServer {
+  app: express.Express;
+  listen(): Promise<{ port: number }>;
+  close(): Promise<void>;
+}
+
+// A local-only user when WEB_AUTH=none (the e2e harness and local development).
+export const LOCAL_USER: Session = { user: 'local', name: 'Local user', iat: 0 };
+const POSTS_PER_MINUTE = 30;
+const MAX_TEXT = 20_000;
+const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+const STATIC = new URL('./static/', import.meta.url).pathname;
+// The Slack spelling of a command (`/aven status`) is accepted too, so a hint copied from an answer works.
+const CMD_WORD = new RegExp(`^${CMD.slice(1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i');
+
+type Req = Request & { session?: Session };
+
+export function createWebServer(deps: WebServerDeps): WebServer {
+  const { cfg, store, reg, history, driver, core, messages, commands } = deps;
+  const ids = deps.ids ?? (() => newId('m'));
+  const now = deps.now ?? Date.now;
+  const secure = cfg.baseUrl.startsWith('https://');
+  const nameOf = (id: string) => store.getWebUser(id)?.name;
+  const rooms = (): ProjectConfig[] => reg.current.projects.filter((p) => p.webRoom !== false);
+  const roomOf = (slug: string): ProjectConfig | undefined => {
+    const p = resolveBySlug(reg.current, slug);
+    return p && p.webRoom !== false ? p : undefined;
+  };
+  const assets = new Map<string, { body: Buffer; type: string }>();
+  for (const [name, type] of [
+    ['app.js', 'text/javascript; charset=utf-8'],
+    ['app.css', 'text/css; charset=utf-8'],
+  ] as const) {
+    assets.set(name, { body: readFileSync(`${STATIC}${name}`), type });
+  }
+
+  const app = express();
+  app.disable('x-powered-by');
+  app.set('trust proxy', 'loopback');
+  app.use(express.json({ limit: '64kb' }));
+  app.use(express.urlencoded({ extended: false, limit: '16kb' }));
+  app.use((_req, res, next) => {
+    res.setHeader('Content-Security-Policy', CSP);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
+
+  // ── assets (no session: the login page needs its stylesheet) ──────────────────────────────────
+  app.get('/assets/:name', (req, res) => {
+    const a = assets.get(String(req.params.name));
+    if (!a) return void res.status(404).type('text/plain').send('not found');
+    res.setHeader('Cache-Control', 'public, max-age=300');
+    res.type(a.type).send(a.body);
+  });
+
+  // ── login ───────────────────────────────────────────────────────────────────────────────────────
+  const setSession = (res: Response, s: Session) => res.setHeader('Set-Cookie', cookieHeader(SESSION_COOKIE, sealSession(cfg.sessionSecret, s), { secure, maxAgeMs: SESSION_MAX_AGE_MS }));
+  const safeNext = (raw: unknown): string => (typeof raw === 'string' && /^\/(?!\/)[^\s]*$/.test(raw) ? raw : '/');
+
+  app.get('/login', async (req, res) => {
+    const next = safeNext(req.query.next);
+    if (cfg.auth === 'none' || !deps.oidc) {
+      store.putWebUser({ id: LOCAL_USER.user, name: LOCAL_USER.name, seenAt: new Date(now()).toISOString() });
+      setSession(res, { ...LOCAL_USER, iat: now() });
+      return void res.redirect(303, next);
+    }
+    try {
+      const verifier = pkce.verifier();
+      const state = pkce.state();
+      const nonce = pkce.nonce();
+      const url = await deps.oidc.authorizationUrl({ redirectUri: `${cfg.baseUrl}/auth/callback`, state, nonce, codeChallenge: await pkce.challenge(verifier) });
+      res.setHeader('Set-Cookie', cookieHeader(LOGIN_COOKIE, seal(cfg.sessionSecret, { verifier, state, nonce, next, iat: now() }), { secure, maxAgeMs: LOGIN_MAX_AGE_MS }));
+      res.redirect(303, url.toString());
+    } catch (e) {
+      log.error(`web login: ${e instanceof Error ? e.message : String(e)}`);
+      captureError(e, { subsystem: 'web-login' });
+      res.status(502).type('html').send(layout({ title: 'Sign in', projects: [] }, loginPage('The sign-in service did not answer. Try again in a moment.')));
+    }
+  });
+
+  app.get('/auth/callback', async (req, res) => {
+    if (cfg.auth === 'none' || !deps.oidc) return void res.redirect(303, '/');
+    const login = open<{ verifier: string; state: string; nonce: string; next: string; iat: number }>(cfg.sessionSecret, parseCookies(req.headers.cookie)[LOGIN_COOKIE]);
+    res.setHeader('Set-Cookie', [cookieHeader(LOGIN_COOKIE, '', { secure, clear: true })]);
+    if (!login || now() - login.iat > LOGIN_MAX_AGE_MS) return void res.status(400).type('html').send(layout({ title: 'Sign in', projects: [] }, loginPage('The sign-in took too long or started elsewhere — try again.')));
+    try {
+      const id = await deps.oidc.callback(new URL(req.originalUrl, cfg.baseUrl), { redirectUri: `${cfg.baseUrl}/auth/callback`, state: login.state, nonce: login.nonce, codeVerifier: login.verifier });
+      if (!isAllowed(cfg.allow, id)) {
+        log.warn(`web login: ${id.email ?? id.sub} is not on the allow-list`);
+        return void res.status(403).type('html').send(layout({ title: 'No access', projects: [] }, deniedPage(id.email)));
+      }
+      const user = userIdOf(id.sub);
+      const at = now();
+      store.putWebUser({ id: user, ...(id.name ? { name: id.name } : {}), ...(id.email ? { email: id.email } : {}), seenAt: new Date(at).toISOString() });
+      const session: Session = { user, iat: at, ...(id.name ? { name: id.name } : {}), ...(id.email ? { email: id.email } : {}) };
+      res.setHeader('Set-Cookie', [cookieHeader(LOGIN_COOKIE, '', { secure, clear: true }), cookieHeader(SESSION_COOKIE, sealSession(cfg.sessionSecret, session), { secure, maxAgeMs: SESSION_MAX_AGE_MS })]);
+      log.info(`web login: ${id.email ?? user}`);
+      res.redirect(303, safeNext(login.next));
+    } catch (e) {
+      log.error(`web login callback: ${e instanceof Error ? e.message : String(e)}`);
+      captureError(e, { subsystem: 'web-login' });
+      res.status(400).type('html').send(layout({ title: 'Sign in', projects: [] }, loginPage('The sign-in did not complete — try again.')));
+    }
+  });
+
+  // ── the session gate ────────────────────────────────────────────────────────────────────────────
+  const isApi = (req: Request) => req.path === '/stream' || req.path.startsWith('/post') || req.path === '/action' || req.path === '/dialog' || req.path === '/logout';
+  app.use((req: Req, res, next) => {
+    const s = openSession(cfg.sessionSecret, parseCookies(req.headers.cookie)[SESSION_COOKIE], now());
+    if (!s) {
+      if (isApi(req)) return void res.status(401).json({ error: 'not signed in' });
+      return void res.redirect(303, `/login?next=${encodeURIComponent(req.originalUrl)}`);
+    }
+    req.session = s;
+    next();
+  });
+  // Every POST: the CSRF token (header or form field) bound to the session, and a same-origin fetch.
+  app.use((req: Req, res, next) => {
+    if (req.method === 'GET' || req.method === 'HEAD') return next();
+    const token = (req.get('x-csrf') ?? (req.body as { csrf?: unknown } | undefined)?.csrf) as string | undefined;
+    const site = req.get('sec-fetch-site');
+    if (!checkCsrf(cfg.sessionSecret, req.session!, token) || (site && site !== 'same-origin' && site !== 'none')) {
+      log.warn(`web: rejected a ${req.method} ${req.path} from ${req.session!.user} without a valid CSRF token`);
+      return void res.status(403).json({ error: 'bad csrf' });
+    }
+    next();
+  });
+
+  const viewerOf = (s: Session): Viewer => ({ user: s.user, ...(s.name ? { name: s.name } : {}), csrf: csrfToken(cfg.sessionSecret, s) });
+  const page = (req: Req, res: Response, shell: Omit<Shell, 'viewer' | 'projects'>, content: ReturnType<typeof homePage>, status = 200) =>
+    res.status(status).type('html').send(layout({ ...shell, viewer: viewerOf(req.session!), projects: rooms() }, content));
+  const notFound = (req: Req, res: Response, what: string) => page(req, res, { title: 'Not found' }, homePage(h404(what)), 404);
+
+  app.post('/logout', (_req, res) => {
+    res.setHeader('Set-Cookie', cookieHeader(SESSION_COOKIE, '', { secure, clear: true }));
+    res.redirect(303, '/login');
+  });
+
+  // ── pages ───────────────────────────────────────────────────────────────────────────────────────
+  app.get('/', (req: Req, res) => {
+    const mine = rooms();
+    const home = renderHomeView(
+      mine.length ? { kind: 'home', projects: mine, prefix: '', ...(reg.current.projects.some((p) => p.messaging !== undefined) ? { messaging: true } : {}) } : { kind: 'onboarding' },
+      (slug) => `/r/${encodeURIComponent(slug)}`,
+    );
+    page(req, res, { title: 'Home' }, homePage(home));
+  });
+
+  app.get('/r/:slug', (req: Req, res) => {
+    const project = roomOf(String(req.params.slug));
+    if (!project) return notFound(req, res, 'room');
+    const conv = history.conversation(roomConv(project.slug));
+    const viewer = req.session!.user;
+    const threads = conv
+      .threads()
+      .filter((t) => visibleFor(viewer, t.root.visibleTo))
+      .map((summary) => ({ summary, last: lastVisible(conv.thread(summary.root.id), viewer) }));
+    page(req, res, { title: `#${project.slug}`, active: { slug: project.slug, kind: 'room' }, stream: { conv: conv.conv } }, roomPage(project, threads, nameOf));
+  });
+
+  app.get('/r/:slug/t/:tid', (req: Req, res) => {
+    const project = roomOf(String(req.params.slug));
+    if (!project) return notFound(req, res, 'room');
+    const conv = history.conversation(roomConv(project.slug));
+    const root = conv.message(String(req.params.tid));
+    if (!root || root.thread) return notFound(req, res, 'thread');
+    const viewer = req.session!.user;
+    const msgs = conv.thread(root.id).filter((m) => visibleFor(viewer, m.visibleTo));
+    page(req, res, { title: `#${project.slug} · thread`, active: { slug: project.slug, kind: 'room' }, stream: { conv: conv.conv, thread: root.id } }, threadPage(project, root.id, msgs, nameOf));
+  });
+
+  app.get('/p/:slug', (req: Req, res) => {
+    const project = roomOf(String(req.params.slug));
+    if (!project) return notFound(req, res, 'room');
+    const viewer = viewerOf(req.session!);
+    const conv = history.conversation(privateConv(viewer.user, project.slug));
+    page(req, res, { title: `${project.slug} · private`, active: { slug: project.slug, kind: 'private' }, stream: { conv: conv.conv } }, privatePage(project, viewer, conv.all(), nameOf));
+  });
+
+  // ── the live stream ─────────────────────────────────────────────────────────────────────────────
+  // One Server-Sent Events connection per open page: the conversation's events after `Last-Event-ID`
+  // (replayed on a reconnect), re-rendered for THIS viewer (a private reply reaches its person only),
+  // and the person's own pushes (dialogs). A room page gets thread cards, a thread or private page
+  // gets message elements.
+  app.get('/stream', (req: Req, res) => {
+    const conv = typeof req.query.conv === 'string' ? req.query.conv : '';
+    const thread = typeof req.query.thread === 'string' ? req.query.thread : undefined;
+    const parsed = parseConv(conv);
+    const viewer = req.session!.user;
+    if (!parsed || !roomOf(parsed.slug) || (parsed.kind === 'private' && parsed.user !== viewer)) return void res.status(404).json({ error: 'no such conversation' });
+    const c = history.conversation(conv);
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('X-Accel-Buffering', 'no'); // nginx: no proxy buffering on this response
+    res.flushHeaders();
+    const send = (event: string, id: number | undefined, data: unknown) => {
+      res.write(`event: ${event}\n${id !== undefined ? `id: ${id}\n` : ''}data: ${JSON.stringify(data)}\n\n`);
+    };
+    const frame = (ev: Stored) => {
+      const m = c.message(ev.id);
+      if (!m) return;
+      const root = m.thread ?? m.id;
+      if (parsed.kind === 'room' && !thread) {
+        // The room list: the thread this event touched, re-rendered (a private root stays its person's).
+        const rootMsg = c.message(root);
+        if (!rootMsg || !visibleFor(viewer, rootMsg.visibleTo)) return send('noop', ev.seq, {});
+        const summary = c.threads().find((t) => t.root.id === root);
+        if (!summary) return send('noop', ev.seq, {});
+        return send('thread', ev.seq, { id: root, html: threadCardHtml(parsed.slug, summary, lastVisible(c.thread(root), viewer), nameOf).html });
+      }
+      if (thread && root !== thread) return send('noop', ev.seq, {}); // another thread of the room
+      if (!visibleFor(viewer, m.visibleTo)) return send('noop', ev.seq, {}); // someone else's private reply (the id still advances)
+      send('msg', ev.seq, { id: m.id, thread: m.thread, html: messageHtml(m, nameOf).html });
+    };
+    const last = Number(req.get('last-event-id') ?? req.query.since ?? NaN);
+    if (Number.isFinite(last)) for (const ev of c.since(last)) frame(ev);
+    else send('ready', c.seq, {});
+    const offConv = c.subscribe(frame);
+    const offUser = driver.onUser(viewer, (p) => send(p.kind, undefined, p));
+    const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
+    req.on('close', () => {
+      clearInterval(ping);
+      offConv();
+      offUser();
+    });
+  });
+
+  // ── posting, actions, dialogs ───────────────────────────────────────────────────────────────────
+  const posts = new Map<string, number[]>(); // user → post times in the last minute
+  const rateLimited = (user: string): boolean => {
+    const t = now();
+    const recent = (posts.get(user) ?? []).filter((x) => t - x < 60_000);
+    recent.push(t);
+    posts.set(user, recent);
+    return recent.length > POSTS_PER_MINUTE;
+  };
+  // A failure on the core's path is journaled (and reaches Sentry), and the conversation hears it.
+  const reported = (what: string, conv: string, thread: string | undefined) => (e: unknown) => {
+    const text = errText(e instanceof Error ? e : new Error(`${what}: ${String(e)}`));
+    void driver.post({ conv, ...(thread ? { thread } : {}) }, { kind: 'text', text }).catch(() => {});
+  };
+
+  app.post('/post', (req: Req, res) => {
+    const s = req.session!;
+    const body = (req.body ?? {}) as { conv?: unknown; thread?: unknown; text?: unknown };
+    const conv = typeof body.conv === 'string' ? body.conv : '';
+    const thread = typeof body.thread === 'string' && body.thread ? body.thread : undefined;
+    const text = typeof body.text === 'string' ? body.text.trim().slice(0, MAX_TEXT) : '';
+    const parsed = parseConv(conv);
+    if (!parsed || !roomOf(parsed.slug)) return void res.status(404).json({ error: 'no such conversation' });
+    if (parsed.kind === 'private' && parsed.user !== s.user) return void res.status(403).json({ error: 'not your conversation' });
+    if (!text) return void res.status(400).json({ error: 'empty message' });
+    if (rateLimited(s.user)) return void res.status(429).json({ error: 'too many messages — wait a minute' });
+    const c = history.conversation(conv);
+    if (thread) {
+      const root = c.message(thread);
+      if (!root || root.thread || parsed.kind !== 'room') return void res.status(404).json({ error: 'no such thread' });
+    }
+    const id = ids();
+    const isCmd = text.startsWith('/');
+    c.append({ t: 'post', id, ...(thread ? { thread } : {}), by: { id: s.user, ...(s.name ? { name: s.name } : {}) }, text, ...(isCmd ? { cmd: true as const, visibleTo: s.user } : {}) });
+    const actor = { tenant: cfg.org, user: s.user };
+    const ctx: WebCtx = { conv, ...(thread ? { thread } : {}), user: s.user };
+    if (isCmd) {
+      void commands.run({ text: text.slice(1).replace(CMD_WORD, ''), conv, actor, ctx }, driver).catch(reported('command', conv, thread));
+    } else {
+      const msg: ChatMessage = {
+        conv,
+        id,
+        ...(thread ? { thread } : {}),
+        text,
+        actor,
+        direct: parsed.kind === 'private',
+        hasFiles: false,
+        files: async () => undefined,
+        claim: () => true,
+      };
+      // A top-level post in a room starts a thread (the core's mention path); a reply or a private line continues one.
+      const run = parsed.kind === 'room' && !thread ? messages.onMention(msg, driver) : messages.onMessage(msg, driver);
+      void run.catch(reported('message', conv, thread ?? (parsed.kind === 'room' ? id : undefined)));
+    }
+    res.json({ id, ...(parsed.kind === 'room' ? { thread: thread ?? id } : {}) });
+  });
+
+  app.post('/action', (req: Req, res) => {
+    const s = req.session!;
+    const b = (req.body ?? {}) as { action?: unknown; value?: unknown; conv?: unknown; thread?: unknown; msg?: unknown };
+    const action = typeof b.action === 'string' ? b.action : '';
+    const h = core.actions[action];
+    if (!h) return void res.status(400).json({ error: `unknown action ${action}` });
+    const conv = typeof b.conv === 'string' ? b.conv : '';
+    const parsed = parseConv(conv);
+    if (!parsed || !roomOf(parsed.slug) || (parsed.kind === 'private' && parsed.user !== s.user)) return void res.status(404).json({ error: 'no such conversation' });
+    const thread = typeof b.thread === 'string' && b.thread ? b.thread : undefined;
+    const msgId = typeof b.msg === 'string' && b.msg ? b.msg : undefined;
+    const a: ChatAction = {
+      id: action,
+      value: typeof b.value === 'string' ? b.value : '',
+      actor: { tenant: cfg.org, user: s.user },
+      where: { conv, ...(thread ? { thread } : {}) },
+      ...(msgId ? { msg: { conv, id: msgId, ...(thread ? { thread } : {}) } } : {}),
+      msgText: msgId ? history.conversation(conv).message(msgId)?.text : undefined,
+      canDialog: true,
+      ctx: { conv, ...(thread ? { thread } : {}), user: s.user } satisfies WebCtx,
+    };
+    void h(a, driver).catch(reported(`action ${action}`, conv, thread));
+    res.status(202).json({ ok: true });
+  });
+
+  app.post('/dialog', (req: Req, res) => {
+    const s = req.session!;
+    const b = (req.body ?? {}) as { id?: unknown; meta?: unknown; values?: unknown; conv?: unknown; thread?: unknown };
+    const id = typeof b.id === 'string' ? b.id : '';
+    const h = core.submits[id];
+    if (!h) return void res.status(400).json({ error: `unknown dialog ${id}` });
+    const values: DialogSubmit['values'] = {};
+    if (b.values && typeof b.values === 'object') {
+      for (const [k, v] of Object.entries(b.values as Record<string, unknown>)) {
+        if (typeof v === 'string') values[k] = v.slice(0, MAX_TEXT);
+        else if (Array.isArray(v)) values[k] = v.filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 1000));
+      }
+    }
+    const sub: DialogSubmit = { id, meta: typeof b.meta === 'string' ? b.meta : '', values, actor: { tenant: cfg.org, user: s.user } };
+    const conv = typeof b.conv === 'string' && parseConv(b.conv) ? b.conv : undefined;
+    void h(sub, driver).catch((e) => {
+      log.error(`web dialog ${id}: ${e instanceof Error ? e.message : String(e)}`);
+      captureError(e, { subsystem: 'web-dialog' });
+      if (conv) void driver.postPrivate({ conv, ...(typeof b.thread === 'string' && b.thread ? { thread: b.thread } : {}) }, s.user, { kind: 'text', text: errText(e) }).catch(() => {});
+    });
+    res.status(202).json({ ok: true });
+  });
+
+  app.use((req: Req, res) => (isApi(req) ? res.status(404).json({ error: 'not found' }) : notFound(req, res, 'page')));
+  app.use((err: unknown, req: Req, res: Response, _next: NextFunction) => {
+    const status = (err as { status?: number }).status ?? 500;
+    if (status >= 500) {
+      log.error(`web ${req.method} ${req.path}: ${err instanceof Error ? err.message : String(err)}`);
+      captureError(err, { subsystem: 'web' });
+    }
+    res.status(status).json({ error: status >= 500 ? 'server error' : (err instanceof Error ? err.message : 'bad request') });
+  });
+
+  let listener: Server | undefined;
+  return {
+    app,
+    listen: () =>
+      new Promise((resolve, reject) => {
+        const l = app.listen(cfg.port, cfg.bind, () => {
+          listener = l;
+          const addr = l.address();
+          resolve({ port: typeof addr === 'object' && addr ? addr.port : cfg.port });
+        });
+        l.once('error', reject);
+      }),
+    close: () => new Promise<void>((resolve) => (listener ? listener.close(() => resolve()) : resolve())),
+  };
+}
+
+function lastVisible(msgs: Message[], viewer: string): Message | undefined {
+  for (let i = msgs.length - 1; i >= 0; i--) if (visibleFor(viewer, msgs[i].visibleTo)) return msgs[i];
+  return undefined;
+}
+
+const h404 = (what: string): Html => h`<h1>Not found</h1><p>No such ${what}.</p>`;

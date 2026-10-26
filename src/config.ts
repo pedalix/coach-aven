@@ -1,6 +1,7 @@
 import { parseSurfaces } from './chat/surfaces.js';
 import type { ChatDriverName } from './chat/drivers.js';
 import { readFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { config as loadDotenv } from 'dotenv';
 import { isValidCliVersion } from './cliversion.js';
 import { messagingEnv, type MessagingEnv } from './messaging/config.js';
@@ -195,6 +196,9 @@ export interface Config {
   // Entra object ids allowed the operator-only verbs; `targeted` turns on targeted (private)
   // channel messages once the tenant has them (PR 2).
   teams?: TeamsConfig;
+  // The web chat surface (OpenSpec web-chat-driver): only for `orch web` / `CHAT_SURFACES=web`; undefined when
+  // no WEB_* setting is set. Login is OIDC against the installation's issuer, or none on a loopback listener.
+  web?: WebConfig;
   // CHAT_SURFACES: the chat drivers this installation runs beside its run mode's (OpenSpec
   // multi-driver-installation); validated against the drivers this build has. Empty = the run mode only.
   chatSurfaces: ChatDriverName[];
@@ -262,6 +266,88 @@ export interface TeamsConfig {
   trace: 'off' | 'shape' | 'full';
 }
 
+export interface WebConfig {
+  port: number; // WEB_PORT — the loopback listener (nginx is the public face); default 8787
+  bind: string; // WEB_BIND — the address the listener binds; default 127.0.0.1
+  baseUrl: string; // WEB_BASE_URL — the public origin, for the login redirect URI and permalinks (no trailing slash)
+  auth: 'oidc' | 'none'; // WEB_AUTH — `none` only on a loopback listener with a localhost base URL (the e2e harness)
+  oidc?: { issuer: string; clientId: string; clientSecret: string; groupsClaim: string };
+  org: string; // WEB_ORG — the organization behind the issuer, the surface's tenant id (D6)
+  operators: string[]; // WEB_OPERATORS — OIDC subjects or e-mails: operator verbs + access admins
+  allow: string[]; // WEB_ALLOW — e-mails or `group:<name>`; empty = everyone the issuer lets in (open mode)
+  sessionSecret: string; // WEB_SESSION_SECRET — signs the session cookie (≥ 32 chars); generated per boot under `none`
+  maxFileMb: number; // WEB_MAX_FILE_MB — per file and per post; default 20
+}
+
+const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
+const isLocalUrl = (u: string): boolean => {
+  try {
+    return LOCAL_HOSTS.has(new URL(u).hostname);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Pure: the web surface's settings from the environment. No WEB_* key at all → undefined (the surface is
+ * not configured). Anything set → a complete block or an error naming the missing setting: with OIDC the
+ * issuer, client id and secret, the public base URL and the session secret are all required; `WEB_AUTH=none`
+ * is accepted only for a loopback listener with a localhost base URL — a public listener never runs without
+ * a login (web-chat-driver D3).
+ */
+export function webConfigFrom(env: Record<string, string | undefined>): WebConfig | undefined {
+  if (!Object.keys(env).some((k) => k.startsWith('WEB_') && env[k] !== undefined && env[k] !== '')) return undefined;
+  const port = numFrom(env, 'WEB_PORT', 8787);
+  const bind = env.WEB_BIND || '127.0.0.1';
+  const list = (k: string) => (env[k] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const authRaw = env.WEB_AUTH || 'oidc';
+  if (authRaw !== 'oidc' && authRaw !== 'none') throw new Error(`WEB_AUTH must be 'oidc' or 'none', got: ${authRaw}`);
+  const maxFileMb = numFrom(env, 'WEB_MAX_FILE_MB', 20);
+  if (authRaw === 'none') {
+    const baseUrl = (env.WEB_BASE_URL || `http://127.0.0.1:${port}`).replace(/\/+$/, '');
+    if (!LOCAL_HOSTS.has(bind)) throw new Error(`WEB_AUTH=none needs a loopback listener (WEB_BIND=127.0.0.1), got WEB_BIND=${bind}`);
+    if (!isLocalUrl(baseUrl)) throw new Error(`WEB_AUTH=none needs a localhost WEB_BASE_URL, got ${baseUrl}`);
+    return {
+      port,
+      bind,
+      baseUrl,
+      auth: 'none',
+      org: env.WEB_ORG || 'local',
+      operators: list('WEB_OPERATORS'),
+      allow: list('WEB_ALLOW'),
+      sessionSecret: env.WEB_SESSION_SECRET || randomBytes(32).toString('hex'),
+      maxFileMb,
+    };
+  }
+  const missing = ['WEB_OIDC_ISSUER', 'WEB_OIDC_CLIENT_ID', 'WEB_OIDC_CLIENT_SECRET', 'WEB_BASE_URL', 'WEB_SESSION_SECRET'].filter((k) => !env[k]);
+  if (missing.length) throw new Error(`Partial web config: missing ${missing.join(', ')} (the web surface logs people in through OIDC; WEB_AUTH=none is for a localhost listener only).`);
+  const issuer = env.WEB_OIDC_ISSUER!.replace(/\/+$/, '');
+  if (!/^https:\/\//.test(issuer)) throw new Error(`WEB_OIDC_ISSUER must be an https URL, got ${issuer}`);
+  const baseUrl = env.WEB_BASE_URL!.replace(/\/+$/, '');
+  if (!/^https?:\/\//.test(baseUrl)) throw new Error(`WEB_BASE_URL must be an http(s) origin, got ${baseUrl}`);
+  if (env.WEB_SESSION_SECRET!.length < 32) throw new Error('WEB_SESSION_SECRET must be at least 32 characters (e.g. `openssl rand -hex 32`)');
+  return {
+    port,
+    bind,
+    baseUrl,
+    auth: 'oidc',
+    oidc: { issuer, clientId: env.WEB_OIDC_CLIENT_ID!, clientSecret: env.WEB_OIDC_CLIENT_SECRET!, groupsClaim: env.WEB_OIDC_GROUPS_CLAIM || 'cognito:groups' },
+    org: env.WEB_ORG || new URL(issuer).hostname,
+    operators: list('WEB_OPERATORS'),
+    allow: list('WEB_ALLOW'),
+    sessionSecret: env.WEB_SESSION_SECRET!,
+    maxFileMb,
+  };
+}
+
+function numFrom(env: Record<string, string | undefined>, key: string, dflt: number): number {
+  const raw = env[key];
+  if (raw === undefined || raw.trim() === '') return dflt;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) throw new Error(`${key} must be a number, got: ${raw}`);
+  return n;
+}
+
 // Any of the three TEAMS_* ids set → all three must be (a half-configured Teams installation
 // should fail loudly at boot, not answer 401 to every activity); none → no Teams.
 function teamsConfig(): TeamsConfig | undefined {
@@ -316,6 +402,7 @@ export function loadConfig(): Config {
     github: githubAuth(),
     slack: slackConfig(),
     teams: teamsConfig(),
+    web: webConfigFrom(process.env),
     chatSurfaces: parseSurfaces(process.env.CHAT_SURFACES),
     youtrack:
       process.env.YOUTRACK_URL && process.env.YOUTRACK_TOKEN

@@ -346,14 +346,14 @@ Sessions are spawned with the message ledger (`--replay-user-messages`) only for
 ## Chat surfaces (`CHAT_SURFACES`)
 
 An installation runs one *default* chat driver — its run mode, `orch slack` or `orch teams` — and, with
-`CHAT_SURFACES=<driver>[,<driver>]`, additional ones beside it (OpenSpec `multi-driver-installation`): every running
+`CHAT_SURFACES=<driver>[,<driver>]`, additional ones beside it (OpenSpec `multi-driver-installation`; `web` is one, `docs/web.md`): every running
 driver is a *surface*, over one turn engine, one set of pollers and one agent-messaging identity. A conversation belongs
 to the surface it started on for its whole life; the default surface's conversation keys keep the shapes a single-driver
 installation has (no migration), an additional surface's carry the driver's name first (`teams:thread:…`). Unset =
 the run mode only, exactly as before. The value is validated against the drivers this build has; every surface is
 prepared before any starts, and one that cannot run (its settings missing, its port taken) fails the boot naming it,
 so nothing half-starts. Each surface keeps its own identities, access gate, operators, command prefix, Home and alert
-channel; a project is reachable from every surface it is bound on (`slackChannel`, `teamsChannel`), with one sandbox.
+channel; a project is reachable from every surface it is bound on (`slackChannel`, `teamsChannel`; on the web every project has a room unless `webRoom: false`), with one sandbox.
 
 Where background deliveries go: a routine delivers where it was created (its record remembers the surface). Deliveries
 no conversation started — auto-reviews, ticket investigations — go to the project's channel on the default surface,

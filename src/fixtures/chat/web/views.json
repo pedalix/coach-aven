@@ -1,0 +1,172 @@
+{
+  "messages": {
+    "status": {
+      "html": "<div class=\"status\"><span class=\"spinner\" aria-hidden=\"true\"></span><div class=\"status-line\"><p>🔎 <strong>Working</strong> — 0:12\n• 📖 Read src/a.ts</p>\n</div></div><div class=\"actions\"><button type=\"button\" class=\"btn\" data-action=\"show_trail\" data-value=\"t1\">🧭 Show steps</button><button type=\"button\" class=\"btn danger\" data-action=\"cancel_turn\" data-value=\"t1\">✖ Cancel</button></div>",
+      "text": "Working…"
+    },
+    "statusQueued": {
+      "html": "<div class=\"status queued\"><span class=\"spinner\" aria-hidden=\"true\"></span><div class=\"status-line\"><p>⏳ In queue — waiting for the previous message…</p>\n</div></div><div class=\"actions\"><button type=\"button\" class=\"btn\" data-action=\"show_trail\" data-value=\"t2\">🧭 Show steps</button><button type=\"button\" class=\"btn danger\" data-action=\"cancel_turn\" data-value=\"t2\">✖ Cancel</button></div>",
+      "text": "In queue…"
+    },
+    "text": {
+      "html": "<div class=\"text\"><p>ℹ️ Ask me something — <code>/&lt;task&gt;</code>. @Ann Lee knows.</p>\n</div>",
+      "text": "ℹ️ Ask me something — /<task>. @u1 knows."
+    },
+    "line": {
+      "html": "<div class=\"line\"><p><strong>Daily digest</strong> — running</p>\n</div>",
+      "text": "Daily digest — running"
+    },
+    "background": {
+      "html": "<div class=\"card background\"><p>🌙 <strong>Working in the background</strong> — running for 15m30s, longer than usual.</p><p>I'll post the answer here as a new message when it's done. <strong>🧭 Show steps</strong> stays live; <strong>✖ Cancel</strong> stops me.</p></div><div class=\"actions\"><button type=\"button\" class=\"btn\" data-action=\"show_trail\" data-value=\"t1\">🧭 Show steps</button><button type=\"button\" class=\"btn danger\" data-action=\"cancel_turn\" data-value=\"t1\">✖ Cancel</button></div>",
+      "text": "Working in the background"
+    },
+    "backgroundDone": {
+      "html": "<div class=\"text\"><p>🌙 <strong>Finished in the background</strong></p>\n<p class=\"meta\">🧭 12 steps · 16m40s</p></div>",
+      "text": "🌙 Finished in the background"
+    },
+    "answer": {
+      "html": "<div class=\"answer md\"><p>Fixed it in https://github.com/Org/alpha/pull/7 — <strong>done</strong>.</p>\n<pre><code class=\"language-ts\">const x = &quot;&lt;b&gt;&quot;;\n</code></pre>\n</div><p class=\"meta\">🧭 3 steps · 5s</p><div class=\"actions\"><a class=\"btn\" href=\"https://github.com/Org/alpha/pull/7\" target=\"_blank\" rel=\"noopener noreferrer\">🔗 View PR</a><button type=\"button\" class=\"btn\" data-action=\"show_trail\" data-value=\"t1\">🧭 Show steps</button><button type=\"button\" class=\"btn\" data-action=\"session_panel\" data-value=\"{&quot;key&quot;:&quot;web:thread:m1&quot;,&quot;channel&quot;:&quot;room:alpha&quot;,&quot;threadTs&quot;:&quot;m1&quot;}\">⚙️ Session</button><button type=\"button\" class=\"btn rate\" data-action=\"fb_good\" data-value=\"{&quot;t&quot;:&quot;t1&quot;,&quot;s&quot;:&quot;alpha&quot;,&quot;k&quot;:&quot;web:thread:m1&quot;}\">👍 Helped · 2</button><button type=\"button\" class=\"btn rate\" data-action=\"fb_bad\" data-value=\"{&quot;t&quot;:&quot;t1&quot;,&quot;s&quot;:&quot;alpha&quot;,&quot;k&quot;:&quot;web:thread:m1&quot;}\">👎 Missed · 1</button></div>",
+      "text": "Fixed it in https://github.com/Org/alpha/pull/7 — done. [code]"
+    },
+    "answerHostile": {
+      "html": "<div class=\"answer md\"><p>&lt;script&gt;alert(1)&lt;/script&gt; [x](javascript:alert(1)) &lt;img src=x onerror=alert(1)&gt;</p>\n</div><div class=\"notice\"><p>⚠️ Auto-post failed: <strong>boom</strong> — review and send manually.</p>\n</div><div class=\"actions\"><button type=\"button\" class=\"btn primary\" data-action=\"yt_edit_send\" data-value=\"{&quot;t&quot;:&quot;ACME-42&quot;,&quot;d&quot;:&quot;t9&quot;}\">✏️ Edit &amp; send</button></div>",
+      "text": "<script>alert(1)</script> x) <img src=x onerror=alert(1)>"
+    },
+    "answerReport": {
+      "html": "<div class=\"answer md\"><p>Investigated.</p>\n</div><div class=\"actions\"><button type=\"button\" class=\"btn\" data-action=\"yt_report\" data-value=\"{&quot;t&quot;:&quot;ACME-42&quot;,&quot;key&quot;:&quot;web:thread:m1&quot;,&quot;channel&quot;:&quot;room:alpha&quot;,&quot;threadTs&quot;:&quot;m1&quot;}\">📝 Report to YouTrack</button><button type=\"button\" class=\"btn\" data-action=\"session_panel\" data-value=\"{&quot;key&quot;:&quot;web:thread:m1&quot;,&quot;channel&quot;:&quot;room:alpha&quot;,&quot;threadTs&quot;:&quot;m1&quot;}\">⚙️ Session</button></div>",
+      "text": "Investigated."
+    },
+    "reported": {
+      "html": "<p class=\"reported\">✅ Reported to <a href=\"https://yt.example/issue/ACME-42\" target=\"_blank\" rel=\"noopener noreferrer\">ACME-42</a> (Dev team)</p><div class=\"answer md\"><p>Root cause: cookies.</p>\n</div>",
+      "text": "Reported to ACME-42"
+    },
+    "projectPicker": {
+      "html": "<p>Which project should I work on? <em>(this conversation isn't tied to a room)</em></p><div class=\"actions\"><button type=\"button\" class=\"btn\" data-action=\"dm_pick_project\" data-value=\"dp1:alpha\">alpha</button><button type=\"button\" class=\"btn\" data-action=\"dm_pick_project\" data-value=\"dp1:beta\">beta</button></div>",
+      "text": "Which project should I work on?"
+    },
+    "heldPending": {
+      "html": "<div class=\"card held\"><p>✋ <strong>Held for your Send:</strong> a task for <strong>bluefin/shop</strong></p><blockquote>Please check the &lt;b&gt;order&lt;/b&gt; export</blockquote><p class=\"meta\">Held because this thread holds another client&#39;s data. Anyone who may drive this thread can send it.</p></div><div class=\"actions\"><button type=\"button\" class=\"btn primary\" data-action=\"held_send\" data-value=\"h1\">Send</button><button type=\"button\" class=\"btn\" data-action=\"held_dismiss\" data-value=\"h1\">Dismiss</button></div>",
+      "text": "Held: task for bluefin/shop"
+    },
+    "heldSent": {
+      "html": "<div class=\"card held\"><p>✅ <strong>Sent:</strong> a reply to <strong>bluefin/shop</strong></p><blockquote>ok</blockquote><p class=\"meta\">Sent — sent at 10:00</p></div>",
+      "text": "Held: reply for bluefin/shop"
+    },
+    "autofixNotice": {
+      "html": "<p>🔧 <strong>alpha#7</strong> — CI failed: lint; review requested changes <a href=\"https://github.com/Org/alpha/pull/7\" target=\"_blank\" rel=\"noopener noreferrer\">View PR</a></p><div class=\"actions\"><button type=\"button\" class=\"btn primary\" data-action=\"autofix_apply\" data-value=\"{&quot;slug&quot;:&quot;alpha&quot;,&quot;repo&quot;:&quot;Org/alpha&quot;,&quot;number&quot;:7,&quot;channel&quot;:&quot;room:alpha&quot;}\">🔧 Fix it</button></div>",
+      "text": "alpha#7: CI failed: lint; review requested changes"
+    },
+    "ticketHeader": {
+      "html": "<p class=\"ticket-head\">🎫 <a href=\"https://yt.example/issue/ACME-42\" target=\"_blank\" rel=\"noopener noreferrer\">ACME-42</a> — Checkout fails on Safari <span class=\"meta\">· Major · Ann</span></p>",
+      "text": "ACME-42 — Checkout fails on Safari"
+    },
+    "ticketCard": {
+      "html": "<div class=\"card ticket\"><p>🎫 <strong><a href=\"https://yt.example/issue/ACME-42\" target=\"_blank\" rel=\"noopener noreferrer\">ACME-42</a></strong> — Checkout fails on Safari</p><div class=\"md\"><p>Steps:</p>\n<ol>\n<li>Open <strong>cart</strong></li>\n<li>Pay</li>\n</ol>\n</div><p class=\"meta\">👤 Ann  ·  created 2026-10-20  ·  🏷 flagged by Bo  ·  Priority: Major</p><ul class=\"links\"><li>🔗 relates to <strong>ACME-40</strong> — Safari cookies (resolved)</li></ul><p class=\"meta\">📎 shot.png</p></div><div class=\"actions\"><button type=\"button\" class=\"btn\" data-action=\"ticket_modal\" data-value=\"ACME-42\">🔍 Full ticket</button></div>",
+      "text": "ACME-42 — Checkout fails on Safari"
+    },
+    "question": {
+      "html": "<div class=\"card ask\"><p>❓ <strong>The agent needs your input</strong></p><div class=\"question\"><p><strong>Storage: Which database?</strong></p><ul class=\"options\"><li><button type=\"button\" class=\"btn\" data-action=\"answer_q\" data-value=\"{&quot;qid&quot;:&quot;q1&quot;,&quot;qi&quot;:0,&quot;oi&quot;:0}\">Postgres</button> <span class=\"meta\">— the default</span></li><li><button type=\"button\" class=\"btn picked\" data-action=\"answer_q\" data-value=\"{&quot;qid&quot;:&quot;q1&quot;,&quot;qi&quot;:0,&quot;oi&quot;:1}\">✅ SQLite</button></li></ul></div></div>",
+      "text": "The agent needs your input: Which database?"
+    },
+    "questionMulti": {
+      "html": "<div class=\"card ask\"><p>❓ <strong>The agent needs your input</strong> <em>(pick one or more, then Submit)</em></p><div class=\"question\"><p><strong>Which parts?</strong></p><ul class=\"options\"><li><button type=\"button\" class=\"btn\" data-action=\"answer_q\" data-value=\"{&quot;qid&quot;:&quot;q2&quot;,&quot;qi&quot;:0,&quot;oi&quot;:0}\">API</button></li><li><button type=\"button\" class=\"btn\" data-action=\"answer_q\" data-value=\"{&quot;qid&quot;:&quot;q2&quot;,&quot;qi&quot;:0,&quot;oi&quot;:1}\">UI</button></li></ul></div></div><div class=\"actions\"><button type=\"button\" class=\"btn primary\" data-action=\"submit_q\" data-value=\"{&quot;qid&quot;:&quot;q2&quot;}\">Submit</button></div>",
+      "text": "The agent needs your input: Which parts?"
+    },
+    "questionDone": {
+      "html": "<div class=\"text\"><p>✅ Answered</p></div>",
+      "text": "Answered"
+    }
+  },
+  "privates": {
+    "text": {
+      "html": "<div class=\"text\"><p>✅ Session restarted — the next message starts fresh.</p>\n</div>",
+      "text": "✅ Session restarted — the next message starts fresh."
+    },
+    "markdown": {
+      "html": "<p><strong>System prompt — alpha</strong></p><div class=\"md\"><h1>Prompt</h1>\n<p>You are <em>Aven</em>.</p>\n</div><div class=\"meta\"><p><em>truncated</em></p>\n</div>",
+      "text": "System prompt — alpha"
+    },
+    "statusReport": {
+      "html": "<p><strong>CoachAven status</strong></p><ul><li><strong>alpha</strong> — started · 2 repos · 3 sessions (1 active) · 2 open PRs · routines: 1 jobs, 1 dreams, 0 housekeeping<br><span class=\"meta\">sources: 12 items, fresh</span></li></ul><p class=\"meta\">sandboxes ✅ · GitHub ⚠️ · 1 turn in flight</p><div class=\"meta\"><p><strong>Claude quota:</strong> 40% used</p>\n</div>",
+      "text": "CoachAven status"
+    },
+    "access": {
+      "html": "<p><strong>Access for alpha</strong></p><ul><li>repos: Org/alpha, Org/alpha-infra</li><li>tools: grafana</li></ul>",
+      "text": "Access for alpha"
+    },
+    "routines": {
+      "html": "<p><strong>Scheduled jobs</strong></p><ul class=\"routines\"><li>🟢 <strong>r1</strong> — <code>weekdays 9:00</code> (Europe/Zurich) · last 2026-10-26 07:00 ⏭ skipped (nothing new) — one-line status on open PRs</li><li>⚪️ <strong>r2</strong> 🌙 dream — <code>daily 2:00</code> (UTC) — <em>consolidated 3 topics</em></li></ul><p class=\"meta\"><em>Manage:</em> <code>/routines run|off|on|rm &lt;id&gt;</code> (<code>run</code> = fire now) · <code>/routines all</code> for every project</p>",
+      "text": "Scheduled jobs"
+    },
+    "routinesEmpty": {
+      "html": "<p><em>No scheduled jobs in this room.</em></p><p>Create one: <code>/schedule weekdays 9:00 | one-line status on open PRs and active threads</code></p>",
+      "text": "Scheduled jobs"
+    },
+    "allRoutines": {
+      "html": "<p><strong>All scheduled jobs</strong></p><p><strong>alpha</strong></p><ul class=\"routines\"><li>🟢 <strong>r1</strong> — <code>weekdays 9:00</code> (Europe/Zurich) · last 2026-10-26 07:00 ⏭ skipped (nothing new) — one-line status on open PRs</li><li>⚪️ <strong>r2</strong> 🌙 dream — <code>daily 2:00</code> (UTC) — <em>consolidated 3 topics</em></li></ul><p><strong>beta</strong></p><p><em>none</em></p><p class=\"meta\"><em>Manage:</em> <code>/routines run|off|on|rm &lt;id&gt;</code> (<code>run</code> = fire now) · <code>/routines all</code> for every project</p>",
+      "text": "All scheduled jobs"
+    },
+    "memoryIndex": {
+      "html": "<p><strong>Memory — alpha</strong></p><div class=\"md\"><ul>\n<li>[Deploys](deploys.md)</li>\n<li>[Testing](testing.md)</li>\n</ul>\n</div><div class=\"meta\"><p><em>Snapshot from 2026-10-25.</em></p>\n</div><div class=\"actions\"><button type=\"button\" class=\"btn\" data-action=\"mem_open\" data-value=\"{&quot;s&quot;:&quot;alpha&quot;,&quot;f&quot;:&quot;deploys.md&quot;}\">Deploys</button><button type=\"button\" class=\"btn\" data-action=\"mem_open\" data-value=\"{&quot;s&quot;:&quot;alpha&quot;,&quot;f&quot;:&quot;testing.md&quot;}\">testing.md</button></div>",
+      "text": "Memory — alpha"
+    },
+    "sessionPanel": {
+      "html": "<div class=\"card session\"><p>⚙️ <strong>alpha</strong> — this thread's session</p><ul><li><strong>Repos:</strong> <code>alpha</code></li><li><strong>Tools (MCP):</strong> <code>grafana</code></li><li><strong>Session:</strong> active <em>(since 2026-10-26 09:30)</em></li><li><strong>Turn running:</strong> no</li><li><strong>PR:</strong> opened from this thread</li></ul></div><div class=\"actions\"><button type=\"button\" class=\"btn danger confirm\" data-action=\"session_restart\" data-value=\"{&quot;key&quot;:&quot;web:thread:m1&quot;,&quot;channel&quot;:&quot;room:alpha&quot;,&quot;threadTs&quot;:&quot;m1&quot;}\">🔄 Restart session</button></div>",
+      "text": "Session — alpha"
+    },
+    "sessionPanelFresh": {
+      "html": "<div class=\"card session\"><p>⚙️ <strong>alpha</strong> — this thread's session</p><ul><li><strong>Repos:</strong> <code>alpha</code></li><li><strong>Tools (MCP):</strong> <em>none</em></li><li><strong>Session:</strong> <em>none yet — the next message starts one</em></li><li><strong>Turn running:</strong> no</li></ul></div>",
+      "text": "Session — alpha"
+    }
+  },
+  "dialogs": {
+    "trail": {
+      "title": "🧭 Steps",
+      "html": "<p class=\"meta\">🧭 3 steps · 12s so far</p><ol class=\"trail\"><li><p>📖 Read src/a.ts</p>\n</li><li><p>✏️ Edit src/a.ts</p>\n</li><li><p>🧪 <code>npm test</code></p>\n</li></ol><p class=\"meta\">⏳ Still running — this view updates live.</p>"
+    },
+    "trailDone": {
+      "title": "🧭 Steps",
+      "html": "<p class=\"meta\">🧭 1 step · 1s</p><ol class=\"trail\"><li><p>📖 Read</p>\n</li></ol>"
+    },
+    "trailEmpty": {
+      "title": "🧭 Steps",
+      "html": "<p><em>No steps yet — still preparing.</em></p>"
+    },
+    "trailGone": {
+      "title": "🧭 Steps",
+      "html": "<p><em>This turn's step-by-step trail is no longer available (I've been restarted since it ran).</em></p>"
+    },
+    "feedback": {
+      "title": "👎 What went wrong?",
+      "html": "<form class=\"dialog-form\" data-dialog=\"feedback\" data-meta=\"{&quot;t&quot;:&quot;t1&quot;,&quot;s&quot;:&quot;alpha&quot;,&quot;k&quot;:&quot;web:thread:m1&quot;,&quot;c&quot;:&quot;room:alpha&quot;,&quot;ts&quot;:&quot;m2&quot;}\"><fieldset class=\"reasons\"><label><input type=\"radio\" name=\"reason\" value=\"wrong\" required> Wrong — the facts are off</label><label><input type=\"radio\" name=\"reason\" value=\"unverifiable\"> Can&#39;t verify — probably right, but I couldn&#39;t check it</label><label><input type=\"radio\" name=\"reason\" value=\"missed\"> Missed the question — answered something else</label><label><input type=\"radio\" name=\"reason\" value=\"tone\"> Too technical / wrong tone</label><label><input type=\"radio\" name=\"reason\" value=\"slow\"> Too slow</label><label><input type=\"radio\" name=\"reason\" value=\"backforth\"> Took too much back-and-forth</label></fieldset><label>Optional: what would have helped?<textarea name=\"note\" rows=\"3\" maxlength=\"2000\" placeholder='e.g. \"the file was in services/, not src/\"'></textarea></label><div class=\"actions\"><button type=\"submit\" class=\"btn primary\">Send</button></div></form>"
+    },
+    "ticketLoading": {
+      "title": "ACME-42",
+      "html": "<p>⏳ Loading…</p>"
+    },
+    "ticket": {
+      "title": "ACME-42",
+      "html": "<p><strong><a href=\"https://yt.example/issue/ACME-42\" target=\"_blank\" rel=\"noopener noreferrer\">ACME-42</a></strong> — Checkout fails on Safari</p><p class=\"meta\">Priority: Major</p><div class=\"md\"><p>Steps:</p>\n<ol>\n<li>Open <strong>cart</strong></li>\n<li>Pay</li>\n</ol>\n</div><ul class=\"links\"><li>🔗 relates to <strong>ACME-40</strong> — Safari cookies (resolved)</li></ul><p class=\"meta\">📎 shot.png</p><h3>Comments</h3><div class=\"comment\"><p class=\"meta\">Ann · 2026-10-21 10:00</p><div class=\"md\"><p>Reproduced on <strong>Safari 18</strong>.</p>\n</div></div>"
+    },
+    "ticketUnavailable": {
+      "title": "ACME-42",
+      "html": "<p>Could not load <a href=\"https://yt.example/issue/ACME-42\" target=\"_blank\" rel=\"noopener noreferrer\">ACME-42</a>.</p>"
+    },
+    "reportPrompt": {
+      "title": "📝 Report to ACME-42",
+      "html": "<form class=\"dialog-form\" data-dialog=\"yt_prompt\" data-meta=\"{&quot;t&quot;:&quot;ACME-42&quot;,&quot;key&quot;:&quot;web:thread:m1&quot;,&quot;channel&quot;:&quot;room:alpha&quot;,&quot;threadTs&quot;:&quot;m1&quot;}\" data-multi=\"now\"><label><strong>Instructions for the draft</strong> — edit before running:<textarea name=\"instructions\" rows=\"6\" required>Summarize the &lt;root cause&gt; for support</textarea></label><label><input type=\"checkbox\" name=\"now\" value=\"now\"> Post to the ticket immediately (no review)</label><div class=\"meta contract\"><p>Output ONLY the comment text.</p>\n</div><div class=\"actions\"><button type=\"submit\" class=\"btn primary\">Draft the report</button></div></form>"
+    },
+    "report": {
+      "title": "📝 Report to ACME-42",
+      "html": "<form class=\"dialog-form\" data-dialog=\"yt_send\" data-meta=\"{&quot;t&quot;:&quot;ACME-42&quot;,&quot;channel&quot;:&quot;room:alpha&quot;,&quot;ts&quot;:&quot;m9&quot;,&quot;threadTs&quot;:&quot;m1&quot;}\"><p class=\"meta\">Posted as an <strong>internal</strong> comment on the ticket — edit first if needed:</p><textarea name=\"text\" rows=\"12\" required>Root cause: cookies &amp; &quot;quotes&quot;.</textarea><div class=\"actions\"><button type=\"submit\" class=\"btn primary\">Send to YouTrack</button></div></form>"
+    },
+    "reportExpired": {
+      "title": "📝 Report to ACME-42",
+      "html": "<p>⌛ This draft has expired.</p>"
+    }
+  },
+  "homes": {
+    "home": "<h2>Aven — your coding agent</h2><h3>Projects</h3><ul class=\"projects\"><li><a href=\"/r/alpha\"><strong>alpha</strong></a> — alpha</li><li><strong>beta</strong> — beta, beta-infra</li></ul><h3>How to use me</h3><ul class=\"cheatsheet\"><li><p><strong>Agents asking agents</strong> — an agent configured to send can ask other agents or request work from them, in this installation or another one; the answer arrives in its own thread as quoted data from that agent, and its trail shows when an answer folded into a running turn. When a thread holds another client's data, a message that would carry it elsewhere waits as a <strong>✋ Held</strong> card: anyone who may drive the thread can <strong>Send</strong> it (once) or <strong>Dismiss</strong> it.</p>\n</li><li><p><strong>Audit asks</strong> — <code>/asks</code> lists the recent tasks between agents (held first, with cost), <code>/asks &lt;task id&gt;</code> shows a transcript, <code>/asks cancel &lt;task id&gt;</code> cancels one. <em>(Operators' home workspace only.)</em></p>\n</li><li><p><strong>Build / collaborate</strong> — @-mention me with a task in a project channel. I reply in a thread; keep replying (no need to re-mention) and I remember the conversation.</p>\n</li><li><p><strong>Quick private answer</strong> — <code>/&lt;question&gt;</code> in a project channel. I answer privately in our DM.</p>\n</li><li><p><strong>DM me directly</strong> — just message me in a DM; if it's not clear which project you mean, I'll show a picker.</p>\n</li><li><p><strong>Schedule a digest</strong> — <code>/schedule weekdays 9:00 | what to report</code> posts a recurring read-only summary here; <code>/schedule task weekdays 19:30 | what to do</code> runs a job that may edit and commit as the project's instructions say; manage with <code>/routines</code> (<code>/routines all</code> lists every job across this workspace's projects). Routine results arrive as a thread — reply there to continue with the same context.</p>\n</li><li><p><strong>Share files</strong> — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task; works in Slack Connect channels too. If I can't use a file, I'll reply saying which one and why. <em>(Voice/video not supported yet.)</em></p>\n</li><li><p><strong>Jot a note</strong> — start a message with <code>!</code> and I'll stay out of it (no agent run).</p>\n</li><li><p><strong>Stop me</strong> — hit <strong>✖ Cancel</strong> on any working message.</p>\n</li><li><p><strong>See how I got there</strong> — hit <strong>🧭 Show steps</strong> on a working message (live) or a finished answer for the tool-by-tool trail in a pop-up; a very long run comes condensed.</p>\n</li><li><p><strong>Background agents</strong> — if I kick off a background subagent that's still running when I reply, I'll follow up with a new <strong>🔔 Background update</strong> message in the thread once it finishes. (A sandbox nobody is using may be put to sleep after a while; background work still running then ends with it.)</p>\n</li><li><p><strong>Long tasks</strong> — if a task runs long I won't cut it off: past ~15 minutes the working message stops ticking and turns into a <strong>🌙 Working in the background</strong> card (<strong>🧭 Show steps</strong> still live, <strong>✖ Cancel</strong> still stops me), and the answer arrives as a <strong>new message</strong> in the thread when it's done.</p>\n</li><li><p><strong>Review a PR</strong> — <code>/review &lt;PR url or #number&gt; [low|med|high]</code> posts a read-only review here (works in DMs too). <code>/review auto on|off [effort]</code> reviews new PRs automatically <em>(managed from the project's owner workspace)</em>.</p>\n</li><li><p><strong>Watch a PR</strong> — <code>/autofix &lt;PR&gt;</code> pings here on CI failures / new reviews with a <strong>Fix</strong> button (<code>/autofix off &lt;PR&gt;</code> / <code>list</code>).</p>\n</li><li><p><strong>Auto-investigate support tickets</strong> — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — <strong>🔍 Full ticket</strong> pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context) or ask me there to implement the fix and open a pull request, or hit <strong>📝 Report to YouTrack</strong> to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick <em>post immediately</em> to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above). The card shows <strong>who</strong> flagged the ticket, and the writeup follows the ticket's own language so support can relay it — except when one of the team's own accounts applies the tag, which gets you the answer in English.</p>\n</li><li><p><strong>What's here</strong> — <code>/access</code> shows this channel's repos + tools.</p>\n</li><li><p><strong>Inspect my context</strong> — <code>/memory</code> shows what I've learned, with a button per topic to drill in (<code>/memory &lt;topic&gt;</code> also works, <code>/memory live</code> reads the sandbox now, <code>/memory log</code> shows snapshot history); <code>/prompt</code> shows my system prompt.</p>\n</li><li><p><strong>Memory upkeep</strong> — <code>/dream on</code>/<code>off</code> schedules (or pauses) nightly memory consolidation; <code>/dream</code> for status, <code>/dream now</code> to run it once.</p>\n</li><li><p><strong>Sandbox upkeep</strong> — <code>/housekeeping on</code>/<code>off</code> schedules (or pauses) the nightly janitor (dockerd guard, docker prune when disk runs high, stale-worktree reap); <code>/housekeeping</code> for the last run, <code>/housekeeping now</code> to run it once.</p>\n</li><li><p><strong>Status</strong> — <code>/status</code> for a live view of sandboxes, sessions, open PRs — and (operators) the Claude subscription quota.</p>\n</li><li><p><strong>Check or restart a thread</strong> — hit <strong>⚙️ Session</strong> on any finished answer for a private status card (session, repos/tools, running turn, PR) and a <strong>🔄 Restart session</strong> control if you want the next message to start a brand-new conversation.</p>\n</li><li><p><strong>Tell me if it landed</strong> — every answer carries <strong>👍 Helped</strong> / <strong>👎 Missed</strong>. One click is enough; the count on the button updates so you see it registered, and a thumbs-down asks what went wrong in a short pop-up. Nothing is posted in the thread; click the other button to change your mind.</p>\n</li><li><p><strong>Usage</strong> — <code>/usage [days]</code> for token/cost/turn totals per project (and per routine, for scheduled ones), plus how many answers people rated as helpful and what those cost — per-turn figures, last 30d by default; records from before the per-turn cost fix are listed separately as legacy. <em>(Operators' home workspace only.)</em></p>\n</li><li><p><strong>Who may drive me</strong> — <code>/users</code> shows this workspace's access (everyone, by default); admins can <code>restrict</code> to an allowlist and manage it with <code>allow @user</code> / <code>deny @user</code> / <code>open</code>.</p>\n</li><li><p><strong>Reload config</strong> — <code>/reload</code> re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions. <em>(Operators' home workspace only.)</em></p>\n</li><li><p><strong>Connected sources</strong> — projects with linked mail, chat or calendar archives are pulled every 15 minutes on the bot host and scrubbed before anything reaches me; ask me about a thread or a meeting and I cite the original.</p>\n</li><li><p><strong>Pasted secrets stay here</strong> — passwords, tokens, API keys and connection strings in what you type are redacted to <code>[REDACTED:…]</code> before the model sees them (same secret → same tag, so I can still tell them apart). Prefer linking to a vault entry over pasting a credential; if I ask for one, give me a <strong>reference</strong>, not the value.</p>\n</li></ul><p class=\"meta\"><em>Commands are <code>/verb …</code> in any room or private conversation; a top-level post in a room starts a thread, no mention needed.</em></p>",
+    "onboarding": "<p>👋 I'm Aven. This installation serves no projects yet — ask your operator to add one.</p>"
+  }
+}

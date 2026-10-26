@@ -44,10 +44,16 @@ test('CHAT_DRIVER=teams runs orch teams', () => {
   assert.match(out, /\(teams bot\)/);
 });
 
+test('CHAT_DRIVER=web runs orch web', () => {
+  const { out, status } = render(`${BASE}CHAT_DRIVER=web\n`);
+  assert.equal(status, 0);
+  assert.match(out, /^ExecStart=\/usr\/bin\/node --import tsx src\/cli\.ts web$/m);
+});
+
 test('an unknown driver is refused with the list of drivers', () => {
   const { out, status } = render(`${BASE}CHAT_DRIVER=irc\n`);
   assert.notEqual(status, 0);
-  assert.match(out, /CHAT_DRIVER must be one of: slack, teams/);
+  assert.match(out, /CHAT_DRIVER must be one of: slack, teams, web/);
 });
 
 test('export and import carry hub.peers.json beside the projects config when present — never the private hub key', () => {

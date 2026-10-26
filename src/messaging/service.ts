@@ -15,6 +15,7 @@
 //
 // Everything the agent sees from another agent is framed as data (wrap.ts); data from one domain reaches
 // another only through a person (marks.ts, D14). Configuration is read at call time (D2).
+import type { ChatDriverName } from '../chat/drivers.js';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { ChatDriver } from '../chat/driver.js';
 import type { ShadowDriver } from '../chat/shadow/driver.js';
@@ -55,8 +56,8 @@ export interface MessagingDeps {
   local: PeerTransport;
   hub?: PeerTransport;
   shadow: ShadowDriver;
-  /** The chat this installation runs (`orch slack` / `orch teams`): an asking conversation's driver. */
-  platform: 'slack' | 'teams';
+  /** The chat this installation runs as its default surface (`orch slack` / `orch teams` / `orch web`): an asking conversation's driver. */
+  platform: ChatDriverName;
   /** The chat driver of a tenant (undefined = home); undefined when the tenant is gone. */
   driverFor: (ref: DriverRef) => ChatDriver | undefined;
   usageLog?: UsageLog;

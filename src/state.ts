@@ -163,6 +163,9 @@ interface StateShape {
   // Teams installations: the Bot Connector base URL the tenant's activities come from — the
   // one thing a proactive send (routines, recovery) needs that no inbound activity provides.
   teams?: { serviceUrl?: string };
+  // The web surface's people (OpenSpec web-chat-driver D5): the identity provider's subject → the name
+  // and e-mail seen at login, so posts and `<@id>` mentions render a name after a restart too.
+  webUsers?: Record<string, WebUser>;
   // Per-workspace actor access (who may drive the agent), keyed by raw tenant id.
   // Absent = the access.ts defaults (home open; client teams installer-allowlisted).
   teamAccess?: Record<string, TeamAccess>;
@@ -178,6 +181,14 @@ interface StateShape {
   // Agent messaging (OpenSpec agent-messaging; shapes in messaging/records.ts): tasks both ways, marks,
   // held messages, learned domains, daily caps and the transports' records. Absent until first used.
   messaging?: MessagingState;
+}
+
+// A person who logged in on the web surface, keyed by the user id the driver derived from the OIDC subject.
+export interface WebUser {
+  id: string;
+  name?: string;
+  email?: string;
+  seenAt: string; // ISO, the last login
 }
 
 const STATE_PATH = new URL('../state.json', import.meta.url).pathname;
@@ -306,6 +317,20 @@ export class Store {
     if (this.data.teams?.serviceUrl === url) return;
     (this.data.teams ??= {}).serviceUrl = url;
     this.save();
+  }
+
+  // ── Web: the people who logged in (name and e-mail by user id) ──
+  getWebUser(id: string): WebUser | undefined {
+    return this.data.webUsers?.[id];
+  }
+  putWebUser(rec: WebUser): void {
+    const cur = this.data.webUsers?.[rec.id];
+    if (cur && cur.name === rec.name && cur.email === rec.email && cur.seenAt === rec.seenAt) return;
+    (this.data.webUsers ??= {})[rec.id] = rec;
+    this.save();
+  }
+  listWebUsers(): WebUser[] {
+    return Object.values(this.data.webUsers ?? {});
   }
 
   // ── Slack OAuth installations (keyed enterpriseId ?? teamId; see installations.ts) ──

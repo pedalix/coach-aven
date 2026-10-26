@@ -2,7 +2,7 @@
 # Rendered by infra/deploy/deploy.sh (placeholders __USER__/__REMOTE_DIR__/__NODE__/__DRIVER__
 # substituted at install; __DRIVER__ = CHAT_DRIVER from the overlay's deploy.env, default
 # slack). All heavy work runs in sandboxes; this is just the control plane, so it's tiny.
-# Slack: no ports, Socket Mode dials OUT. Teams: a loopback port behind the host's nginx.
+# Slack: no ports, Socket Mode dials OUT. Teams and the web chat: a loopback port behind the host's nginx.
 [Unit]
 Description=CoachAven — per-project Claude Code sandboxes (__DRIVER__ bot)
 After=network-online.target

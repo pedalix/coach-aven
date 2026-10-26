@@ -25,7 +25,8 @@ test('CHAT_SURFACES — the additional chat surfaces, validated against the driv
   const { parseSurfaces } = await import('./chat/surfaces.js');
   assert.deepEqual(parseSurfaces(undefined), []);
   assert.deepEqual(parseSurfaces('teams'), ['teams']);
-  assert.throws(() => parseSurfaces('web'), /unknown chat drivers: web/);
+  assert.deepEqual(parseSurfaces('web'), ['web']);
+  assert.throws(() => parseSurfaces('irc'), /unknown chat drivers: irc/);
 });
 
 // ── the sandbox driver after the Daytona driver's removal (OpenSpec retire-daytona-driver D3) ──────────

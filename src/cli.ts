@@ -36,6 +36,16 @@ program
     await runChat(cfg, 'teams');
   });
 
+program
+  .command('web')
+  .description('Run the web chat (an HTTP listener behind your reverse proxy, OIDC login): room→project, thread→Claude session')
+  .action(async () => {
+    const cfg = loadConfig();
+    initSentry(cfg);
+    for (const w of retiredEnvWarnings(process.env)) log.warn(w);
+    await runChat(cfg, 'web');
+  });
+
 registerSourcesCommands(program);
 registerRoutinesCommands(program);
 registerHubCommands(program);

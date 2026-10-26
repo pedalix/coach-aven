@@ -7,6 +7,7 @@
 // tenant's slugs. `tenantId` undefined = home context (pollers, static mode).
 
 import { resolveByChannel, resolveBySlug, teamProjects, workspacePrefix, type ProjectConfig, type RegistryRef } from './projects.js';
+import type { ChatDriverName } from './chat/drivers.js';
 import { log } from './log.js';
 
 // What project resolution needs from a chat platform: a conversation's name (for the
@@ -55,8 +56,14 @@ export interface ChannelsOptions {
   boundOnly?: (conversation: string) => boolean;
   // Which explicit binding of a project this surface's directory reads (`slackChannel`, `teamsChannel`):
   // the driver's name. Absent: today's order (slackChannel, then teamsChannel), for a directory that
-  // serves one driver as before.
-  binding?: 'slack' | 'teams';
+  // serves one driver as before. The web binds through the two hooks below, never by a field.
+  binding?: ChatDriverName;
+  // A surface whose conversations ARE its projects' (OpenSpec web-chat-driver: a room is a project's,
+  // a private conversation names its project): the project a conversation belongs to, consulted before
+  // every other rule of pickProject — and the conversation a project's background deliveries go to.
+  // Both absent: the field bindings and the name wildcard decide, as before.
+  projectOf?: (conversation: string) => string | undefined;
+  conversationFor?: (project: ProjectConfig) => string | undefined;
 }
 
 export function createChannels(reg: RegistryRef, home: () => string | undefined, opts: ChannelsOptions = {}): Channels {
@@ -85,11 +92,14 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined,
     project: ProjectConfig,
     tenantId?: string,
   ): Promise<string | undefined> {
+    // A surface that binds by construction (the web) answers from its own hook — a project without a
+    // conversation there (a hidden room) is undefined, never a name lookup.
+    if (opts.conversationFor) return opts.conversationFor(project);
     // An explicit binding wins: the one of this surface's driver when the directory knows it (an
     // installation with several surfaces binds a project on each), else `slackChannel` then `teamsChannel`.
-    const bound = opts.binding === 'teams' ? project.teamsChannel : opts.binding === 'slack' ? project.slackChannel : (project.slackChannel ?? project.teamsChannel);
+    const bound = opts.binding === 'teams' ? project.teamsChannel : opts.binding === 'slack' ? project.slackChannel : opts.binding === 'web' ? undefined : (project.slackChannel ?? project.teamsChannel);
     if (bound) return bound;
-    if (opts.binding === 'teams') return undefined; // Teams channels have no name wildcard
+    if (opts.binding === 'teams' || opts.binding === 'web') return undefined; // no name wildcard on these surfaces
     const cacheKey = `${tenantId ?? 'home'}:${project.slug}`;
     const cached = slugChannelCache.get(cacheKey);
     if (cached) return cached;
@@ -117,7 +127,10 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined,
     const mine = teamProjects(reg.current, tenantId, home());
     const scoped = { projects: mine };
     const p = prefixFor(tenantId);
-    let project = resolveByChannel(scoped, channel);
+    // The surface's own mapping first (a web room or private conversation names its project) — inside
+    // the tenant's subset, like every other rule here.
+    const own = opts.projectOf?.(channel);
+    let project = (own ? resolveBySlug(scoped, own) : undefined) ?? resolveByChannel(scoped, channel);
     let question = text.trim();
     if (!project) {
       const name = await channelName(names, channel);

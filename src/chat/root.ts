@@ -80,6 +80,8 @@ async function plugin(name: ChatDriverName): Promise<SurfacePlugin> {
       return (await import('./slack/app.js')).slackSurface;
     case 'teams':
       return (await import('./teams/app.js')).teamsSurface;
+    case 'web':
+      return (await import('./web/app.js')).webSurface;
   }
 }
 
