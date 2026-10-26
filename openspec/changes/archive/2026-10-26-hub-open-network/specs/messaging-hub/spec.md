@@ -102,6 +102,10 @@ The hub SHALL refuse the connection when the claimed name differs from the one i
 - **WHEN** `bluefin` connects to `wss://hub.example.com/connect?as=bluefin` and signs the hub's challenge with the key bound to `bluefin`
 - **THEN** the connection is accepted, and every envelope it sends carries `bluefin` as its sender installation, whatever installation the envelope names
 
+#### Scenario: Enrolled installation
+- **WHEN** installation `bluefin` connects under a name the hub's configuration reserves for the key it signs the challenge with
+- **THEN** the connection is accepted as under *Admitted installation*, and every envelope it sends carries `bluefin` as its sender installation, whatever installation the envelope names
+
 #### Scenario: Unknown or wrong key
 - **WHEN** a client signs the challenge with a key the hub does not admit for the name it claims, or sends anything else before signing
 - **THEN** the hub closes the connection before accepting any envelope and logs the refusal without key material

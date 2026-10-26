@@ -57,4 +57,4 @@
 ## 4. After the merge and the archives
 
 - [x] 4.1 (done 2026-10-19: the home `.env` has no `DISPATCH` line; the boots since 2026-10-18 22:01 log `state: dropping the retired dispatch records — 0 proposal(s), 0 daily count(s)` and no `DISPATCH is retired` warning) On the home bot, after the restart that brings this change: delete the commented `# DISPATCH=1` line from `.env`. Verify: the boot log has no `DISPATCH is retired` warning.
-- [ ] 4.2 Archive in order: `agent-messaging`, `hub-open-network`, `retire-agent-dispatch`. Then delete `openspec/specs/agent-dispatch/`, now without requirements. The `agent-messaging` Purpose was already edited in its change (design D3a). Verify: `openspec validate --specs --strict`.
+- [x] 4.2 (done 2026-10-26 in that order; `openspec/specs/agent-dispatch/` deleted once this change's REMOVED delta left it without requirements) Archive in order: `agent-messaging`, `hub-open-network`, `retire-agent-dispatch`. Then delete `openspec/specs/agent-dispatch/`, now without requirements. The `agent-messaging` Purpose was already edited in its change (design D3a). Verify: `openspec validate --specs --strict`.
