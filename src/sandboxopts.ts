@@ -66,12 +66,6 @@ export function resolveSandboxOptions(input?: SandboxOptions): ResolvedSandboxOp
   return { privileged, dind, mounts };
 }
 
-// True when the project asked for anything other than the fleet default — drivers that
-// cannot honour options (Daytona) log once per project instead of silently ignoring them.
-export function isDefaultSandbox(o: ResolvedSandboxOptions): boolean {
-  return o.privileged && o.dind && o.mounts.length === 0;
-}
-
 // The `managedBy` label every sandbox of this deployment carries, and the filter `/aven status`
 // lists them by. An installation whose sandboxes already carry another value keeps it with
 // SANDBOX_MANAGED_BY. The value must equal the label on the existing containers: the status
@@ -87,7 +81,7 @@ export const DISPOSABLE_SANDBOX_PREFIX = 'cli-probe-';
 // Code never deletes a project's sandbox (it holds the repos, transcripts and memory of a
 // conversation): SandboxDriver.deleteSandbox accepts only a throwaway sandbox's name and refuses
 // anything that carries the project prefix. A driver's listing can hold every sandbox of an
-// account (Daytona's does), so the name is the only safe key.
+// account or a host — another installation's included — so the name is the only safe key.
 export function assertDeletable(name: string, namePrefix: string): void {
   const disposable = name.startsWith(DISPOSABLE_SANDBOX_PREFIX) && /^[a-z0-9-]+$/.test(name);
   if (!disposable || (namePrefix !== '' && name.startsWith(namePrefix))) {

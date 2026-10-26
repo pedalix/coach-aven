@@ -147,14 +147,14 @@ const DEFAULT_BOT_SCOPES = [
   'users:read',
 ];
 
-// Which sandbox provider backs a project (see driver.ts). Global default via
-// SANDBOX_DRIVER; overridable per project in projects.config.json (`driver` field).
-export type SandboxDriverKind = 'daytona' | 'ssh-docker';
+// Which sandbox driver backs a project (see driver.ts): ssh-docker, the only one since the Daytona
+// driver was removed (OpenSpec retire-daytona-driver). Installation-wide via SANDBOX_DRIVER, per
+// project via projects.config.json's `driver` field — both optional, any other value refused
+// (sandboxDriverEnv, loadProjects), and both still written out in the templates: v0.42.0 and every
+// earlier release default to daytona, so the line keeps a rollback safe.
+export type SandboxDriverKind = 'ssh-docker';
 
 export interface Config {
-  // Provider configs are optional — only the drivers actually selected need theirs set
-  // (a pure ssh-docker deployment shouldn't have to fake DAYTONA_* vars, and vice versa).
-  daytona?: { apiUrl: string; apiKey: string; organizationId: string };
   // ssh-docker: `host` is an ssh target (user@host or an ~/.ssh/config alias; key auth,
   // BatchMode), or the literal `local` to drive this machine's own Docker daemon via
   // `sh -c` with no sshd at all (single-box self-hosted instance — see
@@ -162,9 +162,14 @@ export interface Config {
   // Laravel Sail; irrelevant for projects that run with `sandbox.privileged: false`.
   sshDocker?: { host: string; runtime: 'sysbox-runc' | 'privileged' };
   sandboxDriver: SandboxDriverKind;
-  snapshot: { name: string; image: string; cpu: number; memory: number; disk: number };
-  // namePrefix isolates dev from prod on a SHARED Daytona: dev → `dev-proj-<slug>`,
-  // prod → `proj-<slug>`, so the two never share a warm sandbox (set SANDBOX_NAME_PREFIX).
+  // SNAPSHOT_IMAGE: the image every project container is created from. The Daytona-era name stays
+  // on purpose (retire-daytona-driver D2): every installation sets it, and a rename would change no
+  // behaviour.
+  snapshot: { image: string };
+  // namePrefix keeps two installations (dev and prod) apart on ONE Docker host: dev →
+  // `dev-proj-<slug>`, prod → `proj-<slug>`, so the two never share a container (set
+  // SANDBOX_NAME_PREFIX). The idle stop and a wake's clean-up assume one bot per container;
+  // SANDBOX_MANAGED_BY alone does not keep two installations apart (sandbox-idle-stop D10).
   sandbox: { autoStopMinutes: number; workDir: string; namePrefix: string };
   claudeOauthToken: string;
   // Model for the sandbox claude processes (`--model`). Unset → the Claude Code default,
@@ -288,36 +293,17 @@ export function retiredEnvWarnings(env: Record<string, string | undefined>): str
 }
 
 export function loadConfig(): Config {
-  const driver = process.env.SANDBOX_DRIVER || 'daytona';
-  if (driver !== 'daytona' && driver !== 'ssh-docker') {
-    throw new Error(`SANDBOX_DRIVER must be 'daytona' or 'ssh-docker', got: ${driver}`);
-  }
+  const sandboxDriver = sandboxDriverEnv(process.env.SANDBOX_DRIVER);
   const sshRuntime = process.env.SSHDOCKER_RUNTIME || 'privileged';
   if (sshRuntime !== 'privileged' && sshRuntime !== 'sysbox-runc') {
     throw new Error(`SSHDOCKER_RUNTIME must be 'sysbox-runc' or 'privileged', got: ${sshRuntime}`);
   }
   return {
-    daytona: process.env.DAYTONA_API_URL
-      ? {
-          apiUrl: req('DAYTONA_API_URL'),
-          apiKey: req('DAYTONA_API_KEY'),
-          organizationId: req('DAYTONA_ORGANIZATION_ID'),
-        }
-      : undefined,
     sshDocker: process.env.SSHDOCKER_HOST
       ? { host: process.env.SSHDOCKER_HOST, runtime: sshRuntime }
       : undefined,
-    sandboxDriver: driver,
-    snapshot: {
-      // SNAPSHOT_NAME only names the Daytona snapshot (daytona.ts); ssh-docker runs the
-      // image directly, so an ssh-docker deployment may leave it unset. A deployment
-      // that mixes drivers per project still needs the real name for its Daytona projects.
-      name: process.env.SNAPSHOT_NAME || (driver === 'ssh-docker' ? 'unused-under-ssh-docker' : req('SNAPSHOT_NAME')),
-      image: req('SNAPSHOT_IMAGE'),
-      cpu: num('SANDBOX_CPU', 2),
-      memory: num('SANDBOX_MEMORY', 4),
-      disk: num('SANDBOX_DISK', 20),
-    },
+    sandboxDriver,
+    snapshot: { image: req('SNAPSHOT_IMAGE') },
     sandbox: {
       autoStopMinutes: autoStopMinutesEnv(process.env.SANDBOX_AUTOSTOP_MINUTES),
       workDir: process.env.SANDBOX_WORK_DIR || '/root/work',
@@ -364,8 +350,19 @@ export function loadConfig(): Config {
 }
 
 /**
- * SANDBOX_AUTOSTOP_MINUTES: idle minutes before a project sandbox stops — Daytona's own idle stop, and
- * the bot's on ssh-docker (OpenSpec sandbox-idle-stop, which also applies a 10-minute floor there).
+ * SANDBOX_DRIVER: unset or empty → ssh-docker, the only sandbox driver (OpenSpec retire-daytona-driver D3),
+ * as is `ssh-docker` itself. Any other value — `daytona` above all — stops the boot in one sentence: it was
+ * written for a driver this build does not have, and a project is never moved to a new, empty sandbox on a
+ * guess. Nothing else the Daytona driver read (DAYTONA_*, SNAPSHOT_NAME, SANDBOX_CPU/_MEMORY/_DISK) is read.
+ */
+export function sandboxDriverEnv(raw: string | undefined): SandboxDriverKind {
+  if (!raw || raw === 'ssh-docker') return 'ssh-docker';
+  throw new Error(`SANDBOX_DRIVER=${raw}: the Daytona driver was removed after v0.42.0; ssh-docker is the only sandbox driver`);
+}
+
+/**
+ * SANDBOX_AUTOSTOP_MINUTES: idle minutes before the bot stops a project's ssh-docker container (OpenSpec
+ * sandbox-idle-stop, which also applies a 10-minute floor).
  * Trimmed: unset, empty or only spaces → 30 (`num()` read spaces as 0, i.e. "never"); 0 or negative →
  * never; not a number → the boot fails naming the key.
  */

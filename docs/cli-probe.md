@@ -47,9 +47,9 @@ npm run cli-probe -- report 2.1.282                        # recompute catalogue
 - **Isolation.** A run uses its own configuration directory and an empty working directory, and drops the parent Claude Code session's variables. A scenario may seed `files` into that working directory before the CLI starts (a project skill, for instance); paths stay inside it. The CLI version is installed into the probe's cache (`~/.cache/coach-aven/cli-probe`, or `CLI_PROBE_CACHE`), never the machine's `claude`. Every `system/init` must report the version the run names.
 - **Command line.** The probe starts the CLI with the bot's own command line (`claudeLaunch()` in `src/claudeSession.ts`) plus the scenario's extras: `--replay-user-messages`, hooks in the single `--settings`, partial messages.
 - **Cost.** The report shows each scenario's cost and the total, API-equivalent. Haiku 5.5 is the default model, about 0.02 USD a run; the full suite came to about 2 USD on 2.1.282 and 3.60 USD on 2.1.292.
-- **`--transport sandbox`.** It runs the CLI in a throwaway sandbox `cli-probe-<run>` through the bot's driver, so stdin goes the bot's way: the ssh-docker FIFO, the Daytona session input.
-  - The driver's settings come from the probe's own environment: `SANDBOX_DRIVER`, `SSHDOCKER_HOST` / `SSHDOCKER_RUNTIME` or `DAYTONA_*`, `SNAPSHOT_IMAGE`, `SANDBOX_NAME_PREFIX`.
-  - The sandbox is deleted when the run ends. Leftovers are chosen by the `cli-probe-` name, and both drivers refuse to delete a project's sandbox.
+- **`--transport sandbox`.** It runs the CLI in a throwaway sandbox `cli-probe-<run>` through the bot's driver, so stdin goes the bot's way: the ssh-docker FIFO.
+  - The driver's settings come from the probe's own environment: `SANDBOX_DRIVER`, `SSHDOCKER_HOST` / `SSHDOCKER_RUNTIME`, `SNAPSHOT_IMAGE`, `SANDBOX_NAME_PREFIX`. `SANDBOX_DRIVER` is required and must be `ssh-docker`: anything else is refused before a sandbox is created.
+  - The sandbox is deleted when the run ends. Leftovers are chosen by the `cli-probe-` name, and the driver refuses to delete a project's sandbox. A listing that cannot answer (the host unreachable, its Docker daemon down) stops the run with its error before anything is created.
 
 ## Reading a report
 

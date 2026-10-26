@@ -3,8 +3,8 @@
 #
 # Variants (one directory per Dockerfile; `laravel` is the historical default):
 #   laravel  — snapshot/Dockerfile: docker:28-dind + Sail shims, linux/amd64 only (the
-#              Daytona runner / Hetzner sandbox host are amd64; dind needs sysbox or
-#              --privileged on the host).
+#              sandbox hosts it runs on are amd64; dind needs sysbox or --privileged on
+#              the host).
 #   plain    — snapshot/plain/Dockerfile: no dockerd, no Sail, multi-arch
 #              (linux/amd64 + linux/arm64) for unprivileged sandboxes — e.g. a personal
 #              CoachAven instance on an Apple-silicon Mac mini, or any project that never
@@ -94,7 +94,6 @@ docker buildx build \
 
 if [ "$PUSH" = 1 ]; then
   echo ">> pushed ${IMAGE}:${TAG} and ${IMAGE}:latest"
-  [ "$VARIANT" = laravel ] && echo ">> register it as a Daytona snapshot with: ../src cli snapshot:ensure (or POST /api/snapshots {imageName})"
 else
   echo ">> build-only run finished (PUSH=0): nothing pushed"
 fi

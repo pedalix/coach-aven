@@ -181,7 +181,7 @@ test('housekeepingSandboxStep — wake an asleep sandbox only where the bot stop
   assert.equal(step(true, true, false, false), 'run', 'an awake sandbox runs on every driver, with the stop on or off');
   assert.equal(step(true, false, true, true), 'wake', 'ssh-docker with the idle stop on: woken, stopped again after the window');
   assert.equal(step(true, false, true, false), 'skip', 'SANDBOX_AUTOSTOP_MINUTES=0: nothing would stop it again');
-  assert.equal(step(true, false, false, true), 'skip', 'Daytona stops its own sandboxes: waking the fleet nightly would defeat it');
+  assert.equal(step(true, false, false, true), 'skip', 'a provider that stops its own sandboxes: waking the fleet nightly would defeat it');
   assert.equal(step(false, false, true, true), 'skip', 'a missing sandbox is never created');
 });
 
@@ -189,7 +189,7 @@ test('candidateList — registry projects the bot stops, with a project record, 
   const projects: IdleProject[] = [
     { slug: 'caldora' }, // default driver, default sandbox shape
     { slug: 'bluefin', sandbox: { privileged: false, dind: false } },
-    { slug: 'harbor', driver: 'daytona' }, // its provider stops it
+    { slug: 'harbor', driver: 'self-stopping' }, // a driver whose provider stops its sandboxes itself
     { slug: 'newbie' }, // never had a turn
     { slug: 'renamed' },
     { slug: 'broken', sandbox: { privileged: false, dind: true } }, // refused at boot; read as the default
@@ -411,7 +411,7 @@ test('sweep — an outage that ended while the container had work: the next fail
 });
 
 test('sweep — a driver kind without a stopper (its provider stops sandboxes itself) is never asked', async () => {
-  const { h, s } = sweep([cand('caldora', { kind: 'daytona' })], { kinds: { daytona: false } });
+  const { h, s } = sweep([cand('caldora', { kind: 'self-stopping' })], { kinds: { 'self-stopping': false } });
   h.now = 600 * MIN;
   await s.tick();
   assert.deepEqual(h.calls, []);

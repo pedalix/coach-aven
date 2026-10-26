@@ -27,7 +27,7 @@ Start here:
  Teams ⇄ HTTPS (Microsoft dials in: a public endpoint behind your reverse proxy)
    │       one chat driver per installation
  orchestrator  (Node, one process; state.json; pollers for routines / PR review / tickets)
-   │  sandbox driver: Daytona over HTTPS, or containers on your own host over SSH
+   │  sandbox driver: containers on a Docker host you own, over SSH (or this host's own Docker)
    ▼
  proj-<slug> sandbox  ── git clone of the project's repos, one worktree per task,
                          a persistent `claude` process per conversation (stream-json),
@@ -42,14 +42,12 @@ place to run sandboxes.
 
 1. **Slack app** — create it from [`slack-app-manifest.json`](slack-app-manifest.json)
    (Socket Mode on). Note the bot token (`xoxb-…`) and the app-level token (`xapp-…`).
-2. **Sandboxes** — pick a driver (`docs/sandbox-drivers.md`):
-   - `SANDBOX_DRIVER=ssh-docker`: containers on a Docker host you own, over SSH, or on this
-     very machine with `SSHDOCKER_HOST=local`.
-   - `SANDBOX_DRIVER=daytona`: a self-hosted [Daytona](https://www.daytona.io).
-
-   Either driver runs the sandbox image from [`snapshot/`](snapshot/README.md): build it and push
-   it to your own registry (none is published), then point `SNAPSHOT_IMAGE` at the `:<gitsha>` tag
-   the build prints. The `plain` variant needs no privileged containers and runs on arm64.
+2. **Sandboxes** — containers on a Docker host you own (`docs/sandbox-drivers.md`): over SSH
+   (`SSHDOCKER_HOST=user@host`), or on this very machine (`SSHDOCKER_HOST=local`). Keep
+   `SANDBOX_DRIVER=ssh-docker` as the template writes it. The containers run the sandbox image
+   from [`snapshot/`](snapshot/README.md): build it and push it to your own registry (none is
+   published), then point `SNAPSHOT_IMAGE` at the `:<gitsha>` tag the build prints. The `plain`
+   variant needs no privileged containers and runs on arm64.
 3. **GitHub** — a GitHub App installed on the org/repos with *Contents* + *Pull requests*
    read & write, *Checks* read and *Metadata* read; set `GITHUB_APP_ID` + the private key path. (A plain
    `GITHUB_TOKEN` works for a quick trial.)

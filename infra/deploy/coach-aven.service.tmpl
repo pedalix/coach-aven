@@ -7,7 +7,7 @@
 Description=CoachAven — per-project Claude Code sandboxes (__DRIVER__ bot)
 After=network-online.target
 Wants=network-online.target
-# Don't hammer Daytona/Slack if it crash-loops: cap restarts in a window, then fail.
+# Don't hammer Slack or the sandbox host if it crash-loops: cap restarts in a window, then fail.
 # (These are [Unit] keys — systemd ignores them under [Service].)
 StartLimitIntervalSec=120
 StartLimitBurst=8

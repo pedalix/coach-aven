@@ -1,5 +1,5 @@
 // Pure PR helpers for the /aven review|autofix commands and (later) the PR-watcher.
-// No Slack/Daytona deps, so it's unit-testable in isolation (see pr.test.ts).
+// No Slack or sandbox deps, so it's unit-testable in isolation (see pr.test.ts).
 
 export interface PrTarget {
   slug: string; // owning project

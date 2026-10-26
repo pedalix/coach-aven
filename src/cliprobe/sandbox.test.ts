@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { claudeLaunch } from '../claudeSession.js';
 import { CLI_PATH_ENV } from '../cliversion.js';
 import type { ExecOpts, SandboxDriver, SandboxHandle } from '../driver.js';
-import { SANDBOX_WORK_DIR, sandboxTransport } from './sandbox.js';
+import { SshDockerDriver } from '../sshdocker.js';
+import { driverFromEnv, SANDBOX_WORK_DIR, sandboxTransport } from './sandbox.js';
 
 // A fake driver whose listing also holds an installation's project sandboxes.
 function fakeDriver(o: { upgradeTo?: string; states?: Record<string, string> } = {}) {
@@ -80,4 +81,21 @@ test('sandboxTransport — the run fails midway: a wrong version after the upgra
   const { driver, calls } = fakeDriver({ upgradeTo: '2.1.260', states: {} });
   await assert.rejects(sandboxTransport({ driver, runId: 'r1', version: '2.1.282', token: 't' }), /runs Claude Code 2\.1\.260 after the upgrade step, not 2\.1\.282/);
   assert.equal(calls.at(-1), 'delete cli-probe-r1');
+});
+
+// The probe's own environment picks the driver (OpenSpec retire-daytona-driver D3): SANDBOX_DRIVER stays
+// required there, and only ssh-docker is accepted — a missing value or a leftover `daytona` stops the run
+// before a driver (let alone a sandbox) exists.
+const PROBE_ENV = { SNAPSHOT_IMAGE: 'registry.example/sandbox-plain:1', SSHDOCKER_HOST: 'sandboxes.example' };
+
+test('driverFromEnv — ssh-docker: the bot’s driver, labelled for the report', () => {
+  const d = driverFromEnv({ ...PROBE_ENV, SANDBOX_DRIVER: 'ssh-docker' });
+  assert.ok(d.driver instanceof SshDockerDriver);
+  assert.equal(d.label, 'sandbox (ssh-docker)');
+});
+
+test('driverFromEnv — a missing SANDBOX_DRIVER, daytona or any other value is refused, naming ssh-docker', () => {
+  for (const env of [PROBE_ENV, { ...PROBE_ENV, SANDBOX_DRIVER: 'daytona' }, { ...PROBE_ENV, SANDBOX_DRIVER: 'kubernetes' }]) {
+    assert.throws(() => driverFromEnv(env), { message: '--transport sandbox needs SANDBOX_DRIVER=ssh-docker in the probe’s environment' }, JSON.stringify(env));
+  }
 });

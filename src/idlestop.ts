@@ -1,9 +1,8 @@
-// The idle stop (OpenSpec `sandbox-idle-stop`): a project sandbox nobody uses is stopped, as
-// Daytona's provider stopped its sandboxes after SANDBOX_AUTOSTOP_MINUTES. The session code was
-// written for that lifecycle — the live-session LRU and the chat prune leave a conversation's
-// `claude` process to "the sandbox's own idle lifecycle" — and ssh-docker had none, so every
-// conversation touched since a container started kept its process (and the agent's Sail stack
-// kept running) until the container restarted.
+// The idle stop (OpenSpec `sandbox-idle-stop`): a project sandbox nobody uses is stopped after
+// SANDBOX_AUTOSTOP_MINUTES. The session code relies on that lifecycle — the live-session LRU and
+// the chat prune leave a conversation's `claude` process to "the sandbox's own idle lifecycle" —
+// and a Docker container has none: without this, every conversation touched since a container
+// started kept its process (and the agent's Sail stack kept running) until the container restarted.
 //
 // The parts, all pure or injected so they are tested without Docker:
 //   • SandboxActivity — what the bot did in each container and when (every handle call, every
@@ -212,8 +211,8 @@ export const stopCutWork = (s: { background: number; selfTurn: boolean }): boole
 /**
  * What the nightly housekeeping pass does with a project's sandbox (design D13): runs in an awake
  * one; wakes an asleep one only where the bot owns the idle stop AND it is on, so the stop puts it
- * back to sleep — on a provider that stops its own sandboxes (Daytona), or with
- * SANDBOX_AUTOSTOP_MINUTES=0, an asleep sandbox is skipped as before; a missing one is never created.
+ * back to sleep — on a driver whose provider stops its own sandboxes, or with
+ * SANDBOX_AUTOSTOP_MINUTES=0, an asleep sandbox is skipped; a missing one is never created.
  */
 export function housekeepingSandboxStep(s: { exists: boolean; started: boolean; driverStops: boolean; idleStopOn: boolean }): 'run' | 'wake' | 'skip' {
   if (!s.exists) return 'skip';
@@ -241,7 +240,7 @@ export interface IdleProject {
 export interface CandidateDeps {
   projects(): readonly IdleProject[]; // the registry as it is now (/aven reload changes it)
   defaultKind: string; // SANDBOX_DRIVER, for a project without its own `driver`
-  driverStops(kind: string): boolean; // that kind's driver has stopSandbox (Daytona does not)
+  driverStops(kind: string): boolean; // that kind's driver has stopSandbox (none if its provider stops idle ones)
   storedName(slug: string): string | undefined; // the project record's sandboxName; none → never had a turn
   namePrefix: string;
   warn(line: string): void;

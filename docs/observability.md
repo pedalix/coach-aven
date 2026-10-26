@@ -1,7 +1,7 @@
 # Observability
 
 How we watch the CoachAven **control plane** (the bot/orchestrator) — errors, performance,
-logs. The heavy work runs in Daytona sandboxes; this is about the long-lived Node process.
+logs. The heavy work runs in the project sandboxes; this is about the long-lived Node process.
 
 ## Decision: Sentry, not a dedicated Grafana pipeline
 
