@@ -426,6 +426,20 @@ test('turn record: in-flight turn not recoverable', async () => {
   await record('recover-lost', () => recover({ adopt: async () => ({ ok: false, status: 'timeout', text: '' }) }, inflightSeed));
 });
 
+// A turn interrupted while still preparing (no session yet): nothing to reattach to — the frozen status
+// message says so and the in-flight marker goes, instead of "Preparing…" forever (found on the web canary).
+test('turn record: a turn interrupted before its session started is finalized at boot', async () => {
+  await record('recover-unprepared', async () => {
+    const { engine, client, store } = harness({}, (st) => {
+      st.patchChat('thread:100.1', 'alpha', { inflight: { channel: 'C1', statusTs: '100.5', msgThreadTs: '100.1', startedAt: '1970-01-01T00:00:00.000Z' } });
+    });
+    const recovering = engine.resumeInflightTurns(() => client);
+    assert.equal(recovering.size, 1);
+    await Promise.all(recovering.values());
+    assert.equal(store.getChat('thread:100.1')?.inflight, undefined);
+  });
+});
+
 test('turn record: queued turns replayed after a restart (plain reruns, non-plain asks for a resend)', async () => {
   await record('replay-queued', () =>
     recover({ ask: async () => 'Replayed.' }, (_store, journal) => {
