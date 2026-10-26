@@ -67,6 +67,9 @@ same pollers. Mechanism only — your hostname, issuer and client ids live in yo
 
 **Local run, no login.** `WEB_AUTH=none` is accepted only when the listener is loopback (`WEB_BIND=127.0.0.1`) and the
 base URL is a localhost one: a fixed local user, no identity provider — for development and the end-to-end harness.
+Without `WEB_SESSION_SECRET` the secret is generated per boot, so a restart signs everyone out (one redirect to sign in
+again); set it to keep sessions across restarts. Running beside a Slack or Teams bot of the same machine? Start it with
+its own `SANDBOX_NAME_PREFIX`, `AVEN_DATA_DIR` and without the hub settings, or it shares their sandboxes and identity.
 
 ## What differs for people (the parity matrix)
 
