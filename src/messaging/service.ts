@@ -26,6 +26,7 @@ import { localDate } from '../routineguard.js';
 import type { Store } from '../state.js';
 import type { ChatSession } from '../tasks.js';
 import { normalizeTenant, splitTeam } from '../teamkeys.js';
+import { splitSurface, type DriverRef } from '../chat/surfaces.js';
 import type { TurnEngine, TurnOpts } from '../turn.js';
 import { isSkillId, isTerminal, parseCard, parseMessage, parseStatus, textMessage, textOf, type AgentCard, type AgentSkill, type TaskState } from './a2a.js';
 import { messagingLimits, type MessagingConfig } from './config.js';
@@ -57,7 +58,7 @@ export interface MessagingDeps {
   /** The chat this installation runs (`orch slack` / `orch teams`): an asking conversation's driver. */
   platform: 'slack' | 'teams';
   /** The chat driver of a tenant (undefined = home); undefined when the tenant is gone. */
-  driverFor: (teamId: string | undefined) => ChatDriver | undefined;
+  driverFor: (ref: DriverRef) => ChatDriver | undefined;
   usageLog?: UsageLog;
   /** A project's own Claude Code skills as last scanned (facts `project_skills`); undefined = never scanned. */
   skillsOf?: (slug: string) => readonly ProjectSkill[] | undefined;
@@ -169,7 +170,7 @@ export function createMessaging(d: MessagingDeps) {
   function driverOf(reply: ReplyTarget): ChatDriver | undefined {
     if (reply.driver === 'shadow') return d.shadow;
     try {
-      return d.driverFor(splitTeam(reply.key).tenantId);
+      return d.driverFor(splitSurface(reply.key));
     } catch {
       return undefined;
     }

@@ -1,8 +1,7 @@
 #!/usr/bin/env -S npx tsx
 import { Command } from 'commander';
 import { loadConfig, retiredEnvWarnings } from './config.js';
-import { runSlack } from './chat/slack/app.js';
-import { runTeams } from './chat/teams/app.js';
+import { runChat } from './chat/root.js';
 import { log } from './log.js';
 import { initSentry, captureError, flushSentry } from './sentry.js';
 import { registerSourcesCommands } from './sources/cli.js';
@@ -24,7 +23,7 @@ program
     const cfg = loadConfig();
     initSentry(cfg); // no-op unless SENTRY_DSN is set
     for (const w of retiredEnvWarnings(process.env)) log.warn(w);
-    await runSlack(cfg);
+    await runChat(cfg, 'slack');
   });
 
 program
@@ -34,7 +33,7 @@ program
     const cfg = loadConfig();
     initSentry(cfg);
     for (const w of retiredEnvWarnings(process.env)) log.warn(w);
-    await runTeams(cfg);
+    await runChat(cfg, 'teams');
   });
 
 registerSourcesCommands(program);

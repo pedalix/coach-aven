@@ -20,3 +20,10 @@ test('SANDBOX_AUTOSTOP_MINUTES — trimmed; unset, empty or only spaces is the d
   assert.equal(autoStopMinutesEnv('-5'), -5);
   assert.throws(() => autoStopMinutesEnv('thirty'), /SANDBOX_AUTOSTOP_MINUTES must be a number, got: thirty/);
 });
+
+test('CHAT_SURFACES — the additional chat surfaces, validated against the drivers this build has (multi-driver-installation)', async () => {
+  const { parseSurfaces } = await import('./chat/surfaces.js');
+  assert.deepEqual(parseSurfaces(undefined), []);
+  assert.deepEqual(parseSurfaces('teams'), ['teams']);
+  assert.throws(() => parseSurfaces('web'), /unknown chat drivers: web/);
+});

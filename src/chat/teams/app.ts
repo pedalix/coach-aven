@@ -10,12 +10,9 @@
 import express from 'express';
 import { App, ExpressAdapter } from '@microsoft/teams.apps';
 import type { Config, TeamsConfig } from '../../config.js';
-import { Store } from '../../state.js';
-import { loadProjects, type RegistryRef, resolveByChannel } from '../../projects.js';
-import { createTurnEngine } from '../../turn.js';
-import { createChannels } from '../../channels.js';
-import { createPollers, ROUTINE_TZ } from '../../pollers.js';
-import { createHostRouter } from '../../hostrouter.js';
+import type { PreparedSurface, SharedDeps, SurfacePlugin, WiredSurface } from '../root.js';
+import type { Store } from '../../state.js';
+import { type RegistryRef, resolveByChannel } from '../../projects.js';
 import { createActorGate } from '../core/gates.js';
 import { createInteractions } from '../core/interactions.js';
 import { createMessages } from '../core/messages.js';
@@ -28,200 +25,182 @@ import { hasReplyChains } from './keys.js';
 import { scrubText } from '../../scrub.js';
 import { withNetRetry } from '../../netretry.js';
 import { log } from '../../log.js';
-import { messagingRuntime } from '../../messaging/runtime.js';
-import { UsageLog } from '../../metering.js';
 
-export async function runTeams(cfg: Config): Promise<void> {
-  const teams = cfg.teams;
-  if (!teams) {
-    throw new Error('Set TEAMS_APP_ID, TEAMS_APP_PASSWORD and TEAMS_TENANT_ID (the infra/teams module outputs) to run the Teams bot.');
-  }
-  const reg: RegistryRef = { current: loadProjects(cfg.projectsConfigPath) };
-  const store = new Store();
-  const tenantId = teams.tenantId;
+/**
+ * The Teams surface (OpenSpec multi-driver-installation D2): prepared by the composition root
+ * (`src/chat/root.ts`), which owns the engine, the pollers and the messaging runtime. `prepare`
+ * builds the SDK app, the Connector seam and the driver; `wire` builds this surface's core handlers
+ * and registers the activities; `start` opens the loopback listener. Exactly the sequence `runTeams` had.
+ */
+export const teamsSurface: SurfacePlugin = {
+  name: 'teams',
+  async prepare(cfg: Config, store: Store, reg: RegistryRef): Promise<PreparedSurface> {
+    const teams = cfg.teams;
+    if (!teams) {
+      throw new Error('Set TEAMS_APP_ID, TEAMS_APP_PASSWORD and TEAMS_TENANT_ID (the infra/teams module outputs) to run the Teams bot.');
+    }
+    const tenantId = teams.tenantId;
 
-  // ── the SDK app, on our own listener ──────────────────────────────────────
-  // ExpressAdapter: the SDK registers /api/messages on an Express app we own, so the listener
-  // binds to loopback (nginx is the public face) and nothing else is served.
-  const server = express();
-  const app = new App({
-    clientId: teams.appId,
-    clientSecret: teams.appPassword,
-    tenantId,
-    httpServerAdapter: new ExpressAdapter(server),
-    logger: sdkLogger(teams.trace),
-  });
-
-  // TEAMS_TRACE=full: every Connector request and response in the journal (method, URL, body — scrubbed,
-  // cut), and every Graph call the file path makes. The interceptor is registered once on the app's
-  // client; clones (apiFor) inherit it. Errors stay the connector()'s to report.
-  if (teams.trace === 'full') {
-    (app.api.http as { use(i: unknown): unknown }).use({
-      request: (ctx: { config: { method?: string; url?: string; data?: unknown } }) => {
-        log.info(`teams-http → ${(ctx.config.method ?? 'get').toUpperCase()} ${ctx.config.url ?? ''}${ctx.config.data !== undefined ? ` ${traced(ctx.config.data, 4000)}` : ''}`);
-        return ctx.config;
-      },
-      response: (ctx: { res: { status?: number; data?: unknown; config?: { method?: string; url?: string } } }) => {
-        log.info(`teams-http ← ${ctx.res.status ?? '?'} ${(ctx.res.config?.method ?? 'get').toUpperCase()} ${ctx.res.config?.url ?? ''}${ctx.res.data !== undefined && ctx.res.data !== '' ? ` ${traced(ctx.res.data, 4000)}` : ''}`);
-        return ctx.res;
-      },
+    // ── the SDK app, on our own listener ──────────────────────────────────────
+    // ExpressAdapter: the SDK registers /api/messages on an Express app we own, so the listener
+    // binds to loopback (nginx is the public face) and nothing else is served.
+    const server = express();
+    const app = new App({
+      clientId: teams.appId,
+      clientSecret: teams.appPassword,
+      tenantId,
+      httpServerAdapter: new ExpressAdapter(server),
+      logger: sdkLogger(teams.trace),
     });
-  }
-  const tracedFetch: typeof fetch = async (input, init) => {
-    const res = await fetch(input, init);
-    const body = await res.clone().text().catch(() => '');
-    log.info(`teams-graph ${(init?.method ?? 'GET').toUpperCase()} ${String(input)} ← ${res.status}${body ? ` ${traced(body, 4000)}` : ''}`);
-    return res;
-  };
 
-  // ── the driver's API seam over the SDK's Connector client ─────────────────
-  // Proactive sends (pollers, recovery) need the tenant's service URL; inbound activities carry
-  // it and the store remembers the last one, so a fresh boot can post before any new message.
-  let serviceUrl = store.getTeamsServiceUrl();
-  const apiFor = () => (serviceUrl ? app.api.clone({ serviceUrl }) : app.api);
-  const api: TeamsApi = {
-    async send(conversationId, activity) {
-      const sent = await connector('send', conversationId, () => apiFor().conversations.createActivity(conversationId, activity as never));
-      return { id: (sent as { id?: string }).id ?? '' };
-    },
-    async sendTargeted(conversationId, activity) {
-      const sent = await connector('sendTargeted', conversationId, () => apiFor().conversations.createTargetedActivity(conversationId, activity as never));
-      return { id: (sent as { id?: string }).id ?? '' };
-    },
-    async update(conversationId, activityId, activity) {
-      await connector('update', conversationId, () => apiFor().conversations.updateActivity(conversationId, activityId, activity as never));
-    },
-    async react(conversationId, activityId, type, op) {
-      await connector(`react:${op}`, conversationId, () =>
-        op === 'add'
-          ? apiFor().conversations.addReaction(conversationId, activityId, type as never)
-          : apiFor().conversations.deleteReaction(conversationId, activityId, type as never),
-      );
-    },
-    async memberName(conversationId, userId) {
-      const m = await connector('member', conversationId, () => apiFor().conversations.members(conversationId).getById(userId));
-      return (m as { name?: string }).name;
-    },
-    async openPersonal(userId) {
-      const res = await connector('openPersonal', userId, () =>
-        apiFor().conversations.create({ tenantId, isGroup: false, bot: { id: `28:${teams.appId}` }, members: [{ id: userId }] } as never),
-      );
-      return (res as { id?: string }).id;
-    },
-  };
-  const tokens = app as unknown as { getBotToken(): Promise<{ toString(): string } | null>; getAppGraphToken(t?: string): Promise<{ toString(): string } | null> };
-  const driver = teamsDriver(api, { tenantId, statusMinMs: teams.statusMinMs, targeted: teams.targeted });
-  // Operators (TEAMS_OPERATORS): Teams user ids (`29:…`, as `/users` lists them) or Entra object
-  // ids — the latter matched through the `aadObjectId` every activity of that person carries.
-  const operators = new Set(teams.operators);
-  const aadOf = new Map<string, string>();
-  const groupIds = new Map<string, string>(); // Teams team id → Microsoft 365 group id (files.groupIdOf)
-  const isOperator = (user: string | undefined) => !!user && (operators.has(user) || operators.has(aadOf.get(user) ?? ''));
-  const driverFor = () => driver; // one tenant: every record resolves to the same driver
+    // TEAMS_TRACE=full: every Connector request and response in the journal (method, URL, body — scrubbed,
+    // cut), and every Graph call the file path makes. The interceptor is registered once on the app's
+    // client; clones (apiFor) inherit it. Errors stay the connector()'s to report.
+    if (teams.trace === 'full') {
+      (app.api.http as { use(i: unknown): unknown }).use({
+        request: (ctx: { config: { method?: string; url?: string; data?: unknown } }) => {
+          log.info(`teams-http → ${(ctx.config.method ?? 'get').toUpperCase()} ${ctx.config.url ?? ''}${ctx.config.data !== undefined ? ` ${traced(ctx.config.data, 4000)}` : ''}`);
+          return ctx.config;
+        },
+        response: (ctx: { res: { status?: number; data?: unknown; config?: { method?: string; url?: string } } }) => {
+          log.info(`teams-http ← ${ctx.res.status ?? '?'} ${(ctx.res.config?.method ?? 'get').toUpperCase()} ${ctx.res.config?.url ?? ''}${ctx.res.data !== undefined && ctx.res.data !== '' ? ` ${traced(ctx.res.data, 4000)}` : ''}`);
+          return ctx.res;
+        },
+      });
+    }
+    const tracedFetch: typeof fetch = async (input, init) => {
+      const res = await fetch(input, init);
+      const body = await res.clone().text().catch(() => '');
+      log.info(`teams-graph ${(init?.method ?? 'GET').toUpperCase()} ${String(input)} ← ${res.status}${body ? ` ${traced(body, 4000)}` : ''}`);
+      return res;
+    };
 
-  // Operator error alerts → a Teams channel (AVEN_ALERT_CHANNEL = a channel id the app is in).
-  const ALERT_CHANNEL = process.env.AVEN_ALERT_CHANNEL;
-  const recentAlerts = new Map<string, number>();
-  if (ALERT_CHANNEL) {
-    const PREFIX: Record<AlertLevel, string> = { error: '🚨 CoachAven error:', warning: '⚠️ CoachAven:', info: '✅ CoachAven:' };
-    setAlertSink((text, level) => {
-      const now = Date.now();
-      const last = recentAlerts.get(text);
-      if (last && now - last < 60_000) return;
-      recentAlerts.set(text, now);
-      if (recentAlerts.size > 200) recentAlerts.clear();
-      void driver.post({ conv: ALERT_CHANNEL }, { kind: 'text', text: `${PREFIX[level]} ${text}`.slice(0, 2000) }).catch(() => {});
-    });
-  }
-
-  // ── engine, channels, pollers, messaging — as on Slack ────────────────────
-  // Agent messaging (OpenSpec agent-messaging): as in the Slack root — the shadow hooks into the engine,
-  // the service once the engine exists; nothing reaches it without a `messaging` block.
-  const messaging = messagingRuntime({ cfg, store, reg, home: () => tenantId, platform: 'teams' });
-  const hostRoutes = createHostRouter({ tz: ROUTINE_TZ, messaging: messaging.messaging });
-  const engine = createTurnEngine(cfg, store, reg, { hostRoutes, shadow: messaging.turnDeps });
-  // Team channels map by id only (teams-chat-driver): no single-project fallback there, 1:1 chats keep it.
-  const channels = createChannels(reg, () => tenantId, { boundOnly: hasReplyChains });
-  messaging.start({ engine, driverFor, usageLog: new UsageLog(), tz: ROUTINE_TZ });
-  const pollers = createPollers(cfg, store, reg, driverFor, engine, channels, () => tenantId);
-
-  const actor = createActorGate(store, tenantId);
-  const servedTenant = (t: string | undefined) => t === tenantId;
-  const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', messaging: messaging.messaging });
-  const messages = createMessages({ store, reg, engine, channels, homeTeamId: tenantId, actor, parkDmPick: core.parkDmPick });
-  const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks });
-
-  registerEvents(app as unknown as TeamsAppLike, {
-    tenantId,
-    driver,
-    messages,
-    core,
-    commands,
-    onServiceUrl: (url) => {
-      if (url === serviceUrl) return;
-      serviceUrl = url;
-      store.setTeamsServiceUrl(url);
-    },
-    onPerson: (id, name, aad) => {
-      driver.knowPerson(id, name);
-      if (aad) aadOf.set(id, aad);
-    },
-    boundProject: (conv) => resolveByChannel(reg.current, conv)?.slug,
-    // The SDK keeps both tokens protected; they are the app's own (client credentials), fetched
-    // and cached by its token manager. The Graph one is empty until the tenant consented
-    // Files.Read.All (the module's `supports_files`).
-    files: {
-      botToken: async () => (await tokens.getBotToken())?.toString(),
-      graphToken: async () => (await tokens.getAppGraphToken(tenantId))?.toString(),
-      // The team's group id when the activity does not carry it: the Connector's team details, once per team.
-      ...(teams.trace === 'full' ? { fetch: tracedFetch } : {}),
-      groupIdOf: async (teamId) => {
-        const cached = groupIds.get(teamId);
-        if (cached) return cached;
-        const details = (await connector('team', teamId, () => apiFor().teams.getById(teamId))) as { aadGroupId?: string };
-        if (details.aadGroupId) groupIds.set(teamId, details.aadGroupId);
-        return details.aadGroupId;
+    // ── the driver's API seam over the SDK's Connector client ─────────────────
+    // Proactive sends (pollers, recovery) need the tenant's service URL; inbound activities carry
+    // it and the store remembers the last one, so a fresh boot can post before any new message.
+    let serviceUrl = store.getTeamsServiceUrl();
+    const apiFor = () => (serviceUrl ? app.api.clone({ serviceUrl }) : app.api);
+    const api: TeamsApi = {
+      async send(conversationId, activity) {
+        const sent = await connector('send', conversationId, () => apiFor().conversations.createActivity(conversationId, activity as never));
+        return { id: (sent as { id?: string }).id ?? '' };
       },
-    },
-  });
+      async sendTargeted(conversationId, activity) {
+        const sent = await connector('sendTargeted', conversationId, () => apiFor().conversations.createTargetedActivity(conversationId, activity as never));
+        return { id: (sent as { id?: string }).id ?? '' };
+      },
+      async update(conversationId, activityId, activity) {
+        await connector('update', conversationId, () => apiFor().conversations.updateActivity(conversationId, activityId, activity as never));
+      },
+      async react(conversationId, activityId, type, op) {
+        await connector(`react:${op}`, conversationId, () =>
+          op === 'add'
+            ? apiFor().conversations.addReaction(conversationId, activityId, type as never)
+            : apiFor().conversations.deleteReaction(conversationId, activityId, type as never),
+        );
+      },
+      async memberName(conversationId, userId) {
+        const m = await connector('member', conversationId, () => apiFor().conversations.members(conversationId).getById(userId));
+        return (m as { name?: string }).name;
+      },
+      async openPersonal(userId) {
+        const res = await connector('openPersonal', userId, () =>
+          apiFor().conversations.create({ tenantId, isGroup: false, bot: { id: `28:${teams.appId}` }, members: [{ id: userId }] } as never),
+        );
+        return (res as { id?: string }).id;
+      },
+    };
+    const tokens = app as unknown as { getBotToken(): Promise<{ toString(): string } | null>; getAppGraphToken(t?: string): Promise<{ toString(): string } | null> };
+    const driver = teamsDriver(api, { tenantId, statusMinMs: teams.statusMinMs, targeted: teams.targeted });
+    // Operators (TEAMS_OPERATORS): Teams user ids (`29:…`, as `/users` lists them) or Entra object
+    // ids — the latter matched through the `aadObjectId` every activity of that person carries.
+    const operators = new Set(teams.operators);
+    const aadOf = new Map<string, string>();
+    const groupIds = new Map<string, string>(); // Teams team id → Microsoft 365 group id (files.groupIdOf)
+    const isOperator = (user: string | undefined) => !!user && (operators.has(user) || operators.has(aadOf.get(user) ?? ''));
 
-  // Recovery before the listener opens: the journal drain must not race new activities.
-  const recovering = engine.resumeInflightTurns(driverFor);
-  engine.resumeQueuedTurns(driverFor, recovering);
-  messaging.recover(recovering); // messages that were on their way, after their conversation's recovery
+    // Operator error alerts → a Teams channel (AVEN_ALERT_CHANNEL = a channel id the app is in).
+    const ALERT_CHANNEL = process.env.AVEN_ALERT_CHANNEL;
+    const recentAlerts = new Map<string, number>();
+    if (ALERT_CHANNEL) {
+      const PREFIX: Record<AlertLevel, string> = { error: '🚨 CoachAven error:', warning: '⚠️ CoachAven:', info: '✅ CoachAven:' };
+      setAlertSink((text, level) => {
+        const now = Date.now();
+        const last = recentAlerts.get(text);
+        if (last && now - last < 60_000) return;
+        recentAlerts.set(text, now);
+        if (recentAlerts.size > 200) recentAlerts.clear();
+        void driver.post({ conv: ALERT_CHANNEL }, { kind: 'text', text: `${PREFIX[level]} ${text}`.slice(0, 2000) }).catch(() => {});
+      });
+    }
 
-  await app.initialize();
-  const listener = await new Promise<import('node:http').Server>((resolve, reject) => {
-    const l = server.listen(teams.port, '127.0.0.1', () => resolve(l));
-    l.once('error', reject);
-  });
-  log.info(`Teams bot running (:${teams.port}) — ${summary(reg.current)}`);
-  pollers.startAll();
+    return {
+      name: 'teams',
+      homeTenantId: () => tenantId,
+      driverFor: () => driver, // one tenant: every record resolves to the same driver
+      // Team channels map by id only (teams-chat-driver): no single-project fallback there, 1:1 chats keep it.
+      channelsOptions: { boundOnly: hasReplyChains },
+      hasHome: true,
+      async wire({ cfg, store, reg, engine, channels, pollers, messaging }: SharedDeps): Promise<WiredSurface> {
+      const actor = createActorGate(store, tenantId);
+      const servedTenant = (t: string | undefined) => t === tenantId;
+      const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', messaging: messaging.messaging });
+      const messages = createMessages({ store, reg, engine, channels, homeTeamId: tenantId, actor, parkDmPick: core.parkDmPick });
+      const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks });
 
-  const DAY_MS = 24 * 60 * 60_000;
-  const pruneState = () => {
-    const chats = store.pruneChats(45 * DAY_MS);
-    const prs = store.pruneReviewedPrs(90 * DAY_MS);
-    const asks = store.pruneMessaging(30 * DAY_MS); // agent messaging: ended tasks, held messages (none without messaging)
-    if (chats || prs) log.info(`retention: pruned ${chats} idle chats, ${prs} reviewed-PR entries`);
-    if (asks) log.info(`retention: pruned ${asks} ended agent-messaging records`);
-  };
-  pruneState();
-  setInterval(pruneState, DAY_MS).unref();
+      registerEvents(app as unknown as TeamsAppLike, {
+        tenantId,
+        driver,
+        messages,
+        core,
+        commands,
+        onServiceUrl: (url) => {
+          if (url === serviceUrl) return;
+          serviceUrl = url;
+          store.setTeamsServiceUrl(url);
+        },
+        onPerson: (id, name, aad) => {
+          driver.knowPerson(id, name);
+          if (aad) aadOf.set(id, aad);
+        },
+        boundProject: (conv) => resolveByChannel(reg.current, conv)?.slug,
+        // The SDK keeps both tokens protected; they are the app's own (client credentials), fetched
+        // and cached by its token manager. The Graph one is empty until the tenant consented
+        // Files.Read.All (the module's `supports_files`).
+        files: {
+          botToken: async () => (await tokens.getBotToken())?.toString(),
+          graphToken: async () => (await tokens.getAppGraphToken(tenantId))?.toString(),
+          // The team's group id when the activity does not carry it: the Connector's team details, once per team.
+          ...(teams.trace === 'full' ? { fetch: tracedFetch } : {}),
+          groupIdOf: async (teamId) => {
+            const cached = groupIds.get(teamId);
+            if (cached) return cached;
+            const details = (await connector('team', teamId, () => apiFor().teams.getById(teamId))) as { aadGroupId?: string };
+            if (details.aadGroupId) groupIds.set(teamId, details.aadGroupId);
+            return details.aadGroupId;
+          },
+        },
+      });
 
-  let stopping = false;
-  const shutdown = (sig: string) => {
-    if (stopping) return;
-    stopping = true;
-    log.info(`${sig} — closing the Teams listener and exiting (in-flight turns recover on the next boot)`);
-    // The listener is ours (ExpressAdapter), so it is ours to close — app.stop() would only
-    // complain that the server lifecycle is managed externally.
-    listener.close(() => process.exit(0));
-    setTimeout(() => process.exit(0), 5000).unref();
-  };
-  process.once('SIGTERM', () => shutdown('SIGTERM'));
-  process.once('SIGINT', () => shutdown('SIGINT'));
-}
+        let listener: import('node:http').Server | undefined;
+        return {
+          async start() {
+        await app.initialize();
+        listener = await new Promise<import('node:http').Server>((resolve, reject) => {
+          const l = server.listen(teams.port, '127.0.0.1', () => resolve(l));
+          l.once('error', reject);
+        });
+        log.info(`Teams bot running (:${teams.port}) — ${summary(reg.current)}`);
+          },
+          // The listener is ours (ExpressAdapter), so it is ours to close — app.stop() would only
+          // complain that the server lifecycle is managed externally.
+          stop: () => new Promise<void>((resolve) => (listener ? listener.close(() => resolve()) : resolve())),
+          closing: 'the Teams listener',
+        };
+      },
+    };
+  },
+};
 
 // A Connector call with its failure made legible: the SDK throws axios errors whose message is
 // "Request failed with status code 400" and whose actual reason sits in the response body —

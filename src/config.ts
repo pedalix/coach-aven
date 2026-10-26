@@ -1,3 +1,5 @@
+import { parseSurfaces } from './chat/surfaces.js';
+import type { ChatDriverName } from './chat/drivers.js';
 import { readFileSync } from 'node:fs';
 import { config as loadDotenv } from 'dotenv';
 import { isValidCliVersion } from './cliversion.js';
@@ -188,6 +190,9 @@ export interface Config {
   // Entra object ids allowed the operator-only verbs; `targeted` turns on targeted (private)
   // channel messages once the tenant has them (PR 2).
   teams?: TeamsConfig;
+  // CHAT_SURFACES: the chat drivers this installation runs beside its run mode's (OpenSpec
+  // multi-driver-installation); validated against the drivers this build has. Empty = the run mode only.
+  chatSurfaces: ChatDriverName[];
   // YouTrack support-ticket investigation pilot; undefined (off) unless YOUTRACK_URL +
   // YOUTRACK_TOKEN are set. `label` is the trigger tag; `ping` is the Slack user ids to
   // @-mention with each finding. The token is a read-only YouTrack permanent token.
@@ -325,6 +330,7 @@ export function loadConfig(): Config {
     github: githubAuth(),
     slack: slackConfig(),
     teams: teamsConfig(),
+    chatSurfaces: parseSurfaces(process.env.CHAT_SURFACES),
     youtrack:
       process.env.YOUTRACK_URL && process.env.YOUTRACK_TOKEN
         ? {

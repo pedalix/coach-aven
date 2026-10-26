@@ -11,7 +11,7 @@ import type { Store, RoutineRecord } from './state.js';
 import { resolveBySlug, projectOwnerTeam, teamProjects, type ProjectConfig, type RegistryRef } from './projects.js';
 import { withTeam, normalizeTenant } from './teamkeys.js';
 import type { TurnEngine } from './turn.js';
-import type { ChatDriver, DriverForTenant } from './chat/driver.js';
+import type { ChatDriver, DriverFor, DriverRef } from './chat/driver.js';
 import type { Channels } from './channels.js';
 import {
   routineGuard,
@@ -106,15 +106,17 @@ export function createPollers(
   cfg: Config,
   store: Store,
   reg: RegistryRef,
-  driverFor: DriverForTenant,
+  driverFor: DriverFor,
   engine: TurnEngine,
   channels: Channels,
   home: () => string | undefined,
 ): Pollers {
   // Resolve a tenant's driver, or undefined with a log line (the per-record skip rule).
-  const driverOrSkip = (tenantId: string | undefined, what: string): ChatDriver | undefined => {
+  // A record's driver: its surface (absent = default) and tenant (absent = home).
+  const refOf = (r: { teamId?: string; surface?: string }): DriverRef => ({ ...(r.surface ? { surface: r.surface as DriverRef['surface'] } : {}), ...(r.teamId ? { tenantId: r.teamId } : {}) });
+  const driverOrSkip = (ref: DriverRef, what: string): ChatDriver | undefined => {
     try {
-      return driverFor(tenantId);
+      return driverFor(ref);
     } catch (e) {
       log.warn(`${what}: ${e instanceof Error ? e.message : String(e)} — skipped`);
       return undefined;
@@ -394,7 +396,7 @@ export function createPollers(
             log.warn(`control: run requested for unknown routine ${id} — ignored`);
             return;
           }
-          const c = driverOrSkip(r.teamId, `routine ${r.id}`);
+          const c = driverOrSkip(refOf(r), `routine ${r.id}`);
           const ok = c ? fireRoutine(c, r) : false;
           log.info(`control: routine ${id} run requested from the CLI → ${ok ? 'fired' : 'not fired (busy, disabled tenant or no client)'}`);
         });
@@ -424,7 +426,7 @@ export function createPollers(
       }
       for (const f of fires) {
         if (f.key) firedThisMinute.set(f.routine.id, f.key);
-        const c = driverOrSkip(f.routine.teamId, `routine ${f.routine.id}`);
+        const c = driverOrSkip(refOf(f.routine), `routine ${f.routine.id}`);
         if (c) fireRoutine(c, f.routine, f);
       }
     };
@@ -444,7 +446,7 @@ export function createPollers(
         // Settings are slug-keyed (one auto-review per project fleet-wide) — the enabling
         // tenant's token posts. Old records carry no team → home. A dead installation
         // skips the project rather than leaking home-token posts into a foreign channel.
-        const c = driverOrSkip(s.autoReviewTeam, `auto-review ${project.slug}`);
+        const c = driverOrSkip({ tenantId: s.autoReviewTeam }, `auto-review ${project.slug}`);
         if (!c) continue;
         const reviewed = store.reviewedPrKeys();
         for (const repo of project.repos) {
@@ -477,7 +479,7 @@ export function createPollers(
         // the subscribe path did, so patch/delete hit the right record.
         const key = withTeam(w.teamId, home(), `${w.repo}#${w.number}`);
         if (!tenantHasProject(w.teamId, w.slug)) continue; // revoked tenant — stay silent
-        const c = driverOrSkip(w.teamId, `autofix ${w.repo}#${w.number}`);
+        const c = driverOrSkip(refOf(w), `autofix ${w.repo}#${w.number}`);
         if (!c) continue;
         const meta = await getPrMeta(cfg, w.repo, w.number);
         if (!meta) continue; // transient read failure — try again next tick
@@ -521,7 +523,7 @@ export function createPollers(
       // undefined for home (the store convention).
       const owner = projectOwnerTeam(reg.current, project.slug, home());
       const teamId = normalizeTenant(owner, home());
-      const chat = driverOrSkip(teamId, `youtrack ${ticket.id}`);
+      const chat = driverOrSkip({ tenantId: teamId }, `youtrack ${ticket.id}`);
       if (!chat) return false;
       const channel = await channels.channelIdForSlug(chat, project, teamId);
       if (!channel) {

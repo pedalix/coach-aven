@@ -83,7 +83,7 @@ function harness(outcome: Outcome = 'answer') {
   const api = new Recorder();
   api.names.set('29:OWNER1', 'Example Owner');
   const client = teamsDriver(api, { tenantId: TENANT });
-  const driverFor = (t?: string) => {
+  const driverFor = ({ tenantId: t }: { tenantId?: string }) => {
     if (t && t !== TENANT) throw new Error(`no installation for tenant ${t}`);
     return client;
   };
