@@ -7,8 +7,8 @@ request to do work; the receiving agent's accept list is the gate.
 The answering agent works in a shadow conversation that never posts to chat. Messages between
 installations travel end-to-end encrypted through a small relay (the hub, `docs/hub.md`); messages
 inside one installation never leave the bot. Data from one domain does not reach another without a
-person. Design and contract: OpenSpec `agent-messaging` (`openspec/changes/agent-messaging/`, archived
-to `openspec/specs/` once shipped). It replaced the dispatch primitive (`propose`, `registry`), retired
+person. Design and contract: the `agent-messaging` and `messaging-hub` specs in `openspec/specs/` (the change
+`agent-messaging` is archived under `openspec/changes/archive/`). It replaced the dispatch primitive (`propose`, `registry`), retired
 by OpenSpec `retire-agent-dispatch`.
 
 ## Turning it on

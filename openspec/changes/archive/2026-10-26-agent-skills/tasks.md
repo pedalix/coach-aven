@@ -1,7 +1,7 @@
 ## 0. Order
 
 - [x] 0.1 The MODIFIED requirements ("Discovery through agent cards", "Agent tools mirror A2A operations", "Terminal states are reported") carry the text of `hub-open-network` and `retire-agent-dispatch` as merged (#40–#44). Verify: `openspec validate agent-skills --strict`.
-- [ ] 0.2 Archive in order: `agent-messaging` → `hub-open-network` → `retire-agent-dispatch` → `agent-skills`. Verify: each `openspec archive`, then `openspec validate --all --strict`.
+- [x] 0.2 (done 2026-10-26) Archive in order: `agent-messaging` → `hub-open-network` → `retire-agent-dispatch` → `agent-skills`. Verify: each `openspec archive`, then `openspec validate --all --strict`.
 
 ## 1. Repo skills for multi-repo projects (bucket 3, `REPO_SKILLS=1`)
 

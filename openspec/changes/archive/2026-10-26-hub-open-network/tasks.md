@@ -1,6 +1,6 @@
 ## 0. Order with `agent-messaging`
 
-- [ ] 0.1 Before archiving this change, archive `agent-messaging`, after its canary run (7.7) on home and the Teams staging installation. Its prod items move to prod's own rollout. Its 4.6a is moot until a Teams installation ingests its own workspace, so carry it as a follow-up. Verify: `openspec archive agent-messaging`, then `openspec validate hub-open-network --strict`.
+- [x] 0.1 (done 2026-10-26: `agent-messaging` archived as 2026-10-26-agent-messaging, 25 requirements added and 5 modified in the main specs; its prod items shipped with v0.42.0 and prod joined the hub the same day; 4.6a carried as a follow-up) Before archiving this change, archive `agent-messaging`, after its canary run (7.7) on home and the Teams staging installation. Its prod items move to prod's own rollout. Its 4.6a is moot until a Teams installation ingests its own workspace, so carry it as a follow-up. Verify: `openspec archive agent-messaging`, then `openspec validate hub-open-network --strict`.
 
 ## 1. Protocol version 2 (pure, shared)
 
