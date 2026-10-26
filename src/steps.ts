@@ -1,8 +1,8 @@
 // Pure step-line rendering for the live status / "🧭 Show steps" trail: one human-readable
-// line per agent tool call. Kept free of Slack/Daytona deps so it unit-tests in isolation
+// line per agent tool call. Kept free of Slack and sandbox deps so it unit-tests in isolation
 // (steps.test.ts); the stream plumbing that calls this lives in claudeSession.ts.
 
-import { GATEWAY_SERVER_NAME } from './mcp.js'; // type-only deps: stays Slack/Daytona-free
+import { GATEWAY_SERVER_NAME } from './mcp.js'; // type-only deps: stays free of Slack and sandbox code
 
 function truncate(s: unknown, n = 50): string {
   const str = typeof s === 'string' ? s : '';

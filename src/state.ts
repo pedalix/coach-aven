@@ -35,7 +35,7 @@ export interface ChatRecord {
   // teamId (OpenSpec multi-driver-installation): a record saved before surfaces exist has none.
   surface?: string;
   sessionId?: string; // Claude conversation id (for --resume)
-  // The Daytona session-command driving this thread's persistent claude process. Lets a
+  // The sandbox session command driving this thread's persistent claude process. Lets a
   // restarted bot REATTACH to it (it keeps running in the sandbox) instead of spawning a
   // duplicate — see ClaudeSession.attach.
   sessionKey?: string;
@@ -216,7 +216,7 @@ export class Store {
     return this.data.projects[slug];
   }
 
-  // namePrefix lets dev/prod share one Daytona without colliding on warm sandboxes
+  // namePrefix lets dev/prod share one Docker host without colliding on containers
   // (dev → `dev-proj-<slug>`). Only applied at creation; existing records keep their
   // stored name, so a prod state.json is never re-prefixed.
   upsertProject(slug: string, repo: string, namePrefix = 'proj-'): ProjectRecord {

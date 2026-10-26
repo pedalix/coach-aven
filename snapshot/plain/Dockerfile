@@ -12,8 +12,8 @@
 #
 # Kept deliberately parallel to ../Dockerfile (same ARG, same apk set minus docker-only
 # bits) so build-and-push.sh bakes one CLAUDE_CLI_VERSION into both variants and
-# provisionTooling() finds the same layout. No ENTRYPOINT: the drivers start the
-# container with their own `sleep` command and exec into it.
+# provisionTooling() finds the same layout. No ENTRYPOINT: the driver starts the
+# container with its own `sleep` command and execs into it.
 FROM node:24-alpine
 
 RUN apk add --no-cache \
@@ -42,6 +42,6 @@ RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}
 # so fresh sandboxes have it; provisionTooling() re-uploads it when the bot ships a newer one.
 COPY sources-mcp.mjs /opt/aven/sources-mcp.mjs
 
-# Same marker the drivers set via -e at run time; harmless here, handy when the image is
+# Same marker the driver sets via -e at run time; harmless here, handy when the image is
 # poked at by hand.
 ENV IS_SANDBOX=1

@@ -619,9 +619,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // knows its sandbox handle already); falls back to killing the PERSISTED session-command
   // directly when nothing's cached (evicted, or the bot restarted since). Either way, unlike
   // touchLive's LRU eviction or state.ts's pruneChats — which deliberately leave the
-  // sandbox-side process to the sandbox's idle stop (Daytona's own; the bot's on ssh-docker,
-  // idlestop.ts) — this is an explicit "throw the conversation away", so it kills the
-  // process now rather than leaving it to the next stop.
+  // sandbox-side process to the sandbox's idle stop (the bot's, idlestop.ts) — this is an
+  // explicit "throw the conversation away", so it kills the process now rather than leaving
+  // it to the next stop.
   async function restartSession(key: string, project: ProjectConfig): Promise<void> {
     const cached = live.get(key)?.chat;
     if (cached) {

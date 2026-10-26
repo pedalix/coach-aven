@@ -2,7 +2,7 @@
 // host from the live replica (docs/sources.md → "Remote access", OpenSpec sources-serve-remote-mcp).
 //
 // Why: the replica bind mount only reaches sandboxes on the bot host's own docker engine (the home
-// bot). Prod sandboxes run on the Bluefin VM (Daytona) and the sandbox box — nothing on the bot host —
+// bot). Prod sandboxes run on a separate sandbox host (ssh-docker over ssh) — nothing on the bot host —
 // so a tenant store there is reachable only over the network. agentgateway (engine.example.com)
 // already fronts every project's MCP servers; this listener is one more upstream target for it,
 // and the sandbox keeps talking to the gateway with its Auth0 M2M token exactly as for every

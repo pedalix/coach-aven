@@ -55,7 +55,7 @@ const privates: Record<string, PrivateView> = {
     report: {
       projects: [{ slug: 'alpha', repos: 1, state: 'started', sessions: 2, active: 1, openPRs: 3, jobs: 1, dreams: 0, hk: 1 }],
       turnsInFlight: 1,
-      daytonaOk: true,
+      sandboxesOk: true,
       githubOk: false,
       claudeQuota: 'Claude quota ✅ · 5h 12%',
     },

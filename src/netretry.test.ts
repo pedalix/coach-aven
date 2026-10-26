@@ -4,12 +4,12 @@ import { isTransientNetworkError, withNetRetry, stackHead } from './netretry.js'
 
 const named = (name: string, message: string) => Object.assign(new Error(message), { name });
 
-test('isTransientNetworkError: the 2026-09-28 Daytona TLS drop is transient', () => {
+test('isTransientNetworkError: the 2026-09-28 TLS drop is transient, by its message, whatever the client named it', () => {
   assert.equal(
-    isTransientNetworkError(named('DaytonaConnectionError', 'Client network socket disconnected before secure TLS connection was established')),
+    isTransientNetworkError(named('ApiConnectionError', 'Client network socket disconnected before secure TLS connection was established')),
     true,
   );
-  // same message without the SDK wrapper name (e.g. raw axios error)
+  // same message without an SDK wrapper name (e.g. raw axios error)
   assert.equal(isTransientNetworkError(new Error('Client network socket disconnected before secure TLS connection was established')), true);
 });
 
@@ -22,8 +22,8 @@ test('isTransientNetworkError: socket codes, including in the cause chain', () =
 });
 
 test('isTransientNetworkError: real answers are NOT transient', () => {
-  assert.equal(isTransientNetworkError(named('DaytonaNotFoundError', 'Sandbox not found')), false);
-  assert.equal(isTransientNetworkError(named('DaytonaConflictError', 'already exists')), false);
+  assert.equal(isTransientNetworkError(named('ApiNotFoundError', 'Sandbox not found')), false);
+  assert.equal(isTransientNetworkError(named('ApiConflictError', 'already exists')), false);
   assert.equal(isTransientNetworkError(Object.assign(new Error('Request failed with status code 502'), { status: 502 })), false);
   assert.equal(isTransientNetworkError(Object.assign(new Error('ECONNRESET-looking text'), { statusCode: 500 })), false);
   assert.equal(isTransientNetworkError(new Error('validation failed')), false);
@@ -38,7 +38,7 @@ test('withNetRetry: retries a transient failure and returns the later success', 
   const out = await withNetRetry(
     async () => {
       calls++;
-      if (calls < 3) throw named('DaytonaConnectionError', 'Client network socket disconnected before secure TLS connection was established');
+      if (calls < 3) throw named('ApiConnectionError', 'Client network socket disconnected before secure TLS connection was established');
       return 'ok';
     },
     { sleep: async (ms) => void slept.push(ms), onRetry: (_e, n) => retries.push(n) },
@@ -67,7 +67,7 @@ test('withNetRetry: gives up after the configured retries with the last error', 
 
 test('withNetRetry: a non-transient error propagates immediately, no retry', async () => {
   let calls = 0;
-  const notFound = named('DaytonaNotFoundError', 'Sandbox not found');
+  const notFound = named('ApiNotFoundError', 'Sandbox not found');
   await assert.rejects(
     withNetRetry(
       async () => {

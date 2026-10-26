@@ -1,15 +1,15 @@
 import type { SandboxOptions } from './sandboxopts.js';
 import type { Config, SandboxDriverKind } from './config.js';
 import type { StopOutcome, StopRequest } from './idlestop.js';
-import { DaytonaDriver } from './daytona.js';
 import { SshDockerDriver } from './sshdocker.js';
 
 // Provider-agnostic sandbox driver: the ONLY surface the orchestrator needs from a
-// sandbox provider. Extracted 2026-07 when Daytona's open-source codebase was frozen —
-// everything outside this file and its implementations must stay provider-ignorant, so
-// that switching providers (Daytona Cloud, a self-hosted Docker/sysbox box over SSH, …)
-// means writing one new driver, not touching the bot. The surface is deliberately the
-// EXACT set of operations the bot uses today — don't grow it speculatively:
+// sandbox provider. It has one implementation, ssh-docker (sshdocker.ts: containers on a
+// Docker host the installation runs), and stays the seam for another: everything outside
+// this file and its implementations is provider-ignorant, so a new provider means one new
+// driver file (its SDK, if any, imported there alone), not touching the bot — see
+// docs/sandbox-drivers.md "Adding a driver". The surface is deliberately the EXACT set of
+// operations the bot uses today — don't grow it speculatively:
 //   • a warm named sandbox per project: persistent disk, stopped when idle (by the provider,
 //     or — where it has no idle lifecycle — by the bot: idlestop.ts), woken on use
 //   • exec + file upload
@@ -51,9 +51,9 @@ export interface SandboxHandle {
   // The command's full stdout so far (the reattach snapshot).
   sessionCommandLogs(sessionKey: string, cmdId: string): Promise<string>;
   // Tail the command's stdout — the returned promise settles when the process exits or
-  // the stream drops (the caller treats both as "process gone"). NOTE: Daytona replays
-  // the WHOLE log from the start on (re)subscribe; callers that already consumed a
-  // snapshot must skip that prefix themselves (see ClaudeSession.open).
+  // the stream drops (the caller treats both as "process gone"). Contract: every
+  // (re)subscribe replays the WHOLE log from the start, then follows; callers that already
+  // consumed a snapshot skip that prefix themselves (see ClaudeSession.open).
   streamSessionCommandLogs(
     sessionKey: string,
     cmdId: string,
@@ -64,7 +64,7 @@ export interface SandboxHandle {
 }
 
 export interface SandboxDriver {
-  // Make sure the base image/snapshot the sandboxes boot from exists (idempotent).
+  // Make sure the base image the sandboxes boot from exists (idempotent).
   ensureImage(): Promise<void>;
   // Warm named sandbox: create it from the base image, or wake it if stopped. `opts` are the
   // project's sandbox options (privileged/dind/mounts); they shape CREATION only — a sandbox
@@ -74,13 +74,15 @@ export interface SandboxDriver {
   // Used by paths that must not wake an idle sandbox (/aven memory, the dream journal; and
   // housekeeping on a provider that stops its sandboxes itself).
   getSandbox(name: string): Promise<SandboxHandle | undefined>;
-  // name → provider state string (e.g. 'started'/'stopped'), for /aven status.
+  // name → provider state string (e.g. 'started'/'stopped'), for /aven status. A listing
+  // that cannot answer (host unreachable, daemon down) THROWS — never an empty map, which
+  // would read as "every sandbox not created" behind a green flag.
   listStates(): Promise<Map<string, string>>;
   // Stop a project's sandbox the idle sweep found idle (OpenSpec sandbox-idle-stop, idlestop.ts):
   // re-decide under the sandbox's lock, stop it only if it is still idle and this installation's,
   // and end its sessions (req.onStopped) before anything can wake it again. Only a driver whose
-  // provider has NO idle stop of its own implements it (ssh-docker); a driver without it is never
-  // asked (Daytona stops its sandboxes after SANDBOX_AUTOSTOP_MINUTES itself).
+  // provider has NO idle stop of its own implements it (ssh-docker); a driver whose provider
+  // stops idle sandboxes itself needs none, and is never asked.
   stopSandbox?(req: StopRequest): Promise<StopOutcome>;
   // Delete a THROWAWAY sandbox (the CLI probe's `cli-probe-<run>`); a missing one is not an error.
   // Every implementation refuses any other name first (sandboxopts.ts assertDeletable): code never
@@ -89,10 +91,12 @@ export interface SandboxDriver {
 }
 
 // The provider switch. `kind` is the per-project override (projects.config.json's
-// `driver` field); omitted → the deployment-wide default (SANDBOX_DRIVER env, default
-// daytona). A driver whose env config is missing throws at first use — not at boot —
-// so one misconfigured project can't keep the whole bot down.
-export function createDriver(cfg: Config, kind?: SandboxDriverKind): SandboxDriver {
-  const k = kind ?? cfg.sandboxDriver;
-  return k === 'ssh-docker' ? new SshDockerDriver(cfg) : new DaytonaDriver(cfg);
+// `driver` field), else the deployment-wide SANDBOX_DRIVER — both optional, and today
+// both can only say ssh-docker: loadConfig and loadProjects refuse any other value before
+// it reaches here (OpenSpec retire-daytona-driver D3), so a project never lands on a
+// driver nobody chose. The parameter stays, unread, as the seam: a second driver brings
+// its kind and the switch back. A driver whose env config is missing throws at first use
+// — not at boot — so one misconfigured project can't keep the whole bot down.
+export function createDriver(cfg: Config, _kind?: SandboxDriverKind): SandboxDriver {
+  return new SshDockerDriver(cfg);
 }

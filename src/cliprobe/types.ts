@@ -6,8 +6,9 @@ export type Frame = Record<string, unknown>;
 
 /**
  * One line of a recording. `t` is milliseconds since the run started. `echo`: a line on the CLI's
- * output that is, byte for byte, a line the probe wrote — the transport's copy of stdin (a Daytona
- * session's output carries it, ~200 ms after the write), not the CLI's: never a CLI frame, never checked.
+ * output that is, byte for byte, a line the probe wrote — a transport's copy of stdin (a sandbox session
+ * whose output stream also carries its input has shown one ~200 ms after the write), not the CLI's: never
+ * a CLI frame, never checked. ssh-docker's FIFO adds no copy; the kind stays for any transport that does.
  */
 export type RecordLine =
   | { t: number; dir: 'out' | 'in' | 'echo'; frame: Frame }

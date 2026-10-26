@@ -183,8 +183,8 @@ Halden is a five-person product company. One project, one channel, one agent.
 ## What it is not
 
 - **Not a hosted service.** You run it: one Node process on a small VM, sandboxes on a Docker host
-  you own or a self-hosted Daytona (a sandbox service), your Slack or Teams app, your GitHub App,
-  your Claude Code subscription. A single operator maintains the product and runs installations
+  you own (that VM, to start), your Slack or Teams app, your GitHub App, your Claude Code
+  subscription. A single operator maintains the product and runs installations
   for real users; support is best-effort ([`CONTRIBUTING.md`](../CONTRIBUTING.md)).
 - **Not a chat of its own.** It lives in Slack or Teams. A web chat was designed and deliberately
   not built (OpenSpec `web-chat-driver`); for a trial, Slack in your own workspace is the way in.

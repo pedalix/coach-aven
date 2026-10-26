@@ -2,8 +2,9 @@
 
 How to run CoachAven on your machine **without colliding with prod**. Prod runs as
 a systemd service on the bot host (see [`../infra/deploy/README.md`](../infra/deploy/README.md));
-your laptop and prod hit the **same Daytona** and could hit the **same Slack app**,
-so the whole point of this guide is isolating those two.
+your laptop and prod could hit the **same Slack app** and, if you point your dev bot at
+prod's sandbox host, the **same Docker host**, so the whole point of this guide is
+isolating those two.
 
 ## Why isolation matters (read this first)
 
@@ -12,12 +13,20 @@ Two shared resources will bite you if you don't isolate them:
 1. **Slack (Socket Mode).** Slack delivers each event to **only one** connected
    socket. If your local bot uses prod's Slack app, it steals ~half of prod's
    events — prod silently half-breaks. → **Use a separate dev Slack app.**
-2. **Daytona sandboxes.** Sandboxes are named `proj-<slug>`. Same slug on the same
-   Daytona = the **same warm sandbox**, so local and prod would trample each
-   other's worktrees. → **Use a sandbox name prefix** (`dev-proj-`).
+2. **Sandbox containers.** Sandboxes are containers named `proj-<slug>` on the Docker
+   host `SSHDOCKER_HOST` names. They collide only when your dev bot and prod share that
+   host: there, the same slug is the **same container**, so local and prod would trample
+   each other's worktrees, and one bot's idle stop could end the other's sessions (the
+   idle stop and a wake's cleanup assume one bot per container). → **Keep dev sandboxes
+   on a Docker host no other installation uses** (`SSHDOCKER_HOST=local` on your machine,
+   the template's value); **on a host another installation also uses, set a distinct
+   name prefix** (`dev-proj-`).
+   `SANDBOX_MANAGED_BY` — the label your bot's containers carry and its `/aven status`
+   listing filter — may differ too (say `coach-aven-dev`), but it does not keep the two
+   apart on its own: containers are chosen by name, so the prefix does.
 
-Everything else (Daytona creds, Claude token, the GitHub App, the Grafana token)
-is fine to share with prod for dev.
+Everything else (Claude token, the GitHub App, the Grafana token) is fine to share with
+prod for dev.
 
 ## Prerequisites
 
@@ -25,7 +34,9 @@ is fine to share with prod for dev.
 - **Claude Code** installed and logged in (`claude` on your PATH) — or a
   `claude setup-token` value. The orchestrator falls back to your `~/.claude`
   credentials if `CLAUDE_CODE_OAUTH_TOKEN` is blank.
-- Access to the shared **Daytona** (`<daytona-host>`) — API key + org id.
+- **Docker** on your machine, for the sandboxes (`SSHDOCKER_HOST=local`) — or key-based
+  SSH to a Docker host (`docs/sandbox-drivers.md`, *Host prerequisites*). The image
+  `SNAPSHOT_IMAGE` names must be one that host can pull (`snapshot/README.md`).
 - The **GitHub App private key** (`github-app-private-key.pem`) at the repo root.
 
 ## Tools to create BEFORE the first run
@@ -67,8 +78,9 @@ Set these in your local `.env` (the rest can mirror prod):
 | `SLACK_BOT_TOKEN` | your **dev** app `xoxb-…` | separate Slack app |
 | `SLACK_APP_TOKEN` | your **dev** app `xapp-…` | separate Slack app |
 | `SLACK_CHANNEL_PREFIX` | `dev-aven-` | bot only answers in dev channels |
-| `SANDBOX_NAME_PREFIX` | `dev-proj-` | dev sandboxes never collide with prod's `proj-<slug>` |
-| `DAYTONA_*` | same as prod | shared Daytona |
+| `SANDBOX_DRIVER` | `ssh-docker` | the only driver; keep the line written out (`docs/sandbox-drivers.md`) |
+| `SSHDOCKER_HOST` | `local` | dev sandboxes on your own Docker, apart from prod's |
+| `SANDBOX_NAME_PREFIX` | `dev-proj-` | required when another installation uses the same Docker host: dev containers never collide with its `proj-<slug>` |
 | `CLAUDE_CODE_OAUTH_TOKEN` | blank (uses `~/.claude`) or a `setup-token` | — |
 | `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY_PATH` | same as prod | shared App |
 
@@ -83,7 +95,8 @@ npm run orch -- slack                  # start the dev bot (Socket Mode)
 ```
 
 Then post in a `dev-aven-<slug>` channel. Sandboxes are created/warmed on demand
-(first message per project); the Daytona snapshot is ensured on first use too.
+(first message per project); the first one pulls `SNAPSHOT_IMAGE` onto the Docker host,
+which can take minutes.
 
 ## State
 
@@ -98,6 +111,7 @@ thread→session resume history). Starting fresh is the default for a new clone.
   Mode warning above.
 - **Don't ship `state.json` to prod.** `infra/deploy/deploy.sh` deliberately never
   uploads it; prod owns its own.
-- A `dev-proj-<slug>` sandbox is a *real* sandbox on the shared Daytona — it counts
-  against the same resources. Stop/remove dev sandboxes you're done with via the
-  Daytona dashboard.
+- A dev sandbox is a *real* container, and on a shared host it counts against prod's
+  memory and disk. The idle stop stops it after `SANDBOX_AUTOSTOP_MINUTES`; remove the
+  ones you're done with on their Docker host: `docker rm -f dev-proj-<slug>` (or
+  `proj-<slug>` on your own machine). Nothing in the bot deletes a sandbox.

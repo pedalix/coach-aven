@@ -1,35 +1,17 @@
 # Sandbox drivers
 
-The bot talks to sandboxes through the provider-agnostic `SandboxDriver` interface
+The bot reaches sandboxes only through the provider-agnostic `SandboxDriver` interface
 (`src/driver.ts`): warm named sandboxes, exec, file upload, and persistent process
 sessions (stdin + log snapshot + live tail — where `claude` lives and what
-restart-recovery reattaches to). Two implementations exist; which one hosts a project is
-config, not code.
-
-## Choosing a driver
-
-- **Deployment default:** `SANDBOX_DRIVER` env (`daytona` | `ssh-docker`, default `daytona`).
-- **Per project:** `"driver": "ssh-docker"` in its `projects.config.json` entry — the
-  fleet can span providers, so migration happens project by project. `/aven status`
-  merges sandbox states across every provider in use.
-
-Only the selected provider(s) need their env config; a driver whose config is missing
-throws at first use with the vars to set.
-
-## `daytona` (default)
-
-The original backend: our self-hosted Daytona at `<daytona-host>`. Note Daytona's
-open-source codebase was frozen in June 2026 — the instance keeps working, but pin the
-instance and `@daytonaio/sdk` versions and don't expect upstream fixes. Config:
-`DAYTONA_API_URL`, `DAYTONA_API_KEY`, `DAYTONA_ORGANIZATION_ID`, plus the snapshot vars
-(image, cpu/memory/disk) and `SANDBOX_AUTOSTOP_MINUTES`, which Daytona applies itself
-(`autoStopInterval`). The same key drives the bot's own idle stop on ssh-docker (below).
+restart-recovery reattaches to). It has one implementation, **ssh-docker**: long-lived
+Docker containers on a host the installation runs. Everything outside the driver files is
+provider-ignorant, so the interface stays as the seam for another driver (*Adding a driver*).
 
 ## `ssh-docker`
 
-Sandboxes as long-lived Docker containers on a host we own, driven over SSH
-(`src/sshdocker.ts`). Fixed cost, zero vendor risk, and the same DinD-capable image —
-Laravel Sail keeps working.
+Sandboxes as long-lived Docker containers on a host the installation runs, driven over SSH
+(`src/sshdocker.ts`), or on the bot's own host (*Local mode*). Fixed cost, no vendor in the
+loop, and a DinD-capable image, so Laravel Sail works inside.
 
 **Host prerequisites**
 
@@ -87,30 +69,29 @@ Laravel Sail keeps working.
 runs the very same scripts through `sh -c` against this machine's Docker daemon. It is
 for a single-box self-hosted instance — a laptop/WSL, a Mac mini — where the bot and
 the sandboxes share the host and running sshd just to reach localhost would be theatre.
-Everything else (`docker run … sleep`, exec via stdin, FIFO sessions) is unchanged, and
-`SNAPSHOT_NAME` may stay unset under `SANDBOX_DRIVER=ssh-docker` (it only names a Daytona
-snapshot). Trust note: in local mode the bot process and the sandboxes share a kernel, so
-pair it with projects that run `sandbox.privileged: false` (plain image, no DinD) rather
-than the `--privileged` hammer.
+Everything else (`docker run … sleep`, exec via stdin, FIFO sessions) is unchanged. Trust
+note: in local mode the bot process and the sandboxes share a kernel, so pair it with
+projects that run `sandbox.privileged: false` (plain image, no DinD) rather than the
+`--privileged` hammer.
 
-**How it maps** (vs Daytona)
+**How it maps** (onto the driver contract, *Adding a driver*)
 
 | Concern | ssh-docker behavior |
 |---|---|
 | Warm sandbox | `docker run -d --init --name proj-<slug> …` with `sleep` under docker's init and **no restart policy**; dockerd starts via the `ensureDockerd` guard — at chat prep, and at the first warm-up after every start of the container |
 | Auto-stop | **The bot's own** (there is no provider to do it): stopped after `SANDBOX_AUTOSTOP_MINUTES` (default 30, floor 10, `0` = never) without activity — see *Idle stop* below |
-| Wake | `docker start` (retried once) on the first turn after a stop — the idle stop's, or a host/daemon reboot's. Deliberately NOT `--restart unless-stopped`: a daemon-started container races the host filesystem export (Docker Desktop/WSL) and its bind mounts come up empty. Every warm-up also probes each bind mount (non-empty host dir ⇒ non-empty target) and stop+starts a container whose mount attached to nothing. The first warm-up after each start of the container — whoever started it — removes the session directories whose process did not survive the start (a directory stays only while its pid is alive and reads its FIFO, or, where the runtime does not let the bot read that link, is the pid its pid file names: the running check's own rule) and, on a docker-in-docker project, brings dockerd back before the turn goes on, as a Daytona start did (a boot marker, `/tmp/aven-sess/.boot`, tells a new start from a warm container; the first warm-up of a container already running when this shipped only writes it) |
+| Wake | `docker start` (retried once) on the first turn after a stop — the idle stop's, or a host/daemon reboot's. Deliberately NOT `--restart unless-stopped`: a daemon-started container races the host filesystem export (Docker Desktop/WSL) and its bind mounts come up empty. Every warm-up also probes each bind mount (non-empty host dir ⇒ non-empty target) and stop+starts a container whose mount attached to nothing. The first warm-up after each start of the container — whoever started it — removes the session directories whose process did not survive the start (a directory stays only while its pid is alive and reads its FIFO, or, where the runtime does not let the bot read that link, is the pid its pid file names: the running check's own rule) and, on a docker-in-docker project, brings dockerd back before the turn goes on (a boot marker, `/tmp/aven-sess/.boot`, tells a new start from a warm container; the first warm-up of a container already running when this shipped only writes it) |
 | exec / upload | `docker exec` with the script (or file bytes) piped via stdin — no shell-quoting of payloads |
-| Persistent claude | FIFO + `out.log` under `/tmp/aven-sess/<key>/` in the container; snapshot = `cat`, tail = `tail -f`; survives bot restarts like Daytona session commands. A session counts as running only while its recorded pid is alive and its stdin is that session's FIFO, so a pid reused after a restart never passes (where the runtime does not let the bot read that link at all, the session's own pid file decides, as before). The processes end with an idle stop; the conversation resumes with `--resume` on its next turn |
-| `/aven status` | `docker ps` states mapped to started/stopped (`💤 stopped` for an idle project) |
+| Persistent claude | FIFO + `out.log` under `/tmp/aven-sess/<key>/` in the container; snapshot = `cat`, tail = `tail -f` from the first byte; survives bot restarts. A session counts as running only while its recorded pid is alive and its stdin is that session's FIFO, so a pid reused after a restart never passes (where the runtime does not let the bot read that link at all, the session's own pid file decides, as before). The processes end with an idle stop; the conversation resumes with `--resume` on its next turn |
+| `/aven status` | `docker ps -a` filtered by the `managedBy` label, states mapped to started/stopped (`💤 stopped` for an idle project). A listing that exits non-zero — ssh's 255 when the host cannot be reached, docker's 1 when its daemon is down — shows `Sandboxes ⚠️`, never `✅`, and each project's sandbox `⚠️ unknown`, never "not created"; the bot's journal gets the listing's error |
 
 **Idle stop** (OpenSpec `sandbox-idle-stop`, `src/idlestop.ts`)
 
 Every conversation keeps its own `claude` process in the project's container, and the bot never
-ends one that went quiet: it relies on the sandbox stopping when nobody uses it, as Daytona's did.
-On ssh-docker the bot does that stop itself. Once a minute (from the pollers, so only in a running
-bot), it stops a project container that has been idle for `SANDBOX_AUTOSTOP_MINUTES`; the next turn
-wakes it and continues the same conversation.
+ends one that went quiet: it relies on the sandbox stopping when nobody uses it. Docker has no idle
+lifecycle, so on ssh-docker the bot does that stop itself. Once a minute (from the pollers, so only
+in a running bot), it stops a project container that has been idle for `SANDBOX_AUTOSTOP_MINUTES`;
+the next turn wakes it and continues the same conversation.
 
 - **Activity** is every call the bot makes into the container (exec, upload, session start, input
   and teardown, warm-up) and every chunk of session output — recorded in the driver, which every
@@ -165,28 +146,6 @@ wakes it and continues the same conversation.
   projects, and the labels cannot tell two installations apart when they share a `managedBy` value.
   Installations that share a Docker host must use distinct `SANDBOX_NAME_PREFIX` values.
 
-**Looking inside a container**
-
-`scripts/peek-sandbox.ts` is Daytona-only. An ssh-docker container is a plain container on the
-sandbox host: `ssh <SSHDOCKER_HOST> docker exec -it <prefix><slug> sh` (in local mode just
-`docker exec -it <prefix><slug> sh`); `docker ps -a --filter label=managedBy=<SANDBOX_MANAGED_BY>`
-lists the installation's containers, and `docker exec <prefix><slug> ps` shows its `claude`
-processes. An idle container is usually stopped: `docker start <prefix><slug>` first (or
-`/aven memory live`, which wakes it). Your own `docker exec` is not activity for the idle stop, so a
-container can be stopped under a long session of yours: set `SANDBOX_AUTOSTOP_MINUTES=0` for long
-maintenance, or just start it again. A container started by hand stays up until the bot's next
-warm-up of it; from then on the idle stop applies again.
-
-**Enabling for one project**
-
-```json
-{ "slug": "bluefin-infra", "repos": ["BluefinOrg/bluefin-infra"], "driver": "ssh-docker" }
-```
-
-Then `deploy.sh export` the runtime config and restart the bot (config is read at boot).
-The first turn pulls the snapshot image on the host (can take minutes) and creates the
-container; subsequent turns reuse it warm.
-
 **Verification status**
 
 E2E-verified 2026-07-10 against a real host (20-check smoke: container lifecycle, exec
@@ -222,3 +181,90 @@ docker's own stderr in that error instead of a bare exit code.
   share the host's memory with every other project.
 - Ending idle conversations' processes inside a container that never goes idle (a busy project
   with many threads keeps one `claude` per conversation touched since its last start).
+
+## Selecting the driver
+
+- `SANDBOX_DRIVER` in `.env` (installation-wide) and a project's `"driver"` field in
+  `projects.config.json` are both optional, and `ssh-docker` is the only value either one
+  takes. With both unset — an empty `SANDBOX_DRIVER` counts as unset, a JSON `null` field as
+  absent — a project runs on ssh-docker.
+- **Write it anyway:** `SANDBOX_DRIVER=ssh-docker`, as both `.env` templates do (the
+  `manage-project` skill writes a project's `"driver": "ssh-docker"`). v0.42.0 and every earlier
+  release default to `daytona`: an installation that drops the line and later rolls back sends
+  every project without a `driver` field down a path where each turn fails.
+- **Any other value is a configuration error, never followed.** A `SANDBOX_DRIVER` other than
+  `ssh-docker` stops the bot at boot (`SANDBOX_DRIVER=<value>: the Daytona driver was removed
+  after v0.42.0; ssh-docker is the only sandbox driver`). A project's `driver` other than
+  `ssh-docker` fails the projects configuration with the same words, naming the project, like any
+  other invalid project setting: the bot does not start, `/aven reload` keeps the previous
+  configuration, and the `orch sources` commands refuse it. Before the removal a misspelt `driver`
+  selected Daytona without a word.
+
+Missing driver settings are not checked at boot: without `SSHDOCKER_HOST`, a project's first
+sandbox use fails with an error naming it, so one misconfigured setting cannot keep the bot
+down.
+
+## Looking inside a container
+
+A project's container is a plain container on the sandbox host:
+`ssh <SSHDOCKER_HOST> docker exec -it <prefix><slug> sh` (in local mode just
+`docker exec -it <prefix><slug> sh`); `docker ps -a --filter label=managedBy=<SANDBOX_MANAGED_BY>`
+lists the installation's containers, and `docker exec <prefix><slug> ps` shows its `claude`
+processes. An idle container is usually stopped: `docker start <prefix><slug>` first (or
+`/aven memory live`, which wakes it). Your own `docker exec` is not activity for the idle stop, so a
+container can be stopped under a long session of yours: set `SANDBOX_AUTOSTOP_MINUTES=0` for long
+maintenance, or just start it again. A container started by hand stays up until the bot's next
+warm-up of it; from then on the idle stop applies again.
+
+## Adding a driver
+
+Another provider is one new driver file beside `src/sshdocker.ts` that implements
+`SandboxDriver` (`src/driver.ts`). Its SDK, if it has one, is imported in that file and nowhere
+else, and the rest of the bot does not change. The contract every driver keeps:
+
+- **A warm named sandbox per project**, created from the installation's image on first use, woken
+  when stopped, with a disk that survives a stop (`ensureSandbox`); `getSandbox` peeks without
+  creating or waking it.
+- **An idle lifecycle the session code can rely on.** Every conversation keeps its own `claude`
+  process in the sandbox, and the bot ends none that went quiet, so an idle sandbox must stop and
+  end every process in it. Either the provider stops idle sandboxes itself — then the driver has no
+  `stopSandbox`, and the bot's sweep and housekeeping never stop or wake its sandboxes — or the
+  driver implements `stopSandbox`, records activity and serializes warm-up, peek and stop of one
+  sandbox as ssh-docker does (`sandboxActivity`, `src/idlestop.ts`), and the bot's sweep stops
+  them.
+- **exec and upload**: exec with cwd, env, a timeout and the exit code; an upload whose bytes never
+  sit on a command line (a token must not show up in an exec log).
+- **Persistent sessions** with stdin, a log snapshot and a live tail, alive across bot restarts.
+  Every (re)subscribe of the tail replays the whole log from the start, then follows;
+  `ClaudeSession` skips the prefix it already has.
+- **A listing that fails when it cannot answer** (`listStates` throws): an empty map would read as
+  "every sandbox not created" behind `Sandboxes ✅`.
+- **The name-only delete guard**: `deleteSandbox` refuses every name but a throwaway
+  `cli-probe-<run>` (`assertDeletable` in `src/sandboxopts.ts`), whatever the provider's listing
+  holds. Code never deletes a project's sandbox.
+
+Selecting it: `SandboxDriverKind` (`src/config.ts`) gains its name, `createDriver(cfg, kind)`
+switches again on `kind` — a project's `driver`, else `SANDBOX_DRIVER` — which it ignores today,
+and the checks that refuse every value but `ssh-docker` accept the new one (`sandboxDriverEnv` in
+`src/config.ts`, `loadProjects`, the CLI probe's `driverFromEnv`). Its settings are read by
+`loadConfig` and checked at its first use, not at boot. Its tests fake the provider, as
+`src/sshdocker.test.ts` fakes the Docker host.
+
+## Retired: Daytona
+
+The first driver ran each project in a sandbox on a self-hosted [Daytona](https://www.daytona.io)
+server, through `@daytonaio/sdk`. Daytona's open-source code was frozen in June 2026, the SDK was
+pinned to match the server and later deprecated upstream, and by October 2026 every installation we
+know of ran its projects on ssh-docker. OpenSpec `retire-daytona-driver` removed the driver, the SDK
+and the settings only they read; v0.42.0 is the last release that has the driver.
+
+- A configuration that still names it is refused (*Selecting the driver*).
+- The other settings it read — every `DAYTONA_*` variable, `SNAPSHOT_NAME`, `SANDBOX_CPU`,
+  `SANDBOX_MEMORY` and `SANDBOX_DISK` — are not read any more: delete them. `SANDBOX_AUTOSTOP_MINUTES`
+  is not one of them: it sets the idle stop.
+- A project moved off a Daytona sandbox gets a new, empty container: its worktrees, uncommitted
+  work, memory not yet journaled, Sail data and the Claude session files `--resume` needs stay
+  behind, and nothing in the bot deletes the old sandbox.
+- What Daytona offered beyond ssh-docker — archiving long-stopped sandboxes, per-sandbox CPU,
+  memory and disk limits, preview links, a hosted API — has no counterpart. CPU and memory limits
+  would be a change of their own, under new names (*Not yet done*).

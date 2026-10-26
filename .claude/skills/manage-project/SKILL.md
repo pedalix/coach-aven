@@ -54,7 +54,7 @@ then gather only what changes. The field reference (shape in `src/projects.ts`):
 | `mcp` | Gateway projects: exactly `[{"name":"gw","url":"https://<gateway-host>/gw/<slug>/mcp","auth":"gateway-m2m"}]` (name MUST be `gw`). No MCP → `[]`. Direct entries (`url`+`headers` or `command`/`args`/`env`, secrets as `${VAR}` from runtime `.env`) are legacy. | new sessions |
 | `mcpDirectBackup` | Not read by the code — the pre-gateway direct list parked for rollback (move it back into `mcp` to bypass the gateway). Keep it when switching a project to `gw`. | — |
 | `youtrackProjects` | `["CG","CAR",…]` — YouTrack prefixes whose tagged tickets the investigation poller routes here. A new prefix ALSO needs the bot's read scope in your YouTrack proxy (`YT_MCP_SCOPES`, see Step 4) or the agent can't read the ticket (CAR-14 lesson). | reload |
-| `driver` | `"ssh-docker"` or omitted (= `SANDBOX_DRIVER`, daytona). Changing it means a fresh sandbox on the other provider (`docs/sandbox-drivers.md`). | next turn |
+| `driver` | Set `"ssh-docker"`, the only driver. Omitted, it is the installation's `SANDBOX_DRIVER`: ssh-docker on current releases, but a rollback to v0.42.0 or older reads an omitted field as the removed Daytona driver unless `.env` sets `SANDBOX_DRIVER=ssh-docker`. Any other value is refused at boot and at `/aven reload`, never followed (`docs/sandbox-drivers.md`). | next turn |
 | `sandbox` | ssh-docker only: `{privileged, dind, mounts}` — container-creation flags; existing `proj-<slug>` must be `docker rm`'d to pick them up. | new container |
 | `cliVersion` | per-project Claude Code CLI pin (canary over `CLAUDE_CLI_VERSION`). | next chat prep |
 | `scrubSecrets` | default true; `false` opts out of redacting pasted secrets. | new sessions |
@@ -97,8 +97,10 @@ Offer to generate/update `projects.d/<slug>.md` from the repos themselves:
 
    Bake in: datasource catalog (Loki UID is `Loki`), this project's exact selectors,
    a tenant note if data splits by `tenant`/`site_id`, an explicit EXCLUDE list of siblings.
-   (For an existing project, `scripts/peek-sandbox.ts <proj-slug> '<cmd>'` can mine real
-   past queries from its sandbox — only if the API can't answer.)
+   (For an existing project, its container can mine real past queries — only if the API
+   can't answer. It is usually asleep: start it first, then exec — `ssh <SSHDOCKER_HOST>
+   docker start proj-<slug>`, then `ssh <SSHDOCKER_HOST> docker exec proj-<slug> sh -c '<cmd>'`
+   (plain `docker` in local mode; `docs/sandbox-drivers.md` → *Looking inside a container*).)
 
 For an edit, show the prompt diff, not the whole file. Don't belabor variants.
 
@@ -110,13 +112,14 @@ Edit `infra/<slug>/projects.config.json` (+ `projects.d/<slug>.md`). Minimal new
 {
   "slug": "my-project",
   "repos": ["your-org/my-repo"],
+  "driver": "ssh-docker",
   "env": {},
   "mcp": [{ "name": "gw", "url": "https://<gateway-host>/gw/my-project/mcp", "auth": "gateway-m2m" }]
 }
 ```
 
 Validate with the real loader (same checks the bot runs on reload — workspaces slugs,
-gateway entry shape, sandbox options):
+gateway entry shape, sandbox options, the `driver` value):
 
 ```bash
 npx tsx -e "import('./src/projects.ts').then(m=>{const r=m.loadProjects('infra/<slug>/projects.config.json');console.log(r.projects.length,'projects:',r.projects.map(p=>p.slug).join(', '))})"

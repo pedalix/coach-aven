@@ -146,8 +146,8 @@ The one-time admin steps, honestly:
   for a trial.
 - **Claude Code.** `claude setup-token` on a Claude Max subscription; there is no API-key mode
   today, and every project of the installation shares that subscription's limits.
-- **Sandboxes.** A Docker host you own, which can be the bot host to start, or a self-hosted
-  Daytona ([`sandbox-drivers.md`](sandbox-drivers.md)).
+- **Sandboxes.** A Docker host you own, which can be the bot host to start
+  ([`sandbox-drivers.md`](sandbox-drivers.md)).
 
 ## Roadmap: a vector, not a queue
 
