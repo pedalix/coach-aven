@@ -22,15 +22,15 @@
 - [ ] 3.2 Dialogs, feedback with live tally, Session panel, PR links, background / long-task entries. Verify: view snapshots + feedback record test.
 - [ ] 3.3 File upload, limits, protected download. Verify: upload tests (limit, rejected file named), headers on download.
 - [ ] 3.4 Background deliveries (MVP): routines, dream, housekeeping, reviews, alerts, the ✋ held-message card. Verify: the pollers scenarios of `chat-driver-interface` against the web driver, minus YouTrack and autofix.
-- [ ] 3.5 Allow-list from config (e-mails and Cognito groups), operators as admins; `/users` read-only. Verify: access tests with web identities.
+- [ ] 3.5 Access at the start: `open` mode for every logged-in user (the identity provider's pool is the allow-list), every room visible, operators from `WEB_OPERATORS`; `/users` read-only. Verify: access tests with web identities (operator vs member; a second organization id never passes the gate).
 - [ ] 3.6 Home page from the shared cheat-sheet source; unread counts and in-tab notifications. Verify: view snapshot; Slack `homeBlocks` snapshot unchanged.
 - [ ] 3.7 `/security-review` on the branch; findings fixed or recorded. Ledger row; PR. Verify: CI green.
 
 ## 4. Canary
 
-- [ ] 4.1 Home bot with `CHAT_SURFACES=web` on localhost (`WEB_AUTH=none`), the canary project in a room; run every MVP spec scenario. Verify: scenarios ticked in the PR; the Slack home bot shows no regression.
+- [ ] 4.1 End-to-end harness: the web surface on localhost with `WEB_AUTH=none` and a fake sandbox transport, every MVP spec scenario driven over HTTP (`src/chat/web/e2e.test.ts` or `npm run e2e:web`), re-runnable by anyone. Verify: the harness is green in CI (or documented as a local run if it needs a sandbox).
 - [ ] 4.2 The Teams staging installation with `CHAT_SURFACES=web` on a hostname behind its nginx: the newsletter project rebound from Teams to its web room, Brandnamic's people on the allow-list, a newsletter built end to end (stop 1, stop 2 with the preview link, upload on an explicit go-ahead, photos attached), reconnect, restart mid-turn. Verify: two-user live scenarios; `platform` on Teams unaffected.
 
 ## 5. PR 3 — the rest of parity (when a client needs it)
 
-- [ ] 5.1 The remaining `/aven` verbs, YouTrack card + dialogs + mentions, autofix Fix, `/users` editing the allow-list. Verify: the remaining verb and poller scenarios against the web driver; ledger row.
+- [ ] 5.1 The remaining `/aven` verbs, YouTrack card + dialogs + mentions, autofix Fix, `/users` editing the allow-list, `allowlist` mode and groups → rooms. Verify: the remaining verb and poller scenarios against the web driver; ledger row.
