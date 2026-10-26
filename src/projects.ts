@@ -53,6 +53,9 @@ export interface ProjectConfig {
   // A Teams installation binds by id only (channels have no name wildcard there): the channel's
   // `19:…@thread.tacv2` id, exactly as Teams delivers it (OpenSpec teams-chat-driver).
   teamsChannel?: string;
+  // The web surface (OpenSpec web-chat-driver) gives every project a room; `false` hides this one from
+  // the web (no room, no private conversations, no deliveries there). Absent or true: a room.
+  webRoom?: boolean;
   // Where deliveries that no conversation started (auto-reviews, ticket investigations) go when the
   // installation runs several chat surfaces (OpenSpec multi-driver-installation): driver names; absent =
   // the installation's default surface. A routine always delivers where it was created.
@@ -160,6 +163,9 @@ export function loadProjects(path: string): ProjectsRegistry {
       throw new Error(
         `${path}: project "${p.slug}" gitFlow must be one of ${GIT_FLOWS.map((f) => `"${f}"`).join(', ')}, got ${JSON.stringify(p.gitFlow)}`,
       );
+    }
+    if (p.webRoom !== undefined && typeof p.webRoom !== 'boolean') {
+      throw new Error(`${path}: project "${p.slug}" webRoom must be true or false, got ${JSON.stringify(p.webRoom)}`);
     }
     if (p.deliverTo !== undefined) {
       const bad = Array.isArray(p.deliverTo) ? p.deliverTo.filter((d) => !(CHAT_DRIVERS as readonly string[]).includes(String(d))) : [p.deliverTo];

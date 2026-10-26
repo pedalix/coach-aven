@@ -94,7 +94,7 @@ Agent questions SHALL render with their options, accept single- and multi-select
 - **THEN** they are told it was answered and the turn is not affected
 
 ### Requirement: Commands
-Every `/aven` verb SHALL be available by typing `/<verb> …` in a room or private conversation, with the same arguments, permissions and effects. Replies that are ephemeral on Slack SHALL be visible only to the caller. `/` followed by text that is not a verb SHALL be a private question answered in the caller's private conversation.
+Every `/aven` verb SHALL be available by typing `/<verb> …` in a room or private conversation, with the same arguments, permissions and effects. Replies that are ephemeral on Slack SHALL be visible only to the caller. `/` followed by text that is not a verb SHALL be a private question answered where it was asked, visible only to the caller.
 
 #### Scenario: Status privately
 - **WHEN** a user types `/status` in a room

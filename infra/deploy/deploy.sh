@@ -105,7 +105,8 @@ load_env() {
   case "$CHAT_DRIVER" in
     slack) HEALTH_LINE='Slack bot running' ;;
     teams) HEALTH_LINE='Teams bot running' ;;
-    *) die "CHAT_DRIVER must be one of: slack, teams (got '$CHAT_DRIVER')" ;;
+    web) HEALTH_LINE='Web chat running' ;;
+    *) die "CHAT_DRIVER must be one of: slack, teams, web (got '$CHAT_DRIVER')" ;;
   esac
   DEPLOYER="${DEPLOY_USER}@${DEPLOY_HOST}"
   ROOT="${ROOT_USER}@${DEPLOY_HOST}"

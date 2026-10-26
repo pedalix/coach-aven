@@ -1,0 +1,48 @@
+{
+  "room:alpha": [
+    {
+      "t": "post",
+      "id": "r1",
+      "by": {
+        "id": "u1",
+        "name": "Ann"
+      },
+      "text": "fix the bug",
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 1
+    },
+    {
+      "t": "post",
+      "id": "m1",
+      "thread": "r1",
+      "view": {
+        "kind": "status",
+        "line": "🔎 Working…",
+        "turnId": "t-old",
+        "notify": "Working…"
+      },
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 2
+    },
+    {
+      "t": "update",
+      "id": "m1",
+      "view": {
+        "kind": "text",
+        "text": "🔄 Reconnected after a restart — recovering this turn…"
+      },
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 3
+    },
+    {
+      "t": "update",
+      "id": "m1",
+      "view": {
+        "kind": "text",
+        "text": "⚠️ The bot restarted mid-turn and couldn't recover the live result (timeout). The work may have finished in the thread or a PR — send a new message to continue."
+      },
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 4
+    }
+  ]
+}

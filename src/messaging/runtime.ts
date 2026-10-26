@@ -8,6 +8,7 @@
 //      messaging only) — the service, the recovery of deliveries, the minute tick.
 // An installation without any `messaging` configuration and without HUB_URL registers no tool, opens
 // no connection and has nothing to recover: the service exists but nothing reaches it.
+import type { ChatDriverName } from '../chat/drivers.js';
 import { readFileSync } from 'node:fs';
 import { shadowDriver, type ShadowDriver } from '../chat/shadow/driver.js';
 import type { DriverFor, DriverRef } from '../chat/surfaces.js';
@@ -49,7 +50,7 @@ export interface MessagingRuntime {
   stop(): void;
 }
 
-export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRef; home: () => string | undefined; platform: 'slack' | 'teams'; shadowDir?: string; /** Tests: the hub client's socket. */ socket?: SocketFactory }): MessagingRuntime {
+export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRef; home: () => string | undefined; platform: ChatDriverName; shadowDir?: string; /** Tests: the hub client's socket. */ socket?: SocketFactory }): MessagingRuntime {
   const ref: { current?: Messaging } = {};
   const shadow = shadowDriver({ dir: o.shadowDir ?? SHADOW_DIR });
   const env = o.cfg.messaging;

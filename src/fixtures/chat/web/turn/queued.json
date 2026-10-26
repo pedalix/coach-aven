@@ -1,0 +1,180 @@
+{
+  "room:alpha": [
+    {
+      "t": "post",
+      "id": "r1",
+      "by": {
+        "id": "u1",
+        "name": "Ann"
+      },
+      "text": "one",
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 1
+    },
+    {
+      "t": "mark",
+      "id": "r1",
+      "mark": "working",
+      "op": "add",
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 2
+    },
+    {
+      "t": "post",
+      "id": "m1",
+      "thread": "r1",
+      "view": {
+        "kind": "status",
+        "line": "🛠 Preparing…  ·  usually 1–3 min",
+        "turnId": "tmvp358g0-1",
+        "notify": "Working…"
+      },
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 3
+    },
+    {
+      "t": "update",
+      "id": "m1",
+      "view": {
+        "kind": "status",
+        "line": "🔎 Working…  ⏱ 0s  ·  usually 1–3 min",
+        "turnId": "tmvp358g0-1",
+        "notify": "🔎 Working…  ⏱ 0s  ·  usually 1–3 min"
+      },
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 4
+    },
+    {
+      "t": "post",
+      "id": "r2",
+      "thread": "r1",
+      "by": {
+        "id": "u1",
+        "name": "Ann"
+      },
+      "text": "two",
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 5
+    },
+    {
+      "t": "mark",
+      "id": "r2",
+      "mark": "working",
+      "op": "add",
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 6
+    },
+    {
+      "t": "post",
+      "id": "m2",
+      "thread": "r1",
+      "view": {
+        "kind": "status",
+        "line": "⏳ In queue — waiting for the previous message…",
+        "turnId": "tmvp358g0-2",
+        "notify": "In queue…",
+        "queued": true
+      },
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 7
+    },
+    {
+      "t": "update",
+      "id": "m1",
+      "view": {
+        "kind": "answer",
+        "markdown": "First.",
+        "opts": {
+          "followUp": {
+            "key": "web:thread:r1",
+            "channel": "room:alpha",
+            "threadTs": "r1"
+          },
+          "trail": {
+            "turnId": "tmvp358g0-1",
+            "steps": 0,
+            "elapsedMs": 0
+          },
+          "rate": {
+            "turnId": "tmvp358g0-1",
+            "slug": "alpha",
+            "key": "web:thread:r1"
+          }
+        }
+      },
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 8
+    },
+    {
+      "t": "mark",
+      "id": "r1",
+      "mark": "working",
+      "op": "remove",
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 9
+    },
+    {
+      "t": "mark",
+      "id": "r1",
+      "mark": "done",
+      "op": "add",
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 10
+    },
+    {
+      "t": "update",
+      "id": "m2",
+      "view": {
+        "kind": "status",
+        "line": "🔎 Working…  ⏱ 0s  ·  usually 1–3 min",
+        "turnId": "tmvp358g0-2",
+        "notify": "🔎 Working…  ⏱ 0s  ·  usually 1–3 min"
+      },
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 11
+    },
+    {
+      "t": "update",
+      "id": "m2",
+      "view": {
+        "kind": "answer",
+        "markdown": "Second.",
+        "opts": {
+          "followUp": {
+            "key": "web:thread:r1",
+            "channel": "room:alpha",
+            "threadTs": "r1"
+          },
+          "trail": {
+            "turnId": "tmvp358g0-2",
+            "steps": 0,
+            "elapsedMs": 0
+          },
+          "rate": {
+            "turnId": "tmvp358g0-2",
+            "slug": "alpha",
+            "key": "web:thread:r1"
+          }
+        }
+      },
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 12
+    },
+    {
+      "t": "mark",
+      "id": "r2",
+      "mark": "working",
+      "op": "remove",
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 13
+    },
+    {
+      "t": "mark",
+      "id": "r2",
+      "mark": "done",
+      "op": "add",
+      "at": "2026-10-26T10:00:00.000Z",
+      "seq": 14
+    }
+  ]
+}

@@ -32,3 +32,11 @@ test('only src/chat/slack/ imports the Slack SDK', () => {
     .filter((rel) => /from ['"]@slack\//.test(readFileSync(join(SRC, rel), 'utf8')));
   assert.deepEqual(offenders, []);
 });
+
+test('only src/chat/web/oidc.ts imports openid-client, only src/chat/web/webformat.ts imports markdown-it (web-chat-driver D3/D4)', () => {
+  const files = tsFiles(SRC).map((p) => relative(SRC, p));
+  const oidc = files.filter((rel) => /from ['"]openid-client['"]/.test(readFileSync(join(SRC, rel), 'utf8')));
+  assert.deepEqual(oidc, ['chat/web/oidc.ts']);
+  const md = files.filter((rel) => /from ['"]markdown-it['"]/.test(readFileSync(join(SRC, rel), 'utf8')));
+  assert.deepEqual(md, ['chat/web/webformat.ts']);
+});
