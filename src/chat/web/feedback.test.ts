@@ -64,11 +64,19 @@ test('👎 records the verdict, re-renders the answer with the count and opens t
   assert.equal(records.length, 3);
 });
 
-test('🧭 Show steps opens the trail dialog on the clicker’s stream; a dialog for someone without a page is dropped, not an error', async () => {
+test('🧭 Show steps opens the trail dialog on the clicker’s stream; a dialog for someone without a page waits for the page that opens next', async () => {
   const { driver, core, pushes } = setup();
   await core.actions.show_trail(click('show_trail', 't1-1'), driver);
   assert.equal(pushes.length, 1);
   assert.match(pushes[0].html, /📖 Read/);
   await core.actions.show_trail(click('show_trail', 't1-1', 'u9'), driver);
-  assert.equal(pushes.length, 1);
+  assert.equal(pushes.length, 1, 'nothing reached u1');
+  // u9 opens a page a moment later: the dialog arrives there (a command's thread page opening after the command).
+  const late: unknown[] = [];
+  driver.onUser('u9', (p) => late.push(p));
+  assert.equal(late.length, 1);
+  // A second page of the same person gets it again (another tab); nothing older than the window.
+  const again: unknown[] = [];
+  driver.onUser('u9', (p) => again.push(p));
+  assert.equal(again.length, 1);
 });
