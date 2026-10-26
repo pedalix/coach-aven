@@ -343,6 +343,16 @@ Agents asking agents — `docs/agent-messaging.md` (what it does, the `messaging
 Sessions are spawned with the message ledger (`--replay-user-messages`) only for projects with a
 `messaging` block; a session opened before a reload keeps the mode it was spawned with.
 
+## Chat surfaces (`CHAT_SURFACES`)
+
+An installation runs one *default* chat driver — its run mode, `orch slack` or `orch teams` — and, with
+`CHAT_SURFACES=<driver>[,<driver>]`, additional ones beside it (OpenSpec `multi-driver-installation`): every running
+driver is a *surface*, over one turn engine, one set of pollers and one agent-messaging identity. A conversation belongs
+to the surface it started on for its whole life; the default surface's conversation keys keep the shapes a single-driver
+installation has (no migration), an additional surface's carry the driver's name first (`teams:thread:…`). Unset =
+the run mode only, exactly as before. The value is validated against the drivers this build has; **until PR 2 of
+that change naming an additional surface is refused at boot** ("not available yet"), so nothing half-starts.
+
 ## Repo skills (`REPO_SKILLS`)
 
 A multi-repo project's sessions start in the project folder, where no repo's `.claude/skills` is visible. With

@@ -88,7 +88,7 @@ function harness(outcome: Outcome = 'answer') {
   const rec = recordingEngine(outcome);
   const channels = createChannels(reg as never, () => HOME);
   const client = slackDriver(new bolt.webApi.WebClient('xoxb-home', { slackApiUrl: url, retryConfig: { retries: 0 } }));
-  const driverFor = (t?: string) => {
+  const driverFor = ({ tenantId: t }: { tenantId?: string }) => {
     if (t && t !== HOME) throw new Error(`no installation for tenant ${t}`);
     return client;
   };

@@ -31,6 +31,9 @@ export interface ChatRecord {
   // Owning tenant; absent = home. Stamped by the store from the key's tenant prefix
   // (teamkeys.ts) — callers never pass it, so key and field cannot disagree.
   teamId?: string;
+  // Owning chat surface; absent = the installation's default driver. Stamped from the key like
+  // teamId (OpenSpec multi-driver-installation): a record saved before surfaces exist has none.
+  surface?: string;
   sessionId?: string; // Claude conversation id (for --resume)
   // The Daytona session-command driving this thread's persistent claude process. Lets a
   // restarted bot REATTACH to it (it keeps running in the sandbox) instead of spawning a
@@ -65,6 +68,7 @@ export interface RoutineRecord {
   id: string; // short, e.g. "r1"
   slug: string;
   teamId?: string; // owning tenant (absent = home); the poller posts with this team's token
+  surface?: string; // owning chat surface (absent = the default driver) — a routine delivers where it was created
   channel: string; // where the digest is posted
   cron: string; // 5-field: "min hour dom mon dow"
   tz: string; // IANA tz the cron is evaluated in
@@ -123,6 +127,7 @@ export interface PrWatch {
   number: number;
   slug: string; // owning project
   teamId?: string; // owning tenant (absent = home); the poller posts with this team's token
+  surface?: string; // owning chat surface (absent = the default driver)
   channel: string; // where notifications go
   createdBy: string;
   createdAt: string;
@@ -139,6 +144,7 @@ export interface PrWatch {
 export interface TicketInvestigation {
   slug: string; // owning project
   teamId?: string; // owning tenant (absent = home) — where the investigation thread lives
+  surface?: string; // owning chat surface (absent = the default driver)
   channel: string; // Slack channel id the thread lives in
   rootTs?: string; // thread root ts → session key `thread:<rootTs>` (absent if the header failed)
   startedAt: string; // ISO, when the investigation was dispatched
@@ -246,8 +252,10 @@ export class Store {
     // teamId is derived from the key here (never trusted from the caller) — the one
     // writer keeps key and field permanently in agreement. Home records stay FIELD-LESS
     // (delete, not undefined), so both writers produce the same shape.
-    const next = { ...rec, teamId: splitTeam(rec.threadTs).tenantId };
+    const parts = splitTeam(rec.threadTs);
+    const next = { ...rec, teamId: parts.tenantId, surface: parts.surface };
     if (!next.teamId) delete next.teamId;
+    if (!next.surface) delete next.surface;
     (this.data.chats ??= {})[rec.threadTs] = next;
     this.save();
   }
@@ -260,12 +268,13 @@ export class Store {
     const chats = (this.data.chats ??= {});
     const cur = chats[threadTs] ?? { threadTs, slug, updatedAt: '' };
     // teamId comes from the key, never from the patch — see setChat.
-    const teamId = splitTeam(threadTs).tenantId;
-    const next = { ...cur, ...patch, threadTs, slug, teamId, updatedAt: new Date().toISOString() };
+    const { tenantId: teamId, surface } = splitTeam(threadTs);
+    const next = { ...cur, ...patch, threadTs, slug, teamId, surface, updatedAt: new Date().toISOString() };
     for (const k of Object.keys(patch) as (keyof ChatRecord)[]) {
       if (patch[k] === undefined) delete next[k];
     }
     if (!teamId) delete next.teamId; // home stays field-less (uniform with bare keys)
+    if (!surface) delete next.surface; // the default surface too
     chats[threadTs] = next;
     this.save();
   }
@@ -576,9 +585,11 @@ export class Store {
   private msg(): MessagingState {
     return (this.data.messaging ??= {});
   }
-  private stamped<T extends { key: string; teamId?: string }>(rec: T): T {
-    const next = { ...rec, teamId: splitTeam(rec.key).tenantId };
+  private stamped<T extends { key: string; teamId?: string; surface?: string }>(rec: T): T {
+    const parts = splitTeam(rec.key);
+    const next = { ...rec, teamId: parts.tenantId, surface: parts.surface };
     if (!next.teamId) delete next.teamId;
+    if (!next.surface) delete next.surface;
     return next;
   }
   private static patched<T extends object>(cur: T, patch: Partial<T>): T {

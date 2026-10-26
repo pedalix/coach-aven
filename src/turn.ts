@@ -5,7 +5,8 @@
 
 import { randomUUID } from 'node:crypto';
 import { avenSessionValue } from './gwtoken.js';
-import type { ChatDriver, ConvTarget, DriverForTenant, MsgRef } from './chat/driver.js';
+import type { ChatDriver, ConvTarget, DriverFor, MsgRef } from './chat/driver.js';
+import { driverForKey } from './chat/surfaces.js';
 import type { MessageView } from './chat/views.js';
 import type { Config } from './config.js';
 import type { Store } from './state.js';
@@ -97,8 +98,8 @@ export interface TurnEngine {
   // Startup recovery, in order: reattach + finalize turns that were RUNNING at the last
   // stop (returns per-key promises so queued replays can wait their turn), then replay the
   // journaled turns that were still QUEUED (their user messages would otherwise be lost).
-  resumeInflightTurns(driverFor: DriverForTenant): Map<string, Promise<void>>;
-  resumeQueuedTurns(driverFor: DriverForTenant, recovering: Map<string, Promise<void>>): void;
+  resumeInflightTurns(driverFor: DriverFor): Map<string, Promise<void>>;
+  resumeQueuedTurns(driverFor: DriverFor, recovering: Map<string, Promise<void>>): void;
   // ── the idle stop (OpenSpec sandbox-idle-stop, design D4/D7) ──
   // What the sweep reads before it stops a project's sandbox: held (a turn being accepted, queued,
   // running or recovered, a one-off ask), lingering work of its live sessions, a pending wakeup, and
@@ -1149,7 +1150,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // Returns each chat's recovery promise keyed by conversation key, so resumeQueuedTurns
   // can hold a key's replays until its running turn has been recovered (else the replay
   // hits the still-busy session and errors).
-  function resumeInflightTurns(driverFor: DriverForTenant): Map<string, Promise<void>> {
+  function resumeInflightTurns(driverFor: DriverFor): Map<string, Promise<void>> {
     const recovering = new Map<string, Promise<void>>();
     for (const chat of store.allChats()) {
       const inf = chat.inflight;
@@ -1175,7 +1176,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       const held = hold(chat.threadTs, project.slug);
       let driver: ChatDriver;
       try {
-        driver = driverFor(chat.teamId);
+        driver = driverForKey(driverFor, chat.threadTs); // the key names its surface and tenant
       } catch (e) {
         log.error(`resume ${chat.threadTs}: ${e instanceof Error ? e.message : String(e)}`);
         store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
@@ -1286,7 +1287,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // so their status message quotes the question and asks for a resend — visibly lost
   // beats silently lost. Keys are processed sequentially (preserving enqueue order),
   // after any inflight recovery on the same key has settled.
-  function resumeQueuedTurns(driverFor: DriverForTenant, recovering: Map<string, Promise<void>>): void {
+  function resumeQueuedTurns(driverFor: DriverFor, recovering: Map<string, Promise<void>>): void {
     const pending = journal.drain();
     const byKey = new Map<string, typeof pending>();
     for (const e of pending) {
@@ -1321,7 +1322,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
           // workspace has no token to even rewrite its status message with.
           let driver: ChatDriver;
           try {
-            driver = driverFor(e.teamId);
+            driver = driverForKey(driverFor, e.key);
           } catch (err) {
             log.error(`replay ${e.turnId}: ${err instanceof Error ? err.message : String(err)}`);
             continue;

@@ -67,6 +67,11 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 
 Admins are the installation's operators, full stop: there is no automatic promotion of team owners (considered and dropped — an installation's operators are the whole role model it needs; `open` mode lets everyone in a bound channel drive the agent anyway).
 
+## Beside Slack, later
+
+A Teams installation will be able to add other chat surfaces (`CHAT_SURFACES`, `docs/runtime-config.md`) once
+`multi-driver-installation` PR 2 lands; today an installation runs one driver.
+
 ## Operations notes
 
 - **Service URL.** Proactive posts (recovery, routines) need the Bot Connector's base URL,

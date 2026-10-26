@@ -36,6 +36,8 @@ export interface OutTask {
   /** The asking agent (project slug) and its tenant (stamped from `key`; absent = home). */
   slug: string;
   teamId?: string;
+  /** Owning chat surface (absent = the default driver), stamped from the key like teamId. */
+  surface?: string;
   /** The asking conversation. */
   key: string;
   reply: ReplyTarget;
@@ -79,6 +81,8 @@ export interface InTask {
   /** The answering agent (project slug) and its tenant (stamped from `key`). */
   slug: string;
   teamId?: string;
+  /** Owning chat surface (absent = the default driver), stamped from the key like teamId. */
+  surface?: string;
   /** The shadow conversation: `[<tenant>:]a2a:<origin>:<taskId>:<slug>`. */
   key: string;
   question: string;
@@ -108,6 +112,8 @@ export interface HeldMessage {
   kind: 'task' | 'reply';
   slug: string;
   teamId?: string;
+  /** Owning chat surface (absent = the default driver), stamped from the key like teamId. */
+  surface?: string;
   key: string;
   target: string;
   text: string;
@@ -130,6 +136,8 @@ export interface DeliveryRecord {
   key: string;
   slug: string;
   teamId?: string;
+  /** Owning chat surface (absent = the default driver), stamped from the key like teamId. */
+  surface?: string;
   reply: ReplyTarget;
   text: string;
   /** The trail step when it folds into a running turn. */

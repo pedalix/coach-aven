@@ -1,6 +1,6 @@
 // The Slack chat driver: renders the core's view models to Block Kit (blocks.ts) and
 // performs them with a workspace's Web API client. One driver per client — events carry
-// their own team's client, recovery resolves one per tenant (DriverForTenant).
+// their own team's client, recovery resolves one per surface + tenant (DriverFor, surfaces.ts).
 //
 // Byte-for-byte what the core used to send directly; src/chat/slack/turn.record.test.ts
 // pins it against snapshots taken before the move.

@@ -10,6 +10,7 @@
 // no connection and has nothing to recover: the service exists but nothing reaches it.
 import { readFileSync } from 'node:fs';
 import { shadowDriver, type ShadowDriver } from '../chat/shadow/driver.js';
+import type { DriverFor, DriverRef } from '../chat/surfaces.js';
 import type { ChatDriver } from '../chat/driver.js';
 import type { Config } from '../config.js';
 import { log } from '../log.js';
@@ -36,7 +37,7 @@ export interface MessagingRuntime {
   shadow: ShadowDriver;
   /** For the host router and the commands: the service once started. */
   messaging: () => Messaging | undefined;
-  start(o: { engine: TurnEngine; driverFor: (teamId: string | undefined) => ChatDriver; usageLog?: UsageLog; tz?: string }): void;
+  start(o: { engine: TurnEngine; driverFor: DriverFor; usageLog?: UsageLog; tz?: string }): void;
   /** After the engine's own restart recovery: the messages that were on their way. */
   recover(recovering: Map<string, Promise<void>>): void;
   /** `/aven reload`: re-read hub.peers.json and the acceptance of open tasks; what changed, in words. */
@@ -88,9 +89,9 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
         }
         if (keys) hub = new HubClient({ url: env.hub.url, installation: env.installation, keys, peers: () => peers.current, store: o.store.messagingRecords('hub'), ...(o.socket ? { socket: o.socket } : {}) });
       }
-      const driverOrNone = (t: string | undefined): ChatDriver | undefined => {
+      const driverOrNone = (ref: DriverRef): ChatDriver | undefined => {
         try {
-          return driverFor(t);
+          return driverFor(ref);
         } catch {
           return undefined;
         }

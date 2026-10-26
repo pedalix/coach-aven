@@ -148,4 +148,5 @@ export interface ChatDriver {
 
 // The driver for a tenant (undefined = home). Throws for a tenant the installation can no
 // longer reach (an uninstalled Slack workspace) — recovery treats that per record.
-export type DriverForTenant = (tenantId?: string) => ChatDriver;
+// The driver of a surface + tenant: see `DriverFor` / `DriverRef` in surfaces.ts (multi-driver-installation).
+export type { DriverFor, DriverRef } from './surfaces.js';

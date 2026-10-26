@@ -1,3 +1,4 @@
+import { CHAT_DRIVERS, type ChatDriverName } from './chat/drivers.js';
 // Tenant-scoped session keys — THE one place the team dimension of a key is encoded and
 // decoded. A session key may carry an optional leading tenant segment:
 //
@@ -15,6 +16,11 @@
 // all speak the same id. Slack ids: T… = team, E… = enterprise; neither contains ':'.
 
 const TENANT_RE = /^[TE][A-Z0-9]{5,}$/;
+// A conversation of an ADDITIONAL chat surface (OpenSpec multi-driver-installation D1) carries the
+// driver's name as its first segment, before the tenant: `web:thread:…`, `slack:T0CLIENT1:thread:…`.
+// The default surface's keys stay bare, so prod's records never change shape. Driver names never
+// match TENANT_RE (lowercase) nor a key kind, so a head is never read twice.
+const SURFACE_RE = new RegExp(`^(${CHAT_DRIVERS.join('|')}):`);
 
 // The tenant id for an event/command — MIRRORS the installation store's queryKey rule
 // exactly: the enterprise id identifies the tenant only for an ORG-WIDE install; a
@@ -47,14 +53,19 @@ export function withTeam(tenantId: string | undefined, homeTenant: string | unde
   return tid ? `${tid}:${base}` : base;
 }
 
-// Decompose a key into its tenant (undefined = home) and the bare base key.
-export function splitTeam(key: string): { tenantId?: string; base: string } {
-  const i = key.indexOf(':');
+// Decompose a key into its surface (undefined = the installation's default surface), its tenant
+// (undefined = home) and the bare base key. Every helper below reads keys through this, so a
+// surfaced key is a thread / dm / cron key like any other.
+export function splitTeam(key: string): { surface?: ChatDriverName; tenantId?: string; base: string } {
+  const m = SURFACE_RE.exec(key);
+  const surface = m ? (m[1] as ChatDriverName) : undefined;
+  const rest = m ? key.slice(m[0].length) : key;
+  const i = rest.indexOf(':');
   if (i > 0) {
-    const head = key.slice(0, i);
-    if (TENANT_RE.test(head)) return { tenantId: head, base: key.slice(i + 1) };
+    const head = rest.slice(0, i);
+    if (TENANT_RE.test(head)) return { ...(surface ? { surface } : {}), tenantId: head, base: rest.slice(i + 1) };
   }
-  return { base: key };
+  return { ...(surface ? { surface } : {}), base: rest };
 }
 
 // Is this (possibly tenant-prefixed) key a thread conversation?

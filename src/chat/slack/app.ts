@@ -7,26 +7,21 @@
 //   commands.ts — the /aven router and subcommand handlers
 //   chat/slack/events.ts — @mentions, thread replies, DMs, buttons, App Home
 //   pollers.ts  — scheduler + auto-review / autofix / YouTrack pollers
-import { createHostRouter } from '../../hostrouter.js';
 import { slackDriver } from './driver.js';
 import bolt from '@slack/bolt';
 import type { Installation } from '@slack/bolt';
 import type { Config } from '../../config.js';
-import { Store } from '../../state.js';
+import type { PreparedSurface, SharedDeps, SurfacePlugin, WiredSurface } from '../root.js';
+import type { Store } from '../../state.js';
+import { entrySlugs, type RegistryRef } from '../../projects.js';
 import { createInstallationStore } from './installations.js';
 import { tenantOf } from '../../teamkeys.js';
 import { RecentSet } from '../../recent.js';
 import { eventLog, eventLogRaw, envelopeMeta } from '../../eventlog.js';
-import { loadProjects, entrySlugs, type RegistryRef } from '../../projects.js';
-import { createTurnEngine } from '../../turn.js';
-import { createChannels } from '../../channels.js';
-import { createPollers, ROUTINE_TZ } from '../../pollers.js';
 import { registerCommands } from './commands.js';
 import { registerEvents } from './events.js';
 import { setAlertSink, summary, notConfiguredText, type AlertLevel } from './blocks.js';
 import { log } from '../../log.js';
-import { messagingRuntime } from '../../messaging/runtime.js';
-import { UsageLog } from '../../metering.js';
 
 const { App } = bolt;
 
@@ -59,260 +54,215 @@ async function seedHomeInstallation(store: Store, botToken: string): Promise<str
   return teamId;
 }
 
-export async function runSlack(cfg: Config): Promise<void> {
-  if (!cfg.slack) {
-    throw new Error(
-      'Set SLACK_APP_TOKEN plus SLACK_BOT_TOKEN (single-workspace) and/or ' +
-        'SLACK_CLIENT_ID/SLACK_CLIENT_SECRET/SLACK_STATE_SECRET (OAuth multi-workspace) to run the Slack bot.',
-    );
-  }
-  // The registry travels as a mutable REF so a future runtime reload can swap `.current`
-  // without re-wiring the engine/pollers/handlers that captured it.
-  const reg: RegistryRef = { current: loadProjects(cfg.projectsConfigPath) };
-  const store = new Store();
-  // Two constructions: classic single-workspace (static token; no HTTP listener) vs OAuth
-  // multi-workspace. With `oauth` set, the App carries NO default token — Bolt authorizes
-  // every incoming event through the installation store (per-team bot tokens), and the
-  // SocketModeReceiver additionally serves /slack/install + /slack/oauth_redirect over HTTP
-  // (installerOptions.port) for the "Add to Slack" flow. Socket Mode stays the event
-  // transport for every installed workspace — one app-level socket, many teams.
-  const oauth = cfg.slack.oauth;
-  const app = oauth
-    ? new App({
-        appToken: cfg.slack.appToken,
-        socketMode: true,
-        clientId: oauth.clientId,
-        clientSecret: oauth.clientSecret,
-        stateSecret: oauth.stateSecret,
-        scopes: oauth.scopes,
-        installationStore: createInstallationStore(store),
-        // directInstall skips the "Add to Slack" landing page — /slack/install redirects
-        // straight into Slack's consent screen.
-        installerOptions: { port: oauth.port, directInstall: true },
-      })
-    : new App({
-        token: cfg.slack.botToken,
-        appToken: cfg.slack.appToken,
-        socketMode: true,
-      });
-
-  // ── the home-team client ────────────────────────────────────────────────
-  // The singleton concerns — alert sink, dream/housekeeping, restart recovery of home
-  // records — run on the home workspace's client. Under OAuth, app.client has no token,
-  // so it's minted from the installation store: the seeded env token, an explicit
-  // SLACK_HOME_TEAM_ID's record, or — on a first-ever OAuth boot with an empty store —
-  // nothing, in which case those concerns stay off (with a loud warning) but the bot
-  // still starts and serves /slack/install, so the first install can happen at all.
-  let homeClient: bolt.webApi.WebClient | undefined;
-  let homeTeamId: string | undefined;
-  if (!oauth) {
-    homeClient = app.client; // static token — today's behavior, unchanged
-  } else {
-    homeTeamId = cfg.slack.botToken
-      ? await seedHomeInstallation(store, cfg.slack.botToken)
-      : oauth.homeTeamId;
-    const install = homeTeamId ? (store.getInstallation(homeTeamId) as Installation | undefined) : undefined;
-    const homeToken = install?.bot?.token;
-    if (homeToken) {
-      homeClient = new bolt.webApi.WebClient(homeToken);
-    } else {
-      log.warn(
-        'no home-workspace installation found — alerts, pollers and restart recovery are OFF. ' +
-          `Install the app into the home workspace via http://<host>:${oauth.port}/slack/install ` +
-          '(or set SLACK_BOT_TOKEN to seed it), then restart.',
+/**
+ * The Slack surface (OpenSpec multi-driver-installation D2): prepared by the composition root
+ * (`src/chat/root.ts`), which owns the engine, the pollers and the messaging runtime. `prepare`
+ * builds the Bolt app and resolves the home workspace; `wire` registers the events and commands;
+ * `start` opens the Socket Mode connection. Exactly the sequence `runSlack` had.
+ */
+export const slackSurface: SurfacePlugin = {
+  name: 'slack',
+  async prepare(cfg: Config, store: Store, reg: RegistryRef): Promise<PreparedSurface> {
+    if (!cfg.slack) {
+      throw new Error(
+        'Set SLACK_APP_TOKEN plus SLACK_BOT_TOKEN (single-workspace) and/or ' +
+          'SLACK_CLIENT_ID/SLACK_CLIENT_SECRET/SLACK_STATE_SECRET (OAuth multi-workspace) to run the Slack bot.',
       );
     }
-  }
+    // The registry travels as a mutable REF so a future runtime reload can swap `.current`
+    // without re-wiring the engine/pollers/handlers that captured it.
+    // Two constructions: classic single-workspace (static token; no HTTP listener) vs OAuth
+    // multi-workspace. With `oauth` set, the App carries NO default token — Bolt authorizes
+    // every incoming event through the installation store (per-team bot tokens), and the
+    // SocketModeReceiver additionally serves /slack/install + /slack/oauth_redirect over HTTP
+    // (installerOptions.port) for the "Add to Slack" flow. Socket Mode stays the event
+    // transport for every installed workspace — one app-level socket, many teams.
+    const oauth = cfg.slack.oauth;
+    const app = oauth
+      ? new App({
+          appToken: cfg.slack.appToken,
+          socketMode: true,
+          clientId: oauth.clientId,
+          clientSecret: oauth.clientSecret,
+          stateSecret: oauth.stateSecret,
+          scopes: oauth.scopes,
+          installationStore: createInstallationStore(store),
+          // directInstall skips the "Add to Slack" landing page — /slack/install redirects
+          // straight into Slack's consent screen.
+          installerOptions: { port: oauth.port, directInstall: true },
+        })
+      : new App({
+          token: cfg.slack.botToken,
+          appToken: cfg.slack.appToken,
+          socketMode: true,
+        });
 
-  // ── per-tenant client resolver ──────────────────────────────────────────
-  // THE way any non-event code path (pollers, recovery) gets a workspace's client.
-  // Cache keyed by the TOKEN, not the tenant — a reinstall rotates the token and the
-  // stale client falls out of use automatically. Throws for unknown tenants: callers
-  // (recovery, pollers) handle that per record and never fall back to the home token
-  // against a foreign workspace.
-  const clientCache = new Map<string, bolt.webApi.WebClient>();
-  function clientForTeam(tenantId?: string): bolt.webApi.WebClient {
-    if (!tenantId || tenantId === homeTeamId) {
-      if (!homeClient) throw new Error('home workspace has no installation yet');
-      return homeClient;
-    }
-    const install = store.getInstallation(tenantId) as Installation | undefined;
-    const token = install?.bot?.token;
-    if (!token) throw new Error(`no installation for tenant ${tenantId} — uninstalled or never installed`);
-    let c = clientCache.get(token);
-    if (!c) {
-      if (clientCache.size > 100) clientCache.clear(); // bound (rotations leave dead entries)
-      c = new bolt.webApi.WebClient(token);
-      clientCache.set(token, c);
-    }
-    return c;
-  }
-
-  // ── envelope journal (AVEN_EVENT_LOG=1) ─────────────────────────────────
-  // Metadata-only (whitelist — no message text/values ever) record of every envelope,
-  // BEFORE the gate so gated traffic is captured too. Feeds the record→replay loop:
-  // real envelope shapes (esp. Slack Connect ones) become fixtures for src/twin.ts.
-  if (eventLog) {
-    const journal = eventLog; // narrow once — the closure runs long after the check
-    app.use(async ({ body, context, next }) => {
-      const meta = envelopeMeta(body, context as { teamId?: string; enterpriseId?: string; isEnterpriseInstall?: boolean });
-      // 'full' additionally captures the verbatim envelope (message text included) —
-      // the complete twin-fixture dataset for the trusted-workspaces phase.
-      journal.append(eventLogRaw ? { ...meta, raw: body } : meta);
-      return next();
-    });
-  }
-
-  // ── tenant gate (registry-driven since slice 2) ─────────────────────────
-  // A tenant is SERVED iff the workspaces block grants it projects (home always is).
-  // SLACK_ALLOWED_TEAMS stays honored as a transitional union. Unserved-but-installed
-  // tenants aren't silently dropped anymore: App Home and slash/actions pass through
-  // (their handlers render "not configured" — middleware can't ack()), and a mention/DM
-  // gets ONE polite reply per channel per hour. Static-token mode has exactly one
-  // workspace by construction — always served.
-  // The predicate is hot-path cheap (no project list materialized) and FAIL-CLOSED:
-  // an unresolved home tenant (first OAuth boot, empty store) serves nobody. Shared
-  // with the write-button handlers in events.ts (see EventDeps.servedTenant).
-  const allowedTeams = new Set(
-    (process.env.SLACK_ALLOWED_TEAMS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
-  );
-  const servedTenant = (tenant: string | undefined): boolean => {
-    if (!oauth) return true; // static mode: one workspace by construction
-    return (
-      !!homeTeamId &&
-      !!tenant &&
-      (tenant === homeTeamId ||
-        allowedTeams.has(tenant) ||
-        (reg.current.workspaces ? (entrySlugs(reg.current.workspaces[tenant])?.length ?? 0) > 0 : false))
-    );
-  };
-  if (oauth) {
-    const politeReplied = new RecentSet(60 * 60_000); // channel → polite-reply cooldown
-    app.use(async ({ context, body, client, next }) => {
-      const tenant = tenantOf(context as { teamId?: string; enterpriseId?: string; isEnterpriseInstall?: boolean });
-      if (servedTenant(tenant)) return next();
-      // Fail closed when home itself is unresolved (first boot): serve nobody.
-      const b = body as { command?: string; type?: string; event?: { type?: string; channel?: string } };
-      const evType = b.event?.type;
-      // Lifecycle events must reach their handlers from ANY tenant — an uninstall from
-      // an unserved-but-installed workspace is exactly the cleanup signal we want.
-      if (evType === 'app_uninstalled' || evType === 'tokens_revoked') return next();
-      // Surfaces whose handlers give the polite "not configured" answer themselves:
-      if (evType === 'app_home_opened') return next(); // onboarding Home view (events.ts)
-      if (b.command || b.type === 'block_actions' || b.type === 'view_submission') return next(); // ack() lives there
-      if ((evType === 'app_mention' || evType === 'message') && b.event?.channel) {
-        const ch = b.event.channel;
-        if (politeReplied.claim(ch)) {
-          await client.chat.postMessage({ channel: ch, text: notConfiguredText() }).catch(() => {});
-        }
-        return; // handled here — do not fall through to the handlers
+    // ── the home-team client ────────────────────────────────────────────────
+    // The singleton concerns — alert sink, dream/housekeeping, restart recovery of home
+    // records — run on the home workspace's client. Under OAuth, app.client has no token,
+    // so it's minted from the installation store: the seeded env token, an explicit
+    // SLACK_HOME_TEAM_ID's record, or — on a first-ever OAuth boot with an empty store —
+    // nothing, in which case those concerns stay off (with a loud warning) but the bot
+    // still starts and serves /slack/install, so the first install can happen at all.
+    let homeClient: bolt.webApi.WebClient | undefined;
+    let homeTeamId: string | undefined;
+    if (!oauth) {
+      homeClient = app.client; // static token — today's behavior, unchanged
+    } else {
+      homeTeamId = cfg.slack.botToken
+        ? await seedHomeInstallation(store, cfg.slack.botToken)
+        : oauth.homeTeamId;
+      const install = homeTeamId ? (store.getInstallation(homeTeamId) as Installation | undefined) : undefined;
+      const homeToken = install?.bot?.token;
+      if (homeToken) {
+        homeClient = new bolt.webApi.WebClient(homeToken);
+      } else {
+        log.warn(
+          'no home-workspace installation found — alerts, pollers and restart recovery are OFF. ' +
+            `Install the app into the home workspace via http://<host>:${oauth.port}/slack/install ` +
+            '(or set SLACK_BOT_TOKEN to seed it), then restart.',
+        );
       }
-      eventLog?.append({ ...envelopeMeta(body, context as { teamId?: string }), decision: 'gated' });
-      log.warn(`tenant gate: dropped a ${evType ?? b.type ?? 'unknown'} event from unserved tenant ${tenant ?? '(unknown)'}`);
-    });
-  }
+    }
 
-  // Operator error alerts → a Slack channel (set AVEN_ALERT_CHANNEL to a channel id the bot is
-  // in). Free-tier Sentry can't alert to Slack; the bot is already a Slack app, so it self-reports.
-  // Best-effort + deduped (skip a repeat of the same message within the window) to avoid storms.
-  const ALERT_CHANNEL = process.env.AVEN_ALERT_CHANNEL;
-  const ALERT_DEDUPE_MS = 60_000;
-  const recentAlerts = new Map<string, number>();
-  if (ALERT_CHANNEL && homeClient) {
-    const alerts = slackDriver(homeClient); // alerts go to OUR workspace (the alert channel lives there)
-    const PREFIX: Record<AlertLevel, string> = {
-      error: ':rotating_light: CoachAven error:',
-      warning: ':warning: CoachAven:',
-      info: ':white_check_mark: CoachAven:',
+    // ── per-tenant client resolver ──────────────────────────────────────────
+    // THE way any non-event code path (pollers, recovery) gets a workspace's client.
+    // Cache keyed by the TOKEN, not the tenant — a reinstall rotates the token and the
+    // stale client falls out of use automatically. Throws for unknown tenants: callers
+    // (recovery, pollers) handle that per record and never fall back to the home token
+    // against a foreign workspace.
+    const clientCache = new Map<string, bolt.webApi.WebClient>();
+    function clientForTeam(tenantId?: string): bolt.webApi.WebClient {
+      if (!tenantId || tenantId === homeTeamId) {
+        if (!homeClient) throw new Error('home workspace has no installation yet');
+        return homeClient;
+      }
+      const install = store.getInstallation(tenantId) as Installation | undefined;
+      const token = install?.bot?.token;
+      if (!token) throw new Error(`no installation for tenant ${tenantId} — uninstalled or never installed`);
+      let c = clientCache.get(token);
+      if (!c) {
+        if (clientCache.size > 100) clientCache.clear(); // bound (rotations leave dead entries)
+        c = new bolt.webApi.WebClient(token);
+        clientCache.set(token, c);
+      }
+      return c;
+    }
+
+    // ── envelope journal (AVEN_EVENT_LOG=1) ─────────────────────────────────
+    // Metadata-only (whitelist — no message text/values ever) record of every envelope,
+    // BEFORE the gate so gated traffic is captured too. Feeds the record→replay loop:
+    // real envelope shapes (esp. Slack Connect ones) become fixtures for src/twin.ts.
+    if (eventLog) {
+      const journal = eventLog; // narrow once — the closure runs long after the check
+      app.use(async ({ body, context, next }) => {
+        const meta = envelopeMeta(body, context as { teamId?: string; enterpriseId?: string; isEnterpriseInstall?: boolean });
+        // 'full' additionally captures the verbatim envelope (message text included) —
+        // the complete twin-fixture dataset for the trusted-workspaces phase.
+        journal.append(eventLogRaw ? { ...meta, raw: body } : meta);
+        return next();
+      });
+    }
+
+    // ── tenant gate (registry-driven since slice 2) ─────────────────────────
+    // A tenant is SERVED iff the workspaces block grants it projects (home always is).
+    // SLACK_ALLOWED_TEAMS stays honored as a transitional union. Unserved-but-installed
+    // tenants aren't silently dropped anymore: App Home and slash/actions pass through
+    // (their handlers render "not configured" — middleware can't ack()), and a mention/DM
+    // gets ONE polite reply per channel per hour. Static-token mode has exactly one
+    // workspace by construction — always served.
+    // The predicate is hot-path cheap (no project list materialized) and FAIL-CLOSED:
+    // an unresolved home tenant (first OAuth boot, empty store) serves nobody. Shared
+    // with the write-button handlers in events.ts (see EventDeps.servedTenant).
+    const allowedTeams = new Set(
+      (process.env.SLACK_ALLOWED_TEAMS ?? '').split(',').map((s) => s.trim()).filter(Boolean),
+    );
+    const servedTenant = (tenant: string | undefined): boolean => {
+      if (!oauth) return true; // static mode: one workspace by construction
+      return (
+        !!homeTeamId &&
+        !!tenant &&
+        (tenant === homeTeamId ||
+          allowedTeams.has(tenant) ||
+          (reg.current.workspaces ? (entrySlugs(reg.current.workspaces[tenant])?.length ?? 0) > 0 : false))
+      );
     };
-    setAlertSink((text: string, level: AlertLevel) => {
-      const now = Date.now();
-      const last = recentAlerts.get(text);
-      if (last && now - last < ALERT_DEDUPE_MS) return; // same error just posted — skip
-      recentAlerts.set(text, now);
-      if (recentAlerts.size > 200) recentAlerts.clear(); // bound the map
-      void alerts
-        .post({ conv: ALERT_CHANNEL }, { kind: 'text', text: `${PREFIX[level]} ${text}`.slice(0, 2000) })
-        .catch(() => {}); // never let an alert failure cascade (no log.error here → no loop)
-    });
-  }
+    if (oauth) {
+      const politeReplied = new RecentSet(60 * 60_000); // channel → polite-reply cooldown
+      app.use(async ({ context, body, client, next }) => {
+        const tenant = tenantOf(context as { teamId?: string; enterpriseId?: string; isEnterpriseInstall?: boolean });
+        if (servedTenant(tenant)) return next();
+        // Fail closed when home itself is unresolved (first boot): serve nobody.
+        const b = body as { command?: string; type?: string; event?: { type?: string; channel?: string } };
+        const evType = b.event?.type;
+        // Lifecycle events must reach their handlers from ANY tenant — an uninstall from
+        // an unserved-but-installed workspace is exactly the cleanup signal we want.
+        if (evType === 'app_uninstalled' || evType === 'tokens_revoked') return next();
+        // Surfaces whose handlers give the polite "not configured" answer themselves:
+        if (evType === 'app_home_opened') return next(); // onboarding Home view (events.ts)
+        if (b.command || b.type === 'block_actions' || b.type === 'view_submission') return next(); // ack() lives there
+        if ((evType === 'app_mention' || evType === 'message') && b.event?.channel) {
+          const ch = b.event.channel;
+          if (politeReplied.claim(ch)) {
+            await client.chat.postMessage({ channel: ch, text: notConfiguredText() }).catch(() => {});
+          }
+          return; // handled here — do not fall through to the handlers
+        }
+        eventLog?.append({ ...envelopeMeta(body, context as { teamId?: string }), decision: 'gated' });
+        log.warn(`tenant gate: dropped a ${evType ?? b.type ?? 'unknown'} event from unserved tenant ${tenant ?? '(unknown)'}`);
+      });
+    }
 
-  // Resolve our own bot user id so the message handler can ignore the very messages
-  // that already trigger app_mention (avoids double-processing) — and, in static-token
-  // mode, the home TEAM id: team-key logic needs it in both modes (auth.test knows both).
-  const authInfo = homeClient ? await homeClient.auth.test() : undefined;
-  const botUserId = authInfo?.user_id as string | undefined;
-  if (!oauth) homeTeamId = authInfo?.team_id as string | undefined;
+    // Operator error alerts → a Slack channel (set AVEN_ALERT_CHANNEL to a channel id the bot is
+    // in). Free-tier Sentry can't alert to Slack; the bot is already a Slack app, so it self-reports.
+    // Best-effort + deduped (skip a repeat of the same message within the window) to avoid storms.
+    const ALERT_CHANNEL = process.env.AVEN_ALERT_CHANNEL;
+    const ALERT_DEDUPE_MS = 60_000;
+    const recentAlerts = new Map<string, number>();
+    if (ALERT_CHANNEL && homeClient) {
+      const alerts = slackDriver(homeClient); // alerts go to OUR workspace (the alert channel lives there)
+      const PREFIX: Record<AlertLevel, string> = {
+        error: ':rotating_light: CoachAven error:',
+        warning: ':warning: CoachAven:',
+        info: ':white_check_mark: CoachAven:',
+      };
+      setAlertSink((text: string, level: AlertLevel) => {
+        const now = Date.now();
+        const last = recentAlerts.get(text);
+        if (last && now - last < ALERT_DEDUPE_MS) return; // same error just posted — skip
+        recentAlerts.set(text, now);
+        if (recentAlerts.size > 200) recentAlerts.clear(); // bound the map
+        void alerts
+          .post({ conv: ALERT_CHANNEL }, { kind: 'text', text: `${PREFIX[level]} ${text}`.slice(0, 2000) })
+          .catch(() => {}); // never let an alert failure cascade (no log.error here → no loop)
+      });
+    }
 
-  // Bot-served MCP servers (hostrouter.ts): `host` (agent messaging's tools) and the channel-served
-  // `sources` are answered by this process over each session's control channel.
-  // Agent messaging (OpenSpec agent-messaging): the shadow conversations' hooks go into the engine,
-  // the service is started once the engine exists. Nothing reaches it without a `messaging` block.
-  const messaging = messagingRuntime({ cfg, store, reg, home: () => homeTeamId, platform: 'slack' });
-  const hostRoutes = createHostRouter({ tz: ROUTINE_TZ, messaging: messaging.messaging });
-  const engine = createTurnEngine(cfg, store, reg, { hostRoutes, shadow: messaging.turnDeps });
-  // Late-bound home getter: channels is built here, but homeTeamId was resolved above and
-  // a future re-auth could in principle refresh it.
-  const channels = createChannels(reg, () => homeTeamId);
-  // Every non-event path (pollers, messaging, recovery) posts through a tenant's chat driver.
-  const driverFor = (t?: string) => slackDriver(clientForTeam(t));
-  messaging.start({ engine, driverFor, usageLog: new UsageLog(), tz: ROUTINE_TZ });
-  const pollers = createPollers(cfg, store, reg, driverFor, engine, channels, () => homeTeamId);
-
-  registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, messaging: messaging.messaging });
-  registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId, onReload: () => messaging.reload(), asks: messaging.asks });
-
-  // Recovery order matters: reattach the turns that were RUNNING first, then replay the
-  // journaled ones that were still queued (a replay waits for its key's recovery). Both
-  // BEFORE app.start(): the journal drain must happen while no new event can append to it,
-  // or a turn accepted in the gap would be replayed as a duplicate. The Web API client
-  // works without the socket; events only flow once start() connects.
-  // Each record resolves ITS OWN workspace's client (clientForTeam) — a client-team turn
-  // finalizes with that team's token; an uninstalled team's record is cleared, not retried
-  // forever. Guarded on homeClient: with no home install there are no records to recover.
-  if (homeClient) {
-    const recovering = engine.resumeInflightTurns(driverFor);
-    engine.resumeQueuedTurns(driverFor, recovering);
-    messaging.recover(recovering); // messages that were on their way, after their conversation's recovery
-  }
-
-  await app.start();
-  log.info(
-    `Slack bot running (Socket Mode${oauth ? `, OAuth installs on :${oauth.port}` : ''}) — ${summary(reg.current)}`,
-  );
-  if (homeClient) pollers.startAll();
-
-  // Retention: without it, chats/reviewedPrs grow by one record per thread/PR forever and
-  // every save() rewrites the whole (ever larger) state.json several times per turn. Run
-  // at boot AND daily — with graceful restarts the process may stay up for months.
-  const DAY_MS = 24 * 60 * 60_000;
-  const pruneState = () => {
-    const chats = store.pruneChats(45 * DAY_MS);
-    const prs = store.pruneReviewedPrs(90 * DAY_MS);
-    const asks = store.pruneMessaging(30 * DAY_MS); // agent messaging: ended tasks, held messages (none without messaging)
-    if (chats || prs) log.info(`retention: pruned ${chats} idle chats, ${prs} reviewed-PR entries`);
-    if (asks) log.info(`retention: pruned ${asks} ended agent-messaging records`);
-  };
-  pruneState();
-  setInterval(pruneState, DAY_MS).unref();
-
-  // Graceful shutdown: systemd's SIGTERM used to hard-kill the process mid-anything.
-  // Close the socket first (Slack stops routing events here and redelivers unacked ones
-  // on the next connect), then exit promptly — all state writes are synchronous, and
-  // in-flight turns keep running in their sandboxes to be recovered on the next boot.
-  // Deliberately NOT waiting for turns to finish: they can run 15 minutes, recovery is
-  // exactly the mechanism built for them.
-  let stopping = false;
-  const shutdown = (sig: string) => {
-    if (stopping) return;
-    stopping = true;
-    log.info(`${sig} — closing the Slack socket and exiting (in-flight turns recover on the next boot)`);
-    void app
-      .stop()
-      .catch(() => {})
-      .finally(() => process.exit(0));
-    setTimeout(() => process.exit(0), 5000).unref(); // if app.stop() wedges, exit anyway
-  };
-  process.once('SIGTERM', () => shutdown('SIGTERM'));
-  process.once('SIGINT', () => shutdown('SIGINT'));
-}
+    // Resolve our own bot user id so the message handler can ignore the very messages
+    // that already trigger app_mention (avoids double-processing) — and, in static-token
+    // mode, the home TEAM id: team-key logic needs it in both modes (auth.test knows both).
+    const authInfo = homeClient ? await homeClient.auth.test() : undefined;
+    const botUserId = authInfo?.user_id as string | undefined;
+    if (!oauth) homeTeamId = authInfo?.team_id as string | undefined;
+    return {
+      name: 'slack',
+      homeTenantId: () => homeTeamId,
+      driverFor: (t) => slackDriver(clientForTeam(t)),
+      hasHome: !!homeClient,
+      async wire({ engine, channels, pollers, messaging }: SharedDeps): Promise<WiredSurface> {
+        registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, messaging: messaging.messaging });
+        registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId, onReload: () => messaging.reload(), asks: messaging.asks });
+        return {
+          async start() {
+            await app.start();
+            log.info(
+              `Slack bot running (Socket Mode${oauth ? `, OAuth installs on :${oauth.port}` : ''}) — ${summary(reg.current)}`,
+            );
+          },
+          stop: () => app.stop().then(() => undefined, () => undefined),
+          closing: 'the Slack socket',
+        };
+      },
+    };
+  },
+};
