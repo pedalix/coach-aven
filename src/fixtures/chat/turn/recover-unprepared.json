@@ -1,0 +1,11 @@
+[
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "100.5",
+      "text": "⚠️ The bot restarted while this turn was still being prepared — it never reached the agent. Send your message again.",
+      "blocks": "[]"
+    }
+  }
+]

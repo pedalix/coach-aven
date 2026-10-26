@@ -1154,7 +1154,33 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     const recovering = new Map<string, Promise<void>>();
     for (const chat of store.allChats()) {
       const inf = chat.inflight;
-      if (!inf || !chat.sessionKey || !chat.cmdId) continue;
+      if (!inf) continue;
+      // Interrupted while still PREPARING (the sandbox, the clone, the agent process — a phase that
+      // can take minutes): no agent process ever existed, so there is nothing to reattach to. Say so
+      // on the frozen status message and clear the marker — left alone, the message said "Preparing…"
+      // forever and the record stayed in-flight forever (pruneChats skips in-flight records).
+      if (!chat.sessionKey || !chat.cmdId) {
+        if (isShadowKey(chat.threadTs)) {
+          store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
+          continue;
+        }
+        log.warn(`resume ${chat.threadTs}: the turn was interrupted before its session started — telling the thread`);
+        const status: MsgRef = { conv: inf.channel, id: inf.statusTs, ...(inf.msgThreadTs ? { thread: inf.msgThreadTs } : {}) };
+        recovering.set(
+          chat.threadTs,
+          (async () => {
+            try {
+              const d = driverForKey(driverFor, chat.threadTs);
+              await d.update(status, { kind: 'text', text: '⚠️ The bot restarted while this turn was still being prepared — it never reached the agent. Send your message again.' });
+            } catch (e) {
+              log.error(`resume ${chat.threadTs}: ${e instanceof Error ? e.message : String(e)}`);
+            } finally {
+              store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
+            }
+          })(),
+        );
+        continue;
+      }
       const project = resolveBySlug(reg.current, chat.slug);
       if (!project) {
         store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
