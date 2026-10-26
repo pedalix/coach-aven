@@ -56,3 +56,12 @@ test('operators by subject or e-mail', () => {
   assert.ok(!isOperatorOf(['u2'], { user: 'u1', email: 'ann@corp.example' }));
   assert.ok(!isOperatorOf([], { user: 'u1' }));
 });
+
+test('the identity from the ID token: a display name from name, given+family, the pool\'s username, or the e-mail — never the bare subject', async () => {
+  const { identityOf } = await import('./oidc.js');
+  assert.deepEqual(identityOf({ sub: 's1', email: 'ann@corp.example', 'cognito:groups': ['staff'] }, 'cognito:groups'), { sub: 's1', groups: ['staff'], email: 'ann@corp.example', name: 'ann@corp.example' });
+  assert.equal(identityOf({ sub: 's1', given_name: 'Ann', family_name: 'Lee', email: 'a@x.example' }, 'groups').name, 'Ann Lee');
+  assert.equal(identityOf({ sub: 's1', name: 'Ann L.', given_name: 'Ann' }, 'groups').name, 'Ann L.');
+  assert.equal(identityOf({ sub: 's1', preferred_username: 'ann', groups: 'a, b' }, 'groups').name, 'ann');
+  assert.deepEqual(identityOf({ sub: 's1', groups: 'a, b' }, 'groups'), { sub: 's1', groups: ['a', 'b'] });
+});

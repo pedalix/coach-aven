@@ -20,6 +20,20 @@ export const pkce = {
   nonce: (): string => oc.randomNonce(),
 };
 
+/** The surface's identity from an ID token's claims (exported for the test; the callback above uses it). */
+export function identityOf(claims: Record<string, unknown>, groupsClaim: string): Identity {
+  const sub = typeof claims.sub === 'string' ? claims.sub : '';
+  const groups = claims[groupsClaim];
+  const id: Identity = { sub, groups: Array.isArray(groups) ? groups.map(String) : typeof groups === 'string' ? groups.split(/[,\s]+/).filter(Boolean) : [] };
+  const str = (k: string) => (typeof claims[k] === 'string' && claims[k] ? (claims[k] as string) : undefined);
+  const email = str('email');
+  if (email) id.email = email;
+  const names = [str('given_name'), str('family_name')].filter((x): x is string => !!x).join(' ');
+  const name = str('name') ?? (names || undefined) ?? str('preferred_username') ?? str('cognito:username') ?? email;
+  if (name) id.name = name;
+  return id;
+}
+
 export function createOidc(s: OidcSettings): Oidc & { warmup(): Promise<void> } {
   let config: Promise<oc.Configuration> | undefined;
   const configuration = () => (config ??= oc.discovery(new URL(s.issuer), s.clientId, s.clientSecret).catch((e) => {
@@ -62,15 +76,7 @@ export function createOidc(s: OidcSettings): Oidc & { warmup(): Promise<void> } 
       const tokens = await oc.authorizationCodeGrant(c, currentUrl, { pkceCodeVerifier: checks.codeVerifier, expectedState: checks.state, expectedNonce: checks.nonce, idTokenExpected: true });
       const claims = tokens.claims();
       if (!claims?.sub) throw new Error('OIDC: the ID token carries no subject');
-      const groups = claims[s.groupsClaim];
-      const id: Identity = {
-        sub: claims.sub,
-        groups: Array.isArray(groups) ? groups.map(String) : typeof groups === 'string' ? groups.split(/[,\s]+/).filter(Boolean) : [],
-      };
-      if (typeof claims.name === 'string' && claims.name) id.name = claims.name;
-      else if (typeof claims.given_name === 'string' || typeof claims.family_name === 'string') id.name = [claims.given_name, claims.family_name].filter((x) => typeof x === 'string' && x).join(' ');
-      if (typeof claims.email === 'string' && claims.email) id.email = claims.email;
-      return id;
+      return identityOf(claims as Record<string, unknown>, s.groupsClaim);
     },
   };
 }

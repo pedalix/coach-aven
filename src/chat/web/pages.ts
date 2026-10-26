@@ -72,7 +72,7 @@ export function threadCardHtml(slug: string, t: ThreadSummary, last: Message | u
   const who = root.by ? (root.by.name ?? nameOf(root.by.id) ?? root.by.id) : 'Aven';
   const title = root.by ? plainText(root.text ?? '', 140) || messageBody(root, nameOf, slug).text : messageBody(root, nameOf, slug).text || 'Aven';
   const latest = last && last.id !== root.id ? messageBody(last, nameOf, slug).text : '';
-  return h`<a class="thread-card" id="thread-${root.id}" href="/r/${encodeURIComponent(slug)}/t/${encodeURIComponent(root.id)}"><div class="title">${title || '(empty)'}</div><div class="meta"><span class="who">${who}</span> · ${time(root.at)} · ${t.replies} ${t.replies === 1 ? 'reply' : 'replies'}${latest ? h` · <span class="latest">${latest.slice(0, 120)}</span>` : ''}</div></a>`;
+  return h`<a class="thread-card${root.visibleTo ? ' private' : ''}" id="thread-${root.id}" href="/r/${encodeURIComponent(slug)}/t/${encodeURIComponent(root.id)}"><div class="title">${title || '(empty)'}${root.visibleTo ? h` <span class="tag">only you</span>` : ''}</div><div class="meta"><span class="who">${who}</span> · ${time(root.at)} · ${t.replies} ${t.replies === 1 ? 'reply' : 'replies'}${latest ? h` · <span class="latest">${latest.slice(0, 120)}</span>` : ''}</div></a>`;
 }
 
 // The composer: the text, the files picked (or dropped / pasted — app.js), the send button; `/` opens the verb
