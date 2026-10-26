@@ -2,7 +2,8 @@
 
 ## Context
 
-- Built on `chat-driver-interface`: the core emits view models and receives normalized events; a driver renders and transports. Slack and Teams render to someone else's UI and get history for free. The web driver owns the UI, the transport, the login and the history.
+- Built on `chat-driver-interface` and `multi-driver-installation`: the core emits view models and receives normalized events; a driver renders and transports, as a surface of an installation that may run others. Slack and Teams render to someone else's UI and get history for free. The web driver owns the UI, the transport, the login and the history.
+- The first users: Brandnamic's account managers and copywriters on the newsletter agent — one thread per newsletter, a preview link and texts at stop 2, an explicit go-ahead before an upload, photos attached; not developers.
 - Agent output is untrusted (prompt injection can shape it), and the web driver is the first place we render it as HTML. Slack and Teams sanitize for us; here we must.
 - The repo is public (`go-public`): the mechanism lives here, instance values (hostname, identity provider issuer, client id, allow-list) live in the installation's ops overlay.
 
@@ -33,7 +34,8 @@
 | `/aven <verb>` | `/<verb>` in the composer, with suggestions |
 | Ephemeral replies | Messages stored with `visibleTo` = caller |
 | `/aven <question>` private answer | Answer in the caller's private conversation |
-| Routines, dreams, housekeeping, reviews, autofix, YouTrack, dispatch, alerts | Same, into the project room |
+| Routines, dreams, housekeeping, reviews, autofix, YouTrack, alerts | Same, into the project room (MVP: routines, dreams, housekeeping, reviews, alerts; YouTrack and autofix in PR 3) |
+| ✋ held-message card (agent messaging) | Same, in the thread |
 | Users allow/deny, admins | Allow-list in config (e-mails / groups), operators as admins; `/users` edits it |
 | App Home tab | Home page |
 | Slack Connect, multi-workspace | n/a: anyone with a login on the allow-list |
@@ -50,13 +52,13 @@ Append-only JSONL per conversation under the installation's data dir: `web/<slug
 *Alternative*: SQLite (`node:sqlite` is already used by `src/sources/`). Kept as the fallback if room listings get slow; JSONL matches `queue.jsonl` / `usage/*.jsonl` and is trivially inspectable.
 
 ### D3. Login: OIDC authorization code flow with PKCE
-Any OIDC provider; our instance uses the identity provider we already run (values in the overlay). The session is a signed HttpOnly, Secure, SameSite=Lax cookie; every POST carries a CSRF token bound to the session. Allow-list by verified e-mail or by a groups claim. For local development only: `WEB_AUTH=none` is accepted when the listener is bound to 127.0.0.1, with a fixed local user.
+Any OIDC provider. The Teams staging installation uses the platform's Amazon Cognito staff pool (hosted UI; the accounts Brandnamic's people already use for the platform; groups from the `cognito:groups` claim), values in the ops overlay; the home canary uses the same pool with a test user or `WEB_AUTH=none` on localhost. The session is a signed HttpOnly, Secure, SameSite=Lax cookie; every POST carries a CSRF token bound to the session. Allow-list by verified e-mail or by a groups claim. For local development only: `WEB_AUTH=none` is accepted when the listener is bound to 127.0.0.1, with a fixed local user.
 
 ### D4. Rendering untrusted content
 Markdown is rendered with raw HTML disabled and links restricted to `http`, `https`, `mailto`. Every response carries a CSP with no inline script, no `eval`, scripts and styles only from self. Fragments are produced by escaping templates, never string concatenation of user or agent text. A test suite of hostile inputs runs against `webformat.ts` and `webviews.ts`.
 
 ### D5. Keys and identities
-Keys keep the shapes from `chat-driver-interface`: `thread:<threadId>` for room threads, `dm:<userId>:<slug>` for private conversations. Thread and user ids are generated ids without `:`. User ids are the OIDC `sub`, mapped to name and e-mail at login and kept in `state.json`.
+Keys keep the shapes from `chat-driver-interface`, with the surface segment of `multi-driver-installation` when the web is an additional surface: `web:thread:<threadId>` for room threads, `web:dm:<userId>:<slug>` for private conversations (bare when the web is the installation's default surface). Thread and user ids are generated ids without `:`. User ids are the OIDC `sub`, mapped to name and e-mail at login and kept in `state.json`; `actor.tenant` is the issuer, so the web's access gate and allow-list are its own.
 
 ### D6. Commands and private replies
 The composer treats a leading `/` as a command: the verb grammar is the shared `/aven` router. Ephemeral replies are stored with `visibleTo: [userId]` and streamed only to that user's pages. Dialogs are rendered server-side into a `<dialog>` element.
@@ -65,7 +67,7 @@ The composer treats a leading `/` as a command: the verb grammar is the shared `
 Multipart upload with a per-file and per-post limit (`WEB_MAX_FILE_MB`, default 20). Files are stored next to the conversation and handed to the existing `attachments.ts` pipeline. Downloads of stored files require the session and are served with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`.
 
 ### D8. Hosting and what is public
-`orch web` listens on `WEB_PORT` (default 8787). Prod-style: behind nginx with TLS on a dedicated hostname; SSE needs proxy buffering off for that location. Home canary: localhost first (one user, no tunnel), then a hostname when colleagues join.
+The web surface listens on `WEB_PORT` (default 8787), beside the Teams listener when both run. Behind the installation's nginx with TLS on a dedicated hostname (the Teams staging installation: a second server block on its box; SSE needs proxy buffering off for that location). Home canary: localhost first (one user, no tunnel).
 Public repo: driver code, `docs/web.md` with placeholders, `.env.example` keys. Ops overlay: hostname, issuer, client id and secret, allow-list, nginx site file.
 
 ## Risks / Trade-offs
@@ -78,11 +80,12 @@ Public repo: driver code, `docs/web.md` with placeholders, `.env.example` keys. 
 
 ## Migration Plan
 
-1. Prerequisite: `chat-driver-interface` merged and tagged.
+1. Prerequisite: `multi-driver-installation` PR 1 and PR 2 merged and on the Teams staging installation.
 2. PR 1: server, login, rooms, threads, private conversations, turn lifecycle, history, recovery.
-3. PR 2: commands, dialogs, feedback, files, background deliveries, Home page, access commands.
-4. Canary on localhost on the home host, then on a hostname with colleagues.
-Rollback: stop the web installation's service.
+3. PR 2: the MVP commands, dialogs, feedback, files, background deliveries with the held card, Home page.
+4. Canary on localhost on the home host (`WEB_AUTH=none`), then the Teams staging installation with `CHAT_SURFACES=web`: the newsletter project rebound from its Teams channel to its web room, Brandnamic's people on the allow-list.
+5. PR 3 (when a client needs it): the remaining verbs, YouTrack, autofix, `/users`.
+Rollback: drop `web` from `CHAT_SURFACES`; the Teams surface and the project's state are untouched.
 
 ## Open Questions
 

@@ -4,12 +4,16 @@ Lets people reach a project's coding agent through a web chat that the installat
 
 ## ADDED Requirements
 
-### Requirement: Web mode
-An installation started in web mode SHALL serve its registry's projects, including background jobs, through the web chat only, and SHALL refuse to start without its login settings.
+### Requirement: Web surface
+An installation SHALL serve its projects through the web chat as its default surface (web mode) or as an additional surface beside Slack or Teams, and SHALL refuse to start the web surface without its login settings.
 
 #### Scenario: Web mode
-- **WHEN** an installation starts in web mode
+- **WHEN** an installation starts in web mode and names no other surface
 - **THEN** it serves the web chat and opens no Slack or Teams connection
+
+#### Scenario: Web beside Teams
+- **WHEN** a Teams installation names the web as an additional surface
+- **THEN** its projects with a room are reachable on the web, and a conversation started on the web stays on the web
 
 #### Scenario: Missing login settings
 - **WHEN** web mode starts without its identity provider settings and is not bound to localhost with login explicitly disabled
@@ -101,7 +105,7 @@ Every `/aven` verb SHALL be available by typing `/<verb> …` in a room or priva
 - **THEN** the composer suggests the available verbs
 
 ### Requirement: Background deliveries
-Routines, dreams, housekeeping, auto-reviews, autofix notices with Fix, YouTrack investigations with the ticket card and dialogs, dispatched messages and turns, and ops alerts SHALL be delivered into the project's room with the same content and actions as on Slack. Mentioned users SHALL see the thread highlighted.
+Routines, dreams, housekeeping, auto-reviews, autofix notices with Fix, YouTrack investigations with the ticket card and dialogs, the held-message card of agent messaging, and ops alerts SHALL be delivered into the project's room with the same content and actions as on Slack. Mentioned users SHALL see the thread highlighted.
 
 #### Scenario: Routine fires
 - **WHEN** a routine fires
