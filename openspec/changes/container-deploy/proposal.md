@@ -18,9 +18,10 @@ Two installations deploy this way today and more are coming, each with the same 
 
 ## What Changes
 
-- **The bot's state lives in one directory, apart from the code.** A new process setting, `AVEN_DIR`, names the installation directory:
-  - everything the bot writes lives under it: `state.json`, `queue.jsonl`, `usage/`, `drafts/`, `facts/`, `memory/`, `feedback/`, `events/`, `shadow/` and `data/`;
-  - `projects.config.json` is read from it when `PROJECTS_CONFIG_PATH` is unset;
+- **The installation lives in one directory, apart from the code.** A new process setting, `AVEN_DIR`, names the installation directory:
+  - everything the bot writes lives under it: `state.json`, `queue.jsonl`, `usage/`, `drafts/`, `facts/`, `memory/`, `feedback/`, `events/`, `shadow/`, `data/` and the mirror job's `mirrors/`;
+  - the configuration is read from it: `.env`, `projects.config.json` when `PROJECTS_CONFIG_PATH` is unset, and `mirrors.json`. A relative path in a setting resolves against it, so the working directory no longer matters;
+  - it comes from the process environment, because it says where `.env` is;
   - unset, it is the package root, which is today's layout.
 - **One image per commit, built once.**
   - CI builds an image of every `main` commit from a clean checkout. The image holds tracked files only, with `npm ci` run at build time, for amd64 and arm64.
@@ -49,7 +50,7 @@ Two installations deploy this way today and more are coming, each with the same 
 ## Capabilities
 
 ### New Capabilities
-- `installation-directory`: where an installation's state and default configuration live, independent of where the code runs from. It covers the default and the rule that no runtime file is located through the code's own path.
+- `installation-directory`: where an installation's configuration and state live, independent of where the code is and of where the process starts. It covers the default and the rule that no runtime file is located through the code's own path or the working directory.
 - `bot-image`: the published image of the bot: what is in it, how it is built for every `main` commit, how it is tagged, and how a release promotes it. The image of the sandboxes stays `sandbox-image`.
 - `container-deploy`:
   - how an installation runs the image;
@@ -68,7 +69,7 @@ Two installations deploy this way today and more are coming, each with the same 
 ## Impact
 
 - **Rollout:**
-  - The installation directory is bucket 2. With `AVEN_DIR` unset every path stays where it is, and a test pins today's paths.
+  - The installation directory is bucket 2. With `AVEN_DIR` unset every path stays where it is, and a test pins today's paths. Every unit and npm script starts in the package root, so reading `.env` and relative paths from there changes nothing.
   - The image builds touch CI only and change nothing on any box.
   - The compose runtime is bucket 3, gated per installation by `RUNTIME=compose` in its `deploy.env`. Absent, the installation keeps the systemd unit, today's shape.
   - Order: a canary installation first, then prod together with a release tag. Prod changes only when its operator sets the key.
@@ -76,6 +77,7 @@ Two installations deploy this way today and more are coming, each with the same 
 - **Code:**
   - new: `src/paths.ts` with its test;
   - eleven modules stop locating runtime files through `import.meta.url`: `src/state.ts`, `src/queuejournal.ts`, `src/metering.ts`, `src/drafts.ts`, `src/facts.ts`, `src/feedback.ts`, `src/memjournal.ts`, `src/eventlog.ts`, `src/messaging/runtime.ts`, `src/sources/paths.ts` and `src/config.ts` (the projects config default);
+  - `.env`, the mirror list and its cache, and relative path settings resolve against the installation directory instead of the working directory: `src/config.ts`, `src/mirrors.ts`, `scripts/mirror.ts`, `src/sources/paths.ts`, `src/messaging/config.ts` and `src/messaging/cli.ts`;
   - the release marker (`.release`) stays beside the code;
   - `scripts/mirror.ts` moves behind a CLI command, `orch mirror`, in `src/cli.ts`.
 - **Deploy tooling:**
@@ -83,7 +85,7 @@ Two installations deploy this way today and more are coming, each with the same 
   - changed: `infra/deploy/deploy.sh`, `.github/workflows/release.yml`, `infra/deploy/ops.example/workflows/deploy.yml` and `infra/deploy/ops.example/deploy.env.example`.
 - **Tests:**
   - `src/paths.test.ts`;
-  - a guard that fails when a runtime path is built from `import.meta.url` outside `src/paths.ts`;
+  - a guard that fails when code under `src/` locates a runtime file through its own location (`import.meta.url`) or through the working directory (`process.cwd()`);
   - compose cases in `src/chat/teams/deploy.test.ts`: the rendered file, the default runtime and an unknown runtime.
 - **Dependencies:**
   - Nothing changes in `package.json`.

@@ -2,37 +2,49 @@
 
 ## 1. The installation directory (PR 1, bucket 2)
 
-- [ ] 1.1 `src/paths.ts`, pure (design D1): `installDir(env, packageRoot)`, and one resolver per runtime path, each evaluated on first use.
+- [ ] 1.1 `src/paths.ts`, pure (design D1): `installDir(env, packageRoot)`, one resolver per runtime path, each evaluated on first use, and one helper that resolves a path setting's relative value against the installation directory.
   - unset or empty gives the package root;
   - an absolute value is used as it is;
   - a relative value throws one sentence that names `AVEN_DIR`.
 
-  Verify, in `src/paths.test.ts`: the default, an absolute value, a relative value, and `AVEN_DATA_DIR` still narrowing `data/`.
+  Verify, in `src/paths.test.ts`: the default, an absolute value, a relative value, `AVEN_DATA_DIR` still narrowing `data/`, and the helper with a relative and an absolute setting.
 - [ ] 1.2 The eleven anchors go through `src/paths.ts`: `src/state.ts`, `src/queuejournal.ts`, `src/metering.ts`, `src/drafts.ts`, `src/facts.ts`, `src/feedback.ts`, `src/memjournal.ts`, `src/eventlog.ts`, `src/messaging/runtime.ts`, `src/sources/paths.ts`, and the projects config default in `src/config.ts`. `.release` stays where it is. Verify:
   - `npm run typecheck`;
   - `npm test` passes with no existing test changed;
   - a new test sets `AVEN_DIR` to a temporary directory and finds `state.json`, `queue.jsonl` and the month's usage file there.
-- [ ] 1.3 `src/config.ts`:
-  - it notes `AVEN_DIR` before `.env` is loaded, and stops the boot when `.env` sets or changes it;
+- [ ] 1.3 The working directory stops mattering (design D1):
+  - `src/config.ts` loads `.env` from the installation directory;
+  - `mirrors.json` and the `mirrors/` cache come from the installation directory: `mirrorsPath` in `src/mirrors.ts` takes it instead of the working directory, and `scripts/mirror.ts` passes it;
+  - relative path settings go through the helper: `PROJECTS_CONFIG_PATH` and `GITHUB_APP_PRIVATE_KEY_PATH` (`src/config.ts`), `AVEN_DATA_DIR` (`src/sources/paths.ts`), `MIRRORS_CONFIG` (`src/mirrors.ts`), `HUB_KEY_PATH` (`src/messaging/config.ts`, `src/messaging/cli.ts`).
+
+  Verify:
+  - `src/mirrors.test.ts` covers the list's path from the installation directory;
+  - a test starts the CLI from a temporary working directory, with `AVEN_DIR` naming a fixture installation, and the command reads that installation's `.env` and `state.json`. The child's environment must not carry `NODE_TEST_CONTEXT`, or `.env` is never loaded.
+- [ ] 1.4 `src/config.ts` at boot:
+  - `AVEN_DIR` is resolved from the process environment before `.env` is loaded, and a `.env` that sets `AVEN_DIR` stops the boot;
   - a relative value stops the boot;
   - one boot line names the installation directory before the chat driver starts.
 
-  Verify: cases in `src/config.test.ts` for "set only in .env", "relative", and the boot line's text.
-- [ ] 1.4 The guard, a test beside `src/chat/imports.test.ts`. It fails on `new URL('../…', import.meta.url)` under `src/` (tests aside) when the target is not a code asset; the code assets are the fixtures, the static files, `sources/worker.mjs`, `snapshot/plain/sources-mcp.mjs` and `.release`. Verify: it passes on the tree, and fails when a fake anchor is added, naming the file and the path (checked once, then reverted).
-- [ ] 1.5 Docs:
-  - `docs/runtime-config.md` gets an `AVEN_DIR` row: what lives under it, the default, and that it comes from the process environment only;
-  - `docs/local-dev.md` says the state lives beside the checkout unless `AVEN_DIR` is set.
+  Verify: cases in `src/config.test.ts` for "set in .env", "relative", and the boot line's text.
+- [ ] 1.5 The guard, a test beside `src/chat/imports.test.ts`:
+  - It fails on `new URL('../…', import.meta.url)` under `src/` (tests aside) when the target is not a code asset. The code assets are the fixtures, the static files, `sources/worker.mjs`, `snapshot/plain/sources-mcp.mjs` and `.release`.
+  - It fails on `process.cwd()` under `src/` (tests aside) outside `src/cliprobe/typecheck.ts`.
+
+  Verify: it passes on the tree. A fake anchor of each kind makes it fail, naming the file and the path (checked once, then reverted).
+- [ ] 1.6 Docs:
+  - `docs/runtime-config.md` gets an `AVEN_DIR` row: what lives under it (configuration and state), the default, that relative path settings resolve against it, and that it comes from the process environment only;
+  - `docs/local-dev.md` says `.env` and the state live in the checkout unless `AVEN_DIR` is set.
 
   Verify: `git diff --stat docs` lists those two files, and the public guard is clean.
-- [ ] 1.6 `docs/rollout.md` gets a ledger row: the installation directory, bucket 2, nothing moves while it is unset. Verify: the diff of `docs/rollout.md`.
-- [ ] 1.7 Canary: restart home and deploy staging with `AVEN_DIR` unset. Verify:
+- [ ] 1.7 `docs/rollout.md` gets a ledger row: the installation directory, bucket 2, nothing moves while it is unset. Verify: the diff of `docs/rollout.md`.
+- [ ] 1.8 Canary: restart home and deploy staging with `AVEN_DIR` unset. Verify:
   - the boot line names the package root;
   - the routines, the queue journal and `/aven usage` keep working;
   - nothing new appears outside the package root.
 
 ## 2. The image (PR 2)
 
-- [ ] 2.1 `orch mirror` (design D10): the body of `scripts/mirror.ts` moves into a function that `orch mirror` (`src/cli.ts`) and `scripts/mirror.ts` both call, with the same `mirrorsPath(env, cwd)` and `./mirrors` cache. Verify:
+- [ ] 2.1 `orch mirror` (design D10): the body of `scripts/mirror.ts` moves into a function that `orch mirror` (`src/cli.ts`) and `scripts/mirror.ts` both call, with the list and the `mirrors/` cache in the installation directory (task 1.3). Verify:
   - `npm test`, `src/mirrors.test.ts` included;
   - `npm run orch -- mirror --help`;
   - a test that both entry points import the same function.

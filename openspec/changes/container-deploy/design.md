@@ -15,7 +15,12 @@ The motivation is in proposal.md, *Why*. What shapes the approach:
   - `data/` (`src/sources/paths.ts`, which `AVEN_DATA_DIR` overrides);
   - the projects config default (`src/config.ts`, which `PROJECTS_CONFIG_PATH` overrides);
   - `.release` (`src/config.ts`).
-- **Paths resolved against the working directory.** `.env` (dotenv), `mirrors.json` (unless `MIRRORS_CONFIG` is set), and a relative `GITHUB_APP_PRIVATE_KEY_PATH` or `HUB_KEY_PATH`.
+- **Paths resolved against the working directory:**
+  - `.env` (dotenv);
+  - `mirrors.json` (unless `MIRRORS_CONFIG` is set) and the mirror job's `mirrors/` cache (`scripts/mirror.ts`);
+  - the relative value of any path setting: `PROJECTS_CONFIG_PATH`, `AVEN_DATA_DIR`, `MIRRORS_CONFIG`, `GITHUB_APP_PRIVATE_KEY_PATH`, `HUB_KEY_PATH`.
+
+  Every unit sets `WorkingDirectory` to the package root, at home and in the box templates, and `npm run` starts there too. So today the two anchors always agree.
 - **The deployer's home.** The SSH transport runs the system `ssh` with the deployer's keys and known hosts (`src/sshdocker.ts`, `transportArgv`). Source tokens and, by convention, the hub key live under `~/.config/coach-aven`.
 - **Programs the code starts on the host:**
   - `ssh`, for a remote sandbox host;
@@ -52,14 +57,22 @@ The motivation is in proposal.md, *Why*. What shapes the approach:
   - Unset or empty gives the package root; a relative value throws.
   - Each runtime path is resolved on first use, never at import time, so the order in which modules are evaluated cannot matter.
 - **The eleven state and config anchors** listed in *Context* go through it. `.release` and the bot's assets (fixtures, static files, the sources worker, `snapshot/plain/sources-mcp.mjs`) stay relative to the code: they describe the code, not the installation.
-- **`.env` cannot set it.** `src/config.ts` notes `process.env.AVEN_DIR` before it loads `.env`. If `.env` introduced or changed the value, the boot stops with one sentence. Applying a value from `.env` would depend on the order of imports.
+- **The working directory stops mattering.** What *Context* lists as resolved against the working directory is resolved against the installation directory instead:
+  - `.env` is loaded from it (`loadDotenv({ path })`);
+  - `mirrors.json`, unless `MIRRORS_CONFIG` is set, and the `mirrors/` cache live in it;
+  - a relative value of a path setting resolves against it, through one helper in `src/paths.ts`;
+  - a path given on a command line keeps resolving against the shell's directory, as with any command-line tool.
+
+  Every launcher starts in the package root today, so with `AVEN_DIR` unset nothing moves. Only a process started elsewhere without the setting changes: it now reads the package root's `.env` instead of its working directory's.
+- **`AVEN_DIR` comes from the process environment only.** It says where `.env` is, so `.env` cannot say it. `src/config.ts` resolves the directory first and then loads `.env` from it. When the file sets `AVEN_DIR`, the boot stops with one sentence saying that the setting belongs in the service's environment.
 - **Boot log.** One boot line names the directory.
-- **A guard test**, in the manner of `src/chat/imports.test.ts`, scans `src/` (tests aside) for `new URL('../…', import.meta.url)` and fails on any target that is not on the list of code assets.
+- **A guard test**, in the manner of `src/chat/imports.test.ts`, scans `src/` (tests aside). It fails on `new URL('../…', import.meta.url)` whose target is not on the list of code assets, and on `process.cwd()` outside the CLI probe's type-check helper (`src/cliprobe/typecheck.ts`).
 - **Alternatives:**
   - The working directory as the installation directory, with no new setting. A tool started from another directory would then read and write another state, silently.
+  - `AVEN_DIR` for what the bot writes, with `.env` and the rest of the configuration still found through the working directory. That is correct only while every launcher sets the working directory to the installation directory: the same silent mismatch, for configuration.
   - Separate directories for state and for configuration: two knobs where nobody needs two.
   - One setting per file: eleven knobs.
-- **Name.** `AVEN_DIR` sits beside `AVEN_DATA_DIR`, which narrows `data/` inside it, and `AVEN_TZ`.
+- **Name.** `AVEN_DIR` sits beside `AVEN_DATA_DIR`, which narrows `data/` inside it, and `AVEN_TZ`. `AVEN_HOME` would read like the location of the code, as `JAVA_HOME` does.
 
 ### D2. An image and Compose, not a release bundle on systemd
 
@@ -84,7 +97,7 @@ Chosen: an image per commit, run with Compose.
 
 | Setting | Why |
 |---|---|
-| Installation directory mounted at its own path, read-write, as `working_dir` and `AVEN_DIR` | `.env`, `mirrors.json`, relative key paths, state and data resolve as they do today; no data moves |
+| Installation directory mounted at its own path, read-write, as `AVEN_DIR` and `working_dir` | `.env`, the projects config, the mirror list, relative key paths, state and data resolve through `AVEN_DIR` (D1) to the files they use today, so no data moves; as `working_dir` it also anchors a relative argument given to `run` |
 | `~/.ssh` at its own path, read-only | the SSH transport with its keys and known hosts |
 | `~/.config/coach-aven` at its own path, read-write | the pullers refresh source tokens there; the hub key |
 | `/etc/passwd` and `/etc/group`, read-only; `HOME` set to the deployer's home | OpenSSH refuses to run as a uid without a passwd entry, and git reads the home directory from it |
@@ -161,7 +174,7 @@ At each deploy the deploy command reads the one key `SSHDOCKER_HOST` from the in
 - **The release.** The rendered file sets `SENTRY_RELEASE` to `vX.Y.Z`, or to `main@<first 7 characters>` for a commit image, the stamp the canary uses today. `resolveRelease()` already prefers `SENTRY_RELEASE`, so no code changes. `.release` stays for the systemd path.
 
 ### D10. Scheduled jobs
-- **`orch mirror`.** It runs the function that `scripts/mirror.ts` runs today, with the same `mirrorsPath(env, cwd)`, so `mirrors.json` is read from the working directory, which is the installation directory. `scripts/mirror.ts` stays as a thin caller until the systemd path retires, so an installation that has not moved keeps its crontab line.
+- **`orch mirror`.** It runs the function that `scripts/mirror.ts` runs today. Since the first PR that function reads `mirrors.json` and keeps the `mirrors/` cache in the installation directory (D1). `scripts/mirror.ts` stays as a thin caller until the systemd path retires, so an installation that has not moved keeps its crontab line.
 - **The crontab line on a moved installation:** `sudo /usr/local/sbin/<service>-deploy run mirror >> <dir>/mirrors/mirror.log 2>&1`. The operator rewrites the line during the move, and `cleanup` refuses until that is done (D11).
 
 ### D11. Moving an installation, moving back, cleaning up
