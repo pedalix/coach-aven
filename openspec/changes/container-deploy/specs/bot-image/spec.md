@@ -58,8 +58,12 @@ The image SHALL carry the standard labels for its source repository and the comm
 - **THEN** its labels name the product repository and the tagged commit
 
 ### Requirement: A broken image build is caught before merge
-A pull request that changes the image's inputs (the image's build file, `package.json` or the lockfile) SHALL build the image for `linux/amd64` without publishing it, and SHALL fail when that build fails.
+A pull request that changes the image's inputs (the image's build file, `package.json` or the lockfile) SHALL build the image for `linux/amd64` and `linux/arm64` without publishing it, and SHALL fail when either build fails.
 
 #### Scenario: A dependency that does not build
 - **WHEN** a pull request changes the lockfile so that `npm ci` fails inside the image
 - **THEN** the pull request's checks fail and nothing is published
+
+#### Scenario: A dependency that builds on one architecture only
+- **WHEN** a pull request adds a dependency that installs on amd64 but not on arm64
+- **THEN** the pull request's checks fail before the merge, so `main` never lacks an arm64 image because of it

@@ -127,20 +127,23 @@ At each deploy the deploy command reads the one key `SSHDOCKER_HOST` from the in
   - The build context is `git archive <commit>`, so even a local build sees tracked files only.
   - `npm ci` keeps the dev dependencies, because tsx is the runtime loader on the boxes today.
   - Everything sits in `/app`.
+  - `package.json` and the lockfile are copied, and `npm ci` runs, before the rest of the tree is copied. The dependency layer then depends only on the base image and those two files.
 - **Entry point:** `node --import <absolute path of tsx's loader> /app/src/cli.ts`, in exec form. `--import tsx` would resolve against the working directory, which is the installation directory here, and fail.
 - **Default user:** unprivileged. Compose replaces it with the deployer's uid (D3).
 - **Labels:** `org.opencontainers.image.source`, `.revision` and `.created`.
 
 ### D6. Built once per commit on native runners, promoted on the tag
 - **Build.** A reusable workflow, `image.yml`, runs one job per architecture on a native runner (`ubuntu-24.04` and `ubuntu-24.04-arm`), each pushing its image by digest. A merge job then publishes the manifest list as `sha-<commit>`. Under QEMU, `npm ci` would run emulated for minutes, while native arm64 runners are free for public repositories.
+- **Build cache.** Each architecture's job reads and writes a build cache in the registry, `buildcache-<arch>`. When the lockfile has not changed, the dependency layer is the very same layer as in the previous image, so a box that runs that image pulls only the code. The cache of GitHub Actions is not used: it drops entries unused for a week, and a dropped entry would put a new dependency layer on every box.
 - **Callers:**
   - `ci.yml` calls `image.yml` on pushes to `main` after the verify job;
-  - on a pull request that touches the image's inputs, `ci.yml` builds amd64 without pushing;
+  - on a pull request that touches the image's inputs, `ci.yml` builds both architectures on their native runners without pushing; such a build reads the build cache and never writes it;
   - `release.yml` runs verify, then the promotion, then the GitHub Release, then the dispatch. The promotion is `docker buildx imagetools create -t vX.Y.Z <image>:sha-<commit>`, or a build when the image is missing.
-- **Registry:** `ghcr.io/<owner>/coach-aven`, public. The workflow writes it with its own `GITHUB_TOKEN` (`packages: write`), and nothing else gets a credential. A fork publishes to its own namespace the same way.
+- **Registry:** `ghcr.io/<owner>/coach-aven`, public. The workflow writes it with its own `GITHUB_TOKEN` (`packages: write`), and nothing else gets a credential. Boxes pull anonymously, so no box holds a registry token. An owner of the organization makes the package public once, in its settings. A fork publishes to its own namespace the same way.
 - **Alternatives:**
   - Building on the tag: prod would run an image the canary never ran.
   - A single architecture: one installation is arm64.
+  - Building only amd64 on pull requests: a dependency that breaks only on arm64 would surface after the merge and leave the arm64 installation without an image of `main`.
   - Docker Hub: a second account and a second secret.
 
 ### D7. The box's deploy command
@@ -247,6 +250,6 @@ At each deploy the deploy command reads the one key `SSHDOCKER_HOST` from the in
 
 ## Open Questions
 
-- **Retention.** How many `sha-*` images the registry keeps and how many old images a box keeps. The starting values are 90 days and the two previous versions.
+- **Retention on the box.** How many old images a box keeps. The starting value is the two previous versions. The registry keeps `sha-*` images for 90 days unless a release names them.
 - **Serve units.** Whether `orch sources serve` units, installed by hand today, become Compose services once an installation needs one.
 - **The home bot.** Whether it moves to the image. It runs from a development checkout, so its operator decides.

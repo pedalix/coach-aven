@@ -52,30 +52,32 @@
   - Node 24 on Debian slim, pinned by digest;
   - git, `openssh-client` and `age` from Debian;
   - the Docker CLI and gitleaks copied from their official images;
-  - `npm ci` into `/app`;
+  - `npm ci` into `/app`, after copying only `package.json` and the lockfile, and before the rest of the tree is copied;
   - an exec-form entry point that loads tsx by absolute path;
   - an unprivileged default user, and OCI labels for the source and the revision.
 
   Verify:
   - `git archive HEAD | docker build -t aven:test -`;
+  - a second build, of a commit that changes only a file under `src/`, shares every layer up to and including `npm ci` with the first (`docker history`);
   - `docker run --rm aven:test --help` lists the commands;
   - `docker run --rm -w /tmp aven:test routines --help` runs from another working directory;
   - `docker run --rm --entrypoint sh aven:test -c 'git --version && ssh -V && docker --version && age --version && gitleaks version'`.
 - [ ] 2.3 `scripts/image-contents.sh` compares `/app` in an image, `node_modules` aside, with `git ls-files` of its commit (requirement *The image holds the commit and nothing else*); CI runs it after every build. Verify: it passes on the built image, and fails on an image built by hand from a context with one extra file.
-- [ ] 2.4 `.github/workflows/image.yml`, a reusable workflow (design D6): one job per architecture on native runners (`ubuntu-24.04`, `ubuntu-24.04-arm`), each pushing by digest, then a merge job that publishes `sha-<commit>`. `packages: write` is granted in this workflow only. Verify:
+- [ ] 2.4 `.github/workflows/image.yml`, a reusable workflow (design D6): one job per architecture on native runners (`ubuntu-24.04`, `ubuntu-24.04-arm`), each pushing by digest, then a merge job that publishes `sha-<commit>`. Each architecture's job reads and writes the registry build cache `buildcache-<arch>`. `packages: write` is granted in this workflow only. Verify:
   - a manual run on the branch publishes `sha-<branch head>`;
   - `docker buildx imagetools inspect` lists `linux/amd64` and `linux/arm64`;
+  - a second manual run, after a commit that changes only code, takes `npm ci` from the cache, and both images carry the same dependency layer digest;
   - the test image is deleted afterwards.
 - [ ] 2.5 `ci.yml`:
   - on pushes to `main`, `image.yml` runs after verify;
-  - on a pull request that touches the build file, `.dockerignore`, `package.json` or the lockfile, an amd64 build runs without pushing.
+  - on a pull request that touches the build file, `.dockerignore`, `package.json` or the lockfile, both architectures build on their native runners without pushing; they read the build cache and never write it.
 
-  Verify: this pull request's own run shows the build job, and after the merge `sha-<merge commit>` exists.
+  Verify: this pull request's own run shows both build jobs, and after the merge `sha-<merge commit>` exists.
 - [ ] 2.6 `release.yml`: a promotion job sits between verify and the GitHub Release. It runs `imagetools create -t vX.Y.Z …:sha-<commit>`, or builds when the image is missing; the release and the dispatch need it. Verify, on the next tag's run:
   - `vX.Y.Z` and `sha-<commit>` have the same digest;
   - the release was created after the promotion.
-- [ ] 2.7 The registry package is public and linked to the repository. Verify: `docker logout ghcr.io && docker pull ghcr.io/<owner>/coach-aven:sha-<commit>`.
-- [ ] 2.8 Retention: a scheduled workflow deletes `sha-*` images older than 90 days that no `v*` tag names. Verify:
+- [ ] 2.7 The registry package is public and linked to the repository. An owner of the organization sets the visibility once, in the package's settings, after the first publish. Verify: `docker logout ghcr.io && docker pull ghcr.io/<owner>/coach-aven:sha-<commit>`.
+- [ ] 2.8 Retention: a scheduled workflow deletes `sha-*` images older than 90 days that no `v*` tag names. It never touches `v*` images or the `buildcache-*` caches. Verify:
   - its dry run lists only such images;
   - its first real run deletes nothing a release names.
 - [ ] 2.9 `.github/dependabot.yml` gets the `docker` ecosystem for the image's base. Verify: the diff of `.github/dependabot.yml`.
