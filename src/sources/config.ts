@@ -136,6 +136,29 @@ export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesC
     };
     for (const pr of out.asana.projects ?? []) if (!/^\d+$/.test(pr)) fail(w, `project "${pr}" must be a numeric gid`);
   }
+  if (r.wrike !== undefined) {
+    const w = `${where}.wrike`;
+    const k = obj('wrike');
+    // A new block, so unknown keys fail here ("folder" for "folders" would otherwise pull nothing, silently).
+    for (const key of Object.keys(k)) if (!['folders', 'tokenEnv', 'host', 'since'].includes(key)) fail(w, `unknown key "${key}" (allowed: folders, tokenEnv, host, since)`);
+    const folders = strings(w, k.folders, 'folders');
+    for (const f of folders) {
+      // The number in a Wrike link (open.htm?id=…) is the legacy v2 id; API v4 answers "Invalid Folder ID" to it.
+      if (/^\d+$/.test(f)) fail(w, `folder "${f}" is a permalink number — use the API v4 id (GET /folders, or GET /ids?type=ApiV2Folder&ids=[${f}])`);
+      if (!/^[A-Z0-9]{8,32}$/.test(f)) fail(w, `folder "${f}" must be a Wrike API v4 folder or space id (upper-case letters and digits)`);
+    }
+    const tokenEnv = optStr(w, k.tokenEnv, 'tokenEnv');
+    if (tokenEnv && !/^[A-Z_][A-Z0-9_]*$/.test(tokenEnv)) fail(w, '"tokenEnv" must be an environment variable name');
+    const host = optStr(w, k.host, 'host')?.toLowerCase();
+    // The bearer goes to this host: a typo must not send the token somewhere else.
+    if (host && !/^([a-z0-9-]+\.)*wrike\.com$/.test(host)) fail(w, '"host" must be a wrike.com host (www.wrike.com, app-eu.wrike.com)');
+    out.wrike = {
+      folders: [...new Set(folders)],
+      ...(tokenEnv ? { tokenEnv } : {}),
+      ...(host ? { host } : {}),
+      ...(date(w, k.since, 'since') ? { since: k.since as string } : {}),
+    };
+  }
   if (r.meetings !== undefined) {
     const w = `${where}.meetings`;
     const m = obj('meetings');

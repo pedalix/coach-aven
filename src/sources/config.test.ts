@@ -81,6 +81,29 @@ test('tracker blocks validate and normalise', () => {
   assert.throws(() => validateSourcesConfig({ jira: { site: 'not a host' } }), /host name/);
 });
 
+test('wrike: folders required, ids in API v4 shape, token by env name, host only on wrike.com', () => {
+  const c = validateSourcesConfig({ wrike: { folders: [' IEAAB2CDI4ABCDEF ', 'IEAAB2CDI4ABCDEF', 'IEAAB2CDI5GHIJKL'], tokenEnv: 'WRIKE_STUDIO_TOKEN', host: 'App-EU.wrike.com', since: '2026-09-01' } });
+  assert.deepEqual(c.wrike, { folders: ['IEAAB2CDI4ABCDEF', 'IEAAB2CDI5GHIJKL'], tokenEnv: 'WRIKE_STUDIO_TOKEN', host: 'app-eu.wrike.com', since: '2026-09-01' }, 'trimmed, deduped, host lower-cased');
+  assert.deepEqual(validateSourcesConfig({ wrike: { folders: ['IEAAB2CDI4ABCDEF'] } }).wrike, { folders: ['IEAAB2CDI4ABCDEF'] }, 'defaults stay absent: WRIKE_API_TOKEN, www.wrike.com, 30 days are the puller\'s');
+  for (const [wrike, re] of [
+    [{}, /"folders" must be an array/],
+    [{ folders: [] }, /"folders" must list at least one/],
+    [{ folders: ['1234567890'] }, /permalink number — use the API v4 id/],
+    [{ folders: ['ieaab2cdi4abcdef'] }, /API v4 folder or space id/],
+    [{ folders: ['IEAAB2CDI4ABCDEF'], tokenEnv: 'wrike token' }, /environment variable name/],
+    [{ folders: ['IEAAB2CDI4ABCDEF'], host: 'wrike.example' }, /wrike\.com host/],
+    [{ folders: ['IEAAB2CDI4ABCDEF'], host: 'www.wrike.com.evil.example' }, /wrike\.com host/],
+    [{ folders: ['IEAAB2CDI4ABCDEF'], since: '01.09.2026' }, /YYYY-MM-DD/],
+    [{ folder: ['IEAAB2CDI4ABCDEF'] }, /unknown key "folder"/],
+  ] as Array<[unknown, RegExp]>) assert.throws(() => validateSourcesConfig({ wrike }), re, JSON.stringify(wrike));
+});
+
+test('a project without a wrike block validates exactly as before', () => {
+  const block = { asana: { workspace: '7520977444554' }, intervalMinutes: 15 };
+  assert.deepEqual(validateSourcesConfig(block), { asana: { workspace: '7520977444554' }, intervalMinutes: 15 });
+  assert.equal('wrike' in validateSourcesConfig(block), false);
+});
+
 test('sources config: timezone is an IANA zone (presentation only; storage stays UTC)', () => {
   const base = { youtrack: { url: 'https://acme.youtrack.cloud', projects: ['AB'] } };
   assert.equal(validateSourcesConfig({ ...base, timezone: 'Europe/Zurich' }).timezone, 'Europe/Zurich');

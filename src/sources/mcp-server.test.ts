@@ -935,7 +935,7 @@ test('attribution learn: true adds the shadow section (rows of the asked days an
   const db = openStore(join(dir, 'store.sqlite'));
   const NOW = new Date('2026-10-15T16:00:00.000Z');
   try {
-    assert.equal(SERVER_VERSION, '1.12.0');
+    assert.equal(SERVER_VERSION, '1.12.1');
     assert.equal(runAttribution(db, { learn: true }, NOW).configured, false, 'no layer: no section either');
     const meta = db.prepare('INSERT OR REPLACE INTO sync_state(key, value) VALUES (?, ?)');
     for (const [k, v] of [['att:subject', 'me'], ['att:since', '2026-10-01'], ['att:until', '2026-10-15'], ['att:computed_at', NOW.toISOString()]]) meta.run(k, v);

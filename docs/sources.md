@@ -438,7 +438,7 @@ orch sources daemon [--listen 127.0.0.1:3416] [--only <slug,…>]       # SOURCE
 
 ## Task trackers
 
-YouTrack, Jira and Asana are one family: same contract (`auth check|add`, `pull` with a cursor on
+YouTrack, Jira, Asana and Wrike are one family: same contract (`auth check|add`, `pull` with a cursor on
 `updated`, pure `normalise` with tests), one normalised shape — `task` (`src/sources/trackers/task.ts`):
 
 `{source, account, id, key, title, status, statusCategory: todo|doing|done, assignee, reporter, due,
@@ -446,7 +446,9 @@ created, updated, project, url, labels[], text, comments:[{author, ts, text}], d
 
 `assignee`/`reporter` are e-mails where the tracker exposes them, else `youtrack:<login>`,
 `jira:<accountId>`, `asana:<gid>` — add those strings to a person's `identities` in the people file
-to join them. Raw files are `raw/<kind>/<account>/tasks.jsonl` + `cursor.json`; the store gets a
+to join them (Wrike writes `Name <email>`, which joins by the address; see below). Raw files are
+`raw/<kind>/<account>/tasks.jsonl` + `cursor.json` (Wrike: one directory per configured folder,
+`raw/wrike/<host>/<folder>/`, each with its own cursor); the store gets a
 `tasks` table and `tasks_fts` (title, description, comments) with the same tokenizer and the same
 "deleted means gone from the index" triggers.
 
@@ -462,7 +464,8 @@ and map move together, only on success. Raw tracker files used to grow ~5 MB/day
   "youtrack": { "url": "https://acme.youtrack.cloud", "tokenEnv": "YOUTRACK_TOKEN",
                 "projects": ["CG", "CAR"], "assignee": "Owen", "since": "2026-09-15" },
   "jira":     { "site": "acme.atlassian.net", "fromNetrc": true, "since": "2026-09-15" },
-  "asana":    { "workspace": "7520977444554", "projects": ["1208573315693393"] }   // projects: tasks there assigned to me OR following me
+  "asana":    { "workspace": "7520977444554", "projects": ["1208573315693393"] },  // projects: tasks there assigned to me OR following me
+  "wrike":    { "folders": ["IEAAB2CDI4CLNT01", "IEAAB2CDI4CLNT02"], "since": "2026-09-01" } // tokenEnv WRIKE_API_TOKEN, host www.wrike.com
 }
 ```
 
@@ -471,18 +474,73 @@ and map move together, only on success. Raw tracker files used to grow ~5 MB/day
 | YouTrack | permanent token: `tokenEnv` (reuse the bot's `YOUTRACK_TOKEN`) or `youtrack.json {token}` via `auth … youtrack add` | per project, `updated` since the cursor; with `assignee`, only issues that person is assigned to, reported or commented on. Query verified on Cloud: a parenthesised OR group needs explicit `and`, the keyword is `reporter:` (not `by:`), and no `sort by:` after a group | paced 5 req/s |
 | Jira Cloud | e-mail + API token: `fromNetrc` (the host's `machine <site>` entry) or `jira.json {email, token}` via `auth … jira add --email …` | `POST /rest/api/3/search/jql` (the enhanced search; `nextPageToken` paging); default JQL "involves me" (assignee/reporter/watcher/comment), a configured `jql` replaces it, `updated >=` is always ANDed. ADF → plain text | paced 4 req/s, `Retry-After` honoured |
 | Asana | PAT: `asana.json {token}` via `auth … asana add` | `GET /tasks?assignee=me&workspace=…&modified_since=…` (search is premium-only) plus, per `projects` gid, `GET /tasks?project=…&modified_since=…` **kept only when the task is assigned to me or lists me as a follower** (Asana adds every @mentioned user as a follower, so a colleague's task that mentions me arrives, the rest of the board does not); `me` is resolved once per pull via `/users/me` (or the configured gid / e-mail). Comment stories per kept task. Status = board section, `completed` → done | 150 rpm free tier → paced at 450 ms |
+| Wrike | permanent token in the env var `tokenEnv` (default `WRIKE_API_TOKEN`); no token file, so `auth … wrike check` only | per configured folder or space: every task in it and beneath it, subtasks included, updated since that folder's cursor — see [Wrike](#wrike) | paced 5 req/s, `Retry-After` honoured |
 
 Scrubbing: description and every comment go through `scrubForWrite` separately, so one comment
 with a DSN withholds that comment (filed in the vault), not the whole ticket; titles are redacted
 inline. Secrets come in through `--token-env NAME` or stdin, never argv.
 
 The `sources` MCP server learns trackers too: `search` covers tasks (hits carry `kind: "task"` and
-a status; `source: youtrack|jira|asana` narrows to them), `get` returns a ticket with its comments,
+a status; `source: youtrack|jira|asana|wrike` narrows to them), `get` returns a ticket with its comments,
 `stats` counts tasks per source with the open share, and a new tool **`tasks({assignee, status,
 dueBefore, project, source, updatedSince, limit})`** is the work list — open tasks by default,
 soonest due first. Every row carries `lastComment {by, at}`, and with `updatedSince` also
 `commentsSince {n, authors}` (computed from the stored comments at query time), so a morning brief
 can say "Rowan: 2 comments on AWS billing alerts" without a `get` per task.
+
+### Wrike
+
+For a team that keeps client work in Wrike (a folder per client or site). The block names the
+folders: an agency account holds every client, and the tenant says which ones its store is about.
+
+```jsonc
+"wrike": {
+  "folders": ["IEAAB2CDI4CLNT01"],   // API v4 folder, project or space ids — never the number in a link
+  "tokenEnv": "WRIKE_API_TOKEN",     // default; the permanent token lives in the bot's / daemon's .env
+  "host": "www.wrike.com",           // default; an EU account answers on app-eu.wrike.com (only *.wrike.com is accepted)
+  "since": "2026-09-01"              // a folder's first pull; default 30 days back
+}
+```
+
+A folder id is the 16-character API v4 id (`GET /api/v4/folders` lists the tree); the number in a
+Wrike link (`open.htm?id=…`) is the legacy v2 id and is rejected at boot with the conversion call.
+A space id works wherever a folder id does. Create the token in Wrike under *Apps & Integrations →
+API* (a permanent access token of a user who can see the folders; it is used read-only), put it in
+`.env` and run `orch sources auth <slug> wrike check`: it prints who the token is and fails when a
+configured folder is not readable with it — the daily credential check runs the same.
+
+| Step | Request |
+| --- | --- |
+| folder titles | `GET /folders/{id}/folders` — the folder and its subtree, once per folder per pass |
+| tasks | `GET /folders/{id}/tasks?descendants=true&subTasks=true&updatedDate={"start":…}&fields=[description, responsibleIds, authorIds, parentIds, superParentIds]&pageSize=1000`, paged by `nextPageToken`. The stamp has no milliseconds — Wrike answers 400 to them |
+| comments | `GET /tasks/{id}/comments?plainText=true`, one call per task: the record carries all of a task's comments (the store replaces the row), and this endpoint takes one task id (a comma list is a 400) |
+| people | `GET /contacts/{ids}`, up to 100 ids per call, cached for the pass (deleted users are still answered) |
+| statuses | `GET /workflows`, once per pass: `customStatusId` → name + group |
+
+A new comment moves the task's `updatedDate`, so the folder query alone finds commented tasks.
+Every folder keeps its own cursor (`raw/wrike/<host>/<folder>/cursor.json`): a folder added to the
+config later starts at `since` instead of at the other folders' cursor. A task in two configured
+folders is written under both and the store keeps the later line (same ref).
+
+How a Wrike task becomes a `task`:
+
+- `status` is the custom status name; its **group** decides the category — Completed and Cancelled are
+  `done`, Deferred is `todo` (parked, still open: it shows up in `stuck`), and in the Active group the
+  name splits `todo` from `doing` (a name that reads "done" stays open, because Wrike says so).
+- `project` is the folder the task sits in (the first of its folders inside the configured subtree; a
+  subtask, which sits in no folder of its own, by its parent task's folder; else the configured
+  folder's title). The task's other folders become `labels` (Wrike's folders are its tags), plus
+  `importance:high|low` when not Normal.
+- People are `Name <email>`: `stuck`/`tasks` show a name when the people file does not know them,
+  `resolveIdentity` joins the address, `tasks({assignee})` matches either. A deleted user keeps only
+  the name; an id Wrike does not answer stays `wrike:<id>`.
+- `key` is the number in the task's permalink (what people see in Wrike), `url` the permalink,
+  `due` the day of `dates.due`, `text` the HTML description as plain text.
+
+Known limits: Wrike allows several assignees; the record keeps the **first** (the store has one
+assignee column, as with YouTrack's multi-value Assignee). A task deleted in Wrike (recycle bin) or
+moved out of the configured folders is not seen again, so its last state stays in the store — the
+same holds for the other trackers.
 
 ## Meetings
 
@@ -887,7 +945,7 @@ such row, and `missing` then names the id. `learn: true` and the answers without
 | ~~PR-B sources-store~~ | shipped: the store and the replica above (the automatic mount it added was retired by `host-tools`) |
 | ~~PR-C sources-poller~~ | shipped: the poller below |
 | ~~PR-D sources-mcp~~ | shipped: the `sources` MCP server above |
-| ~~sources-tasks~~ | shipped: the task-tracker family above (YouTrack, Jira, Asana) |
+| ~~sources-tasks~~ | shipped: the task-tracker family above (YouTrack, Jira, Asana; Wrike since `sources-wrike`) |
 | ~~meetings + tenant annotations~~ | shipped: recorded calls and the tenant's attribution loop above |
 | learning loop | in shadow (above); the steps to live and the open forks are the roadmap in `docs/attribution.md` |
 

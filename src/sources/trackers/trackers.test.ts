@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { categoryFromName, iso, scrubTask, type TaskRecord } from './task.js';
 import { createHttp, retryAfterMs, TrackerHttpError } from './http.js';
 import { parseNetrc } from './netrc.js';
-import { CURSOR_OVERLAP_MS, readCursor, runTrackerPull, startFrom } from './writer.js';
+import { accountDir, CURSOR_OVERLAP_MS, readCursor, runTrackerPull, scopeDir, startFrom } from './writer.js';
 import { parseFlags } from './auth.js';
 
 const base: TaskRecord = {
@@ -165,6 +165,30 @@ test('runTrackerPull: rows unchanged since the last pass are not re-appended; a 
   assert.equal(f.ok, false);
   assert.equal(readFileSync(join(dir, 'cursor.json'), 'utf8'), before);
   assert.equal(linesOf().length, 5);
+});
+
+test('runTrackerPull scope: each scope keeps its own files and cursor under the account; records keep the account; unscoped stays flat', async () => {
+  const out = mkdtempSync(join(tmpdir(), 'trk-'));
+  const ctx = { slug: 't', outDir: out, tokenPath: '/nope', log: () => undefined };
+  const row = (id: string, updated: string): TaskRecord => ({ ...base, source: 'wrike', account: 'www.wrike.com', id, key: id, updated });
+  async function* rows(rs: TaskRecord[]): AsyncIterable<TaskRecord> {
+    for (const r of rs) yield r;
+  }
+  const froms: Record<string, string> = {};
+  const pull = (scope: string, rs: TaskRecord[]) =>
+    runTrackerPull(ctx, { kind: 'wrike', account: 'www.wrike.com', scope, since: '2026-09-01', fetchUpdated: (from) => ((froms[scope] = from.toISOString()), rows(rs)) });
+  const a = await pull('IEAAB2CDI4FOLDRA', [row('T1', '2026-10-20T10:00:00.000Z')]);
+  assert.deepEqual(a.counts, { 'www.wrike.com/IEAAB2CDI4FOLDRA/tasks': 1 });
+  // Folder B is configured later: it starts at `since`, not at folder A's cursor.
+  await pull('IEAAB2CDI4FOLDRB', [row('T2', '2026-09-05T10:00:00.000Z')]);
+  assert.equal(froms.IEAAB2CDI4FOLDRB, '2026-09-01T00:00:00.000Z');
+  await pull('IEAAB2CDI4FOLDRA', []);
+  assert.equal(froms.IEAAB2CDI4FOLDRA, new Date(Date.parse('2026-10-20T10:00:00.000Z') - CURSOR_OVERLAP_MS).toISOString(), 'A resumes from its own cursor');
+  const dirA = scopeDir(out, 'wrike', 'www.wrike.com', 'IEAAB2CDI4FOLDRA');
+  assert.equal(dirA, join(accountDir(out, 'wrike', 'www.wrike.com'), 'IEAAB2CDI4FOLDRA'));
+  assert.equal(JSON.parse(readFileSync(join(dirA, 'tasks.jsonl'), 'utf8').trim()).account, 'www.wrike.com', 'the ref (source:account:id) is untouched by the scope');
+  assert.equal(readCursor(join(accountDir(out, 'wrike', 'www.wrike.com'), 'IEAAB2CDI4FOLDRB')).updated, '2026-09-05T10:00:00.000Z');
+  assert.equal(scopeDir(out, 'wrike', 'www.wrike.com', '..'), join(accountDir(out, 'wrike', 'www.wrike.com'), '__'), 'a scope cannot climb out of the account');
 });
 
 test('parseFlags: positionals and --k v pairs', () => {

@@ -26,9 +26,9 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.12.0';
+export const SERVER_VERSION = '1.12.1';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
-export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana'];
+export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana', 'wrike'];
 // Meeting recorders live in `meetings`.
 export const MEETING_SOURCES = ['granola', 'gmeet', 'wispr'];
 
@@ -734,7 +734,7 @@ export const TOOLS = [
     description:
       'Full-text search over the project\'s read-only, scrubbed replica of connected mail, chat, trackers and recorded calls ' +
       `(FTS5, ranked). Returns refs + snippets; call \`get\` for a full message. Filters: ${WINDOW_DOC}, ` +
-      'source (gmail|slack|msgraph|youtrack|jira|asana|granola|gmeet|wispr|…), person (email, slack id, or a name fragment), ' +
+      'source (gmail|slack|msgraph|youtrack|jira|asana|wrike|granola|gmeet|wispr|…), person (email, slack id, or a name fragment), ' +
       'initiative (only what the tenant has attributed). Tracker tickets carry `kind: "task"`, recorded calls `kind: "meeting"`. ' +
       'With an empty query it lists the newest messages matching the filters. Bot/integration messages are excluded unless includeBots. ' +
       'A call recorded by several recorders comes back once (`also` lists the other copies). Cite the `permalink` of anything you quote. ' +
@@ -788,7 +788,7 @@ export const TOOLS = [
   {
     name: 'tasks',
     description:
-      'Tracker tickets (YouTrack, Jira, Asana) as a work list — "what is on me", "what is overdue", "what moved since". ' +
+      'Tracker tickets (YouTrack, Jira, Asana, Wrike) as a work list — "what is on me", "what is overdue", "what moved since". ' +
       'Defaults to OPEN tasks (status category todo/doing), soonest due first. Every row carries `lastComment {by, at}`; with ' +
       '`updatedSince` also `commentsSince {n, authors}` — comment activity without a `get` per task. Filters: assignee ' +
       '(email, login, or name — resolved via people), status (open|todo|doing|done|any|<exact status name>), dueBefore ' +

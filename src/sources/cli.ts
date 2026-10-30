@@ -1,6 +1,6 @@
 // `orch sources …` — the operator CLI for per-project source ingestion (docs/sources.md).
 //
-//   orch sources auth  <slug> <google|slack|msgraph|youtrack|jira|asana> <action…>   one-time bootstrap / health checks
+//   orch sources auth  <slug> <google|slack|msgraph|youtrack|jira|asana|wrike> <action…>   one-time bootstrap / health checks
 //   orch sources pull  <slug> [--only …] [--since …] [--full] [--calendars …] [--no-build] [--verbose]
 //   orch sources build <slug>                                     rebuild store.sqlite + replica from raw/
 //   orch sources audit <slug> [--no-gitleaks] [--gold FILE] [--dir EXTRA…]
@@ -69,7 +69,7 @@ export function registerSourcesCommands(program: Command): void {
   sources
     .command('pull <slug>')
     .description('Pull every configured source of a project into data/<slug>/raw (incremental; scrubbed at write)')
-    .option('--only <kinds>', 'comma list of google,slack,msgraph,youtrack,jira,asana,meetings,local')
+    .option('--only <kinds>', 'comma list of google,slack,msgraph,youtrack,jira,asana,wrike,meetings,local')
     .option('--since <date>', 'YYYY-MM-DD lower bound for FIRST backfills (overrides the config)')
     .option('--full', 'ignore cursors and resync everything', false)
     .option('--calendars <ids>', 'extra Google calendar ids (comma list)')

@@ -169,8 +169,9 @@ The support-ticket investigation poller: on only when both `YOUTRACK_URL` and `Y
 | `SOURCES_DAEMON` | off | `1` on the bot: a sources daemon on this host ingests every project; the bot pulls none. [Sources daemon](runtime-config.md#sources-daemon-sources_daemon-sourcesdaemon). |
 | `SOURCES_DAEMON_TOKEN` | required for `orch sources daemon` | The daemon's bearer; the bot holds a copy under the name a project's `sources.daemon.tokenEnv` gives. [Remote access](sources.md#remote-access). |
 | `SOURCES_SERVE_TOKEN` | required for `orch sources serve` | The bearer of a single project's served replica. |
-| `tokenEnv` variables | — | A project's `sources.youtrack.tokenEnv` and `sources.daemon.tokenEnv` name further variables the bot reads (often `YOUTRACK_TOKEN` and `SOURCES_DAEMON_TOKEN`). [Sources → Config](sources.md#config). |
+| `tokenEnv` variables | — | A project's `sources.youtrack.tokenEnv`, `sources.wrike.tokenEnv` and `sources.daemon.tokenEnv` name further variables the bot reads (often `YOUTRACK_TOKEN` and `SOURCES_DAEMON_TOKEN`). [Sources → Config](sources.md#config). |
 | `TZ` | `UTC` | Fallback zone of the local-activity source when `AVEN_TZ` is unset. |
+| `WRIKE_API_TOKEN` | — | The Wrike permanent token a project's `sources.wrike` block reads when it names no `tokenEnv` (only such a project reads it). [Sources → Wrike](sources.md#wrike). |
 
 ### Agent messaging and the hub
 
