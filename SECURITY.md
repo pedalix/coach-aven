@@ -5,6 +5,15 @@ this repository ([private vulnerability reporting](https://github.com/pedalix/co
 not in a public issue. You will get an acknowledgement within a few days; fixes ship as a tagged
 release. There is no bug bounty.
 
+## Supported versions
+
+Only the **latest release** (the newest `vX.Y.Z` tag, [Releases](https://github.com/pedalix/coach-aven/releases))
+gets fixes; a fix ships as the next release, never as a patch to an older line. `main` is the maintainer's canary:
+newer, less settled, not a supported version. Run a release tag (the image `ghcr.io/pedalix/coach-aven:vX.Y.Z`) and
+move to the next one when it comes out.
+
+## Scope
+
 In scope: the orchestrator (`src/`), the sandbox images (`snapshot/`), the deploy tooling
 (`infra/deploy/`, `infra/teams/`). Out of scope: third-party services the bot talks to (Slack, GitHub, Anthropic)
 and installations you do not operate.

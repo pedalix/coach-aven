@@ -50,6 +50,10 @@ funds the project. **No telemetry:** an installation never reports to this proje
 one) it reads the npm registry once a day to check the Claude Code pin, and pulls its images from `ghcr.io`.
 What goes where and what the sandbox can reach: [`docs/security.md`](docs/security.md).
 
+**Versions:** `vX.Y.Z` tags, while the project is below 1.0: a minor release (`0.Y`) may change configuration or
+behaviour and says so in its notes, a patch (`0.Y.Z`) fixes. Only the latest release is supported
+([`SECURITY.md`](SECURITY.md#supported-versions)); `main` is the canary. Every release is the very image the canary ran.
+
 Status: a single-maintainer project with installations for real users; self-hosting is documented, support is
 best-effort ([`SUPPORT.md`](SUPPORT.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md)).
 
