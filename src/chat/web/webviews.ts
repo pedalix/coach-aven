@@ -10,7 +10,8 @@
 import type { DialogView, HomeView, MessageView, PrivateView } from '../views.js';
 import type { ProjectConfig } from '../../projects.js';
 import { fmtElapsed, prUrls } from '../../format.js';
-import { homeBullets, plural, shortRepo } from '../slack/blocks.js';
+import { plural, shortRepo } from '../slack/blocks.js';
+import { webHomeBullets } from './webhome.js';
 import { BAD_REASONS, type Tally } from '../../feedback.js';
 import { Html, h, markdownToHtml, mrkdwnToHtml, plainText, raw } from './webformat.js';
 
@@ -284,8 +285,8 @@ export function renderDialogView(v: DialogView, c: RenderCtx = {}): RenderedDial
 }
 
 // ── Home ──────────────────────────────────────────────────────────────────────────────────────────
-// The cheat-sheet from the same source as the Slack App Home tab (`homeBullets`); the web wording comes
-// from mrkdwnToTeams' `/aven verb` → `/verb` rewrite and the room links are the web's own.
+// The web's own cheat-sheet (webhome.ts — a dedicated application: rooms, no mentions, no DM picker, one
+// organization), with the room links the web serves.
 
 export function renderHomeView(v: HomeView, rooms: (slug: string) => string | undefined = () => undefined): Html {
   if (v.kind === 'onboarding') return h`<p>👋 I'm CoachAven. This installation serves no projects yet — ask your operator to add one.</p>`;
@@ -293,6 +294,6 @@ export function renderHomeView(v: HomeView, rooms: (slug: string) => string | un
     const url = rooms(p.slug);
     return h`<li>${url ? h`<a href="${url}"><strong>${p.slug}</strong></a>` : h`<strong>${p.slug}</strong>`} — ${p.repos.map(shortRepo).join(', ')}</li>`;
   });
-  const bullets = homeBullets(v.messaging ? { messaging: true } : {}).map((b) => h`<li>${mrkdwnToHtml(b.replace(/^•\s*/, ''))}</li>`);
-  return h`<h2>CoachAven — your coding agent</h2><h3>Projects</h3><ul class="projects">${projects.length ? projects : h`<li><em>none</em></li>`}</ul><h3>How to use me</h3><ul class="cheatsheet">${bullets}</ul><p class="meta"><em>Commands are <code>/verb …</code> in any room or private conversation; a top-level post in a room starts a thread, no mention needed.</em></p>`;
+  const bullets = webHomeBullets(v.messaging ? { messaging: true } : {}).map((b) => h`<li>${mrkdwnToHtml(b.replace(/^•\s*/, ''))}</li>`);
+  return h`<h2>CoachAven — your coding agent</h2><h3>Projects</h3><ul class="projects">${projects.length ? projects : h`<li><em>none</em></li>`}</ul><h3>How to use me</h3><ul class="cheatsheet">${bullets}</ul><p class="meta"><em>Commands are <code>/verb …</code> in any room, thread or private conversation; their replies are for you alone.</em></p>`;
 }

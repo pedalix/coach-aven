@@ -31,6 +31,8 @@ process. This is the control plane; the heavy work runs in the sandboxes. See `R
 - **Changing Slack UI/UX → update the App Home tab.** The Home tab (`homeBlocks` in
   `src/chat/slack/blocks.ts`) is the user-facing cheat-sheet. Any new command, button, or changed
   interaction MUST be reflected there in the same change, or it silently goes stale.
+  The web chat's Home is its own list (`src/chat/web/webhome.ts` — rooms, no mentions, no DM picker); its test fails
+  when a verb the Slack Home teaches is missing there and not in its `WEB_LACKS`.
 - **Release notes are auto-generated from merged PR titles** (GitHub Releases — `CHANGELOG.md`
   is just a pointer there). So write clear, human-readable PR titles, and label PRs
   (`feature`/`fix`/`ci`/`docs`) so they group per `.github/release.yml`. The git tag is the
