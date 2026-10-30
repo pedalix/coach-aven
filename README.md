@@ -17,7 +17,7 @@ privileged container: [`docs/quickstart.md`](docs/quickstart.md). Clone, `./init
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/web-thread-dark.png">
-  <img alt="A thread in the web chat: asked to make add() reject non-numbers, the agent shows the change, says what its tests cover and links the pull request it opened" src="docs/img/web-thread-light.png" width="800">
+  <img alt="A thread in the web chat: asked to make divide() reject a zero divisor, the agent shows the change, says what its tests cover and links the pull request it opened" src="docs/img/web-thread-light.png" width="800">
 </picture>
 
 **Built for** an agency or a small team that runs many client systems: one installation, one sandbox and one set of
