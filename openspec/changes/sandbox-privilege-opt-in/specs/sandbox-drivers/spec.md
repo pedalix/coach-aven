@@ -11,10 +11,14 @@ The installation SHALL read `SANDBOX_DEFAULT` (`dind` or `plain`) as the sandbox
 
 #### Scenario: Chosen plain default
 - **WHEN** `SANDBOX_DEFAULT=plain` and a project has no `sandbox` block
-- **THEN** its container runs without `--privileged` and without a runtime flag, and nothing is logged about it
+- **THEN** its container runs without `--privileged` and without a runtime flag, no dockerd guard runs for it at chat preparation, in housekeeping or at the idle stop, its prompt has no Sail paragraph, and nothing is logged about it
 
-### Requirement: Docker-in-docker names its runtime
-When some project resolves to docker-in-docker and `SSHDOCKER_RUNTIME` is unset, the boot SHALL log one warning naming `sysbox-runc` and `privileged`. The container SHALL run as before.
+#### Scenario: A docker-in-docker block under a plain default
+- **WHEN** `SANDBOX_DEFAULT=plain` and a project's block is `{ "dind": true }`
+- **THEN** the project resolves to privileged docker-in-docker and the boot goes on
+
+### Requirement: A privileged sandbox names its runtime
+When some project resolves to privileged and `SSHDOCKER_RUNTIME` is unset, the boot SHALL log one warning naming `sysbox-runc` and `privileged`. The container SHALL run as before.
 
 #### Scenario: A chosen runtime
 - **WHEN** `SSHDOCKER_RUNTIME=sysbox-runc` is set
