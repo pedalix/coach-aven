@@ -4,7 +4,7 @@
 
 - [x] 1.0 Prerequisite: `multi-driver-installation` PR 1 and PR 2 merged and canaried on the Teams staging installation. Verify: `CHAT_SURFACES` accepts a second surface there. _(2026-10-26: #76 and #78 merged and deployed to home and staging; the second surface is the web itself — the operator chose to skip a Slack-surface rehearsal and canary the whole pack together.)_
 - [x] 1.1 Pin the OIDC client and markdown packages (exact versions ≥ 2 weeks old, licences checked); record in design D3/D4. Verify: versions and dates noted. _(openid-client 6.8.8 of 2026-09-05, MIT; markdown-it 14.3.2 of 2026-09-12, MIT, with @types/markdown-it 14.2.0 — design D3/D4.)_
-- [ ] 1.2 Register an OIDC app client for the web surface in the platform's Cognito staff pool (the installation's Terraform, like the gateway's bot clients); values in the ops overlay, placeholders in `docs/web.md`. Verify: the login round trip works against a stub page with a staff account.
+- [x] 1.2 Register an OIDC app client for the web surface in the platform's Cognito staff pool (the installation's Terraform, like the gateway's bot clients); values in the ops overlay, placeholders in `docs/web.md`. Verify: the login round trip works against a stub page with a staff account. — Done: the staging installation logs in against its Cognito staff pool (an app client of its own, beside the gateway's bot client).
 
 ## 2. PR 1 — web driver core (bucket 3 by construction)
 
@@ -33,4 +33,4 @@
 
 ## 5. PR 3 — the rest of parity (when a client needs it)
 
-- [ ] 5.1 The remaining `/aven` verbs, YouTrack card + dialogs + mentions, autofix Fix, `/users` editing the allow-list, `allowlist` mode and groups → rooms. Verify: the remaining verb and poller scenarios against the web driver; ledger row.
+- [ ] 5.1 The remaining `/aven` verbs, autofix Fix, `/users` editing the allow-list, `allowlist` mode and groups → rooms. Verify: the remaining verb and poller scenarios against the web driver; ledger row. (YouTrack on the web dropped 2026-10-30: not needed on this surface.)
