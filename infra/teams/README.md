@@ -75,7 +75,7 @@ terraform -chdir=infra/<slug>/teams output -raw bot_app_password   # → TEAMS_A
   with the same version. The Teams app id is kept in state, so users keep their installation.
 - **Secret rotation**: `apply` after a year mints a new secret (the old stays valid until that
   apply); copy it into `.env`, restart the service.
-- **Icons**: the module ships neutral placeholders; set `icon_color_path` / `icon_outline_path`
+- **Icons**: the module ships the CoachAven mark (an orange chevron); set `icon_color_path` / `icon_outline_path`
   to your own PNGs (192×192 colour, 32×32 transparent white outline). Two bots in one tenant
   must differ here.
 - **State lost**: everything is re-creatable — `terraform import` the four objects (app,
