@@ -131,3 +131,48 @@ Turns running or queued when the installation stops SHALL resume after restart a
 #### Scenario: Restart mid-turn
 - **WHEN** the installation restarts while a turn runs
 - **THEN** after boot the turn is reattached or finalized and its answer or error appears in the original thread
+
+### Requirement: Actions and dialogs act only on what was shown
+A click SHALL be taken only for an action and value the server rendered for a page the person could open, and a dialog submission only for a dialog the server opened for that person, once, with the handler and metadata the server kept. Neither SHALL be taken from what the browser sends.
+
+#### Scenario: A forged button value
+- **WHEN** a signed-in person posts a cancel, restart, answer or steps action with another person's turn, question or conversation as its value
+- **THEN** it is rejected and nothing runs
+
+#### Scenario: Someone else's dialog
+- **WHEN** a person submits a dialog opened for another person, a dialog already submitted, or a form with metadata of their own
+- **THEN** it is rejected, or runs with the server's metadata only
+
+### Requirement: Sessions end when they should
+A sign-out SHALL end every session of that person issued before it, in every browser, and the allow-list SHALL be checked on every request, so taking someone off it takes effect without waiting for their cookie to expire.
+
+#### Scenario: A copied cookie after sign-out
+- **WHEN** a person signs out and a copy of an earlier session cookie is used afterwards
+- **THEN** pages redirect to login and endpoints answer 401
+
+#### Scenario: Taken off the allow-list
+- **WHEN** a signed-in person's e-mail and groups are no longer on the allow-list
+- **THEN** every page and endpoint answers 403
+
+### Requirement: Untrusted names stay names
+Conversation ids SHALL consist of plain names (no path, no `..`), and history files SHALL stay under the data directory. The post-login redirect SHALL stay on the site. An e-mail the identity provider marks unverified SHALL NOT count for the allow-list or the operators.
+
+#### Scenario: A path in a conversation id
+- **WHEN** a request or a metadata field names a conversation `room:../../outside`
+- **THEN** it is not a web conversation and nothing is written
+
+#### Scenario: A redirect off the site
+- **WHEN** the login is started with `next=/\evil.example` or `next=//evil.example`
+- **THEN** the person lands on the Home page after signing in
+
+### Requirement: The local modes and the stream are bounded
+Under `WEB_AUTH=none` and `link` the server SHALL answer only to a loopback host name or the base URL's host. A person SHALL hold at most ten live streams at once. An upload's body SHALL be read only after the session and CSRF checks.
+
+#### Scenario: DNS rebinding
+- **WHEN** a request reaches the local listener with `Host: rebind.evil.example`
+- **THEN** it is refused
+
+#### Scenario: Too many pages
+- **WHEN** a person opens an eleventh live stream
+- **THEN** it is refused until one of the open ones closes
+

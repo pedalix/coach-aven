@@ -10,6 +10,10 @@ test('room and private conversation ids round-trip and name their project', () =
   assert.equal(projectOfConv('room:alpha'), 'alpha');
   assert.equal(projectOfConv('pc:u1:alpha'), 'alpha');
   for (const bad of ['', 'room:', 'pc:', 'pc:u1', 'pc::alpha', 'C123', '19:x@thread.tacv2']) assert.equal(parseConv(bad), undefined, bad);
+  // Its parts name a directory and a file (history.ts): plain names only, never a path (the security review of 2026-10-30).
+  for (const bad of ['room:../../outside', 'room:..', 'room:.', 'room:a/b', 'room:a\\b', 'pc:../x:alpha', 'pc:u1:..', 'pc:u1:a/b', 'pc:u 1:alpha', `room:${'a'.repeat(129)}`]) {
+    assert.equal(parseConv(bad), undefined, bad);
+  }
 });
 
 test('user ids: a plain subject is kept, anything else becomes a digest without a colon', () => {

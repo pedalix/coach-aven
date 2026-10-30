@@ -75,6 +75,11 @@ test('a conversation the web does not own has no file; visibility is everyone or
   assert.equal(h.fileOf('C123'), undefined);
   assert.throws(() => h.conversation('C123'), /not a web conversation/);
   assert.ok(h.fileOf('pc:ann.lee@corp.example:alpha')!.endsWith('/alpha/pc-ann.lee@corp.example.jsonl'));
+  // Nothing outside the history's directory, whatever id a caller passes (the security review of 2026-10-30).
+  for (const bad of ['room:../../outside', 'pc:../../x:alpha', 'pc:u1:..']) {
+    assert.equal(h.fileOf(bad), undefined, bad);
+    assert.throws(() => h.conversation(bad), /not a web conversation/, bad);
+  }
   assert.equal(visibleFor('u1', undefined), true);
   assert.equal(visibleFor('u1', 'u1'), true);
   assert.equal(visibleFor('u2', 'u1'), false);

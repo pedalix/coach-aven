@@ -34,6 +34,7 @@ import { Html, h } from './webformat.js';
 import { deniedPage, homePage, layout, linkLoginPage, loginPage, messageBody, messageHtml, privatePage, roomPage, signedOutPage, signingOutPage, threadCardHtml, threadPage, type Shell, type Viewer } from './pages.js';
 import { LOGIN_COOKIE, LOGIN_MAX_AGE_MS, SESSION_COOKIE, SESSION_MAX_AGE_MS, checkCsrf, cookieHeader, csrfToken, isAllowed, open, openSession, parseCookies, seal, sealSession, type Oidc, type Session } from './auth.js';
 import { pkce } from './oidc.js';
+import { signButtons, verifyButton } from './buttons.js';
 import type { WebChatDriver, WebCtx } from './driver.js';
 
 export interface WebServerDeps {
@@ -73,6 +74,7 @@ export const webNameOf = (store: Store) => (id: string): string | undefined => {
   return u.name && u.name !== id ? u.name : (u.email ?? u.name);
 };
 const POSTS_PER_MINUTE = 30;
+const STREAMS_PER_PERSON = 10; // open pages (live streams) one person may hold at once
 const MAX_TEXT = 20_000;
 // The router's verbs (src/chat/core/commands.ts), for the composer's suggestions; `help` is the web's own: the Home
 // cheat-sheet as a dialog (the router has no help verb — Slack has the App Home tab, Teams the Home card).
@@ -115,8 +117,6 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   app.set('trust proxy', 'loopback');
   app.use(express.json({ limit: '64kb' }));
   app.use(express.urlencoded({ extended: false, limit: '16kb' }));
-  // An upload is the file's bytes as the body (one request per file, app.js), capped at the configured size.
-  app.use('/upload', express.raw({ type: () => true, limit: `${cfg.maxFileMb}mb` }));
   app.use((_req, res, next) => {
     res.setHeader('Content-Security-Policy', CSP);
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -125,6 +125,24 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     res.setHeader('Cache-Control', 'no-store');
     next();
   });
+
+  // The local modes (`none`, `link`) answer only to a loopback name or the base URL's host: a page elsewhere that
+  // rebinds its own DNS name to 127.0.0.1 would otherwise reach the local session (the security review of
+  // 2026-10-30). Behind the reverse proxy (`oidc`) the proxy decides the host.
+  if (cfg.auth !== 'oidc') {
+    const hosts = new Set(['localhost', '127.0.0.1', '[::1]', new URL(cfg.baseUrl).hostname]);
+    app.use((req, res, next) => {
+      const host = req.get('host') ?? '';
+      let name = '';
+      try {
+        name = new URL(`http://${host}`).hostname;
+      } catch {
+        name = '';
+      }
+      if (!hosts.has(name)) return void res.status(421).type('text/plain').send('unknown host');
+      next();
+    });
+  }
 
   // ── assets (no session: the login page needs its stylesheet) ──────────────────────────────────
   app.get('/assets/:name', (req, res) => {
@@ -139,7 +157,8 @@ export function createWebServer(deps: WebServerDeps): WebServer {
 
   // ── login ───────────────────────────────────────────────────────────────────────────────────────
   const setSession = (res: Response, s: Session) => res.setHeader('Set-Cookie', cookieHeader(SESSION_COOKIE, sealSession(cfg.sessionSecret, s), { secure, maxAgeMs: SESSION_MAX_AGE_MS }));
-  const safeNext = (raw: unknown): string => (typeof raw === 'string' && /^\/(?!\/)[^\s]*$/.test(raw) ? raw : '/');
+  // A same-site path only: no `//host` and no backslash anywhere (browsers read `/\host` as `//host`).
+  const safeNext = (raw: unknown): string => (typeof raw === 'string' && /^\/(?![/\\])[^\s\\]*$/.test(raw) ? raw : '/');
 
   app.get('/login', async (req, res) => {
     const next = safeNext(req.query.next);
@@ -184,8 +203,9 @@ export function createWebServer(deps: WebServerDeps): WebServer {
       }
       const user = userIdOf(id.sub);
       const at = now();
-      store.putWebUser({ id: user, ...(id.name ? { name: id.name } : {}), ...(id.email ? { email: id.email } : {}), seenAt: new Date(at).toISOString() });
-      const session: Session = { user, iat: at, ...(id.name ? { name: id.name } : {}), ...(id.email ? { email: id.email } : {}) };
+      const loggedOutAt = store.getWebUser(user)?.loggedOutAt; // kept: a session issued before that sign-out stays dead
+      store.putWebUser({ id: user, ...(id.name ? { name: id.name } : {}), ...(id.email ? { email: id.email } : {}), seenAt: new Date(at).toISOString(), ...(loggedOutAt ? { loggedOutAt } : {}) });
+      const session: Session = { user, iat: at, ...(id.name ? { name: id.name } : {}), ...(id.email ? { email: id.email } : {}), ...(id.groups.length ? { groups: id.groups } : {}) };
       res.setHeader('Set-Cookie', [cookieHeader(LOGIN_COOKIE, '', { secure, clear: true }), cookieHeader(SESSION_COOKIE, sealSession(cfg.sessionSecret, session), { secure, maxAgeMs: SESSION_MAX_AGE_MS })]);
       log.info(`web login: ${id.email ?? user}`);
       res.redirect(303, safeNext(login.next));
@@ -222,11 +242,22 @@ export function createWebServer(deps: WebServerDeps): WebServer {
 
   // ── the session gate ────────────────────────────────────────────────────────────────────────────
   const isApi = (req: Request) => req.path === '/stream' || req.path.startsWith('/post') || req.path === '/action' || req.path === '/dialog' || req.path === '/logout';
+  // A session is revoked by a later sign-out of its person (every copy of the cookie, not only this browser's), and
+  // the allow-list is checked on every request, so taking someone off it takes effect without waiting for the
+  // cookie to expire (the security review of 2026-10-30).
+  const revoked = (s: Session): boolean => {
+    const out = store.getWebUser(s.user)?.loggedOutAt;
+    return !!out && s.iat < Date.parse(out);
+  };
   app.use((req: Req, res, next) => {
     const s = openSession(cfg.sessionSecret, parseCookies(req.headers.cookie)[SESSION_COOKIE], now());
-    if (!s) {
+    if (!s || revoked(s)) {
       if (isApi(req)) return void res.status(401).json({ error: 'not signed in' });
       return void res.redirect(303, `/login?next=${encodeURIComponent(req.originalUrl)}`);
+    }
+    if (cfg.auth === 'oidc' && !isAllowed(cfg.allow, { ...(s.email ? { email: s.email } : {}), groups: s.groups ?? [] })) {
+      if (isApi(req)) return void res.status(403).json({ error: 'no access' });
+      return void res.status(403).type('html').send(layout({ title: 'No access', projects: [] }, deniedPage(s.email)));
     }
     req.session = s;
     next();
@@ -261,14 +292,17 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     return out;
   };
   const page = (req: Req, res: Response, shell: Omit<Shell, 'viewer' | 'projects'>, content: ReturnType<typeof homePage>, status = 200) =>
-    res.status(status).type('html').send(layout({ ...shell, viewer: viewerOf(req.session!), projects: rooms(), activity: activityFor(req.session!.user), verbs: VERBS, maxFileMb: cfg.maxFileMb }, content));
+    res.status(status).type('html').send(signButtons(cfg.sessionSecret, layout({ ...shell, viewer: viewerOf(req.session!), projects: rooms(), activity: activityFor(req.session!.user), verbs: VERBS, maxFileMb: cfg.maxFileMb }, content)));
   const notFound = (req: Req, res: Response, what: string) => page(req, res, { title: 'Not found' }, homePage(h404(what)), 404);
 
   // Sign out: our cookie goes, and so does the identity provider's session when it offers an end-session
   // endpoint — without that, `/login` would sign the person straight back in on the provider's live session
   // (the first staging canary: "logout did not log me out"). The provider is reached through /signing-out (above),
   // never by a redirect from this POST, and returns the browser to /signed-out.
-  app.post('/logout', (_req, res) => {
+  app.post('/logout', (req: Req, res) => {
+    const u = req.session!.user;
+    const cur = store.getWebUser(u);
+    store.putWebUser({ ...(cur ?? { id: u, seenAt: new Date(now()).toISOString() }), loggedOutAt: new Date(now()).toISOString() });
     res.setHeader('Set-Cookie', cookieHeader(SESSION_COOKIE, '', { secure, clear: true }));
     res.redirect(303, cfg.auth === 'oidc' && deps.oidc ? '/signing-out' : '/signed-out');
   });
@@ -311,7 +345,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     if (!project) return notFound(req, res, 'room');
     const viewer = viewerOf(req.session!);
     const conv = history.conversation(privateConv(viewer.user, project.slug));
-    page(req, res, { title: `${project.slug} · private`, active: { slug: project.slug, kind: 'private' }, stream: { conv: conv.conv } }, privatePage(project, viewer, conv.all(), nameOf));
+    page(req, res, { title: `${project.slug} · private`, active: { slug: project.slug, kind: 'private' }, stream: { conv: conv.conv } }, privatePage(project, viewer, conv.all().filter((m) => visibleFor(viewer.user, m.visibleTo)), nameOf));
   });
 
   // ── the live stream ─────────────────────────────────────────────────────────────────────────────
@@ -319,19 +353,23 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   // (replayed on a reconnect), re-rendered for THIS viewer (a private reply reaches its person only),
   // and the person's own pushes (dialogs). A room page gets thread cards, a thread or private page
   // gets message elements.
+  const streams = new Map<string, number>(); // person → open streams
   app.get('/stream', (req: Req, res) => {
     const conv = typeof req.query.conv === 'string' ? req.query.conv : '';
     const thread = typeof req.query.thread === 'string' ? req.query.thread : undefined;
     const parsed = parseConv(conv);
     const viewer = req.session!.user;
     if (!parsed || !roomOf(parsed.slug) || (parsed.kind === 'private' && parsed.user !== viewer)) return void res.status(404).json({ error: 'no such conversation' });
+    if ((streams.get(viewer) ?? 0) >= STREAMS_PER_PERSON) return void res.status(429).json({ error: 'too many open pages' });
+    streams.set(viewer, (streams.get(viewer) ?? 0) + 1);
     const c = history.conversation(conv);
     res.status(200);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('X-Accel-Buffering', 'no'); // nginx: no proxy buffering on this response
     res.flushHeaders();
     const send = (event: string, id: number | undefined, data: unknown) => {
-      res.write(`event: ${event}\n${id !== undefined ? `id: ${id}\n` : ''}data: ${JSON.stringify(data)}\n\n`);
+      const d = data && typeof data === 'object' && typeof (data as { html?: unknown }).html === 'string' ? { ...data, html: signButtons(cfg.sessionSecret, (data as { html: string }).html) } : data;
+      res.write(`event: ${event}\n${id !== undefined ? `id: ${id}\n` : ''}data: ${JSON.stringify(d)}\n\n`);
     };
     const frame = (ev: Stored) => {
       const m = c.message(ev.id);
@@ -360,6 +398,9 @@ export function createWebServer(deps: WebServerDeps): WebServer {
       clearInterval(ping);
       offConv();
       offUser();
+      const n = (streams.get(viewer) ?? 1) - 1;
+      if (n > 0) streams.set(viewer, n);
+      else streams.delete(viewer);
     });
   });
 
@@ -440,7 +481,9 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   // An upload: the bytes of ONE file, named in the query, into this person's conversation. The size cap is the
   // body parser's (413 names the file below); the type allow-list is the sandbox pipeline's (attachments.ts), applied
   // here already so a refused file is named before the message is sent, not skipped after.
-  app.put('/upload', (req: Req, res) => {
+  // An upload is the file's bytes as the body (one request per file, app.js), capped at the configured size — read
+  // only here, after the session gate and the CSRF check, so a stranger's body is never buffered.
+  app.put('/upload', express.raw({ type: () => true, limit: `${cfg.maxFileMb}mb` }), (req: Req, res) => {
     const s = req.session!;
     const conv = typeof req.query.conv === 'string' ? req.query.conv : '';
     const name = typeof req.query.name === 'string' ? req.query.name.slice(0, 200) : '';
@@ -471,22 +514,29 @@ export function createWebServer(deps: WebServerDeps): WebServer {
 
   app.post('/action', (req: Req, res) => {
     const s = req.session!;
-    const b = (req.body ?? {}) as { action?: unknown; value?: unknown; conv?: unknown; thread?: unknown; msg?: unknown };
+    const b = (req.body ?? {}) as { action?: unknown; value?: unknown; sig?: unknown; conv?: unknown; thread?: unknown; msg?: unknown };
     const action = typeof b.action === 'string' ? b.action : '';
     const h = core.actions[action];
     if (!h) return void res.status(400).json({ error: `unknown action ${action}` });
+    const value = typeof b.value === 'string' ? b.value : '';
+    // Only a button this server rendered (buttons.ts): the core's handlers trust the value as Slack's would.
+    if (!verifyButton(cfg.sessionSecret, action, value, b.sig)) {
+      log.warn(`web: rejected an unsigned ${action} from ${s.user}`);
+      return void res.status(403).json({ error: 'unknown button — reload the page' });
+    }
     const conv = typeof b.conv === 'string' ? b.conv : '';
     const parsed = parseConv(conv);
     if (!parsed || !roomOf(parsed.slug) || (parsed.kind === 'private' && parsed.user !== s.user)) return void res.status(404).json({ error: 'no such conversation' });
     const thread = typeof b.thread === 'string' && b.thread ? b.thread : undefined;
     const msgId = typeof b.msg === 'string' && b.msg ? b.msg : undefined;
+    const msg = msgId ? history.conversation(conv).message(msgId) : undefined;
     const a: ChatAction = {
       id: action,
-      value: typeof b.value === 'string' ? b.value : '',
+      value,
       actor: { tenant: cfg.org, user: s.user },
       where: { conv, ...(thread ? { thread } : {}) },
       ...(msgId ? { msg: { conv, id: msgId, ...(thread ? { thread } : {}) } } : {}),
-      msgText: msgId ? history.conversation(conv).message(msgId)?.text : undefined,
+      msgText: msg && visibleFor(s.user, msg.visibleTo) ? msg.text : undefined,
       canDialog: true,
       ctx: { conv, ...(thread ? { thread } : {}), user: s.user } satisfies WebCtx,
     };
@@ -496,8 +546,13 @@ export function createWebServer(deps: WebServerDeps): WebServer {
 
   app.post('/dialog', (req: Req, res) => {
     const s = req.session!;
-    const b = (req.body ?? {}) as { id?: unknown; meta?: unknown; values?: unknown; conv?: unknown; thread?: unknown };
-    const id = typeof b.id === 'string' ? b.id : '';
+    const b = (req.body ?? {}) as { dialog?: unknown; values?: unknown; conv?: unknown; thread?: unknown };
+    // The dialog this driver opened for THIS person, and the form it holds: the handler and its metadata come from
+    // the server, never from the browser (the security review of 2026-10-30).
+    const dialogId = typeof b.dialog === 'string' ? b.dialog : '';
+    const d = driver.dialogOf(dialogId);
+    if (!d || d.user !== s.user || !d.submit) return void res.status(404).json({ error: 'this dialog has expired — open it again' });
+    const id = d.submit.id;
     const h = core.submits[id];
     if (!h) return void res.status(400).json({ error: `unknown dialog ${id}` });
     const values: DialogSubmit['values'] = {};
@@ -507,8 +562,11 @@ export function createWebServer(deps: WebServerDeps): WebServer {
         else if (Array.isArray(v)) values[k] = v.filter((x): x is string => typeof x === 'string').map((x) => x.slice(0, 1000));
       }
     }
-    const sub: DialogSubmit = { id, meta: typeof b.meta === 'string' ? b.meta : '', values, actor: { tenant: cfg.org, user: s.user } };
-    const conv = typeof b.conv === 'string' && parseConv(b.conv) ? b.conv : undefined;
+    const sub: DialogSubmit = { id, meta: d.submit.meta, values, actor: { tenant: cfg.org, user: s.user } };
+    driver.submitted(dialogId);
+    // Where a failure is told: a conversation this person may see, or nowhere.
+    const pc = typeof b.conv === 'string' ? parseConv(b.conv) : undefined;
+    const conv = pc && roomOf(pc.slug) && (pc.kind === 'room' || pc.user === s.user) ? (b.conv as string) : undefined;
     void h(sub, driver).catch((e) => {
       log.error(`web dialog ${id}: ${e instanceof Error ? e.message : String(e)}`);
       captureError(e, { subsystem: 'web-dialog' });

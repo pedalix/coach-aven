@@ -91,8 +91,13 @@ test('controls carry the core’s action families and values', () => {
   assert.match(html, /<a class="btn" href="https:\/\/github\.com\/Org\/alpha\/pull\/7"[^>]*>🔗 View PR<\/a>/);
   const q = renderMessageView(messages.question).html.html;
   assert.match(q, /data-action="answer_q" data-value="\{&quot;qid&quot;:&quot;q1&quot;,&quot;qi&quot;:0,&quot;oi&quot;:1\}"/);
-  const d = renderDialogView(dialogs.feedback).html.html;
-  assert.match(d, /<form class="dialog-form" data-dialog="feedback" data-meta="\{&quot;t&quot;:&quot;t1&quot;/);
+  const fb = renderDialogView(dialogs.feedback);
+  const d = fb.html.html;
+  // The form names its family; the metadata stays on the server (the driver keeps `submit` beside the dialog).
+  assert.match(d, /<form class="dialog-form" data-dialog="feedback">/);
+  assert.doesNotMatch(d, /data-meta/);
+  assert.equal(fb.submit?.id, 'feedback');
+  assert.equal(JSON.parse(fb.submit!.meta).t, 't1');
   assert.match(d, /name="reason" value="wrong"/);
   assert.match(renderDialogView(dialogs.reportPrompt).html.html, /data-multi="now"/);
 });

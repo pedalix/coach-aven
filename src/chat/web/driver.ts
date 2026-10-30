@@ -46,6 +46,11 @@ export interface WebChatDriver extends ChatDriver {
   onUser(user: string, fn: (p: UserPush) => void): () => void;
   /** The people with an open page right now (for the journal). */
   online(): string[];
+  /** A dialog this driver opened: whose it is and the form it holds (its submit handler and metadata, kept here,
+   *  never sent to the browser). Undefined for an unknown or expired dialog. */
+  dialogOf(id: string): { user: string; submit?: { id: string; meta: string } } | undefined;
+  /** A dialog's form was submitted: it cannot be submitted again (an update may still reach the person). */
+  submitted(id: string): void;
 }
 
 const ctxOf = (a: Interaction): WebCtx | undefined => (a.ctx && typeof (a.ctx as WebCtx).user === 'string' ? (a.ctx as WebCtx) : undefined);
@@ -55,7 +60,8 @@ export function webDriver(deps: WebDriverDeps): WebChatDriver {
   const ids = deps.ids ?? (() => newId('m'));
   const dialogIds = deps.ids ? () => `d${deps.ids!()}` : () => newId('d');
   const listeners = new Map<string, Set<(p: UserPush) => void>>();
-  const dialogs = new Map<string, string>(); // dialog id → user (bounded: the map is pruned past 1000)
+  // dialog id → its person and form (bounded: the map is pruned past 1000)
+  const dialogs = new Map<string, { user: string; submit?: { id: string; meta: string } }>();
   // A push lands on the person's open pages — and on the page that opens next within a few seconds: a command
   // typed at a room's top level opens its thread page, so the dialog it produces (`/help`, `/home`) would otherwise
   // reach only the page being left (the first browser pass lost every such dialog). Each new stream replays the
@@ -106,6 +112,11 @@ export function webDriver(deps: WebDriverDeps): WebChatDriver {
       };
     },
     online: () => [...listeners.keys()],
+    dialogOf: (id) => dialogs.get(id),
+    submitted: (id) => {
+      const d = dialogs.get(id);
+      if (d) dialogs.set(id, { user: d.user });
+    },
 
     async post(to: ConvTarget, view: MessageView): Promise<MsgRef> {
       const id = ids();
@@ -156,20 +167,21 @@ export function webDriver(deps: WebDriverDeps): WebChatDriver {
       if (!c) return undefined;
       const id = dialogIds();
       const r = renderDialogView(view, { nameOf: deps.nameOf });
-      dialogs.set(id, c.user);
+      dialogs.set(id, { user: c.user, ...(r.submit ? { submit: r.submit } : {}) });
       if (dialogs.size > 1000) dialogs.delete(dialogs.keys().next().value!);
       push(c.user, { kind: 'dialog', id, title: r.title, html: r.html.html });
       return { id };
     },
 
     async updateDialog(dialog: DialogRef, view: DialogView): Promise<void> {
-      const user = dialogs.get(dialog.id);
-      if (!user) {
+      const d = dialogs.get(dialog.id);
+      if (!d) {
         log.info(`web: dialog update ignored (${view.kind}) — ${dialog.id} unknown`);
         return;
       }
       const r = renderDialogView(view, { nameOf: deps.nameOf });
-      push(user, { kind: 'dialog', id: dialog.id, title: r.title, html: r.html.html });
+      dialogs.set(dialog.id, { user: d.user, ...(r.submit ? { submit: r.submit } : {}) });
+      push(d.user, { kind: 'dialog', id: dialog.id, title: r.title, html: r.html.html });
     },
 
     async refreshRating(action: ChatAction, tally: Tally): Promise<void> {

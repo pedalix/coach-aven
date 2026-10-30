@@ -201,17 +201,23 @@ export function renderPrivateView(v: PrivateView, c: RenderCtx = {}): Rendered {
 }
 
 // ── dialogs ───────────────────────────────────────────────────────────────────────────────────────
-// A dialog is a titled fragment the client shows in a <dialog>; a form in it posts `{ id, meta, values }`
-// to the dialog endpoint (data-dialog = the family, data-meta = the private metadata; checkbox groups and
-// the fields named in data-multi arrive as arrays, as the core's handlers expect).
+// A dialog is a titled fragment the client shows in a <dialog>; a form in it posts the dialog's id and its
+// values to the dialog endpoint (data-dialog = the family; checkbox groups and the fields named in
+// data-multi arrive as arrays, as the core's handlers expect). The form's family and private metadata
+// (`submit`) stay on the server with the dialog (driver.ts): the browser never carries them, so nobody can
+// submit a dialog with metadata of their choosing (the security review of 2026-10-30).
 
 export interface RenderedDialog {
   title: string;
   html: Html;
+  /** The form's submit handler and metadata, kept by the driver beside the dialog's id. */
+  submit?: { id: string; meta: string };
 }
 
-const form = (id: string, meta: string, body: Html, submit: string, multi: string[] = []): Html =>
-  h`<form class="dialog-form" data-dialog="${id}" data-meta="${meta}"${multi.length ? h` data-multi="${multi.join(',')}"` : ''}>${body}<div class="actions"><button type="submit" class="btn primary">${submit}</button></div></form>`;
+const form = (id: string, meta: string, body: Html, submit: string, multi: string[] = []): { html: Html; submit: { id: string; meta: string } } => ({
+  html: h`<form class="dialog-form" data-dialog="${id}"${multi.length ? h` data-multi="${multi.join(',')}"` : ''}>${body}<div class="actions"><button type="submit" class="btn primary">${submit}</button></div></form>`,
+  submit: { id, meta },
+});
 
 export function renderDialogView(v: DialogView, c: RenderCtx = {}): RenderedDialog {
   switch (v.kind) {
@@ -233,7 +239,7 @@ export function renderDialogView(v: DialogView, c: RenderCtx = {}): RenderedDial
     case 'feedback':
       return {
         title: '👎 What went wrong?',
-        html: form(
+        ...form(
           'feedback',
           JSON.stringify({ t: v.meta.turnId, s: v.meta.slug, k: v.meta.key, c: v.meta.channel, ts: v.meta.ts }),
           h`<fieldset class="reasons">${BAD_REASONS.map((r, i) => h`<label><input type="radio" name="reason" value="${r.value}"${i === 0 ? ' required' : ''}> ${r.label}</label>`)}</fieldset><label>Optional: what would have helped?<textarea name="note" rows="3" maxlength="2000" placeholder='e.g. "the file was in services/, not src/"'></textarea></label>`,
@@ -254,7 +260,7 @@ export function renderDialogView(v: DialogView, c: RenderCtx = {}): RenderedDial
     case 'reportPrompt':
       return {
         title: `📝 Report to ${v.ticket}`,
-        html: form(
+        ...form(
           'yt_prompt',
           JSON.stringify({ t: v.ticket, key: v.meta.key, channel: v.meta.channel, threadTs: v.meta.threadTs }),
           h`<label><strong>Instructions for the draft</strong> — edit before running:<textarea name="instructions" rows="6" required>${v.prompt}</textarea></label><label><input type="checkbox" name="now" value="now"> Post to the ticket immediately (no review)</label><div class="meta contract">${mk(v.contract, c)}</div>`,
@@ -265,7 +271,7 @@ export function renderDialogView(v: DialogView, c: RenderCtx = {}): RenderedDial
     case 'report':
       return {
         title: `📝 Report to ${v.ticket}`,
-        html: form(
+        ...form(
           'yt_send',
           JSON.stringify({ t: v.ticket, channel: v.meta.channel, ts: v.meta.ts, threadTs: v.meta.threadTs }),
           h`<p class="meta">Posted as an <strong>internal</strong> comment on the ticket — edit first if needed:</p><textarea name="text" rows="12" required>${v.draft.slice(0, 20_000)}</textarea>`,

@@ -113,6 +113,18 @@ Checked on the branch — the `/security-review` skill is not available in this 
 - **`/security-review` (the built-in skill, run after the plugin install, 2026-10-26)**: no HIGH or MEDIUM finding; one hardening note taken — `file:` references were dispatched by scheme alone, so a `file:` URL relayed from any platform payload would have read the bot's disk into a sandbox (no producer can emit one today; before this PR the scheme was a harmless fetch failure). Now `attachments.ts` reads `file:` only under a root the web surface registers (`allowLocalFiles`), refusing the root itself and anything outside it (tests).
 - **Open items** (not blockers for the canary): no retention or deletion of uploads and history; one shared rate limit for posts and uploads; the dialog stream has no per-dialog authorization beyond "the person who clicked"; operators' verbs (`/reload`, `/usage`) rely on `WEB_OPERATORS` — keep it set on a shared installation.
 
+## Security review (independent, 2026-10-30, before the first client staff sign in)
+
+A second reviewer, not the author, went over `src/chat/web/` with throwaway proofs against the real server and core. One finding was high: the core's action and dialog handlers were written for Slack, where the platform hands back a button's value and a modal's metadata from the bot's own message; the web took both from the browser, so any signed-in person could post `cancel_turn` / `show_trail` / `session_restart` / `answer_q` with someone else's turn, question or conversation, or submit `yt_prompt` with another person's conversation key and resume their session. Fixed, with the rest:
+
+- **Buttons are signed** (`buttons.ts`): every rendered button carries an HMAC of its action and value under the session secret, added where HTML leaves the server (pages and stream frames); `/action` takes only a signed pair, so a person can click only what was shown to them. The message text handed to a handler is the message's only when the person may see it.
+- **Dialogs keep their form on the server**: the driver stores each dialog's person, handler and metadata beside its id; the browser sends the id and the values, the server checks the person and uses its own metadata, and a dialog submits once.
+- **Conversation ids are plain names** (`parseConv`): no `..`, no path; the history's file must resolve under its directory. The private page shows only what its person may see.
+- **Sessions can be revoked**: a sign-out marks the person (`loggedOutAt`, kept across logins), which ends every session issued before it; the allow-list is checked on every request (the session keeps the groups of its login).
+- **Smaller ones**: the post-login redirect refuses backslashes (`/\\host` is `//host` to a browser); an e-mail the provider marks `email_verified: false` is ignored (a provider that sends no such claim keeps today's behaviour); the upload body is read after the session and CSRF checks; the local modes answer only to a loopback name or the base URL's host (DNS rebinding); at most ten live streams per person.
+- **Sound on inspection**: rendering under ~20 hostile inputs, templates and the client's insertion, CSP and headers, file names, ids and downloads, PKCE/state/nonce and the login cookie, cookie flags and CSRF, the `none`/`link` guards, proxy trust, error pages and logs.
+- **Not checked**: the identity provider's own settings (self-signup, editable e-mails) — they decide how much the allow-list is worth; whether Teams card submissions can be forged against the same core handlers.
+
 ## Risks / Trade-offs
 
 - [XSS through agent output] → D4: no raw HTML, link allow-list, CSP, escaping templates, hostile-input tests; a security review (`/security-review`) before the first shared deployment.

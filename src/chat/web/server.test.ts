@@ -16,7 +16,8 @@ import { allowLocalFiles } from '../../attachments.js';
 import { webDriver } from './driver.js';
 import { log } from '../../log.js';
 import { createWebServer, keyMatches, LOCAL_USER, type WebServer } from './server.js';
-import { csrfToken, sealSession, SESSION_COOKIE, type Identity, type Oidc } from './auth.js';
+import { csrfToken, sealSession, SESSION_COOKIE, type Identity, type Oidc, type Session } from './auth.js';
+import { buttonSig } from './buttons.js';
 
 const SECRET = 'k'.repeat(32);
 const reg: RegistryRef = { current: { projects: [{ slug: 'alpha', repos: ['Org/alpha'] }, { slug: 'hidden', repos: ['Org/h'], webRoom: false }] } } as unknown as RegistryRef;
@@ -72,13 +73,14 @@ function harness(over: Partial<WebConfig> = {}, oidc: Oidc | undefined = fakeOid
   let seq = 0;
   const driver = webDriver({ history, baseUrl: 'http://127.0.0.1:0', nameOf: (id) => store.getWebUser(id)?.name, ids: () => `m${++seq}` });
   const rec = recorder();
-  const cfg: WebConfig = { port: 0, bind: '127.0.0.1', baseUrl: 'http://127.0.0.1:0', auth: oidc ? 'oidc' : 'none', org: 'corp.example', operators: [], allow: ['ann@corp.example'], sessionSecret: SECRET, maxFileMb: 20, ...over };
+  const cfg: WebConfig = { port: 0, bind: '127.0.0.1', baseUrl: 'http://127.0.0.1:0', auth: oidc ? 'oidc' : 'none', org: 'corp.example', operators: [], allow: ['ann@corp.example', 'group:staff'], sessionSecret: SECRET, maxFileMb: 20, ...over };
   allowLocalFiles(join(dir, 'web'));
   const server = createWebServer({ cfg, store, reg, history, driver, core: rec.core, messages: rec.messages, commands: rec.commands, filesRoot: join(dir, 'web'), ...(oidc ? { oidc } : {}), ids: () => `p${++seq}` });
   return { server, store, history, driver, rec, cfg, oidc };
 }
 
-const sessionCookie = (user: string, name?: string) => `${SESSION_COOKIE}=${sealSession(SECRET, { user, name, iat: Date.now() })}`;
+// A signed-in person (on the allow-list through the `staff` group, as a login would have checked).
+const sessionCookie = (user: string, name?: string, extra: Partial<Session> = { groups: ['staff'] }) => `${SESSION_COOKIE}=${sealSession(SECRET, { user, name, iat: Date.now(), ...extra })}`;
 const csrf = (user: string, cookie: string) => csrfToken(SECRET, { user, iat: Number(JSON.parse(Buffer.from(cookie.split('=')[1].split('.')[0], 'base64url').toString()).iat) });
 const cookies = (res: Response): string[] => res.headers.getSetCookie();
 
@@ -200,7 +202,11 @@ test('with a session: a forged POST is rejected and stores nothing; a proper pos
   assert.equal((await post('/post', { conv: 'room:hidden', text: 'x' }, { cookie, 'x-csrf': token })).status, 404);
   assert.equal((await post('/post', { conv: 'room:alpha', text: '   ' }, { cookie, 'x-csrf': token })).status, 400);
 
-  const act = await post('/action', { action: 'cancel_turn', value: 't1', conv: 'room:alpha', thread: id, msg: 'm9' }, { cookie, 'x-csrf': token });
+  // A click is taken only for a button this server rendered (its signature), whatever value the browser sends.
+  const click = { action: 'cancel_turn', value: 't1', conv: 'room:alpha', thread: id, msg: 'm9' };
+  assert.equal((await post('/action', click, { cookie, 'x-csrf': token })).status, 403, 'unsigned');
+  assert.equal((await post('/action', { ...click, value: 't2', sig: buttonSig(SECRET, 'cancel_turn', 't1') }, { cookie, 'x-csrf': token })).status, 403, 'another turn id under t1’s signature');
+  const act = await post('/action', { ...click, sig: buttonSig(SECRET, 'cancel_turn', 't1') }, { cookie, 'x-csrf': token });
   assert.equal(act.status, 202);
   await new Promise((r) => setImmediate(r));
   const a = h.rec.calls.at(-1)!;
@@ -208,10 +214,27 @@ test('with a session: a forged POST is rejected and stores nothing; a proper pos
   assert.deepEqual((a.args as { where: unknown; msg: unknown; canDialog: boolean; actor: unknown }).where, { conv: 'room:alpha', thread: id });
   assert.deepEqual((a.args as { actor: unknown }).actor, { tenant: 'corp.example', user: 'u1' });
   assert.equal((await post('/action', { action: 'rm_rf', conv: 'room:alpha' }, { cookie, 'x-csrf': token })).status, 400);
-  const sub = await post('/dialog', { id: 'feedback', meta: '{"t":"t1"}', values: { reason: 'wrong', note: 'x', now: ['now'] }, conv: 'room:alpha' }, { cookie, 'x-csrf': token });
+
+  // A dialog is submitted by its id, by its person, once; its handler and metadata are the server's, not the browser's.
+  // (Its person is one who opens no page in this file: an undelivered dialog waits for that person's next page.)
+  const c5 = sessionCookie('u5', 'Cy');
+  const t5 = csrf('u5', c5);
+  const dlg = await h.driver.openDialog(
+    { id: 'fb_bad', value: '', actor: { user: 'u5' }, canDialog: true, ctx: { conv: 'room:alpha', thread: id, user: 'u5' } },
+    { kind: 'feedback', meta: { turnId: 't1', slug: 'alpha', key: 'web:room:alpha', channel: 'room:alpha' } },
+  );
+  const values = { reason: 'wrong', note: 'x', now: ['now'] };
+  const c2 = sessionCookie('u2', 'Bo');
+  assert.equal((await post('/dialog', { dialog: dlg!.id, values, conv: 'room:alpha' }, { cookie: c2, 'x-csrf': csrf('u2', c2) })).status, 404, 'someone else’s dialog');
+  assert.equal((await post('/dialog', { id: 'feedback', meta: '{"t":"forged"}', values, conv: 'room:alpha' }, { cookie: c5, 'x-csrf': t5 })).status, 404, 'the old shape: family + meta from the browser');
+  const sub = await post('/dialog', { dialog: dlg!.id, meta: '{"t":"forged"}', values, conv: 'room:alpha' }, { cookie: c5, 'x-csrf': t5 });
   assert.equal(sub.status, 202);
   await new Promise((r) => setImmediate(r));
-  assert.deepEqual((h.rec.calls.at(-1)!.args as { values: unknown }).values, { reason: 'wrong', note: 'x', now: ['now'] });
+  const got = h.rec.calls.at(-1)!.args as { id: string; meta: string; values: unknown };
+  assert.equal(got.id, 'feedback');
+  assert.deepEqual(JSON.parse(got.meta), { t: 't1', s: 'alpha', k: 'web:room:alpha', c: 'room:alpha' }, 'the meta the server kept, not the forged one');
+  assert.deepEqual(got.values, values);
+  assert.equal((await post('/dialog', { dialog: dlg!.id, values, conv: 'room:alpha' }, { cookie: c5, 'x-csrf': t5 })).status, 404, 'submitted once');
 });
 
 // Read SSE frames from a response until `n` named events arrived (or the time is up).
@@ -313,6 +336,10 @@ test('WEB_AUTH=none: the login sets the fixed local user; a logout clears the se
     assert.equal(out.status, 303);
     assert.equal(out.headers.get('location'), '/signed-out', 'no identity provider: signed out locally, onto the signed-out page');
     assert.ok(cookies(out).some((c) => c.startsWith(`${SESSION_COOKIE}=;`) && c.includes('Max-Age=0')));
+    // Signing in again after the sign-out works (only the sessions issued before it are dead).
+    const again = await fetch(`http://127.0.0.1:${port}/login`, { redirect: 'manual' });
+    const fresh = cookies(again).find((c) => c.startsWith(`${SESSION_COOKIE}=`))!.split(';')[0];
+    assert.equal((await fetch(`http://127.0.0.1:${port}/`, { headers: { cookie: fresh }, redirect: 'manual' })).status, 200);
   } finally {
     await local.server.close();
   }
@@ -470,4 +497,75 @@ test('keyMatches: exact keys only, whatever the type or length', () => {
   assert.equal(keyMatches('abc', ''), false);
   assert.equal(keyMatches('abc', ['abc']), false);
   assert.equal(keyMatches('abc', undefined), false);
+});
+
+// ── the security review of 2026-10-30 ──────────────────────────────────────────────────────────────
+
+test('sign-out ends every copy of the session; the allow-list holds on every request, not only at login', async () => {
+  const cookie = sessionCookie('u6', 'Di');
+  assert.equal((await get('/', { cookie })).status, 200);
+  const stale = sessionCookie('u6', 'Di', { groups: ['staff'] }); // another browser's copy, issued before the sign-out
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal((await post('/logout', {}, { cookie, 'x-csrf': csrf('u6', cookie) })).status, 303);
+  assert.ok(h.store.getWebUser('u6')?.loggedOutAt);
+  assert.equal((await get('/', { cookie: stale })).status, 303, 'a copy issued before the sign-out is dead');
+  assert.equal((await post('/action', { action: 'cancel_turn' }, { cookie: stale, 'x-csrf': csrf('u6', stale) })).status, 401);
+  // Off the allow-list (no listed e-mail, no listed group): no page and no endpoint, whatever the cookie says.
+  const outsider = sessionCookie('u7', 'Ed', { email: 'ed@else.example', groups: ['guests'] });
+  assert.equal((await get('/', { cookie: outsider })).status, 403);
+  assert.equal((await post('/post', { conv: 'room:alpha', text: 'hi' }, { cookie: outsider, 'x-csrf': csrf('u7', outsider) })).status, 403);
+  assert.equal((await get('/', { cookie: sessionCookie('u8', 'Fay', { email: 'ann@corp.example' }) })).status, 200, 'a listed e-mail');
+});
+
+test('the live stream: at most ten open pages per person', async () => {
+  const cookie = sessionCookie('u9', 'Gus');
+  const ctrl = new AbortController();
+  const open = await Promise.all(Array.from({ length: 10 }, () => fetch(`${base}/stream?conv=room:alpha`, { headers: { cookie }, signal: ctrl.signal })));
+  assert.ok(open.every((r) => r.status === 200));
+  assert.equal((await fetch(`${base}/stream?conv=room:alpha`, { headers: { cookie }, signal: ctrl.signal })).status, 429);
+  ctrl.abort();
+  await new Promise((r) => setTimeout(r, 50));
+  const again = new AbortController();
+  assert.equal((await fetch(`${base}/stream?conv=room:alpha`, { headers: { cookie }, signal: again.signal })).status, 200, 'closed pages free their slots');
+  again.abort();
+});
+
+test('the local modes: no redirect off the site after sign-in, and only a loopback host name is answered', async () => {
+  const local = harness({ auth: 'none' }, undefined);
+  const { port } = await local.server.listen();
+  try {
+    for (const next of ['/%5Cevil.example', '//evil.example', '/ok%5C..', 'https://evil.example']) {
+      const r = await fetch(`http://127.0.0.1:${port}/login?next=${next}`, { redirect: 'manual' });
+      assert.equal(r.headers.get('location'), '/', next);
+    }
+    assert.equal((await fetch(`http://127.0.0.1:${port}/login?next=/r/alpha`, { redirect: 'manual' })).headers.get('location'), '/r/alpha');
+    const { request } = await import('node:http');
+    const status = (host: string) =>
+      new Promise<number>((resolve, reject) => {
+        const req = request({ host: '127.0.0.1', port, path: '/login', headers: { host } }, (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        });
+        req.on('error', reject);
+        req.end();
+      });
+    assert.equal(await status('rebind.evil.example'), 421, 'a page elsewhere that rebinds its name to 127.0.0.1');
+    assert.equal(await status(`localhost:${port}`), 303);
+    assert.equal(await status(`127.0.0.1:${port}`), 303);
+  } finally {
+    await local.server.close();
+  }
+});
+
+test('a button as the page renders it is a click the server takes — the browser sends back what it was shown', async () => {
+  const cookie = sessionCookie('u1', 'Ann');
+  const conv = h.history.conversation('room:alpha');
+  conv.append({ t: 'post', id: 'root9', by: { id: 'u1', name: 'Ann' }, text: 'go' });
+  await h.driver.post({ conv: 'room:alpha', thread: 'root9' }, { kind: 'status', line: 'Working…', turnId: 't9-1', notify: 'Working…' });
+  const page = await (await get('/r/alpha/t/root9', { cookie })).text();
+  const m = /data-action="cancel_turn" data-value="([^"]*)" data-sig="([^"]*)"/.exec(page);
+  assert.ok(m, 'the rendered button carries its signature');
+  const attr = (s: string) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  const r = await post('/action', { action: 'cancel_turn', value: attr(m[1]), sig: m[2], conv: 'room:alpha', thread: 'root9' }, { cookie, 'x-csrf': csrf('u1', cookie) });
+  assert.equal(r.status, 202);
 });

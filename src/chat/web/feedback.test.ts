@@ -55,7 +55,7 @@ test('👎 records the verdict, re-renders the answer with the count and opens t
   assert.equal(pushes.length, 1);
   assert.equal(pushes[0].title, '👎 What went wrong?');
   assert.match(pushes[0].html, /data-dialog="feedback"/);
-  const meta = /data-meta="([^"]+)"/.exec(pushes[0].html)![1].replace(/&quot;/g, '"');
+  const meta = driver.dialogOf(pushes[0].id)!.submit!.meta; // kept by the driver, never in the page
   await core.submits.feedback({ id: 'feedback', meta, values: { reason: 'missed', note: 'it rewrote the wrong file' }, actor: { tenant: ORG, user: 'u1' } }, driver);
   assert.deepEqual(records.map((r) => [r.verdict, r.reason, r.note]), [['bad', undefined, undefined], ['bad', 'missed', 'it rewrote the wrong file']]);
   // 👍 by another person: a record and the count on the same message.

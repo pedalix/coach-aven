@@ -140,7 +140,7 @@
         } else values[k] = v;
       });
       multi.forEach(function (k) { if (!values[k]) values[k] = []; });
-      post('/dialog', { id: form.getAttribute('data-dialog'), meta: form.getAttribute('data-meta') || '', values: values, conv: conv, thread: thread })
+      post('/dialog', { dialog: openDialogId, values: values, conv: conv, thread: thread })
         .then(function () { closeDialog(); toast('Sent'); })
         .catch(function (err) { toast(err.message); });
       return;
@@ -248,7 +248,7 @@
     e.preventDefault();
     if (btn.classList.contains('confirm') && !window.confirm('Are you sure? This cannot be undone.')) return;
     var article = btn.closest('article.msg');
-    var body = { action: btn.getAttribute('data-action'), value: btn.getAttribute('data-value') || '', conv: conv, thread: thread || (article ? article.getAttribute('data-thread') : null), msg: article ? article.getAttribute('data-id') : null };
+    var body = { action: btn.getAttribute('data-action'), value: btn.getAttribute('data-value') || '', sig: btn.getAttribute('data-sig') || '', conv: conv, thread: thread || (article ? article.getAttribute('data-thread') : null), msg: article ? article.getAttribute('data-id') : null };
     // A click inside a dialog (a ticket's buttons) has no message element; the dialog is the context.
     btn.disabled = true;
     post('/action', body)

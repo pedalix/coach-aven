@@ -31,6 +31,16 @@
 - [ ] 4.1 End-to-end harness: the web surface on localhost with `WEB_AUTH=none` and a fake sandbox transport, every MVP spec scenario driven over HTTP (`src/chat/web/e2e.test.ts` or `npm run e2e:web`), re-runnable by anyone. Verify: the harness is green in CI (or documented as a local run if it needs a sandbox).
 - [ ] 4.2 The Teams staging installation with `CHAT_SURFACES=web` on a hostname behind its nginx: the newsletter project rebound from Teams to its web room, the client's people on the allow-list, a newsletter built end to end (stop 1, stop 2 with the preview link, upload on an explicit go-ahead, photos attached), reconnect, restart mid-turn. Verify: two-user live scenarios; `platform` on Teams unaffected.
 
+## 6. Security review before the client's staff (2026-10-30)
+
+- [x] 6.1 An independent review of `src/chat/web/` with proofs against the real server and core (design → *Security review (independent, 2026-10-30)*). Verify: its findings listed there.
+- [x] 6.2 Signed buttons (`buttons.ts`) on pages and stream frames; `/action` takes only a signed pair; the handler's message text only when visible. Verify: `src/chat/web/buttons.test.ts`; `server.test.ts` — unsigned 403, another value under a signature 403, signed 202.
+- [x] 6.3 Dialogs keep their form on the server (`driver.dialogOf`, `submitted`); `/dialog` takes the id and values, checks the person, uses the kept metadata, once; the client sends the dialog's id. Verify: `server.test.ts` — someone else's dialog 404, the old family+meta shape 404, forged meta ignored, a second submit 404; `feedback.test.ts`; the web goldens re-snapshotted (only `data-meta` gone).
+- [x] 6.4 `parseConv` takes plain names only; `History.fileOf` resolves under its directory; the private page filters by visibility. Verify: `keys.test.ts`, `history.test.ts`.
+- [x] 6.5 Revocable sessions: `loggedOutAt` on sign-out (kept across logins), every older session dead; the allow-list on every request (sessions keep their login's groups). Verify: `server.test.ts` — a copy after sign-out 303/401, signing in again works, off the list 403.
+- [x] 6.6 `safeNext` without backslashes; `email_verified: false` ignored; the upload parser after the gate; the Host check in the local modes; ten streams per person. Verify: `server.test.ts`, `auth.test.ts`.
+- [ ] 6.7 Whether Teams card submissions can be forged against the same core handlers (the review could not check it). Verify: a finding or a note in `docs/teams.md`.
+
 ## 5. PR 3 — the rest of parity (when a client needs it)
 
 - [ ] 5.1 The remaining `/aven` verbs, autofix Fix, `/users` editing the allow-list, `allowlist` mode and groups → rooms. Verify: the remaining verb and poller scenarios against the web driver; ledger row. (YouTrack on the web dropped 2026-10-30: not needed on this surface.)
