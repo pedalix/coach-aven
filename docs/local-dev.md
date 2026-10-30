@@ -1,12 +1,97 @@
-# Local dev setup
+# Local development
 
-How to run CoachAven on your machine **without colliding with prod**. Prod runs as
-containers of the published image on the bot host (see [`../infra/deploy/README.md`](../infra/deploy/README.md));
-your laptop and prod could hit the **same Slack app** and, if you point your dev bot at
-prod's sandbox host, the **same Docker host**, so the whole point of this guide is
-isolating those two.
+Three levels, each a superset of the one before. Most changes need only the first.
 
-## Why isolation matters (read this first)
+| Level | You need | You get |
+|---|---|---|
+| [1. Nothing configured](#level-1-nothing-configured) | Node 24, git | the whole test suite: the Slack and Teams drivers through their twins, the turn engine, the CLI recordings |
+| [2. The bot on your machine](#level-2-the-bot-on-your-machine) | + Docker, a GitHub token, a Claude credit | a running bot: the web chat on `localhost`, or a dev Slack app |
+| [3. Beside a production bot](#level-3-beside-a-production-bot) | + the isolation settings below | a dev bot that shares a Slack workspace or a Docker host with production without touching it |
+
+Only want to *try* CoachAven, not change it? The quickstart runs the published image with no checkout of `src/`:
+[`quickstart.md`](quickstart.md).
+
+## Level 1: nothing configured
+
+```bash
+npm ci
+npm run typecheck && npm test
+```
+
+No account, token or Docker. The tests are the contracts ([`how-we-work.md`](how-we-work.md#tests-as-contracts)):
+
+- **The twins.** The Slack driver runs through the real Bolt app against a recorded Web API
+  (`src/chat/slack/twin.ts`); every message, edit and modal it sends is pinned by snapshots under `src/fixtures/chat/`.
+  Change the output on purpose and re-record: `UPDATE_SNAPSHOTS=1 npm test`, then read the diff
+  ([`fixtures.md`](fixtures.md)). The Teams driver has its own recorded activities (`src/fixtures/chat/teams/`).
+- **The CLI recordings.** What the bot relies on in Claude Code is replayed from `src/fixtures/cli/<version>/` through
+  the real session code ([`cli-probe.md`](cli-probe.md)).
+- **The system prompt** is golden-tested byte for byte (`src/fixtures/prompt/`).
+
+The tests never read `.env` (the test runner skips it), so your settings never change a snapshot.
+
+## Level 2: the bot on your machine
+
+**The quickest: the web chat, no Slack.** From the checkout, with the sandboxes on your own Docker:
+
+```bash
+cp .env.example .env
+```
+
+Then set, in `.env`:
+
+| Var | Value |
+|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` | a `claude setup-token` value (or `ANTHROPIC_API_KEY` — exactly one; neither: your `~/.claude` login) |
+| `GITHUB_TOKEN` | a fine-grained token for one test repository (or the GitHub App, as production) |
+| `SSHDOCKER_HOST` | `local` |
+| `SNAPSHOT_IMAGE` | `ghcr.io/pedalix/coach-aven-sandbox-plain:<a release tag>` |
+| `WEB_AUTH` | `none` (no login; the listener stays on `127.0.0.1`) |
+
+and point `projects.config.json` (from `projects.config.example.json`) at a test repository, with
+`"sandbox": { "privileged": false, "dind": false }`. Then:
+
+```bash
+npm run orch -- web          # "Web chat running (http://127.0.0.1:8787 …)"
+```
+
+Open `http://127.0.0.1:8787`, pick the project's room, ask. The first turn creates the sandbox and clones the
+repository.
+
+**With Slack.** You need a Slack app of your own — never production's (Level 3 says why):
+
+1. https://api.slack.com/apps → **Create New App** → **From an app manifest**; pick the workspace, paste
+   [`../slack-app-manifest.json`](../slack-app-manifest.json), and name it so it is obviously dev (`CoachAven (dev)`).
+2. **Install to Workspace** → the **Bot User OAuth Token** (`xoxb-…`) is `SLACK_BOT_TOKEN`.
+3. **Basic Information → App-Level Tokens** → one with `connections:write` → `SLACK_APP_TOKEN` (`xapp-…`).
+4. **Socket Mode** → enable.
+5. A channel per project, named `<SLACK_CHANNEL_PREFIX><slug>` (`aven-<slug>` by default), with the bot invited:
+   channels bind to projects by name.
+
+```bash
+npm run orch -- slack        # "Slack bot running (Socket Mode) — N project(s)"
+```
+
+**Credentials, once more.** Set **exactly one** of `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY`; both set stops
+the boot. `.env` never overrides your shell, so an `ANTHROPIC_API_KEY` your shell exports for another tool makes this a
+key installation, or stops the boot beside a token in `.env`. The boot line (`credit: sandboxes run Claude Code on …`)
+names the credit and the variable it took; `unset ANTHROPIC_API_KEY` before `npm run orch` if that is not what you
+meant.
+
+**Where things live.** `.env`, `projects.config.json` and the state the bot writes (`state.json`, `queue.jsonl`,
+`usage/`, …) live in the checkout unless `AVEN_DIR` names another directory ([`runtime-config.md`](runtime-config.md) →
+*Installation directory*); the working directory you start from never matters. `state.json` is your local journal:
+delete it when it gets weird; you lose only thread → session resumes.
+
+**Dev tasks open real pull requests** against the repositories a project lists: point your projects at a test
+repository.
+
+## Level 3: beside a production bot
+
+Your machine and a production installation can share a Slack workspace and, if you point your dev bot at production's
+sandbox host, a Docker host. This level is about keeping them apart.
+
+### Why isolation matters
 
 Two shared resources will bite you if you don't isolate them:
 
@@ -28,95 +113,18 @@ Two shared resources will bite you if you don't isolate them:
 Everything else (the Claude credit, the GitHub App, the Grafana token) is fine to share with
 prod for dev.
 
-## Prerequisites
-
-- **Node 22+** and **git**.
-- **Claude Code** installed and logged in (`claude` on your PATH) — or a
-  `claude setup-token` value, or an Anthropic API key. Set **exactly one** of
-  `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` (both set stops the boot); with neither,
-  the orchestrator falls back to your `~/.claude` credentials. A switch applies to new
-  conversations.
-  - **The shell-export trap:** `.env` never overrides your shell, so an `ANTHROPIC_API_KEY`
-    your shell exports (for another tool) makes this a key installation, or stops the boot
-    beside a token in `.env`. The boot line (`credit: sandboxes run Claude Code on …`) says
-    which credit and which variable it took; `unset ANTHROPIC_API_KEY` before `npm run orch`
-    if that is not what you meant.
-- **Docker** on your machine, for the sandboxes (`SSHDOCKER_HOST=local`) — or key-based
-  SSH to a Docker host (`docs/sandbox-drivers.md`, *Host prerequisites*). The image
-  `SNAPSHOT_IMAGE` names must be one that host can pull (`snapshot/README.md`).
-- The **GitHub App private key** (`github-app-private-key.pem`) at the repo root.
-
-`.env`, `projects.config.json` and the state the bot writes (`state.json`, `queue.jsonl`, `usage/`, …) live
-in the checkout unless `AVEN_DIR` names another directory (`docs/runtime-config.md` → *Installation
-directory*); the working directory you start from never matters.
-
-## Tools to create BEFORE the first run
-
-### 1. A dedicated dev Slack app (required for `orch slack`)
-
-1. https://api.slack.com/apps → **Create New App** → **From an app manifest**.
-2. Pick the workspace, paste [`../slack-app-manifest.json`](../slack-app-manifest.json),
-   create. Name it so it's obviously dev (e.g. `CoachAven (dev)`).
-3. **Install to Workspace** → copy the **Bot User OAuth Token** (`xoxb-…`).
-4. **Basic Information → App-Level Tokens** → generate one with the
-   `connections:write` scope → copy it (`xapp-…`). (Socket Mode needs this.)
-5. **Socket Mode** → enable.
-
-### 2. Dev Slack channels
-
-Create one channel per project you want to test, named **`dev-aven-<slug>`**
-(e.g. `dev-aven-caldora`), and invite the dev bot. Channels auto-bind to the
-project by name via `SLACK_CHANNEL_PREFIX` — no channel IDs to wire.
-
-### 3. (Recommended) a throwaway repo for `projects.config.json`
-
-Dev tasks open **real PRs** against whatever repos a project lists. Point your dev
-`projects.config.json` at a sandbox/test repo so you don't open PRs against
-production repositories.
-
-## Configure
-
-```bash
-npm install
-cp .env.example .env                                   # then edit, see below
-cp projects.config.example.json projects.config.json   # your dev projects
-```
-
-Set these in your local `.env` (the rest can mirror prod):
+### The settings
 
 | Var | Dev value | Why |
 |---|---|---|
-| `SLACK_BOT_TOKEN` | your **dev** app `xoxb-…` | separate Slack app |
-| `SLACK_APP_TOKEN` | your **dev** app `xapp-…` | separate Slack app |
-| `SLACK_CHANNEL_PREFIX` | `dev-aven-` | bot only answers in dev channels |
-| `SANDBOX_DRIVER` | `ssh-docker` | the only driver; keep the line written out (`docs/sandbox-drivers.md`) |
-| `SSHDOCKER_HOST` | `local` | dev sandboxes on your own Docker, apart from prod's |
-| `SANDBOX_NAME_PREFIX` | `dev-proj-` | required when another installation uses the same Docker host: dev containers never collide with its `proj-<slug>` |
-| `CLAUDE_CODE_OAUTH_TOKEN` | blank (uses `~/.claude`) or a `setup-token` | or `ANTHROPIC_API_KEY` instead — exactly one |
-| `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY_PATH` | same as prod | shared App |
+| `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | your **dev** app's | Socket Mode delivers each event to one socket |
+| `SLACK_CHANNEL_PREFIX` | `dev-aven-` | the dev bot answers only in its own channels |
+| `SSHDOCKER_HOST` | `local` | dev sandboxes on your own Docker, apart from production's |
+| `SANDBOX_NAME_PREFIX` | `dev-proj-` | required when another installation uses the same Docker host |
+| `SANDBOX_MANAGED_BY` | `coach-aven-dev` | the label of your containers and your `/aven status` listing |
+| `AVEN_DATA_DIR`, the hub settings | your own / unset | otherwise you share production's data and its identity on the hub |
 
-> `SLACK_*` are left **blank** in the committed-example/dev `.env` on purpose, so
-> `orch slack` refuses to run until you've created the dev app. Fill them in last.
-
-## Run
-
-```bash
-npm run orch -- slack                  # start the dev bot (Socket Mode)
-# you should see: "Slack bot running (Socket Mode) — N project(s)"
-```
-
-Then post in a `dev-aven-<slug>` channel. Sandboxes are created/warmed on demand
-(first message per project); the first one pulls `SNAPSHOT_IMAGE` onto the Docker host,
-which can take minutes.
-
-## State
-
-`state.json` (gitignored) is your **local** runtime journal (sandboxes, thread→
-session bindings) — completely separate from prod's copy on the box. If it ever
-gets weird, just delete it; the bot re-derives everything (you only lose
-thread→session resume history). Starting fresh is the default for a new clone.
-
-## Gotchas
+### Gotchas
 
 - **Never run local with prod's Slack tokens** while prod is up — see the Socket
   Mode warning above.
