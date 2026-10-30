@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { composerAuthScript, repoSkillDirs, seedGatewayAuth, seedGitHubAuth, skillOrigins } from './project.js';
+import { CC_TOKEN_ENV, ccCreditEnv, composerAuthScript, repoSkillDirs, seedClaudeAuth, seedGatewayAuth, seedGitHubAuth, skillOrigins } from './project.js';
 import type { Config } from './config.js';
 import type { SandboxHandle } from './driver.js';
 
@@ -142,4 +142,27 @@ test('skillOrigins — the scanner looks exactly where the session loads skills:
     { origin: 'acme-shop', dir: '/root/work/acme-suite/acme-shop' },
   ]);
   assert.deepEqual(skillOrigins(skillCfg(false), 'acme-suite', ['AcmeOrg/acme-admin', 'AcmeOrg/acme-shop']), [{ origin: 'project', dir: '/root/work/acme-suite' }]);
+});
+
+// ── the model credit in the sandbox (OpenSpec api-key-credit D2) ──────────────────────────────────────
+
+test('ccCreditEnv — a subscription is today\'s prefix byte for byte; a key reads the same file into ANTHROPIC_API_KEY only', () => {
+  assert.equal(CC_TOKEN_ENV, 'CLAUDE_CODE_OAUTH_TOKEN=$(cat /root/.cc-token)');
+  assert.equal(ccCreditEnv('subscription'), CC_TOKEN_ENV);
+  assert.equal(ccCreditEnv('api-key'), 'ANTHROPIC_API_KEY=$(cat /root/.cc-token)');
+  assert.ok(!ccCreditEnv('api-key').includes('CLAUDE_CODE_OAUTH_TOKEN'));
+});
+
+test('seedClaudeAuth — the credit goes into the one credit file through the file API, chmod 600; no command carries it', async () => {
+  for (const value of ['sk-ant-api03-test', 'sk-ant-oat01-test']) {
+    const uploads: Record<string, string> = {};
+    const execs: string[] = [];
+    const sandbox = {
+      uploadFile: async (b: Buffer, p: string) => void (uploads[p] = b.toString()),
+      exec: async (c: string) => (execs.push(c), { exitCode: 0, result: '' }),
+    } as unknown as SandboxHandle;
+    await seedClaudeAuth(sandbox, { value });
+    assert.deepEqual(uploads, { '/root/.cc-token': value });
+    assert.deepEqual(execs, ['chmod 600 /root/.cc-token']);
+  }
 });

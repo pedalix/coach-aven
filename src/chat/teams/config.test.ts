@@ -7,8 +7,8 @@ import { loadConfig } from '../../config.js';
 const BASE = { SNAPSHOT_IMAGE: 'img', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', GITHUB_TOKEN: 'ghp_x' };
 const TEAMS = { TEAMS_APP_ID: 'app', TEAMS_APP_PASSWORD: 'pw', TEAMS_TENANT_ID: 'tenant' };
 // Tests never load .env, but a developer shell may export these: a SANDBOX_DRIVER other than ssh-docker
-// makes loadConfig throw (a leftover `daytona` above all).
-const KEYS = [...Object.keys(BASE), ...Object.keys(TEAMS), 'TEAMS_PORT', 'TEAMS_OPERATORS', 'TEAMS_TARGETED', 'TEAMS_STATUS_MIN_MS', 'TEAMS_TRACE', 'SANDBOX_DRIVER'];
+// makes loadConfig throw (a leftover `daytona` above all), and an ANTHROPIC_API_KEY beside BASE's token would too.
+const KEYS = [...Object.keys(BASE), ...Object.keys(TEAMS), 'TEAMS_PORT', 'TEAMS_OPERATORS', 'TEAMS_TARGETED', 'TEAMS_STATUS_MIN_MS', 'TEAMS_TRACE', 'SANDBOX_DRIVER', 'ANTHROPIC_API_KEY'];
 
 function withEnv<T>(env: Record<string, string>, fn: () => T): T {
   const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));

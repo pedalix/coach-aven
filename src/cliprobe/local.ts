@@ -6,11 +6,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ClaudeLaunch } from '../claudeSession.js';
 import { isolatedClaudeEnv } from '../clienv.js';
+import type { CreditKind } from '../credit.js';
 import { utf8Chunks } from '../utf8.js';
 import { seedPathOk, type ProbeProcess, type ProcessHandlers, type Transport } from './ctx.js';
 
 /** Pure: the child's environment. */
-export function localEnv(base: NodeJS.ProcessEnv, run: { configDir: string; token: string }, launch: ClaudeLaunch): NodeJS.ProcessEnv {
+export function localEnv(base: NodeJS.ProcessEnv, run: { configDir: string; token: string; credit?: CreditKind }, launch: ClaudeLaunch): NodeJS.ProcessEnv {
   return { ...isolatedClaudeEnv(base, run), ...launch.env };
 }
 
@@ -44,7 +45,9 @@ export function localTransport(o: {
   bin: string;
   workDir: string;
   configDir: string;
+  /** The credit's value, and its kind (absent → a subscription token). */
   token: string;
+  credit?: CreditKind;
   baseEnv?: NodeJS.ProcessEnv;
   log?: (line: string) => void;
 }): Transport {

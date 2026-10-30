@@ -76,6 +76,9 @@ export interface TurnEngine {
   runningCount(): number; // turns in flight right now (for /aven status)
   // Latest subscription-quota observation from any session (ratelimit.ts; for /aven status).
   claudeQuota(): RateLimitInfo | undefined;
+  // Whether this installation tracks a subscription quota at all: false on an API key (api-key-credit D5) —
+  // /aven status then shows no quota line. Absent → tracked (engines built before the credit existed).
+  quotaTracked?(): boolean;
   projectBusy(slug: string): boolean;
   slugForKey(key: string): string | undefined;
   // "🔄 Restart session" → kill this thread's Claude conversation (live or persisted) and
@@ -354,6 +357,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // same plan), fed by each session's rate_limit_event; warns the alert channel on the
   // allowed → warning → rejected transitions and once on recovery (ratelimit.ts).
   const rateLimits = new RateLimitTracker();
+  // …on a subscription only (api-key-credit D5): an API key has no five-hour or seven-day window, so a key
+  // installation connects no session to the tracker — no alert, no status line. One credit per installation,
+  // so the rule is per installation; a process still on the old token after a switch is ignored too.
+  const quotaTracked = cfg.credit?.kind !== 'api-key';
   // The value half of the same story: what an answer was worth, joined to what it cost.
   const feedbackLog = deps.feedbackLog ?? new FeedbackLog();
 
@@ -525,10 +532,12 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       attachLedger: prior?.ledger === true,
       onLedgerMismatch: ({ expected, actual }) =>
         emit('ask.inject.result_mismatch', { key, expected: expected ?? 'none', actual: actual.join(',') }),
-      onRateLimit: (info) => {
-        const alert = rateLimits.observe(info, project.slug);
-        if (alert) alertOps(alert.text, alert.level === 'recovered' ? 'info' : 'warning');
-      },
+      onRateLimit: quotaTracked
+        ? (info) => {
+            const alert = rateLimits.observe(info, project.slug);
+            if (alert) alertOps(alert.text, alert.level === 'recovered' ? 'info' : 'warning');
+          }
+        : undefined,
       // A background Task/Agent that finishes after its turn settled makes the CLI run a
       // whole extra turn on its own — real tokens with no liveTurn/runAsk around them to
       // meter it. Record it against this conversation as kind 'background'. No turnId: the
@@ -1453,6 +1462,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     activeKeys: () => [...queues.keys()],
     runningCount: () => running.size,
     claudeQuota: () => rateLimits.latest(),
+    quotaTracked: () => quotaTracked,
     projectBusy,
     slugForKey,
     restartSession,

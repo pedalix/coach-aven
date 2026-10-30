@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PreconditionMissed, PredictionMissed, ProbeCtx, VersionMismatch, type Transport } from './ctx.js';
 import { makeScrubber } from './normalize.js';
+import type { CreditKind } from '../credit.js';
 import { MODELS, type RecordLine, type RunOutcome, type Scenario, type Verdict } from './types.js';
 import { settle, wantsAnotherRun } from './verdict.js';
 
@@ -29,6 +30,8 @@ export interface RunnerOptions {
   cache: string;
   modelOverride?: string;
   runsOverride?: number;
+  /** The run's credit kind (never its value): the command's prefix (claudeLaunch → ccCreditEnv). Absent → a subscription token. */
+  credit?: CreditKind;
   log?: (line: string) => void;
 }
 
@@ -84,7 +87,7 @@ export async function runScenario(s: Scenario<ProbeCtx>, variant: string | undef
       ctx = new ProbeCtx({
         transport,
         // `{work}` in an extra arg is the CLI's working directory, absolute, whatever the transport.
-        launch: { model, settings: s.meta.extras?.settings, extraArgs: s.meta.extras?.args?.map((a) => a.split('{work}').join(transport!.workDir)) },
+        launch: { model, settings: s.meta.extras?.settings, extraArgs: s.meta.extras?.args?.map((a) => a.split('{work}').join(transport!.workDir)), ...(o.credit ? { credit: o.credit } : {}) },
         expectedVersion: o.version,
         log: o.log,
       });

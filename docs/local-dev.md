@@ -25,15 +25,22 @@ Two shared resources will bite you if you don't isolate them:
    listing filter — may differ too (say `coach-aven-dev`), but it does not keep the two
    apart on its own: containers are chosen by name, so the prefix does.
 
-Everything else (Claude token, the GitHub App, the Grafana token) is fine to share with
+Everything else (the Claude credit, the GitHub App, the Grafana token) is fine to share with
 prod for dev.
 
 ## Prerequisites
 
 - **Node 22+** and **git**.
 - **Claude Code** installed and logged in (`claude` on your PATH) — or a
-  `claude setup-token` value. The orchestrator falls back to your `~/.claude`
-  credentials if `CLAUDE_CODE_OAUTH_TOKEN` is blank.
+  `claude setup-token` value, or an Anthropic API key. Set **exactly one** of
+  `CLAUDE_CODE_OAUTH_TOKEN` and `ANTHROPIC_API_KEY` (both set stops the boot); with neither,
+  the orchestrator falls back to your `~/.claude` credentials. A switch applies to new
+  conversations.
+  - **The shell-export trap:** `.env` never overrides your shell, so an `ANTHROPIC_API_KEY`
+    your shell exports (for another tool) makes this a key installation, or stops the boot
+    beside a token in `.env`. The boot line (`credit: sandboxes run Claude Code on …`) says
+    which credit and which variable it took; `unset ANTHROPIC_API_KEY` before `npm run orch`
+    if that is not what you meant.
 - **Docker** on your machine, for the sandboxes (`SSHDOCKER_HOST=local`) — or key-based
   SSH to a Docker host (`docs/sandbox-drivers.md`, *Host prerequisites*). The image
   `SNAPSHOT_IMAGE` names must be one that host can pull (`snapshot/README.md`).
@@ -85,7 +92,7 @@ Set these in your local `.env` (the rest can mirror prod):
 | `SANDBOX_DRIVER` | `ssh-docker` | the only driver; keep the line written out (`docs/sandbox-drivers.md`) |
 | `SSHDOCKER_HOST` | `local` | dev sandboxes on your own Docker, apart from prod's |
 | `SANDBOX_NAME_PREFIX` | `dev-proj-` | required when another installation uses the same Docker host: dev containers never collide with its `proj-<slug>` |
-| `CLAUDE_CODE_OAUTH_TOKEN` | blank (uses `~/.claude`) or a `setup-token` | — |
+| `CLAUDE_CODE_OAUTH_TOKEN` | blank (uses `~/.claude`) or a `setup-token` | or `ANTHROPIC_API_KEY` instead — exactly one |
 | `GITHUB_APP_ID` / `GITHUB_APP_PRIVATE_KEY_PATH` | same as prod | shared App |
 
 > `SLACK_*` are left **blank** in the committed-example/dev `.env` on purpose, so

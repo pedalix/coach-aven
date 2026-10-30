@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { autoStopMinutesEnv, loadConfig, repoSkillsEnv, retiredEnvWarnings, sandboxDriverEnv, type Config } from './config.js';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { autoStopMinutesEnv, loadConfig, repoSkillsEnv, resolveCredit, retiredEnvWarnings, sandboxDriverEnv, type Config } from './config.js';
 
 test('retired switches: DISPATCH set to 1 or true warns once at boot, and nothing else reads it (retire-agent-dispatch D4)', () => {
   for (const v of ['1', 'true']) assert.deepEqual(retiredEnvWarnings({ DISPATCH: v }), ['config: DISPATCH is retired — agent messaging replaces it']);
@@ -42,7 +45,7 @@ test('SANDBOX_DRIVER — unset, empty or ssh-docker is ssh-docker; any other val
 // exports one must not change a result (tests never load .env).
 const SANDBOX_KEYS = [
   'SANDBOX_DRIVER', 'SSHDOCKER_HOST', 'SSHDOCKER_RUNTIME', 'SANDBOX_NAME_PREFIX', 'SANDBOX_WORK_DIR', 'SNAPSHOT_IMAGE',
-  'SANDBOX_AUTOSTOP_MINUTES', 'SNAPSHOT_NAME', 'SANDBOX_CPU', 'SANDBOX_MEMORY', 'SANDBOX_DISK', 'CLAUDE_CODE_OAUTH_TOKEN', 'GITHUB_TOKEN',
+  'SANDBOX_AUTOSTOP_MINUTES', 'SNAPSHOT_NAME', 'SANDBOX_CPU', 'SANDBOX_MEMORY', 'SANDBOX_DISK', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'GITHUB_TOKEN',
 ];
 function withEnv<T>(env: Record<string, string>, fn: () => T): T {
   const keys = [...SANDBOX_KEYS, ...Object.keys(process.env).filter((k) => k.startsWith('DAYTONA_'))];
@@ -86,6 +89,59 @@ test('today\'s shape: an installation\'s sandbox settings load as before, leftov
     () => withEnv({ ...env, SANDBOX_DRIVER: 'daytona' }, () => loadConfig()),
     { message: 'SANDBOX_DRIVER=daytona: the Daytona driver was removed after v0.42.0; ssh-docker is the only sandbox driver' },
   );
+});
+
+// ── the model credit (OpenSpec api-key-credit D1) ─────────────────────────────────────────────────────
+
+const KEY = 'sk-ant-api03-test';
+const TOKEN = 'sk-ant-oat01-test';
+// A home directory with (or without) a developer machine's own Claude Code login.
+function home(login?: string): string {
+  const dir = mkdtempSync(join(tmpdir(), 'aven-home-'));
+  if (login !== undefined) {
+    mkdirSync(join(dir, '.claude'));
+    writeFileSync(join(dir, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: login } }));
+  }
+  return dir;
+}
+// Every refusal names variables and never echoes what it was given.
+function refuses(env: Record<string, string>, h: string, message: RegExp): void {
+  assert.throws(() => resolveCredit(env, h), (e: Error) => {
+    assert.match(e.message, message);
+    for (const v of Object.values(env)) if (v.trim()) assert.ok(!e.message.includes(v.trim()), 'the value is never in the message');
+    return true;
+  });
+}
+
+test('resolveCredit — D1\'s table: a key, a token, both, neither (with and without a ~/.claude login)', () => {
+  const login = home('sk-ant-oat01-login-test');
+  assert.deepEqual(resolveCredit({ ANTHROPIC_API_KEY: KEY }, login), { kind: 'api-key', value: KEY, source: 'ANTHROPIC_API_KEY' }, 'a key: the login is not read');
+  assert.deepEqual(resolveCredit({ CLAUDE_CODE_OAUTH_TOKEN: TOKEN }, login), { kind: 'subscription', value: TOKEN, source: 'CLAUDE_CODE_OAUTH_TOKEN' });
+  refuses({ ANTHROPIC_API_KEY: KEY, CLAUDE_CODE_OAUTH_TOKEN: TOKEN }, login, /^Both ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN are set: keep exactly one/);
+  assert.deepEqual(resolveCredit({}, login), { kind: 'subscription', value: 'sk-ant-oat01-login-test', source: '~/.claude' });
+  refuses({}, home(), /^No model credit: set ANTHROPIC_API_KEY .* or CLAUDE_CODE_OAUTH_TOKEN .*, exactly one$/);
+  refuses({}, home(''), /^No model credit/); // a login file without a token is no login
+});
+
+test('resolveCredit — set means non-empty after trimming; a value is trimmed', () => {
+  const none = home();
+  assert.deepEqual(resolveCredit({ ANTHROPIC_API_KEY: '  ', CLAUDE_CODE_OAUTH_TOKEN: `${TOKEN}\n` }, none), { kind: 'subscription', value: TOKEN, source: 'CLAUDE_CODE_OAUTH_TOKEN' });
+  assert.deepEqual(resolveCredit({ ANTHROPIC_API_KEY: ` ${KEY} `, CLAUDE_CODE_OAUTH_TOKEN: '' }, none), { kind: 'api-key', value: KEY, source: 'ANTHROPIC_API_KEY' });
+  refuses({ ANTHROPIC_API_KEY: ' ', CLAUDE_CODE_OAUTH_TOKEN: '' }, none, /^No model credit/);
+});
+
+test('resolveCredit — a value in the other credit\'s variable stops the boot; an unknown prefix passes', () => {
+  const none = home();
+  refuses({ ANTHROPIC_API_KEY: TOKEN }, none, /^ANTHROPIC_API_KEY holds a subscription token \(sk-ant-oat…\): it belongs in CLAUDE_CODE_OAUTH_TOKEN$/);
+  refuses({ CLAUDE_CODE_OAUTH_TOKEN: KEY }, none, /^CLAUDE_CODE_OAUTH_TOKEN holds an API key \(sk-ant-api…\): it belongs in ANTHROPIC_API_KEY$/);
+  assert.equal(resolveCredit({ ANTHROPIC_API_KEY: 'sk-ant-future01-test' }, none).kind, 'api-key');
+  assert.equal(resolveCredit({ CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-future01-test' }, none).kind, 'subscription');
+});
+
+test('loadConfig — the credit replaces the token field; a shell ANTHROPIC_API_KEY beside the token stops it', () => {
+  const env = { SNAPSHOT_IMAGE: 'img', CLAUDE_CODE_OAUTH_TOKEN: TOKEN, GITHUB_TOKEN: 'ghp_x' };
+  assert.deepEqual(withEnv(env, () => loadConfig().credit), { kind: 'subscription', value: TOKEN, source: 'CLAUDE_CODE_OAUTH_TOKEN' });
+  assert.throws(() => withEnv({ ...env, ANTHROPIC_API_KEY: KEY }, () => loadConfig()), /keep exactly one/);
 });
 
 // ── the installation directory (OpenSpec installation-directory) ──────────────────────────────────────

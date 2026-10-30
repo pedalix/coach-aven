@@ -31,7 +31,7 @@ export interface MessagingConfig {
   acceptPerDay?: number;
   /** `request_input` calls per task; the next one ends it `failed: too many rounds`. */
   maxRounds?: number;
-  /** `ask.cost.high` when a task's answering turns cost more (USD, API-equivalent). */
+  /** `ask.cost.high` when a task's answering turns cost more (USD: API-list-price equivalent on a subscription, billed on an API key). */
   costWarnUsd?: number;
 }
 

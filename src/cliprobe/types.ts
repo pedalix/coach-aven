@@ -1,5 +1,6 @@
 // The CLI probe's vocabulary (OpenSpec `cli-probe`): a scenario states one hypothesis about the headless
 // Claude Code CLI, drives it through scripted steps, and each run is judged from the CLI's own frames.
+import type { CreditKind } from '../credit.js';
 
 /** One stdout or stdin line of the stream-json protocol, parsed. */
 export type Frame = Record<string, unknown>;
@@ -51,6 +52,8 @@ export interface ScenarioMeta {
   timeoutMs?: number;
   /** Files written into the CLI's working directory before it starts (e.g. a project skill), paths relative to it. */
   files?: Readonly<Record<string, string>>;
+  /** The credit the scenario needs (OpenSpec api-key-credit D6): a run on another credit skips it — before any transport is built — and keeps its earlier row and recording. */
+  needs?: CreditKind;
 }
 
 export interface Scenario<Ctx = unknown> {
@@ -58,6 +61,9 @@ export interface Scenario<Ctx = unknown> {
   /** Returns observations for the report; a missed precondition / prediction throws (see ctx.ts). */
   run(ctx: Ctx, variant?: string): Promise<Record<string, unknown> | void>;
 }
+
+/** Pure: whether a run on `credit` takes the scenario — every scenario but one that needs another credit. */
+export const runsOn = (meta: Pick<ScenarioMeta, 'needs'>, credit: CreditKind): boolean => !meta.needs || meta.needs === credit;
 
 /** A scenario's row id: `id` or `id[variant]`. */
 export const rowId = (id: string, variant?: string): string => (variant ? `${id}[${variant}]` : id);

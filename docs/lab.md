@@ -125,3 +125,7 @@ Model calls are cached by (model, system, prompt) in `LAB_DIR/cache/`, so re-sco
 stores what a call cost, so a cached replay still reports the cost of the variant. The `claude -p` child runs in the
 isolated config dir with CLAUDE.md loading off, so no checkout's `CLAUDE.md`/`CLAUDE.local.md`/`AGENTS.md` rides along;
 calls cached before 2026-10-16 were made with the checkout's files in context.
+
+The bench runs on a subscription token only (`LAB_CLAUDE_TOKEN`, else `CLAUDE_CODE_OAUTH_TOKEN` from `LAB_ENV_FILE`), even
+for an installation whose bot runs on an API key: it reads no `ANTHROPIC_API_KEY`, and strips the shell's before the
+child starts. The CLI probe is the tool that runs on a key (`CLI_PROBE_API_KEY`, [`cli-probe.md`](cli-probe.md)).

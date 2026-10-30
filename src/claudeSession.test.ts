@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { ClaudeSession, CostDelta, claudeLaunch, type InjectOutcome } from './claudeSession.js';
 import { PROBED_CLI_VERSIONS } from './cliversion.js';
 import { mcpServer } from './hosttools.js';
+import { log } from './log.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -663,4 +664,74 @@ test('idle state — a reattach snapshot carries the pending wakeup and a turn o
   const { session } = await openLedger(snap, true);
   assert.equal(session.idleState().wakeupDueAt, at);
   assert.equal(session.idleState().selfTurn, true);
+});
+
+// ── the model credit (OpenSpec api-key-credit D2/D3) ───────────────────────────────────────────────
+
+test('credit — a key session\'s command reads the credit file into ANTHROPIC_API_KEY, otherwise byte for byte today\'s; a subscription is today\'s exactly', async () => {
+  const today = await spawnCommand({ cwd: '/root/work/caldora', model: 'claude-opus-5-5' });
+  assert.equal(await spawnCommand({ cwd: '/root/work/caldora', model: 'claude-opus-5-5', credit: 'subscription' }), today);
+  const key = await spawnCommand({ cwd: '/root/work/caldora', model: 'claude-opus-5-5', credit: 'api-key' });
+  assert.equal(key, today.replace('CLAUDE_CODE_OAUTH_TOKEN=$(cat /root/.cc-token)', 'ANTHROPIC_API_KEY=$(cat /root/.cc-token)'));
+  assert.ok(!key.includes('CLAUDE_CODE_OAUTH_TOKEN'));
+  assert.ok(!/sk-ant-/.test(key), 'no credit value in any command');
+  assert.equal(claudeLaunch({ credit: 'api-key' }).command('/w'), key.replace("cd '/root/work/caldora'", "cd '/w'").replace("--model 'claude-opus-5-5' ", ''));
+});
+
+test('credit — a reattached process is left as it is: no command is started, whatever the configured credit', async () => {
+  const { handle } = fakeSandbox(ndjson([{ ...init(), apiKeySource: 'none' }, result('earlier')]));
+  let started = 0;
+  const session = new ClaudeSession({ ...handle, startSessionCommand: async () => (started++, { cmdId: 'x' }) }, { cwd: '/tmp', credit: 'api-key', attach: { sessionKey: 'k', cmdId: 'cmd1' } });
+  await session.open();
+  assert.equal(started, 0);
+});
+
+// Two turns over recorded frames; what each turn's usage says paid for it, and every credit warning.
+async function creditTurns(t: TestContext, credit: 'api-key' | 'subscription', source: Record<string, unknown>): Promise<{ credits: unknown[]; warnings: string[] }> {
+  const warnings: string[] = [];
+  t.mock.method(log, 'warn', (m: string) => void warnings.push(m));
+  const { handle, push } = fakeSandbox();
+  const session = new ClaudeSession(handle, { cwd: '/tmp', credit });
+  await session.open();
+  const credits: unknown[] = [];
+  for (const total of [0.1, 0.3]) {
+    const turn = session.send('x');
+    push({ ...init(), ...source });
+    push(result('ok', { total_cost_usd: total, usage: { input_tokens: 5, output_tokens: 5 } }));
+    credits.push((await turn).usage?.credit);
+  }
+  return { credits, warnings: warnings.filter((w) => w.startsWith('credit:')) };
+}
+
+test('credit — "none" on a subscription: subscription usage, nothing logged', async (t: TestContext) => {
+  assert.deepEqual(await creditTurns(t, 'subscription', { apiKeySource: 'none' }), { credits: ['subscription', 'subscription'], warnings: [] });
+});
+
+test('credit — "ANTHROPIC_API_KEY" on a key: key usage, nothing logged', async (t: TestContext) => {
+  assert.deepEqual(await creditTurns(t, 'api-key', { apiKeySource: 'ANTHROPIC_API_KEY' }), { credits: ['api-key', 'api-key'], warnings: [] });
+});
+
+test('credit — "none" on a key installation (a process from before a switch): what the CLI said is metered, one warning across two turns', async (t: TestContext) => {
+  const r = await creditTurns(t, 'api-key', { apiKeySource: 'none' });
+  assert.deepEqual(r.credits, ['subscription', 'subscription']);
+  assert.equal(r.warnings.length, 1);
+  assert.match(r.warnings[0]!, /reports apiKeySource "none" but the installation runs on an API key — a process started before a credit switch/);
+});
+
+test('credit — no apiKeySource at all: the configured kind, and a warning', async (t: TestContext) => {
+  const r = await creditTurns(t, 'api-key', {});
+  assert.deepEqual(r.credits, ['api-key', 'api-key']);
+  assert.equal(r.warnings.length, 1);
+  assert.match(r.warnings[0]!, /reports no apiKeySource but the installation runs on an API key — metered as the configured credit/);
+});
+
+test('credit — a session not told its credit (callers before the change) records usage without `credit` and never warns', async (t: TestContext) => {
+  const warnings: string[] = [];
+  t.mock.method(log, 'warn', (m: string) => void warnings.push(m));
+  const { session, push } = await openFake();
+  const turn = session.send('x');
+  push({ ...init(), apiKeySource: 'ANTHROPIC_API_KEY' });
+  push(result('ok', { total_cost_usd: 0.1 }));
+  assert.equal('credit' in ((await turn).usage ?? {}), false);
+  assert.deepEqual(warnings, []);
 });
