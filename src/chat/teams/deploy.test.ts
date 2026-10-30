@@ -74,14 +74,14 @@ function composeConfigAccepts(yaml: string): void {
   execFileSync('docker', ['compose', '-f', `${dir}/compose.yaml`, 'config', '--quiet'], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
-test('one runtime: no RUNTIME renders the compose file, a leftover RUNTIME=compose the same bytes; systemd is refused naming v0.43.0 and the checklist, docker naming compose (retire-systemd-deploy)', () => {
+test('one runtime: no RUNTIME renders the compose file, a leftover RUNTIME=compose the same bytes; systemd is refused naming v0.44.0 and the checklist, docker naming compose (retire-systemd-deploy)', () => {
   const plain = renderCompose(BASE, [...BOX, 'local', '999']);
   assert.equal(plain.status, 0, plain.out);
   assert.match(plain.out, /^  image: ghcr\.io\/pedalix\/coach-aven:\$\{AVEN_VERSION\}$/m);
   assert.equal(renderCompose(COMPOSE, [...BOX, 'local', '999']).out, plain.out);
   const systemd = renderCompose(`${BASE}RUNTIME=systemd\n`, [...BOX, 'local', '999']);
   assert.notEqual(systemd.status, 0);
-  assert.match(systemd.out, /RUNTIME=systemd .*retired after v0\.43\.0 .*infra\/deploy\/README\.md/);
+  assert.match(systemd.out, /RUNTIME=systemd .*retired after v0\.44\.0 .*infra\/deploy\/README\.md/);
   const docker = renderCompose(`${BASE}RUNTIME=docker\n`, [...BOX, 'local', '999']);
   assert.notEqual(docker.status, 0);
   assert.match(docker.out, /RUNTIME must be compose or absent \(got 'docker'/);

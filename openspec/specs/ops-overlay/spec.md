@@ -77,7 +77,7 @@ The public repo's `.gitignore` SHALL ignore every path under `infra/` except the
 - **THEN** the bot container runs `orch teams` and the deploy reports healthy once `Teams bot running` appears in the bot's log
 
 ### Requirement: The overlay has one runtime
-The overlay SHALL name no runtime: the published image under Docker Compose (`container-deploy`) is the only one, and the `RUNTIME` key is retired. A leftover `RUNTIME=compose` SHALL be accepted. `RUNTIME=systemd` SHALL make every `deploy.sh` command exit non-zero with a sentence naming the last release whose tooling had that path (v0.43.0) and the move checklist. Any other value SHALL make every command exit non-zero, naming `compose`.
+The overlay SHALL name no runtime: the published image under Docker Compose (`container-deploy`) is the only one, and the `RUNTIME` key is retired. A leftover `RUNTIME=compose` SHALL be accepted. `RUNTIME=systemd` SHALL make every `deploy.sh` command exit non-zero with a sentence naming the last release whose tooling had that path (v0.44.0) and the move checklist. Any other value SHALL make every command exit non-zero, naming `compose`.
 
 #### Scenario: No runtime named
 - **WHEN** an overlay's `deploy.env` has no `RUNTIME`
@@ -89,7 +89,7 @@ The overlay SHALL name no runtime: the published image under Docker Compose (`co
 
 #### Scenario: The retired runtime
 - **WHEN** `deploy.env` says `RUNTIME=systemd`
-- **THEN** every command exits non-zero, names v0.43.0 and points at the move checklist
+- **THEN** every command exits non-zero, names v0.44.0 and points at the move checklist
 
 #### Scenario: Unknown runtime
 - **WHEN** `deploy.env` says `RUNTIME=docker`
