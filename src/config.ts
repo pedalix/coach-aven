@@ -46,17 +46,11 @@ function num(name: string, fallback: number): number {
   return n;
 }
 
-// The Sentry release (version) to tag issues with. Explicit env wins (the compose file sets it from the
-// pinned version); otherwise read the `.release` file the tar deploy writes BESIDE THE CODE — it describes
-// the code, not the installation, so it stays at the package root whatever AVEN_DIR says. Undefined → no
-// release tag.
+// The Sentry release (version) to tag issues with: `SENTRY_RELEASE`, which the compose file sets from the
+// pinned version (`AVEN_RELEASE`). Undefined → no release tag (a local run). The `.release` file the tar
+// deploy once wrote beside the code retired with that path (OpenSpec retire-systemd-deploy).
 function resolveRelease(): string | undefined {
-  if (process.env.SENTRY_RELEASE) return process.env.SENTRY_RELEASE;
-  try {
-    return readFileSync(new URL('../.release', import.meta.url).pathname, 'utf8').trim() || undefined;
-  } catch {
-    return undefined;
-  }
+  return process.env.SENTRY_RELEASE || undefined;
 }
 
 // CLAUDE_CLI_VERSION must be a plain x.y.z — it is interpolated into a sandbox shell

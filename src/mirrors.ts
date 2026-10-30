@@ -1,4 +1,4 @@
-// The repo-mirror list (scripts/mirror.ts) as data: which upstream repo is mirrored into which repo of
+// The repo-mirror list (`orch mirror`, src/mirrorjob.ts) as data: which upstream repo is mirrored into which repo of
 // the App's installation, and which env var holds the upstream read token. The list names an
 // installation's orgs and repos, so it lives in that installation's ops overlay (infra/<slug>/mirrors.json,
 // uploaded beside .env by `npm run ops -- <slug> export`), never in this repo — see docs/runtime-config.md

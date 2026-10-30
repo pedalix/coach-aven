@@ -1,13 +1,9 @@
 #!/usr/bin/env bash
-# CoachAven — scripted deploy of ONE installation onto a Linux box over ssh. Two runtimes, chosen by
-# RUNTIME in the overlay's deploy.env (OpenSpec container-deploy):
-#   compose  — the published image (ghcr.io/<owner>/coach-aven), run by `docker compose` in
-#              REMOTE_DIR/compose as the deployer. A deploy names a version and uploads nothing;
-#              a rollback is the same command with the earlier version. The recommended runtime.
-#   systemd  — the default while installations move: the code tarred up from this checkout, `npm ci`
-#              on the box, one long-lived Node process under a systemd unit. Retires later.
-# Either way the bot is a tiny control plane — one process driving the project sandboxes; no nginx,
-# no TLS here (Socket Mode dials OUT; Teams and the web chat listen on loopback behind the host's proxy).
+# CoachAven — scripted deploy of ONE installation onto a Linux box over ssh (OpenSpec container-deploy):
+# the published image (ghcr.io/<owner>/coach-aven) run by `docker compose` in REMOTE_DIR/compose as the
+# deployer. A deploy names a version and uploads nothing; a rollback is the same command with the earlier
+# version. The bot is a tiny control plane — one process driving the project sandboxes; no nginx, no TLS
+# here (Socket Mode dials OUT; Teams and the web chat listen on loopback behind the host's proxy).
 #
 # Usage:  infra/deploy/deploy.sh <slug> <command>      (npm run ops -- <slug> <command>)
 #
@@ -17,10 +13,9 @@
 # is deliberately no default — the one you did not name is the one you would deploy by
 # mistake. No slug, or one without infra/<slug>/deploy.env, prints this help and the slugs found.
 #
-#   install        Root stage: create REMOTE_DIR (deployer-owned). compose: check Docker Engine, the
-#                  Compose plugin and the deployer's docker-group membership, create the deployer's
+#   install        Root stage: create REMOTE_DIR (deployer-owned). Deployer stage: check Docker Engine,
+#                  the Compose plugin and the deployer's docker-group membership, create the deployer's
 #                  ~/.config/coach-aven, render REMOTE_DIR/compose/compose.yaml — and start nothing.
-#                  systemd: render + install the unit, daemon-reload, enable (NOT start), sudoers.
 #   export         Upload the runtime files the app needs at REMOTE_DIR: .env,
 #                  github-app-private-key.pem, projects.config.json, projects.d/, and when
 #                  present mirrors.json and hub.peers.json — read
@@ -29,31 +24,30 @@
 #                  state.json.
 #   import         The reverse: download the box's live runtime files into the ops
 #                  checkout and show the drift as `git status` for you to commit. (alias: pull)
-#   deploy [<version>]
-#                  compose: `deploy <version>` — vX.Y.Z, or sha-<commit> on a canary (CANARY=1);
-#                  refused while the systemd unit is active; docker pull → pin the version in
-#                  REMOTE_DIR/compose/.env → docker compose up -d → wait 90 s for the driver's
-#                  "bot running" line → one line in REMOTE_DIR/deploys.log; red when the line
-#                  does not come. Rollback = deploy <earlier version> (its image is still on the box).
-#                  systemd: upload the repo (code only), `npm ci` on the server, restart the
-#                  service, health-check for the driver's line.
-#   logs [-f]      compose: the bot's log (docker compose logs). systemd: journalctl -f.
-#   status         compose: the pinned version, the containers, the last deploys. systemd: systemctl status.
-#   start|stop|restart  Lifecycle; compose restart = up -d --force-recreate + the same wait.
+#   deploy <version>
+#                  vX.Y.Z, or sha-<commit> on a canary (CANARY=1); refused while a systemd unit of an
+#                  earlier release is still active; docker pull → pin the version in REMOTE_DIR/compose/.env
+#                  → docker compose up -d → wait 90 s for the driver's "bot running" line → one line in
+#                  REMOTE_DIR/deploys.log; red when the line does not come. Rollback = deploy <earlier
+#                  version> (its image is still on the box).
+#   logs [-f]      The bot's log (docker compose logs).
+#   status         The pinned version, the containers, the last deploys.
+#   start|stop|restart  Lifecycle; restart = up -d --force-recreate + the same wait.
 #   ssh            Interactive SSH session (deployer).
-#   down           compose: docker compose down (images and files stay). systemd: stop AND disable
-#                  the service (files + unit stay).
+#   down           docker compose down (the images, the pin and the files stay).
 #
-# First run order:  install → export → deploy [<version>]
-# Update code:      deploy [<version>]
+# First run order:  install → export → deploy <version>
+# Update code:      deploy <version>
 # Rotate secrets:   export → restart
 # Sync from box:    import   (pull the box's runtime back into infra/<slug>/)
-# Moving an installation from systemd to compose: the checklist in infra/deploy/README.md.
+# An installation still on the systemd deploy of v0.43.0 or earlier moves with the checklist in
+# infra/deploy/README.md; this script no longer installs or deploys that path (OpenSpec retire-systemd-deploy).
 #
 # Config: infra/<slug>/deploy.env (DEPLOY_HOST, DEPLOY_USER, ROOT_USER, REMOTE_DIR, SERVICE_NAME; optional
-# RUNTIME=systemd|compose, CHAT_DRIVER=slack|teams|web, CANARY=1, IMAGE, DAEMON_LISTEN — copy from
-# ops.example/deploy.env.example). CHAT_DRIVER is the run command (`orch <driver>`); absent = slack.
-# SSH uses your default keys/agent (deployer@HOST, and root@HOST for install). Needs: ssh, scp, tar.
+# CHAT_DRIVER=slack|teams|web, CANARY=1, IMAGE, DAEMON_LISTEN — copy from ops.example/deploy.env.example).
+# CHAT_DRIVER is the run command (`orch <driver>`); absent = slack. A leftover RUNTIME=compose is accepted,
+# RUNTIME=systemd refused. SSH uses your default keys/agent (deployer@HOST, and root@HOST for install).
+# Needs: ssh, scp, tar.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -76,7 +70,7 @@ RUNTIME_FILES=(.env github-app-private-key.pem projects.config.json)
 # the box, which is harmless — the loader ignores files for unknown slugs.
 RUNTIME_DIRS=(projects.d)
 # Optional runtime FILES, uploaded/pulled only when present: mirrors.json is the repo-mirror
-# list scripts/mirror.ts reads (docs/runtime-config.md → *Repo mirrors*); hub.peers.json pins the
+# list `orch mirror` reads (docs/runtime-config.md → *Repo mirrors*); hub.peers.json pins the
 # public keys of the installations this one messages through the hub (agent messaging,
 # src/messaging/peers.ts). The installation's own private key (HUB_KEY_PATH) never travels.
 OPTIONAL_RUNTIME_FILES=(mirrors.json hub.peers.json)
@@ -123,12 +117,13 @@ load_env() {
     web) HEALTH_LINE='Web chat running' ;;
     *) die "CHAT_DRIVER must be one of: slack, teams, web (got '$CHAT_DRIVER')" ;;
   esac
-  # How the installation runs (OpenSpec container-deploy): systemd — the unit and the tar deploy, the
-  # default while installations move — or compose — the published image under docker compose.
-  RUNTIME="${RUNTIME:-systemd}"
-  case "$RUNTIME" in
-    systemd|compose) ;;
-    *) die "RUNTIME must be systemd or compose (got '$RUNTIME' in $ENV_FILE)" ;;
+  # One runtime: the published image under docker compose (OpenSpec container-deploy). RUNTIME is retired
+  # (retire-systemd-deploy): a leftover `RUNTIME=compose` is accepted; `systemd` names the path that left with
+  # v0.43.0 — an installation still on it moves with the checklist in infra/deploy/README.md.
+  case "${RUNTIME:-compose}" in
+    compose) ;;
+    systemd) die "RUNTIME=systemd in $ENV_FILE: the systemd unit and the tar deploy retired after v0.43.0 (OpenSpec retire-systemd-deploy) — move the installation with the checklist in infra/deploy/README.md, then drop the line" ;;
+    *) die "RUNTIME must be compose or absent (got '$RUNTIME' in $ENV_FILE)" ;;
   esac
   # CANARY=1 marks the installation that runs main: only it accepts a commit's image (sha-<commit>).
   CANARY="${CANARY:-}"
@@ -138,10 +133,9 @@ load_env() {
   DAEMON_LISTEN="${DAEMON_LISTEN:-}"
   DEPLOYER="${DEPLOY_USER}@${DEPLOY_HOST}"
   ROOT="${ROOT_USER}@${DEPLOY_HOST}"
-  # Keepalive: `npm ci` on the box runs ~5 min with no output, and an idle SSH session can
-  # get dropped by a NAT/firewall in between ("client_loop: send disconnect: Broken pipe"
-  # killed the v0.37.0 deploy mid-install, leaving the old process running on new code).
-  # A probe every 30s, up to 10 missed, keeps the session alive through the whole install.
+  # Keepalive: a `docker pull` of a new version can run a minute or more with no output, and an idle SSH
+  # session can get dropped by a NAT/firewall in between ("client_loop: send disconnect: Broken pipe" killed
+  # the v0.37.0 tar deploy mid-install). A probe every 30s, up to 10 missed, keeps the session alive.
   SSH_OPTS=(-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10
             -o ServerAliveInterval=30 -o ServerAliveCountMax=10)
 }
@@ -150,64 +144,16 @@ dssh() { ssh "${SSH_OPTS[@]}" "$DEPLOYER" "$@"; }
 rssh() { ssh "${SSH_OPTS[@]}" "$ROOT" "$@"; }
 
 # Day-2 ops (export/import/deploy) only need the deployer; root is required just for
-# install (systemd unit + sudoers) and down (disable). Split so a deployer-only caller
+# install (REMOTE_DIR). Split so a deployer-only caller
 # — notably CI, which must NOT hold a root key — can deploy without a root login.
 preflight_deployer() {
   dssh "echo ok" </dev/null >/dev/null 2>&1 || die "cannot SSH as $DEPLOYER (need deployer for files + service)"
 }
 preflight_root() {
-  rssh "echo ok" </dev/null >/dev/null 2>&1 || die "cannot SSH as $ROOT (need root for the systemd unit)"
-}
-
-# The unit, rendered for this installation (node path from the box; the rest from deploy.env).
-render_unit() {
-  sed -e "s#__USER__#${DEPLOY_USER}#g" \
-      -e "s#__REMOTE_DIR__#${REMOTE_DIR}#g" \
-      -e "s#__NODE__#${1}#g" \
-      -e "s#__SERVICE__#${SERVICE_NAME}#g" \
-      -e "s#__DRIVER__#${CHAT_DRIVER}#g" \
-      "$HERE/coach-aven.service.tmpl"
+  rssh "echo ok" </dev/null >/dev/null 2>&1 || die "cannot SSH as $ROOT (need root to create REMOTE_DIR)"
 }
 
 # ---- commands ---------------------------------------------------------------
-cmd_install() {
-  preflight_root
-  preflight_deployer
-  [[ -f "$HERE/coach-aven.service.tmpl" ]] || die "missing $HERE/coach-aven.service.tmpl"
-
-  log "Root stage: preparing $REMOTE_DIR (owned by $DEPLOY_USER)"
-  rssh "mkdir -p $REMOTE_DIR && chown $DEPLOY_USER:$DEPLOY_USER $REMOTE_DIR"
-
-  # Node + systemctl must be stable absolute paths (for the unit + sudoers).
-  local node_path systemctl_path
-  node_path="$(dssh 'command -v node' </dev/null)" || die "node not found on the box"
-  systemctl_path="$(dssh 'command -v systemctl' </dev/null)" || die "systemctl not found on the box"
-  [[ -n "$node_path" && -n "$systemctl_path" ]] || die "node/systemctl not found on the box"
-  log "Rendering systemd unit (User=$DEPLOY_USER, node=$node_path, driver=$CHAT_DRIVER)"
-  local unit
-  unit="$(render_unit "$node_path")"
-
-  log "Root stage: installing /etc/systemd/system/${SERVICE_NAME}.service"
-  printf '%s\n' "$unit" | rssh "cat > /etc/systemd/system/${SERVICE_NAME}.service && systemctl daemon-reload && systemctl enable ${SERVICE_NAME}.service"
-
-  # Let the deployer control THIS unit without a password (day-2 start/stop/restart),
-  # and read the journal (so `logs` + the deploy health-check work). Both are minimal:
-  # the sudoers rule is scoped to the three verbs on this one unit, validated before install.
-  log "Root stage: granting deployer service-control (sudoers) + journal read"
-  local sudoers
-  # …and on the sources daemon's unit (OpenSpec sources-daemon), which runs the same checkout: a deploy must
-  # restart it too, or it keeps answering the bot with the previous release's code.
-  local daemon="${SERVICE_NAME}-sources-daemon.service"
-  sudoers="${DEPLOY_USER} ALL=(root) NOPASSWD: ${systemctl_path} start ${SERVICE_NAME}.service, ${systemctl_path} stop ${SERVICE_NAME}.service, ${systemctl_path} restart ${SERVICE_NAME}.service, ${systemctl_path} start ${daemon}, ${systemctl_path} stop ${daemon}, ${systemctl_path} restart ${daemon}"
-  printf '# Managed by coach-aven infra/deploy/deploy.sh\n%s\n' "$sudoers" \
-    | rssh "cat > /etc/sudoers.d/${SERVICE_NAME}.tmp \
-            && visudo -cf /etc/sudoers.d/${SERVICE_NAME}.tmp \
-            && install -m 440 -o root -g root /etc/sudoers.d/${SERVICE_NAME}.tmp /etc/sudoers.d/${SERVICE_NAME} \
-            && rm -f /etc/sudoers.d/${SERVICE_NAME}.tmp \
-            && usermod -aG systemd-journal ${DEPLOY_USER}"
-  ok "unit installed + enabled (not started yet — run export, then deploy)"
-}
-
 # export: upload the overlay (the installation's truth) → the box.
 cmd_export() {
   preflight_deployer
@@ -270,98 +216,7 @@ cmd_import() {
   fi
 }
 
-cmd_deploy() {
-  preflight_deployer
-  dssh "test -f $REMOTE_DIR/.env" </dev/null \
-    || die "no $REMOTE_DIR/.env on the box — run export first"
-
-  log "Uploading repo (code only) to $DEPLOYER:$REMOTE_DIR"
-  dssh "mkdir -p $REMOTE_DIR"
-  # Ship code + lockfile; NEVER ship runtime secrets, server-owned state, or junk — and no
-  # overlay: every infra/<slug>/ checkout (yours and anyone else's) stays off the box. The
-  # state list mirrors .gitignore's runtime entries (events/, data/, usage/, drafts/, facts/,
-  # queue.jsonl): a laptop that also runs a bot has them, and they must never land on another
-  # installation's box (2026-10-16: a home checkout's event journal did).
-  local -a overlay_excludes=()
-  for d in "$REPO_ROOT"/infra/*/; do
-    case "$(basename "$d")" in deploy|teams) ;; *) overlay_excludes+=("--exclude=./infra/$(basename "$d")") ;; esac
-  done
-  tar czf - -C "$REPO_ROOT" \
-    --exclude='./.git' --exclude='./node_modules' --exclude='./.idea' \
-    --exclude='./.env' --exclude='./.env.*' \
-    --exclude='./github-app-private-key.pem' \
-    --exclude='./projects.config.json' \
-    --exclude='./state.json' \
-    --exclude='./mirrors' \
-    --exclude='./mirrors.json' \
-    --exclude='./memory' \
-    --exclude='./feedback' \
-    --exclude='./events' \
-    --exclude='./data' \
-    --exclude='./usage' \
-    --exclude='./drafts' \
-    --exclude='./facts' \
-    --exclude='./queue.jsonl' \
-    --exclude='./.claude' \
-    --exclude='./.release' \
-    "${overlay_excludes[@]}" \
-    . \
-  | dssh "tar xzf - -C $REMOTE_DIR"
-
-  # Stamp the release (e.g. the git tag from CI) so Sentry can tag issues with the version.
-  # Read by config.ts's resolveRelease(); only written when RELEASE is provided.
-  if [[ -n "${RELEASE:-}" ]]; then
-    log "Stamping release: $RELEASE"
-    dssh "printf '%s' '$RELEASE' > $REMOTE_DIR/.release"
-  fi
-
-  log "Installing dependencies (npm ci) on the server"
-  dssh bash -s <<REMOTE
-set -euo pipefail
-cd "$REMOTE_DIR"
-# dev deps included on purpose — tsx (the TS runtime) is a devDependency.
-npm ci
-REMOTE
-
-  log "Restarting ${SERVICE_NAME}"
-  dssh "sudo systemctl restart ${SERVICE_NAME}.service"
-  # The sources daemon runs the same code (infra/deploy/coach-aven-sources-daemon.service.tmpl): restart it when the box
-  # has it, so the bot never forwards to a daemon of the previous release. Absent unit → nothing to do.
-  if dssh "systemctl cat ${SERVICE_NAME}-sources-daemon.service >/dev/null 2>&1" </dev/null; then
-    log "Restarting ${SERVICE_NAME}-sources-daemon (a pass in flight finishes first)"
-    dssh "sudo systemctl restart ${SERVICE_NAME}-sources-daemon.service" </dev/null || warn "the sources daemon did not restart — check: journalctl -u ${SERVICE_NAME}-sources-daemon"
-  fi
-
-  log "Health check: waiting for '$HEALTH_LINE'"
-  if dssh "for i in \$(seq 1 20); do
-             systemctl is-active --quiet ${SERVICE_NAME}.service || exit 2
-             journalctl -u ${SERVICE_NAME}.service --since '-60s' --no-pager 2>/dev/null | grep -q '$HEALTH_LINE' && exit 0
-             sleep 2
-           done; exit 1" </dev/null; then
-    ok "CoachAven is live ($CHAT_DRIVER)."
-  else
-    warn "Service did not report '$HEALTH_LINE' in ~40s — check: infra/deploy/deploy.sh $SLUG logs"
-  fi
-  dssh "journalctl -u ${SERVICE_NAME}.service --since '-60s' --no-pager 2>/dev/null | tail -12" </dev/null || true
-}
-
-cmd_logs()    { dssh "journalctl -u ${SERVICE_NAME}.service -f --no-pager"; }
-cmd_status()  { dssh "systemctl status ${SERVICE_NAME}.service --no-pager --lines=10 || true; echo; systemctl is-active ${SERVICE_NAME}.service"; }
-cmd_start()   { dssh "sudo systemctl start  ${SERVICE_NAME}.service" && ok "started"; }
-cmd_stop()    { dssh "sudo systemctl stop   ${SERVICE_NAME}.service" && ok "stopped"; }
-cmd_restart() { dssh "sudo systemctl restart ${SERVICE_NAME}.service" && ok "restarted"; }
-cmd_ssh()     { exec ssh "${SSH_OPTS[@]}" "$DEPLOYER"; }
-cmd_down() {
-  preflight_root
-  warn "Stopping and DISABLING ${SERVICE_NAME} (files + unit stay; re-run 'install' to re-enable, then 'start')."
-  # disable flips the enablement symlink → needs root (deployer's sudoers covers
-  # only start/stop/restart, not disable).
-  rssh "systemctl disable --now ${SERVICE_NAME}.service" && ok "service stopped + disabled"
-}
-
-# ---- compose runtime (OpenSpec container-deploy, design D3/D4/D7/D8) ----------
-is_compose() { [[ "$RUNTIME" == compose ]]; }
-
+# ---- the runtime (OpenSpec container-deploy, design D3/D4/D7/D8) --------------
 # A version as the operator names it (D7): vX.Y.Z, or sha-<40 hex> on a canary. Prints the release the
 # error tracker gets (vX.Y.Z, or main@<7 hex>); dies on anything else — latest above all, because what runs
 # must be nameable.
@@ -419,7 +274,7 @@ sshdocker_host() {
   printf '%s' "$v"
 }
 
-cmd_install_compose() {
+cmd_install() {
   preflight_root
   preflight_deployer
   [[ -f "$HERE/compose.yaml" ]] || die "missing $HERE/compose.yaml"
@@ -483,7 +338,7 @@ REMOTE
   if [[ "$what" == deploy ]]; then
     cat <<REMOTE
 if systemctl is-active --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
-  echo "✗ the systemd unit ${SERVICE_NAME}.service is active and would share the ports — stop it first: with RUNTIME=systemd in deploy.env, deploy.sh $SLUG down (and the daemon's unit, if any, by hand), then deploy again" >&2
+  echo "✗ the systemd unit ${SERVICE_NAME}.service is active and would share the ports — stop and disable it first, as root: systemctl disable --now ${SERVICE_NAME}.service (and the daemon's unit, if any), then deploy again" >&2
   exit 1
 fi
 echo "▶ docker pull $IMAGE:$version"
@@ -530,9 +385,9 @@ exit 1
 REMOTE
 }
 
-cmd_deploy_compose() {
+cmd_deploy() {
   local version="${1:-}"
-  [[ -n "$version" ]] || die "deploy needs a version on a compose installation: vX.Y.Z, or sha-<commit> on a canary (CANARY=1 in deploy.env) — there is no default, the operator names what runs"
+  [[ -n "$version" ]] || die "deploy needs a version: vX.Y.Z, or sha-<commit> on a canary (CANARY=1 in deploy.env) — there is no default, the operator names what runs"
   local release
   release="$(version_release "$version")"
   preflight_deployer
@@ -542,16 +397,16 @@ cmd_deploy_compose() {
   remote_script deploy "$version" "$release" | dssh bash -s
 }
 
-cmd_restart_compose() {
+cmd_restart() {
   preflight_deployer
   log "Recreating the containers of $SERVICE_NAME on $DEPLOY_HOST (an edited .env or compose file takes effect)"
   remote_script restart | dssh bash -s
 }
-cmd_logs_compose()   { local f=""; [[ "${1:-}" == -f ]] && f="-f"; dssh "cd $REMOTE_DIR/compose && docker compose logs --no-log-prefix --tail=100 $f bot"; }
-cmd_status_compose() { dssh "cd $REMOTE_DIR/compose && echo '# pinned ($REMOTE_DIR/compose/.env)' && cat .env && echo && docker compose ps && echo && echo '# last deploys ($REMOTE_DIR/deploys.log)' && tail -5 $REMOTE_DIR/deploys.log 2>/dev/null || true"; }
-cmd_start_compose()  { preflight_deployer; remote_script restart | dssh bash -s; }
-cmd_stop_compose()   { dssh "cd $REMOTE_DIR/compose && docker compose stop" && ok "stopped (docker compose stop; the pin and the images stay)"; }
-cmd_down_compose()   { dssh "cd $REMOTE_DIR/compose && docker compose down" && ok "containers removed (docker compose down; the images, the pin and the files stay — deploy <version> brings it back)"; }
+cmd_logs()   { local f=""; [[ "${1:-}" == -f ]] && f="-f"; dssh "cd $REMOTE_DIR/compose && docker compose logs --no-log-prefix --tail=100 $f bot"; }
+cmd_status() { dssh "cd $REMOTE_DIR/compose && echo '# pinned ($REMOTE_DIR/compose/.env)' && cat .env && echo && docker compose ps && echo && echo '# last deploys ($REMOTE_DIR/deploys.log)' && tail -5 $REMOTE_DIR/deploys.log 2>/dev/null || true"; }
+cmd_start()  { preflight_deployer; remote_script restart | dssh bash -s; }
+cmd_stop()   { dssh "cd $REMOTE_DIR/compose && docker compose stop" && ok "stopped (docker compose stop; the pin and the images stay)"; }
+cmd_down()   { dssh "cd $REMOTE_DIR/compose && docker compose down" && ok "containers removed (docker compose down; the images, the pin and the files stay — deploy <version> brings it back)"; }
 
 # ---- dispatch ---------------------------------------------------------------
 need ssh; need scp; need tar
@@ -564,18 +419,17 @@ if [[ -z "$SLUG" || ! -f "$ENV_FILE" ]]; then
 fi
 load_env
 case "${2:-}" in
-  install)      if is_compose; then cmd_install_compose; else cmd_install; fi ;;
+  install)      cmd_install ;;
   export)       cmd_export ;;
   import|pull)  cmd_import ;;
-  deploy)       if is_compose; then cmd_deploy_compose "${3:-}"; else cmd_deploy; fi ;;
-  logs)         if is_compose; then cmd_logs_compose "${3:-}"; else cmd_logs; fi ;;
-  status)       if is_compose; then cmd_status_compose; else cmd_status; fi ;;
-  start)        if is_compose; then cmd_start_compose; else cmd_start; fi ;;
-  stop)         if is_compose; then cmd_stop_compose; else cmd_stop; fi ;;
-  restart)      if is_compose; then cmd_restart_compose; else cmd_restart; fi ;;
+  deploy)       cmd_deploy "${3:-}" ;;
+  logs)         cmd_logs "${3:-}" ;;
+  status)       cmd_status ;;
+  start)        cmd_start ;;
+  stop)         cmd_stop ;;
+  restart)      cmd_restart ;;
   ssh)          cmd_ssh ;;
-  down)         if is_compose; then cmd_down_compose; else cmd_down; fi ;;
-  render-unit)  render_unit "${3:-/usr/bin/node}" ;;   # no ssh: the unit as install would write it (tests)
+  down)         cmd_down ;;
   # no ssh (tests): the compose file as install would render it — uid gid home local|<host> socket-gid [netrc,claude]
   render-compose) render_compose "${3:?uid}" "${4:?gid}" "${5:?home}" "${6:?local or an ssh target}" "${7:-999}" "${8:-}" ;;
   # no ssh (tests): the script `deploy <version>` or `restart` runs on the box; the version check happens here

@@ -1,7 +1,7 @@
 # Local dev setup
 
 How to run CoachAven on your machine **without colliding with prod**. Prod runs as
-a systemd service on the bot host (see [`../infra/deploy/README.md`](../infra/deploy/README.md));
+containers of the published image on the bot host (see [`../infra/deploy/README.md`](../infra/deploy/README.md));
 your laptop and prod could hit the **same Slack app** and, if you point your dev bot at
 prod's sandbox host, the **same Docker host**, so the whole point of this guide is
 isolating those two.

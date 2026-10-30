@@ -62,7 +62,7 @@ function tsFiles(dir: string): string[] {
 // What may be located through the code: the code's own assets. Anything else is a runtime file and belongs
 // under the installation directory (src/paths.ts).
 const CODE_ASSET = (target: string): boolean =>
-  /fixtures/.test(target) || /\/static\/$/.test(target) || /\.mjs$/.test(target) || target === '../.release';
+  /fixtures/.test(target) || /\/static\/$/.test(target) || /\.mjs$/.test(target);
 // The two modules that may name the package root itself: the resolver, and the CLI probe, which type-checks the code.
 const ROOT_ALLOWED = new Set(['paths.ts', 'cliprobe/cli.ts']);
 

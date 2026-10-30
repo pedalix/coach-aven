@@ -20,8 +20,8 @@
 // file is an error: a crontab that runs this expects mirrors. The bare repos are cached between runs in
 // mirrors/ beside the list, so each sync only fetches the delta.
 //
-// Two entry points call runMirror(): `orch mirror` (src/cli.ts) and scripts/mirror.ts, the systemd path's
-// crontab caller (src/mirrors.test.ts pins that both import this function).
+// One entry point calls runMirror(): `orch mirror` (src/cli.ts), which a compose installation's crontab runs
+// from the image (src/mirrors.test.ts pins the import; the systemd path's scripts/mirror.ts retired with it).
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
