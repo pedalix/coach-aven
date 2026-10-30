@@ -232,14 +232,13 @@ version_release() {
 
 # The compose file for this installation (template: compose.yaml). Arguments are what the box says:
 # the deployer's uid, gid and home, where the sandboxes run (local = the box's Docker socket and its group;
-# anything else = the deployer's .ssh), the socket's gid, and which optional home files exist (netrc,claude).
+# anything else = the deployer's .ssh), the socket's gid, and which optional home files exist (netrc).
 render_compose() {
   local uid="$1" gid="$2" home="$3" where="$4" sockgid="$5" present="${6:-}"
-  local daemon=0 socket=0 sshkeys=0 netrc=0 claude=0
+  local daemon=0 socket=0 sshkeys=0 netrc=0
   [[ -n "$DAEMON_LISTEN" ]] && daemon=1
   if [[ "$where" == local ]]; then socket=1; else sshkeys=1; fi
   [[ ",$present," == *,netrc,* ]] && netrc=1
-  [[ ",$present," == *,claude,* ]] && claude=1
   sed -e "s#__SERVICE__#${SERVICE_NAME}#g" \
       -e "s#__IMAGE__#${IMAGE}#g" \
       -e "s#__DIR__#${REMOTE_DIR}#g" \
@@ -250,8 +249,8 @@ render_compose() {
       -e "s#__DAEMON_LISTEN__#${DAEMON_LISTEN}#g" \
       -e "s#__DOCKER_GID__#${sockgid}#g" \
       "$HERE/compose.yaml" \
-  | awk -v daemon="$daemon" -v socket="$socket" -v ssh="$sshkeys" -v netrc="$netrc" -v claude="$claude" '
-      BEGIN { keep["daemon"] = daemon; keep["socket"] = socket; keep["ssh"] = ssh; keep["netrc"] = netrc; keep["claude"] = claude }
+  | awk -v daemon="$daemon" -v socket="$socket" -v ssh="$sshkeys" -v netrc="$netrc" '
+      BEGIN { keep["daemon"] = daemon; keep["socket"] = socket; keep["ssh"] = ssh; keep["netrc"] = netrc }
       {
         line = $0
         if (sub(/[[:space:]]*# @[a-z]+$/, "", line)) {   # a tagged line: kept without its tag, or dropped
@@ -298,7 +297,6 @@ if [[ -z "$missing" ]]; then
 fi
 present=""
 [[ -f "$HOME/.netrc" ]] && present="$present,netrc"
-[[ -f "$HOME/.claude/.credentials.json" ]] && present="$present,claude"
 sockgid="$(stat -c %g /var/run/docker.sock 2>/dev/null || echo 0)"
 mkdir -p -m 700 "$HOME/.config/coach-aven" && chmod 700 "$HOME/.config/coach-aven"
 printf 'missing=%s\nuid=%s\ngid=%s\nhome=%s\nsockgid=%s\npresent=%s\n' "${missing# }" "$(id -u)" "$(id -g)" "$HOME" "$sockgid" "${present#,}"
@@ -430,7 +428,7 @@ case "${2:-}" in
   restart)      cmd_restart ;;
   ssh)          cmd_ssh ;;
   down)         cmd_down ;;
-  # no ssh (tests): the compose file as install would render it — uid gid home local|<host> socket-gid [netrc,claude]
+  # no ssh (tests): the compose file as install would render it — uid gid home local|<host> socket-gid [netrc]
   render-compose) render_compose "${3:?uid}" "${4:?gid}" "${5:?home}" "${6:?local or an ssh target}" "${7:-999}" "${8:-}" ;;
   # no ssh (tests): the script `deploy <version>` or `restart` runs on the box; the version check happens here
   remote-script) case "${3:-}" in
