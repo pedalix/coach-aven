@@ -10,7 +10,8 @@
 import type { DialogView, HomeView, MessageView, PrivateView } from '../views.js';
 import type { ProjectConfig } from '../../projects.js';
 import { fmtElapsed, prUrls } from '../../format.js';
-import { homeBullets, plural } from '../slack/blocks.js';
+import { plural } from '../slack/blocks.js';
+import { teamsHomeBullets } from './teamshome.js';
 import { markdownToTeams, mrkdwnToTeams, MAX_TEAMS_TEXT } from './format.js';
 import { BAD_REASONS } from '../../feedback.js';
 import type { Tally } from '../../feedback.js';
@@ -289,11 +290,11 @@ export function renderDialogView(v: DialogView): { title: string; card: Adaptive
 export function renderHomeView(v: HomeView): TeamsMessage {
   if (v.kind === 'onboarding') return { text: "👋 I'm CoachAven. This installation serves no projects yet — ask your operator to bind a channel." };
   const projects = v.projects.map((p: ProjectConfig) => `- **${p.slug}** — ${p.repos.join(', ')}${p.teamsChannel ? '' : ' _(no Teams channel bound yet)_'}`);
-  // The shared cheat-sheet; Teams wording: commands are `@Aven /verb` in channels, `/verb` in 1:1.
-  const bullets = homeBullets(v.messaging ? { messaging: true } : {}).map(mrkdwnToTeams); // `/aven verb` → `/verb` happens there
+  // Teams' own cheat-sheet (teamshome.ts): mentions and reply chains, the 1:1 chat, files through Graph — no Slack words.
+  const bullets = teamsHomeBullets(v.messaging ? { messaging: true } : {}).map(mrkdwnToTeams);
   return {
     text:
       `**CoachAven — your coding agent**\n\n**Projects**\n${projects.join('\n') || '_none_'}\n\n` +
-      `**How to use me**\n\n${bullets.join('\n\n')}\n\n_In channels, commands are \`@CoachAven /verb …\`; in this chat, \`/verb …\`._`,
+      `**How to use me**\n\n${bullets.join('\n\n')}\n\n_In a channel, commands are \`@CoachAven /verb …\`; in our 1:1 chat or a reply chain, \`/verb …\`._`,
   };
 }
