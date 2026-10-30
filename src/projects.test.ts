@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { loadProjects } from './projects.js';
+import { homeWorkspaceWarning, loadProjects, noProjectsReason, type ProjectConfig } from './projects.js';
 import { log } from './log.js';
 
 // Each case gets its own throwaway config dir (loadProjects reads projects.d/ relative
@@ -334,4 +334,24 @@ test('gateway: an entry without oauth fails the load, naming every such project 
         /projects "caldora" and "verdant" have a gateway-m2m entry without "oauth" — the Auth0-specific token request it selected is removed; give each entry an "oauth" object with "tokenUrl" .* and "audience" \(its route URL\) or "scope" \(Cognito\)/.test(e.message),
     );
   });
+});
+
+test('noProjectsReason: names why a workspace sees no project, with its id', () => {
+  const p = (slug: string) => ({ slug, repos: [`acme/${slug}`] }) as ProjectConfig;
+  assert.match(noProjectsReason({ projects: [] }, 'T1', 'T1'), /registry lists none/);
+  const noBlock = noProjectsReason({ projects: [p('shop')] }, 'T2', 'T1');
+  assert.match(noBlock, /not this installation's home workspace \(T2\)/);
+  assert.match(noBlock, /no `workspaces` block/);
+  const missing = noProjectsReason({ projects: [p('shop')], workspaces: { T1: ['shop'] } }, 'T2', 'T1');
+  assert.match(missing, /\(T2\) is not in the project registry's `workspaces` block/);
+  assert.match(noProjectsReason({ projects: [p('shop')], workspaces: { T2: [] } }, 'T2', 'T1'), /\(T2\) lists no projects/);
+  for (const s of [noBlock, missing]) assert.match(s, /^This workspace has no projects configured yet: /);
+});
+
+test('homeWorkspaceWarning: only when a workspaces block leaves out the home workspace', () => {
+  const reg = { projects: [{ slug: 'shop', repos: ['acme/shop'] } as ProjectConfig], workspaces: { T2: ['shop'] } };
+  assert.match(homeWorkspaceWarning(reg, 'T1')!, /does not list the home workspace T1/);
+  assert.equal(homeWorkspaceWarning({ ...reg, workspaces: { T1: ['shop'] } }, 'T1'), undefined);
+  assert.equal(homeWorkspaceWarning({ projects: reg.projects }, 'T1'), undefined, 'no block: the home sees everything');
+  assert.equal(homeWorkspaceWarning(reg, undefined), undefined);
 });

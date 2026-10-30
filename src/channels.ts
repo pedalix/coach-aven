@@ -6,7 +6,7 @@
 // (teamProjects) — a client workspace can neither resolve nor even enumerate another
 // tenant's slugs. `tenantId` undefined = home context (pollers, static mode).
 
-import { resolveByChannel, resolveBySlug, teamProjects, workspacePrefix, type ProjectConfig, type RegistryRef } from './projects.js';
+import { noProjectsReason, resolveByChannel, resolveBySlug, teamProjects, workspacePrefix, type ProjectConfig, type RegistryRef } from './projects.js';
 import type { ChatDriverName } from './chat/drivers.js';
 import { log } from './log.js';
 
@@ -155,7 +155,7 @@ export function createChannels(reg: RegistryRef, home: () => string | undefined,
       return {
         question,
         error: !mine.length
-          ? `This workspace has no projects configured yet.`
+          ? noProjectsReason(reg.current, tenantId, home())
           : boundOnly
             ? `This channel isn't connected to a project — an operator binds a channel to one by its id in the project registry.`
             : `This channel isn't bound to a project. Use a \`${p}{project}\` channel (e.g. \`${p}${mine[0].slug}\`), or prefix your question with a slug — one of: ${slugs}.`,

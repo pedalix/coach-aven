@@ -12,7 +12,7 @@
 import { checkLocalDocker } from '../sshdocker.js';
 import type { Config } from '../config.js';
 import { Store } from '../state.js';
-import { loadProjects, type RegistryRef } from '../projects.js';
+import { homeWorkspaceWarning, loadProjects, type RegistryRef } from '../projects.js';
 import { createTurnEngine, type TurnEngine } from '../turn.js';
 import { createChannels, type Channels, type ChannelsOptions } from '../channels.js';
 import { createPollers, ROUTINE_TZ, type Pollers } from '../pollers.js';
@@ -162,6 +162,9 @@ export async function runChat(cfg: Config, defaultName: ChatDriverName, options:
     }
   }
   if (def.hasHome) pollers.startAll();
+  // A workspaces block that leaves out the home workspace makes every home channel answer "no projects": say so at boot.
+  const homeWarning = homeWorkspaceWarning(reg.current, def.homeTenantId());
+  if (homeWarning) log.warn(homeWarning);
   // Sandboxes on this machine's Docker: say at boot, not in the first turn, when the socket is out of reach (never awaited).
   void checkLocalDocker(cfg.sshDocker?.host).catch(() => {});
 
