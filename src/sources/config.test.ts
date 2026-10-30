@@ -38,6 +38,15 @@ test('sources config: rejects unknown keys, bad dates, bad kinds, non-GUID tenan
   for (const [input, re] of bad) assert.throws(() => validateSourcesConfig(input, 'projects.config.json: project "x" sources'), re, JSON.stringify(input));
 });
 
+test('sources config: local.claudeProjectsDir is one directory (kept a string) or a list of them', () => {
+  const base = { roots: ['/home/owen/code'], authors: ['Hale'] };
+  assert.equal(validateSourcesConfig({ local: { ...base, claudeProjectsDir: '/home/owen/.claude/projects' } }).local!.claudeProjectsDir, '/home/owen/.claude/projects');
+  assert.deepEqual(validateSourcesConfig({ local: { ...base, claudeProjectsDir: ['/home/owen/.claude/projects', '/home/owen/.claude-work/projects'] } }).local!.claudeProjectsDir, ['/home/owen/.claude/projects', '/home/owen/.claude-work/projects']);
+  assert.equal(validateSourcesConfig({ local: base }).local!.claudeProjectsDir, undefined);
+  assert.throws(() => validateSourcesConfig({ local: { ...base, claudeProjectsDir: ['/home/owen/.claude/projects', 'relative/projects'] } }), /absolute path/);
+  assert.throws(() => validateSourcesConfig({ local: { ...base, claudeProjectsDir: [] } }), /at least one/);
+});
+
 test('sources config: slack with no workspaces means "every stored workspace"', () => {
   assert.deepEqual(validateSourcesConfig({ slack: { workspaces: [] } }).slack, { workspaces: [] });
 });

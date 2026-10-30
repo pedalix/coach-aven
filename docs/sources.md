@@ -577,6 +577,13 @@ pulls it like any other source (no credentials — it reads the bot's own filesy
 - **claude**: every transcript line carries a timestamp; activity is clustered per working
   directory per local day (gap ≤ 60 min, min 10). A cwd inside a repo gets that repo's container.
   Items = the first real prompt of each session (200 chars). Files > 50 MB are read head + tail.
+  `claudeProjectsDir` is one directory or a list of them — one per Claude Code config directory
+  the person works under (a second account, `CLAUDE_CONFIG_DIR`): sessions from all of them in one
+  repo merge into the same day blocks (wall-clock union, not a sum). A directory that is missing
+  is logged and skipped; the sessions already read from it stay.
+- **In a container** (the daemon under compose): the roots and the projects directories must be
+  mounted read-only at the same paths, and the host name must stay the machine's — every record
+  carries it in `account`, and a container id would start a second copy of each block.
 - Blocks are bucketed by local day in `AVEN_TZ`. A day is recomputed in full whenever anything in
   it changed; a block that disappears (a new commit merged two blocks) is tombstoned. Titles and
   items are scrubbed inline (a pasted token in a prompt is redacted, never withheld).

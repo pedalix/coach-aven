@@ -148,3 +148,43 @@ test('pullLocal end to end: git + claude → raw, cursor resume extends a block,
   const stats = callTool(db, 'stats', {}) as { activity: { source: string; n: number }[] };
   assert.deepEqual(stats.activity.map((a) => a.source), ['claude', 'git']);
 });
+
+test('pullLocal: two Claude config directories feed the same repo day blocks; a missing one is logged and skipped', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'local-dirs-'));
+  const repo = join(root, 'code', 'platform');
+  mkdirSync(repo, { recursive: true });
+  git(repo, ['init', '-q']);
+  git(repo, ['remote', 'add', 'origin', `https://${C}.git`]);
+  const session = (dir: string, file: string, from: string, to: string, prompt: string) => {
+    mkdirSync(join(dir, '-x'), { recursive: true });
+    writeFileSync(
+      join(dir, '-x', file),
+      [
+        JSON.stringify({ type: 'user', cwd: repo, timestamp: from, message: { role: 'user', content: prompt } }),
+        JSON.stringify({ type: 'assistant', cwd: repo, timestamp: to, message: { role: 'assistant', content: 'ok' } }),
+      ].join('\n') + '\n',
+    );
+  };
+  const first = join(root, 'claude', 'projects');
+  const second = join(root, 'claude-work', 'projects');
+  session(first, 'a.jsonl', '2026-10-05T10:00:00Z', '2026-10-05T10:30:00Z', 'refactor the store build');
+  session(second, 'b.jsonl', '2026-10-05T14:00:00Z', '2026-10-05T14:40:00Z', 'review the deploy script');
+  const raw = join(root, 'raw');
+  const logs: string[] = [];
+  const ctx: PullContext = { slug: 't', outDir: raw, tokenPath: '/dev/null', log: (m) => logs.push(m) };
+  const missing = join(root, 'gone', 'projects');
+  const cfg = { roots: [join(root, 'code')], authors: ['Hale'], claudeProjectsDir: [first, second, missing], since: '2026-10-01' };
+  const s = await pullLocal(ctx, cfg, { tz: 'UTC', host: 'box' });
+  assert.equal(s.ok, true, s.errors.join('; '));
+  assert.ok(logs.some((l) => l.includes(`${missing} does not exist`)), logs.join('\n'));
+  const lines = readFileSync(join(raw, 'local', 'activity.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l));
+  const claude = lines.filter((l) => l.source === 'claude' && !l.deleted);
+  // Both directories' sessions are read: the day's blocks name both prompts, in the repo's container.
+  assert.ok(claude.length >= 1);
+  assert.ok(claude.every((l) => l.container === C));
+  const text = JSON.stringify(claude);
+  assert.ok(text.includes('refactor the store build') && text.includes('review the deploy script'), text);
+  // Nothing new → nothing written, whichever directory a session lives in.
+  const again = await pullLocal(ctx, cfg, { tz: 'UTC', host: 'box' });
+  assert.equal(again.counts.claude, 0);
+});
