@@ -92,7 +92,7 @@
 
 ## 3. The compose runtime (PR 3)
 
-- [ ] 3.1 The template `infra/deploy/compose.yaml` (design D3, D4, D7):
+- [x] 3.1 The template `infra/deploy/compose.yaml` (design D3, D4, D7):
   - `name` set to the service;
   - a `bot` service whose command is the chat driver, and a `sources-daemon` service when a listen address is given;
   - `image: <repository>:${AVEN_VERSION}` and `SENTRY_RELEASE: ${AVEN_RELEASE}`, both from the compose directory's `.env`;
@@ -100,7 +100,7 @@
   - the socket and its group for sandboxes on the box's own Docker, the deployer's `.ssh` for sandboxes on another host (D4).
 
   Verify: render tests in `src/chat/teams/deploy.test.ts` for Slack by default, Teams, with a daemon, local sandboxes, a remote Docker host, and a home with and without the optional files; `docker compose config` accepts each rendered file.
-- [ ] 3.2 `deploy.sh` (design D7, D8):
+- [x] 3.2 `deploy.sh` (design D7, D8):
   - `RUNTIME` and `CANARY` from `deploy.env`; an unknown runtime refused, naming both values;
   - the compose `install`: the Docker Engine and Compose check, the deployer's `.config/coach-aven` (mode 0700) when it is missing, and the compose file rendered into `<dir>/compose/`, starting nothing;
   - `deploy <version>`: the version's form, the canary rule, the refusal while the unit is active, the pull, the two-line pin, `up -d`, the 90 s wait, the line in `deploys.log`, a non-zero exit when the line does not come;
@@ -108,16 +108,16 @@
   - a `render-compose` subcommand without SSH, for tests.
 
   Verify, in `src/chat/teams/deploy.test.ts`: with no `RUNTIME`, today's unit renders byte for byte and every existing case is unchanged; `RUNTIME=docker` is refused; `render-compose` works for an example overlay. And a harness with a fake `docker` and `systemctl` on `PATH`, run by `npm test`: a malformed version is refused; `sha-` only with the canary flag; `latest` is refused; an active unit refuses the deploy; a failed pull writes nothing; the line comes → `ok` logged, exit 0; the line does not come → `failed` logged, exit 1, the log's tail printed.
-- [ ] 3.3 The ops workflow template (`infra/deploy/ops.example/workflows/deploy.yml`): the version check moves after the overlay's checkout and accepts `sha-<commit>` only with `CANARY=1` in that `deploy.env`; the deploy step runs `deploy.sh "$OPS_SLUG" deploy "$TAG"`; the header comment describes both runtimes. Verify: `actionlint`, and a run against the canary (task 4.2).
-- [ ] 3.4 The ops template: `deploy.env.example` documents `RUNTIME`, `CANARY` and the daemon's listen address; `.gitignore` ignores `compose/` and `deploys.log`; `ops.example/README.md` describes the compose path. Verify: the diff, and a clean public guard.
-- [ ] 3.5 Docs (design D9):
+- [x] 3.3 The ops workflow template (`infra/deploy/ops.example/workflows/deploy.yml`): the version check moves after the overlay's checkout and accepts `sha-<commit>` only with `CANARY=1` in that `deploy.env`; the deploy step runs `deploy.sh "$OPS_SLUG" deploy "$TAG"`; the header comment describes both runtimes. Verify: `actionlint`, and a run against the canary (task 4.2).
+- [x] 3.4 The ops template: `deploy.env.example` documents `RUNTIME`, `CANARY` and the daemon's listen address; `.gitignore` ignores `compose/` and `deploys.log`; `ops.example/README.md` describes the compose path. Verify: the diff, and a clean public guard.
+- [x] 3.5 Docs (design D9):
   - `infra/deploy/README.md`: the compose runtime as the recommended one: prerequisites, including the `docker` group and what it amounts to; install → export → deploy with a version; rollback; `status`, `logs`, `restart`, `down`; the move checklist; the cleanup list as one command; the crontab line; "Why systemd and not Docker" replaced, the systemd path as the legacy section;
   - the self-host section of `README.md`;
   - `docs/runtime-config.md`: the mirror's crontab line.
 
   Verify: a clean public guard, and the commands run as written against the canary (group 4).
-- [ ] 3.6 The ledger row: the compose runtime, bucket 3, gated per installation by `RUNTIME=compose`, with the stages canary → prod → template default → systemd path retired. Verify: the diff of `docs/rollout.md`.
-- [ ] 3.7 The Home tab and the prompt goldens do not change. Verify: `git diff --stat src/fixtures/chat src/fixtures/prompt` is empty.
+- [x] 3.6 The ledger row: the compose runtime, bucket 3, gated per installation by `RUNTIME=compose`, with the stages canary → prod → template default → systemd path retired. Verify: the diff of `docs/rollout.md`.
+- [x] 3.7 The Home tab and the prompt goldens do not change. Verify: `git diff --stat src/fixtures/chat src/fixtures/prompt` is empty.
 
 ## 4. The canary installation
 

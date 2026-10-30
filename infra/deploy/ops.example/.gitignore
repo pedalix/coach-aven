@@ -14,5 +14,8 @@ queue.jsonl
 drafts/
 usage/
 feedback/
+# the compose runtime's files on the box (rendered compose.yaml + the version pin, the deploy log)
+compose/
+deploys.log
 # Terraform build output of a Teams root (the app package; apply rebuilds it)
 build/
