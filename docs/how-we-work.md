@@ -103,7 +103,8 @@ Two rules keep the backlog honest.
 
 ## Installations
 
-One installation is one bot process, one chat driver and one private **ops repo**, checked out at
+One installation is one bot process with a default chat driver, optional additional
+[chat surfaces](runtime-config.md#chat-surfaces-chat_surfaces), and one private **ops repo**, checked out at
 `infra/<slug>/` of a product checkout and addressed by its slug in every command. The ops repo
 holds the project registry, the prompts, the deploy target, the secrets, a Terraform root for the
 Teams identity, the operator's notes, and, if the operator keeps them in Terraform, the hosts and

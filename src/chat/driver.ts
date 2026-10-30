@@ -1,6 +1,7 @@
 // The chat driver interface (OpenSpec chat-driver-interface): everything the platform-
 // neutral core does to a chat goes through it, so a new chat platform is one new driver,
-// not a rewrite of the core. An installation runs exactly one driver (`orch slack` today).
+// not a rewrite of the core. The run command (`orch slack`, `orch teams`, `orch web`) picks
+// the default driver; `CHAT_SURFACES` adds others beside it (drivers.ts, surfaces.ts).
 //
 // Distinct from the SANDBOX driver (src/driver.ts): that one is where the agent runs, this
 // one is where people talk to it.
