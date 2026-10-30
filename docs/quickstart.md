@@ -100,6 +100,11 @@ The line comes a few seconds after the start; run it again if it shows nothing. 
 newest key signs in. The key changes at every start of the bot; you stay signed
 in across restarts, and need a new link only for a new browser.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/web-room-dark.png">
+  <img alt="The demo room with two threads: a question about the tests and a change request answered with a pull request" src="img/web-room-light.png" width="800">
+</picture>
+
 **8. Ask.** Open the room `demo` and post a question about the repository — "what does this repository do, and how is
 it tested?". The first answer takes longer: the bot creates the sandbox and clones the repository. Ask for a small
 change and the agent opens a pull request.
