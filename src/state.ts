@@ -190,6 +190,7 @@ export interface WebUser {
   name?: string;
   email?: string;
   seenAt: string; // ISO, the last login
+  loggedOutAt?: string; // ISO, the last sign-out: every web session issued before it is dead
 }
 
 export class Store {
@@ -324,7 +325,7 @@ export class Store {
   }
   putWebUser(rec: WebUser): void {
     const cur = this.data.webUsers?.[rec.id];
-    if (cur && cur.name === rec.name && cur.email === rec.email && cur.seenAt === rec.seenAt) return;
+    if (cur && cur.name === rec.name && cur.email === rec.email && cur.seenAt === rec.seenAt && cur.loggedOutAt === rec.loggedOutAt) return;
     (this.data.webUsers ??= {})[rec.id] = rec;
     this.save();
   }

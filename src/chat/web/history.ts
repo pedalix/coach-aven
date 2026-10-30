@@ -14,7 +14,7 @@
 // queue.jsonl), so a crash loses nothing acknowledged.
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import type { Mark } from '../driver.js';
 import type { MessageView, PrivateView } from '../views.js';
 import { parseConv } from './keys.js';
@@ -227,8 +227,11 @@ export class History {
   fileOf(conv: string): string | undefined {
     const p = parseConv(conv);
     if (!p) return undefined;
-    // `pc-<userId>`: the user id is filename-safe by construction (keys.ts userIdOf: [A-Za-z0-9._@-]).
-    return join(this.dir, p.slug, p.kind === 'room' ? 'room.jsonl' : `pc-${p.user}.jsonl`);
+    // `pc-<userId>`: the user id is filename-safe by construction (keys.ts userIdOf: [A-Za-z0-9._@-]), and parseConv
+    // refuses anything else; the file must still land under the history's directory, whatever a caller passes.
+    const root = resolve(this.dir);
+    const file = resolve(root, p.slug, p.kind === 'room' ? 'room.jsonl' : `pc-${p.user}.jsonl`);
+    return file.startsWith(root + sep) ? file : undefined;
   }
 
   conversation(conv: string): Conversation {

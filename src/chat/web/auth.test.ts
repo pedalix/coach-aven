@@ -61,6 +61,10 @@ test('the identity from the ID token: a display name from name, given+family, th
   const { identityOf } = await import('./oidc.js');
   assert.deepEqual(identityOf({ sub: 's1', email: 'ann@corp.example', 'cognito:groups': ['staff'] }, 'cognito:groups'), { sub: 's1', groups: ['staff'], email: 'ann@corp.example', name: 'ann@corp.example' });
   assert.equal(identityOf({ sub: 's1', given_name: 'Ann', family_name: 'Lee', email: 'a@x.example' }, 'groups').name, 'Ann Lee');
+  // An address the provider marks unverified is not the person's (the allow-list and the operators match on it);
+  // a provider that sends no email_verified keeps the address.
+  for (const v of [false, 'false']) assert.equal(identityOf({ sub: 's1', email: 'ann@corp.example', email_verified: v }, 'groups').email, undefined, String(v));
+  assert.equal(identityOf({ sub: 's1', email: 'ann@corp.example', email_verified: true }, 'groups').email, 'ann@corp.example');
   assert.equal(identityOf({ sub: 's1', name: 'Ann L.', given_name: 'Ann' }, 'groups').name, 'Ann L.');
   assert.equal(identityOf({ sub: 's1', preferred_username: 'ann', groups: 'a, b' }, 'groups').name, 'ann');
   // Cognito, a pool that signs in by e-mail: `cognito:username` is the subject's UUID — the e-mail is the name.

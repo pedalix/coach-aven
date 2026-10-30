@@ -27,7 +27,9 @@ same pollers. Mechanism only — your hostname, issuer and client ids live in yo
   never keeps passwords. Every logged-in person is an actor of ONE organization (`WEB_ORG`, the surface's tenant), so
   the core's gates see one open tenant: everyone may drive, the operators (`WEB_OPERATORS`) get the operator verbs.
   `WEB_ALLOW` narrows who may enter at all (e-mails or `group:<name>` from the groups claim); empty = everyone the
-  issuer lets in.
+  issuer lets in. It is checked on every request, not only at sign-in, so taking someone off it (and restarting)
+  shuts them out at once. An e-mail the provider marks `email_verified: false` does not count — in a pool where
+  people may sign up or change their address, prefer `group:` entries or turn self-service off.
 
 ## Running a web installation
 
@@ -105,8 +107,17 @@ Agent output is untrusted and the web is the first surface where we render it as
 HTML off, links only to `http(s)` and `mailto`, images shown as links, every attribute escaped, a strict
 Content-Security-Policy with no inline script, `frame-ancestors 'none'`. The session is a signed HttpOnly cookie
 (Secure on https, SameSite=Lax, 12 h), nothing of the identity provider's tokens is stored; every POST carries the
-session's CSRF token and must be a same-origin fetch; bodies are capped; posting is rate-limited per person. Hostile
-inputs are a test suite (`src/chat/web/webformat.test.ts`).
+session's CSRF token and must be a same-origin fetch; bodies are capped (an upload's only after the session check);
+posting is rate-limited per person, live streams are capped at ten per person. Hostile inputs are a test suite
+(`src/chat/web/webformat.test.ts`).
+
+The core's action and dialog handlers trust what they are handed, as Slack's platform guarantees it there; on the
+web the server does: a button is accepted only with the signature the server put on it when it rendered it
+(`buttons.ts`), and a dialog's handler and metadata never leave the server — the browser sends the dialog's id and
+the values, and only its person may submit it, once. Conversation ids are plain names (never a path). A sign-out
+ends every session of that person issued before it, in every browser. Under `WEB_AUTH=none` and `link` the server
+answers only to a loopback host name or the base URL's host. The independent review of 2026-10-30 is in the
+OpenSpec change's design.
 
 ## Operations notes
 

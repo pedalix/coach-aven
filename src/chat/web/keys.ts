@@ -18,17 +18,22 @@ export const privateConv = (userId: string, slug: string): string => `pc:${userI
 
 export type ParsedConv = { kind: 'room'; slug: string } | { kind: 'private'; user: string; slug: string };
 
+// A conversation id names a directory and a file (history.ts), and it reaches the server from the browser and from
+// metadata: its parts must be plain names — a project slug, a user id (userIdOf below) — never `..` or a path (the
+// security review of 2026-10-30: `room:../../outside` wrote outside the data directory).
+const PLAIN_PART = /^(?!\.{1,2}$)[A-Za-z0-9._@-]{1,128}$/;
+
 export function parseConv(conv: string): ParsedConv | undefined {
   if (conv.startsWith('room:')) {
     const slug = conv.slice('room:'.length);
-    return slug ? { kind: 'room', slug } : undefined;
+    return PLAIN_PART.test(slug) ? { kind: 'room', slug } : undefined;
   }
   if (conv.startsWith('pc:')) {
     const i = conv.lastIndexOf(':');
     if (i <= 'pc:'.length) return undefined;
     const user = conv.slice('pc:'.length, i);
     const slug = conv.slice(i + 1);
-    return user && slug ? { kind: 'private', user, slug } : undefined;
+    return PLAIN_PART.test(user) && PLAIN_PART.test(slug) ? { kind: 'private', user, slug } : undefined;
   }
   return undefined;
 }

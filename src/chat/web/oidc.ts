@@ -26,7 +26,11 @@ export function identityOf(claims: Record<string, unknown>, groupsClaim: string)
   const groups = claims[groupsClaim];
   const id: Identity = { sub, groups: Array.isArray(groups) ? groups.map(String) : typeof groups === 'string' ? groups.split(/[,\s]+/).filter(Boolean) : [] };
   const str = (k: string) => (typeof claims[k] === 'string' && claims[k] ? (claims[k] as string) : undefined);
-  const email = str('email');
+  // An address the provider says is unverified is not the person's: the allow-list and the operators list match on
+  // e-mails, and a pool that lets people sign up or change their address would let anyone claim one (the security
+  // review of 2026-10-30). A provider that sends no `email_verified` at all (e.g. Entra) keeps today's behaviour.
+  const unverified = claims.email_verified === false || claims.email_verified === 'false';
+  const email = unverified ? undefined : str('email');
   if (email) id.email = email;
   const names = [str('given_name'), str('family_name')].filter((x): x is string => !!x).join(' ');
   // The e-mail before Cognito's username: in a pool that signs people in by e-mail (`username_attributes = ["email"]`)

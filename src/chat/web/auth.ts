@@ -30,6 +30,7 @@ export interface Session {
   user: string; // the core's user id (keys.ts userIdOf)
   name?: string;
   email?: string;
+  groups?: string[]; // the identity provider's groups at login (the allow-list is checked against them on every request)
   iat: number; // issued, ms since epoch
 }
 
