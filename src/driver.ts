@@ -65,7 +65,7 @@ export interface SandboxHandle {
 
 export interface SandboxDriver {
   // Make sure the base image the sandboxes boot from exists (idempotent).
-  ensureImage(): Promise<void>;
+  ensureImage(projectImage?: string): Promise<void>; // the project's `sandbox.image`, else the installation's
   // Warm named sandbox: create it from the base image, or wake it if stopped. `opts` are the
   // project's sandbox options (privileged/dind/mounts); they shape CREATION only — a sandbox
   // that already exists keeps the flags it was created with.

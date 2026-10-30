@@ -56,12 +56,11 @@ session was opened with, and an existing container keeps the `sandbox` options i
 
 | Variable | Default | What it does |
 |---|---|---|
-| `SNAPSHOT_IMAGE` | required | The image every project container is created from. Read when a container is created; an existing one keeps its image until removed. |
+| `SANDBOX_IMAGE` | required | The image a project container is created from, unless the project names its own (`sandbox.image`). Read when a container is created; an existing one keeps its image until removed. Formerly `SNAPSHOT_IMAGE`. |
 | `SANDBOX_DRIVER` | `ssh-docker` | The only sandbox driver; any other value (`daytona` above all) stops the boot. [Selecting the driver](sandbox-drivers.md#selecting-the-driver). |
-| `SSHDOCKER_HOST` | — (required at a project's first sandbox use) | The Docker host: `local` (this machine's daemon, no sshd) or an ssh target (`user@host`, an `~/.ssh/config` alias). [Sandbox drivers](sandbox-drivers.md). |
-| `SSHDOCKER_RUNTIME` | `privileged` | How a docker-in-docker container runs: `privileged` or `sysbox-runc`; anything else stops the boot. Irrelevant for `"privileged": false` projects. |
-| `SANDBOX_DEFAULT` | `dind` (with a boot warning) | What a project without a `sandbox` block gets: `dind` (privileged docker-in-docker) or `plain` (unprivileged); anything else stops the boot (and `orch sources` and the sources daemon, which load the same registry). [Sandbox drivers](sandbox-drivers.md). |
-| `SANDBOX_LOCAL_PRIVILEGED` | — | `1` confirms a privileged project on the bot's own machine (`SSHDOCKER_HOST=local`); without it the boot warns. |
+| `SANDBOX_HOST` | — (required at a project's first sandbox use) | The Docker host: `local` (this machine's daemon, no sshd) or an ssh target (`user@host`, an `~/.ssh/config` alias). [Sandbox drivers](sandbox-drivers.md). Formerly `SSHDOCKER_HOST`. |
+| `SANDBOX_DIND_RUNTIME` | `privileged` | How a docker-in-docker project (`"dind": true`) runs: `privileged` or `sysbox-runc` (preferred, needs sysbox on the host); anything else stops the boot. Irrelevant for plain projects. Formerly `SSHDOCKER_RUNTIME`. |
+| `SANDBOX_LOCAL_PRIVILEGED` | — | `1` confirms a privileged project on the bot's own machine (`SANDBOX_HOST=local`); without it the boot warns. |
 | `SANDBOX_AUTOSTOP_MINUTES` | `30` | Idle minutes before the bot stops a project's container (floor 10; `0` or negative = never). [Sandbox idle stop](runtime-config.md#sandbox-idle-stop-sandbox_autostop_minutes). |
 | `SANDBOX_NAME_PREFIX` | `proj-` | Container names are `<prefix><slug>`. Two installations on one Docker host need distinct prefixes. [Local dev → The settings](local-dev.md#the-settings). |
 | `SANDBOX_MANAGED_BY` | `coach-aven` | The `managedBy` label on every sandbox: the `/aven status` filter and the idle stop's guard. Must match the existing containers' label. |
@@ -220,8 +219,8 @@ commands on an operator's shell, or tests; or they are standard variables of the
 | `CLAUDE_CONFIG_DIR` | — | Set (not read) for the Claude Code children of the lab and the probe: their own config directory. |
 | `CLAUDE_CODE_DISABLE_CLAUDE_MDS` | — | Set to `1` (not read) for the lab's Claude Code children, so no `CLAUDE.md` reaches them. |
 
-The probe's sandbox transport also reads `SANDBOX_DRIVER`, `SSHDOCKER_HOST`, `SSHDOCKER_RUNTIME`,
-`SNAPSHOT_IMAGE` and `SANDBOX_NAME_PREFIX` from its own environment, and labels its containers with its
+The probe's sandbox transport also reads `SANDBOX_DRIVER`, `SANDBOX_HOST`, `SANDBOX_DIND_RUNTIME`,
+`SANDBOX_IMAGE` and `SANDBOX_NAME_PREFIX` from its own environment, and labels its containers with its
 own `SANDBOX_MANAGED_BY`.
 
 ## `projects.config.json`

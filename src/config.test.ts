@@ -45,6 +45,7 @@ test('SANDBOX_DRIVER — unset, empty or ssh-docker is ssh-docker; any other val
 // exports one must not change a result (tests never load .env).
 const SANDBOX_KEYS = [
   'SANDBOX_DRIVER', 'SSHDOCKER_HOST', 'SSHDOCKER_RUNTIME', 'SANDBOX_NAME_PREFIX', 'SANDBOX_WORK_DIR', 'SNAPSHOT_IMAGE',
+  'SANDBOX_HOST', 'SANDBOX_DIND_RUNTIME', 'SANDBOX_IMAGE',
   'SANDBOX_AUTOSTOP_MINUTES', 'SNAPSHOT_NAME', 'SANDBOX_CPU', 'SANDBOX_MEMORY', 'SANDBOX_DISK', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'GITHUB_TOKEN',
 ];
 function withEnv<T>(env: Record<string, string>, fn: () => T): T {
@@ -156,4 +157,17 @@ test('AVEN_DIR — the boot line names the resolved directory, and says when it 
     dotenvSetsInstallDir('/srv/acme/.env'),
     "/srv/acme/.env sets AVEN_DIR, but the setting names where .env is read from and belongs in the service's environment (the unit, the compose file or the shell), not in .env",
   );
+});
+
+test('the SANDBOX_ names: the new ones load the same config as the old ones, a new name wins, a missing image names the new one', () => {
+  const base = { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', GITHUB_TOKEN: 'ghp_x' };
+  const part = (c: Config) => ({ sshDocker: c.sshDocker, snapshot: c.snapshot });
+  const old = withEnv({ ...base, SSHDOCKER_HOST: 'aven@sandboxes.example', SSHDOCKER_RUNTIME: 'sysbox-runc', SNAPSHOT_IMAGE: 'registry.example/acme/sandbox:1' }, () => part(loadConfig()));
+  const now = withEnv({ ...base, SANDBOX_HOST: 'aven@sandboxes.example', SANDBOX_DIND_RUNTIME: 'sysbox-runc', SANDBOX_IMAGE: 'registry.example/acme/sandbox:1' }, () => part(loadConfig()));
+  assert.deepEqual(now, old);
+  assert.deepEqual(old, { sshDocker: { host: 'aven@sandboxes.example', runtime: 'sysbox-runc' }, snapshot: { image: 'registry.example/acme/sandbox:1' } });
+  const both = withEnv({ ...base, SANDBOX_HOST: 'local', SSHDOCKER_HOST: 'aven@old.example', SANDBOX_IMAGE: 'new:1', SNAPSHOT_IMAGE: 'old:1' }, () => part(loadConfig()));
+  assert.deepEqual(both, { sshDocker: { host: 'local', runtime: 'privileged' }, snapshot: { image: 'new:1' } });
+  assert.throws(() => withEnv(base, () => loadConfig()), /SANDBOX_IMAGE/);
+  assert.throws(() => withEnv({ ...base, SANDBOX_IMAGE: 'i', SANDBOX_DIND_RUNTIME: 'runc' }, () => loadConfig()), /SANDBOX_DIND_RUNTIME must be/);
 });

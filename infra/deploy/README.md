@@ -90,7 +90,7 @@ npm run ops -- <slug> deploy v1.4.0    # pull → pin → docker compose up -d �
 
 `install` renders the compose file from `deploy.env` (service name, image repository, chat driver, the
 daemon's listen address) and what the box says (the deployer's uid, gid and home, the Docker socket's
-group, which optional home files exist) and from one key of the installation's `.env`, `SSHDOCKER_HOST`:
+group, which optional home files exist) and from one key of the installation's `.env`, `SANDBOX_HOST`:
 `local` mounts the box's Docker socket and no ssh key, another host mounts the deployer's `~/.ssh`
 read-only and no socket. Rerun `install` after changing any of those, then `restart`.
 

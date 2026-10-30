@@ -262,14 +262,14 @@ render_compose() {
       }'
 }
 
-# SSHDOCKER_HOST of the installation, never printed: the box's .env when it is there, else the overlay's
+# SANDBOX_HOST (or its old name SSHDOCKER_HOST) of the installation, never printed: the box's .env when it is there, else the overlay's
 # own copy (a first install, before export). It decides the socket or the keys (D4).
 sshdocker_host() {
   local v=""
-  v="$(dssh "test -f $REMOTE_DIR/.env && grep -E '^SSHDOCKER_HOST=' $REMOTE_DIR/.env | tail -1 | cut -d= -f2-" </dev/null 2>/dev/null || true)"
-  if [[ -z "$v" && -f "$RUNTIME_DIR/.env" ]]; then v="$(grep -E '^SSHDOCKER_HOST=' "$RUNTIME_DIR/.env" | tail -1 | cut -d= -f2- || true)"; fi
+  v="$(dssh "test -f $REMOTE_DIR/.env && grep -E '^(SANDBOX|SSHDOCKER)_HOST=' $REMOTE_DIR/.env | sort | head -1 | cut -d= -f2-" </dev/null 2>/dev/null || true)"
+  if [[ -z "$v" && -f "$RUNTIME_DIR/.env" ]]; then v="$(grep -E '^(SANDBOX|SSHDOCKER)_HOST=' "$RUNTIME_DIR/.env" | sort | head -1 | cut -d= -f2- || true)"; fi
   v="${v%\"}"; v="${v#\"}"; v="${v%\'}"; v="${v#\'}"
-  [[ -n "$v" ]] || die "SSHDOCKER_HOST is not set in the installation's .env ($REMOTE_DIR/.env on the box, or $RUNTIME_DIR/.env): the compose file needs it — local = the box's Docker socket, anything else = the deployer's ssh keys"
+  [[ -n "$v" ]] || die "SANDBOX_HOST is not set in the installation's .env ($REMOTE_DIR/.env on the box, or $RUNTIME_DIR/.env): the compose file needs it — local = the box's Docker socket, anything else = the deployer's ssh keys"
   printf '%s' "$v"
 }
 

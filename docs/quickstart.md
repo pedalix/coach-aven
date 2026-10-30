@@ -144,6 +144,6 @@ and the chat's history go with them).
 - **Slack or Teams** instead of, or beside, the web chat: [`../README.md#self-host-with-slack-or-teams`](../README.md#self-host-with-slack-or-teams),
   [`teams.md`](teams.md).
 - **More than one person** in the web chat: an identity provider, `WEB_AUTH=oidc` ([`web.md`](web.md)).
-- **Sandboxes on another host**: `SSHDOCKER_HOST=user@host` ([`sandbox-drivers.md`](sandbox-drivers.md)).
+- **Sandboxes on another host**: `SANDBOX_HOST=user@host` ([`sandbox-drivers.md`](sandbox-drivers.md)).
 - **A server you operate**: the ops tooling ([`../infra/README.md`](../infra/README.md)). Copy `.env`,
   `projects.config.json` and `projects.d/` into the installation's ops repository; the state and `home/` stay out of it.

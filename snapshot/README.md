@@ -21,7 +21,7 @@ The image repo is the installation's: `IMAGE` is required for a push. One except
 the `plain` variant of every `main` commit and release as `ghcr.io/pedalix/coach-aven-sandbox-plain:sha-<commit>` /
 `:vX.Y.Z`, the same version names as the bot image, for the quickstart (`docs/quickstart.md`) and anyone whose projects
 need nothing beyond its toolchain. Anything more (PHP, a database client, Sail) is an image of your own. Point
-`SNAPSHOT_IMAGE` at the `:<gitsha>` tag the build prints, not `:latest`; the image is
+`SANDBOX_IMAGE` at the `:<gitsha>` tag the build prints, not `:latest`; the image is
 deployment-wide, so a plain project lives on an instance whose fleet image is the plain variant.
 
 The Claude Code CLI inside sandboxes is pinned by `CLAUDE_CLI_VERSION` (warm sandboxes converge in
