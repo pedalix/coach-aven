@@ -7,7 +7,7 @@ The trial installation the repository ships: a directory with the layout of an o
 ## ADDED Requirements
 
 ### Requirement: The quickstart is an installation directory
-The repository SHALL ship `quickstart/` holding `.env.example`, `projects.config.example.json`, `compose/compose.yaml` and `init.sh`. Mounted as `AVEN_DIR`, it SHALL be a complete installation with `HOME` inside it. It SHALL name no path outside itself except the Docker socket and the sandbox image's build context. Everything the person and the installation write there SHALL be ignored by git. Its sandboxes SHALL carry a name prefix and a `managedBy` label of their own.
+The repository SHALL ship `quickstart/` holding `.env.example`, `projects.config.example.json`, `compose/compose.yaml` and `init.sh`. Mounted as `AVEN_DIR`, it SHALL be a complete installation with `HOME` inside it. It SHALL name no path outside itself except the Docker socket. Everything the person and the installation write there SHALL be ignored by git. Its sandboxes SHALL carry a name prefix and a `managedBy` label of their own.
 
 #### Scenario: State stays out of git
 - **WHEN** the quickstart has run turns
@@ -20,7 +20,7 @@ The repository SHALL ship `quickstart/` holding `.env.example`, `projects.config
 ### Requirement: The trial needs no registry, privilege, Slack or identity provider
 The quickstart SHALL:
 - run the bot from the published bot image, with the web chat as its chat driver and `WEB_AUTH=link`;
-- build the plain sandbox image locally, from the clone, before the bot starts;
+- run its sandboxes from the published plain sandbox image of the same version as the bot image, pulled by `init.sh`;
 - run every project in it unprivileged and without docker-in-docker;
 - take its GitHub access from a `GITHUB_TOKEN`.
 
@@ -28,11 +28,11 @@ It SHALL publish the web chat on the machine's loopback only.
 
 #### Scenario: Fresh start
 - **WHEN** a person on a machine with Docker runs `./init.sh`, fills the credit, `GITHUB_TOKEN` and the repository, and runs `docker compose up -d` in `quickstart/compose/`
-- **THEN** the sandbox image is built, the bot logs `Web chat running` and the sign-in link, and nothing was pulled from a registry other than the bot image and the sandbox image's base
+- **THEN** nothing is built on the machine, and the bot logs `Web chat running` and the sign-in link
 
 #### Scenario: First answer
 - **WHEN** the person opens the link and posts a question in the project's room
-- **THEN** a sandbox container is created from `coach-aven-sandbox-plain:local` without `--privileged`, the repository is cloned, and the answer lands in the thread
+- **THEN** a sandbox container is created from `ghcr.io/pedalix/coach-aven-sandbox-plain:<the bot's version>` without `--privileged`, the repository is cloned, and the answer lands in the thread
 
 #### Scenario: Not on the LAN
 - **WHEN** another machine on the same network opens port 8787 of the person's machine

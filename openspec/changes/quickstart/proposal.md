@@ -27,7 +27,7 @@ What is missing is the path that joins them, plus two gaps:
 - **A `quickstart/` directory in the repository: a complete installation directory.** It has the layout of an ops overlay and of a box (`container-deploy` D1), so the quickstart and an operated installation differ only in their values:
   - `.env.example`: the minimum for a trial, about seven lines (credit, `GITHUB_TOKEN`, web chat, local sandboxes);
   - `projects.config.example.json`: one project, one repository, `sandbox: { privileged: false, dind: false }`, no MCP, no workspaces, and sandbox names of its own (`qs-`), so it never shares a container with another installation on the same machine;
-  - `compose/compose.yaml`: the bot from the published image (`orch web`), and a one-shot service that builds the plain sandbox image locally from `snapshot/plain`;
+  - `compose/compose.yaml`: the bot from the published image (`orch web`), its sandboxes from the published plain sandbox image of the same version, and a `setup-token` service run on demand;
   - `init.sh`: copies the two templates when their targets are missing, and writes the machine's values into `compose/.env`: the image version of the clone's commit, the user, the group, the Docker socket's group as a container sees it, and the port. It never asks for or writes a credential.
 - **The steps.**
   1. Clone at the latest release tag.
@@ -48,6 +48,8 @@ What is missing is the path that joins them, plus two gaps:
   - `docs/web.md` describes `WEB_AUTH=link`.
 - **The measurement.** A rehearsal on a fresh Linux machine by Claude, then the maintainer on a clean VM. The times go into `docs/quickstart.md`.
 
+- **The plain sandbox image is published (added 2026-10-30, after the first rehearsal).** CI builds `snapshot/plain` beside the bot image for every `main` commit and promotes it on a release tag, as `ghcr.io/pedalix/coach-aven-sandbox-plain` under the bot's version names. The quickstart then builds nothing on the machine: one version names both images, the step that built the image for 70 s is gone, and `setup-token` runs from a pulled image. Operated installations keep building their own sandbox images.
+
 ## Capabilities
 
 ### New Capabilities
@@ -55,7 +57,9 @@ What is missing is the path that joins them, plus two gaps:
 - `web-local-login`: the web chat's sign-in link for a local installation. It covers when the mode is accepted, what the link grants, and what a request without it gets.
 
 ### Modified Capabilities
-None. The web chat's and the compose runtime's own specs belong to changes still in flight (`web-chat-driver`, `container-deploy`). This change adds beside them and does not modify their requirements.
+- `sandbox-image`: the plain variant is published by this repository's CI under the bot image's version names.
+
+Otherwise none. The web chat's and the compose runtime's own specs belong to changes still in flight (`web-chat-driver`, `container-deploy`). This change adds beside them and does not modify their requirements.
 
 ## Impact
 
@@ -73,7 +77,6 @@ None. The web chat's and the compose runtime's own specs belong to changes still
 - **Files:** `quickstart/`, `docs/quickstart.md`, `README.md`, `docs/web.md`, `docs/rollout.md`.
 - **Out of scope:**
   - **Changing defaults for operated installations.** Privileged docker-in-docker stays the default for a project without a `sandbox` block. Making it opt-in is a bucket-3 change of its own.
-  - **A published plain sandbox image.** It is built locally. Publishing it is a later choice if trial reports show the build hurts.
   - **The README's first screen, `docs/security.md`, `local-dev.md` in three levels, `troubleshooting.md` and `configuration.md`.** These are docs PRs beside this change, without OpenSpec.
   - **An `orch doctor`.** Checks will come from real failure reports, one at a time; the Docker check is the first.
   - **Slack or Teams in the quickstart.** They are documented as the next step, not part of the trial.

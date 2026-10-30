@@ -1,8 +1,8 @@
 # Try it on one machine
 
 CoachAven on one machine with Docker: the agent answers in a web chat on `localhost` and works on one of your GitHub
-repositories in an unprivileged sandbox container. You need no Slack app, no identity provider, no image registry, no
-privileged container and no one else's approval. This is the trial path (OpenSpec `quickstart`): the same installation
+repositories in an unprivileged sandbox container. You need no Slack app, no identity provider, no registry or image build of
+your own, no privileged container and no one else's approval. This is the trial path (OpenSpec `quickstart`): the same installation
 layout as an operated one, with the safe settings. When you want more, see [Going on](#going-on).
 
 **Measured:** a rehearsal on 2026-10-30, on a fresh Linux machine (a `docker:dind` container standing in for a clean
@@ -27,11 +27,11 @@ Run on: Docker Engine on Linux and Docker Desktop on Windows (WSL), 2026-10-30. 
 | # | Step | Time |
 |---|---|---|
 | 1 | Clone at the latest release | 5 s |
-| 2 | `./init.sh` (pulls the bot image) | 35 s |
-| 3 | A Claude subscription token *(you)* — building the sandbox image for it | 70 s + your sign-in |
+| 2 | `./init.sh` (pulls the bot image and the sandbox image) | – (35 s before the sandbox image was published) |
+| 3 | A Claude subscription token *(you)* | your sign-in |
 | 4 | A GitHub token for one repository *(you)* | a few minutes |
 | 5 | Fill three values *(you)* | a minute |
-| 6 | `docker compose up -d` (builds the sandbox image unless step 3 did) | 5 s (75 s with the build) |
+| 6 | `docker compose up -d` | 5 s |
 | 7 | Open the sign-in link | seconds |
 | 8 | Ask in the project's room: the first answer (sandbox created, repository cloned) | 25 s |
 | – | Ask for a change: the agent's pull request | 25 s |
@@ -64,10 +64,10 @@ moving the clone to another release.
 claude setup-token
 ```
 
-or without installing anything, from the sandbox image (the first run builds it, a few minutes):
+or without installing anything, from the sandbox image `init.sh` pulled:
 
 ```sh
-cd compose && docker compose run --rm sandbox-image claude setup-token; cd ..
+cd compose && docker compose run --rm setup-token; cd ..
 ```
 
 Either one opens a sign-in URL, asks you to paste back a code, and prints a token starting with `sk-ant-oat`. For a
@@ -87,7 +87,7 @@ repository access *Only select repositories* (the one the agent works on); permi
 cd compose && docker compose up -d
 ```
 
-The first start builds the sandbox image from `snapshot/plain` and pulls the bot image; then the bot starts.
+Nothing is built or downloaded here: `init.sh` pulled both images.
 
 **7. Sign in.**
 
@@ -111,6 +111,10 @@ change and the agent opens a pull request.
   runs in this container.
 - **The sandbox** (container `qs-demo`): unprivileged, no Docker socket, no Docker of its own; the repository, the
   Claude Code process, your two tokens. What an agent in a sandbox can and cannot reach: [`SECURITY.md`](../SECURITY.md).
+- **The images:** both published by this repository's CI for every `main` commit and release, under one version name —
+  `ghcr.io/pedalix/coach-aven` (the bot) and `ghcr.io/pedalix/coach-aven-sandbox-plain` (the sandbox: Claude Code, git,
+  `gh`, Node, Python and the usual shell tools; no Docker). A project that needs more tools needs its own sandbox image:
+  build one from `snapshot/plain` and name it with `SANDBOX_IMAGE=<image> ./init.sh`.
 - **The state:** `quickstart/` — `.env`, `projects.config.json`, `state.json`, the journals, `data/` (the chat's
   history), `home/`, `web-session.secret`.
 
@@ -124,7 +128,7 @@ The sandbox is not a compose service, so `down` leaves it — and it holds your 
 ```sh
 (cd quickstart/compose && docker compose down)
 docker ps -aq --filter label=managedBy=coach-aven-quickstart | xargs -r docker rm -f
-docker image rm coach-aven-sandbox-plain:local
+docker images -q 'ghcr.io/pedalix/coach-aven*' | xargs -r docker image rm -f
 ```
 
 Then delete the clone, or only `quickstart/`'s untracked files: `git clean -fdX quickstart/` (your `.env`, the state

@@ -1,6 +1,8 @@
 name: Image
 
-# The bot's image (OpenSpec bot-image; container-deploy D6): one build per architecture on a native runner
+# The bot's image (OpenSpec bot-image; container-deploy D6) and the plain sandbox image (OpenSpec sandbox-image,
+# quickstart D3) — the unprivileged sandbox a quickstart runs, published under the same version name as the bot,
+# so one version names both. One build per image and architecture on a native runner
 # (ubuntu-24.04, ubuntu-24.04-arm — free for public repositories; QEMU would emulate `npm ci` for minutes),
 # each pushed by digest, then one manifest list published as sha-<commit>, the full commit id.
 #
@@ -8,7 +10,9 @@ name: Image
 # yet, and by hand (workflow_dispatch) for a branch head. The build context is `git archive <commit>`:
 # tracked files only, never a working tree. Each architecture reads and writes a build cache in the registry
 # (buildcache-<arch>): when the lockfile has not changed, the dependency layer is the very same layer as in
-# the previous image, so a box pulls only the code. The registry is ghcr.io/<owner>/coach-aven, written with
+# the previous image, so a box pulls only the code. The sandbox image's context is the commit's
+# snapshot/plain tree (`git archive <commit>:snapshot/plain`), built with its Dockerfile's own CLI pin, which
+# the CLI gate test keeps on a probed version. The registry is ghcr.io/<owner>/coach-aven(-sandbox-plain), written with
 # this workflow's own GITHUB_TOKEN (packages: write); nothing else gets a credential, and the package is
 # public, so boxes pull anonymously.
 
@@ -37,6 +41,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        arch: [amd64, arm64]
+        image:
+          - name: coach-aven
+            tree: ''
+          - name: coach-aven-sandbox-plain
+            tree: ':snapshot/plain'
         include:
           - arch: amd64
             runner: ubuntu-24.04
@@ -46,6 +56,8 @@ jobs:
     env:
       COMMIT: ${{ inputs.commit || github.sha }}
       ARCH: ${{ matrix.arch }}
+      NAME: ${{ matrix.image.name }}
+      TREE: ${{ matrix.image.tree }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -56,11 +68,11 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build linux/${{ matrix.arch }} from the commit's tracked files and push it by digest
+      - name: Build ${{ matrix.image.name }} for linux/${{ matrix.arch }} from the commit's tracked files and push it by digest
         run: |
           set -euo pipefail
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/coach-aven"
-          git archive --format=tar "$COMMIT" | docker buildx build \
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$NAME"
+          git archive --format=tar "$COMMIT$TREE" | docker buildx build \
             --platform "linux/$ARCH" \
             --cache-from "type=registry,ref=$IMAGE:buildcache-$ARCH" \
             --cache-to "type=registry,ref=$IMAGE:buildcache-$ARCH,mode=max" \
@@ -72,12 +84,12 @@ jobs:
             -
           digest="$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/meta.json")"
           [[ "$digest" == sha256:* ]] || { echo "no digest in the build metadata"; exit 1; }
-          mkdir -p "$RUNNER_TEMP/digests" && touch "$RUNNER_TEMP/digests/${digest#sha256:}"
+          mkdir -p "$RUNNER_TEMP/digests/$NAME" && touch "$RUNNER_TEMP/digests/$NAME/${digest#sha256:}"
           echo "linux/$ARCH: $IMAGE@$digest"
       - uses: actions/upload-artifact@v4
         with:
-          name: digest-${{ matrix.arch }}
-          path: ${{ runner.temp }}/digests/*
+          name: digest-${{ matrix.image.name }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/
           if-no-files-found: error
           retention-days: 1
 
@@ -101,16 +113,20 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish the manifest list as sha-<commit>
+      - name: Publish each image's manifest list as sha-<commit>
         id: publish
         run: |
           set -euo pipefail
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/coach-aven"
+          OWNER="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
           TAG="sha-$COMMIT"
-          refs=()
-          for d in "$RUNNER_TEMP"/digests/*; do refs+=("$IMAGE@sha256:$(basename "$d")"); done
-          [[ ${#refs[@]} -eq 2 ]] || { echo "expected two images (amd64, arm64), got ${#refs[@]}"; exit 1; }
-          docker buildx imagetools create -t "$IMAGE:$TAG" "${refs[@]}"
-          docker buildx imagetools inspect "$IMAGE:$TAG"
+          for NAME in coach-aven coach-aven-sandbox-plain; do
+            IMAGE="$OWNER/$NAME"
+            refs=()
+            for d in "$RUNNER_TEMP/digests/$NAME"/*; do refs+=("$IMAGE@sha256:$(basename "$d")"); done
+            [[ ${#refs[@]} -eq 2 ]] || { echo "$NAME: expected two images (amd64, arm64), got ${#refs[@]}"; exit 1; }
+            docker buildx imagetools create -t "$IMAGE:$TAG" "${refs[@]}"
+            docker buildx imagetools inspect "$IMAGE:$TAG"
+          done
+          IMAGE="$OWNER/coach-aven"
           echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"

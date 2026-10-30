@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       image_inputs: ${{ steps.image_inputs.outputs.changed }}
+      sandbox_inputs: ${{ steps.image_inputs.outputs.sandbox }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -36,6 +37,11 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+          if git diff --name-only "$BASE" "$HEAD" | grep -qE '^snapshot/plain/'; then
+            echo "sandbox=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sandbox=false" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-node@v6
         with:
@@ -147,3 +153,35 @@ jobs:
           set -euo pipefail
           docker run --rm --user 4242:4242 -e HOME=/tmp -e AVEN_DIR=/tmp coach-aven:pr --help
           docker run --rm --entrypoint sh coach-aven:pr -c 'git --version && ssh -V && docker --version && age --version && gitleaks version'
+
+  # The same for the plain sandbox image (published beside the bot, quickstart D3): a pull request that changes
+  # snapshot/plain builds it on both architectures without publishing, and checks the toolchain its spec
+  # (sandbox-image) promises, the pinned CLI included.
+  sandbox-pr:
+    needs: verify
+    if: github.event_name == 'pull_request' && needs.verify.outputs.sandbox_inputs == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: read
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the plain sandbox image for linux/${{ matrix.arch }} (not published)
+        run: |
+          set -euo pipefail
+          git archive --format=tar HEAD:snapshot/plain | docker buildx build --platform "linux/$ARCH" --load -t sandbox-plain:pr -
+      - name: The toolchain the spec promises, and no Docker
+        run: |
+          set -euo pipefail
+          docker run --rm sandbox-plain:pr sh -c 'for t in bash git gh curl jq ssh rg node npm python3 pip3 make unzip rsync claude; do command -v $t >/dev/null || { echo "missing: $t"; exit 1; }; done; ! command -v docker; claude --version'

@@ -7,24 +7,21 @@
 # clone's commit (its tag, or sha-<commit>; never `latest` — what runs must be nameable), your uid and gid (the
 # state stays yours, no sudo to clean up), the Docker socket's group as a container sees it, and the web port.
 #
-#   sandbox-image  builds the unprivileged sandbox image from snapshot/plain at the first `up` (a few minutes,
-#                  cached afterwards) and exits; the bot finds it by name and never pulls it. Rebuild after
-#                  updating the clone: docker compose build sandbox-image
 #   bot            `orch web`: the web chat on 127.0.0.1 only, behind a sign-in link with a new key at every start
 #                  (docker compose logs bot | grep sign-in | tail -n 1). The Docker socket lets it create the sandboxes as its
 #                  siblings — root-equivalent on this machine, which is why the agent never runs in this container,
 #                  only in the unprivileged sandboxes.
 #
+#   setup-token    not started by `up` (a profile): `docker compose run --rm setup-token` runs `claude setup-token` in
+#                  the sandbox image, to get a subscription token without installing Claude Code.
+#
+# The sandboxes run the published plain sandbox image of the same version as the bot
+# (ghcr.io/pedalix/coach-aven-sandbox-plain:${AVEN_VERSION}), pulled by init.sh; SANDBOX_IMAGE in compose/.env
+# (init.sh writes it when you set it) names another — a local build of snapshot/plain, say.
 # The sandboxes are not compose services: `docker compose down` leaves them. Uninstall in docs/quickstart.md.
 name: coach-aven-quickstart
 
 services:
-  sandbox-image:
-    build: ../../snapshot/plain
-    image: coach-aven-sandbox-plain:local
-    command: ["true"]
-    restart: "no"
-
   bot:
     image: ghcr.io/pedalix/coach-aven:${AVEN_VERSION:?run ./init.sh first}
     command: ["web"]
@@ -38,6 +35,7 @@ services:
       NODE_ENV: production
       WEB_PORT: ${AVEN_WEB_PORT:?run ./init.sh first}
       WEB_BASE_URL: http://localhost:${AVEN_WEB_PORT:?run ./init.sh first}
+      SNAPSHOT_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/pedalix/coach-aven-sandbox-plain:${AVEN_VERSION:?run ./init.sh first}}
     volumes:
       - ..:/aven
       - /var/run/docker.sock:/var/run/docker.sock
@@ -46,6 +44,8 @@ services:
     init: true
     stop_grace_period: 90s
     restart: unless-stopped
-    depends_on:
-      sandbox-image:
-        condition: service_completed_successfully
+
+  setup-token:
+    image: ${SANDBOX_IMAGE:-ghcr.io/pedalix/coach-aven-sandbox-plain:${AVEN_VERSION:?run ./init.sh first}}
+    profiles: [tools]
+    command: ["claude", "setup-token"]

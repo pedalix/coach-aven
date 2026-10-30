@@ -17,7 +17,10 @@ IMAGE=ghcr.io/<your-org>/coach-aven-sandbox-laravel ./build-and-push.sh        #
 IMAGE=ghcr.io/<your-org>/coach-aven-sandbox-plain   ./build-and-push.sh plain  # plain
 ```
 
-The image repo is the installation's, never this repo's: `IMAGE` is required for a push. Point
+The image repo is the installation's: `IMAGE` is required for a push. One exception: this repository's CI publishes
+the `plain` variant of every `main` commit and release as `ghcr.io/pedalix/coach-aven-sandbox-plain:sha-<commit>` /
+`:vX.Y.Z`, the same version names as the bot image, for the quickstart (`docs/quickstart.md`) and anyone whose projects
+need nothing beyond its toolchain. Anything more (PHP, a database client, Sail) is an image of your own. Point
 `SNAPSHOT_IMAGE` at the `:<gitsha>` tag the build prints, not `:latest`; the image is
 deployment-wide, so a plain project lives on an instance whose fleet image is the plain variant.
 
