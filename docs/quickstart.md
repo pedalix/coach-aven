@@ -5,7 +5,11 @@ repositories in an unprivileged sandbox container. You need no Slack app, no ide
 privileged container and no one else's approval. This is the trial path (OpenSpec `quickstart`): the same installation
 layout as an operated one, with the safe settings. When you want more, see [Going on](#going-on).
 
-**Measured:** not yet — the times below are filled in by the first measured run on a clean machine.
+**Measured:** a rehearsal on 2026-10-30, on a fresh Linux machine (a `docker:dind` container standing in for a clean
+VM, on a laptop's network) and on Docker Desktop under WSL. About **3 minutes of machine time** from clone to the first
+answer; the rest is your own time for the three steps marked *(you)* — signing in to Claude, making the GitHub token and
+editing two files, about 10 minutes the first time. A timed run on a clean cloud VM replaces these numbers after the next
+release.
 
 ## Before you start
 
@@ -16,20 +20,21 @@ layout as an operated one, with the safe settings. When you want more, see [Goin
 | A GitHub account with a repository you may push to | the agent's work and its pull requests | you |
 | A Claude subscription (Pro or Max) — or an Anthropic Console account for an API key | the model | you |
 
-Run on: Docker Engine on Linux (the rehearsal). Docker Desktop on Windows (WSL) and on macOS: not yet reported.
+Run on: Docker Engine on Linux and Docker Desktop on Windows (WSL), 2026-10-30. macOS: not yet reported.
 
 ## The steps
 
 | # | Step | Time |
 |---|---|---|
-| 1 | Clone at the latest release | – |
-| 2 | `./init.sh` | – |
-| 3 | A Claude subscription token | – |
-| 4 | A GitHub token for one repository | – |
-| 5 | Fill three values | – |
-| 6 | `docker compose up -d` (the first one builds the sandbox image) | – |
-| 7 | Open the sign-in link | – |
-| 8 | Ask in the project's room | – |
+| 1 | Clone at the latest release | 5 s |
+| 2 | `./init.sh` (pulls the bot image) | 35 s |
+| 3 | A Claude subscription token *(you)* — building the sandbox image for it | 70 s + your sign-in |
+| 4 | A GitHub token for one repository *(you)* | a few minutes |
+| 5 | Fill three values *(you)* | a minute |
+| 6 | `docker compose up -d` (builds the sandbox image unless step 3 did) | 5 s (75 s with the build) |
+| 7 | Open the sign-in link | seconds |
+| 8 | Ask in the project's room: the first answer (sandbox created, repository cloned) | 25 s |
+| – | Ask for a change: the agent's pull request | 25 s |
 
 **1. Clone at the latest release.**
 

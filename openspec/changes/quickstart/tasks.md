@@ -119,8 +119,8 @@
 
 ## 5. Ship and measure
 
-- [ ] 5.1 One PR for sections 1–4, bucket 2, with the ledger row. No Home tab change: the Slack surface is untouched. Verify: `npm run typecheck`, `npm test`, the public guard and gitleaks on every changed file and on the PR text, and an independent review before merge.
-- [ ] 5.2 The Linux rehearsal (design D8). In a fresh privileged `docker:dind` container standing in for a clean Linux machine, follow `docs/quickstart.md` verbatim from `git clone` to the first answer in the room, on the merged `main` commit (`sha-<commit>`).
+- [x] 5.1 One PR for sections 1–4, bucket 2, with the ledger row. No Home tab change: the Slack surface is untouched. Verify: `npm run typecheck`, `npm test`, the public guard and gitleaks on every changed file and on the PR text, and an independent review before merge.
+- [x] 5.2 The Linux rehearsal (design D8). In a fresh privileged `docker:dind` container standing in for a clean Linux machine, follow `docs/quickstart.md` verbatim from `git clone` to the first answer in the room, on the merged `main` commit (`sha-<commit>`).
   - Time each step.
   - Use a fine-grained token for a scratch repository and a subscription token.
   - Try `docker compose run --rm sandbox-image claude setup-token` in a TTY. If it does not work, drop that way from the page.
@@ -132,11 +132,23 @@
   - a PR opened by the agent in the scratch repository;
   - no container with the quickstart's label left after "Uninstall";
   - the times in the page.
-- [ ] 5.3 The WSL run on the maintainer's machine. The quickstart runs beside the home bot with `AVEN_WEB_PORT=8790`. Verify:
+  *Done 2026-10-30 on `sha-eb1b7a4`, in `docker:dind` on WSL2:*
+  - 5 s clone, 35 s `init.sh`, 70 s sandbox image build, 5 s `up`;
+  - 25 s to the first answer, 25 s to the agent's PR in the scratch repository;
+  - `setup-token` in a TTY reaches "Paste code here";
+  - the GitHub token was an App installation token scoped to the scratch repository, because a fine-grained token can only be created in the UI;
+  - "Uninstall" left nothing.
+
+  Nothing in the page needed fixing. The note for a release that predates `quickstart/` was exercised: v0.43.0.
+- [x] 5.3 The WSL run on the maintainer's machine. The quickstart runs beside the home bot with `AVEN_WEB_PORT=8790`. Verify:
   - the socket group `init.sh` found works;
   - the first answer;
   - the home bot's containers untouched.
 
   Then run "Uninstall".
+  *Done 2026-10-30 on port 8790 beside the home bot:*
+  - `init.sh` found group 1001;
+  - first answer in 21 s;
+  - the home containers were untouched.
 - [ ] 5.4 **Needs the maintainer: a clean cloud VM and a stopwatch, after the next release tag.** The maintainer follows the page. Goal: under 60 minutes from clone to first answer. The times replace the rehearsal's, with the date and the VM type. Verify: the page's numbers and the date; the ledger row retired.
 - [ ] 5.5 Archive with `/opsx:archive` after 5.4.
