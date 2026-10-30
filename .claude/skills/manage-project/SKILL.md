@@ -48,10 +48,10 @@ then gather only what changes. The field reference (shape in `src/projects.ts`):
 
 | Field | What / notes | Applies |
 |---|---|---|
-| `slug` | kebab-case, unique. Sandbox `proj-<slug>`, channel `aven-<slug>`, env names `AUTH0_M2M_<SLUG>_*`. **Never rename** an existing one (routing keys orphan live sessions) — add new + remove old instead. | — |
+| `slug` | kebab-case, unique. Sandbox `proj-<slug>`, channel `aven-<slug>`, env names `GATEWAY_OAUTH_<SLUG>_*` (only if the project needs its own gateway client). **Never rename** an existing one (routing keys orphan live sessions) — add new + remove old instead. | — |
 | `repos` | `["Org/repo", …]`, `repos[0]` primary, all cloned side by side. Token scope = repos + their composer deps (automatic, see below). | new sessions; an added repo is cloned at the next chat prep |
 | prompt | `projects.d/<slug>.md` — a non-empty file **wins** over the legacy JSON `systemPrompt` (only `coach-aven` still uses the JSON field). Step 2 generates it. | new sessions |
-| `mcp` | Gateway projects: exactly `[{"name":"gw","url":"https://<gateway-host>/gw/<slug>/mcp","auth":"gateway-m2m"}]` (name MUST be `gw`). No MCP → `[]`. Direct entries (`url`+`headers` or `command`/`args`/`env`, secrets as `${VAR}` from runtime `.env`) are legacy. | new sessions |
+| `mcp` | Gateway projects: exactly `[{"name":"gw","url":"https://<gateway-host>/gw/<slug>/mcp","auth":"gateway-m2m","oauth":{"tokenUrl":"https://<tenant>/oauth/token","audience":"https://<gateway-host>/gw/<slug>/mcp"}}]` (name MUST be `gw`; `audience` = THIS project's route URL — a copy of another project's fails the load; Cognito: `"scope"` instead of `"audience"`, `docs/runtime-config.md` → *MCP gateway*). An entry without `oauth` is deprecated (a load warning). No MCP → `[]`. Direct entries (`url`+`headers` or `command`/`args`/`env`, secrets as `${VAR}` from runtime `.env`) are legacy. | new sessions |
 | `mcpDirectBackup` | Not read by the code — the pre-gateway direct list parked for rollback (move it back into `mcp` to bypass the gateway). Keep it when switching a project to `gw`. | — |
 | `youtrackProjects` | `["CG","CAR",…]` — YouTrack prefixes whose tagged tickets the investigation poller routes here. A new prefix ALSO needs the bot's read scope in your YouTrack proxy (`YT_MCP_SCOPES`, see Step 4) or the agent can't read the ticket (CAR-14 lesson). | reload |
 | `driver` | Set `"ssh-docker"`, the only driver. Omitted, it is the installation's `SANDBOX_DRIVER`: ssh-docker on current releases, but a rollback to v0.42.0 or older reads an omitted field as the removed Daytona driver unless `.env` sets `SANDBOX_DRIVER=ssh-docker`. Any other value is refused at boot and at `/aven reload`, never followed (`docs/sandbox-drivers.md`). | next turn |
@@ -114,7 +114,12 @@ Edit `infra/<slug>/projects.config.json` (+ `projects.d/<slug>.md`). Minimal new
   "repos": ["your-org/my-repo"],
   "driver": "ssh-docker",
   "env": {},
-  "mcp": [{ "name": "gw", "url": "https://<gateway-host>/gw/my-project/mcp", "auth": "gateway-m2m" }]
+  "mcp": [{
+    "name": "gw",
+    "url": "https://<gateway-host>/gw/my-project/mcp",
+    "auth": "gateway-m2m",
+    "oauth": { "tokenUrl": "https://<tenant>/oauth/token", "audience": "https://<gateway-host>/gw/my-project/mcp" }
+  }]
 }
 ```
 
@@ -139,8 +144,9 @@ infra repo (its path and runbooks are in `infra/<slug>/README.md`). Prepare the 
 deploy the gateway yourself unless asked. The shape, for an Auth0 + agentgateway setup:
 
 1. **Auth0** (`id/auth0/main.tf`): add the slug to `local.projects` → `terraform apply`
-   creates the API (identifier = the route URL) + M2M client `coach-aven-<slug>` + grant.
-   `terraform output -json m2m_clients` → `id/auth0/.env.clients`; never print secrets.
+   creates the API (identifier = the route URL) + the grant of the installation's ONE bot
+   client on it. No new client per project (a free tenant caps applications at 10, M2M
+   included, and APIs at 10). Never print secrets.
 2. **Gateway** (`engine/config.yaml`): a backend with the project's `targets` (analytics
    first — instructions are cut at 2048 chars) + a route `/gw/<slug>/mcp` with its
    `mcpAuthorization` policy block (copy an existing one; `<slug>:bot` must get the tools
@@ -151,8 +157,9 @@ deploy the gateway yourself unless asked. The shape, for an Auth0 + agentgateway
    in the observability `.env` — add the prefix there (and an htpasswd user +
    `YT_MCP_BASIC_AUTH_<SLUG>` for a new project). Prefix in `youtrackProjects` without
    the scope = poller fires, agent can't read the ticket.
-4. **CoachAven runtime `.env`:** `AUTH0_M2M_<SLUG>_ID` / `_SECRET` (slug upper-cased,
-   `-`→`_`) from `.env.clients`; `AUTH0_M2M_TOKEN_URL` is already there. Any `.env`
+4. **CoachAven runtime `.env`:** nothing per project — `GATEWAY_OAUTH_ID` / `_SECRET` (the
+   installation's bot client) serve every `oauth` entry. Only a project with its own client (another
+   provider) gets `GATEWAY_OAUTH_<SLUG>_ID` / `_SECRET` (slug upper-cased, `-`→`_`). Any `.env`
    change means **`npm run ops -- <slug> restart`, not just `/aven reload`** — env is read at boot.
 
 Verify the route before switching the bot to it (expect 200 + instructions; token
@@ -164,7 +171,7 @@ curl -s -X POST https://<gateway-host>/gw/<slug>/mcp -H "Authorization: Bearer $
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"0"}}}'
 ```
 
-Order matters: the gateway route + Auth0 client + `.env` secrets must exist BEFORE the
+Order matters: the gateway route + the bot's grant on its API (+ `.env` secrets, the first time) must exist BEFORE the
 `gw` entry ships, or the project's sessions start with no tools (401).
 
 ## Step 5 — show the diff and confirm deploy

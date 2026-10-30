@@ -6,7 +6,14 @@ import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import { validateSourcesConfig } from './sources/config.js';
 import type { SourcesConfig } from './sources/types.js';
 import { validateMessagingConfig, type MessagingConfig } from './messaging/config.js';
-import { validateGatewayOAuth, type GatewayOAuth } from './gwtoken.js';
+import {
+  INSTALLATION_OAUTH_ENV,
+  describeTokenRequest,
+  legacyGatewayProjects,
+  sharedTokenRequests,
+  validateGatewayOAuth,
+  type GatewayOAuth,
+} from './gwtoken.js';
 import { log } from './log.js';
 
 // Registry of the projects the bot serves. ONE bot, MANY channels: each Slack channel
@@ -33,12 +40,13 @@ export interface McpServerSpec {
   // `gateway-m2m`: a remote server behind the MCP gateway (engine.example.com/gw/<slug>/mcp)
   // that the bot reaches as its project's machine client. The orchestrator mints and caches the
   // token (gwtoken.ts) and writes it into the sandbox; Claude Code picks it up via the server's
-  // `headersHelper` (mcp.ts). Without `oauth`: the Auth0 client coach-aven-<slug>, needs
-  // AUTH0_M2M_<SLUG>_ID/_SECRET + AUTH0_M2M_TOKEN_URL.
+  // `headersHelper` (mcp.ts). Without `oauth`: DEPRECATED (a warning at load) — the Auth0-specific
+  // request, AUTH0_M2M_<SLUG>_ID/_SECRET + AUTH0_M2M_TOKEN_URL.
   auth?: 'gateway-m2m';
-  // Only on a `gateway-m2m` entry: mint with a standard OAuth 2.0 client-credentials request
-  // instead (any RFC 6749 server — Amazon Cognito first). No secret here: the client id and
-  // secret come from GATEWAY_OAUTH_<SLUG>_ID/_SECRET. Stays on the bot side — buildMcpServers
+  // On a `gateway-m2m` entry: mint with the standard OAuth 2.0 client-credentials request (any
+  // RFC 6749 server — Auth0 with `audience` = the route URL, Cognito with a `scope` per route). No
+  // secret here: the client id and secret come from GATEWAY_OAUTH_<SLUG>_ID/_SECRET, or else the
+  // installation's GATEWAY_OAUTH_ID/_SECRET. Stays on the bot side — buildMcpServers
   // never copies it into the sandbox's MCP config. See docs/runtime-config.md → *MCP gateway*.
   oauth?: GatewayOAuth;
 }
@@ -125,6 +133,12 @@ export interface ProjectsRegistry {
 }
 
 // The slug list of a workspaces entry, whatever its shape.
+// "a", "b" and "c" — project slugs in a message.
+function quoted(slugs: string[]): string {
+  const q = slugs.map((s) => `"${s}"`);
+  return q.length > 1 ? `${q.slice(0, -1).join(', ')} and ${q[q.length - 1]}` : q.join('');
+}
+
 export function entrySlugs(e: WorkspaceEntry | undefined): string[] | undefined {
   if (!e) return undefined;
   return Array.isArray(e) ? e : e.projects;
@@ -144,7 +158,8 @@ export interface RegistryRef {
   current: ProjectsRegistry;
 }
 
-export function loadProjects(path: string): ProjectsRegistry {
+// `env` is read for one check only (the installation gateway client, below); tests inject it.
+export function loadProjects(path: string, env: Record<string, string | undefined> = process.env): ProjectsRegistry {
   if (!existsSync(path)) {
     throw new Error(
       `Project registry not found at ${path}. Copy projects.config.example.json → ` +
@@ -235,6 +250,26 @@ export function loadProjects(path: string): ProjectsRegistry {
         }
       }
     }
+  }
+  // Gateway entries (OpenSpec gateway-installation-client). Two projects on the installation client
+  // asking for the same token would get interchangeable tokens — one project's token valid on the
+  // other's route — so the load fails, like any config that breaks isolation (D3). Entries without
+  // `oauth` still mint as before but are deprecated: one warning per load (D4).
+  const [shared] = sharedTokenRequests(reg.projects, env);
+  if (shared) {
+    throw new Error(
+      `${path}: projects ${quoted(shared.slugs)} take the installation gateway client (${INSTALLATION_OAUTH_ENV.id}) and ask for ` +
+        `the same token (${describeTokenRequest(shared.request)}) — a token minted for one would be valid on the other's route; ` +
+        `give each entry its own route's audience or scope, or a project its own GATEWAY_OAUTH_<SLUG>_* pair`,
+    );
+  }
+  const legacy = legacyGatewayProjects(reg.projects);
+  if (legacy.length) {
+    log.warn(
+      `${path}: projects ${quoted(legacy)} reach the gateway with the deprecated Auth0-specific request (a gateway-m2m entry ` +
+        `without "oauth") — give each entry an "oauth" object with "tokenUrl" (https://<tenant>/oauth/token) and "audience" ` +
+        `(its route URL); see docs/runtime-config.md → MCP gateway`,
+    );
   }
   // The workspaces block (when present) must reference real slugs — a typo would
   // silently hide a project from its tenant, so fail the boot instead.

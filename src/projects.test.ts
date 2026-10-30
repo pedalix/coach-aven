@@ -288,3 +288,65 @@ test('driver — "daytona", a typo or any other value fails the load naming the 
     }
   });
 });
+
+// ── gateway entries (OpenSpec gateway-installation-client) ─────────────────────────────────
+
+const legacyGateway = (slug: string) => ({ slug, repos: [`Org/${slug}`], mcp: [{ name: 'gw', url: `https://gw.example/gw/${slug}/mcp`, auth: 'gateway-m2m' }] });
+
+// The bucket-2 pin (task 1.1 b), written against the code before the change: gateway entries
+// without `oauth` and no installation pair load to exactly the registry they loaded to before.
+test('gateway: entries without oauth and no installation pair load as before', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ projects: [legacyGateway('caldora'), legacyGateway('verdant')] }));
+    assert.deepEqual(loadProjects(cfg), {
+      projects: [
+        { slug: 'caldora', repos: ['Org/caldora'], mcp: [{ name: 'gw', url: 'https://gw.example/gw/caldora/mcp', auth: 'gateway-m2m' }] },
+        { slug: 'verdant', repos: ['Org/verdant'], mcp: [{ name: 'gw', url: 'https://gw.example/gw/verdant/mcp', auth: 'gateway-m2m' }] },
+      ],
+    });
+  });
+});
+
+const inst = { GATEWAY_OAUTH_ID: 'cid-inst', GATEWAY_OAUTH_SECRET: 'sec-inst' };
+const oauthGateway = (slug: string, audienceSlug = slug) => ({
+  slug,
+  repos: [`Org/${slug}`],
+  mcp: [{ name: 'gw', url: `https://gw.example/gw/${slug}/mcp`, auth: 'gateway-m2m', oauth: { tokenUrl: 'https://tenant.example/oauth/token', audience: `https://gw.example/gw/${audienceSlug}/mcp` } }],
+});
+
+test('gateway: two projects on the installation client asking for one token fail the load, naming both and no secret', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ projects: [oauthGateway('caldora'), oauthGateway('verdant', 'caldora')] }));
+    assert.throws(
+      () => loadProjects(cfg, inst),
+      (e: Error) =>
+        e.message.includes(cfg) &&
+        /projects "caldora" and "verdant" take the installation gateway client \(GATEWAY_OAUTH_ID\) and ask for the same token \(https:\/\/tenant\.example, audience https:\/\/gw\.example\/gw\/caldora\/mcp\)/.test(e.message) &&
+        !/cid-inst|sec-inst/.test(e.message),
+    );
+    // the same config without the installation pair loads (each project would need its own pair)
+    assert.equal(loadProjects(cfg, {}).projects.length, 2);
+  });
+});
+
+test('gateway: one audience per route on the installation client loads, with no deprecation warning', (t) => {
+  withConfigDir((_dir, cfg) => {
+    const warn = t.mock.method(log, 'warn', () => {});
+    writeFileSync(cfg, JSON.stringify({ projects: [oauthGateway('caldora'), oauthGateway('verdant')] }));
+    assert.deepEqual(loadProjects(cfg, inst).projects.map((p) => p.slug), ['caldora', 'verdant']);
+    assert.equal(warn.mock.callCount(), 0);
+  });
+});
+
+test('gateway: entries without oauth warn once, naming the projects and the replacement', (t) => {
+  withConfigDir((_dir, cfg) => {
+    const warn = t.mock.method(log, 'warn', () => {});
+    writeFileSync(cfg, JSON.stringify({ projects: [legacyGateway('caldora'), oauthGateway('alder'), legacyGateway('verdant')] }));
+    loadProjects(cfg, {});
+    assert.equal(warn.mock.callCount(), 1);
+    assert.match(
+      String(warn.mock.calls[0]!.arguments[0]),
+      /projects "caldora" and "verdant" reach the gateway with the deprecated Auth0-specific request .* "oauth" object with "tokenUrl" .* and "audience" \(its route URL\); see docs\/runtime-config\.md/,
+    );
+  });
+});

@@ -119,53 +119,90 @@ overlay checkout with its two secret files in place is a complete installation d
 ## MCP gateway (per project)
 
 A project can reach all its MCP sources through the gateway (bluefin-infra `engine/`, agentgateway at
-`https://<gateway-host>/gw/<slug>/mcp`) instead of listing each upstream:
-
-```json
-"mcp": [{ "name": "gw", "url": "https://<gateway-host>/gw/<slug>/mcp", "auth": "gateway-m2m" }]
-```
-
-- The bot is the Auth0 M2M client `coach-aven-<slug>`. The orchestrator mints and caches its token
-  (`src/gwtoken.ts`, ≤ 1 mint per project per day — Auth0 Free allows 1000/month) from
-  `AUTH0_M2M_TOKEN_URL` + `AUTH0_M2M_<SLUG>_ID/_SECRET` in the prod `.env`, and writes only the token
-  into the sandbox (`/root/.aven/gw-token-gw`, 600) every turn. Claude Code reads it through the
-  server's `headersHelper` (`/root/.aven/gw-headers.sh`), which also sends `x-aven-session`
-  (the chat key) — the gateway logs it as `aven_session`, joining its audit to our event log.
-- What the bot may do is decided by the gateway's route policy, not here. Tool names become
-  `<source>_<tool>` (e.g. `youtrack_search_issues`); the project prompt should map them.
-- Name the entry `gw` — `steps.ts` renders `mcp__gw__<target>_<tool>` by target.
-
-### Another OAuth provider (e.g. Amazon Cognito)
-
-An installation whose identity provider is not Auth0 puts an `oauth` object on the gateway entry. The bot then
-mints with a standard OAuth 2.0 client-credentials request (RFC 6749 §4.4) instead of Auth0's:
+`https://<gateway-host>/gw/<slug>/mcp`) instead of listing each upstream. The entry names the route and how the
+bot asks for its token:
 
 ```json
 "mcp": [{
   "name": "gw",
-  "url": "http://gw.internal.example:4600/gw/<slug>/mcp",
+  "url": "https://<gateway-host>/gw/<slug>/mcp",
   "auth": "gateway-m2m",
-  "oauth": { "tokenUrl": "https://idp.example/oauth2/token", "scope": "gw-<slug>/bot" }
+  "oauth": { "tokenUrl": "https://<tenant>/oauth/token", "audience": "https://<gateway-host>/gw/<slug>/mcp" }
 }]
 ```
 
-- Fields: `tokenUrl` (https only), and optionally `scope` (sent as is — Cognito: `<resource-server>/<scope>`),
-  `audience` (servers that take Auth0's parameter), `resource` (RFC 8707), `clientAuth` (`basic`, the default:
-  HTTP Basic as RFC 6749 §2.3.1 and Cognito want; or `post`: id and secret in the form body). A malformed object,
-  or one carrying a credential, fails the config load naming the project.
-- Credentials: `GATEWAY_OAUTH_<SLUG>_ID` / `GATEWAY_OAUTH_<SLUG>_SECRET` in the bot's `.env` (the slug
-  upper-cased, other characters → `_`), read only for entries with `oauth`. The `AUTH0_M2M_*` names are not read
-  for such an entry, and nothing of `oauth` reaches the sandbox's MCP config.
-- Lifetime: the bot replaces a cached token once less than min(1 h, half its lifetime) is left. Give the bot's
-  client a **1-day** access token (Cognito: 5 minutes to 1 day, default 1 hour) for one mint per project per day;
-  a shorter lifetime works, with more mints.
-- **The gateway's half.** The bot never reads the token. Cognito's client-credentials tokens carry `client_id`
-  and a space-delimited `scope` and **no `aud`**, so the route cannot rely on an audience: leave `audiences` out
-  of the route's authentication (agentgateway: issuer + JWKS only) and authorize in the route policy by
-  `jwt.client_id` (e.g. `jwt.client_id == "<the bot's client id>"`) and/or the `scope` claim, so a token minted
-  for another project's route is refused there.
+- The bot is a machine client of the installation's identity provider and holds one token **per route**. The
+  orchestrator mints it with a standard OAuth 2.0 client-credentials request (RFC 6749 §4.4, `src/gwtoken.ts`),
+  caches it, and writes only the token into the sandbox (`/root/.aven/gw-token-gw`, 600) every turn. Claude Code
+  reads it through the server's `headersHelper` (`/root/.aven/gw-headers.sh`), which also sends `x-aven-session`
+  (the chat key) — the gateway logs it as `aven_session`, joining its audit to our event log. Nothing of `oauth`
+  and no credential reaches the sandbox.
+- What the bot may do is decided by the gateway's route policy, not here. Tool names become
+  `<source>_<tool>` (e.g. `youtrack_search_issues`); the project prompt should map them.
+- Name the entry `gw` — `steps.ts` renders `mcp__gw__<target>_<tool>` by target.
 
-**Rollback** (one edit): in `projects.config.json` move the project's `mcpDirectBackup` list back
+### Credentials: one pair per installation
+
+- `GATEWAY_OAUTH_ID` / `GATEWAY_OAUTH_SECRET` in the bot's `.env`: the installation's bot client, used by every
+  `oauth` entry whose project has no pair of its own.
+- `GATEWAY_OAUTH_<SLUG>_ID` / `_SECRET` (the slug upper-cased, other characters → `_`): a project's own client,
+  which wins — for a project on another identity provider, or one you want to revoke at the provider on its own.
+  Set both halves or neither: a half pair fails that project and never falls back to the installation pair.
+- One client is enough because the isolation is the token, not the client: every pair would sit in the same
+  `.env`, and only a project's own route token enters its sandbox. So **each entry asks for its own route's token**
+  (its own `audience` or `scope`): two projects on the installation pair asking for the same token fail the config
+  load (boot, `/aven reload`), naming both — a copied entry would otherwise hand one project a token that works on
+  the other's route. And **the gateway binds each token to its route** (see the provider notes below).
+- Revoking one project's bot: take `<slug>:bot` (or whatever the route policy grants the bot) out of that route's
+  policy — immediate. At the provider, removing the route's grant only stops new tokens; issued ones live out their
+  lifetime. Rotating the secret: one value in `.env`, then a restart (credentials are read at first use).
+
+### The `oauth` object
+
+- Fields: `tokenUrl` (https only), and optionally `scope` (sent as is), `audience` (servers that take Auth0's
+  parameter), `resource` (RFC 8707), `clientAuth` (`basic`, the default: HTTP Basic as RFC 6749 §2.3.1 wants; or
+  `post`: id and secret in the form body). A malformed object, or one carrying a credential, fails the config load
+  naming the project.
+- Lifetime: the bot replaces a cached token once less than min(1 h, half its lifetime) is left. A **1-day** access
+  token gives one mint per route per day (plus one per route after a restart); a shorter lifetime works, with more
+  mints.
+
+**Auth0.** `"oauth": { "tokenUrl": "https://<tenant>/oauth/token", "audience": "<the route URL>" }`.
+
+- In the tenant: one API per route (identifier = the route URL) and ONE machine-to-machine client for the bot with
+  a grant on every route API. A free tenant caps applications (M2M clients included) and APIs at 10 each, so a
+  client per project runs out early. Claims for the route policy (e.g. `<slug>:bot`) can come from a
+  credentials-exchange Action that reads the requested audience.
+- `audience`, not `resource`: Auth0 answers RFC 8707 `resource` on client credentials with 400 `invalid_request`.
+- The gateway's half: the route's authentication pins `audiences` to the route URL, so a token for another route
+  gets 401. Auth0's default API token lifetime is 24 h; a free tenant allows 1000 M2M tokens a month.
+
+**Amazon Cognito** (or any server whose tokens carry no `aud`). `"oauth": { "tokenUrl": "https://idp.example/oauth2/token", "scope": "gw-<slug>/bot" }`.
+
+- `scope` is `<resource-server>/<scope>`, one per route; HTTP Basic (the default) is what Cognito wants. App-client
+  access-token lifetime: 5 minutes to 1 day, default 1 hour — set 1 day.
+- The gateway's half: Cognito's client-credentials tokens carry `client_id` and a space-delimited `scope` and **no
+  `aud`**, so leave `audiences` out of the route's authentication (agentgateway: issuer + JWKS only) and authorize in
+  the route policy by **the route's own scope** (`jwt.scope` contains `gw-<slug>/bot`). With one installation
+  client, `jwt.client_id` alone no longer tells the projects apart; check it in addition if you like.
+
+### Deprecated: an entry without `oauth`
+
+A `gateway-m2m` entry without `oauth` still mints with the Auth0-specific request — a JSON body with `audience` =
+the entry's `url`, credentials `AUTH0_M2M_TOKEN_URL` + `AUTH0_M2M_<SLUG>_ID/_SECRET` — and every config load logs
+one warning naming the projects still on it. A later release removes it. Moving an installation off it:
+
+1. Every gateway entry gets `"oauth": { "tokenUrl": "<the value of AUTH0_M2M_TOKEN_URL>", "audience": "<the entry's url>" }`.
+2. `.env`: `GATEWAY_OAUTH_ID` / `GATEWAY_OAUTH_SECRET` = the bot client (when all projects use one), or a
+   `GATEWAY_OAUTH_<SLUG>_*` pair per project. Keep the `AUTH0_M2M_*` lines for now.
+3. `npm run ops -- <slug> export`, then `restart` (the env is read at boot). The boot logs no deprecation warning;
+   each project's next turn mints once.
+4. Once every project has had a turn without a gateway error, remove the `AUTH0_M2M_*` lines.
+
+Rolling that back: remove the `oauth` objects, `export`, `restart` — the `AUTH0_M2M_*` lines are still there until
+step 4.
+
+**Rollback of the gateway itself** (one edit): in `projects.config.json` move the project's `mcpDirectBackup` list back
 to `mcp` (a project may keep its pre-gateway list there), `npm run ops -- <slug> export`, `/aven reload`; running
 conversations keep the old config until their claude process ends (or restart the bot to recycle).
 
