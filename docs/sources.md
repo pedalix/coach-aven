@@ -6,9 +6,9 @@ pullers are orchestrator-side competencies like the composer dependency scanner
 (`docs/project-facts.md`): they hold credentials the sandbox must never see and write derived
 state the sandbox only reads.
 
-This document describes what **PR-A (sources-core)** ships: the config block, the credential
-locations, the `orch sources` CLI, the on-disk layout and the secrets pipeline. The store, the
-poller and the sandbox-side search tool are the next slices (see *What comes next*).
+This document describes the sources layer: the config block, the credential locations, the
+`orch sources` CLI, the on-disk layout and the secrets pipeline, then the store, the pullers and
+the agent's tools over them.
 
 ## Config
 
@@ -62,8 +62,8 @@ like MCP secrets, because refresh tokens rotate and must be rewritten in place.
 Bootstrap runs **once, where a browser is** (the operator's laptop; WSL2 + Windows Chrome works):
 
 ```bash
-orch sources auth owen-ops google client add --name pedalix --json ~/Downloads/client_secret_….json --audience internal
-orch sources auth owen-ops google login --client pedalix --account you@example.com
+orch sources auth owen-ops google client add --name acme --json ~/Downloads/client_secret_….json --audience internal
+orch sources auth owen-ops google login --client acme --account you@example.com
 orch sources auth owen-ops slack add --probe              # paste the xoxp; --probe checks the rate-limit tier
 orch sources auth bluefin-ops slack add --from-install T0SPOT   # the CoachAven installation's bot token for Bluefin's own workspace (or --bot to paste a xoxb)
 orch sources auth owen-ops msgraph login --tenant <guid> --client <app-id>
@@ -130,7 +130,7 @@ on Node's built-in `node:sqlite`, no native dependency):
 | `sync_state` | `schema_version`, `derived_fingerprint`, `last_build_at`, one `pulled:<kind>` per source (ISO `finishedAt` of the last pull of that kind that reported **ok** — a failing kind keeps its previous value, so this is the age of the data, not of the attempt; the `stats` tool shows them under `meta`) + the byte offset consumed per raw file |
 
 Why this shape: GB-scale personal mail and chat are an FTS problem first (the research behind
-the design is in the owen-ops repo, `docs/research-landscape.md` §2); embeddings would be an
+the design is kept in the operator's own notes); embeddings would be an
 optional, disposable side index, never the source of truth. Thread ids follow the pullers'
 `raw_ref`s: Gmail `gmail:<account>/<threadId>`, Slack `slack:<team>/<channel>/<thread_ts>`,
 everything else is its own thread.
@@ -325,7 +325,7 @@ Two tools answer the questions a brief or an evening close used to reconstruct f
 `tasks` on every run — *what waits for a reply* and *what stopped moving*. Both are plain SQL over
 stored rows (no model, no text heuristics), so the same store always yields the same list and a
 routine can quote the rows as facts. They are the latency and threshold readouts of the attention
-field (`ideas/local-mode-positioning-2026-10-14.md` §8); the first tenant agent for Bluefin runs on them.
+field (the operator's design notes); the first tenant agent for Bluefin runs on them.
 
 | Tool | Does |
 | --- | --- |
@@ -374,7 +374,7 @@ Worked example — the 18:30 close for owen-ops asks `unanswered({hours: 24})` a
 { "subject": {"mode": "person", "people": ["owen-hale"]}, "hours": 24, "since": "2026-09-30T…", "conversations": 2,
   "unanswered": [
     { "ref": "slack:T02J…", "container": "#aven-caldora", "author": "client-user", "to": ["Owen Hale"], "ts": "2026-10-13T08:12:00.000Z",
-      "ageHours": 31, "pending": 2, "lastInboundTs": "2026-10-14T07:40:00.000Z", "thread": {"n": 3}, "snippet": "@Owen Hale …", "permalink": "https://pedalix.slack.com/archives/…" },
+      "ageHours": 31, "pending": 2, "lastInboundTs": "2026-10-14T07:40:00.000Z", "thread": {"n": 3}, "snippet": "@Owen Hale …", "permalink": "https://acme.slack.com/archives/…" },
     { "ref": "gmail:you@example.com:1a13…", "container": "inbox", "author": "konrad@…", "ts": "2026-10-12T15:02:00.000Z", "ageHours": 48, "pending": 1, … } ] }
 ```
 

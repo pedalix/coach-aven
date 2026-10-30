@@ -9,8 +9,10 @@ the project's mail, chat, calendar and ticket trackers. The bot itself is a smal
 control plane with no model calls of its own: all the thinking happens inside the sandboxes.
 
 Website: [coachaven.com](https://coachaven.com). Status: a single-operator project that runs
-two installations for real users; self-hosting is supported and documented, support is
-best-effort (see [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md)).
+installations for real users; self-hosting is supported and documented, support is best-effort
+(see [`SUPPORT.md`](SUPPORT.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md)).
+Rather not run it yourself? We can run it for you: [coachaven.com](https://coachaven.com).
+Model credit today is a Claude subscription token; API-key credit is coming.
 Licence: Apache-2.0.
 
 Start here:
@@ -36,8 +38,8 @@ Start here:
 
 ## Self-host quickstart
 
-You need: Node 24 (22.12+ works), a Slack workspace where you can create apps, a GitHub App (or token) for
-the repos, a Claude Code token from a Claude Max subscription (there is no API-key mode), and a
+You need: Node 24, a Slack workspace where you can create apps, a GitHub App (or token) for
+the repos, a Claude Code token from a Claude subscription (API-key credit is coming), and a
 place to run sandboxes.
 
 1. **Slack app** — create it from [`slack-app-manifest.json`](slack-app-manifest.json)

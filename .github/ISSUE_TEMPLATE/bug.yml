@@ -1,0 +1,49 @@
+name: Bug report
+description: Something CoachAven does wrong that you can reproduce.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please remove tokens, hostnames and customer data from everything you paste:
+        the bot scrubs what reaches the model, not what goes into an issue.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The smallest steps that show it, from a fresh thread if you can.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The release tag, or the commit of main.
+      placeholder: v0.42.0
+    validations:
+      required: true
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Chat surface
+      options: [Slack, Microsoft Teams, Web chat, Not chat-related]
+    validations:
+      required: true
+  - type: input
+    id: sandbox
+    attributes:
+      label: Sandbox host and image
+      description: Local Docker or remote over SSH; the image variant (dind / plain) and architecture.
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines
+      description: The bot's log around the problem, secrets removed.
+      render: text

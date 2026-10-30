@@ -9,9 +9,10 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.12"
+    "node": ">=24"
   },
-  "description": "CoachAven — a Slack coding agent running per-project Claude Code sandboxes as containers on a Docker host you own.",
+  "description": "CoachAven — open-source agent infrastructure for operators who run many client systems: per-project Claude Code sandboxes, driven from Slack, Teams or the web.",
+  "homepage": "https://coachaven.com",
   "bin": {
     "orch": "./src/cli.ts"
   },

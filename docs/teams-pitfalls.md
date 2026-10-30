@@ -524,8 +524,9 @@ text-update + follow-up card.
 - [x] Coalesced edits (≥2 s) sit under the 7/s–60/30 s per-thread send budget for one message.
 - [x] Thread key handling strips/appends `;messageid=` like the SDK helper.
 
-**Still open / to decide**
-- [ ] **Invoke deadline**: `DIALOG_WAIT_MS = 8000` exceeds the 5-second invoke budget; the
+**Still open / to decide** — a research snapshot, not re-checked item by item against the driver
+since it was written; `docs/teams.md` describes what the driver does today.
+- [x] **Invoke deadline** (done: the wait is 4 s now): `DIALOG_WAIT_MS = 8000` exceeds the 5-second invoke budget; the
   client will retry twice and show "Unable to reach the app" if the view takes > 5 s. Lower the
   wait to ≈3–4 s and make the fallback dialog say "still working", or precompute views. [S27]
 - [ ] **Dedupe inbound by `activity.id`**: `claim: () => true` assumes single delivery, but Teams

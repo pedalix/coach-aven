@@ -45,7 +45,7 @@ process. This is the control plane; the heavy work runs in the sandboxes. See `R
   (`/opsx:propose`: proposal → spec delta → design → tasks), is implemented with `/opsx:apply` in a
   worktree, ships as a PR that names its rollout bucket and ledger row, and is archived into
   `openspec/specs/` with `/opsx:archive` after the merge. `openspec list` shows what is in flight;
-  the tenant plan (owen-ops `docs/PLAN.md`) records decisions, this repo records behaviour.
+  a tenant's own repository records its plans and decisions, this repo records behaviour.
 
 ## Architecture pointers
 

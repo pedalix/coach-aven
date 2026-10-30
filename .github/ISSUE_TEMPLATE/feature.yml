@@ -1,0 +1,27 @@
+name: Proposal
+description: A concrete change you would like, and who needs it.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Open-ended ideas fit better in Discussions → Ideas. A proposal here should name who would use it:
+        larger changes start as an OpenSpec change (see CONTRIBUTING.md), and a proposal without a user
+        stays a note on a direction.
+  - type: textarea
+    id: who
+    attributes:
+      label: Who needs it, and for what
+      description: The installation, team or workflow that would use it today.
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What should change
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you do instead today

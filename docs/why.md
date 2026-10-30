@@ -68,11 +68,13 @@ this page says where a rule is enforced by a mechanism and where it is a rule th
   `pr` is the default git flow: the prompt forks a branch and opens a pull request. The project's
   token can push, so protect the default branch on GitHub with required reviews; then "people
   merge" is a rule GitHub enforces, not the model.
-- **Long-lived secrets never reach the model.** What enters a sandbox is short-lived and scoped:
-  the GitHub token is minted for the project's repositories only, fresh before every turn and good
-  for an hour; a gateway token is minted on the host at most once a day and
-  only the token enters the sandbox; every user turn and every ingested message, ticket, transcript
-  and activity record is scrubbed of secret-shaped strings before the model sees it.
+- **The orchestrator's own credentials never enter a sandbox**: the GitHub App key, the chat
+  tokens, the gateway client secret, source credentials, hub keys. What does enter a sandbox, as
+  files the model's tools can read: the Claude credential, a GitHub token minted for the project's
+  repositories before every turn and good for an hour, a gateway token minted at most once a day,
+  and the MCP credentials the project itself declares (front them with the gateway where you can).
+  Every user turn and every ingested message, ticket, transcript and activity record is scrubbed
+  of secret-shaped strings before the model sees it; answers and attachments are not.
 - **The project is the unit.** Channels bind to projects; the system prompt has three layers (the
   orchestrator base, the project's own prompt, the repository's `CLAUDE.md`); memory, the data
   store, usage and access are per project.
