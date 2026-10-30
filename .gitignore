@@ -40,6 +40,10 @@ infra/*
 events/
 data/
 
-# prod-box cache of scripts/mirror.ts (bare repos + log)
+# the mirror job's cache (bare repos + log) of an installation whose directory is this checkout
 /mirrors/
 /mirrors.json
+# the compose runtime's files of such an installation (OpenSpec container-deploy): the rendered
+# compose.yaml + the version pin, and the deploy log
+/compose/
+/deploys.log
