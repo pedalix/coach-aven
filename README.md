@@ -15,9 +15,11 @@ project, on hosts you own.**
 privileged container: [`docs/quickstart.md`](docs/quickstart.md). Clone, `./init.sh`, three values,
 `docker compose up -d`, and the agent answers in a web chat on `localhost` in about three minutes of machine time.
 
-| In Slack: asked for a change, the agent answers with the code, its tests and the pull request | In Microsoft Teams: a question answered in the reply chain |
+<img alt="CoachAven in Slack: a teammate asks why voucher changes do not reach the shop; in the thread the agent opens a pull request that adds logging and a metric, the teammate merges it, and the agent cleans up and records what it learned (client names replaced)" src="docs/img/slack-investigation-pr.png" width="860">
+
+| The question and the agent's status report (Slack) | A question answered in a reply chain (Microsoft Teams) |
 |---|---|
-| <img alt="A Slack thread: asked to make divide() throw a RangeError for a zero divisor, CoachAven shows the change, says what its tests cover and links the pull request it opened, with View PR, Show steps, Session, Helped and Missed buttons" src="docs/img/slack-thread-pr.png" width="420"> | <img alt="A Teams channel post: asked how the repository is tested, CoachAven answers in the reply chain with what exists and what is missing, then a card with Show steps, Session, Helped and Missed" src="docs/img/teams-thread-answer.png" width="420"> |
+| <img alt="A Slack thread: a teammate's questions about a voucher sync and CoachAven's status report — how the sync works, where the code lives, what the logs show (client names replaced)" src="docs/img/slack-investigation.png" width="420"> | <img alt="A Teams channel post: asked how the repository is tested, CoachAven answers in the reply chain with what exists and what is missing, then a card with Show steps, Session, Helped and Missed" src="docs/img/teams-thread-answer.png" width="420"> |
 
 **Built for** an agency or a small team that runs many client systems: one installation, one sandbox and one set of
 tools per client project, each client's work billed to a credit you choose. It grew up on Laravel projects (Sail runs
