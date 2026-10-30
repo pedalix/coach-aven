@@ -133,14 +133,15 @@ workspace" idea.
    ```jsonc
    {
      "tenants": {
-       "acme": { "claudeOauthToken": "${ACME_CLAUDE}", "daytona": { "apiKey": "${ACME_DAYTONA}" }, "sandboxPrefix": "acme-" }
+       "acme": { "credit": { "apiKey": "${ACME_ANTHROPIC_KEY}" }, "sandboxPrefix": "acme-" }
      },
      "projects": [ { "slug": "acme-web", "tenant": "acme", "repos": [ ... ], "slackChannel": "C…" } ]
    }
    ```
    Resolve credentials as **tenant → fall back to global default** at `openChat` time.
-   `seedClaudeAuth(sandbox, token)` already takes the token as a parameter, and `makeDaytona(cfg)`
-   already builds the client from cfg — so this is a **prop-drill, not a refactor**.
+   `seedClaudeAuth(sandbox, credit)` already takes the credit as a parameter (and the command's
+   prefix follows its kind), and `makeDaytona(cfg)` already builds the client from cfg — so this is
+   a **prop-drill, not a refactor**.
 2. **Per-tenant sandbox prefix** (`<tenant>-proj-<slug>`) — reuses the existing
    `SANDBOX_NAME_PREFIX` mechanism for clean visual/operational separation on the shared Daytona.
 3. **Access control (the real must-have — see §4).** In a shared channel, *any* external
@@ -226,10 +227,11 @@ These are needed regardless of which Slack model we pick.
   guard that a channel can only ever touch its own project's repos. The repo-scoping already
   enforces the *data* boundary; the allowlist adds the *actor* boundary. `liveTurn` has the
   sender's user/team available, so the check is cheap.
-- **Per-tenant credentials (optional, billing-driven).** Decide whether clients share our Claude
-  Max subscription + Daytona, or get **per-tenant Claude API keys / Daytona orgs** for cost
-  attribution and quota isolation. The seams (`seedClaudeAuth`, `makeDaytona`) are already
-  parameterized; this is config plumbing plus a billing decision, not architecture.
+- **Per-tenant credentials (optional, billing-driven).** Decide whether clients share the
+  installation's one model credit (a subscription token or an API key), or get **per-tenant
+  Claude API keys** for cost attribution and quota isolation. The seam (`seedClaudeAuth` writes
+  whatever credit it is handed into the project's sandbox) is already parameterized; this is
+  config plumbing plus a billing decision, not architecture (OpenSpec `api-key-credit`, *Later*).
 - **Daytona isolation level.** Either namespace sandboxes by tenant prefix (cheap, container-level
   isolation — already our model for trusted code), or per-tenant Daytona org+key (real
   quota/audit separation; depends on Daytona multi-org support).
@@ -346,10 +348,10 @@ Data flows to be transparent about with clients (and to put in a DPA when one as
   ssh-docker host). Transcripts of agent sessions (including code
   excerpts) live inside the project's sandbox; consolidated memory is journaled to our
   disk (`memory/<slug>/`). Usage metering stores *counts only* — no message content.
-- **Prompts and diffs** transit Anthropic (Claude) under our account. Today that account
-  is a consumer **Claude Max subscription** — before onboarding a paying external client,
-  review whether client workloads on a consumer subscription fit Anthropic's commercial
-  terms; the clean answer is a **per-tenant (or at least company) Claude API key**, which
+- **Prompts and diffs** transit Anthropic (Claude) under the installation's credit. On a
+  subscription token that is a consumer **Claude subscription** — before onboarding a paying
+  external client, review whether client workloads on a consumer subscription fit Anthropic's
+  commercial terms; the clean answer is a **per-tenant (or at least company) Claude API key**, which
   also makes billing exact instead of attributed. An installation can run on a key today
   (`ANTHROPIC_API_KEY`, OpenSpec `model-credit`); a key per tenant is the next step
   (`seedClaudeAuth` takes the credit as a parameter; metering shows per-team volume).

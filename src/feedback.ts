@@ -220,8 +220,10 @@ export function feedbackSummaryText(rows: FeedbackRow[], totalTurns: number, day
       '*By project*',
       ...rows.map(
         (r) =>
-          `• *${r.group}* — ${r.good}/${r.rated} helped · ~$${r.ratedCostUsd.toFixed(2)} rated` +
-          `${r.legacyCostUsd ? ` (+ ~$${r.legacyCostUsd.toFixed(2)} legacy)` : ''}`,
+          // The subscription's rated dollars, the key's beside them (D4): never one sum. No key turns → as before.
+          `• *${r.group}* — ${r.good}/${r.rated} helped · ~$${(r.ratedCostUsd - (r.keyCostUsd ?? 0)).toFixed(2)} rated` +
+          `${r.legacyCostUsd ? ` (+ ~$${r.legacyCostUsd.toFixed(2)} legacy)` : ''}` +
+          `${(r.keyCostUsd ?? 0) > 0 ? ` (+ ~$${r.keyCostUsd.toFixed(2)} API key)` : ''}`,
       ),
     );
   }

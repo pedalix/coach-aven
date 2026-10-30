@@ -134,12 +134,11 @@ each client costs. The headless Claude Code protocol everything depends on is pr
 version with recorded verdicts, so a version bump is a measured step.
 ([`pr-review.md`](pr-review.md), [`housekeeping.md`](housekeeping.md), [`cli-probe.md`](cli-probe.md))
 
-**Agents that ask each other** (in flight). An owner's own planning agent, a project whose subject
+**Agents that ask each other.** An owner's own planning agent, a project whose subject
 is a person rather than a client, can ask the project agents of other installations and get the
 answer back into its own turn, end-to-end encrypted through a relay that cannot read the
-envelopes, with the answering side kept out of the chat. Planned as the OpenSpec change
-`agent-messaging`; `openspec/changes/` holds the spec-first proposals this repository plans its
-work in.
+envelopes, with the answering side kept out of the chat ([`agent-messaging.md`](agent-messaging.md);
+OpenSpec `agent-messaging`).
 
 ## A day with it: an agency
 
@@ -188,8 +187,8 @@ Halden is a five-person product company. One project, one channel, one agent.
   you own (that VM, to start), your Slack or Teams app, your GitHub App, your Claude Code
   credit. A single operator maintains the product and runs installations
   for real users; support is best-effort ([`CONTRIBUTING.md`](../CONTRIBUTING.md)).
-- **Not a chat of its own.** It lives in Slack or Teams. A web chat was designed and deliberately
-  not built (OpenSpec `web-chat-driver`); for a trial, Slack in your own workspace is the way in.
+- **Not a chat of its own.** It lives in Slack or Teams. A web chat the installation serves itself
+  exists in canary (`orch web`, [`web.md`](web.md)); for a trial, Slack in your own workspace is the way in.
 - **Not autonomous deployment.** The agent opens pull requests; people merge. The bot's own side
   effects, a fix on a pull request, a comment back to the tracker, wait for a person's button; a
   request to another agent goes only to an agent whose accept list names the sender. Inside its sandbox the agent runs

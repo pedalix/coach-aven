@@ -187,7 +187,9 @@ export function usageSummaryText(bySlug: UsageRow[], byTeam: UsageRow[], days: n
     `• *${r.group}* — ${r.turns} turns${r.background ? ` + ${r.background} background` : ''}${r.errors ? ` (${r.errors} errors)` : ''} · ` +
     `${fmtK(r.cacheReadTokens)} cache read / ${fmtK(r.cacheCreationTokens)} cache write / ` +
     `${fmtK(r.inputTokens)} in / ${fmtK(r.outputTokens)} out tok · ~$${usd(r).toFixed(2)}` +
-    `${r.legacyCostUsd ? ` (+ ~$${r.legacyCostUsd.toFixed(2)} legacy)` : ''} · ${fmtH(r.wallMs)} active`;
+    `${r.legacyCostUsd ? ` (+ ~$${r.legacyCostUsd.toFixed(2)} legacy)` : ''}` +
+    // A mixed month: a line's key dollars ride beside its subscription figure, like legacy — never added to it.
+    `${mode === 'mixed' && (r.keyCostUsd ?? 0) > 0 ? ` (+ ~$${r.keyCostUsd.toFixed(2)} API key)` : ''} · ${fmtH(r.wallMs)} active`;
   const sum = bySlug.reduce(
     (a, r) => ({
       turns: a.turns + r.turns,
@@ -214,7 +216,7 @@ export function usageSummaryText(bySlug: UsageRow[], byTeam: UsageRow[], days: n
     `Total: ${sum.turns} turns${sum.background ? ` + ${sum.background} background` : ''} · ~$${sum.cost.toFixed(2)} · ${fmtK(sum.tok)} tok, ${cachePct}% of them cache reads · ${fmtH(sum.wall)} agent-active time`,
   ];
   if (mode === 'mixed') {
-    parts.push(`API key: ~$${sum.key.toFixed(2)} billed at list prices (before discounts and tax) across ${keyTurns} turns — not in the figures above`);
+    parts.push(`API key: ~$${sum.key.toFixed(2)} billed at list prices (before discounts and tax) across ${keyTurns} turns — not in the $ figures above`);
   }
   if (sum.legacy) {
     parts.push(

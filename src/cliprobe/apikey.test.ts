@@ -3,7 +3,11 @@
 // and `api-key-turn` judged over a hand-built recording (no live run: task 4.6 records the real one).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ClaudeLaunch } from '../claudeSession.js';
+import { main } from './cli.js';
 import type { ProcessHandlers, Transport } from './ctx.js';
 import { costTotals, mergeScenarios, renderReport, type ReportJson, type ReportScenario } from './report.js';
 import { runScenario, type RunDirs } from './runner.js';
@@ -119,4 +123,31 @@ test('report — rows carry their credit; the header lists the credits and the c
   const keyOnly = renderReport({ ...r, ...costTotals([scenarios[0]!]), scenarios: [scenarios[0]!] });
   assert.match(keyOnly, /^- \*\*Credit:\*\* API key$/m);
   assert.match(keyOnly, /^- \*\*Cost:\*\* \$0\.05 billed at list prices \(API key\)$/m);
+});
+
+test('cli run — a token run that selected only key scenarios stops before installing a CLI, fetching declarations or rewriting a report', async (t) => {
+  const cache = mkdtempSync(join(tmpdir(), 'cliprobe-nothing-'));
+  const out = mkdtempSync(join(tmpdir(), 'cliprobe-nothing-out-'));
+  const saved = { token: process.env.CLI_PROBE_TOKEN, key: process.env.CLI_PROBE_API_KEY, cache: process.env.CLI_PROBE_CACHE };
+  process.env.CLI_PROBE_TOKEN = 'sk-ant-oat01-test';
+  delete process.env.CLI_PROBE_API_KEY;
+  process.env.CLI_PROBE_CACHE = cache;
+  const lines: string[] = [];
+  t.mock.method(console, 'log', (m: unknown) => void lines.push(String(m)));
+  const fetched = t.mock.method(globalThis, 'fetch', async () => {
+    throw new Error('no network in this test');
+  });
+  try {
+    assert.equal(await main(['run', 'api-key-turn', '--cli', '2.1.292', '--out', out]), 0);
+    assert.ok(lines.some((l) => l.startsWith('-- api-key-turn: skipped')));
+    assert.ok(lines.includes('nothing to run: every selected scenario needs another credit'));
+    assert.deepEqual(readdirSync(cache), [], 'no CLI installed');
+    assert.deepEqual(readdirSync(out), [], 'no report written');
+    assert.equal(fetched.mock.callCount(), 0, 'no declarations fetched');
+  } finally {
+    for (const [k, v] of [['CLI_PROBE_TOKEN', saved.token], ['CLI_PROBE_API_KEY', saved.key], ['CLI_PROBE_CACHE', saved.cache]] as const) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
 });

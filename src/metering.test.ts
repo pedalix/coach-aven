@@ -275,8 +275,15 @@ test('usageSummaryText — a mixed period (the month of a switch): subscription 
   const text = usageSummaryText(rows, aggregateUsage(records, 'team'), 30);
   assert.match(text.split('\n')[0], /subscription turns: API-list-price equivalent .* not a bill; API-key turns are on their own line/);
   assert.match(text, /^Total: 4 turns · ~\$1\.75 · /m); // turns are summed as before; dollars are the subscription's
-  assert.match(text, /^API key: ~\$2\.30 billed at list prices \(before discounts and tax\) across 2 turns — not in the figures above$/m);
-  assert.match(text, /• \*caldora\* — 3 turns · .* ~\$1\.75 · /);
-  assert.match(text, /• \*art\* — 1 turns · .* ~\$0\.00 · /);
+  assert.match(text, /^API key: ~\$2\.30 billed at list prices \(before discounts and tax\) across 2 turns — not in the \$ figures above$/m);
+  // Each line: the subscription's dollars, the key's beside them when it has any — a key-only project is not ~$0.00 alone.
+  assert.match(text, /• \*caldora\* — 3 turns · .* ~\$1\.75 \(\+ ~\$2\.00 API key\) · /);
+  assert.match(text, /• \*art\* — 1 turns · .* ~\$0\.00 \(\+ ~\$0\.30 API key\) · /);
+  // The workspace and routine cuts carry the same suffix.
+  const cut = [...records, routine('r1', 'Brief', { key: 'T0AAAAAA:thread:1', usage: { costUsd: 0.4, costUsdCumulative: 0.4, credit: 'api-key' } })];
+  const cutText = usageSummaryText(aggregateUsage(cut, 'slug'), aggregateUsage(cut, 'team'), 30, aggregateUsage(cut, 'routine'));
+  assert.match(cutText, /• \*home\* — 4 turns · .* ~\$1\.75 \(\+ ~\$2\.30 API key\) · /);
+  assert.match(cutText, /• \*T0AAAAAA\* — 1 turns · .* ~\$0\.00 \(\+ ~\$0\.40 API key\) · /);
+  assert.match(cutText, /• \*Brief \(r1\)\* — 1 turns · .* ~\$0\.00 \(\+ ~\$0\.40 API key\) · /);
   assert.ok(!text.includes('4.05'), 'never the sum of both');
 });

@@ -278,3 +278,18 @@ test('feedbackSummaryText — key and subscription turns: one credit\'s dollars 
   ]);
   assert.match(feedbackSummaryText(subHeavy, 3, 7), /· ~\$5\.00 \(subscription equivalent\) per answer that helped$/m);
 });
+
+test('feedbackSummaryText — By project: the subscription\'s rated dollars, the key\'s beside them; without key turns as before', () => {
+  const ratings = [fb({ turnId: 't1-1' }), fb({ turnId: 't1-2', verdict: 'bad', reason: 'wrong' }), fb({ turnId: 't1-3', slug: 'lumora' })];
+  const rows = joinUsage(ratings, [
+    usage({ turnId: 't1-1', usage: { costUsd: 1, costUsdCumulative: 1 } }),
+    usage({ turnId: 't1-2', usage: { costUsd: 4, costUsdCumulative: 5, credit: 'api-key' } }),
+    usage({ turnId: 't1-3', slug: 'lumora', usage: { costUsd: 2, costUsdCumulative: 2, credit: 'api-key' } }),
+  ]);
+  const t = feedbackSummaryText(rows, 3, 7);
+  assert.match(t, /^• \*caldora\* — 1\/2 helped · ~\$1\.00 rated \(\+ ~\$4\.00 API key\)$/m);
+  assert.match(t, /^• \*lumora\* — 1\/1 helped · ~\$0\.00 rated \(\+ ~\$2\.00 API key\)$/m);
+  const sub = feedbackSummaryText(joinUsage(ratings, [usage({ turnId: 't1-1' }), usage({ turnId: 't1-2' }), usage({ turnId: 't1-3', slug: 'lumora' })]), 3, 7);
+  assert.match(sub, /^• \*caldora\* — 1\/2 helped · ~\$2\.00 rated$/m);
+  assert.doesNotMatch(sub, /API key/);
+});

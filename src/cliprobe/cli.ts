@@ -116,6 +116,11 @@ async function run(argv: string[]): Promise<void> {
     console.log(`-- ${rowId(s.meta.id, variant)}: skipped (needs ${s.meta.needs === 'api-key' ? 'an API key: CLI_PROBE_API_KEY' : 'a subscription token: CLI_PROBE_TOKEN'})`);
     return false;
   });
+  // Only key scenarios picked on a token run: stop here — no CLI install, no declarations fetched, no report rewritten.
+  if (!picked.length) {
+    console.log('nothing to run: every selected scenario needs another credit');
+    return;
+  }
   const cacheRoot = probeCacheRoot();
   const bin = values.bin ?? (await ensureCli(cli, { cacheRoot }));
   let label = 'local';

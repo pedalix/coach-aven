@@ -1,7 +1,8 @@
 // Subscription-quota signals — the "are we about to run dry?" counter beside metering.ts's
-// "what did it cost?" one. All turns run on ONE Claude Max subscription (see metering.ts),
-// whose 5-hour / 7-day windows are an opaque server-side counter: token counts and $ in the
-// usage log say nothing about how close we are to the wall. The only in-band signal is the
+// "what did it cost?" one. On a subscription-token installation every turn runs on ONE Claude
+// subscription (an API-key installation tracks none: api-key-credit D5, turn.ts), whose
+// 5-hour / 7-day windows are an opaque server-side counter: token counts and $ in the usage log
+// say nothing about how close we are to the wall. The only in-band signal is the
 // CLI's `rate_limit_event`, emitted at the start of every turn right before `system/init`:
 //
 //   {"type":"rate_limit_event","rate_limit_info":{"status":"allowed"|"allowed_warning"|
