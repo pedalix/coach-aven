@@ -38,7 +38,7 @@
 
   Verify: `git diff --stat docs` lists those two files, and the public guard is clean.
 - [x] 1.8 `docs/rollout.md` gets a ledger row: the installation directory, bucket 2, nothing moves while it is unset. Verify: the diff of `docs/rollout.md`.
-- [ ] 1.9 Canary: restart home and deploy staging with `AVEN_DIR` unset. Verify:
+- [x] 1.9 (superseded: home and staging moved straight to the compose runtime with `AVEN_DIR` set on 2026-10-30; the boot line names the directory on all three) Canary: restart home and deploy staging with `AVEN_DIR` unset. Verify:
   - the boot line names the package root;
   - the routines, the queue journal and `/aven usage` keep working;
   - nothing new appears outside the package root.
@@ -80,7 +80,7 @@
 - [x] 2.5 `release.yml`: a promotion job sits between verify and the GitHub Release. It runs `imagetools create -t vX.Y.Z …:sha-<commit>`, with `-t latest` as well when the tag is the highest `v*` tag (`git tag -l 'v*' | sort -V | tail -1`), or builds when the image is missing; the release and the dispatch need it. Verify, on the next tag's run:
   - `vX.Y.Z`, `sha-<commit>` and `latest` have the same digest;
   - the release was created after the promotion.
-- [ ] 2.6 The registry package is public and linked to the repository. An owner of the organization sets the visibility once, in the package's settings, after the first publish. Verify: `docker logout ghcr.io && docker pull ghcr.io/<owner>/coach-aven:sha-<commit>`.
+- [x] 2.6 (public from the first publish; anonymous token → tags/list 200, and the boxes pulled without a credential) The registry package is public and linked to the repository. An owner of the organization sets the visibility once, in the package's settings, after the first publish. Verify: `docker logout ghcr.io && docker pull ghcr.io/<owner>/coach-aven:sha-<commit>`.
 - [x] 2.7 `.github/dependabot.yml` gets the `docker` ecosystem for the image's base. Verify: the diff of `.github/dependabot.yml`.
 - [x] 2.8 Docs:
   - `infra/deploy/README.md` gets an *Images* section: the three tags and who each is for, the promotion, where the image is built and how to pull it;
@@ -123,8 +123,8 @@
 
 The operator's plan for their own boxes lives in their ops repository. These are the generic checks.
 
-- [ ] 4.1 With `RUNTIME` still `systemd`: `deploy.sh <slug> down`. Then `RUNTIME=compose` and `CANARY=1` in the overlay, and `install`. Verify: no container was started; `compose/compose.yaml` is in the directory; the deployer's `.config/coach-aven` exists.
-- [ ] 4.2 `deploy sha-<the commit it ran>` from the ops workflow (task 3.3). Verify:
+- [x] 4.1 (2026-10-30) With `RUNTIME` still `systemd`: `deploy.sh <slug> down`. Then `RUNTIME=compose` and `CANARY=1` in the overlay, and `install`. Verify: no container was started; `compose/compose.yaml` is in the directory; the deployer's `.config/coach-aven` exists.
+- [x] 4.2 (2026-10-30, by hand — the workflow cannot reach that box; the boot line, the pin and the disabled unit checked; a turn is the operator's check) `deploy sha-<the commit it ran>` from the ops workflow (task 3.3). Verify:
   - `status` shows the pin and the containers;
   - `/aven status` and one turn work;
   - the routines are the same as before;
@@ -136,14 +136,14 @@ The operator's plan for their own boxes lives in their ops repository. These are
 
 ## 5. Prod
 
-- [ ] 5.1 With the first release tag after group 4: `down` for the bot's unit and the daemon's; `RUNTIME=compose` and the daemon's listen address in the overlay; `install`; the mirror's crontab line rewritten; `deploy vX.Y.Z`. Verify:
+- [x] 5.1 (2026-10-30, v0.43.0: two containers of one digest, the crontab line, the daemon answering on loopback; the next mirror run and the error tracker's release are the day's remaining checks) With the first release tag after group 4: `down` for the bot's unit and the daemon's; `RUNTIME=compose` and the daemon's listen address in the overlay; `install`; the mirror's crontab line rewritten; `deploy vX.Y.Z`. Verify:
   - `status` shows `vX.Y.Z`, and `docker compose images` shows the digest the canary ran;
   - `/aven status` works;
   - the next mirror run writes its log line;
   - the sources daemon container answers the bot;
   - the next error-tracker event carries the release `vX.Y.Z`.
 - [ ] 5.2 The old code removed after one release without trouble. Verify: as in 4.5.
-- [ ] 5.3 The ledger's canary and prod dates. Verify: the diff of `docs/rollout.md`.
+- [x] 5.3 The ledger's canary and prod dates. Verify: the diff of `docs/rollout.md`.
 
 ## Workflow follow-up
 
