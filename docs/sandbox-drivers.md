@@ -17,11 +17,11 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
 
 1. Docker installed; the SSH user in the `docker` group.
 2. Key-based SSH from the bot's host, non-interactive (`BatchMode`); an `~/.ssh/config`
-   alias is the place for port/key/user options — `SSHDOCKER_HOST` can be that alias.
+   alias is the place for port/key/user options — `SANDBOX_HOST` can be that alias.
 3. DinD runtime, one of:
-   - **sysbox** (`SSHDOCKER_RUNTIME=sysbox-runc`) — preferred: containers get a working
+   - **sysbox** (`SANDBOX_DIND_RUNTIME=sysbox-runc`) — preferred: containers get a working
      inner dockerd without host-root equivalence. Install: https://github.com/nestybox/sysbox
-   - **privileged** (`SSHDOCKER_RUNTIME=privileged`, default) — works everywhere, but a
+   - **privileged** (`SANDBOX_DIND_RUNTIME=privileged`, default) — works everywhere, but a
      privileged container is root on the host; acceptable only because the box is
      dedicated to these sandboxes.
 
@@ -52,14 +52,16 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
      exec-probe/recycle dance (that one exists for sysbox's registry), and the base system
      prompt drops its Sail/Docker-in-Docker toolchain paragraph (`src/prompt.ts`) — there are
      no shims to explain.
-   - **A project without a `sandbox` block** takes the installation's `SANDBOX_DEFAULT`: `dind` (privileged
-     docker-in-docker, for the laravel image's Sail) or `plain` (an unprivileged container; the image needs no
-     dockerd). Unset is `dind` today, and the boot warns naming the projects that rely on it. Pick the default
-     that matches `SNAPSHOT_IMAGE`: under `plain`, the laravel image starts but its php/composer/artisan (Sail
-     shims) fail. A block wins field by field; `"dind": true` alone means privileged.
-   - The boot also warns when a project runs privileged and `SSHDOCKER_RUNTIME` is unset, and when a privileged
-     project runs on the bot's own machine (`SSHDOCKER_HOST=local`) without `SANDBOX_LOCAL_PRIVILEGED=1`
-     (OpenSpec `sandbox-privilege-opt-in`, stage 1: warnings only).
+   - `image` → the image this project's container is created from, instead of the installation's
+     `SANDBOX_IMAGE`. Pair it with the mode: a laravel image (php/composer/artisan are Sail shims that
+     need dockerd) with `"dind": true`; the plain image with `"privileged": false, "dind": false`. Like the
+     flags, it applies when the container is created: after a change, `docker rm proj-<slug>`.
+   - `"dind": true` alone means privileged: `{ "dind": true }` is the whole docker-in-docker opt-in.
+   - **A project without a `sandbox` block** still runs privileged docker-in-docker, and the boot names it:
+     a later release runs such projects plain, so write `"dind": true` where Docker inside is needed
+     (OpenSpec `sandbox-privilege-opt-in`).
+   - The boot also warns when a privileged project runs on the bot's own machine (`SANDBOX_HOST=local`)
+     without `SANDBOX_LOCAL_PRIVILEGED=1`.
    - `mounts` → `-v host:container:mode`; mode defaults to `ro`. Paths must be absolute,
      `[A-Za-z0-9._/-]`, no `..`. Read-only is the point: the agent reads the archive, it
      never edits it.
@@ -67,13 +69,13 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
      over the session control channel (`docs/runtime-config.md` → *Host tools*). The store replica
      is never mounted (`docs/sources.md` → "Replica").
 
-   The image itself stays deployment-wide (`SNAPSHOT_IMAGE`), so a plain project lives on
-   an instance whose fleet image is the plain variant (how the variants are built and the
-   CLI pinned: `snapshot/README.md`). Options shape CREATION only: an
+   The installation's image (`SANDBOX_IMAGE`) is every project's unless it names its own
+   (`image`), so plain and docker-in-docker projects share an installation (how the variants
+   are built and the CLI pinned: `snapshot/README.md`). Options shape CREATION only: an
    existing `proj-<slug>` keeps the flags it was born with — `docker rm` it on the sandbox
    host and the next turn recreates it with the new ones.
 
-**Local mode.** `SSHDOCKER_HOST=local` (the literal word) skips ssh entirely: the driver
+**Local mode.** `SANDBOX_HOST=local` (the literal word) skips ssh entirely: the driver
 runs the very same scripts through `sh -c` against this machine's Docker daemon. It is
 for a single-box self-hosted instance — a laptop/WSL, a Mac mini — where the bot and
 the sandboxes share the host and running sshd just to reach localhost would be theatre.
@@ -192,7 +194,7 @@ produces — the clones, the worktrees, the Claude Code session files under `~/.
 history), the caches — exists only in the container's writable layer. A host move, a disk failure or a
 `docker rm` loses it; back the host up accordingly.
 
-It follows that the sandbox image (`SNAPSHOT_IMAGE`, published with each release beside the bot's image)
+It follows that the sandbox image (`SANDBOX_IMAGE`, published with each release beside the bot's image)
 applies to NEW containers only — a new project, or a container an operator removed by hand. Running
 containers keep the image they were created from; the pinned Claude Code (`CLAUDE_CLI_VERSION`) upgrades in
 place inside them, so a pin bump never needs a recreation. Do not recreate a container to "pick up" a new
@@ -227,14 +229,14 @@ image: that is its history gone.
   configuration, and the `orch sources` commands refuse it. Before the removal a misspelt `driver`
   selected Daytona without a word.
 
-Missing driver settings are not checked at boot: without `SSHDOCKER_HOST`, a project's first
+Missing driver settings are not checked at boot: without `SANDBOX_HOST`, a project's first
 sandbox use fails with an error naming it, so one misconfigured setting cannot keep the bot
 down.
 
 ## Looking inside a container
 
 A project's container is a plain container on the sandbox host:
-`ssh <SSHDOCKER_HOST> docker exec -it <prefix><slug> sh` (in local mode just
+`ssh <SANDBOX_HOST> docker exec -it <prefix><slug> sh` (in local mode just
 `docker exec -it <prefix><slug> sh`); `docker ps -a --filter label=managedBy=<SANDBOX_MANAGED_BY>`
 lists the installation's containers, and `docker exec <prefix><slug> ps` shows its `claude`
 processes. An idle container is usually stopped: `docker start <prefix><slug>` first (or

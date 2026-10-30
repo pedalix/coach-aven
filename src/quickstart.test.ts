@@ -27,8 +27,8 @@ test('the templates: one unprivileged project, a link-mode web chat, local sandb
   assert.equal(opts.dind, false);
 
   const env = parseDotenv(readFileSync(join(QS, '.env.example')));
-  assert.equal(env.SSHDOCKER_HOST, 'local');
-  assert.equal(env.SNAPSHOT_IMAGE, undefined, 'compose sets it: the published sandbox image of the bot\'s version');
+  assert.equal(env.SANDBOX_HOST, 'local');
+  assert.equal(env.SANDBOX_IMAGE, undefined, 'compose sets it: the published sandbox image of the bot\'s version');
   assert.equal(env.SANDBOX_NAME_PREFIX, 'qs-');
   assert.equal(env.SANDBOX_MANAGED_BY, 'coach-aven-quickstart');
   assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, '', 'left to fill');
@@ -47,7 +47,7 @@ test('compose: loopback-only publish, no privilege, no `latest`, every value fro
   assert.doesNotMatch(body, /:latest/);
   for (const v of ['AVEN_VERSION', 'AVEN_UID', 'AVEN_GID', 'DOCKER_GID', 'AVEN_WEB_PORT']) assert.match(body, new RegExp(`\\$\\{${v}:\\?run \\./init\\.sh first\\}`), v);
   assert.match(body, /command: \["web"\]/);
-  assert.match(body, /SNAPSHOT_IMAGE: \$\{SANDBOX_IMAGE:-ghcr\.io\/pedalix\/coach-aven-sandbox-plain:\$\{AVEN_VERSION:\?run \.\/init\.sh first\}\}/, 'one version names both images');
+  assert.match(body, /SANDBOX_IMAGE: \$\{SANDBOX_IMAGE:-ghcr\.io\/pedalix\/coach-aven-sandbox-plain:\$\{AVEN_VERSION:\?run \.\/init\.sh first\}\}/, 'one version names both images');
   assert.doesNotMatch(body, /^\s*build:/m, 'nothing is built on the machine');
   assert.match(body, /setup-token:[\s\S]*profiles: \[tools\][\s\S]*command: \["claude", "setup-token"\]/);
 });

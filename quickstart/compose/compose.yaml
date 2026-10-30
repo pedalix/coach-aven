@@ -35,7 +35,7 @@ services:
       NODE_ENV: production
       WEB_PORT: ${AVEN_WEB_PORT:?run ./init.sh first}
       WEB_BASE_URL: http://localhost:${AVEN_WEB_PORT:?run ./init.sh first}
-      SNAPSHOT_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/pedalix/coach-aven-sandbox-plain:${AVEN_VERSION:?run ./init.sh first}}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/pedalix/coach-aven-sandbox-plain:${AVEN_VERSION:?run ./init.sh first}}
     volumes:
       - ..:/aven
       - /var/run/docker.sock:/var/run/docker.sock

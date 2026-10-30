@@ -98,7 +98,7 @@ most of "tenancy" under a different name:
 - **Claude**: one credit for all projects — `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscription) or
   `ANTHROPIC_API_KEY` (an API key), exactly one (OpenSpec `model-credit`). A key per project or
   tenant is a later step: the credit file and the command prefix are already per sandbox.
-- **Sandboxes**: one Docker host per installation (`SSHDOCKER_HOST`), every project's container on it.
+- **Sandboxes**: one Docker host per installation (`SANDBOX_HOST`), every project's container on it.
 - **GitHub App**: one App (e.g. `acme-factory`), though it can be installed on many orgs.
 - **State/config**: a flat `projects.config.json` list and a single `state.json`, keyed by
   `thread:<ts>` / `dm:…` / `cmd:…` with **no tenant dimension**.
@@ -112,7 +112,7 @@ fans out**, and everything else is shared plumbing.
 > **Note (2026-10-20):** sections 2–6 are the option analysis of 2026-07, when sandboxes ran on a
 > self-hosted Daytona, and they stay as written. The Daytona driver has since been removed
 > (OpenSpec `retire-daytona-driver`): every sandbox is a container on the installation's Docker
-> host (`SSHDOCKER_HOST`, `docs/sandbox-drivers.md`). Where they name a Daytona key, org or
+> host (`SANDBOX_HOST`, `docs/sandbox-drivers.md`). Where they name a Daytona key, org or
 > instance, read that host; for `makeDaytona(cfg)`, read `createDriver(cfg)`.
 
 ## 2. Option A — Slack Connect (channel = tenant)

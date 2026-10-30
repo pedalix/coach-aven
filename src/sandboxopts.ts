@@ -17,6 +17,10 @@ export interface SandboxOptions {
   dind?: boolean;
   // "<abs host path>:<abs container path>[:ro|:rw]"; mode defaults to ro.
   mounts?: string[];
+  // The image this project's container is created from; unset → the installation's SANDBOX_IMAGE.
+  // Independent of the mode on purpose (sandbox-privilege-opt-in D1): the laravel image wants
+  // `dind: true` (its php/composer/artisan are Sail shims), the plain image has no dockerd.
+  image?: string;
 }
 
 export interface Mount {
@@ -29,6 +33,7 @@ export interface ResolvedSandboxOptions {
   privileged: boolean;
   dind: boolean;
   mounts: Mount[];
+  image?: string; // absent → the installation's image
 }
 
 export const DEFAULT_SANDBOX_OPTIONS: ResolvedSandboxOptions = { privileged: true, dind: true, mounts: [] };
@@ -50,26 +55,16 @@ export function parseMount(spec: string): Mount {
   return { source, target, mode };
 }
 
-// The installation default for a project without a `sandbox` block (OpenSpec sandbox-privilege-opt-in D1):
-// `dind` — privileged docker-in-docker, the historical default and today's when SANDBOX_DEFAULT is unset;
-// `plain` — an unprivileged container without dockerd. Installation-wide because the image is: the laravel
-// image's php/composer/artisan are Sail shims that need dockerd, the plain image has no dockerd to guard.
-export type SandboxDefault = 'dind' | 'plain';
+// An image reference as docker takes it (registry/name:tag or @digest); it becomes a quoted argv
+// segment on the sandbox host, so the charset is kept to what references use.
+const IMAGE_REF = /^[A-Za-z0-9][A-Za-z0-9._/:@-]*$/;
 
-/** SANDBOX_DEFAULT read and checked: unset = `dind` (stage 1), anything but dind|plain stops the boot. */
-export function sandboxDefaultFrom(env: Record<string, string | undefined> = process.env): { value: SandboxDefault; set: boolean } {
-  const raw = (env.SANDBOX_DEFAULT ?? '').trim();
-  if (!raw) return { value: 'dind', set: false };
-  if (raw !== 'dind' && raw !== 'plain') throw new Error(`SANDBOX_DEFAULT must be 'dind' or 'plain', got: ${raw}`);
-  return { value: raw, set: true };
-}
-
-export function resolveSandboxOptions(input?: SandboxOptions, installationDefault: SandboxDefault = 'dind'): ResolvedSandboxOptions {
-  const base = installationDefault === 'plain' ? { privileged: false, dind: false } : { privileged: true, dind: true };
-  if (!input) return installationDefault === 'plain' ? { ...base, mounts: [] } : DEFAULT_SANDBOX_OPTIONS;
-  // `dind: true` without `privileged` means privileged: docker-in-docker needs a runtime, whatever the default.
-  const privileged = input.privileged ?? (input.dind === true ? true : base.privileged);
-  const dind = input.dind ?? base.dind;
+export function resolveSandboxOptions(input?: SandboxOptions): ResolvedSandboxOptions {
+  if (!input) return DEFAULT_SANDBOX_OPTIONS;
+  // `dind: true` without `privileged` means privileged: docker-in-docker needs a runtime, so the
+  // one-line opt-in `{ "dind": true }` says everything.
+  const privileged = input.privileged ?? true;
+  const dind = input.dind ?? true;
   if (!privileged && dind) {
     throw new Error('sandbox: "privileged": false requires "dind": false — docker-in-docker needs sysbox or --privileged');
   }
@@ -79,7 +74,27 @@ export function resolveSandboxOptions(input?: SandboxOptions, installationDefaul
     if (targets.has(m.target)) throw new Error(`sandbox: duplicate mount target ${m.target}`);
     targets.add(m.target);
   }
-  return { privileged, dind, mounts };
+  if (input.image !== undefined && (typeof input.image !== 'string' || !IMAGE_REF.test(input.image))) {
+    throw new Error(`sandbox: "image" must be an image reference (registry/name:tag), got: ${JSON.stringify(input.image)}`);
+  }
+  return { privileged, dind, mounts, ...(input.image ? { image: input.image } : {}) };
+}
+
+// The sandbox settings' names (sandbox-privilege-opt-in D2): the `SANDBOX_` name, then the old one it
+// replaces — read as a fallback so no installation breaks on upgrade, named once at boot.
+export const RENAMED_SANDBOX_SETTINGS: readonly (readonly [string, string])[] = [
+  ['SANDBOX_IMAGE', 'SNAPSHOT_IMAGE'],
+  ['SANDBOX_HOST', 'SSHDOCKER_HOST'],
+  ['SANDBOX_DIND_RUNTIME', 'SSHDOCKER_RUNTIME'],
+];
+
+/** The boot line for old setting names still in use, or undefined. Pure. */
+export function renamedSettingsWarning(env: Record<string, string | undefined>): string | undefined {
+  const old = RENAMED_SANDBOX_SETTINGS.filter(([, was]) => (env[was] ?? '').trim()).map(([now, was]) => `${was} → ${now}`);
+  // SANDBOX_DEFAULT was on main for a day (never tagged) and is read no more: say so rather than let a
+  // block-less project it made plain go back to docker-in-docker unnoticed.
+  if ((env.SANDBOX_DEFAULT ?? '').trim()) old.push('SANDBOX_DEFAULT is no longer read: write "sandbox": { … } on each project');
+  return old.length ? `settings: renamed, the old names still work for now — ${old.join(', ')} (docs/configuration.md)` : undefined;
 }
 
 // The `managedBy` label every sandbox of this deployment carries, and the filter `/aven status`
@@ -109,33 +124,24 @@ export function assertDeletable(name: string, namePrefix: string): void {
 
 
 /**
- * The boot's privilege warnings (OpenSpec sandbox-privilege-opt-in D2), stage 1: lines to log, never an error.
- * `defaulted` are the projects without a `sandbox` block. Pure.
+ * The privilege warnings (sandbox-privilege-opt-in D3), logged at boot and at /aven reload; never an
+ * error. A project without a `sandbox` block still runs privileged docker-in-docker; a later release
+ * runs it plain, so the line names each one and the opt-in that keeps it. Pure.
  */
-export function privilegeWarnings(inp: {
-  projects: { slug: string; sandbox?: SandboxOptions }[];
-  defaulted: string[];
-  installationDefault: SandboxDefault;
-  defaultSet: boolean;
-  runtimeSet: boolean;
-  local: boolean;
-  localConfirmed: boolean;
-}): string[] {
+export function privilegeWarnings(inp: { projects: { slug: string; sandbox?: SandboxOptions }[]; local: boolean; localConfirmed: boolean }): string[] {
   const out: string[] = [];
-  if (!inp.defaultSet && inp.defaulted.length) {
+  const blockless = inp.projects.filter((p) => p.sandbox === undefined).map((p) => p.slug);
+  if (blockless.length) {
     out.push(
-      `sandboxes: ${inp.defaulted.join(', ')} ${inp.defaulted.length === 1 ? 'has' : 'have'} no "sandbox" block and run as privileged docker-in-docker by default — ` +
-        'set SANDBOX_DEFAULT=dind to keep that, SANDBOX_DEFAULT=plain for unprivileged containers, or give the project a "sandbox" block (docs/sandbox-drivers.md)',
+      `sandboxes: ${blockless.join(', ')} ${blockless.length === 1 ? 'has' : 'have'} no "sandbox" block and run as privileged docker-in-docker; ` +
+        'a later release runs such projects unprivileged — add "sandbox": { "dind": true } to keep docker-in-docker, or { "privileged": false, "dind": false } for a plain container (docs/sandbox-drivers.md)',
     );
   }
-  const privileged = inp.projects.filter((p) => resolveSandboxOptions(p.sandbox, inp.installationDefault).privileged).map((p) => p.slug);
-  if (privileged.length && !inp.runtimeSet) {
-    out.push(`sandboxes: ${privileged.join(', ')} run privileged and SSHDOCKER_RUNTIME is unset (--privileged) — set SSHDOCKER_RUNTIME=sysbox-runc (preferred, needs sysbox on the host) or SSHDOCKER_RUNTIME=privileged`);
-  }
+  const privileged = inp.projects.filter((p) => resolveSandboxOptions(p.sandbox).privileged).map((p) => p.slug);
   if (inp.local && privileged.length && !inp.localConfirmed) {
     out.push(
-      `sandboxes: ${privileged.join(', ')} run privileged on this machine (SSHDOCKER_HOST=local) — such a container is root-equivalent beside the bot's secrets and Docker socket; ` +
-        'make the project unprivileged ("sandbox": { "privileged": false, "dind": false }) or confirm with SANDBOX_LOCAL_PRIVILEGED=1',
+      `sandboxes: ${privileged.join(', ')} run privileged on this machine (SANDBOX_HOST=local) — such a container is root-equivalent beside the bot's secrets and Docker socket; ` +
+        'make the project plain ("sandbox": { "privileged": false, "dind": false }) or confirm with SANDBOX_LOCAL_PRIVILEGED=1',
     );
   }
   return out;

@@ -44,7 +44,11 @@
             "SOME_TOKEN": "${SOME_TOKEN}"
           }
         }
-      ]
+      ],
+      "sandbox": {
+        "dind": true,
+        "image": "ghcr.io/your-org/coach-aven-sandbox-laravel:REPLACE-gitsha"
+      }
     },
     {
       "slug": "acme-cms",
@@ -53,7 +57,11 @@
         "your-org/acme-cms-sync"
       ],
       "env": {},
-      "mcp": []
+      "mcp": [],
+      "sandbox": {
+        "privileged": false,
+        "dind": false
+      }
     },
     {
       "slug": "acme-monitoring",
@@ -61,7 +69,11 @@
         "your-org/acme-monitoring"
       ],
       "env": {},
-      "mcp": []
+      "mcp": [],
+      "sandbox": {
+        "privileged": false,
+        "dind": false
+      }
     },
     {
       "slug": "ops-plain",

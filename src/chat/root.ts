@@ -12,6 +12,7 @@
 import { checkLocalDocker } from '../sshdocker.js';
 import type { Config } from '../config.js';
 import { Store } from '../state.js';
+import { renamedSettingsWarning } from '../sandboxopts.js';
 import { homeWorkspaceWarning, loadProjects, registryPrivilegeWarnings, type RegistryRef } from '../projects.js';
 import { createTurnEngine, type TurnEngine } from '../turn.js';
 import { createChannels, type Channels, type ChannelsOptions } from '../channels.js';
@@ -167,6 +168,8 @@ export async function runChat(cfg: Config, defaultName: ChatDriverName, options:
   if (homeWarning) log.warn(homeWarning);
   // Sandbox privilege as a choice (OpenSpec sandbox-privilege-opt-in, stage 1): what relies on a default, said once.
   for (const w of registryPrivilegeWarnings(reg.current)) log.warn(w);
+  const renamed = renamedSettingsWarning(process.env);
+  if (renamed) log.warn(renamed);
   // Sandboxes on this machine's Docker: say at boot, not in the first turn, when the socket is out of reach (never awaited).
   void checkLocalDocker(cfg.sshDocker?.host).catch(() => {});
 

@@ -160,7 +160,7 @@ async function prepareChat(
 ) {
   if (repos.length === 0) throw new Error(`project ${slug} has no repos`);
   const driver = createDriver(cfg, driverKind);
-  await driver.ensureImage();
+  await driver.ensureImage(resolveSandboxOptions(sandboxOpts).image);
 
   const proj = store.upsertProject(slug, repos[0], cfg.sandbox.namePrefix);
   const sandbox = await driver.ensureSandbox(proj.sandboxName, slug, sandboxOpts);

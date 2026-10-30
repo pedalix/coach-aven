@@ -89,10 +89,10 @@ place to run sandboxes.
 1. **Slack app** — create it from [`slack-app-manifest.json`](slack-app-manifest.json)
    (Socket Mode on). Note the bot token (`xoxb-…`) and the app-level token (`xapp-…`).
 2. **Sandboxes** — containers on a Docker host you own (`docs/sandbox-drivers.md`): over SSH
-   (`SSHDOCKER_HOST=user@host`), or on this very machine (`SSHDOCKER_HOST=local`). Keep
+   (`SANDBOX_HOST=user@host`), or on this very machine (`SANDBOX_HOST=local`). Keep
    `SANDBOX_DRIVER=ssh-docker` as the template writes it. The containers run the sandbox image
    from [`snapshot/`](snapshot/README.md): build it and push it to your own registry (none is
-   published), then point `SNAPSHOT_IMAGE` at the `:<gitsha>` tag the build prints. The `plain`
+   published), then point `SANDBOX_IMAGE` at the `:<gitsha>` tag the build prints. The `plain`
    variant needs no privileged containers and runs on arm64.
 3. **GitHub** — a GitHub App installed on the org/repos with *Contents* + *Pull requests*
    read & write, *Checks* read and *Metadata* read; set `GITHUB_APP_ID` + the private key path. (A plain

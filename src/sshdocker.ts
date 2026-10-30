@@ -642,11 +642,11 @@ export class SshDockerDriver implements SandboxDriver {
     private readonly run: SshRun = runSsh,
   ) {
     if (!cfg.sshDocker) {
-      throw new Error('SSHDOCKER_HOST is not set — required for the ssh-docker sandbox driver');
+      throw new Error('SANDBOX_HOST is not set — required for the ssh-docker sandbox driver');
     }
     this.host = cfg.sshDocker.host;
     // DinD needs either sysbox (preferred: unprivileged-but-docker-capable) or the
-    // --privileged hammer. Configured host-wide via SSHDOCKER_RUNTIME.
+    // --privileged hammer. Configured host-wide via SANDBOX_DIND_RUNTIME.
     this.runtimeFlag = cfg.sshDocker.runtime === 'sysbox-runc' ? '--runtime sysbox-runc' : '--privileged';
   }
 
@@ -654,8 +654,8 @@ export class SshDockerDriver implements SandboxDriver {
     return this.run(this.host, 'sh -s', { ...opts, stdin: script });
   }
 
-  async ensureImage(): Promise<void> {
-    const image = this.cfg.snapshot.image;
+  async ensureImage(projectImage?: string): Promise<void> {
+    const image = projectImage ?? this.cfg.snapshot.image;
     const r = await this.onHost(
       `docker image inspect ${sq(image)} >/dev/null 2>&1 && echo present || docker pull ${sq(image)}`,
       { timeoutMs: 15 * 60_000 }, // first pull of the dind image is large
@@ -680,7 +680,7 @@ export class SshDockerDriver implements SandboxDriver {
     const script = ensureSandboxScript(
       name,
       projectSlug,
-      this.cfg.snapshot.image,
+      o.image ?? this.cfg.snapshot.image,
       o.privileged ? this.runtimeFlag : '',
       o.mounts,
       o.dind,

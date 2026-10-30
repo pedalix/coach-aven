@@ -18,6 +18,6 @@ test('createDriver — with or without a kind, the driver is ssh-docker', () => 
   assert.ok(createDriver(cfg, 'ssh-docker') instanceof SshDockerDriver, 'a project that names ssh-docker');
 });
 
-test('createDriver — nothing names a driver and SSHDOCKER_HOST is missing: the first sandbox use fails naming it', () => {
-  assert.throws(() => createDriver({ ...cfg, sshDocker: undefined }), /SSHDOCKER_HOST is not set/);
+test('createDriver — nothing names a driver and SANDBOX_HOST is missing: the first sandbox use fails naming it', () => {
+  assert.throws(() => createDriver({ ...cfg, sshDocker: undefined }), /SANDBOX_HOST is not set/);
 });

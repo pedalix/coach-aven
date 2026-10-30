@@ -193,9 +193,8 @@ export interface Config {
   // Laravel Sail; irrelevant for projects that run with `sandbox.privileged: false`.
   sshDocker?: { host: string; runtime: 'sysbox-runc' | 'privileged' };
   sandboxDriver: SandboxDriverKind;
-  // SNAPSHOT_IMAGE: the image every project container is created from. The Daytona-era name stays
-  // on purpose (retire-daytona-driver D2): every installation sets it, and a rename would change no
-  // behaviour.
+  // SANDBOX_IMAGE (formerly SNAPSHOT_IMAGE): the image a project container is created from unless
+  // the project names its own (`sandbox.image`).
   snapshot: { image: string };
   // namePrefix keeps two installations (dev and prod) apart on ONE Docker host: dev →
   // `dev-proj-<slug>`, prod → `proj-<slug>`, so the two never share a container (set
@@ -448,16 +447,19 @@ export const withSessionSecret = (web: WebConfig | undefined, dir: () => string 
 
 export function loadConfig(): Config {
   const sandboxDriver = sandboxDriverEnv(process.env.SANDBOX_DRIVER);
-  const sshRuntime = process.env.SSHDOCKER_RUNTIME || 'privileged';
+  // The SANDBOX_ names, each old name read as its fallback (sandbox-privilege-opt-in D2;
+  // renamedSettingsWarning names the old ones at boot).
+  const sshRuntime = process.env.SANDBOX_DIND_RUNTIME || process.env.SSHDOCKER_RUNTIME || 'privileged';
   if (sshRuntime !== 'privileged' && sshRuntime !== 'sysbox-runc') {
-    throw new Error(`SSHDOCKER_RUNTIME must be 'sysbox-runc' or 'privileged', got: ${sshRuntime}`);
+    throw new Error(`SANDBOX_DIND_RUNTIME must be 'sysbox-runc' or 'privileged', got: ${sshRuntime}`);
   }
+  const sandboxHost = process.env.SANDBOX_HOST || process.env.SSHDOCKER_HOST;
+  const image = process.env.SANDBOX_IMAGE || process.env.SNAPSHOT_IMAGE;
+  if (!image) throw new Error('Missing required env var: SANDBOX_IMAGE (the image project containers are created from)');
   return {
-    sshDocker: process.env.SSHDOCKER_HOST
-      ? { host: process.env.SSHDOCKER_HOST, runtime: sshRuntime }
-      : undefined,
+    sshDocker: sandboxHost ? { host: sandboxHost, runtime: sshRuntime } : undefined,
     sandboxDriver,
-    snapshot: { image: req('SNAPSHOT_IMAGE') },
+    snapshot: { image },
     sandbox: {
       autoStopMinutes: autoStopMinutesEnv(process.env.SANDBOX_AUTOSTOP_MINUTES),
       workDir: process.env.SANDBOX_WORK_DIR || '/root/work',

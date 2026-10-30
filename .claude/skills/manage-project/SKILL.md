@@ -98,8 +98,8 @@ Offer to generate/update `projects.d/<slug>.md` from the repos themselves:
    Bake in: datasource catalog (Loki UID is `Loki`), this project's exact selectors,
    a tenant note if data splits by `tenant`/`site_id`, an explicit EXCLUDE list of siblings.
    (For an existing project, its container can mine real past queries — only if the API
-   can't answer. It is usually asleep: start it first, then exec — `ssh <SSHDOCKER_HOST>
-   docker start proj-<slug>`, then `ssh <SSHDOCKER_HOST> docker exec proj-<slug> sh -c '<cmd>'`
+   can't answer. It is usually asleep: start it first, then exec — `ssh <SANDBOX_HOST>
+   docker start proj-<slug>`, then `ssh <SANDBOX_HOST> docker exec proj-<slug> sh -c '<cmd>'`
    (plain `docker` in local mode; `docs/sandbox-drivers.md` → *Looking inside a container*).)
 
 For an edit, show the prompt diff, not the whole file. Don't belabor variants.

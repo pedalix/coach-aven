@@ -19,7 +19,7 @@ FROM node:24-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc
 
 # The host tools the code calls (design Context): git for the memory journals, the mirror job and the
 # local-activity source; ssh for a remote sandbox host; age for the sources vault; the Docker CLI for
-# sandboxes on the box's own Docker (SSHDOCKER_HOST=local); gitleaks for `orch sources audit`.
+# sandboxes on the box's own Docker (SANDBOX_HOST=local); gitleaks for `orch sources audit`.
 # Static binaries come from their official images, nothing from `curl | sh`.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates git openssh-client age \

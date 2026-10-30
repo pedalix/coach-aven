@@ -13,7 +13,7 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
 | `Missing required env var: GITHUB_APP_ID` / `Provide GITHUB_APP_PRIVATE_KEY_PATH or GITHUB_APP_PRIVATE_KEY` | no GitHub credential | set `GITHUB_TOKEN` (a token is used as is) or the App's id and key |
 | `…: each project needs a "slug" and at least one repo in "repos"` | the projects config | every project names at least one `owner/repo` |
 | `…: workspaces["T…"] references unknown project "…"` | a `workspaces` entry names a slug that is not in `projects` | fix the slug, or drop the entry |
-| `SANDBOX_DRIVER=…: the Daytona driver was removed after v0.42.0` | an old `.env` | `SANDBOX_DRIVER=ssh-docker` (or remove the line) and set `SSHDOCKER_HOST` |
+| `SANDBOX_DRIVER=…: the Daytona driver was removed after v0.42.0` | an old `.env` | `SANDBOX_DRIVER=ssh-docker` (or remove the line) and set `SANDBOX_HOST` |
 | `WEB_AUTH=none needs a loopback listener (WEB_BIND=127.0.0.1)` | `none` signs everyone in, so it never listens beyond loopback | inside a container, use `WEB_AUTH=link` ([`web.md`](web.md)) |
 | `WEB_AUTH=link needs a localhost WEB_BASE_URL` | `link` is a local mode | a public host signs people in through OIDC |
 | `Partial web config: missing …` / `Partial Teams config: missing …` | some of a surface's settings are set, not all | set the rest, or remove them all |
@@ -44,20 +44,21 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
 
 ## Warnings at boot about sandboxes
 
-- **`… have no "sandbox" block and run as privileged docker-in-docker by default`** — set `SANDBOX_DEFAULT` (`dind` to
-  keep it, `plain` for unprivileged containers) or give the projects a `sandbox` block.
-- **`… run privileged and SSHDOCKER_RUNTIME is unset`** — set `SSHDOCKER_RUNTIME=sysbox-runc` (preferred) or
-  `privileged`.
-- **`… run privileged on this machine (SSHDOCKER_HOST=local)`** — make the projects unprivileged, or confirm with
+- **`… have no "sandbox" block and run as privileged docker-in-docker`** — write the choice on each project:
+  `"sandbox": { "dind": true }` to keep Docker inside (Laravel Sail), `{ "privileged": false, "dind": false }` for a
+  plain container.
+- **`… run privileged on this machine (SANDBOX_HOST=local)`** — make the projects plain, or confirm with
   `SANDBOX_LOCAL_PRIVILEGED=1`.
+- **`settings: renamed, the old names still work for now — …`** — rename them in `.env` as the line says
+  (`SNAPSHOT_IMAGE` → `SANDBOX_IMAGE`, `SSHDOCKER_HOST` → `SANDBOX_HOST`, `SSHDOCKER_RUNTIME` → `SANDBOX_DIND_RUNTIME`).
 
 ## The first turn fails
 
-- **`SSHDOCKER_HOST is not set`** — set `local` for this machine's Docker, or an ssh target ([`sandbox-drivers.md`](sandbox-drivers.md)).
+- **`SANDBOX_HOST is not set`** — set `local` for this machine's Docker, or an ssh target ([`sandbox-drivers.md`](sandbox-drivers.md)).
 - **`the bot cannot reach Docker at /var/run/docker.sock`** (a boot log line, a minute after the start) — the bot's
   process is not in the socket's group. In the quickstart, rerun `./init.sh` and `docker compose up -d`; on a box, put
   the bot's user in the `docker` group.
-- **`image pull failed: …`** — the sandbox image `SNAPSHOT_IMAGE` names cannot be pulled by the sandbox host: a typo, a
+- **`image pull failed: …`** — the sandbox image `SANDBOX_IMAGE` names cannot be pulled by the sandbox host: a typo, a
   private registry without a login on that host, or a tag that was never pushed.
 - **The clone fails** with git's own message — the repository in the projects config is still a placeholder, or the
   GitHub token does not reach it (a fine-grained token lists its repositories; an App must be installed on the

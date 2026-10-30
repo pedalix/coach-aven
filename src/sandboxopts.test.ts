@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_SANDBOX_OPTIONS, assertDeletable, parseMount, privilegeWarnings, resolveSandboxOptions, sandboxDefaultFrom } from './sandboxopts.js';
+import { DEFAULT_SANDBOX_OPTIONS, assertDeletable, parseMount, privilegeWarnings, renamedSettingsWarning, resolveSandboxOptions } from './sandboxopts.js';
 
 test('resolveSandboxOptions — absent/empty → fleet defaults (privileged dind, no mounts)', () => {
   assert.deepEqual(resolveSandboxOptions(undefined), DEFAULT_SANDBOX_OPTIONS);
@@ -48,42 +48,48 @@ test('assertDeletable — only throwaway sandboxes; a project sandbox is refused
 });
 
 
-// OpenSpec sandbox-privilege-opt-in, stage 1.
-test('SANDBOX_DEFAULT: unset is dind (not chosen), dind|plain chosen, anything else stops the boot', () => {
-  assert.deepEqual(sandboxDefaultFrom({}), { value: 'dind', set: false });
-  assert.deepEqual(sandboxDefaultFrom({ SANDBOX_DEFAULT: 'plain' }), { value: 'plain', set: true });
-  assert.deepEqual(sandboxDefaultFrom({ SANDBOX_DEFAULT: 'dind' }), { value: 'dind', set: true });
-  assert.throws(() => sandboxDefaultFrom({ SANDBOX_DEFAULT: 'yes' }), /SANDBOX_DEFAULT must be 'dind' or 'plain'/);
+// OpenSpec sandbox-privilege-opt-in.
+test('resolveSandboxOptions: a block-less project is today\'s, { dind: true } alone is privileged, an image is the project\'s', () => {
+  assert.deepEqual(resolveSandboxOptions(undefined), { privileged: true, dind: true, mounts: [] }, 'block-less: today');
+  assert.deepEqual(resolveSandboxOptions({ dind: true }), { privileged: true, dind: true, mounts: [] });
+  assert.deepEqual(resolveSandboxOptions({ privileged: false, dind: false }), { privileged: false, dind: false, mounts: [] });
+  assert.deepEqual(resolveSandboxOptions({ dind: true, image: 'registry.example/acme/laravel:1.2' }), {
+    privileged: true,
+    dind: true,
+    mounts: [],
+    image: 'registry.example/acme/laravel:1.2',
+  });
+  assert.equal(resolveSandboxOptions({ privileged: false, dind: false, image: 'ghcr.io/acme/plain@sha256:abc' }).image, 'ghcr.io/acme/plain@sha256:abc');
+  for (const ok of ['localhost:5000/acme/x:tag', 'acme/x:1@sha256:abc', 'plain']) assert.equal(resolveSandboxOptions({ image: ok }).image, ok);
+  for (const bad of ['', 'img; rm -rf /', 'has space', '-x', -1]) {
+    assert.throws(() => resolveSandboxOptions({ image: bad as string }), /"image" must be an image reference/);
+  }
+  assert.throws(() => resolveSandboxOptions({ privileged: false }), /requires "dind": false/, 'today\'s contradiction stays an error');
 });
 
-test('resolveSandboxOptions with an installation default: today unchanged, plain for block-less, field by field, dind implies privileged', () => {
-  assert.deepEqual(resolveSandboxOptions(undefined), { privileged: true, dind: true, mounts: [] }, 'unset: today');
-  assert.deepEqual(resolveSandboxOptions(undefined, 'plain'), { privileged: false, dind: false, mounts: [] });
-  assert.deepEqual(resolveSandboxOptions({ privileged: true }, 'plain'), { privileged: true, dind: false, mounts: [] });
-  assert.deepEqual(resolveSandboxOptions({ dind: true }, 'plain'), { privileged: true, dind: true, mounts: [] }, 'dind needs a runtime');
-  assert.deepEqual(resolveSandboxOptions({ privileged: false, dind: false }, 'dind'), { privileged: false, dind: false, mounts: [] });
-  assert.throws(() => resolveSandboxOptions({ privileged: false }, 'dind'), /requires "dind": false/, 'today\'s contradiction stays an error');
+test('renamedSettingsWarning names the old setting names in use, nothing when renamed', () => {
+  assert.equal(renamedSettingsWarning({ SANDBOX_IMAGE: 'img', SANDBOX_HOST: 'local' }), undefined);
+  const w = renamedSettingsWarning({ SNAPSHOT_IMAGE: 'img', SSHDOCKER_HOST: 'local', SANDBOX_DIND_RUNTIME: 'sysbox-runc' }) ?? '';
+  assert.match(w, /SNAPSHOT_IMAGE → SANDBOX_IMAGE, SSHDOCKER_HOST → SANDBOX_HOST/);
+  assert.doesNotMatch(w, /SSHDOCKER_RUNTIME/);
+  assert.match(renamedSettingsWarning({ SANDBOX_DEFAULT: 'plain' }) ?? '', /SANDBOX_DEFAULT is no longer read/);
 });
 
-test('privilegeWarnings: prod, staging and home as they are on 2026-10-30', () => {
+test('privilegeWarnings: prod, staging and home as they are on 2026-10-31', () => {
   const blockless = ['harbor', 'shop', 'ops'].map((slug) => ({ slug }));
   const plain = (slug: string) => ({ slug, sandbox: { privileged: false, dind: false } });
-  const base = { installationDefault: 'dind' as const, defaultSet: false, runtimeSet: false, local: false, localConfirmed: false };
-  // prod: block-less projects, sysbox runtime set, a remote sandbox host → only the implicit-default line
-  const prod = privilegeWarnings({ ...base, projects: blockless, defaulted: blockless.map((p) => p.slug), runtimeSet: true });
+  // prod: block-less projects on a remote host → the one line naming them and the opt-in
+  const prod = privilegeWarnings({ projects: blockless, local: false, localConfirmed: false });
   assert.equal(prod.length, 1);
   assert.match(prod[0], /harbor, shop, ops have no "sandbox" block/);
-  assert.match(prod[0], /SANDBOX_DEFAULT=dind/);
+  assert.match(prod[0], /"dind": true/);
+  // prod after it writes the opt-in → quiet
+  assert.deepEqual(privilegeWarnings({ projects: blockless.map((p) => ({ ...p, sandbox: { dind: true } })), local: false, localConfirmed: false }), []);
   // staging and home: every project plain, local mode → nothing
-  assert.deepEqual(privilegeWarnings({ ...base, projects: [plain('platform'), plain('newsletter')], defaulted: [], local: true }), []);
-  // the runtime warning follows privileged, not dind
-  const priv = privilegeWarnings({ ...base, projects: [{ slug: 'x', sandbox: { privileged: true, dind: false } }], defaulted: [] });
-  assert.equal(priv.length, 1);
-  assert.match(priv[0], /SSHDOCKER_RUNTIME is unset/);
-  // local + privileged without the confirmation; confirmed and chosen → quiet
-  const local = privilegeWarnings({ ...base, projects: [{ slug: 'x', sandbox: { privileged: true, dind: true } }], defaulted: [], local: true, runtimeSet: true });
-  assert.match(local.join('\n'), /root-equivalent/);
-  assert.deepEqual(privilegeWarnings({ ...base, projects: [{ slug: 'x', sandbox: { privileged: true, dind: true } }], defaulted: [], local: true, runtimeSet: true, localConfirmed: true }), []);
-  // a chosen plain default: block-less projects are plain → nothing
-  assert.deepEqual(privilegeWarnings({ ...base, installationDefault: 'plain', defaultSet: true, projects: blockless, defaulted: blockless.map((p) => p.slug), local: true }), []);
+  assert.deepEqual(privilegeWarnings({ projects: [plain('platform'), plain('newsletter')], local: true, localConfirmed: false }), []);
+  // local + privileged without the confirmation; confirmed → quiet
+  const local = privilegeWarnings({ projects: [{ slug: 'x', sandbox: { dind: true } }], local: true, localConfirmed: false });
+  assert.equal(local.length, 1);
+  assert.match(local[0], /root-equivalent/);
+  assert.deepEqual(privilegeWarnings({ projects: [{ slug: 'x', sandbox: { dind: true } }], local: true, localConfirmed: true }), []);
 });

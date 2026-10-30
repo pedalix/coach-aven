@@ -59,13 +59,12 @@ Back up `state.json` and the directories above together; delete a project's dire
   anywhere. CoachAven does not filter outbound traffic and has no plan to yet.
 - **The `pr` git flow is an instruction, not a permission.** The token can push to any branch it is scoped to; require
   reviews on the default branch so that GitHub, not the prompt, enforces "people merge".
-- **Privileged docker-in-docker** is what a project without a `sandbox` block gets unless the installation sets
-  `SANDBOX_DEFAULT=plain`; the boot warns about every project relying on that default. Such a container is
-  root-equivalent on its Docker host. Prefer sysbox (`SSHDOCKER_RUNTIME=sysbox-runc`), or `SANDBOX_DEFAULT=plain` /
-  `"sandbox": { "privileged": false, "dind": false }` with the plain image; keep the sandbox host separate from the
-  bot's in production. On the bot's own machine a privileged project needs `SANDBOX_LOCAL_PRIVILEGED=1`, or the boot
-  says why it should not run there.
-- **Local sandboxes share the bot's machine.** With `SSHDOCKER_HOST=local` the bot holds the Docker socket
+- **Privileged docker-in-docker** is what a project gets with `"sandbox": { "dind": true }`, and, until a later
+  release, a project without a `sandbox` block (the boot names those). Such a container is root-equivalent on its
+  Docker host. Prefer sysbox (`SANDBOX_DIND_RUNTIME=sysbox-runc`) and keep the sandbox host separate from the bot's in
+  production; a project that needs no Docker inside runs plain (`"privileged": false, "dind": false`). On the bot's
+  own machine a privileged project needs `SANDBOX_LOCAL_PRIVILEGED=1`, or the boot says why it should not run there.
+- **Local sandboxes share the bot's machine.** With `SANDBOX_HOST=local` the bot holds the Docker socket
   (root-equivalent) and the sandboxes are its siblings. The quickstart runs them unprivileged; keep this mode for trials
   and single-operator installations.
 - **Only what people type is scrubbed** (and sources at ingest), unless a project sets `scrubSecrets: false`. Attachments,

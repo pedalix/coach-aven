@@ -2,61 +2,48 @@
 
 ## Why
 
-A project without a `sandbox` block runs as **privileged docker-in-docker**:
-- `resolveSandboxOptions` defaults to `privileged: true, dind: true`;
-- the runtime defaults to `--privileged` unless `SSHDOCKER_RUNTIME=sysbox-runc`.
+A project without a `sandbox` block runs as **privileged docker-in-docker**: `resolveSandboxOptions` defaults to `privileged: true, dind: true`, and the runtime defaults to `--privileged`. That default fit the first installations, Laravel agencies running Sail inside the sandbox. For anyone else it is the riskiest choice, made silently:
+- A privileged container is root-equivalent on its Docker host. Claude Code runs there with its permission prompts off and reads text from people and documents.
+- With a local sandbox host, that Docker host is the machine holding the bot's secrets and its Docker socket.
 
-That default made sense for the first installations, Laravel agencies running Sail inside the sandbox. For anyone else it is the riskiest choice, and it is made silently:
-- A privileged container is root-equivalent on its Docker host. Claude Code runs there with its permission prompts off, beside the project's dependencies, and reads text from people and documents.
-- With `SSHDOCKER_HOST=local`, that Docker host is the machine that holds the bot's own secrets and its Docker socket.
-- A Node or Python team needs three opt-outs to avoid it. The README and `.env.example` offered local mode without saying so; the community plan's audit counted this as a major finding.
-
-`docs/security.md` lists it as an accepted risk. This change makes it a choice.
+The image has the same problem from the other side: one installation-wide image (`SNAPSHOT_IMAGE`, a Daytona-era name) forces one toolchain on every project, so a Laravel project and a Node project cannot share an installation without a compromise.
 
 ## What Changes
 
-- **`SANDBOX_DEFAULT`, the installation's default for a project without a `sandbox` block:**
-  - `dind` means privileged docker-in-docker, today's behaviour;
-  - `plain` means an unprivileged container without Docker.
+The maintainer's shape (2026-10-31):
+- **Per installation, two sandbox settings besides the driver:** the host and the default image.
+- **Per project:** `sandbox.image` overrides the image, and `sandbox.dind: true` asks for Docker inside, which makes the container privileged.
+- **The mode default is plain**, whatever the default image. Docker-in-docker is only ever written on the project that gets it.
 
-  In this change an unset value still means `dind`. The boot logs one warning that names the projects relying on it and the two ways out: set `SANDBOX_DEFAULT`, or give the project a `sandbox` block.
-- **One resolved shape, read everywhere.** Today `loadProjects` validates the options and throws the result away, and five places re-read the raw `sandbox` block (the `docker run` flags, the dockerd guard at chat preparation and in housekeeping, the idle stop's inner dockerd, the prompt's Sail paragraph). The resolved options become part of the loaded project, and every site reads only them, so the installation default reaches all of them.
-- **The runtime of a privileged project is a choice too.** When some project resolves to privileged and `SSHDOCKER_RUNTIME` is unset, the boot warns and names `sysbox-runc` (preferred) and `privileged`.
-- **A privileged sandbox on the bot's own machine needs a confirmation.** With `SSHDOCKER_HOST=local` and a project that resolves to privileged, the boot warns unless `SANDBOX_LOCAL_PRIVILEGED=1` says the operator knows the container is root-equivalent beside the bot's secrets.
-- **Templates and docs say it first:**
-  - `.env.example` and `quickstart/.env.example` (`plain`) write `SANDBOX_DEFAULT` explicitly;
-  - the root `projects.config.example.json` gives its block-less projects a `sandbox` block;
-  - `docs/security.md` gets a trust note and an honest egress section: what a host can do today (a proxy plus a default-deny rule; DNS and IPv6 caveats; not under Docker Desktop), and that putting sandboxes on their own Docker network is a follow-up;
-  - `docs/sandbox-drivers.md` and `docs/configuration.md` describe the settings.
-- **A later change makes the choice required.** Once every installation we operate sets these values, a minor release turns the three warnings into boot errors that name the setting. An unset `SANDBOX_DEFAULT` with a block-less project then stops the boot instead of picking a default silently. A silent `plain` default would take Sail's php and composer away from a laravel-image installation. That step is its own change and ledger row.
+In detail:
+- **`sandbox.image`** on a project: the image its container is created from. Unset means the installation's `SANDBOX_IMAGE`.
+- **The settings get `SANDBOX_` names:**
+
+  | Old | New |
+  |---|---|
+  | `SNAPSHOT_IMAGE` | `SANDBOX_IMAGE` |
+  | `SSHDOCKER_HOST` | `SANDBOX_HOST` |
+  | `SSHDOCKER_RUNTIME` | `SANDBOX_DIND_RUNTIME` |
+
+  The old names stay readable as fallbacks, and the boot logs one line naming the ones in use. Templates and docs use only the new names.
+- **`"dind": true` alone means privileged**, so `{ "dind": true }` is the whole opt-in.
+- **Warnings at boot and at `/aven reload`:**
+  - projects without a block, named, because they rely on today's default and the default becomes plain in a later release; the fix is `"dind": true` (or `"sandbox": { "dind": false }` to accept plain now);
+  - a privileged project on a local sandbox host without `SANDBOX_LOCAL_PRIVILEGED=1`;
+  - the old setting names.
+- **`SANDBOX_DEFAULT`** (stage 1 as first merged, never released in a tag) is removed: the default is not an installation setting.
+- **A later change flips the default:** a project without a block runs plain. It ships only after every operated installation writes `"dind": true` where it needs it.
 
 ## Capabilities
 
-### New Capabilities
-None.
-
 ### Modified Capabilities
-- `sandbox-drivers`: how a project's privilege is decided — the installation default, the runtime of docker-in-docker, and the local-mode confirmation — and what the boot says about each.
+- `sandbox-drivers`: the image and the privilege are a project's choice; the installation's sandbox settings and their names.
 
 ## Impact
 
 - **Rollout:**
-  - **Stage 1, this change, bucket 2:** new settings; today's default unchanged; three log lines. Every resolved option, every `docker run`, every housekeeping and idle-stop script and every golden prompt stays byte for byte what it is today, pinned by tests over today's configurations.
-  - **Stage 2, a later change, bucket 3:** it is breaking. Unset becomes a boot error, with its own ledger row; containers whose creation flags differ from their resolved options are listed and recreated.
-  - Ledger row "sandbox privilege opt-in".
-  - Before stage 2:
-    - prod sets `SANDBOX_DEFAULT=dind` (its 11 projects rely on the default; `SSHDOCKER_RUNTIME=sysbox-runc` is already set);
-    - staging and home set `SANDBOX_DEFAULT=plain` (every project there already says `privileged: false`).
-- **Code:**
-  - `src/sandboxopts.ts`: the default comes from a parameter, and pure functions produce the warnings;
-  - `src/config.ts`: `SANDBOX_DEFAULT` and `SANDBOX_LOCAL_PRIVILEGED`, and whether `SSHDOCKER_RUNTIME` was set;
-  - `src/projects.ts`: `loadProjects` resolves the options with the default and keeps them on the project; `/aven reload` and `src/sources/cli.ts` load through it;
-  - `src/sshdocker.ts`, `src/tasks.ts`, `src/pollers.ts`, `src/idlestop.ts`, `src/prompt.ts`: read the resolved options;
-  - `src/cliprobe/sandbox.ts`: its own `Config` gains the new fields;
-  - `src/chat/root.ts` and the reload path: the warnings.
-- **Out of scope:**
-  - egress filtering in code, including a `--network` option for sandboxes (a follow-up);
-  - the stage-2 step itself;
-  - showing a project's privilege in `/aven status`;
-  - per-project runtimes;
-  - a seccomp or AppArmor profile.
+  - **This change, bucket 2:** a project without a block still runs as today; every existing `docker run`, prompt, housekeeping and idle-stop script stays byte for byte, pinned by tests. New: `sandbox.image`, the new names (old ones read), the warnings.
+  - **The flip, a later change, bucket 3:** block-less projects run plain; containers whose flags or image differ from the project's are listed for recreation. Its own ledger row.
+  - Before the flip: prod writes `"dind": true` on its 11 block-less projects (today's behaviour, unchanged); staging and home already have plain blocks.
+- **Code:** `src/sandboxopts.ts` (image field, warnings), `src/config.ts` and `src/cliprobe/sandbox.ts` (names with fallbacks), `src/projects.ts`, `src/sshdocker.ts` and `src/driver.ts` (per-project image), `src/tasks.ts`, `infra/deploy/deploy.sh` and the quickstart compose file (the host and image names).
+- **Out of scope:** egress filtering (not planned); image labels checking the mode (the maintainer: not needed); per-project runtimes; seccomp/AppArmor.

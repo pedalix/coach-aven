@@ -6,7 +6,7 @@
 #
 # Placeholders: __SERVICE__ __IMAGE__ __DIR__ __UID__ __GID__ __HOME__ __DRIVER__ __DAEMON_LISTEN__ __DOCKER_GID__.
 # A line tagged `# @<switch>` is kept or dropped at render: daemon (DAEMON_LISTEN in deploy.env), socket or
-# ssh (SSHDOCKER_HOST=local: the box's Docker socket and its group, no key; another host: the deployer's
+# ssh (SANDBOX_HOST=local: the box's Docker socket and its group, no key; another host: the deployer's
 # .ssh read-only, no socket) and netrc (the home file the code falls back to, only when it exists — a bind
 # mount of a missing file would put a directory in its place). The Claude credential is never a mounted file:
 # it comes from .env (CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY). ~/.claude/.credentials.json is rewritten

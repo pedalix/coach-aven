@@ -2,56 +2,39 @@
 
 ## Context
 
-- **Resolving a project.** `resolveSandboxOptions(input)` in `src/sandboxopts.ts` returns `DEFAULT_SANDBOX_OPTIONS = { privileged: true, dind: true }` for a project without a `sandbox` block, and `?? true` for each missing field. `loadProjects` calls it at boot and at `/aven reload`.
-- **Running a container.** The driver turns `privileged` into `config.sshDocker.runtime`: `--runtime sysbox-runc`, or `--privileged`, the default when `SSHDOCKER_RUNTIME` is unset (`src/config.ts`, `src/sshdocker.ts`).
-- **Where the installations stand on 2026-10-30:**
-  - prod: 11 projects without a block, sysbox on a separate sandbox host;
-  - staging: 2 projects, both `privileged: false`, local mode;
-  - home: 1 project, `privileged: false`, local mode;
-  - the quickstart: explicit `privileged: false`.
+- `resolveSandboxOptions(input)` (`src/sandboxopts.ts`) gives `{ privileged: true, dind: true }` to a project without a block and `?? true` per missing field. `loadProjects` validates with it; five places re-read the raw block (the `docker run` flags, the dockerd guard at chat preparation and in housekeeping, the idle stop's dind answer, the prompt's Sail paragraph).
+- The image is one setting, `SNAPSHOT_IMAGE` (`config.snapshot.image`), pulled before each chat preparation (`driver.ensureImage()`) and passed to `docker run`.
+- `docker run` happens only when the container does not exist: an existing container keeps its flags and its image.
+- Installations on 2026-10-31: prod has 11 block-less projects on a remote sysbox host; staging and home have only plain blocks on a local host.
 
 ## Decisions
 
-### D1. One installation default, resolved once, read everywhere
-`SANDBOX_DEFAULT` (`dind` | `plain`; anything else stops the boot) becomes a parameter of `resolveSandboxOptions(input, installationDefault)`:
-- **`dind`:** today's `{ privileged: true, dind: true }`.
-- **`plain`:** `{ privileged: false, dind: false }`.
+### D1. Image and privilege belong to the project
+- `sandbox.image` names the project's image; unset means `SANDBOX_IMAGE`.
+- `sandbox.dind: true` asks for docker-in-docker and implies `privileged`.
+- The installation keeps the driver, the host, the default image and the dind runtime (`sysbox-runc` or `privileged`).
 
-A project's block still wins field by field. A block that sets `dind: true` without `privileged` implies `privileged: true`, so `{ "dind": true }` stays valid under a `plain` default. Unset means `dind` in this change, and the config records `sandboxDefaultSet: false`.
+The two are independent on purpose: an installation of mostly Laravel projects sets the laravel image as its default and writes `"dind": true` on each project that gets it, so privilege is visible where it applies. A mismatched pair (the laravel image without dind, the plain image with dind) fails loudly at the first command or at the dockerd guard. Labels on images to catch it earlier: not needed (the maintainer).
 
-`loadProjects` keeps the result on the loaded project (`resolvedSandbox`). Every reader switches to it:
-- the `docker run` flags (`src/sshdocker.ts`);
-- the dockerd guard at chat preparation and the prompt's Sail paragraph (`src/tasks.ts`, `src/prompt.ts`);
-- housekeeping's guard (`src/pollers.ts`);
-- the idle stop's inner dockerd (`src/idlestop.ts`).
+*Why not an installation-wide mode default (`SANDBOX_DEFAULT`, first merged)?* It hides the most dangerous setting in one global place, and the reason for it — one image per installation — goes away with `sandbox.image`.
 
-Before this, the default could not reach them: each re-read the raw block.
+### D2. The `SANDBOX_` names, the old ones as fallbacks
+`SANDBOX_IMAGE`, `SANDBOX_HOST`, `SANDBOX_DIND_RUNTIME`; a new name wins over its old one. The old names are read so no installation breaks on upgrade, and the boot names them once. `infra/deploy/deploy.sh` reads the host under either name. Removing the fallbacks is a later, announced step.
 
-*Why an installation setting, not a per-project rule?* The image is installation-wide. `plain` with the laravel image starts a container, but php, composer and artisan are Sail shims that need dockerd (`snapshot/shims/sail-shim.sh`), so they fail. And `dind` with the plain image fails at the dockerd guard. The default belongs beside `SNAPSHOT_IMAGE`, and the docs say which pairs work.
+### D3. Warnings now, the flip later
+Pure `privilegeWarnings` in `src/sandboxopts.ts`, logged at boot (`src/chat/root.ts`) and at `/aven reload`:
+1. block-less projects, named, with the fix (`"dind": true` to keep docker-in-docker);
+2. a privileged project on a local sandbox host without `SANDBOX_LOCAL_PRIVILEGED=1`.
 
-### D2. Warnings now, a required choice later
-Three pure functions in `src/sandboxopts.ts` take the resolved projects and the settings and return warning lines. The composition root logs them at boot; `/aven reload` logs them for projects it adds.
-1. **The implicit default:** `SANDBOX_DEFAULT` is unset and some project has no block. The warning names the slugs.
-2. **The implicit runtime:** some project resolves to privileged, and `SSHDOCKER_RUNTIME` is unset. The runtime flag follows `privileged`, not `dind`.
-3. **The unconfirmed local privileged sandbox:** `SSHDOCKER_HOST=local`, some project resolves to privileged, and `SANDBOX_LOCAL_PRIVILEGED` is not `1`.
+The runtime-unset warning of the first merge is dropped: with docker-in-docker written per project, the runtime default (`privileged`) is documented, not a silent choice.
 
-Stage 2 turns the same three results into boot errors. It does **not** introduce a silent `plain` default: an operator who never chose gets a sentence naming the setting, not a toolchain that disappeared.
+The flip (block-less = plain) is a later bucket-3 change, after prod writes `"dind": true`. It also lists containers whose flags or image differ from their project's, since `docker run` alone applies them.
 
-Stage 2 also lists the containers whose creation flags differ from their resolved options, because a container keeps its flags until it is recreated. Their operator recreates them (`docker rm`; the next turn creates it again).
-
-*Why not errors now?* Prod would fail its next boot.
-
-### D3. Egress: one honest line, no recipe
-The maintainer, 2026-10-31: outbound filtering is not planned. `docs/security.md` keeps *No egress filtering* as an accepted risk and says CoachAven does not filter outbound traffic and has no plan to yet. No recipe, no `--network` option.
-
-### D4. Stage 2 is the maintainer's choice
-Two shapes, both after every operated installation sets `SANDBOX_DEFAULT`:
-- **A: `plain` becomes the default.** Docker-in-docker needs `SANDBOX_DEFAULT=dind` or `"dind": true`. A laravel-image installation that never set it loses Sail's php/composer silently. Today that is prod alone, and it sets `dind` first.
-- **B: unset stops the boot,** with a sentence naming both values.
-
-Either way stage 2 lists and recreates containers whose flags differ from the resolved options.
+### D4. Egress
+Not filtered, not planned (the maintainer, 2026-10-31): one line in `docs/security.md`.
 
 ## Risks / Trade-offs
 
-- **Warning fatigue on prod until it sets the values.** One line per boot; the ledger row tracks it.
-- **Refactoring five readers to the resolved shape.** The byte-for-byte tests (task 1.3) are the guard: the golden prompts, the housekeeping and idle-stop scripts, and the `docker run` argv.
+- **A changed `sandbox.image` does not reach an existing container** until it is removed. Same as the flags today; the docs say `docker rm proj-<slug>`.
+- **Two names for a while.** One boot line per old name keeps it visible.
+- **A large project image on first use** is pulled before chat preparation (`ensureImage`); the `/aven` command and housekeeping wake paths rely on `docker run` pulling it within its timeout, as the installation image did before.

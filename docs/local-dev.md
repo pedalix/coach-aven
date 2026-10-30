@@ -44,12 +44,12 @@ Then set, in `.env`:
 |---|---|
 | `CLAUDE_CODE_OAUTH_TOKEN` | a `claude setup-token` value (or `ANTHROPIC_API_KEY` — exactly one; neither: your `~/.claude` login) |
 | `GITHUB_TOKEN` | a fine-grained token for one test repository (or the GitHub App, as production) |
-| `SSHDOCKER_HOST` | `local` |
-| `SNAPSHOT_IMAGE` | `ghcr.io/pedalix/coach-aven-sandbox-plain:<a release tag>` |
+| `SANDBOX_HOST` | `local` |
+| `SANDBOX_IMAGE` | `ghcr.io/pedalix/coach-aven-sandbox-plain:<a release tag>` |
 | `WEB_AUTH` | `none` (no login; the listener stays on `127.0.0.1`) |
 
-and point `projects.config.json` (from `projects.config.example.json`) at a test repository. `.env.example` already
-sets `SANDBOX_DEFAULT=plain`, so its projects run unprivileged without a `sandbox` block. Then:
+and point `projects.config.json` (from `projects.config.example.json`) at a test repository, with
+`"sandbox": { "privileged": false, "dind": false }`. Then:
 
 ```bash
 npm run orch -- web          # "Web chat running (http://127.0.0.1:8787 …)"
@@ -99,11 +99,11 @@ Two shared resources will bite you if you don't isolate them:
    socket. If your local bot uses prod's Slack app, it steals ~half of prod's
    events — prod silently half-breaks. → **Use a separate dev Slack app.**
 2. **Sandbox containers.** Sandboxes are containers named `proj-<slug>` on the Docker
-   host `SSHDOCKER_HOST` names. They collide only when your dev bot and prod share that
+   host `SANDBOX_HOST` names. They collide only when your dev bot and prod share that
    host: there, the same slug is the **same container**, so local and prod would trample
    each other's worktrees, and one bot's idle stop could end the other's sessions (the
    idle stop and a wake's cleanup assume one bot per container). → **Keep dev sandboxes
-   on a Docker host no other installation uses** (`SSHDOCKER_HOST=local` on your machine,
+   on a Docker host no other installation uses** (`SANDBOX_HOST=local` on your machine,
    the template's value); **on a host another installation also uses, set a distinct
    name prefix** (`dev-proj-`).
    `SANDBOX_MANAGED_BY` — the label your bot's containers carry and its `/aven status`
@@ -119,7 +119,7 @@ prod for dev.
 |---|---|---|
 | `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN` | your **dev** app's | Socket Mode delivers each event to one socket |
 | `SLACK_CHANNEL_PREFIX` | `dev-aven-` | the dev bot answers only in its own channels |
-| `SSHDOCKER_HOST` | `local` | dev sandboxes on your own Docker, apart from production's |
+| `SANDBOX_HOST` | `local` | dev sandboxes on your own Docker, apart from production's |
 | `SANDBOX_NAME_PREFIX` | `dev-proj-` | required when another installation uses the same Docker host |
 | `SANDBOX_MANAGED_BY` | `coach-aven-dev` | the label of your containers and your `/aven status` listing |
 | `AVEN_DATA_DIR`, the hub settings | your own / unset | otherwise you share production's data and its identity on the hub |
