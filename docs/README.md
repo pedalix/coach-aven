@@ -7,6 +7,7 @@ or a person lives in an installation's private ops repo (`infra/<slug>/`).
 
 - [Why CoachAven](why.md): who it is for, what it does differently, what it is not.
 - [How it is built and run](how-we-work.md): invariants, specs first, canary then tag, who does what.
+- [Try it on one machine](quickstart.md): the web chat and local sandboxes from one `docker compose up`, measured.
 - [Self-host quickstart](../README.md#self-host-quickstart): what you need and the six steps.
 - [Security policy](../SECURITY.md) and [contributing](../CONTRIBUTING.md); licence Apache-2.0.
 

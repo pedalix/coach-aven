@@ -71,6 +71,16 @@ Without `WEB_SESSION_SECRET` the secret is generated per boot, so a restart sign
 again); set it to keep sessions across restarts. Running beside a Slack or Teams bot of the same machine? Start it with
 its own `SANDBOX_NAME_PREFIX`, `AVEN_DATA_DIR` and without the hub settings, or it shares their sandboxes and identity.
 
+**Local installation, a sign-in link.** `WEB_AUTH=link` is the quickstart's mode ([`quickstart.md`](quickstart.md)): no
+identity provider, one local user who is also the operator, and a sign-in link the bot prints at every start —
+`Web chat sign-in: http://localhost:8787/login?key=…` (`docker compose logs bot | grep sign-in | tail -n 1`: the log keeps earlier starts' lines). The key is new at
+every start, so a link in an old log line no longer signs in; without it every page answers 401. The listener may bind
+any address — inside a container it must bind `0.0.0.0` for a published port to reach it, so publish that port on
+`127.0.0.1` only — but the base URL must be a localhost one: a public host signs people in through OIDC. Sessions
+survive restarts: without `WEB_SESSION_SECRET` the bot generates one on its first start and keeps it in
+`web-session.secret` in the installation directory (owner-only). Cookies on `localhost` are not scoped by port, so
+another local dev server on the same machine receives the session cookie too.
+
 ## What differs for people (the parity matrix)
 
 | Slack | Web |

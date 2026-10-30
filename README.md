@@ -16,6 +16,10 @@ Model credit: a Claude subscription token to try it (`claude setup-token`, one c
 Anthropic API key for an installation that serves a team or clients (billed and metered per key).
 Licence: Apache-2.0.
 
+**Try it on one machine** — Docker, a GitHub account and a Claude subscription; no Slack, no registry, no
+privileged container: [`docs/quickstart.md`](docs/quickstart.md). Clone, `./init.sh`, three values,
+`docker compose up -d`, and the agent answers in a web chat on `localhost`.
+
 Start here:
 
 - [**Why CoachAven**](docs/why.md): who it is for, what it does differently, what it is not.

@@ -382,6 +382,40 @@ export type SshRun = (host: string, remoteCmd: string, opts?: SshRunOpts) => Pro
 // share a kernel, so pair local mode with `sandbox.privileged: false` projects.
 export const LOCAL_HOST = 'local';
 
+// The boot check of a local sandbox host (OpenSpec quickstart D6): does this process's Docker CLI reach the
+// daemon? The likely miss is the socket's group (it differs per machine, and the quickstart's init.sh asks Docker
+// for it), and without the check it surfaces as an error inside the first turn. Started without waiting from
+// the boot path, retried for a minute (Docker Desktop may come up after the bot at logon), one error line
+// after the last miss — a log line, never an error-tracker event, so a slow morning engine pages nobody.
+export const DOCKER_CHECK_WINDOW_MS = 60_000;
+export const DOCKER_CHECK_EVERY_MS = 10_000;
+
+export function dockerUnreachableText(detail: string, groups: string): string {
+  return `the bot cannot reach Docker at /var/run/docker.sock (process groups: ${groups || 'unknown'}): ${detail.trim().split('\n')[0] || 'no answer'} — in the quickstart, rerun ./init.sh and \`docker compose up -d\`; on a box, put the bot's user in the socket's group`;
+}
+
+export async function checkLocalDocker(
+  host: string | undefined,
+  deps: { run?: SshRun; sleep?: (ms: number) => Promise<void>; now?: () => number; error?: (msg: string) => void; groups?: () => string } = {},
+): Promise<boolean> {
+  if (host !== LOCAL_HOST) return true;
+  const run = deps.run ?? runSsh;
+  const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms).unref()));
+  const now = deps.now ?? Date.now;
+  const groups = deps.groups ?? (() => (typeof process.getgroups === 'function' ? process.getgroups().join(',') : ''));
+  const until = now() + DOCKER_CHECK_WINDOW_MS;
+  let last = '';
+  for (;;) {
+    const r = await run(LOCAL_HOST, 'docker version --format {{.Server.Version}}', { timeoutMs: 10_000 }).catch((e: unknown) => ({ code: 1, stdout: '', stderr: e instanceof Error ? e.message : String(e) }));
+    if (r.code === 0) return true;
+    last = r.stderr || r.stdout;
+    if (now() + DOCKER_CHECK_EVERY_MS > until) break;
+    await sleep(DOCKER_CHECK_EVERY_MS);
+  }
+  (deps.error ?? log.error)(dockerUnreachableText(last, groups()));
+  return false;
+}
+
 export function transportArgv(host: string, remoteCmd: string): { cmd: string; args: string[] } {
   if (host === LOCAL_HOST) return { cmd: 'sh', args: ['-c', remoteCmd] };
   return { cmd: 'ssh', args: ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10', host, remoteCmd] };

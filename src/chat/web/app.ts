@@ -11,7 +11,7 @@
 // construction (keys.ts): the channel directory of this surface maps them to their project.
 
 import { join } from 'node:path';
-import type { Config } from '../../config.js';
+import type { Config, WebConfig } from '../../config.js';
 import type { PreparedSurface, SharedDeps, SurfacePlugin, WiredSurface } from '../root.js';
 import type { Store } from '../../state.js';
 import { resolveBySlug, type RegistryRef } from '../../projects.js';
@@ -27,14 +27,24 @@ import { webDriver } from './driver.js';
 import { createOidc } from './oidc.js';
 import { isOperatorOf, type Oidc } from './auth.js';
 import { projectOfConv, roomConv } from './keys.js';
-import { createWebServer, webNameOf } from './server.js';
+import { createWebServer, LOCAL_USER, webNameOf } from './server.js';
+import { randomBytes } from 'node:crypto';
+
+/** The boot line that carries the `link` key — the one place it appears. */
+export const signInLine = (baseUrl: string, key: string): string => `Web chat sign-in: ${baseUrl}/login?key=${key}`;
+// A seam for the test: the line goes to stdout as is, beside the logger's lines.
+let printLine = (line: string): void => void process.stdout.write(`${line}\n`);
+/** The operator verbs' gate: `WEB_OPERATORS`, and under `link` the one local user — nobody else can sign in there. */
+export const isWebOperator = (web: Pick<WebConfig, 'auth' | 'operators'>, user: string | undefined, email?: string): boolean =>
+  !!user && ((web.auth === 'link' && user === LOCAL_USER.user) || isOperatorOf(web.operators, { user, ...(email ? { email } : {}) }));
+export const setPrintLine = (f: (line: string) => void): void => void (printLine = f);
 
 export const webSurface: SurfacePlugin = {
   name: 'web',
   async prepare(cfg: Config, store: Store, reg: RegistryRef): Promise<PreparedSurface> {
     const web = cfg.web;
     if (!web) {
-      throw new Error('Set WEB_OIDC_ISSUER, WEB_OIDC_CLIENT_ID, WEB_OIDC_CLIENT_SECRET, WEB_BASE_URL and WEB_SESSION_SECRET to run the web chat (or WEB_AUTH=none on a loopback listener, for local use).');
+      throw new Error('Set WEB_OIDC_ISSUER, WEB_OIDC_CLIENT_ID, WEB_OIDC_CLIENT_SECRET, WEB_BASE_URL and WEB_SESSION_SECRET to run the web chat (or WEB_AUTH=link for a local installation; WEB_AUTH=none on a loopback listener, for development).');
     }
     const filesRoot = join(dataRoot(), 'web');
     allowLocalFiles(filesRoot); // uploads are the one place a `file:` attachment reference may point (attachments.ts)
@@ -62,18 +72,23 @@ export const webSurface: SurfacePlugin = {
       async wire({ cfg, store, reg, engine, channels, pollers, messaging, surface }: SharedDeps): Promise<WiredSurface> {
         const actor = createActorGate(store, org);
         const servedTenant = (t: string | undefined) => t === org;
-        const isOperator = (user: string | undefined) => !!user && isOperatorOf(web.operators, { user, email: store.getWebUser(user)?.email });
+        const isOperator = (user: string | undefined) => isWebOperator(web, user, user ? store.getWebUser(user)?.email : undefined);
         const core = createInteractions({ cfg, store, reg, engine, homeTeamId: org, servedTenant, actor, prefixFor: () => '', messaging: messaging.messaging, ...(surface ? { surface } : {}) });
         const messages = createMessages({ store, reg, engine, channels, homeTeamId: org, actor, parkDmPick: core.parkDmPick, ...(surface ? { surface } : {}) });
         const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: org, isOperator, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
-        const server = createWebServer({ cfg: web, store, reg, history, driver, core, messages, commands, filesRoot, ...(oidc ? { oidc } : {}) });
+        // `link`: a fresh key per boot, so a link in an old log line is dead (sessions survive: the cookie's secret persists).
+        const loginKey = web.auth === 'link' ? randomBytes(32).toString('base64url') : undefined;
+        const server = createWebServer({ cfg: web, store, reg, history, driver, core, messages, commands, filesRoot, ...(oidc ? { oidc } : {}), ...(loginKey ? { loginKey } : {}) });
         return {
           async start() {
             if (oidc) await oidc.warmup(); // a wrong issuer or an unreachable one fails the boot here, by name
+            else if (web.auth === 'link') log.warn(`web: WEB_AUTH=link — no identity provider; one local user signs in with the link printed below (${web.bind}:${web.port}, base URL ${web.baseUrl})`);
             else log.warn(`web: WEB_AUTH=none — no login, a fixed local user; loopback listener only (${web.bind}:${web.port})`);
             const { port } = await server.listen();
             const rooms = reg.current.projects.filter((p) => p.webRoom !== false).length;
             log.info(`Web chat running (${web.baseUrl} ← ${web.bind}:${port}) — ${reg.current.projects.length} project(s), ${rooms} room(s)`);
+            // Straight to stdout, never through log.* — that one can forward to the error tracker (SENTRY_LOGS).
+            if (loginKey) printLine(signInLine(web.baseUrl, loginKey));
           },
           stop: () => server.close(),
           closing: 'the web listener',

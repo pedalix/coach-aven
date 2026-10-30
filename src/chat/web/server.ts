@@ -7,11 +7,14 @@
 // endpoints answer 401); every POST needs the session's CSRF token in `x-csrf` (a form also carries it
 // in `csrf`) and a same-origin fetch; a strict CSP with no inline script; `no-store` on everything but
 // the assets; body limits; a per-person rate limit on posting. The login is OIDC with PKCE through
-// auth.ts/oidc.ts, or — on a loopback listener only, config.ts — a fixed local user.
+// auth.ts/oidc.ts, or a fixed local user: on a loopback listener with no check (`none`, config.ts), or for whoever
+// opens the per-boot sign-in link from the boot log (`link`, the quickstart). Each route branches on `cfg.auth`
+// by name — a missing OIDC client never means "let everyone in".
 
 import express, { type Request, type Response, type NextFunction } from 'express';
 import type { Server } from 'node:http';
 import { existsSync, readFileSync } from 'node:fs';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import type { WebConfig } from '../../config.js';
 import type { Store } from '../../state.js';
 import { resolveBySlug, type ProjectConfig, type RegistryRef } from '../../projects.js';
@@ -28,7 +31,7 @@ import { attachmentDisposition, findUpload, mimeOf, storeUpload, toRef } from '.
 import { MAX_FILES, isSupported } from '../../attachments.js';
 import { renderHomeView } from './webviews.js';
 import { Html, h } from './webformat.js';
-import { deniedPage, homePage, layout, loginPage, messageBody, messageHtml, privatePage, roomPage, signedOutPage, signingOutPage, threadCardHtml, threadPage, type Shell, type Viewer } from './pages.js';
+import { deniedPage, homePage, layout, linkLoginPage, loginPage, messageBody, messageHtml, privatePage, roomPage, signedOutPage, signingOutPage, threadCardHtml, threadPage, type Shell, type Viewer } from './pages.js';
 import { LOGIN_COOKIE, LOGIN_MAX_AGE_MS, SESSION_COOKIE, SESSION_MAX_AGE_MS, checkCsrf, cookieHeader, csrfToken, isAllowed, open, openSession, parseCookies, seal, sealSession, type Oidc, type Session } from './auth.js';
 import { pkce } from './oidc.js';
 import type { WebChatDriver, WebCtx } from './driver.js';
@@ -42,8 +45,10 @@ export interface WebServerDeps {
   core: Interactions;
   messages: ReturnType<typeof createMessages>;
   commands: ReturnType<typeof createCommands>;
-  /** The login round trip; absent under WEB_AUTH=none. */
+  /** The login round trip; absent under WEB_AUTH=none and WEB_AUTH=link. */
   oidc?: Oidc;
+  /** WEB_AUTH=link: this boot's sign-in key (app.ts draws it and prints the link); `/login?key=` must carry it. */
+  loginKey?: string;
   /** Fresh message ids (tests: sequential). */
   ids?: () => string;
   now?: () => number;
@@ -78,6 +83,13 @@ const STATIC = new URL('./static/', import.meta.url).pathname;
 const CMD_WORD = new RegExp(`^${CMD.slice(1).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+`, 'i');
 
 type Req = Request & { session?: Session };
+
+/** WEB_AUTH=link: does the query's key equal this boot's? Hashes first, so the compare is constant-time whatever the lengths. */
+export function keyMatches(key: string, given: unknown): boolean {
+  if (typeof given !== 'string' || !given) return false;
+  const digest = (s: string) => createHash('sha256').update(s).digest();
+  return timingSafeEqual(digest(key), digest(given));
+}
 
 export function createWebServer(deps: WebServerDeps): WebServer {
   const { cfg, store, reg, history, driver, core, messages, commands } = deps;
@@ -131,11 +143,20 @@ export function createWebServer(deps: WebServerDeps): WebServer {
 
   app.get('/login', async (req, res) => {
     const next = safeNext(req.query.next);
-    if (cfg.auth === 'none' || !deps.oidc) {
+    const signInLocal = () => {
       store.putWebUser({ id: LOCAL_USER.user, name: LOCAL_USER.name, seenAt: new Date(now()).toISOString() });
       setSession(res, { ...LOCAL_USER, iat: now() });
-      return void res.redirect(303, next);
+      res.redirect(303, next);
+    };
+    if (cfg.auth === 'none') return signInLocal();
+    if (cfg.auth === 'link') {
+      // The key alone signs in (constant-time compare); without it, the page says where the link is. The key is never logged
+      // (a tracing span would carry the URL with it — the quickstart sets no error tracker; an installation that adds one
+      // with tracing on a `link` surface should know the request URL holds the key until the next restart).
+      if (deps.loginKey && keyMatches(deps.loginKey, req.query.key)) return signInLocal();
+      return void res.status(401).type('html').send(layout({ title: 'Sign in', projects: [] }, linkLoginPage()));
     }
+    if (!deps.oidc) return void res.status(500).type('html').send(layout({ title: 'Sign in', projects: [] }, loginPage('No sign-in service is configured.')));
     try {
       const verifier = pkce.verifier();
       const state = pkce.state();
@@ -151,7 +172,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   });
 
   app.get('/auth/callback', async (req, res) => {
-    if (cfg.auth === 'none' || !deps.oidc) return void res.redirect(303, '/');
+    if (cfg.auth !== 'oidc' || !deps.oidc) return void res.redirect(303, '/');
     const login = open<{ verifier: string; state: string; nonce: string; next: string; iat: number }>(cfg.sessionSecret, parseCookies(req.headers.cookie)[LOGIN_COOKIE]);
     res.setHeader('Set-Cookie', [cookieHeader(LOGIN_COOKIE, '', { secure, clear: true })]);
     if (!login || now() - login.iat > LOGIN_MAX_AGE_MS) return void res.status(400).type('html').send(layout({ title: 'Sign in', projects: [] }, loginPage('The sign-in took too long or started elsewhere — try again.')));

@@ -32,6 +32,7 @@ function committed(): GateInput {
       { source: 'snapshot/Dockerfile', version: argOf('snapshot/Dockerfile') },
       { source: 'snapshot/plain/Dockerfile', version: argOf('snapshot/plain/Dockerfile') },
       { source: '.env.example', version: read('.env.example')?.match(/^CLAUDE_CLI_VERSION=(\S+)$/m)?.[1] },
+      { source: 'quickstart/.env.example', version: read('quickstart/.env.example')?.match(/^CLAUDE_CLI_VERSION=(\S+)$/m)?.[1] },
     ],
   };
 }

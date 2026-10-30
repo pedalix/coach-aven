@@ -102,6 +102,11 @@ export function loginPage(error?: string): Html {
   return h`<section class="login"><h1>Aven</h1><p>Sign in to reach your projects' agent.</p>${error ? h`<p class="error">${error}</p>` : ''}<p><a class="btn primary" href="/login">Sign in</a></p></section>`;
 }
 
+/** WEB_AUTH=link without the key: where the sign-in link is (the quickstart's bot prints it at every boot). */
+export function linkLoginPage(): Html {
+  return h`<section class="login"><h1>Aven</h1><p>Open the sign-in link from the bot's log — it changes at every start:</p><p><code>docker compose logs bot | grep sign-in | tail -n 1</code></p></section>`;
+}
+
 export function signedOutPage(): Html {
   return h`<section class="login"><h1>Aven</h1><p>You are signed out.</p><p><a class="btn primary" href="/login">Sign in again</a></p></section>`;
 }
