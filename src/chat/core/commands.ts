@@ -10,7 +10,7 @@ import { sourcesViews } from '../../sources/daemonclient.js';
 import { localDate } from '../../routineguard.js';
 import type { Config } from '../../config.js';
 import type { Store } from '../../state.js';
-import { loadProjects, resolveBySlug, teamProjects, projectOwnerTeam, type ProjectConfig, type RegistryRef } from '../../projects.js';
+import { loadProjects, projectOwnerTeam, registryPrivilegeWarnings, resolveBySlug, teamProjects, type ProjectConfig, type RegistryRef } from '../../projects.js';
 import { splitTeam, normalizeTenant } from '../../teamkeys.js';
 import { keyFor } from '../surfaces.js';
 import type { ChatDriverName } from '../drivers.js';
@@ -544,6 +544,7 @@ export function createCommands(deps: CommandDeps) {
         const before = reg.current.projects.map((p) => p.slug);
         const next = loadProjects(cfg.projectsConfigPath);
         reg.current = next;
+        for (const w of registryPrivilegeWarnings(next)) log.warn(w);
         const after = next.projects.map((p) => p.slug);
         const added = after.filter((s) => !before.includes(s));
         const removed = before.filter((s) => !after.includes(s));

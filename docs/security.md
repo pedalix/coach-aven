@@ -55,12 +55,16 @@ Back up `state.json` and the directories above together; delete a project's dire
   (package scripts, a client repository's tooling). Mitigation: per-project, short-lived GitHub tokens; on an API key, a
   dedicated key in its own Anthropic workspace with a monthly spend limit; MCP credentials behind the gateway, which
   hands the sandbox a token instead of the upstream secret.
-- **No egress filtering.** A sandbox can reach any host. A prompt-injected agent could send what it can read anywhere.
+- **No egress filtering.** A sandbox can reach any host, and a prompt-injected agent could send what it can read
+  anywhere. CoachAven does not filter outbound traffic and has no plan to yet.
 - **The `pr` git flow is an instruction, not a permission.** The token can push to any branch it is scoped to; require
   reviews on the default branch so that GitHub, not the prompt, enforces "people merge".
-- **Privileged docker-in-docker is the default** for a project without a `sandbox` block, for Laravel Sail. Such a
-  container is root-equivalent on its Docker host. Prefer sysbox (`SSHDOCKER_RUNTIME=sysbox-runc`), or `"sandbox": { "privileged": false, "dind": false }`
-  with the plain image; keep the sandbox host separate from the bot's in production.
+- **Privileged docker-in-docker** is what a project without a `sandbox` block gets unless the installation sets
+  `SANDBOX_DEFAULT=plain`; the boot warns about every project relying on that default. Such a container is
+  root-equivalent on its Docker host. Prefer sysbox (`SSHDOCKER_RUNTIME=sysbox-runc`), or `SANDBOX_DEFAULT=plain` /
+  `"sandbox": { "privileged": false, "dind": false }` with the plain image; keep the sandbox host separate from the
+  bot's in production. On the bot's own machine a privileged project needs `SANDBOX_LOCAL_PRIVILEGED=1`, or the boot
+  says why it should not run there.
 - **Local sandboxes share the bot's machine.** With `SSHDOCKER_HOST=local` the bot holds the Docker socket
   (root-equivalent) and the sandboxes are its siblings. The quickstart runs them unprivileged; keep this mode for trials
   and single-operator installations.

@@ -52,6 +52,14 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
      exec-probe/recycle dance (that one exists for sysbox's registry), and the base system
      prompt drops its Sail/Docker-in-Docker toolchain paragraph (`src/prompt.ts`) — there are
      no shims to explain.
+   - **A project without a `sandbox` block** takes the installation's `SANDBOX_DEFAULT`: `dind` (privileged
+     docker-in-docker, for the laravel image's Sail) or `plain` (an unprivileged container; the image needs no
+     dockerd). Unset is `dind` today, and the boot warns naming the projects that rely on it. Pick the default
+     that matches `SNAPSHOT_IMAGE`: under `plain`, the laravel image starts but its php/composer/artisan (Sail
+     shims) fail. A block wins field by field; `"dind": true` alone means privileged.
+   - The boot also warns when a project runs privileged and `SSHDOCKER_RUNTIME` is unset, and when a privileged
+     project runs on the bot's own machine (`SSHDOCKER_HOST=local`) without `SANDBOX_LOCAL_PRIVILEGED=1`
+     (OpenSpec `sandbox-privilege-opt-in`, stage 1: warnings only).
    - `mounts` → `-v host:container:mode`; mode defaults to `ro`. Paths must be absolute,
      `[A-Za-z0-9._/-]`, no `..`. Read-only is the point: the agent reads the archive, it
      never edits it.

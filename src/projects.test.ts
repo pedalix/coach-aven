@@ -3,7 +3,12 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { homeWorkspaceWarning, loadProjects, noProjectsReason, type ProjectConfig } from './projects.js';
+import { homeWorkspaceWarning, loadProjects, noProjectsReason, registryPrivilegeWarnings, sandboxDefaultedOf, type ProjectConfig } from './projects.js';
+import { ensureSandboxScript } from './sshdocker.js';
+import { housekeepingScript } from './housekeeping.js';
+import { candidateList } from './idlestop.js';
+import { buildSystemPrompt } from './prompt.js';
+import { resolveSandboxOptions } from './sandboxopts.js';
 import { log } from './log.js';
 
 // Each case gets its own throwaway config dir (loadProjects reads projects.d/ relative
@@ -354,4 +359,51 @@ test('homeWorkspaceWarning: only when a workspaces block leaves out the home wor
   assert.equal(homeWorkspaceWarning({ ...reg, workspaces: { T1: ['shop'] } }, 'T1'), undefined);
   assert.equal(homeWorkspaceWarning({ projects: reg.projects }, 'T1'), undefined, 'no block: the home sees everything');
   assert.equal(homeWorkspaceWarning(reg, undefined), undefined);
+});
+
+test('loadProjects and SANDBOX_DEFAULT: unset keeps the config exactly; plain writes the block out for every reader', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aven-sbx-'));
+  const path = join(dir, 'projects.config.json');
+  const raw = {
+    projects: [
+      { slug: 'shop', repos: ['acme/shop'] },
+      { slug: 'ops', repos: ['acme/ops'], sandbox: { privileged: true, mounts: ['/srv/data:/data'] } },
+      { slug: 'sail', repos: ['acme/sail'], sandbox: { dind: true } },
+      { slug: 'empty', repos: ['acme/empty'], sandbox: {} },
+    ],
+  };
+  writeFileSync(path, JSON.stringify(raw));
+  const today = loadProjects(path, {});
+  assert.deepEqual(today.projects.map((p) => p.sandbox), raw.projects.map((p) => (p as { sandbox?: unknown }).sandbox), 'unset: every block exactly as written');
+  assert.deepEqual(sandboxDefaultedOf(today), ['shop']);
+  const plain = loadProjects(path, { SANDBOX_DEFAULT: 'plain' });
+  assert.deepEqual(plain.projects.map((p) => p.sandbox), [
+    { privileged: false, dind: false },
+    { privileged: true, dind: false, mounts: ['/srv/data:/data'] },
+    { privileged: true, dind: true },
+    { privileged: false, dind: false },
+  ]);
+  const shop = plain.projects[0];
+  // The real sites, fed the way they are fed in production (each resolves project.sandbox without a default):
+  // 1. the docker run flags (sshdocker warm → ensureSandboxScript)
+  const o = resolveSandboxOptions(shop.sandbox);
+  const script = ensureSandboxScript('proj-shop', 'shop', 'img', o.privileged ? '--privileged' : '', o.mounts, o.dind);
+  assert.doesNotMatch(script, /--privileged|--runtime/);
+  // 2 + 3. the dockerd guards at chat preparation (tasks.ts) and in housekeeping (pollers.ts) test `dind !== false`
+  assert.equal(housekeepingScript(80, undefined, shop.sandbox?.dind !== false), housekeepingScript(80, undefined, false));
+  // 4. the idle stop's dind answer
+  const cands = candidateList({ projects: () => [shop], defaultKind: 'ssh-docker', driverStops: () => true, storedName: () => 'proj-shop', namePrefix: 'proj-', warn: () => {} })();
+  assert.equal(cands[0].dind, false);
+  // 5. the prompt: no Sail paragraph
+  const prompt = buildSystemPrompt({ slug: 'shop', cwd: '/root/work/shop', repos: ['acme/shop'], sandbox: resolveSandboxOptions(shop.sandbox) });
+  assert.equal(prompt, buildSystemPrompt({ slug: 'shop', cwd: '/root/work/shop', repos: ['acme/shop'], sandbox: { privileged: false, dind: false, mounts: [] } }));
+  assert.notEqual(prompt, buildSystemPrompt({ slug: 'shop', cwd: '/root/work/shop', repos: ['acme/shop'], sandbox: resolveSandboxOptions(today.projects[0].sandbox) }), 'the dind prompt differs (its Sail paragraph)');
+  assert.throws(() => loadProjects(path, { SANDBOX_DEFAULT: 'maybe' }), /SANDBOX_DEFAULT/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('registryPrivilegeWarnings reads the real variable names', () => {
+  const reg = { projects: [{ slug: 'x', repos: ['acme/x'], sandbox: { privileged: true, dind: true } }] as ProjectConfig[] };
+  assert.match(registryPrivilegeWarnings(reg, { SSHDOCKER_HOST: ' local ' }).join('\n'), /SSHDOCKER_RUNTIME is unset[\s\S]*SSHDOCKER_HOST=local/);
+  assert.deepEqual(registryPrivilegeWarnings(reg, { SSHDOCKER_HOST: 'local', SSHDOCKER_RUNTIME: 'privileged', SANDBOX_LOCAL_PRIVILEGED: '1' }), []);
 });

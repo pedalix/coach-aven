@@ -42,6 +42,15 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
 - **The bot is not in the channel.** Invite it (`/invite @…`).
 - **A message in a thread the bot never answered** is not a turn: mention the bot.
 
+## Warnings at boot about sandboxes
+
+- **`… have no "sandbox" block and run as privileged docker-in-docker by default`** — set `SANDBOX_DEFAULT` (`dind` to
+  keep it, `plain` for unprivileged containers) or give the projects a `sandbox` block.
+- **`… run privileged and SSHDOCKER_RUNTIME is unset`** — set `SSHDOCKER_RUNTIME=sysbox-runc` (preferred) or
+  `privileged`.
+- **`… run privileged on this machine (SSHDOCKER_HOST=local)`** — make the projects unprivileged, or confirm with
+  `SANDBOX_LOCAL_PRIVILEGED=1`.
+
 ## The first turn fails
 
 - **`SSHDOCKER_HOST is not set`** — set `local` for this machine's Docker, or an ssh target ([`sandbox-drivers.md`](sandbox-drivers.md)).
