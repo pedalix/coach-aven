@@ -26,6 +26,7 @@ or a person lives in an installation's private ops repo (`infra/<slug>/`).
 
 - [`infra/README.md`](../infra/README.md): one installation = one ops repo at `infra/<slug>/`.
 - [`infra/deploy/README.md`](../infra/deploy/README.md): deploy onto a plain Linux host; the ops repo template.
+- [Configuration reference](configuration.md): every `.env` setting and `projects.config.json` field, with its default.
 - [Runtime config](runtime-config.md): `.env`, `projects.config.json`, prompts, MCP, the gateway, flags.
 - [Sandbox drivers](sandbox-drivers.md): containers on a Docker host you own; the driver seam.
 - [Sandbox images](../snapshot/README.md): the `laravel` and `plain` variants, the build, the Claude Code CLI pin.
