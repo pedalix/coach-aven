@@ -67,13 +67,13 @@ variable "app_version" {
 }
 
 variable "icon_color_path" {
-  description = "192×192 PNG for the app's colour icon. Default: the neutral placeholder in icons/. Two bots in one tenant should differ here."
+  description = "192×192 PNG for the app's colour icon. Default: the CoachAven mark in icons/. Two bots in one tenant should differ here."
   type        = string
   default     = null
 }
 
 variable "icon_outline_path" {
-  description = "32×32 transparent white PNG for the outline icon. Default: the placeholder in icons/."
+  description = "32×32 transparent white PNG for the outline icon. Default: the CoachAven mark in icons/."
   type        = string
   default     = null
 }
