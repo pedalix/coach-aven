@@ -16,7 +16,7 @@
 - [x] 3.1 (2026-10-30) `infra/deploy/README.md`: one runtime in the intro, the *Files* table and the day-2 table; the move checklist for an installation on v0.43.0's systemd deploy, with the sentence that there is no way back; the legacy section removed. Verify: the public guard; `grep -n -i systemd infra/deploy/README.md` shows only the checklist.
 - [x] 3.2 (2026-10-30; actionlint not installed locally — the workflow's shell step changed by deletion only) The ops template: `deploy.env.example` (no runtime key; `SERVICE_NAME` is the compose project and the journal tag), `ops.example/README.md` and `.env.example` name `orch mirror`, the deploy workflow's header describes one runtime. Verify: `actionlint` on the workflow; the public guard.
 - [x] 3.3 (2026-10-30) `docs/runtime-config.md` (the installation directory without the `.release` exception; the mirror crontab line only), `docs/sources.md` (the daemon as the compose service), `docs/local-dev.md`. Verify: the public guard.
-- [x] 3.4 (2026-10-30: `#TBD` → the PR number in a follow-up commit) `docs/rollout.md`: the compose row's *Default since* = this change, its rollback column reads "none — the systemd path is retired"; a *Retired* row for `RUNTIME`. Verify: the diff of `docs/rollout.md`.
+- [x] 3.4 (2026-10-30: #108) `docs/rollout.md`: the compose row's *Default since* = this change, its rollback column reads "none — the systemd path is retired"; a *Retired* row for `RUNTIME`. Verify: the diff of `docs/rollout.md`.
 
 ## 4. Verification
 
