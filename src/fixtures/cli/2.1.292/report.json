@@ -6,13 +6,14 @@
   "exact": true,
   "anthropicSdk": "0.131.0"
  },
- "transport": "local",
- "date": "2026-10-19",
+ "transport": "local, sandbox (ssh-docker)",
+ "date": "2026-10-30",
  "models": [
   "claude-haiku-5-5",
   "claude-opus-5-5"
  ],
  "totalCostUsd": 3.983414200000001,
+ "apiKeyCostUsd": 0.15539979999999998,
  "scenarios": [
   {
    "id": "add-dir-loads-skills",
@@ -39,6 +40,36 @@
     "sha256": "c54080f6c4abc96b6a3f47f99d0802a46f4f3238fc73dde3868f7f5a9bf1e481"
    },
    "transport": "local"
+  },
+  {
+   "id": "api-key-turn",
+   "contract": false,
+   "hypothesis": "On an API key (`ANTHROPIC_API_KEY` from the credit file), `system/init` reports `apiKeySource: \"ANTHROPIC_API_KEY\"` and the turn succeeds with its cost; the rate-limit events it emits, if any, and whether a tool subprocess sees the key are recorded.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "apiKeySource": "ANTHROPIC_API_KEY",
+      "costUsd": 0.15539979999999998,
+      "rateLimitEvents": [],
+      "toolSawKey": true
+     },
+     "costUsd": 0.15539979999999998,
+     "durationMs": 24899
+    }
+   ],
+   "costUsd": 0.15539979999999998,
+   "recording": {
+    "file": "api-key-turn.jsonl",
+    "sha256": "c1be5c1f5366ca04a74afa272de47990487f3e5048a645305cff84aaafb0a0e9"
+   },
+   "transport": "sandbox (ssh-docker)",
+   "credit": "api-key"
   },
   {
    "id": "ask-user-question",
@@ -1443,7 +1474,7 @@
  ],
  "catalogue": {
   "assistant": {
-   "count": 190,
+   "count": 192,
    "fields": [
     "agent_id",
     "message",
@@ -1540,7 +1571,7 @@
    ]
   },
   "result/success": {
-   "count": 49,
+   "count": 50,
    "fields": [
     "api_error_status",
     "duration_api_ms",
@@ -1691,7 +1722,7 @@
    ]
   },
   "system/init": {
-   "count": 54,
+   "count": 55,
    "fields": [
     "agents",
     "analytics_disabled",
@@ -1809,7 +1840,7 @@
    ]
   },
   "user": {
-   "count": 75,
+   "count": 76,
    "fields": [
     "agent_id",
     "isReplay",
@@ -1874,10 +1905,10 @@
    "frameKind": "assistant",
    "path": "$.wire_tool_inputs",
    "detail": "not declared",
-   "count": 65,
+   "count": 66,
    "first": {
-    "file": "ask-user-question.jsonl",
-    "line": 8
+    "file": "api-key-turn.jsonl",
+    "line": 4
    }
   },
   {
@@ -1952,7 +1983,7 @@
    "frameKind": "result/success",
    "path": "$.safety_stops",
    "detail": "not declared",
-   "count": 49,
+   "count": 50,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 6
@@ -1965,7 +1996,7 @@
    "frameKind": "result/success",
    "path": "$.subagent_stats",
    "detail": "not declared",
-   "count": 49,
+   "count": 50,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 6
@@ -2043,7 +2074,7 @@
    "frameKind": "system/init",
    "path": "$.analytics_disabled",
    "detail": "not declared",
-   "count": 54,
+   "count": 55,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 3
@@ -2056,7 +2087,7 @@
    "frameKind": "system/init",
    "path": "$.memory_paths",
    "detail": "not declared",
-   "count": 54,
+   "count": 55,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 3
@@ -2069,7 +2100,7 @@
    "frameKind": "system/init",
    "path": "$.messaging_socket_path",
    "detail": "not declared",
-   "count": 54,
+   "count": 55,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 3
@@ -2082,7 +2113,7 @@
    "frameKind": "system/init",
    "path": "$.per_turn_effort_active",
    "detail": "not declared",
-   "count": 54,
+   "count": 55,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 3
@@ -2095,7 +2126,7 @@
    "frameKind": "system/init",
    "path": "$.plugins[].source",
    "detail": "not declared",
-   "count": 162,
+   "count": 165,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 3
@@ -2108,7 +2139,7 @@
    "frameKind": "system/init",
    "path": "$.product_feedback_disabled",
    "detail": "not declared",
-   "count": 54,
+   "count": 55,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 3
@@ -2186,7 +2217,7 @@
    "frameKind": "assistant",
    "path": "$.message.content[].citations",
    "detail": "required, missing",
-   "count": 77,
+   "count": 78,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 4
@@ -2199,7 +2230,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.fallback_credit",
    "detail": "required, missing",
-   "count": 190,
+   "count": 192,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 4
@@ -2212,7 +2243,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.iterations",
    "detail": "required, missing",
-   "count": 190,
+   "count": 192,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 4
@@ -2225,7 +2256,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.output_tokens_details",
    "detail": "required, missing",
-   "count": 190,
+   "count": 192,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 4
@@ -2238,7 +2269,7 @@
    "frameKind": "assistant",
    "path": "$.message.usage.server_tool_use",
    "detail": "required, missing",
-   "count": 190,
+   "count": 192,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 4
@@ -2264,7 +2295,7 @@
    "frameKind": "result/success",
    "path": "$.usage.iterations[].model",
    "detail": "required, missing",
-   "count": 48,
+   "count": 49,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 6
@@ -2381,7 +2412,7 @@
    "frameKind": "user",
    "path": "$.parent_tool_use_id",
    "detail": "required, missing",
-   "count": 70,
+   "count": 71,
    "first": {
     "file": "add-dir-loads-skills.jsonl",
     "line": 2
