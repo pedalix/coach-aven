@@ -6,6 +6,12 @@ accounts they already have. `orch web` makes it an installation's default surfac
 Slack or Teams (`docs/runtime-config.md` → *Chat surfaces*): same turn engine, same sandboxes, same `/aven` grammar,
 same pollers. Mechanism only — your hostname, issuer and client ids live in your ops repo (`infra/<slug>/`).
 
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/web-thread-dark.png">
+  <img alt="A thread in the web chat: asked to make divide() reject a zero divisor, the agent shows the change, says what its tests cover and links the pull request it opened" src="img/web-thread-light.png" width="800">
+</picture>
+
 ## The model
 
 - **Rooms and threads.** Every project is a room (`webRoom: false` on a project hides it). A top-level post in a room

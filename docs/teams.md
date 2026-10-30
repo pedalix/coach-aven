@@ -6,6 +6,9 @@ Slack — same turn engine, same sandboxes, same `/aven` grammar, same pollers. 
 the platform, and this page is the map of those differences. Mechanism only: your tenant,
 host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 
+
+<img alt="The agent working in a Teams reply chain: a live status card with its steps and Show steps / Cancel, then a question for the person with one button per option" src="img/teams-agent-question.png" width="560">
+
 ## The model
 
 - **One Entra tenant per installation.** The bot is a single-tenant app in the tenant that hosts
