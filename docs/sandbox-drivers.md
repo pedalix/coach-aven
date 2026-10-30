@@ -175,12 +175,31 @@ useless; the repo checkout on the container's disk survives it. Only a container
 still refuses exec after the recycle is a hard failure — and the driver now includes
 docker's own stderr in that error instead of a bare exit code.
 
+**Long-lived containers: the state lives in the writable layer**
+
+A sandbox is created once and kept: `ensureSandbox` reuses the container it finds, a recycle is `stop` +
+`start`, and nothing in the bot recreates one (the one-off exception above: containers of a pre-`--init`
+build). The bot mounts nothing of its own and a project's `mounts` are read-only, so everything the agent
+produces — the clones, the worktrees, the Claude Code session files under `~/.claude` (the conversation
+history), the caches — exists only in the container's writable layer. A host move, a disk failure or a
+`docker rm` loses it; back the host up accordingly.
+
+It follows that the sandbox image (`SNAPSHOT_IMAGE`, published with each release beside the bot's image)
+applies to NEW containers only — a new project, or a container an operator removed by hand. Running
+containers keep the image they were created from; the pinned Claude Code (`CLAUDE_CLI_VERSION`) upgrades in
+place inside them, so a pin bump never needs a recreation. Do not recreate a container to "pick up" a new
+image: that is its history gone.
+
 **Not yet done**
 
 - Per-container CPU and memory limits: the driver sets none, so the processes of a project
   share the host's memory with every other project.
 - Ending idle conversations' processes inside a container that never goes idle (a busy project
   with many threads keeps one `claude` per conversation touched since its last start).
+- Where the agent's state should live once long-lived containers are not enough: the working
+  directories and `~/.claude` on named volumes, or a save/restore step that pulls what matters out of a
+  container and writes it back into a new one. Undecided and not a priority; until then the containers
+  are pets, and the operator's backup of the host is the only second copy.
 
 ## Selecting the driver
 
