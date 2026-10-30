@@ -81,8 +81,9 @@ Both at once: `CHAT_SURFACES=teams` (or `slack`, `web`) in `.env` runs a second 
 projects and sandboxes — [`docs/runtime-config.md`](docs/runtime-config.md) → *Chat surfaces*.
 (one chat driver per installation; the bot identity comes from the `infra/teams/` Terraform module).
 
-Production: a systemd unit on any Linux box, deployed by `npm run ops -- <slug> deploy` or by
-your ops repo's GitHub Action; each installation's config lives in a private **ops repo**
+Production: the published image `ghcr.io/<owner>/coach-aven` under `docker compose` on any Linux box,
+deployed by `npm run ops -- <slug> deploy vX.Y.Z` or by your ops repo's GitHub Action (a rollback is the
+same command with the earlier version); each installation's config lives in a private **ops repo**
 checked out at `infra/<slug>/` — [`infra/README.md`](infra/README.md), [`infra/deploy/README.md`](infra/deploy/README.md).
 Several Slack workspaces on one bot: [`docs/multitenancy.md`](docs/multitenancy.md#enabling-multi-workspace-installs-operator-steps).
 Local dev beside a prod bot: [`docs/local-dev.md`](docs/local-dev.md).

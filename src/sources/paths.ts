@@ -1,5 +1,5 @@
-// Where source data lives on the BOT HOST. One directory per project under the package root,
-// beside facts/, memory/ and drafts/ (all gitignored, all mode 700):
+// Where source data lives on the BOT HOST. One directory per project under the installation
+// directory (src/paths.ts), beside facts/, memory/ and drafts/ (all gitignored, all mode 700):
 //
 //   data/<slug>/raw/<kind>/…        append-only JSONL from the pullers, scrubbed at write
 //   data/<slug>/vault/*.json.age    carrier bodies + raw secrets, encrypted to the operator's age key
@@ -9,14 +9,15 @@
 // Tokens are deliberately NOT here (see tokens.ts): data/ is per-tenant state a purge may wipe;
 // OAuth grants outlive any one tenant's data and must never travel with an export.
 import { mkdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { SLUG_RE } from './types.js';
+import { dataRootDefault } from '../paths.js';
 
-/** Package root `data/`; overridable for tests and for a non-default deployment layout. */
+/** `data/` in the installation directory; `AVEN_DATA_DIR` (absolute, or relative to that directory) overrides it. */
 export function dataRoot(): string {
   // Absolute always: the replica path becomes a `-v` mount source, and the mount parser
-  // (rightly) refuses relative paths.
-  return resolve(process.env.AVEN_DATA_DIR ?? new URL('../../data', import.meta.url).pathname);
+  // (rightly) refuses relative paths — settingPath() resolves, never against the working directory.
+  return dataRootDefault();
 }
 
 export function assertSlug(slug: string): string {

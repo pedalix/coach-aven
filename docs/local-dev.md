@@ -46,6 +46,10 @@ prod for dev.
   `SNAPSHOT_IMAGE` names must be one that host can pull (`snapshot/README.md`).
 - The **GitHub App private key** (`github-app-private-key.pem`) at the repo root.
 
+`.env`, `projects.config.json` and the state the bot writes (`state.json`, `queue.jsonl`, `usage/`, …) live
+in the checkout unless `AVEN_DIR` names another directory (`docs/runtime-config.md` → *Installation
+directory*); the working directory you start from never matters.
+
 ## Tools to create BEFORE the first run
 
 ### 1. A dedicated dev Slack app (required for `orch slack`)

@@ -1,6 +1,6 @@
 #!/usr/bin/env -S npx tsx
 import { Command } from 'commander';
-import { loadConfig, retiredEnvWarnings } from './config.js';
+import { installDirLine, loadConfig, retiredEnvWarnings } from './config.js';
 import { runChat } from './chat/root.js';
 import { log } from './log.js';
 import { creditBootLine } from './credit.js';
@@ -10,6 +10,7 @@ import { registerRoutinesCommands } from './routinescli.js';
 import { registerHubCommands } from './messaging/cli.js';
 import { UsageError } from './sources/errors.js';
 import { unknownCommandText } from './chat/drivers.js';
+import { runMirror } from './mirrorjob.js';
 
 const program = new Command();
 program.name('orch').description('CoachAven — per-project coding-agent sandboxes driven from Slack');
@@ -21,6 +22,7 @@ program
   .command('slack')
   .description('Run the Slack bot (Socket Mode): channel→project, thread→Claude session')
   .action(async () => {
+    log.info(installDirLine()); // once, before the chat driver starts (installation-directory)
     const cfg = loadConfig();
     initSentry(cfg); // no-op unless SENTRY_DSN is set
     for (const w of retiredEnvWarnings(process.env)) log.warn(w);
@@ -32,6 +34,7 @@ program
   .command('teams')
   .description('Run the Microsoft Teams bot (HTTPS endpoint behind your reverse proxy): channel→project, reply chain→Claude session')
   .action(async () => {
+    log.info(installDirLine());
     const cfg = loadConfig();
     initSentry(cfg);
     for (const w of retiredEnvWarnings(process.env)) log.warn(w);
@@ -43,11 +46,19 @@ program
   .command('web')
   .description('Run the web chat (an HTTP listener behind your reverse proxy, OIDC login): room→project, thread→Claude session')
   .action(async () => {
+    log.info(installDirLine());
     const cfg = loadConfig();
     initSentry(cfg);
     for (const w of retiredEnvWarnings(process.env)) log.warn(w);
     log.info(creditBootLine(cfg.credit));
     await runChat(cfg, 'web');
+  });
+
+program
+  .command('mirror')
+  .description('Mirror the repos listed in mirrors.json (installation directory) into the App’s organization — the crontab job (docs/runtime-config.md → Repo mirrors)')
+  .action(async () => {
+    process.exit(await runMirror());
   });
 
 registerSourcesCommands(program);

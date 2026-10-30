@@ -8,6 +8,7 @@ import type { SandboxHandle } from './driver.js';
 import { projectCwd } from './project.js';
 import { memoryDir } from './memory.js';
 import { log } from './log.js';
+import { memoryDir as memoryBase } from './paths.js';
 
 // Host-side, per-project git journal of the agent's auto memory (see docs/memory.md#dreaming).
 // One repo per project under ./memory/<slug>/ (next to state.json; server-owned, gitignored,
@@ -16,8 +17,6 @@ import { log } from './log.js';
 // sandbox rebuild. The sandbox stays the working source of truth; this is the durable log.
 
 const execFileAsync = promisify(execFile);
-// ./memory at the package root (one level up from src/), mirroring state.json's location.
-const MEMORY_BASE = new URL('../memory', import.meta.url).pathname;
 // Commit author for journal snapshots (cosmetic; history is what matters).
 const BOT = ['-c', 'user.name=coach-aven[bot]', '-c', 'user.email=coach-aven@users.noreply.github.com'];
 
@@ -37,7 +36,8 @@ export function safeName(name: string): boolean {
 
 // Host path of a project's journal repo.
 export function memoryRepoDir(slug: string): string {
-  return join(MEMORY_BASE, safeSlug(slug));
+  // memory/ in the installation directory, beside state.json (src/paths.ts).
+  return join(memoryBase(), safeSlug(slug));
 }
 
 async function git(repoDir: string, args: string[]): Promise<string> {

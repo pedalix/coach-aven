@@ -2,11 +2,11 @@ name: Deploy CoachAven release
 
 # The deploy workflow of an INSTALLATION. Lives in your private ops repo (the one checked
 # out at infra/<slug>/ of a coach-aven checkout) as .github/workflows/deploy.yml.
-# The public product repo only publishes releases; deploying one is this file's job.
+# The public product repo only publishes releases and images; deploying one is this file's job.
 #
 # Triggers:
-#   workflow_dispatch(tag) — deploy any release by hand: a first install, a rollback to the
-#     previous tag, the normal path. `npm run release -- vX.Y.Z` from a product checkout
+#   workflow_dispatch(tag) — deploy any version by hand: a first install, a rollback to the
+#     previous version, the normal path. `npm run release -- vX.Y.Z` from a product checkout
 #     tags and starts this run.
 #   repository_dispatch `coach-aven-release` — optional: sent by the product repo's release
 #     job when it has your App secrets (OPS_APP_ID / OPS_APP_PRIVATE_KEY); payload = {tag}.
@@ -18,11 +18,16 @@ name: Deploy CoachAven release
 #            Only needed while the product repo is private to you (a fork of your own);
 #            without them the checkout uses the default token, which reads any public repo.
 #
-# The deploy target (host, users, remote dir, service name) is deploy.env in this repo —
+# The deploy target (host, users, remote dir, service name, runtime) is deploy.env in this repo —
 # tracked, so the run reads it from its own checkout; no DEPLOY_ENV secret.
 #
-# What runs: exactly the manual `npm run ops -- <slug> deploy` — upload the checkout (code
-# only), `npm ci` on the box, restart the systemd unit, wait for the "Slack bot running" line.
+# What runs: exactly the manual `npm run ops -- <slug> deploy <version>`, by the runtime deploy.env names
+# (OpenSpec container-deploy):
+#   compose — the box pulls ghcr.io/<owner>/coach-aven:<version>, pins it, `docker compose up -d`, waits for
+#     the driver's "bot running" line; nothing is uploaded from here. A version is vX.Y.Z, or sha-<commit>
+#     when deploy.env says CANARY=1 (the installation that runs main). Rollback = the earlier version.
+#   systemd — upload the product checkout (code only), `npm ci` on the box, restart the unit, wait for the
+#     line. Tags only.
 # It never touches the box's .env, App key, projects.config.json or state.json; those go up
 # with `npm run ops -- <slug> export` from your machine.
 
@@ -32,7 +37,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag to deploy (vX.Y.Z)'
+        description: 'Version to deploy: vX.Y.Z, or sha-<commit> on a canary installation'
         required: true
 
 # Never let two deploys overlap on the box; queue them instead.
@@ -51,11 +56,28 @@ jobs:
       TAG: ${{ github.event.client_payload.tag || inputs.tag }}
       HAS_APP: ${{ secrets.APP_PRIVATE_KEY != '' }}
     steps:
-      - name: Validate the tag (releases only — never a branch or a sha)
+      - name: Check out this ops repo (the installation's overlay)
+        uses: actions/checkout@v7
+        with:
+          path: overlay
+      - name: Validate the version against this installation (vX.Y.Z; sha-<commit> only on a canary — never a branch)
+        id: version
         run: |
-          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "refusing to deploy '$TAG': not a vX.Y.Z release tag"; exit 1; }
           [[ "$OPS_SLUG" =~ ^[a-z0-9-]+$ ]] || { echo "set the repository variable OPS_SLUG to your installation's slug"; exit 1; }
-          echo "deploying $PRODUCT_REPO@$TAG to installation $OPS_SLUG"
+          # The runtime and the canary mark come from the tracked deploy.env, like the target.
+          CANARY="$(sed -n 's/^CANARY=//p' overlay/deploy.env | tail -1)"
+          RUNTIME="$(sed -n 's/^RUNTIME=//p' overlay/deploy.env | tail -1)"
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            ref="refs/tags/$TAG"
+          elif [[ "$TAG" =~ ^sha-[0-9a-f]{40}$ ]]; then
+            [[ "$CANARY" == 1 ]] || { echo "refusing to deploy '$TAG': a main commit's image deploys only on a canary installation (CANARY=1 in deploy.env)"; exit 1; }
+            [[ "${RUNTIME:-systemd}" == compose ]] || { echo "refusing to deploy '$TAG': a commit's image needs RUNTIME=compose (the tar deploy takes tags only)"; exit 1; }
+            ref="${TAG#sha-}"
+          else
+            echo "refusing to deploy '$TAG': a version is vX.Y.Z, or sha-<commit> on a canary — never a branch or latest"; exit 1
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "deploying $PRODUCT_REPO@$TAG to installation $OPS_SLUG (runtime ${RUNTIME:-systemd})"
       - name: Mint a read token for the product repo (only if it is private to you)
         if: env.HAS_APP == 'true'
         id: app
@@ -66,17 +88,15 @@ jobs:
           owner: pedalix
           repositories: coach-aven
           permission-contents: read
-      - name: Check out the product repo at the tag
+      - name: Check out the product repo at the version (its deploy tooling; on a compose installation the box pulls the image)
         uses: actions/checkout@v7
         with:
           repository: ${{ env.PRODUCT_REPO }}
-          ref: refs/tags/${{ env.TAG }}
+          ref: ${{ steps.version.outputs.ref }}
           token: ${{ steps.app.outputs.token || github.token }}
           path: src
-      - name: Check out this ops repo as the installation's overlay
-        uses: actions/checkout@v7
-        with:
-          path: src/infra/${{ env.OPS_SLUG }}
+      - name: Put the overlay beside it, at infra/<slug>/
+        run: mv overlay "src/infra/$OPS_SLUG"
       - name: Configure deployer SSH key
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -84,13 +104,14 @@ jobs:
           ${{ secrets.DEPLOY_SSH_KEY }}
           KEY
           chmod 600 ~/.ssh/id_ed25519
-      - name: Deploy (upload → npm ci → restart → health-check)
-        # RELEASE stamps the version so Sentry tags issues with the release.
+      - name: Deploy
+        # RELEASE stamps the version on the systemd path so the error tracker tags issues with the release
+        # (the compose path pins it with the version).
         env:
           RELEASE: ${{ env.TAG }}
         run: |
           if [[ -f src/infra/deploy/deploy.sh ]]; then
-            bash src/infra/deploy/deploy.sh "$OPS_SLUG" deploy
+            bash src/infra/deploy/deploy.sh "$OPS_SLUG" deploy "$TAG"
           else
             # A release from before the infra/<slug>/ layout (a rollback to ≤ v0.41.0): its
             # deploy.sh reads the target from infra/prod/.env and knows no overlays, so hand it

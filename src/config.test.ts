@@ -143,3 +143,17 @@ test('loadConfig — the credit replaces the token field; a shell ANTHROPIC_API_
   assert.deepEqual(withEnv(env, () => loadConfig().credit), { kind: 'subscription', value: TOKEN, source: 'CLAUDE_CODE_OAUTH_TOKEN' });
   assert.throws(() => withEnv({ ...env, ANTHROPIC_API_KEY: KEY }, () => loadConfig()), /keep exactly one/);
 });
+
+// ── the installation directory (OpenSpec installation-directory) ──────────────────────────────────────
+
+test('AVEN_DIR — the boot line names the resolved directory, and says when it is the package root', async () => {
+  const { installDirLine, dotenvSetsInstallDir } = await import('./config.js');
+  const { PACKAGE_ROOT } = await import('./paths.js');
+  assert.equal(installDirLine({ AVEN_DIR: '/srv/acme' }), 'installation directory: /srv/acme (AVEN_DIR)');
+  assert.equal(installDirLine({}), `installation directory: ${PACKAGE_ROOT} (the package root; AVEN_DIR unset)`);
+  assert.throws(() => installDirLine({ AVEN_DIR: 'state' }), /AVEN_DIR must be an absolute path/);
+  assert.equal(
+    dotenvSetsInstallDir('/srv/acme/.env'),
+    "/srv/acme/.env sets AVEN_DIR, but the setting names where .env is read from and belongs in the service's environment (the unit, the compose file or the shell), not in .env",
+  );
+});

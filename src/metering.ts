@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { splitTeam } from './teamkeys.js';
 import { log } from './log.js';
+import { usageDir } from './paths.js';
 
 // Usage metering — the "whose Claude tokens are we burning?" counter (multi-tenancy
 // slice 4, docs/multitenancy.md §7). Every settled agent turn appends one JSONL line to
@@ -232,12 +233,11 @@ export function usageSummaryText(bySlug: UsageRow[], byTeam: UsageRow[], days: n
   return parts.join('\n');
 }
 
-const USAGE_DIR = new URL('../usage', import.meta.url).pathname;
 const monthFile = (d: Date): string => `${d.toISOString().slice(0, 7)}.jsonl`;
 
 export class UsageLog {
   // `dir` is injectable for tests (same pattern as Store/QueueJournal/DraftStore).
-  constructor(private readonly dir: string = USAGE_DIR) {}
+  constructor(private readonly dir: string = usageDir()) {}
 
   // Best-effort: metering must never sink a turn.
   record(rec: UsageRecord): void {

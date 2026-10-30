@@ -12,6 +12,7 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { log } from './log.js';
+import { eventsDir } from './paths.js';
 
 export interface EnvelopeMeta {
   at: string; // ISO receive time
@@ -87,13 +88,11 @@ export function envelopeMeta(
   return meta;
 }
 
-const EVENTS_DIR = new URL('../events', import.meta.url).pathname;
-
 const dayFile = (d: Date) => `${d.toISOString().slice(0, 10)}.jsonl`;
 
 export class EventLog {
   // `dir` is injectable for tests (same pattern as Store/QueueJournal/UsageLog).
-  constructor(private readonly dir: string = EVENTS_DIR) {}
+  constructor(private readonly dir: string = eventsDir()) {}
 
   // Best-effort: observability must never sink an event.
   append(meta: EnvelopeMeta): void {
