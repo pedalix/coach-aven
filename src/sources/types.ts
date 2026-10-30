@@ -122,15 +122,16 @@ export interface MeetingsSourcesConfig {
 
 /**
  * Hands-on work on the bot's own machine (local/pull.ts): git commits under `roots` by any of
- * `authors`, and Claude Code transcripts under `claudeProjectsDir`. No credentials.
+ * `authors`, and Claude Code transcripts under `claudeProjectsDir` (one directory, or several when
+ * the person runs Claude Code under more than one config directory). No credentials.
  */
 export interface LocalSourcesConfig {
   /** Absolute directories scanned for git repos (depth ≤ 4). */
   roots: string[];
   /** git --author patterns (name or e-mail fragments), OR-ed. */
   authors: string[];
-  /** e.g. /home/me/.claude/projects — omit to skip Claude sessions. */
-  claudeProjectsDir?: string;
+  /** e.g. /home/me/.claude/projects, or a list of such directories — omit to skip Claude sessions. */
+  claudeProjectsDir?: string | string[];
   /** YYYY-MM-DD window start for the first pull (default 30 days back). */
   since?: string;
 }

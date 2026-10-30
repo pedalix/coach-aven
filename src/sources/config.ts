@@ -163,8 +163,10 @@ export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesC
     const roots = strings(w, l.roots, 'roots');
     for (const p of roots) if (!p.startsWith('/') || p.includes('..')) fail(w, `root "${p}" must be an absolute path without ".."`);
     const authors = strings(w, l.authors, 'authors');
-    const cpd = optStr(w, l.claudeProjectsDir, 'claudeProjectsDir');
-    if (cpd && (!cpd.startsWith('/') || cpd.includes('..'))) fail(w, '"claudeProjectsDir" must be an absolute path without ".."');
+    // One directory (a string, as before) or several (a list): a second Claude Code config directory
+    // (`CLAUDE_CONFIG_DIR`, another account) keeps its transcripts apart from the first.
+    const cpd = Array.isArray(l.claudeProjectsDir) ? strings(w, l.claudeProjectsDir, 'claudeProjectsDir') : optStr(w, l.claudeProjectsDir, 'claudeProjectsDir');
+    for (const p of typeof cpd === 'string' ? [cpd] : cpd ?? []) if (!p.startsWith('/') || p.includes('..')) fail(w, '"claudeProjectsDir" must be an absolute path without ".." (or a list of them)');
     out.local = { roots, authors, ...(cpd ? { claudeProjectsDir: cpd } : {}), ...(date(w, l.since, 'since') ? { since: l.since as string } : {}) };
   }
   if (r.tenant !== undefined) {

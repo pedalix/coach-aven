@@ -125,15 +125,21 @@ export async function pullLocal(ctx: PullContext, cfg: LocalSourcesConfig, o: Pu
   }
 
   // ── claude ───────────────────────────────────────────────────────────────────────────
-  if (cfg.claudeProjectsDir && existsSync(cfg.claudeProjectsDir)) {
+  const claudeDirs = typeof cfg.claudeProjectsDir === 'string' ? [cfg.claudeProjectsDir] : cfg.claudeProjectsDir ?? [];
+  const presentDirs = claudeDirs.filter((d) => existsSync(d));
+  // A missing directory is skipped, never read as "every session gone": its cached sessions stay.
+  for (const d of claudeDirs) if (!presentDirs.includes(d)) ctx.log(`claude: ${d} does not exist — skipped`);
+  if (presentDirs.length) {
     const changed = new Map<string, Set<string>>(); // container → days to recompute
     const mark = (container: string, minutes: number[]) => {
       const s = changed.get(container) ?? new Set<string>();
       for (const m of minutes) s.add(localDate(m * MIN, tz));
       changed.set(container, s);
     };
-    for (const sub of readdirSync(cfg.claudeProjectsDir)) {
-      const full = join(cfg.claudeProjectsDir, sub);
+    // Cursor keys are the transcripts' full paths, so two config directories never collide; their
+    // sessions in one repo merge into the same day blocks (wall-clock union, not a sum).
+    for (const base of presentDirs) for (const sub of readdirSync(base)) {
+      const full = join(base, sub);
       let files: string[];
       try {
         files = readdirSync(full).filter((f) => f.endsWith('.jsonl'));
@@ -179,8 +185,6 @@ export async function pullLocal(ctx: PullContext, cfg: LocalSourcesConfig, o: Pu
         cur.blocks[key] = d.ids;
       }
     }
-  } else if (cfg.claudeProjectsDir) {
-    ctx.log(`claude: ${cfg.claudeProjectsDir} does not exist — skipped`);
   }
 
   writeLocalCursor(dir, cur);
