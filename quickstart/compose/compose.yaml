@@ -11,7 +11,7 @@
 #                  cached afterwards) and exits; the bot finds it by name and never pulls it. Rebuild after
 #                  updating the clone: docker compose build sandbox-image
 #   bot            `orch web`: the web chat on 127.0.0.1 only, behind a sign-in link with a new key at every start
-#                  (docker compose logs bot | grep sign-in). The Docker socket lets it create the sandboxes as its
+#                  (docker compose logs bot | grep sign-in | tail -n 1). The Docker socket lets it create the sandboxes as its
 #                  siblings — root-equivalent on this machine, which is why the agent never runs in this container,
 #                  only in the unprivileged sandboxes.
 #

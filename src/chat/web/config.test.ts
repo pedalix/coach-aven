@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { webConfigFrom, webSessionSecretFile } from '../../config.js';
+import { webConfigFrom, webSessionSecretFile, withSessionSecret } from '../../config.js';
+import { chmodSync, existsSync } from 'node:fs';
 
 const FULL = {
   WEB_OIDC_ISSUER: 'https://cognito-idp.eu-central-1.amazonaws.com/eu-central-1_abc',
@@ -79,4 +80,18 @@ test('webSessionSecretFile: generated once, owner-only, reused', () => {
   assert.ok(a.length >= 32);
   assert.equal(statSync(join(dir, 'web-session.secret')).mode & 0o777, 0o600);
   assert.equal(webSessionSecretFile(dir), a);
+});
+
+test('withSessionSecret: a set WEB_SESSION_SECRET wins and no file is written; unset under link, the file; other modes untouched', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aven-web-secret-'));
+  const set = withSessionSecret(webConfigFrom({ WEB_AUTH: 'link', WEB_SESSION_SECRET: 'y'.repeat(32) }), () => dir)!;
+  assert.equal(set.sessionSecret, 'y'.repeat(32));
+  assert.equal(existsSync(join(dir, 'web-session.secret')), false);
+  const filled = withSessionSecret(webConfigFrom({ WEB_AUTH: 'link' }), () => dir)!;
+  assert.equal(filled.sessionSecret, webSessionSecretFile(dir));
+  const none = webConfigFrom({ WEB_AUTH: 'none' })!;
+  assert.equal(withSessionSecret(none, () => dir), none);
+  chmodSync(join(dir, 'web-session.secret'), 0o644);
+  webSessionSecretFile(dir);
+  assert.equal(statSync(join(dir, 'web-session.secret')).mode & 0o777, 0o600, 'a loosened file is tightened on reuse');
 });

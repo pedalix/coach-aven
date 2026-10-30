@@ -44,3 +44,10 @@ test('a remote sandbox host (or none): no call, nothing logged', async () => {
     assert.deepEqual(f.errors, []);
   }
 });
+
+test('the boot path never awaits the check (a hung Docker CLI must not hold the boot)', async () => {
+  const { readFileSync } = await import('node:fs');
+  const root = readFileSync(new URL('./chat/root.ts', import.meta.url), 'utf8');
+  assert.match(root, /\n\s*void checkLocalDocker\(cfg\.sshDocker\?\.host\)\.catch\(/);
+  assert.doesNotMatch(root, /await checkLocalDocker/);
+});

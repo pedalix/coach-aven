@@ -38,6 +38,9 @@ git clone https://github.com/pedalix/coach-aven.git && cd coach-aven
 git checkout "$(git describe --tags --abbrev=0)"
 ```
 
+No `quickstart/` after the checkout? The latest release predates it: stay on `main` (`git checkout main`). `init.sh`
+then runs the image of that `main` commit, a canary build.
+
 **2. Set up the directory.** `quickstart/` is the installation directory: its settings, its state and the bot's home
 live there, and git ignores all of them.
 
@@ -84,10 +87,12 @@ The first start builds the sandbox image from `snapshot/plain` and pulls the bot
 **7. Sign in.**
 
 ```sh
-docker compose logs bot | grep sign-in
+docker compose logs bot | grep sign-in | tail -n 1
 ```
 
-Open the `http://localhost:8787/login?key=…` link it shows. The key changes at every start of the bot; you stay signed
+The line comes a few seconds after the start; run it again if it shows nothing. Open the
+`http://localhost:8787/login?key=…` link it shows — the last one: the log keeps every earlier start's line, and only the
+newest key signs in. The key changes at every start of the bot; you stay signed
 in across restarts, and need a new link only for a new browser.
 
 **8. Ask.** Open the room `demo` and post a question about the repository — "what does this repository do, and how is
@@ -109,15 +114,16 @@ Logs: `docker compose logs -f bot` in `quickstart/compose/`. After an edit of `.
 
 ## Uninstall
 
-The sandbox is not a compose service, so `down` leaves it — and it holds your tokens:
+The sandbox is not a compose service, so `down` leaves it — and it holds your tokens. From the clone's root:
 
 ```sh
-cd quickstart/compose && docker compose down
-docker rm -f $(docker ps -aq --filter label=managedBy=coach-aven-quickstart)
+(cd quickstart/compose && docker compose down)
+docker ps -aq --filter label=managedBy=coach-aven-quickstart | xargs -r docker rm -f
 docker image rm coach-aven-sandbox-plain:local
 ```
 
-Then delete the clone, or only `quickstart/`'s untracked files (`git clean -fdX quickstart/`).
+Then delete the clone, or only `quickstart/`'s untracked files: `git clean -fdX quickstart/` (your `.env`, the state
+and the chat's history go with them).
 
 ## Going on
 

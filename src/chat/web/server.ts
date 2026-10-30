@@ -150,7 +150,9 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     };
     if (cfg.auth === 'none') return signInLocal();
     if (cfg.auth === 'link') {
-      // The key alone signs in (constant-time compare); without it, the page says where the link is. The key is never logged.
+      // The key alone signs in (constant-time compare); without it, the page says where the link is. The key is never logged
+      // (a tracing span would carry the URL with it — the quickstart sets no error tracker; an installation that adds one
+      // with tracing on a `link` surface should know the request URL holds the key until the next restart).
       if (deps.loginKey && keyMatches(deps.loginKey, req.query.key)) return signInLocal();
       return void res.status(401).type('html').send(layout({ title: 'Sign in', projects: [] }, linkLoginPage()));
     }

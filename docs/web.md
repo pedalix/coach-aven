@@ -73,7 +73,7 @@ its own `SANDBOX_NAME_PREFIX`, `AVEN_DATA_DIR` and without the hub settings, or 
 
 **Local installation, a sign-in link.** `WEB_AUTH=link` is the quickstart's mode ([`quickstart.md`](quickstart.md)): no
 identity provider, one local user who is also the operator, and a sign-in link the bot prints at every start —
-`Web chat sign-in: http://localhost:8787/login?key=…` (`docker compose logs bot | grep sign-in`). The key is new at
+`Web chat sign-in: http://localhost:8787/login?key=…` (`docker compose logs bot | grep sign-in | tail -n 1`: the log keeps earlier starts' lines). The key is new at
 every start, so a link in an old log line no longer signs in; without it every page answers 401. The listener may bind
 any address — inside a container it must bind `0.0.0.0` for a published port to reach it, so publish that port on
 `127.0.0.1` only — but the base URL must be a localhost one: a public host signs people in through OIDC. Sessions

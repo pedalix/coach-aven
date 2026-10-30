@@ -50,10 +50,10 @@ test('compose: loopback-only publish, no privilege, no `latest`, every value fro
 });
 
 // init.sh against a stub `docker` and `git` on PATH, in a copy of the directory.
-function runInit(dir: string, gitTag: string | undefined, extraEnv: Record<string, string> = {}) {
+function runInit(dir: string, gitTag: string | undefined, extraEnv: Record<string, string> = {}, pullFails = false) {
   const bin = join(dir, '..', 'bin');
   mkdirSync(bin, { recursive: true });
-  writeFileSync(join(bin, 'docker'), '#!/bin/sh\ncase "$1" in pull) exit 0 ;; run) echo 991 ;; esac\n');
+  writeFileSync(join(bin, 'docker'), `#!/bin/sh\ncase "$1" in pull) exit ${pullFails ? 1 : 0} ;; run) echo 991 ;; esac\n`);
   writeFileSync(join(bin, 'git'), `#!/bin/sh\ncase "$1" in describe) ${gitTag ? `echo ${gitTag}` : 'exit 128'} ;; rev-parse) echo 0123abc ;; esac\n`);
   chmodSync(join(bin, 'docker'), 0o755);
   chmodSync(join(bin, 'git'), 0o755);
@@ -82,4 +82,10 @@ test('init.sh: copies the templates once, rewrites compose/.env, keeps the perso
   const again = parseDotenv(readFileSync(join(dir, 'compose/.env')));
   assert.equal(again.AVEN_VERSION, 'sha-0123abc', 'off a tag: the commit\'s canary image, never latest');
   assert.equal(again.AVEN_WEB_PORT, '8790');
+});
+
+test('init.sh: an image that is not published stops it with what to check out, and compose/.env is not written', () => {
+  const dir = copy();
+  assert.throws(() => runInit(dir, undefined, {}, true), (e: { stderr?: string }) => /is not published/.test(e.stderr ?? '') && /git describe --tags --abbrev=0/.test(e.stderr ?? ''));
+  assert.throws(() => readFileSync(join(dir, 'compose/.env')));
 });

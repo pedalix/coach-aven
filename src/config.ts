@@ -438,7 +438,10 @@ export function webSessionSecretFile(dir: string): string {
   const path = join(dir, 'web-session.secret');
   if (existsSync(path)) {
     const s = readFileSync(path, 'utf8').trim();
-    if (s.length >= 32) return s;
+    if (s.length >= 32) {
+      chmodSync(path, 0o600); // a copy or a restore may have loosened it
+      return s;
+    }
   }
   const s = randomBytes(32).toString('hex');
   writeFileSync(path, `${s}\n`, { mode: 0o600 });
@@ -446,8 +449,8 @@ export function webSessionSecretFile(dir: string): string {
   return s;
 }
 
-const withSessionSecret = (web: WebConfig | undefined): WebConfig | undefined =>
-  web && web.auth === 'link' && !web.sessionSecret ? { ...web, sessionSecret: webSessionSecretFile(installDir()) } : web;
+export const withSessionSecret = (web: WebConfig | undefined, dir: () => string = () => installDir()): WebConfig | undefined =>
+  web && web.auth === 'link' && !web.sessionSecret ? { ...web, sessionSecret: webSessionSecretFile(dir()) } : web;
 
 export function loadConfig(): Config {
   const sandboxDriver = sandboxDriverEnv(process.env.SANDBOX_DRIVER);

@@ -14,6 +14,7 @@ import type { Interactions } from '../core/interactions.js';
 import { History } from './history.js';
 import { allowLocalFiles } from '../../attachments.js';
 import { webDriver } from './driver.js';
+import { log } from '../../log.js';
 import { createWebServer, keyMatches, LOCAL_USER, type WebServer } from './server.js';
 import { csrfToken, sealSession, SESSION_COOKIE, type Identity, type Oidc } from './auth.js';
 
@@ -416,18 +417,23 @@ test('WEB_AUTH=link: only the key signs in — no key, a wrong key or a stale on
   const linked = createWebServer({ cfg: link.cfg, store: link.store, reg, history: link.history, driver: link.driver, core: link.rec.core, messages: link.rec.messages, commands: link.rec.commands, filesRoot: join(tmpdir(), 'aven-web-link'), loginKey: key });
   const { port } = await linked.listen();
   const at = (path: string, headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${port}${path}`, { headers, redirect: 'manual' });
+  const saved = { info: log.info, warn: log.warn, error: log.error };
+  const logged: string[] = [];
+  for (const k of ['info', 'warn', 'error'] as const) log[k] = (m: string) => void logged.push(m);
   try {
     for (const path of ['/login', '/login?key=', `/login?key=${'x'.repeat(43)}`, `/login?key=${key}x`]) {
       const r = await at(path);
       assert.equal(r.status, 401, path);
       assert.equal(cookies(r).filter((c) => c.startsWith(`${SESSION_COOKIE}=`)).length, 0, `${path}: no session cookie`);
-      assert.match(await r.text(), /docker compose logs bot \| grep sign-in/);
+      assert.match(await r.text(), /docker compose logs bot \| grep sign-in \| tail -n 1/);
     }
     assert.equal(link.store.getWebUser('local'), undefined, 'a refused login stores nobody');
     const home = await at('/');
     assert.equal(home.status, 303, 'no session: to the login, which answers 401');
     assert.match(home.headers.get('location')!, /^\/login/);
     assert.equal((await at('/stream')).status, 401);
+    assert.equal((await at('/r/alpha')).status, 303, 'a room without a session: to the login');
+    assert.equal((await fetch(`http://127.0.0.1:${port}/upload?conv=room:alpha&name=a.txt`, { method: 'PUT', body: 'x' })).status, 401, 'an upload without a session is refused');
 
     const ok = await at(`/login?key=${key}&next=%2Fr%2Falpha`);
     assert.equal(ok.status, 303);
@@ -436,9 +442,25 @@ test('WEB_AUTH=link: only the key signs in — no key, a wrong key or a stale on
     assert.equal((await at('/', { cookie })).status, 200);
     assert.equal(link.store.getWebUser('local')?.name, LOCAL_USER.name);
     assert.equal((await at('/auth/callback?code=x&state=y')).status, 303, 'no OIDC round trip under link');
+    // Signed in, the local user's commands reach the router (isWebOperator in app.test.ts makes them operator verbs).
+    const usage = await fetch(`http://127.0.0.1:${port}/post`, { method: 'POST', body: JSON.stringify({ conv: 'room:alpha', text: '/usage' }), headers: { 'content-type': 'application/json', cookie, 'x-csrf': csrf('local', cookie) } });
+    assert.equal(usage.status, 200);
+    const last = link.rec.calls.at(-1) as { kind: string; args: { text: string; conv: string } };
+    assert.deepEqual([last.kind, last.args.text, last.args.conv], ['command', 'usage', 'room:alpha']);
+    // A restart draws a new key: the old link is dead, the session (same secret) lives on.
+    const next = createWebServer({ cfg: link.cfg, store: link.store, reg, history: link.history, driver: link.driver, core: link.rec.core, messages: link.rec.messages, commands: link.rec.commands, filesRoot: join(tmpdir(), 'aven-web-link'), loginKey: 'n'.repeat(43) });
+    const p2 = (await next.listen()).port;
+    try {
+      assert.equal((await fetch(`http://127.0.0.1:${p2}/login?key=${key}`, { redirect: 'manual' })).status, 401, 'the previous boot\'s key');
+      assert.equal((await fetch(`http://127.0.0.1:${p2}/`, { headers: { cookie }, redirect: 'manual' })).status, 200, 'a session from before the restart');
+    } finally {
+      await next.close();
+    }
   } finally {
     await linked.close();
+    Object.assign(log, saved);
   }
+  assert.deepEqual(logged.filter((l) => l.includes(key)), [], 'the key never goes through the logger');
 });
 
 test('keyMatches: exact keys only, whatever the type or length', () => {
