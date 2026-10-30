@@ -15,10 +15,9 @@ project, on hosts you own.**
 privileged container: [`docs/quickstart.md`](docs/quickstart.md). Clone, `./init.sh`, three values,
 `docker compose up -d`, and the agent answers in a web chat on `localhost` in about three minutes of machine time.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/web-thread-dark.png">
-  <img alt="A thread in the web chat: asked to make divide() reject a zero divisor, the agent shows the change, says what its tests cover and links the pull request it opened" src="docs/img/web-thread-light.png" width="800">
-</picture>
+| In Slack: asked for a change, the agent answers with the code, its tests and the pull request | In Microsoft Teams: a question answered in the reply chain |
+|---|---|
+| <img alt="A Slack thread: asked to make divide() throw a RangeError for a zero divisor, CoachAven shows the change, says what its tests cover and links the pull request it opened, with View PR, Show steps, Session, Helped and Missed buttons" src="docs/img/slack-thread-pr.png" width="420"> | <img alt="A Teams channel post: asked how the repository is tested, CoachAven answers in the reply chain with what exists and what is missing, then a card with Show steps, Session, Helped and Missed" src="docs/img/teams-thread-answer.png" width="420"> |
 
 **Built for** an agency or a small team that runs many client systems: one installation, one sandbox and one set of
 tools per client project, each client's work billed to a credit you choose. It grew up on Laravel projects (Sail runs
