@@ -11,7 +11,7 @@
 - [x] 2.2 `.env.example` and `infra/deploy/ops.example/.env.example`: the `AUTH0_M2M_*` block goes. The public `manage-project` skill: "refused at load" instead of "deprecated". The `CLAUDE.md` pointer for `src/gwtoken.ts`. Verify: `grep -rn AUTH0_M2M` outside `openspec/` and `docs/runtime-config.md`'s upgrade note finds nothing.
 - [x] 2.3 `openspec/specs/gateway-auth/spec.md` → *Purpose*: one standard request for every identity provider, one client pair per installation (edited in place, as Purpose changes are). Verify: `openspec validate --specs`.
 - [x] 2.4 `docs/rollout.md`: a row for this change (bucket 1, no gate — no installation has an entry without `oauth`, checked 2026-10-30), and the `gateway-installation-client` row notes the first real prod turn (2026-10-30, every gateway tool listed) and that its warning became this change's load error. Verify: the rows in the PR diff.
-- [ ] 2.5 `npm run typecheck && npm test`, `openspec validate retire-auth0-gateway-path --strict`, then the PR titled "Gateway entries need an `oauth` object — the Auth0-specific token request is removed", label `feature`, the body naming bucket 1 and the ledger row. Verify: CI green.
+- [x] 2.5 `npm run typecheck && npm test`, `openspec validate retire-auth0-gateway-path --strict`, then the PR titled "Gateway entries need an `oauth` object — the Auth0-specific token request is removed", label `feature`, the body naming bucket 1 and the ledger row. Verify: CI green.
 
 ## Workflow follow-up
 
