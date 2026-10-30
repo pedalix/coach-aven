@@ -1,6 +1,7 @@
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { splitTeam } from './teamkeys.js';
 import { log } from './log.js';
+import { queuePath } from './paths.js';
 
 // Crash-safe journal of QUEUED turns: accepted (status message posted) but not yet
 // started. These were the one place a user's message could vanish silently across a
@@ -59,11 +60,9 @@ export function pendingFromJournal(text: string): QueuedTurn[] {
   return [...pending.values()];
 }
 
-const QUEUE_PATH = new URL('../queue.jsonl', import.meta.url).pathname;
-
 export class QueueJournal {
   // `path` is injectable so tests use a throwaway file (same pattern as Store).
-  constructor(private readonly path: string = QUEUE_PATH) {}
+  constructor(private readonly path: string = queuePath()) {}
 
   // Appends are best-effort: a full disk must degrade recovery, never sink a live turn.
   add(entry: QueuedTurn): void {

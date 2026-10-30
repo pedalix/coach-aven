@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { log } from './log.js';
 import { costOf, type UsageRecord } from './metering.js';
+import { feedbackDir } from './paths.js';
 
 // Answer feedback — the "was that any good?" counter, the value half of the metering story
 // (metering.ts is the cost half). Cost has always been recorded; usefulness never was,
@@ -214,7 +215,6 @@ export function feedbackSummaryText(rows: FeedbackRow[], totalTurns: number, day
   return parts.join('\n');
 }
 
-const FEEDBACK_DIR = new URL('../feedback', import.meta.url).pathname;
 const monthFile = (d: Date): string => `${d.toISOString().slice(0, 7)}.jsonl`;
 
 // Pure: JSONL text → records, tolerant of torn lines (crash mid-append) and foreign junk —
@@ -238,7 +238,7 @@ export function parseFeedbackLines(text: string): FeedbackRecord[] {
 
 export class FeedbackLog {
   // `dir` is injectable for tests (same pattern as UsageLog/Store/DraftStore).
-  constructor(private readonly dir: string = FEEDBACK_DIR) {}
+  constructor(private readonly dir: string = feedbackDir()) {}
 
   // Best-effort: a failed write must degrade the button quietly, never surface as an error
   // to the person who just did us the favour of rating an answer.

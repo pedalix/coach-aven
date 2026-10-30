@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path';
 import { safeSlug } from './memjournal.js';
 import { log } from './log.js';
+import { factsDir } from './paths.js';
 
 // Project facts: structured, DERIVED state about a project that deterministic code writes
 // and other deterministic code reads — the first sliver of the "world state" from
@@ -54,13 +55,12 @@ export interface Fact {
   observedAt: string;
 }
 
-const FACTS_BASE = new URL('../facts', import.meta.url).pathname;
 
 export const projectSubject = (slug: string) => `project:${slug}`;
 
 export class FactStore {
   // `base` is injectable so tests use a throwaway dir (same pattern as DraftStore).
-  constructor(private readonly base: string = FACTS_BASE) {}
+  constructor(private readonly base: string = factsDir()) {}
 
   private file(slug: string): string {
     return join(this.base, `${safeSlug(slug)}.json`);

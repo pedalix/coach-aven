@@ -5,11 +5,30 @@ import { randomBytes } from 'node:crypto';
 import { config as loadDotenv } from 'dotenv';
 import { isValidCliVersion } from './cliversion.js';
 import { messagingEnv, type MessagingEnv } from './messaging/config.js';
+import { dotenvPath, installDir, PACKAGE_ROOT, projectsConfigDefault, settingPath } from './paths.js';
 
-// The checkout's .env configures a RUNNING bot. Under the test runner (node --test sets
-// NODE_TEST_CONTEXT in every test process) it must not leak into tests: a developer's
-// SLACK_CHANNEL_PREFIX or flags would make the recorded-call snapshots machine-dependent.
-if (!process.env.NODE_TEST_CONTEXT) loadDotenv();
+// The installation's .env configures a RUNNING bot: it is read from the installation directory
+// (AVEN_DIR, else the package root — src/paths.ts), never from the working directory. The directory is
+// resolved FIRST, from the process environment (a relative AVEN_DIR stops the boot here), and a .env that
+// sets AVEN_DIR is refused: the setting says where .env is, so .env cannot say it. Under the test runner
+// (node --test sets NODE_TEST_CONTEXT in every test process) the file must not leak into tests: a
+// developer's SLACK_CHANNEL_PREFIX or flags would make the recorded-call snapshots machine-dependent.
+installDir();
+if (!process.env.NODE_TEST_CONTEXT) {
+  const loaded = loadDotenv({ path: dotenvPath() });
+  if (loaded.parsed && 'AVEN_DIR' in loaded.parsed) throw new Error(dotenvSetsInstallDir(dotenvPath()));
+}
+
+/** The one sentence a .env that sets AVEN_DIR stops the boot with (installation-directory). */
+export function dotenvSetsInstallDir(path: string): string {
+  return `${path} sets AVEN_DIR, but the setting names where .env is read from and belongs in the service's environment (the unit, the compose file or the shell), not in .env`;
+}
+
+/** The boot line naming the installation directory, logged once before the chat driver starts. */
+export function installDirLine(env: Record<string, string | undefined> = process.env): string {
+  const dir = installDir(env);
+  return `installation directory: ${dir}${dir === PACKAGE_ROOT ? ' (the package root; AVEN_DIR unset)' : ' (AVEN_DIR)'}`;
+}
 
 function req(name: string): string {
   const v = process.env[name];
@@ -25,9 +44,10 @@ function num(name: string, fallback: number): number {
   return n;
 }
 
-// The Sentry release (version) to tag issues with. Explicit env wins; otherwise read the
-// `.release` file the deploy writes (package root, next to state.json) so CI can stamp the
-// git tag per deploy without touching the runtime .env. Undefined → no release tag.
+// The Sentry release (version) to tag issues with. Explicit env wins (the compose file sets it from the
+// pinned version); otherwise read the `.release` file the tar deploy writes BESIDE THE CODE — it describes
+// the code, not the installation, so it stays at the package root whatever AVEN_DIR says. Undefined → no
+// release tag.
 function resolveRelease(): string | undefined {
   if (process.env.SENTRY_RELEASE) return process.env.SENTRY_RELEASE;
   try {
@@ -67,7 +87,7 @@ function resolveClaudeToken(): string {
 }
 
 function githubPrivateKey(): string {
-  const path = process.env.GITHUB_APP_PRIVATE_KEY_PATH;
+  const path = settingPath(process.env.GITHUB_APP_PRIVATE_KEY_PATH); // relative → the installation directory
   if (path) return readFileSync(path, 'utf8');
   const inline = process.env.GITHUB_APP_PRIVATE_KEY;
   if (inline) return inline.replace(/\\n/g, '\n');
@@ -420,9 +440,8 @@ export function loadConfig(): Config {
               .filter(Boolean),
           }
         : undefined,
-    projectsConfigPath:
-      process.env.PROJECTS_CONFIG_PATH ||
-      new URL('../projects.config.json', import.meta.url).pathname,
+    // PROJECTS_CONFIG_PATH (relative → the installation directory), else projects.config.json there.
+    projectsConfigPath: settingPath(process.env.PROJECTS_CONFIG_PATH) ?? projectsConfigDefault(),
     messaging: messagingEnv(process.env),
     sentry: process.env.SENTRY_DSN
       ? {

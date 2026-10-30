@@ -28,8 +28,8 @@ import { UsageLog } from '../metering.js';
 import { FactStore } from '../facts.js';
 import { cliOwnNames } from './clinames.js';
 import { splitTeam } from '../teamkeys.js';
+import { shadowDir as shadowDirDefault } from '../paths.js';
 
-const SHADOW_DIR = new URL('../../shadow', import.meta.url).pathname;
 const TICK_MS = 60_000;
 
 export interface MessagingRuntime {
@@ -52,7 +52,7 @@ export interface MessagingRuntime {
 
 export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRef; home: () => string | undefined; platform: ChatDriverName; shadowDir?: string; /** Tests: the hub client's socket. */ socket?: SocketFactory }): MessagingRuntime {
   const ref: { current?: Messaging } = {};
-  const shadow = shadowDriver({ dir: o.shadowDir ?? SHADOW_DIR });
+  const shadow = shadowDriver({ dir: o.shadowDir ?? shadowDirDefault() });
   const env = o.cfg.messaging;
   const path = peersPath(o.cfg.projectsConfigPath);
   const readPeers = (): Peers => {

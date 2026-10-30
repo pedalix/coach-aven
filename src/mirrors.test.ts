@@ -19,8 +19,17 @@ test('the shipped example parses', () => {
   assert.ok(ex.length > 0);
 });
 
-test('mirrorsPath: MIRRORS_CONFIG, else mirrors.json in the working directory', () => {
+test('mirrorsPath: MIRRORS_CONFIG, else mirrors.json — both against the installation directory, never the working directory', () => {
   assert.equal(mirrorsPath({}, '/srv/aven'), '/srv/aven/mirrors.json');
   assert.equal(mirrorsPath({ MIRRORS_CONFIG: 'conf/m.json' }, '/srv/aven'), '/srv/aven/conf/m.json');
   assert.equal(mirrorsPath({ MIRRORS_CONFIG: '/etc/m.json' }, '/srv/aven'), '/etc/m.json');
+});
+
+test('orch mirror and scripts/mirror.ts are the same job: both entry points import runMirror from src/mirrorjob.ts (container-deploy D7)', () => {
+  const cli = readFileSync(new URL('./cli.ts', import.meta.url), 'utf8');
+  const script = readFileSync(new URL('../scripts/mirror.ts', import.meta.url), 'utf8');
+  assert.match(cli, /import \{ runMirror \} from '\.\/mirrorjob\.js';/);
+  assert.match(cli, /\.command\('mirror'\)/);
+  assert.match(script, /import \{ runMirror \} from '\.\.\/src\/mirrorjob\.js';/);
+  assert.doesNotMatch(script, /process\.cwd\(\)|dotenv/, 'the script is a thin caller: the job resolves the list and the cache through the installation directory');
 });

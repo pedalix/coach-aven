@@ -1,0 +1,66 @@
+# CoachAven as containers (OpenSpec container-deploy, design D3/D4/D7): the bot — and the sources daemon
+# where the installation runs one — from the published image, run by `docker compose` in
+# <installation directory>/compose/. Rendered by `infra/deploy/deploy.sh <slug> install` into that
+# directory from the overlay's deploy.env and what the box says (the deployer's uid, gid and home, the
+# Docker socket's group, which home files exist); rerun install after a change here, as for the unit.
+#
+# Placeholders: __SERVICE__ __IMAGE__ __DIR__ __UID__ __GID__ __HOME__ __DRIVER__ __DAEMON_LISTEN__ __DOCKER_GID__.
+# A line tagged `# @<switch>` is kept or dropped at render: daemon (DAEMON_LISTEN in deploy.env), socket or
+# ssh (SSHDOCKER_HOST=local: the box's Docker socket and its group, no key; another host: the deployer's
+# .ssh read-only, no socket), netrc and claude (the home files the code falls back to, only when they exist —
+# a bind mount of a missing file would put a directory in its place).
+#
+# The version is pinned in .env beside this file — AVEN_VERSION (the image tag) and AVEN_RELEASE (the error
+# tracker's release: vX.Y.Z, or main@<commit> for a canary) — written by `deploy.sh <slug> deploy <version>`;
+# nothing else reads that file. The bot's own .env stays one level up, read by the bot through AVEN_DIR.
+#
+# The containers see the box the way the systemd service did: the deployer's user, the installation
+# directory at its own path as AVEN_DIR and working directory (every path in .env and the projects config
+# keeps its meaning, and no data moves), the deployer's home for the keys and ~/.config/coach-aven, the box's
+# passwd and group read-only (OpenSSH wants a passwd entry for the uid; git reads the home from it), host
+# networking (the loopback listeners behind the host's proxy and the daemon's address keep their addresses),
+# init for SIGTERM forwarding and the reaping of the ssh and sh children, 90 s to stop as the units had,
+# a restart on exit, and the host journal for the logs (`journalctl -t __SERVICE__`; on Docker Desktop, which
+# has no journald, drop the two `logging:` blocks).
+name: __SERVICE__
+
+x-aven: &aven
+  image: __IMAGE__:${AVEN_VERSION}
+  user: "__UID__:__GID__"
+  working_dir: __DIR__
+  network_mode: host
+  init: true
+  stop_grace_period: 90s
+  restart: unless-stopped
+  environment:
+    AVEN_DIR: __DIR__
+    HOME: __HOME__
+    NODE_ENV: production
+    SENTRY_RELEASE: ${AVEN_RELEASE}
+  volumes:
+    - __DIR__:__DIR__
+    - __HOME__/.config/coach-aven:__HOME__/.config/coach-aven
+    - /etc/passwd:/etc/passwd:ro
+    - /etc/group:/etc/group:ro
+    - __HOME__/.ssh:__HOME__/.ssh:ro # @ssh
+    - /var/run/docker.sock:/var/run/docker.sock # @socket
+    - __HOME__/.netrc:__HOME__/.netrc:ro # @netrc
+    - __HOME__/.claude/.credentials.json:__HOME__/.claude/.credentials.json:ro # @claude
+  group_add: # @socket
+    - "__DOCKER_GID__" # @socket
+
+services:
+  bot:
+    <<: *aven
+    command: ["__DRIVER__"]
+    logging:
+      driver: journald
+      options:
+        tag: __SERVICE__
+  sources-daemon: # @daemon
+    <<: *aven # @daemon
+    command: ["sources", "daemon", "--listen", "__DAEMON_LISTEN__"] # @daemon
+    logging: # @daemon
+      driver: journald # @daemon
+      options: # @daemon
+        tag: __SERVICE__-sources-daemon # @daemon

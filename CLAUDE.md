@@ -16,7 +16,8 @@ process. This is the control plane; the heavy work runs in the sandboxes. See `R
 - `npm run ops -- <slug> <command>` — deploy/export/import/logs for ONE installation: the ops repo
   checked out at `infra/<slug>/` (`infra/README.md`). No default slug, on purpose.
 - Release — merge PRs to `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag
-  triggers CI (typecheck + test → GitHub Release → deploy). No changelog or version edits.
+  triggers CI (typecheck + test → the image `ghcr.io/<owner>/coach-aven:vX.Y.Z`, the same digest `main`'s
+  `sha-<commit>` image had → GitHub Release → deploy). No changelog or version edits.
   **`main` is the canary**: the home bot runs it; prod runs the last tag. Tag only after ~2 days
   on the canary, and start every work session by checking `docs/rollout.md` (the flag ledger)
   and `git log $(git describe --tags --abbrev=0)..main` for what is due to ship, flip or retire.

@@ -2,14 +2,14 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, unlinkSync,
 import { join } from 'node:path';
 import { safeSlug } from './memjournal.js';
 import { log } from './log.js';
+import { draftsDir } from './paths.js';
 
 // Report drafts ("✏️ Edit & send") on disk: one markdown file per draft under
-// ./drafts/<slug>/<turnId>.md — per-project, mirroring memory/<slug>. Server-side because
+// <installation directory>/drafts/<slug>/<turnId>.md — per-project, mirroring memory/<slug>. Server-side because
 // Slack rewrites `markdown` blocks to rich_text on delivery, so the posted message can't
 // round-trip its own text (see PR #55). On disk rather than in memory so a deploy no
 // longer kills every pending draft's button — a draft is minutes of agent work.
 
-const DRAFTS_BASE = new URL('../drafts', import.meta.url).pathname;
 const MAX_PER_PROJECT = 100;
 
 // Draft ids are bot-minted turnIds (`t<boot36>-<seq>`), but they round-trip through Slack
@@ -20,7 +20,7 @@ export function isDraftId(id: string): boolean {
 
 export class DraftStore {
   // `base` is injectable so tests use a throwaway dir (same pattern as Store).
-  constructor(private readonly base: string = DRAFTS_BASE) {}
+  constructor(private readonly base: string = draftsDir()) {}
 
   // Best-effort: a full disk must degrade the Edit&send button, never sink the turn.
   put(slug: string, id: string, text: string): void {
