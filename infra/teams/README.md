@@ -37,7 +37,7 @@ module "teams" {
   tenant_id          = var.tenant_id
   subscription_id    = var.subscription_id
   bot_name           = "<globally unique bot handle>"
-  display_name       = "Aven"
+  display_name       = "CoachAven"
   developer_name     = "<your company>"
   website_url        = "https://<your site>"
   messaging_endpoint = var.messaging_endpoint

@@ -288,11 +288,11 @@ export function renderDialogView(v: DialogView, c: RenderCtx = {}): RenderedDial
 // from mrkdwnToTeams' `/aven verb` → `/verb` rewrite and the room links are the web's own.
 
 export function renderHomeView(v: HomeView, rooms: (slug: string) => string | undefined = () => undefined): Html {
-  if (v.kind === 'onboarding') return h`<p>👋 I'm Aven. This installation serves no projects yet — ask your operator to add one.</p>`;
+  if (v.kind === 'onboarding') return h`<p>👋 I'm CoachAven. This installation serves no projects yet — ask your operator to add one.</p>`;
   const projects = v.projects.map((p) => {
     const url = rooms(p.slug);
     return h`<li>${url ? h`<a href="${url}"><strong>${p.slug}</strong></a>` : h`<strong>${p.slug}</strong>`} — ${p.repos.map(shortRepo).join(', ')}</li>`;
   });
   const bullets = homeBullets(v.messaging ? { messaging: true } : {}).map((b) => h`<li>${mrkdwnToHtml(b.replace(/^•\s*/, ''))}</li>`);
-  return h`<h2>Aven — your coding agent</h2><h3>Projects</h3><ul class="projects">${projects.length ? projects : h`<li><em>none</em></li>`}</ul><h3>How to use me</h3><ul class="cheatsheet">${bullets}</ul><p class="meta"><em>Commands are <code>/verb …</code> in any room or private conversation; a top-level post in a room starts a thread, no mention needed.</em></p>`;
+  return h`<h2>CoachAven — your coding agent</h2><h3>Projects</h3><ul class="projects">${projects.length ? projects : h`<li><em>none</em></li>`}</ul><h3>How to use me</h3><ul class="cheatsheet">${bullets}</ul><p class="meta"><em>Commands are <code>/verb …</code> in any room or private conversation; a top-level post in a room starts a thread, no mention needed.</em></p>`;
 }

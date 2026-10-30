@@ -269,7 +269,7 @@ export function registerEvents(app: TeamsAppLike, deps: EventDeps): void {
       if (h) void h(a, driver).catch((e) => log.error(`teams ${a.id}: ${e instanceof Error ? e.message : String(e)}`));
     }
     const fallback: { title: string; card: AdaptiveCard } = {
-      title: 'Aven',
+      title: 'CoachAven',
       card: { type: 'AdaptiveCard', $schema: 'http://adaptivecards.io/schemas/adaptive-card.json', version: '1.5', body: [{ type: 'TextBlock', text: '_Nothing to show for this control._', wrap: true }] },
     };
     const d = await Promise.race([opened, new Promise<typeof fallback>((r) => setTimeout(() => r(fallback), DIALOG_WAIT_MS).unref())]);

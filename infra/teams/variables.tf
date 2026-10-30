@@ -32,7 +32,7 @@ variable "bot_name" {
 variable "display_name" {
   description = "What people see in Teams: the bot's and the app's short name."
   type        = string
-  default     = "Aven"
+  default     = "CoachAven"
 }
 
 variable "developer_name" {
