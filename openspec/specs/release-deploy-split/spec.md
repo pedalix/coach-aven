@@ -25,7 +25,7 @@ On a `v*` tag the product repository SHALL verify the code and publish the tag's
 - **THEN** no release is published and no notification is sent
 
 ### Requirement: The ops repo deploys a named release with its own secrets
-The ops repository's deploy workflow SHALL deploy exactly one published version of the product to the installation it describes, using an SSH key and a deploy target stored only in that repository. On a systemd installation it SHALL run the sequence of the manual `deploy.sh deploy`. On a compose installation it SHALL run `deploy.sh <slug> deploy <version>`, which pulls the version's image on the box and uploads nothing.
+The ops repository's deploy workflow SHALL deploy exactly one published version of the product to the installation it describes, using an SSH key and a deploy target stored only in that repository. It SHALL run `deploy.sh <slug> deploy <version>`, which pulls the version's image on the box and uploads nothing.
 
 #### Scenario: Release dispatch
 - **WHEN** the ops repository receives `coach-aven-release` for `vX.Y.Z`
@@ -41,7 +41,7 @@ The ops repository's deploy workflow SHALL deploy exactly one published version 
 
 #### Scenario: Health check fails
 - **WHEN** the service does not report healthy after the new version starts
-- **THEN** the workflow fails and the failure is visible on the ops repository's Actions page. On a compose installation the failed version is recorded, and the earlier version is one deploy away.
+- **THEN** the workflow fails and the failure is visible on the ops repository's Actions page; the failed version is recorded on the box, and the earlier version is one deploy away
 
 #### Scenario: A canary deploys a main commit
 - **WHEN** the ops repository marks its installation as a canary and an operator starts the workflow with `sha-<commit>`
