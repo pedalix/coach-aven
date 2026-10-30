@@ -22,6 +22,7 @@ import { CMD } from '../slack/blocks.js';
 import { splitConversation, threadOf } from './keys.js';
 import { channelMessageFiles, hydrateTeamsFiles, teamsFiles, type ChannelMessageRef, type FileTokens } from './files.js';
 import type { AdaptiveCard } from './cards.js';
+import { signCard, verifyAction, verifyDialog } from './cardsig.js';
 import type { TeamsActionCtx, TeamsChatDriver } from './driver.js';
 import { RecentSet } from '../../recent.js';
 import { log } from '../../log.js';
@@ -121,16 +122,22 @@ export function normalizeMessage(a: InboundActivity, tenant: string, claim: (kin
 }
 
 // A card click or a dialog opener → the core's ChatAction. `dialog` is set by the caller for
-// `task/fetch` invokes (the deferred the driver's openDialog resolves).
+// `task/fetch` invokes (the deferred the driver's openDialog resolves). With `key` (the installation's,
+// cardsig.ts) a control is taken only when it carries the signature the bot put on it.
 export function normalizeAction(
   a: InboundActivity,
   tenant: string,
   dialog?: TeamsActionCtx['dialog'],
+  key?: string,
 ): ChatAction | undefined {
   const v = a.value as { action?: { data?: Record<string, unknown> }; data?: Record<string, unknown> } | undefined;
   const data = a.name === 'adaptiveCard/action' ? v?.action?.data : v?.data;
   const id = typeof data?.action === 'string' ? data.action : undefined;
   if (!id) return undefined;
+  if (key && !verifyAction(key, data)) {
+    log.warn(`teams: an unsigned or altered control ${id} from ${a.from.id} — ignored`);
+    return undefined;
+  }
   const { conv, root } = splitConversation(a.conversation.id);
   const direct = isDirect(a);
   const ctx: TeamsActionCtx = { conv, thread: direct ? undefined : root, user: a.from.id, direct, dialog };
@@ -148,15 +155,20 @@ export function normalizeAction(
 
 // A dialog submit → the core's DialogSubmit: the form's data minus the routing fields. A
 // multi-select ChoiceSet arrives as one comma-separated string; the card names those fields
-// in `multi` (cards.ts) and they become the arrays the core's handlers expect.
-export function normalizeSubmit(a: InboundActivity, tenant: string): DialogSubmit | undefined {
+// in `multi` (cards.ts) and they become the arrays the core's handlers expect. With `key`, the
+// form must carry the signature of its dialog and metadata for THIS person (cardsig.ts).
+export function normalizeSubmit(a: InboundActivity, tenant: string, key?: string): DialogSubmit | undefined {
   const data = (a.value as { data?: Record<string, unknown> } | undefined)?.data;
   const id = typeof data?.dialog === 'string' ? data.dialog : undefined;
   if (!id) return undefined;
+  if (key && !verifyDialog(key, data, a.from.id)) {
+    log.warn(`teams: an unsigned or altered dialog ${id} from ${a.from.id} — ignored`);
+    return undefined;
+  }
   const multi = new Set(Array.isArray(data?.multi) ? data.multi.map(String) : []);
   const values: DialogSubmit['values'] = {};
   for (const [k, val] of Object.entries(data ?? {})) {
-    if (k === 'dialog' || k === 'meta' || k === 'msteams' || k === 'multi') continue;
+    if (k === 'dialog' || k === 'meta' || k === 'msteams' || k === 'multi' || k === 'msig' || k === 'sig') continue;
     if (typeof val === 'string') values[k] = multi.has(k) ? val.split(',').filter(Boolean) : val;
     else if (Array.isArray(val)) values[k] = val.map(String);
   }
@@ -191,6 +203,9 @@ export interface EventDeps {
   boundProject?: (conv: string) => string | undefined;
   // Tokens for fetching inbound files (files.ts); absent → files are ignored.
   files?: FileTokens;
+  // The installation's card-control key (cardsig.ts): controls are signed on the way out (app.ts, and the
+  // dialogs answered here) and checked on the way in. Absent → no check (the pure tests).
+  cardKey?: string;
 }
 
 // Teams gives an invoke 5 s before "Unable to reach the app" (and it retries twice): answer well
@@ -249,7 +264,7 @@ export function registerEvents(app: TeamsAppLike, deps: EventDeps): void {
   // Card clicks (Action.Execute): run the family handler; the invoke itself is answered with
   // an empty message response (the card changes come through update()).
   app.on('card.action', async ({ activity }) => {
-    const a = normalizeAction(activity, tenantId);
+    const a = normalizeAction(activity, tenantId, undefined, deps.cardKey);
     if (!a || !claimFor(activity)('action')) return { statusCode: 200, type: 'application/vnd.microsoft.activity.message', value: '' };
     const h = core.actions[a.id];
     if (!h) log.warn(`teams: no handler for card action ${a.id}`);
@@ -263,7 +278,7 @@ export function registerEvents(app: TeamsAppLike, deps: EventDeps): void {
   app.on('dialog.open', async ({ activity }) => {
     let resolve!: (d: { title: string; card: AdaptiveCard }) => void;
     const opened = new Promise<{ title: string; card: AdaptiveCard }>((r) => (resolve = r));
-    const a = normalizeAction(activity, tenantId, resolve);
+    const a = normalizeAction(activity, tenantId, resolve, deps.cardKey);
     if (a) {
       const h = core.actions[a.id];
       if (h) void h(a, driver).catch((e) => log.error(`teams ${a.id}: ${e instanceof Error ? e.message : String(e)}`));
@@ -273,11 +288,13 @@ export function registerEvents(app: TeamsAppLike, deps: EventDeps): void {
       card: { type: 'AdaptiveCard', $schema: 'http://adaptivecards.io/schemas/adaptive-card.json', version: '1.5', body: [{ type: 'TextBlock', text: '_Nothing to show for this control._', wrap: true }] },
     };
     const d = await Promise.race([opened, new Promise<typeof fallback>((r) => setTimeout(() => r(fallback), DIALOG_WAIT_MS).unref())]);
-    return { task: { type: 'continue', value: { title: d.title, card: { contentType: 'application/vnd.microsoft.card.adaptive', content: d.card } } } };
+    // The dialog is this person's: its form is signed for them (a submit by anyone else does not check out).
+    const card = deps.cardKey ? signCard(deps.cardKey, d.card, activity.from.id) : d.card;
+    return { task: { type: 'continue', value: { title: d.title, card: { contentType: 'application/vnd.microsoft.card.adaptive', content: card } } } };
   });
 
   app.on('dialog.submit', async ({ activity }) => {
-    const s = normalizeSubmit(activity, tenantId);
+    const s = normalizeSubmit(activity, tenantId, deps.cardKey);
     if (s) {
       const h = core.submits[s.id];
       if (!h) log.warn(`teams: no handler for dialog ${s.id}`);

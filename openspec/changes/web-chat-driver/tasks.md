@@ -39,7 +39,7 @@
 - [x] 6.4 `parseConv` takes plain names only; `History.fileOf` resolves under its directory; the private page filters by visibility. Verify: `keys.test.ts`, `history.test.ts`.
 - [x] 6.5 Revocable sessions: `loggedOutAt` on sign-out (kept across logins), every older session dead; the allow-list on every request (sessions keep their login's groups). Verify: `server.test.ts` — a copy after sign-out 303/401, signing in again works, off the list 403.
 - [x] 6.6 `safeNext` without backslashes; `email_verified: false` ignored; the upload parser after the gate; the Host check in the local modes; ten streams per person. Verify: `server.test.ts`, `auth.test.ts`.
-- [ ] 6.7 Whether Teams card submissions can be forged against the same core handlers (the review could not check it). Verify: a finding or a note in `docs/teams.md`.
+- [x] 6.7 Whether Teams card submissions can be forged against the same core handlers (the review could not check it). Verify: a finding or a note in `docs/teams.md`. — Done: yes in principle (the client builds the invoke from the card's `data`); fixed the same way: signed card controls (`src/chat/teams/cardsig.ts`), dialog forms bound to their person; `cardsig.test.ts`.
 
 ## 5. PR 3 — the rest of parity (when a client needs it)
 

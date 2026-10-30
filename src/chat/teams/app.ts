@@ -22,6 +22,7 @@ import { teamsDriver, type OutActivity, type TeamsApi } from './driver.js';
 import { registerEvents, type TeamsAppLike } from './events.js';
 import { activityShape } from './files.js';
 import { hasReplyChains } from './keys.js';
+import { cardKeyOf, signActivity } from './cardsig.js';
 import { scrubText } from '../../scrub.js';
 import { withNetRetry } from '../../netretry.js';
 import { log } from '../../log.js';
@@ -80,17 +81,19 @@ export const teamsSurface: SurfacePlugin = {
     // it and the store remembers the last one, so a fresh boot can post before any new message.
     let serviceUrl = store.getTeamsServiceUrl();
     const apiFor = () => (serviceUrl ? app.api.clone({ serviceUrl }) : app.api);
+    // Every card control leaves signed (cardsig.ts): an invoke is taken only for a control the bot posted.
+    const cardKey = cardKeyOf(teams.appPassword);
     const api: TeamsApi = {
       async send(conversationId, activity) {
-        const sent = await connector('send', conversationId, () => apiFor().conversations.createActivity(conversationId, activity as never));
+        const sent = await connector('send', conversationId, () => apiFor().conversations.createActivity(conversationId, signActivity(cardKey, activity) as never));
         return { id: (sent as { id?: string }).id ?? '' };
       },
       async sendTargeted(conversationId, activity) {
-        const sent = await connector('sendTargeted', conversationId, () => apiFor().conversations.createTargetedActivity(conversationId, activity as never));
+        const sent = await connector('sendTargeted', conversationId, () => apiFor().conversations.createTargetedActivity(conversationId, signActivity(cardKey, activity) as never));
         return { id: (sent as { id?: string }).id ?? '' };
       },
       async update(conversationId, activityId, activity) {
-        await connector('update', conversationId, () => apiFor().conversations.updateActivity(conversationId, activityId, activity as never));
+        await connector('update', conversationId, () => apiFor().conversations.updateActivity(conversationId, activityId, signActivity(cardKey, activity) as never));
       },
       async react(conversationId, activityId, type, op) {
         await connector(`react:${op}`, conversationId, () =>
@@ -166,6 +169,7 @@ export const teamsSurface: SurfacePlugin = {
           if (aad) aadOf.set(id, aad);
         },
         boundProject: (conv) => resolveByChannel(reg.current, conv)?.slug,
+        cardKey,
         // The SDK keeps both tokens protected; they are the app's own (client credentials), fetched
         // and cached by its token manager. The Graph one is empty until the tenant consented
         // Files.Read.All (the module's `supports_files`).

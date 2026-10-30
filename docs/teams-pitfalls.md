@@ -365,6 +365,9 @@ Per bot per thread (a thread = one 1:1, one group chat, or one channel) [S3]:
 - RSC application permissions `ChannelMessage.Read.Group` (team channels) and
   `ChatMessage.Read.Chat` (group chats) in manifest `authorization.permissions.resourceSpecific`,
   plus `webApplicationInfo.id` = bot's Entra app id (`resource: https://RscBasedStoreApp`).
+  Observed here (2026-10-30): after updating the catalog app to a new version (`Set-TeamsApp`), the
+  team stopped receiving replies without a mention — Teams sent nothing — while Graph still read the
+  channel's messages with the RSC grant; until then (2026-10-16 … 20) every such reply had arrived.
   "After you update the permissions, install or upgrade the app in the target team or group chat.
   The team or chat owner must consent." Who may consent: "Team: A team owner or member • Chat: A
   chat member"; tenant-wide switches live in the Entra admin center (teams) / Graph (chats), so

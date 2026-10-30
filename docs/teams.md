@@ -83,7 +83,15 @@ surface.
   which only inbound activities carry; the driver stores the last one in `state.json` (`teams.serviceUrl`).
   A fresh installation can post proactively only after its first inbound message.
 - **Consent.** Without the team owner's RSC consent only @mentions reach the bot; the help text
-  says so. Re-adding the app to the team shows the consent again.
+  says so. Re-adding the app to the team shows the consent again. Seen on 2026-10-30: after a
+  catalog update of the app (1.1.0 → 1.2.0, the rename), replies without a mention stopped
+  arriving at all — no POST reached nginx — while Graph still read the channel with the RSC grant.
+  The way to tell: Graph lists a reply the journal never saw (`teams-trace` with `TEAMS_TRACE`).
+- **Card controls are signed.** Every button and dialog form leaves the bot with an HMAC of its
+  action and value (a dialog's also of its metadata and person), keyed from the app secret
+  (`src/chat/teams/cardsig.ts`); an invoke without a matching signature is ignored and logged. The
+  core's handlers trust the value they are handed, as Slack guarantees it; on Teams the client
+  builds the invoke. Rotating the secret retires the controls of cards posted before.
 - **Removed from a team.** The journal says which bound project lost its channel; the binding
   stays in the registry and works again once the app is re-added.
 - **Rate limits.** Edits coalesce per message; 429 Retry-After is honoured. Answers over ~25 KB
