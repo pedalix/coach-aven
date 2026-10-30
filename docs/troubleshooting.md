@@ -33,8 +33,10 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
 - **Two bots on one Slack app.** Socket Mode delivers each event to one connection, so a second bot with the same
   tokens (a laptop beside production) takes about half of the events. Use a separate app for development
   ([`local-dev.md`](local-dev.md#level-3-beside-a-production-bot)).
-- **`This workspace has no projects configured yet.`** The Slack workspace sees no project. With a `workspaces` block in
-  the projects config, only the workspaces it lists see projects — add this workspace's team id (`T…`) with its slugs.
+- **`This workspace has no projects configured yet: …`** The workspace sees no project, and the rest of the sentence
+  says why, with the workspace's id: the registry lists no project; it is not the home workspace and there is no
+  `workspaces` block; the `workspaces` block does not list it; or its entry lists no projects. Add the id with its slugs
+  to `workspaces`. A `workspaces` block that leaves out the home workspace is also a warning at boot.
 - **`This channel isn't bound to a project.`** The channel's name does not start with `SLACK_CHANNEL_PREFIX` (`aven-` by
   default) plus a slug. Rename the channel, or prefix your question with a slug.
 - **The bot is not in the channel.** Invite it (`/invite @…`).

@@ -338,6 +338,29 @@ export function teamProjects(
   return reg.projects.filter((p) => slugs.has(p.slug));
 }
 
+/**
+ * Why a tenant sees no project — the sentence the bot answers with instead of a bare "no projects", so the person
+ * (and the operator they forward it to) knows what to change. Pure; teamProjects decides the subset, this names
+ * the reason when that subset is empty.
+ */
+export function noProjectsReason(reg: ProjectsRegistry, tenantId: string | undefined, homeTenant: string | undefined): string {
+  const lead = 'This workspace has no projects configured yet';
+  if (!reg.projects.length) return `${lead}: the installation's project registry lists none.`;
+  const id = tenantId ?? homeTenant;
+  if (!reg.workspaces) {
+    return `${lead}: it is not this installation's home workspace${id ? ` (${id})` : ''}, and the project registry has no \`workspaces\` block to serve others — an operator adds one with this workspace's id and its projects.`;
+  }
+  const entry = id ? reg.workspaces[id] : undefined;
+  if (!entry) return `${lead}: this workspace${id ? ` (${id})` : ''} is not in the project registry's \`workspaces\` block — an operator adds it there with the projects it should see.`;
+  return `${lead}: its entry in the project registry's \`workspaces\` block${id ? ` (${id})` : ''} lists no projects.`;
+}
+
+/** A boot warning when a `workspaces` block leaves out the home workspace: there, every channel would answer "no projects". */
+export function homeWorkspaceWarning(reg: ProjectsRegistry, homeTenant: string | undefined): string | undefined {
+  if (!reg.workspaces || !homeTenant || reg.workspaces[homeTenant]) return undefined;
+  return `projects: the \`workspaces\` block does not list the home workspace ${homeTenant} — it sees no project; add it with its slugs (\`"${homeTenant}": ["<slug>", …]\`)`;
+}
+
 /** The tenants whose workspaces entry lists the slug (more than one = a shared project). */
 export function sharingTenants(reg: ProjectsRegistry, slug: string): string[] {
   return Object.entries(reg.workspaces ?? {})
