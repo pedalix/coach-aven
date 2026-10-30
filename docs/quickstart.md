@@ -7,7 +7,7 @@ layout as an operated one, with the safe settings. When you want more, see [Goin
 
 **Measured:** a rehearsal on 2026-10-30, on a fresh Linux machine (a `docker:dind` container standing in for a clean
 VM, on a laptop's network) and on Docker Desktop under WSL. About **3 minutes of machine time** from clone to the first
-answer; the rest is your own time for the three steps marked *(you)* — signing in to Claude, making the GitHub token and
+answer, most of it downloading the two images; the rest is your own time for the three steps marked *(you)* — signing in to Claude, making the GitHub token and
 editing two files, about 10 minutes the first time. A timed run on a clean cloud VM replaces these numbers after the next
 release.
 
@@ -27,13 +27,13 @@ Run on: Docker Engine on Linux and Docker Desktop on Windows (WSL), 2026-10-30. 
 | # | Step | Time |
 |---|---|---|
 | 1 | Clone at the latest release | 5 s |
-| 2 | `./init.sh` (pulls the bot image and the sandbox image) | – (35 s before the sandbox image was published) |
+| 2 | `./init.sh` (pulls the bot image and the sandbox image) | 2 min |
 | 3 | A Claude subscription token *(you)* | your sign-in |
 | 4 | A GitHub token for one repository *(you)* | a few minutes |
 | 5 | Fill three values *(you)* | a minute |
-| 6 | `docker compose up -d` | 5 s |
+| 6 | `docker compose up -d` | 3 s |
 | 7 | Open the sign-in link | seconds |
-| 8 | Ask in the project's room: the first answer (sandbox created, repository cloned) | 25 s |
+| 8 | Ask in the project's room: the first answer (sandbox created, repository cloned) | 22 s |
 | – | Ask for a change: the agent's pull request | 25 s |
 
 **1. Clone at the latest release.**
