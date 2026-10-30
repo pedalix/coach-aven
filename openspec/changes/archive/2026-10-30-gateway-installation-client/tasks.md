@@ -25,8 +25,8 @@
 
 ## 5. Canary and the prod move (after merge)
 
-- [ ] 5.1 Optional canary on the Cognito staging installation: replace its `GATEWAY_OAUTH_<SLUG>_*` with `GATEWAY_OAUTH_ID` / `_SECRET` (the same client), `export`, restart. Verify: the first turn on its project mints once with no gateway error in the bot log and the session lists the gateway's tools; the ledger row gets its canary date.
-- [ ] 5.2 After the tag is deployed to prod, the ops step of design Migration Plan 3: `oauth: { tokenUrl, audience }` on every gateway entry, `GATEWAY_OAUTH_ID` / `_SECRET` in `.env` (the `AUTH0_M2M_*` lines kept for rollback), `export`, restart. Verify: the boot logs no deprecation warning; each project's next turn mints without a gateway error and the gateway's audit shows that project's bot identity; then the `AUTH0_M2M_*` lines are removed, and the ledger row gets its prod date.
+- [ ] 5.1 Optional canary on the Cognito staging installation: replace its `GATEWAY_OAUTH_<SLUG>_*` with `GATEWAY_OAUTH_ID` / `_SECRET` (the same client), `export`, restart. Verify: the first turn on its project mints once with no gateway error in the bot log and the session lists the gateway's tools; the ledger row gets its canary date. — Open at archive (2026-10-30): staging still reads its project pair, which keeps working (the project pair wins); not switched while another session was working on staging.
+- [ ] 5.2 After the tag is deployed to prod, the ops step of design Migration Plan 3: `oauth: { tokenUrl, audience }` on every gateway entry, `GATEWAY_OAUTH_ID` / `_SECRET` in `.env` (the `AUTH0_M2M_*` lines kept for rollback), `export`, restart. Verify: the boot logs no deprecation warning; each project's next turn mints without a gateway error and the gateway's audit shows that project's bot identity; then the `AUTH0_M2M_*` lines are removed, and the ledger row gets its prod date. — At archive (2026-10-30): done except the first real turn per project, still to watch (`AUTH0_M2M_*` already removed after the check through the bot's own mint code; rollback = re-add them and drop `oauth`).
 
 ## Workflow follow-up
 
