@@ -21,6 +21,10 @@
  *    calls conversations.replies with `oldest=<last reply ts>` for parents younger than the
  *    thread window. That is the dominant cost (one call per live thread per run), which is
  *    why the window is bounded. https://docs.slack.dev/reference/methods/conversations.replies
+ *    A parent is usually pulled before anyone answers it (reply_count 0), so it joins the watch
+ *    list when a later read sees it again with replies — the edit window re-reads the last 48 h
+ *    every run, and a one-off thread rescan (`thread_scan` below the current THREAD_SCAN) re-reads
+ *    the whole thread window once per conversation (normalise.ts `threadsToWatch`).
  *  - Polling is the source of truth; Socket Mode (if ever added) is only a latency optimisation
  *    with no replay.
  *  - Edits and deletes: history is re-read from `now − edit window` (default 48 h) instead of from
@@ -41,10 +45,11 @@ import path from 'node:path';
 import { loadStore, saveStore, SlackClient, SlackApiError, SlackAuthError, type SlackResponse, type WorkspaceRecord, type TokenStore } from './client.js';
 import {
   compareTs,
-  isThreadParent,
+  historyOldest,
   normaliseFiles,
   normaliseMessage,
   sortByTs,
+  threadsToWatch,
   type RawConversation,
   type RawMessage,
   type RawUser,
@@ -74,7 +79,16 @@ interface ConversationCursor {
   threads: Record<string, ThreadCursor>;
   /** ts → `edited.ts` ('' when never edited) for messages inside the edit window — deletion/edit detection. */
   recent?: Record<string, string>;
+  /** The thread rescan this conversation has had (THREAD_SCAN); below the current one, the next run re-reads the thread window. */
+  thread_scan?: number;
 }
+
+/**
+ * Bump to re-read every conversation's thread window once. 1 (2026-10-30): threads that started after
+ * their parent was pulled were never watched (the re-read path skipped the registration); the rescan
+ * picks up the ones still inside the window, older replies come only with a `--since` re-pull.
+ */
+const THREAD_SCAN = 1;
 
 /** A deleted message leaves this behind in messages.jsonl; readers drop the id. */
 interface SlackTombstone {
@@ -185,13 +199,15 @@ interface Stats {
   replies: number;
   files: number;
   calls: number;
+  /** Threads that joined the watch list this run. */
+  watched: number;
   limited: string[];
   /** Conversations skipped because Slack refused their history (e.g. the Slackbot DM → channel_not_found). */
   skipped: string[];
 }
 
 class WorkspaceSync {
-  private stats: Stats = { conversations: 0, tombstones: 0, messages: 0, replies: 0, files: 0, calls: 0, limited: [], skipped: [] };
+  private stats: Stats = { conversations: 0, tombstones: 0, messages: 0, replies: 0, files: 0, calls: 0, watched: 0, limited: [], skipped: [] };
   private ctx!: WorkspaceContext;
   private usersRefreshedThisRun = false;
   private readonly lookedUp = new Set<string>();
@@ -368,9 +384,14 @@ class WorkspaceSync {
     // deletions are observed (see header). Archived conversations cannot change → no window.
     const windowOldest = this.opts.editWindowHours > 0 && !conv.is_archived ? tsHoursAgo(this.opts.editWindowHours) : '';
     const firstContact = !cur.last_ts;
-    const oldest = firstContact
-      ? this.opts.since ? isoToTs(this.opts.since) : tsDaysAgo(this.ws.backfill_days)
-      : windowOldest && compareTs(windowOldest, cur.last_ts) < 0 ? windowOldest : cur.last_ts;
+    const threadWindowStart = tsDaysAgo(this.opts.threadWindowDays);
+    const rescan = this.opts.threads && !conv.is_archived && (cur.thread_scan ?? 0) < THREAD_SCAN;
+    const oldest = historyOldest({
+      lastTs: cur.last_ts,
+      backfill: firstContact ? (this.opts.since ? isoToTs(this.opts.since) : tsDaysAgo(this.ws.backfill_days)) : '',
+      editWindow: windowOldest,
+      threadRescan: rescan ? threadWindowStart : '',
+    });
     const raw: RawMessage[] = [];
     // include_all_metadata: the bot's marked posts (agent-messaging D14) are recognised and skipped.
     for await (const page of this.client.paginate('conversations.history', { channel: conv.id, oldest, limit: 999, include_all_metadata: true })) {
@@ -404,11 +425,13 @@ class WorkspaceSync {
       }
       fileRecords.push(...normaliseFiles(m, conv, this.ctx));
       if (compareTs(m.ts, windowOldest || '0') >= 0) seen[m.ts] = editedTs;
-      if (isThreadParent(m) && !cur.threads[m.ts]) {
-        // New thread: replies from the parent itself (exclusive), i.e. everything.
-        cur.threads[m.ts] = { last_reply_ts: m.ts, parent_text: (m.text ?? '').slice(0, 200) };
-      }
     }
+    // New threads, from every message read — a re-read one too (threadsToWatch): replies from the parent itself (exclusive), i.e. everything.
+    for (const m of threadsToWatch(msgs, cur.threads, threadWindowStart)) {
+      cur.threads[m.ts] = { last_reply_ts: m.ts, parent_text: (m.text ?? '').slice(0, 200) };
+      this.stats.watched++;
+    }
+    if (rescan) cur.thread_scan = THREAD_SCAN;
     // Deletions: tracked inside the window last run, absent from this fetch → tombstone.
     if (windowOldest) {
       for (const ts of Object.keys(recent)) {
@@ -555,7 +578,7 @@ export async function pullSlack(pctx: PullContext, o: SlackPullOptions = {}): Pr
       summary.counts[`${ws.team_id}/files`] = s.files;
       summary.counts[`${ws.team_id}/tombstones`] = s.tombstones;
       if (!opts.list) {
-        log(`[${ws.team}] done: ${s.conversations} conversations, +${s.messages} messages (${s.tombstones} tombstones), +${s.replies} replies, +${s.files} files, ${s.calls} API calls`);
+        log(`[${ws.team}] done: ${s.conversations} conversations, +${s.messages} messages (${s.tombstones} tombstones), +${s.replies} replies, +${s.files} files${s.watched ? `, ${s.watched} threads newly watched` : ''}, ${s.calls} API calls`);
         if (s.limited.length) log(`[${ws.team}] WARNING free-plan history limit hit in ${s.limited.length} conversation(s) — older messages are not retrievable via the API`);
         if (s.skipped.length) log(`[${ws.team}] skipped ${s.skipped.length} conversation(s): ${s.skipped.join(', ')}`);
       }
