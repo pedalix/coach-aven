@@ -7,6 +7,7 @@ or a person lives in an installation's private ops repo (`infra/<slug>/`).
 
 - [Why CoachAven](why.md): who it is for, what it does differently, what it is not.
 - [How it is built and run](how-we-work.md): invariants, specs first, canary then tag, who does what.
+- [Glossary](glossary.md): installation, project, sandbox, turn, surface, routine, credit and the rest, in a sentence each.
 - [Commands and buttons](commands.md): everything people can do with the agent (generated from the Home tab).
 - [Troubleshooting](troubleshooting.md): by symptom — the bot does not start, does not answer, the first turn fails.
 - [Security: what goes where](security.md): the data flow, what a sandbox can reach, retention, accepted risks.
