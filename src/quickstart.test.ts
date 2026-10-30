@@ -28,7 +28,7 @@ test('the templates: one unprivileged project, a link-mode web chat, local sandb
 
   const env = parseDotenv(readFileSync(join(QS, '.env.example')));
   assert.equal(env.SSHDOCKER_HOST, 'local');
-  assert.equal(env.SNAPSHOT_IMAGE, 'coach-aven-sandbox-plain:local');
+  assert.equal(env.SNAPSHOT_IMAGE, undefined, 'compose sets it: the published sandbox image of the bot\'s version');
   assert.equal(env.SANDBOX_NAME_PREFIX, 'qs-');
   assert.equal(env.SANDBOX_MANAGED_BY, 'coach-aven-quickstart');
   assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, '', 'left to fill');
@@ -47,6 +47,9 @@ test('compose: loopback-only publish, no privilege, no `latest`, every value fro
   assert.doesNotMatch(body, /:latest/);
   for (const v of ['AVEN_VERSION', 'AVEN_UID', 'AVEN_GID', 'DOCKER_GID', 'AVEN_WEB_PORT']) assert.match(body, new RegExp(`\\$\\{${v}:\\?run \\./init\\.sh first\\}`), v);
   assert.match(body, /command: \["web"\]/);
+  assert.match(body, /SNAPSHOT_IMAGE: \$\{SANDBOX_IMAGE:-ghcr\.io\/pedalix\/coach-aven-sandbox-plain:\$\{AVEN_VERSION:\?run \.\/init\.sh first\}\}/, 'one version names both images');
+  assert.doesNotMatch(body, /^\s*build:/m, 'nothing is built on the machine');
+  assert.match(body, /setup-token:[\s\S]*profiles: \[tools\][\s\S]*command: \["claude", "setup-token"\]/);
 });
 
 // init.sh against a stub `docker` and `git` on PATH, in a copy of the directory.
@@ -77,11 +80,13 @@ test('init.sh: copies the templates once, rewrites compose/.env, keeps the perso
   assert.equal(readFileSync(join(dir, '.env'), 'utf8'), readFileSync(join(dir, '.env.example'), 'utf8'));
 
   writeFileSync(join(dir, '.env'), 'GITHUB_TOKEN=mine\n');
-  runInit(dir, undefined, { AVEN_WEB_PORT: '8790' });
+  runInit(dir, undefined, { AVEN_WEB_PORT: '8790', SANDBOX_IMAGE: 'ghcr.io/acme/sandbox:dev' });
   assert.equal(readFileSync(join(dir, '.env'), 'utf8'), 'GITHUB_TOKEN=mine\n', 'a rerun never touches .env');
   const again = parseDotenv(readFileSync(join(dir, 'compose/.env')));
   assert.equal(again.AVEN_VERSION, 'sha-0123abc', 'off a tag: the commit\'s canary image, never latest');
   assert.equal(again.AVEN_WEB_PORT, '8790');
+  assert.equal(again.SANDBOX_IMAGE, 'ghcr.io/acme/sandbox:dev', 'another sandbox image only when asked for');
+  assert.equal(c.SANDBOX_IMAGE, undefined);
 });
 
 test('init.sh: an image that is not published stops it with what to check out, and compose/.env is not written', () => {

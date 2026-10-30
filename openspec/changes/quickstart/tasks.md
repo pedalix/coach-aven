@@ -123,7 +123,7 @@
 - [x] 5.2 The Linux rehearsal (design D8). In a fresh privileged `docker:dind` container standing in for a clean Linux machine, follow `docs/quickstart.md` verbatim from `git clone` to the first answer in the room, on the merged `main` commit (`sha-<commit>`).
   - Time each step.
   - Use a fine-grained token for a scratch repository and a subscription token.
-  - Try `docker compose run --rm sandbox-image claude setup-token` in a TTY. If it does not work, drop that way from the page.
+  - Try `docker compose run --rm sandbox-image claude setup-token` in a TTY (now `docker compose run --rm setup-token`, task 6.2). If it does not work, drop that way from the page.
   - Run "Uninstall" at the end.
   - Fix the page or the files in a follow-up PR wherever a step did not work as written.
 
@@ -152,3 +152,30 @@
   - the home containers were untouched.
 - [ ] 5.4 **Needs the maintainer: a clean cloud VM and a stopwatch, after the next release tag.** The maintainer follows the page. Goal: under 60 minutes from clone to first answer. The times replace the rehearsal's, with the date and the VM type. Verify: the page's numbers and the date; the ledger row retired.
 - [ ] 5.5 Archive with `/opsx:archive` after 5.4.
+
+## 6. The published sandbox image (design D3, revised)
+
+- [x] 6.1 CI publishes the plain sandbox image.
+  - `image.yml`: the image × architecture matrix, and one manifest list per image as `sha-<commit>`.
+  - `release.yml`: both images promoted, with a notice for a commit without a sandbox image.
+  - `ci.yml`: `sandbox-pr` builds `snapshot/plain` on both architectures for a pull request that changes it, and checks the toolchain.
+  - `dependabot.yml`: `/snapshot/plain`. The base is pinned by digest.
+
+  Verify:
+  - the workflows parse;
+  - the first `main` run publishes both images;
+  - `docker manifest inspect` shows two platforms each;
+  - an anonymous pull works.
+- [x] 6.2 The quickstart runs the published image.
+  - `compose.yaml`: `SNAPSHOT_IMAGE` from `AVEN_VERSION`, or from `SANDBOX_IMAGE`; the `setup-token` service under a profile; no `build:`.
+  - `init.sh`: pulls both images and stops early when either is not published; writes `SANDBOX_IMAGE` when it is set.
+  - `.env.example`: no `SNAPSHOT_IMAGE`.
+  - docs: `docs/quickstart.md`, `snapshot/README.md`, the header of `build-and-push.sh`.
+
+  Verify: `src/quickstart.test.ts` (one version names both images, nothing built, the override written), shellcheck.
+- [ ] 6.3 The package `coach-aven-sandbox-plain` is public after its first publish. Verify: `docker pull` without a login.
+- [ ] 6.4 The rehearsal again on the published image (as 5.2). Verify:
+  - `init.sh` pulls both images;
+  - `docker compose run --rm setup-token` reaches the paste prompt;
+  - the first answer comes;
+  - the page's times are updated.

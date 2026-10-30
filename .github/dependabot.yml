@@ -16,3 +16,12 @@ updates:
     ignore:
       - dependency-name: node
         update-types: ["version-update:semver-major"]
+  # The plain sandbox image's base (snapshot/plain/Dockerfile, pinned by digest; published beside the bot since
+  # OpenSpec quickstart D3): the same rule.
+  - package-ecosystem: docker
+    directory: /snapshot/plain
+    schedule:
+      interval: weekly
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

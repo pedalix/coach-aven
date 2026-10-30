@@ -42,9 +42,7 @@ The motivation is in proposal.md, *Why*. What shapes the approach:
 ### D1. The quickstart is an installation directory in the repository
 `quickstart/` holds `.env.example`, `projects.config.example.json`, `compose/compose.yaml` and `init.sh`. The person copies nothing out of it: `AVEN_DIR` is the `quickstart/` directory itself, mounted at `/aven`, and `HOME` is `/aven/home`. That is the one-directory shape `container-deploy` D5 built the image for. `init.sh` copies the two examples to `.env` and `projects.config.json` when they are missing, so no tracked file is edited. `.gitignore` ignores `/quickstart/*` except the tracked templates, so neither the person's settings nor the state ever show up in `git status`, and `git pull` never conflicts.
 
-The one path outside the directory is the sandbox image's build context, `../../snapshot/plain` (D3).
-
-*Why inside the clone rather than a generated directory?* The clone is needed anyway for that build context. A directory the person can read before running it is easier to trust than a script that writes one.
+*Why inside the clone rather than a generated directory?* A directory the person can read before running it is easier to trust than a script that writes one.
 
 *Why the box's layout?* Going on to an operated installation means copying the configuration: `.env`, `projects.config.json` and `projects.d/` go into `infra/<slug>/` beside a `deploy.env`. The state, `home/` and the journals stay out of the ops repository. The docs list those files rather than saying `cp -r`.
 
@@ -68,17 +66,30 @@ A third value beside `oidc` and `none`.
 
 Cookies on `localhost` are not scoped by port, so another local dev server on the same machine receives the session cookie. `docs/quickstart.md` says so in one line; the cookie's name stays as it is.
 
-### D3. The sandbox image is built locally by compose
-`compose/compose.yaml` has a service `sandbox-image`:
-- `build: ../../snapshot/plain`, tagged `coach-aven-sandbox-plain:local`, with the Dockerfile's own CLI default;
-- `command: ["true"]`, `restart: "no"`;
-- the bot `depends_on` it with `condition: service_completed_successfully`.
+### D3. The sandbox image is published beside the bot image
+*Revised 2026-10-30.* The first version of this decision built the plain image locally through a one-shot compose service, because `snapshot/build-and-push.sh` says a sandbox image belongs to the installation. The first rehearsal showed the costs:
+- 70 seconds of build on every new machine;
+- a second point of failure;
+- a sandbox Dockerfile that can drift from the bot image's commit.
 
-`docker compose up` therefore builds the image once (a few minutes on a laptop, cached afterwards) before the bot starts. `.env.example` sets `SNAPSHOT_IMAGE=coach-aven-sandbox-plain:local`. The driver finds the image with `docker image inspect` and never pulls it.
+The maintainer chose to publish it.
 
-The CLI pin is not passed to the build. `CLAUDE_CLI_VERSION` in `.env` already brings a sandbox's CLI to the pin in place when a conversation starts (`src/project.ts`, `src/cliversion.ts`), as on every installation. `src/cliprobe/gate.test.ts` checks the quickstart's pin against `PROBED_CLI_VERSIONS`, as it does the root `.env.example`'s.
+**How it is built and published.**
+- `.github/workflows/image.yml` builds `snapshot/plain` beside the bot for every `main` commit, from the commit's tree (`git archive <commit>:snapshot/plain`).
+- It builds amd64 and arm64 on native runners and publishes `ghcr.io/pedalix/coach-aven-sandbox-plain:sha-<commit>`.
+- `release.yml` promotes it with the bot to `vX.Y.Z` and `latest`. A commit from before this change has no sandbox image: that is a notice, not a failed release.
+- The base is pinned by digest and bumped by Dependabot, as the bot's is.
+- A pull request that changes `snapshot/plain` builds the image on both architectures and checks the toolchain its spec promises.
 
-*Why not a published image?* `snapshot/build-and-push.sh` says the image repository is the installation's, and publishing one from this repository is a supply-chain commitment: rebuilds for CVEs, a retention policy, multi-arch on every tag. A local build costs minutes once. If trial reports say the build is the slow or failing step, publishing becomes its own change.
+**How the quickstart uses it.**
+- `compose.yaml` sets `SNAPSHOT_IMAGE` to the published image of `AVEN_VERSION`, so one version names both images.
+- `init.sh` pulls both images, so the first answer does not wait for a download, and it stops early when either is not published.
+- `SANDBOX_IMAGE=<image> ./init.sh` names another image, a local build of `snapshot/plain` for instance.
+- `setup-token` is a compose service under a profile, run with `docker compose run --rm setup-token`.
+
+The CLI pin stays the Dockerfile's default. `CLAUDE_CLI_VERSION` in `.env` still brings a sandbox's CLI to the pin in place when a conversation starts, and the CLI gate test keeps the Dockerfile's pin on a probed version.
+
+*Why only the plain variant?* It holds nothing of a project: a shell toolchain, Claude Code and git. The laravel variant needs privileges and a stack an installation chooses, so operated installations keep building their own images, as `snapshot/README.md` says.
 
 ### D4. `init.sh` writes the machine, never credentials
 `./init.sh` is the first step after the clone:
@@ -120,7 +131,7 @@ With `SSHDOCKER_HOST=local`, the composition root checks the local Docker at boo
 ### D7. The credit without installing Claude Code on the host
 `docs/quickstart.md` offers two ways to get the subscription token, after `init.sh`:
 - `claude setup-token` on any machine with Claude Code;
-- `docker compose run --rm sandbox-image claude setup-token`, which runs the CLI from the freshly built sandbox image.
+- `docker compose run --rm setup-token`, which runs the CLI from the sandbox image `init.sh` pulled.
 
 The rehearsal (D8) proves that the second works through `compose run`: an interactive TTY, a URL to open, a code to paste back, and the token printed. If it does not work, the page keeps only the first way.
 

@@ -120,16 +120,25 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # The plain sandbox image (quickstart D3) is promoted beside the bot under the same names. A commit built
+      # before it was published has no sandbox image: that is a notice, never a failed release.
       - name: Promote sha-<commit> to the release tag (and latest when it is the highest release)
         run: |
           set -euo pipefail
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/coach-aven"
-          names=(-t "$IMAGE:$GITHUB_REF_NAME")
+          OWNER="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
           highest="$(git tag -l 'v*' | sort -V | tail -1)"
-          if [[ "$highest" == "$GITHUB_REF_NAME" ]]; then names+=(-t "$IMAGE:latest"); fi
-          docker buildx imagetools create "${names[@]}" "$IMAGE:sha-$COMMIT"
-          docker buildx imagetools inspect "$IMAGE:$GITHUB_REF_NAME"
-          echo "published ${names[*]} = $IMAGE:sha-$COMMIT (highest release: $highest)"
+          for NAME in coach-aven coach-aven-sandbox-plain; do
+            IMAGE="$OWNER/$NAME"
+            if [[ "$NAME" != coach-aven ]] && ! docker buildx imagetools inspect "$IMAGE:sha-$COMMIT" >/dev/null 2>&1; then
+              echo "::notice::$IMAGE:sha-$COMMIT does not exist (a commit from before it was published); not promoted"
+              continue
+            fi
+            names=(-t "$IMAGE:$GITHUB_REF_NAME")
+            if [[ "$highest" == "$GITHUB_REF_NAME" ]]; then names+=(-t "$IMAGE:latest"); fi
+            docker buildx imagetools create "${names[@]}" "$IMAGE:sha-$COMMIT"
+            docker buildx imagetools inspect "$IMAGE:$GITHUB_REF_NAME"
+            echo "published ${names[*]} = $IMAGE:sha-$COMMIT (highest release: $highest)"
+          done
 
   release:
     needs: promote
