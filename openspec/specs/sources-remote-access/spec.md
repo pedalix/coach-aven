@@ -45,5 +45,5 @@ A project with a `sources` block SHALL reach its store through the `sources` ser
 - **THEN** the control-channel `sources` answers with the daemon's responses and the bot host holds no replica for the project
 
 #### Scenario: Remote sources declared
-- **WHEN** `mcp: [{ "name": "sources", "url": "https://…", "auth": "gateway-m2m" }]` is set
+- **WHEN** `mcp: [{ "name": "sources", "url": "https://…", "auth": "gateway-m2m", "oauth": { "tokenUrl": "https://…", "audience": "https://…" } }]` is set
 - **THEN** the sandbox reaches the store through that URL and the bot registers no `sources` server for the session
