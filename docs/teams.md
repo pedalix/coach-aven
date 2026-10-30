@@ -87,6 +87,11 @@ surface.
   catalog update of the app (1.1.0 → 1.2.0, the rename), replies without a mention stopped
   arriving at all — no POST reached nginx — while Graph still read the channel with the RSC grant.
   The way to tell: Graph lists a reply the journal never saw (`teams-trace` with `TEAMS_TRACE`).
+  What brought them back: installing the app **in the team** again — Manage team → Apps → remove
+  CoachAven, then Apps → Built for your org → CoachAven → pick a channel of that team → Go (the
+  journal shows `installationUpdate add` with the team). Removing and adding the app from the Apps
+  page alone touches only the person's own (personal) installation and changes nothing for the
+  channels. After publishing a new app version, check that a reply without a mention still arrives.
 - **Card controls are signed.** Every button and dialog form leaves the bot with an HMAC of its
   action and value (a dialog's also of its metadata and person), keyed from the app secret
   (`src/chat/teams/cardsig.ts`); an invoke without a matching signature is ignored and logged. The
