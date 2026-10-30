@@ -12,8 +12,8 @@ test('gitIdentityEnv exports all four identity vars, shell-safe', () => {
   assert.equal(out, `${GIT_NAME}|${GIT_EMAIL}|${GIT_NAME}|${GIT_EMAIL}`);
 });
 
-test('attribution credits Coach Aven, not Claude', () => {
+test('attribution credits CoachAven, not Claude', () => {
   const { commit, pr } = ATTRIBUTION_SETTINGS.attribution;
-  assert.match(commit, /^Co-Authored-By: Coach Aven </);
+  assert.match(commit, /^Co-Authored-By: CoachAven </);
   assert.doesNotMatch(commit + pr, /anthropic|Claude/i);
 });

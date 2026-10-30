@@ -196,7 +196,7 @@ export function webDriver(deps: WebDriverDeps): WebChatDriver {
     async publishHome(user: string, view: HomeView): Promise<void> {
       // The Home page is served on GET /; `/home` and the first visit show it as a dialog on the open page.
       const html = renderHomeView(view, (slug) => `/r/${encodeURIComponent(slug)}`).html;
-      push(user, { kind: 'dialog', id: dialogIds(), title: 'Aven', html });
+      push(user, { kind: 'dialog', id: dialogIds(), title: 'CoachAven', html });
     },
   };
 }

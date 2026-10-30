@@ -539,7 +539,7 @@ since it was written; `docs/teams.md` describes what the driver does today.
   posting"; 404 `ActivityNotFoundInConversation` to "forget the message id". [S1][S3]
 - [ ] **Personal-scope prerequisite** for the private 1:1 reply: a 403
   `ForbiddenOperationException` means the user never installed the app personally — fall back to
-  a channel message telling them to add Aven, or to a **targeted message** in the channel
+  a channel message telling them to add CoachAven, or to a **targeted message** in the channel
   (24 h expiry, no replies/reactions, SDK `withRecipient(account, true)`). Guests/external users
   cannot get a 1:1 at all. [S5][S12][S23]
 - [ ] **Message splitting**: never send `text` + `attachments` in one new activity if the id is

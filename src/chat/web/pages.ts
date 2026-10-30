@@ -63,7 +63,7 @@ export function messageBody(m: Message, nameOf: NameOf, slug = ''): Rendered {
 /** The whole message element — swapped in place by the client on an update. */
 export function messageHtml(m: Message, nameOf: NameOf, slug = ''): Html {
   const body = messageBody(m, nameOf, slug);
-  const who = m.by ? (nameOf(m.by.id) ?? m.by.name ?? m.by.id) : 'Aven';
+  const who = m.by ? (nameOf(m.by.id) ?? m.by.name ?? m.by.id) : 'CoachAven';
   const cls = ['msg', m.by ? 'person' : 'bot', m.visibleTo ? 'private' : '', m.by?.id].filter(Boolean).join(' ');
   return h`<article class="${cls}" id="msg-${m.id}" data-id="${m.id}"${m.thread ? h` data-thread="${m.thread}"` : ''}><header><span class="who">${who}</span> ${time(m.at)}${m.visibleTo ? h` <span class="tag">only you</span>` : ''}${m.marks.length ? h` <span class="marks">${m.marks.map((k) => h`<span class="mark mark-${k}">${MARK_LABEL[k]}</span>`)}</span>` : ''}</header><div class="body">${body.html}</div></article>`;
 }
@@ -71,8 +71,8 @@ export function messageHtml(m: Message, nameOf: NameOf, slug = ''): Html {
 /** A thread in the room list: the root post, who, when, how many replies, the latest line. */
 export function threadCardHtml(slug: string, t: ThreadSummary, last: Message | undefined, nameOf: NameOf): Html {
   const root = t.root;
-  const who = root.by ? (nameOf(root.by.id) ?? root.by.name ?? root.by.id) : 'Aven';
-  const title = root.by ? plainText(root.text ?? '', 140) || messageBody(root, nameOf, slug).text : messageBody(root, nameOf, slug).text || 'Aven';
+  const who = root.by ? (nameOf(root.by.id) ?? root.by.name ?? root.by.id) : 'CoachAven';
+  const title = root.by ? plainText(root.text ?? '', 140) || messageBody(root, nameOf, slug).text : messageBody(root, nameOf, slug).text || 'CoachAven';
   const latest = last && last.id !== root.id ? messageBody(last, nameOf, slug).text : '';
   return h`<a class="thread-card${root.visibleTo ? ' private' : ''}" id="thread-${root.id}" href="/r/${encodeURIComponent(slug)}/t/${encodeURIComponent(root.id)}"><div class="title">${title || '(empty)'}${root.visibleTo ? h` <span class="tag">only you</span>` : ''}</div><div class="meta"><span class="who">${who}</span> · ${time(root.at)} · ${t.replies} ${t.replies === 1 ? 'reply' : 'replies'}${latest ? h` · <span class="latest">${latest.slice(0, 120)}</span>` : ''}</div></a>`;
 }

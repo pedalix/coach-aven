@@ -44,9 +44,9 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 
 | Slack | Teams |
 |---|---|
-| `@Aven <task>` in a project channel → a thread | the same → a reply chain; replies there continue the session (no re-mention needed) |
+| `@CoachAven <task>` in a project channel → a thread | the same → a reply chain; replies there continue the session (no re-mention needed) |
 | DM | 1:1 chat; a project picker when several projects are served |
-| `/aven <verb>` | `@Aven /<verb>` in a channel, `/<verb>` in a 1:1 or in a reply chain |
+| `/aven <verb>` | `@CoachAven /<verb>` in a channel, `/<verb>` in a 1:1 or in a reply chain |
 | ephemeral replies (status, help, denials) | with `TEAMS_TARGETED=1`: a targeted message in the thread that only you see (Teams removes it after 24 h); otherwise, or when Teams refuses it (no personal install, a guest), your 1:1 chat with the bot with a one-line pointer in the thread |
 | 👀 / ✅ / ❌ reactions | the same (bots may react since 2026); a queued message gets only 👀 until its turn starts |
 | live status message, ✖ Cancel, 🧭 Show steps | a status card (edited at most every `TEAMS_STATUS_MIN_MS`), the same buttons; Show steps opens a dialog. When the answer is ready the card becomes a one-line receipt ("✅ Done — answer below") and the answer is posted after it |
@@ -56,7 +56,7 @@ host and ids live in your ops repo (`infra/<slug>/`, see `infra/README.md`).
 | App Home tab | a Home card in your 1:1 chat, on install and on `/home` |
 | restart recovery into the thread | the same |
 
-| `/aven users allow @user` | `@Aven /users allow @user` with a real mention; ids are Teams user ids (`29:…`). Admins: the installation's operators (`TEAMS_OPERATORS`) and whoever they add. Operator-only verbs (`/usage`, `/reload`) are theirs alone |
+| `/aven users allow @user` | `@CoachAven /users allow @user` with a real mention; ids are Teams user ids (`29:…`). Admins: the installation's operators (`TEAMS_OPERATORS`) and whoever they add. Operator-only verbs (`/usage`, `/reload`) are theirs alone |
 | `@user` mentions in bot text | rendered as Teams mentions for people the bot has seen in this run (sender or mentioned); others appear as `@<id>` |
 
 | routines, dreams, housekeeping, auto-review, autofix, YouTrack investigations, ops alerts | the same deliveries into the project's bound channel (`teamsChannel`); a routine opens a new reply chain and replies there continue its session. 🔍 Full ticket waits for the ticket data before the dialog opens (a few seconds at most); 📝 Report to YouTrack and ✏️ Edit & send are dialogs with the editable text |

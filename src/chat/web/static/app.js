@@ -41,7 +41,7 @@
   }
   function notify(text) {
     if (!window.Notification || Notification.permission !== 'granted' || !document.hidden || !text) return;
-    try { var n = new Notification('Aven', { body: text.slice(0, 160), tag: 'aven-' + (conv || 'home') }); n.onclick = function () { window.focus(); n.close(); }; } catch (e) {}
+    try { var n = new Notification('CoachAven', { body: text.slice(0, 160), tag: 'aven-' + (conv || 'home') }); n.onclick = function () { window.focus(); n.close(); }; } catch (e) {}
   }
 
   function toast(text, ms) {

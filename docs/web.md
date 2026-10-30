@@ -87,7 +87,7 @@ another local dev server on the same machine receives the session cookie too.
 
 | Slack | Web |
 |---|---|
-| `@Aven <task>` in a project channel → a thread | any top-level post in the room → a thread; `!` for a note |
+| `@CoachAven <task>` in a project channel → a thread | any top-level post in the room → a thread; `!` for a note |
 | DM with a project picker | a private conversation per project, in the sidebar — no picker |
 | `/aven <verb>` | `/<verb>` in the composer; `/<question>` answers privately where you are |
 | ephemeral replies | messages only you see, marked *only you* |
