@@ -132,7 +132,7 @@ The operator's plan for their own boxes lives in their ops repository. These are
   - the unit is disabled.
 - [ ] 4.3 Rollback once: deploy the previous commit's image, then the current one again. Verify: `deploys.log`, `status`, and the bot answers each time.
 - [ ] 4.4 Two days on the canary: routines at their slots, restart recovery, sandboxes created and stopped by the idle stop, and the listeners behind the host's proxy. Verify: the canary channel, and a journal without new errors.
-- [ ] 4.5 The old code removed with the README's command. Verify: the bot keeps running, and the directory holds only configuration, state, `compose/` and `deploys.log`.
+- [x] 4.5 (2026-10-30, the day of the move — the operator's choice, the backup files with it; `ls -A` shows the configuration, the state, `compose/` and `deploys.log`; the bot kept running; the Node.js the tar deploy needed was removed from the box as well, nothing else used it) The old code removed with the README's command. Verify: the bot keeps running, and the directory holds only configuration, state, `compose/` and `deploys.log`.
 
 ## 5. Prod
 
@@ -142,7 +142,7 @@ The operator's plan for their own boxes lives in their ops repository. These are
   - the next mirror run writes its log line;
   - the sources daemon container answers the bot;
   - the next error-tracker event carries the release `vX.Y.Z`.
-- [ ] 5.2 The old code removed after one release without trouble. Verify: as in 4.5.
+- [x] 5.2 (2026-10-30, with the canary's — the same day as the move, one release; the directory as in 4.5, both containers kept running) The old code removed after one release without trouble. Verify: as in 4.5.
 - [x] 5.3 The ledger's canary and prod dates. Verify: the diff of `docs/rollout.md`.
 
 ## Workflow follow-up
