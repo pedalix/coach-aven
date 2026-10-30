@@ -47,3 +47,14 @@ data/
 # compose.yaml + the version pin, and the deploy log
 /compose/
 /deploys.log
+# the session secret of a WEB_AUTH=link installation (OpenSpec quickstart D2), generated on its first boot
+web-session.secret
+# the quickstart (OpenSpec quickstart D1) is an installation directory: only its templates are tracked —
+# the person's .env and projects.config.json (init.sh copies them), home/ and every state file stay out
+/quickstart/*
+!/quickstart/.env.example
+!/quickstart/projects.config.example.json
+!/quickstart/init.sh
+!/quickstart/compose/
+/quickstart/compose/*
+!/quickstart/compose/compose.yaml

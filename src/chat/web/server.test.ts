@@ -14,7 +14,7 @@ import type { Interactions } from '../core/interactions.js';
 import { History } from './history.js';
 import { allowLocalFiles } from '../../attachments.js';
 import { webDriver } from './driver.js';
-import { createWebServer, LOCAL_USER, type WebServer } from './server.js';
+import { createWebServer, keyMatches, LOCAL_USER, type WebServer } from './server.js';
 import { csrfToken, sealSession, SESSION_COOKIE, type Identity, type Oidc } from './auth.js';
 
 const SECRET = 'k'.repeat(32);
@@ -408,4 +408,44 @@ test('names come from the login records, live: a record whose name is just the i
   const page = await (await get(`/r/alpha/t/${stored.id}`, { cookie })).text();
   assert.match(page, /<span class="who">Nine Lee<\/span>/, 'the message');
   assert.match(page, /<span class="viewer">Nine Lee<\/span>/);
+});
+
+test('WEB_AUTH=link: only the key signs in — no key, a wrong key or a stale one is a 401 that stores nobody', async () => {
+  const link = harness({ auth: 'link', bind: '0.0.0.0', baseUrl: 'http://localhost:0' }, undefined);
+  const key = 'k'.repeat(43);
+  const linked = createWebServer({ cfg: link.cfg, store: link.store, reg, history: link.history, driver: link.driver, core: link.rec.core, messages: link.rec.messages, commands: link.rec.commands, filesRoot: join(tmpdir(), 'aven-web-link'), loginKey: key });
+  const { port } = await linked.listen();
+  const at = (path: string, headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${port}${path}`, { headers, redirect: 'manual' });
+  try {
+    for (const path of ['/login', '/login?key=', `/login?key=${'x'.repeat(43)}`, `/login?key=${key}x`]) {
+      const r = await at(path);
+      assert.equal(r.status, 401, path);
+      assert.equal(cookies(r).filter((c) => c.startsWith(`${SESSION_COOKIE}=`)).length, 0, `${path}: no session cookie`);
+      assert.match(await r.text(), /docker compose logs bot \| grep sign-in/);
+    }
+    assert.equal(link.store.getWebUser('local'), undefined, 'a refused login stores nobody');
+    const home = await at('/');
+    assert.equal(home.status, 303, 'no session: to the login, which answers 401');
+    assert.match(home.headers.get('location')!, /^\/login/);
+    assert.equal((await at('/stream')).status, 401);
+
+    const ok = await at(`/login?key=${key}&next=%2Fr%2Falpha`);
+    assert.equal(ok.status, 303);
+    assert.equal(ok.headers.get('location'), '/r/alpha');
+    const cookie = cookies(ok).find((c) => c.startsWith(`${SESSION_COOKIE}=`))!.split(';')[0];
+    assert.equal((await at('/', { cookie })).status, 200);
+    assert.equal(link.store.getWebUser('local')?.name, LOCAL_USER.name);
+    assert.equal((await at('/auth/callback?code=x&state=y')).status, 303, 'no OIDC round trip under link');
+  } finally {
+    await linked.close();
+  }
+});
+
+test('keyMatches: exact keys only, whatever the type or length', () => {
+  assert.equal(keyMatches('abc', 'abc'), true);
+  assert.equal(keyMatches('abc', 'abd'), false);
+  assert.equal(keyMatches('abc', 'abcd'), false);
+  assert.equal(keyMatches('abc', ''), false);
+  assert.equal(keyMatches('abc', ['abc']), false);
+  assert.equal(keyMatches('abc', undefined), false);
 });

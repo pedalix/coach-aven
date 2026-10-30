@@ -1,6 +1,7 @@
 import { parseSurfaces } from './chat/surfaces.js';
 import type { ChatDriverName } from './chat/drivers.js';
-import { readFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { config as loadDotenv } from 'dotenv';
 import { isValidCliVersion } from './cliversion.js';
@@ -307,12 +308,14 @@ export interface WebConfig {
   port: number; // WEB_PORT — the loopback listener (nginx is the public face); default 8787
   bind: string; // WEB_BIND — the address the listener binds; default 127.0.0.1
   baseUrl: string; // WEB_BASE_URL — the public origin, for the login redirect URI and permalinks (no trailing slash)
-  auth: 'oidc' | 'none'; // WEB_AUTH — `none` only on a loopback listener with a localhost base URL (the e2e harness)
+  // WEB_AUTH — `none` only on a loopback listener with a localhost base URL (the e2e harness); `link` on any listener
+  // with a localhost base URL: a sign-in link with a per-boot key in the boot log (the quickstart, behind a published port)
+  auth: 'oidc' | 'none' | 'link';
   oidc?: { issuer: string; clientId: string; clientSecret: string; groupsClaim: string };
   org: string; // WEB_ORG — the organization behind the issuer, the surface's tenant id (D6)
   operators: string[]; // WEB_OPERATORS — OIDC subjects or e-mails: operator verbs + access admins
   allow: string[]; // WEB_ALLOW — e-mails or `group:<name>`; empty = everyone the issuer lets in (open mode)
-  sessionSecret: string; // WEB_SESSION_SECRET — signs the session cookie (≥ 32 chars); generated per boot under `none`
+  sessionSecret: string; // WEB_SESSION_SECRET — signs the session cookie (≥ 32 chars); generated per boot under `none`, kept in a file under `link` (empty here: loadConfig fills it)
   maxFileMb: number; // WEB_MAX_FILE_MB — per file and per post; default 20
 }
 
@@ -330,7 +333,10 @@ const isLocalUrl = (u: string): boolean => {
  * not configured). Anything set → a complete block or an error naming the missing setting: with OIDC the
  * issuer, client id and secret, the public base URL and the session secret are all required; `WEB_AUTH=none`
  * is accepted only for a loopback listener with a localhost base URL — a public listener never runs without
- * a login (web-chat-driver D3).
+ * a login (web-chat-driver D3). `WEB_AUTH=link` (OpenSpec quickstart D2) takes any listener — inside a container
+ * it must bind 0.0.0.0 for a published port to reach it — but still a localhost base URL, so it stays a local
+ * mode: whoever opens the per-boot link from the boot log is the one local user. Without WEB_SESSION_SECRET its
+ * sessionSecret is left empty for loadConfig to fill from the installation directory (webSessionSecretFile).
  */
 export function webConfigFrom(env: Record<string, string | undefined>): WebConfig | undefined {
   if (!Object.keys(env).some((k) => k.startsWith('WEB_') && env[k] !== undefined && env[k] !== '')) return undefined;
@@ -338,8 +344,15 @@ export function webConfigFrom(env: Record<string, string | undefined>): WebConfi
   const bind = env.WEB_BIND || '127.0.0.1';
   const list = (k: string) => (env[k] || '').split(',').map((s) => s.trim()).filter(Boolean);
   const authRaw = env.WEB_AUTH || 'oidc';
-  if (authRaw !== 'oidc' && authRaw !== 'none') throw new Error(`WEB_AUTH must be 'oidc' or 'none', got: ${authRaw}`);
+  if (authRaw !== 'oidc' && authRaw !== 'none' && authRaw !== 'link') throw new Error(`WEB_AUTH must be 'oidc', 'none' or 'link', got: ${authRaw}`);
   const maxFileMb = numFrom(env, 'WEB_MAX_FILE_MB', 20);
+  if (authRaw === 'link') {
+    const baseUrl = (env.WEB_BASE_URL || `http://localhost:${port}`).replace(/\/+$/, '');
+    if (!isLocalUrl(baseUrl)) throw new Error(`WEB_AUTH=link needs a localhost WEB_BASE_URL (it is a local mode; a public host signs people in through OIDC), got ${baseUrl}`);
+    const secret = env.WEB_SESSION_SECRET || '';
+    if (secret && secret.length < 32) throw new Error('WEB_SESSION_SECRET must be at least 32 characters (e.g. `openssl rand -hex 32`)');
+    return { port, bind, baseUrl, auth: 'link', org: env.WEB_ORG || 'local', operators: list('WEB_OPERATORS'), allow: list('WEB_ALLOW'), sessionSecret: secret, maxFileMb };
+  }
   if (authRaw === 'none') {
     const baseUrl = (env.WEB_BASE_URL || `http://127.0.0.1:${port}`).replace(/\/+$/, '');
     if (!LOCAL_HOSTS.has(bind)) throw new Error(`WEB_AUTH=none needs a loopback listener (WEB_BIND=127.0.0.1), got WEB_BIND=${bind}`);
@@ -415,6 +428,27 @@ export function retiredEnvWarnings(env: Record<string, string | undefined>): str
   return on(env.DISPATCH) ? ['config: DISPATCH is retired — agent messaging replaces it'] : [];
 }
 
+/**
+ * The session secret of a `WEB_AUTH=link` installation that sets none: generated once and kept in
+ * `web-session.secret` in the installation directory (owner-only), so a restart keeps the person signed in
+ * while the sign-in key itself changes per boot (OpenSpec quickstart D2). The installation's own value, not a
+ * credential anyone obtains.
+ */
+export function webSessionSecretFile(dir: string): string {
+  const path = join(dir, 'web-session.secret');
+  if (existsSync(path)) {
+    const s = readFileSync(path, 'utf8').trim();
+    if (s.length >= 32) return s;
+  }
+  const s = randomBytes(32).toString('hex');
+  writeFileSync(path, `${s}\n`, { mode: 0o600 });
+  chmodSync(path, 0o600);
+  return s;
+}
+
+const withSessionSecret = (web: WebConfig | undefined): WebConfig | undefined =>
+  web && web.auth === 'link' && !web.sessionSecret ? { ...web, sessionSecret: webSessionSecretFile(installDir()) } : web;
+
 export function loadConfig(): Config {
   const sandboxDriver = sandboxDriverEnv(process.env.SANDBOX_DRIVER);
   const sshRuntime = process.env.SSHDOCKER_RUNTIME || 'privileged';
@@ -439,7 +473,7 @@ export function loadConfig(): Config {
     github: githubAuth(),
     slack: slackConfig(),
     teams: teamsConfig(),
-    web: webConfigFrom(process.env),
+    web: withSessionSecret(webConfigFrom(process.env)),
     chatSurfaces: parseSurfaces(process.env.CHAT_SURFACES),
     youtrack:
       process.env.YOUTRACK_URL && process.env.YOUTRACK_TOKEN

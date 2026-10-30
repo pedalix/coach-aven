@@ -1,0 +1,51 @@
+# CoachAven quickstart (docs/quickstart.md; OpenSpec quickstart): the bot from the published image, with the web chat
+# and sandboxes on this machine's Docker. The parent directory, quickstart/, is the installation directory — .env,
+# projects.config.json, the state and the bot's HOME live there — the same layout as an operated installation, whose
+# compose file sits in <installation directory>/compose/ too (infra/deploy/compose.yaml).
+#
+# Every ${…} comes from .env beside this file, which ./init.sh writes from this machine: the image version of the
+# clone's commit (its tag, or sha-<commit>; never `latest` — what runs must be nameable), your uid and gid (the
+# state stays yours, no sudo to clean up), the Docker socket's group as a container sees it, and the web port.
+#
+#   sandbox-image  builds the unprivileged sandbox image from snapshot/plain at the first `up` (a few minutes,
+#                  cached afterwards) and exits; the bot finds it by name and never pulls it. Rebuild after
+#                  updating the clone: docker compose build sandbox-image
+#   bot            `orch web`: the web chat on 127.0.0.1 only, behind a sign-in link with a new key at every start
+#                  (docker compose logs bot | grep sign-in). The Docker socket lets it create the sandboxes as its
+#                  siblings — root-equivalent on this machine, which is why the agent never runs in this container,
+#                  only in the unprivileged sandboxes.
+#
+# The sandboxes are not compose services: `docker compose down` leaves them. Uninstall in docs/quickstart.md.
+name: coach-aven-quickstart
+
+services:
+  sandbox-image:
+    build: ../../snapshot/plain
+    image: coach-aven-sandbox-plain:local
+    command: ["true"]
+    restart: "no"
+
+  bot:
+    image: ghcr.io/pedalix/coach-aven:${AVEN_VERSION:?run ./init.sh first}
+    command: ["web"]
+    user: "${AVEN_UID:?run ./init.sh first}:${AVEN_GID:?run ./init.sh first}"
+    group_add:
+      - "${DOCKER_GID:?run ./init.sh first}"
+    working_dir: /aven
+    environment:
+      AVEN_DIR: /aven
+      HOME: /aven/home
+      NODE_ENV: production
+      WEB_PORT: ${AVEN_WEB_PORT:?run ./init.sh first}
+      WEB_BASE_URL: http://localhost:${AVEN_WEB_PORT:?run ./init.sh first}
+    volumes:
+      - ..:/aven
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "127.0.0.1:${AVEN_WEB_PORT:?run ./init.sh first}:${AVEN_WEB_PORT:?run ./init.sh first}"
+    init: true
+    stop_grace_period: 90s
+    restart: unless-stopped
+    depends_on:
+      sandbox-image:
+        condition: service_completed_successfully

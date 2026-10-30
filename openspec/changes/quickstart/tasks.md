@@ -2,7 +2,7 @@
 
 ## 1. The sign-in link (bucket 2)
 
-- [ ] 1.1 `webConfigFrom` in `src/config.ts` accepts `WEB_AUTH=link` (design D2):
+- [x] 1.1 `webConfigFrom` in `src/config.ts` accepts `WEB_AUTH=link` (design D2):
   - any bind, and a localhost base URL (default `http://localhost:<port>`);
   - `org` defaults to `local`;
   - a set `WEB_SESSION_SECRET` must have at least 32 characters;
@@ -14,8 +14,8 @@
   - a short secret is refused;
   - `none` on `0.0.0.0` is still refused;
   - the `oidc` cases are unchanged.
-- [ ] 1.2 The session secret under `link` when `WEB_SESSION_SECRET` is unset: generated on first boot and kept in `AVEN_DIR/web-session.secret` (0600), reused afterwards. A function beside the web config, given the directory. Verify with a test over a temp directory: first call creates the file with mode 0600, a second returns the same value, and a set variable wins without touching the file. `.gitignore` covers the file at the root and under `quickstart/`.
-- [ ] 1.3 `src/chat/web/server.ts`:
+- [x] 1.2 The session secret under `link` when `WEB_SESSION_SECRET` is unset: generated on first boot and kept in `AVEN_DIR/web-session.secret` (0600), reused afterwards. A function beside the web config, given the directory. Verify with a test over a temp directory: first call creates the file with mode 0600, a second returns the same value, and a set variable wins without touching the file. `.gitignore` covers the file at the root and under `quickstart/`.
+- [x] 1.3 `src/chat/web/server.ts`:
   - **Explicit branches.** `/login` and `/auth/callback` test `cfg.auth` by name, never `!deps.oidc` alone.
   - **The key.** Under `link`, `/login?key=` compares the key in constant time and sets the local user's session.
   - **Refusals.** A missing or wrong key gets the 401 page that points to `docker compose logs bot | grep sign-in`.
@@ -34,15 +34,15 @@
   - a session cookie from before a key change still works;
   - the key goes through no `log.*` call (a spy on the logger);
   - every `none` and `oidc` test passes unchanged.
-- [ ] 1.4 Docs and templates for `link`:
+- [x] 1.4 Docs and templates for `link`:
   - `docs/web.md`: the *Local run* paragraph names `link` beside `none`, with what each is for, the localhost rule, where the link is, the secret file, and that localhost cookies are shared across ports;
-  - `.env.example` and `infra/deploy/ops.example/.env.example`: the `WEB_AUTH` comment lists `link`.
+  - `.env.example` and `infra/deploy/ops.example/.env.example`: the `WEB_AUTH` comment lists `link` (the ops template has no `WEB_AUTH` line: an operated installation never uses `link`, so it stays as it is).
 
   Verify: a read, the doclinks test, the public guard.
 
 ## 2. The local Docker check (bucket 2)
 
-- [ ] 2.1 A function in `src/sshdocker.ts`, started without waiting from the shared boot path when `SSHDOCKER_HOST=local` (design D6):
+- [x] 2.1 A function in `src/sshdocker.ts`, started without waiting from the shared boot path when `SSHDOCKER_HOST=local` (design D6):
   - `docker version` with a 10 s timeout, retried for up to 60 s;
   - after the last failure, one error line naming the socket, the process's groups and the fix;
   - no error-tracker event.
@@ -56,7 +56,7 @@
 
 ## 3. The quickstart directory
 
-- [ ] 3.1 `quickstart/.env.example`, the trial minimum, each line with a one-line comment:
+- [x] 3.1 `quickstart/.env.example`, the trial minimum, each line with a one-line comment:
   - `CLAUDE_CODE_OAUTH_TOKEN`, and `ANTHROPIC_API_KEY` commented out with the exposure line;
   - `GITHUB_TOKEN`, with the permissions and "one repository, an expiry";
   - `SANDBOX_DRIVER=ssh-docker`, `SSHDOCKER_HOST=local`;
@@ -69,7 +69,7 @@
   Verify:
   - a test loads both through `loadConfig` and `loadProjects` with the placeholders filled, and `resolveSandboxOptions` gives `privileged: false, dind: false`;
   - `src/cliprobe/gate.test.ts` checks the quickstart's `CLAUDE_CLI_VERSION` against `PROBED_CLI_VERSIONS`.
-- [ ] 3.2 `quickstart/compose/compose.yaml` (design D1, D3, D4):
+- [x] 3.2 `quickstart/compose/compose.yaml` (design D1, D3, D4):
   - **`sandbox-image`:** built from `../../snapshot/plain`, tagged `coach-aven-sandbox-plain:local`, one-shot.
   - **`bot`:**
     - image `ghcr.io/pedalix/coach-aven:${AVEN_VERSION:?…}`, command `web`;
@@ -84,7 +84,7 @@
   Verify:
   - `docker compose config` passes with a filled `compose/.env`, and fails naming `./init.sh` without it;
   - a test reads the file and asserts the loopback-only publish, the absence of `privileged`, and no `latest`.
-- [ ] 3.3 `quickstart/init.sh` (design D4):
+- [x] 3.3 `quickstart/init.sh` (design D4):
   - POSIX sh, safe to rerun;
   - copies the two templates only when their targets are missing;
   - writes the exact tag or `sha-<HEAD>` with a warning;
@@ -102,7 +102,7 @@
 
 ## 4. Docs
 
-- [ ] 4.1 `docs/quickstart.md` (design D7, D8):
+- [x] 4.1 `docs/quickstart.md` (design D7, D8):
   - before you start: Docker, a GitHub account, and a Claude subscription or an Anthropic Console account;
   - the numbered steps in the proposal's order (`init.sh` before the token), with commands and time placeholders;
   - two ways to get the token;
@@ -115,7 +115,7 @@
   README: a "Try it" block linking to the page.
 
   Verify: the doclinks test, the public guard, and a read of the page top to bottom.
-- [ ] 4.2 `docs/rollout.md`: the row "quickstart (`WEB_AUTH=link`)", bucket 2. The canary is the rehearsal and the maintainer's run; there is no prod stage. It retires when the maintainer's times are in `docs/quickstart.md`. Verify: a read.
+- [x] 4.2 `docs/rollout.md`: the row "quickstart (`WEB_AUTH=link`)", bucket 2. The canary is the rehearsal and the maintainer's run; there is no prod stage. It retires when the maintainer's times are in `docs/quickstart.md`. Verify: a read.
 
 ## 5. Ship and measure
 

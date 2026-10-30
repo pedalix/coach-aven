@@ -9,6 +9,7 @@
 // pollers → wire each surface's handlers → recover in-flight and queued turns → start each surface's
 // connection or listener → pollers → retention → graceful shutdown.
 
+import { checkLocalDocker } from '../sshdocker.js';
 import type { Config } from '../config.js';
 import { Store } from '../state.js';
 import { loadProjects, type RegistryRef } from '../projects.js';
@@ -161,6 +162,8 @@ export async function runChat(cfg: Config, defaultName: ChatDriverName, options:
     }
   }
   if (def.hasHome) pollers.startAll();
+  // Sandboxes on this machine's Docker: say at boot, not in the first turn, when the socket is out of reach (never awaited).
+  void checkLocalDocker(cfg.sshDocker?.host);
 
   // Retention: without it, chats/reviewedPrs grow by one record per thread/PR forever and every
   // save() rewrites the whole (ever larger) state.json several times per turn. Run at boot AND
