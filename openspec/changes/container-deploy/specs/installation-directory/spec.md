@@ -43,6 +43,17 @@ The bot SHALL load `.env` from the installation directory. When `PROJECTS_CONFIG
 - **WHEN** a command of the CLI runs with `AVEN_DIR=/srv/acme` and `/tmp` as its working directory
 - **THEN** it reads `/srv/acme/.env` and the state under `/srv/acme`, whatever `/tmp` holds
 
+### Requirement: The configuration has the overlay's layout
+The files the bot reads from the installation directory SHALL have the names and places an ops overlay (`ops-overlay`) keeps them under: `.env`, `projects.config.json` with `projects.d/<slug>.md` and `hub.peers.json` beside it, `mirrors.json`, and the GitHub App key under the name the template's `.env` gives it. The two layouts SHALL stay interchangeable without a rename.
+
+#### Scenario: An overlay as the installation directory
+- **WHEN** a checkout of an ops overlay, with its two secret files in place, is named as `AVEN_DIR`
+- **THEN** the bot reads its configuration from that checkout without any path setting
+
+#### Scenario: What the deploy carries is what the bot reads
+- **WHEN** the names `deploy.sh runtime-files` lists are compared with the names the bot reads from the installation directory
+- **THEN** they are the same names
+
 ### Requirement: A relative path in a setting resolves against the installation directory
 A relative value of `PROJECTS_CONFIG_PATH`, `AVEN_DATA_DIR`, `MIRRORS_CONFIG`, `GITHUB_APP_PRIVATE_KEY_PATH` or `HUB_KEY_PATH` SHALL resolve against the installation directory, not against the working directory. An absolute value SHALL be used as it is. A path given on a command line SHALL keep resolving against the working directory of the shell, as with any command-line tool.
 

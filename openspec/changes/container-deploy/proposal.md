@@ -22,15 +22,17 @@ Two installations deploy this way today and more are coming, each with the same 
   - everything the bot writes lives under it: `state.json`, `queue.jsonl`, `usage/`, `drafts/`, `facts/`, `memory/`, `feedback/`, `events/`, `shadow/`, `data/` and the mirror job's `mirrors/`;
   - the configuration is read from it: `.env`, `projects.config.json` when `PROJECTS_CONFIG_PATH` is unset, and `mirrors.json`. A relative path in a setting resolves against it, so the working directory no longer matters;
   - it comes from the process environment, because it says where `.env` is;
+  - its configuration files keep the names an ops overlay uses, so an overlay is an installation directory and the other way round, without a rename;
   - unset, it is the package root, which is today's layout.
 - **One image per commit, built once.**
-  - CI builds an image of every `main` commit from a clean checkout. The image holds tracked files only, with `npm ci` run at build time, for amd64 and arm64.
+  - CI builds an image of every `main` commit from a clean checkout. The image holds tracked files only, with `npm ci` run at build time, for amd64 and arm64. It holds nothing of any box: it runs under any uid, and one directory mounted as `AVEN_DIR` with `HOME` inside it is a complete installation.
   - The image is published to the GitHub container registry as `sha-<commit>`.
-  - A release tag promotes the image of its commit to `vX.Y.Z`, so prod gets the same digest the canary ran. The promotion happens before the GitHub Release and the ops dispatch.
+  - A release tag promotes the image of its commit to `vX.Y.Z`, so prod gets the same digest the canary ran, and `latest` follows the newest release for anyone outside. The promotion happens before the GitHub Release and the ops dispatch.
 - **An installation runs the image with Docker Compose.**
   - `RUNTIME=compose` in the overlay's `deploy.env` selects it. Absent, the installation keeps today's systemd unit.
   - The bot runs from one image version, and so does the sources daemon where the installation runs one.
   - The installation directory is mounted at its own path, with host networking and the journal for logs. So `.env`, the projects config, the state and every path a setting names stay where they are.
+  - Where the sandboxes run decides the rest: on the box's own Docker the bot gets the Docker socket, on another host the deployer's SSH keys. Both placements are supported, and the first is what a later quickstart builds on.
 - **Deploying means pinning a version.**
   - `deploy.sh <slug> deploy <version>` and the ops workflow ask the box to run a published version. Nothing is uploaded and nothing is built on the box.
   - Only an installation marked `CANARY=1` accepts a `main` commit's image; every other installation runs release tags only.
@@ -51,7 +53,7 @@ Two installations deploy this way today and more are coming, each with the same 
 
 ### New Capabilities
 - `installation-directory`: where an installation's configuration and state live, independent of where the code is and of where the process starts. It covers the default and the rule that no runtime file is located through the code's own path or the working directory.
-- `bot-image`: the published image of the bot: what is in it, how it is built for every `main` commit, how it is tagged, and how a release promotes it. The image of the sandboxes stays `sandbox-image`.
+- `bot-image`: the published image of the bot: what is in it, what of a box must not be in it, how it is built for every `main` commit, how it is tagged (`sha-<commit>`, `vX.Y.Z`, `latest`), and how a release promotes it. The image of the sandboxes stays `sandbox-image`.
 - `container-deploy`:
   - how an installation runs the image;
   - how a version is deployed, verified and rolled back;
@@ -86,7 +88,9 @@ Two installations deploy this way today and more are coming, each with the same 
 - **Tests:**
   - `src/paths.test.ts`;
   - a guard that fails when code under `src/` locates a runtime file through its own location (`import.meta.url`) or through the working directory (`process.cwd()`);
-  - compose cases in `src/chat/teams/deploy.test.ts`: the rendered file, the default runtime and an unknown runtime.
+  - compose cases in `src/chat/teams/deploy.test.ts`: the rendered file, the default runtime and an unknown runtime;
+  - the overlay's layout: the names `deploy.sh runtime-files` carries against the names the bot reads;
+  - the pull-request build runs the image once as a uid the image does not know.
 - **Dependencies:**
   - Nothing changes in `package.json`.
   - A compose installation needs Docker Engine with the Compose plugin on the box.

@@ -20,24 +20,25 @@
   Verify:
   - `src/mirrors.test.ts` covers the list's path from the installation directory;
   - a test starts the CLI from a temporary working directory, with `AVEN_DIR` naming a fixture installation, and the command reads that installation's `.env` and `state.json`. The child's environment must not carry `NODE_TEST_CONTEXT`, or `.env` is never loaded.
-- [ ] 1.4 `src/config.ts` at boot:
+- [ ] 1.4 The overlay's layout (requirement *The configuration has the overlay's layout*): a test beside the deploy tests in `src/chat/teams/deploy.test.ts` compares the names `deploy.sh runtime-files` carries with the names the bot reads from the installation directory: `.env`, the projects config default with `projects.d/` and `hub.peers.json` beside it, `mirrors.json`, and the key path in `infra/deploy/ops.example/.env.example`. Verify: it passes, and renaming one side makes it fail (checked once, then reverted).
+- [ ] 1.5 `src/config.ts` at boot:
   - `AVEN_DIR` is resolved from the process environment before `.env` is loaded, and a `.env` that sets `AVEN_DIR` stops the boot;
   - a relative value stops the boot;
   - one boot line names the installation directory before the chat driver starts.
 
   Verify: cases in `src/config.test.ts` for "set in .env", "relative", and the boot line's text.
-- [ ] 1.5 The guard, a test beside `src/chat/imports.test.ts`:
+- [ ] 1.6 The guard, a test beside `src/chat/imports.test.ts`:
   - It fails on `new URL('../…', import.meta.url)` under `src/` (tests aside) when the target is not a code asset. The code assets are the fixtures, the static files, `sources/worker.mjs`, `snapshot/plain/sources-mcp.mjs` and `.release`.
   - It fails on `process.cwd()` under `src/` (tests aside) outside `src/cliprobe/typecheck.ts`.
 
   Verify: it passes on the tree. A fake anchor of each kind makes it fail, naming the file and the path (checked once, then reverted).
-- [ ] 1.6 Docs:
+- [ ] 1.7 Docs:
   - `docs/runtime-config.md` gets an `AVEN_DIR` row: what lives under it (configuration and state), the default, that relative path settings resolve against it, and that it comes from the process environment only;
   - `docs/local-dev.md` says `.env` and the state live in the checkout unless `AVEN_DIR` is set.
 
   Verify: `git diff --stat docs` lists those two files, and the public guard is clean.
-- [ ] 1.7 `docs/rollout.md` gets a ledger row: the installation directory, bucket 2, nothing moves while it is unset. Verify: the diff of `docs/rollout.md`.
-- [ ] 1.8 Canary: restart home and deploy staging with `AVEN_DIR` unset. Verify:
+- [ ] 1.8 `docs/rollout.md` gets a ledger row: the installation directory, bucket 2, nothing moves while it is unset. Verify: the diff of `docs/rollout.md`.
+- [ ] 1.9 Canary: restart home and deploy staging with `AVEN_DIR` unset. Verify:
   - the boot line names the package root;
   - the routines, the queue journal and `/aven usage` keep working;
   - nothing new appears outside the package root.
@@ -54,14 +55,17 @@
   - the Docker CLI and gitleaks copied from their official images;
   - `npm ci` into `/app`, after copying only `package.json` and the lockfile, and before the rest of the tree is copied;
   - an exec-form entry point that loads tsx by absolute path;
-  - an unprivileged default user, and OCI labels for the source and the revision.
+  - an unprivileged default user, and OCI labels for the source and the revision;
+  - nothing of a box: no user, path, address or key of an installation (design D5).
 
   Verify:
   - `git archive HEAD | docker build -t aven:test -`;
   - a second build, of a commit that changes only a file under `src/`, shares every layer up to and including `npm ci` with the first (`docker history`);
   - `docker run --rm aven:test --help` lists the commands;
   - `docker run --rm -w /tmp aven:test routines --help` runs from another working directory;
-  - `docker run --rm --entrypoint sh aven:test -c 'git --version && ssh -V && docker --version && age --version && gitleaks version'`.
+  - `docker run --rm --entrypoint sh aven:test -c 'git --version && ssh -V && docker --version && age --version && gitleaks version'`;
+  - `docker run --rm --user 4242:4242 -e HOME=/aven -e AVEN_DIR=/aven -v aven-test:/aven aven:test --help` runs as a uid the image does not know;
+  - the one-directory scenario by hand (requirement *The image carries no installation*): a scratch directory with a `.env` for the web chat driver, mounted as `/aven`, `--user 4242:4242`, `-e HOME=/aven -e AVEN_DIR=/aven -e SSHDOCKER_HOST=local` and the Docker socket; the web chat answers on its port, a sandbox starts, and `ls -lnR` of the directory shows uid 4242 only.
 - [ ] 2.3 `scripts/image-contents.sh` compares `/app` in an image, `node_modules` aside, with `git ls-files` of its commit (requirement *The image holds the commit and nothing else*); CI runs it after every build. Verify: it passes on the built image, and fails on an image built by hand from a context with one extra file.
 - [ ] 2.4 `.github/workflows/image.yml`, a reusable workflow (design D6): one job per architecture on native runners (`ubuntu-24.04`, `ubuntu-24.04-arm`), each pushing by digest, then a merge job that publishes `sha-<commit>`. Each architecture's job reads and writes the registry build cache `buildcache-<arch>`. `packages: write` is granted in this workflow only. Verify:
   - a manual run on the branch publishes `sha-<branch head>`;
@@ -70,19 +74,19 @@
   - the test image is deleted afterwards.
 - [ ] 2.5 `ci.yml`:
   - on pushes to `main`, `image.yml` runs after verify;
-  - on a pull request that touches the build file, `.dockerignore`, `package.json` or the lockfile, both architectures build on their native runners without pushing; they read the build cache and never write it.
+  - on a pull request that touches the build file, `.dockerignore`, `package.json` or the lockfile, both architectures build on their native runners without pushing; they read the build cache and never write it; each job runs the image it built once as a uid the image does not know (`--user 4242:4242 … --help`).
 
   Verify: this pull request's own run shows both build jobs, and after the merge `sha-<merge commit>` exists.
-- [ ] 2.6 `release.yml`: a promotion job sits between verify and the GitHub Release. It runs `imagetools create -t vX.Y.Z …:sha-<commit>`, or builds when the image is missing; the release and the dispatch need it. Verify, on the next tag's run:
-  - `vX.Y.Z` and `sha-<commit>` have the same digest;
+- [ ] 2.6 `release.yml`: a promotion job sits between verify and the GitHub Release. It runs `imagetools create -t vX.Y.Z …:sha-<commit>`, with `-t latest` as well when the tag is the highest `v*` tag (`git tag -l 'v*' | sort -V | tail -1`), or builds when the image is missing; the release and the dispatch need it. Verify, on the next tag's run:
+  - `vX.Y.Z`, `sha-<commit>` and `latest` have the same digest;
   - the release was created after the promotion.
 - [ ] 2.7 The registry package is public and linked to the repository. An owner of the organization sets the visibility once, in the package's settings, after the first publish. Verify: `docker logout ghcr.io && docker pull ghcr.io/<owner>/coach-aven:sha-<commit>`.
-- [ ] 2.8 Retention: a scheduled workflow deletes `sha-*` images older than 90 days that no `v*` tag names. It never touches `v*` images or the `buildcache-*` caches. Verify:
+- [ ] 2.8 Retention: a scheduled workflow deletes `sha-*` images older than 90 days that no `v*` tag names. It never touches `v*` images, `latest` or the `buildcache-*` caches. Verify:
   - its dry run lists only such images;
   - its first real run deletes nothing a release names.
 - [ ] 2.9 `.github/dependabot.yml` gets the `docker` ecosystem for the image's base. Verify: the diff of `.github/dependabot.yml`.
 - [ ] 2.10 Docs:
-  - `infra/deploy/README.md` gets an *Images* section: the tags, the promotion, where the image is built and how to pull it;
+  - `infra/deploy/README.md` gets an *Images* section: the three tags and who each is for, the promotion, where the image is built and how to pull it;
   - `docs/runtime-config.md`, *Repo mirrors*, names `orch mirror`;
   - CLAUDE.md's release line names the image.
 
@@ -96,7 +100,7 @@
   - an optional `sources-daemon` service;
   - one image, `<repository>:<version>`;
   - the settings of design D3;
-  - the socket and its group only for local sandboxes (D4);
+  - the socket and its group for sandboxes on the box's own Docker, the deployer's `.ssh` for sandboxes on another host (D4);
   - `SENTRY_RELEASE` (D9), and the log driver from the configuration.
 
   Verify: render tests (new compose cases in `src/chat/teams/deploy.test.ts`) for Slack by default, Teams, with a daemon, local sandboxes, a remote Docker host, and a canary's release name. `docker compose -f <rendered> config` accepts each.

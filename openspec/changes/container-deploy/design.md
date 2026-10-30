@@ -43,11 +43,13 @@ The motivation is in proposal.md, *Why*. What shapes the approach:
 - Nothing from an operator's machine can reach a box. This holds by construction, not through an exclude list.
 - Moving an installation moves no data and can be undone until cleanup.
 - The deployer's key keeps the privilege it has today: one narrow sudo rule.
+- The image is the basis of a later quickstart, an installation someone outside starts with `docker compose up`: whatever is specific to an operated box, the deployer's user, the same-path mounts and the host network, lives in the compose file and never in the image.
 
 **Non-Goals:**
 - **Isolating the bot from its host.** The bot runs as the deployer with host networking, as the service did. Hardening is a later concern.
 - **Zero-downtime deploys.** A deploy restarts the bot, as it does today. Socket Mode reconnects and queued turns replay from `queue.jsonl`.
 - **Changing the systemd path.** It gains only `RUNTIME`, `CANARY` and the meaning of `AVEN_DIR`. A later change retires it.
+- **The quickstart itself.** Web chat and sandboxes on the local Docker from one `docker compose up`, without Slack, is a change of its own after this one. This change only keeps the image free of anything that belongs to a box.
 
 ## Decisions
 
@@ -98,7 +100,7 @@ Chosen: an image per commit, run with Compose.
 | Setting | Why |
 |---|---|
 | Installation directory mounted at its own path, read-write, as `AVEN_DIR` and `working_dir` | `.env`, the projects config, the mirror list, relative key paths, state and data resolve through `AVEN_DIR` (D1) to the files they use today, so no data moves; as `working_dir` it also anchors a relative argument given to `run` |
-| `~/.ssh` at its own path, read-only | the SSH transport with its keys and known hosts |
+| `~/.ssh` at its own path, read-only, when the sandboxes are on another host (D4) | the SSH transport with its keys and known hosts; with sandboxes on the box's own Docker nothing in the container uses them |
 | `~/.config/coach-aven` at its own path, read-write | the pullers refresh source tokens there; the hub key |
 | `/etc/passwd` and `/etc/group`, read-only; `HOME` set to the deployer's home | OpenSSH refuses to run as a uid without a passwd entry, and git reads the home directory from it |
 | `user: <uid>:<gid>` of the deployer, read on the box at `install` | files keep today's owner |
@@ -106,16 +108,20 @@ Chosen: an image per commit, run with Compose.
 | `init: true`, `stop_grace_period: 90s` | SIGTERM forwarding and reaping of the `ssh` and `sh` children the driver starts; 90 s is systemd's default stop timeout, which the units rely on, and lets the daemon finish a pass in flight |
 | `restart: unless-stopped` | `Restart=always`. Docker has no equivalent of `StartLimitBurst`: a crash loop restarts with growing delays instead of failing the unit. Accepted. |
 
+Everything the bot touches outside the installation directory is under `HOME`: the keys, `.config/coach-aven`, and the fallbacks the code keeps for a developer's machine (`~/.netrc`, `~/.claude/.credentials.json`). An installation that sets `HOME` inside the installation directory therefore needs one mounted directory, and a quickstart will do that. This change's compose file keeps the deployer's home, so the box's files stay where they are.
+
 Alternatives:
 - **A fixed image user with named volumes.** It needs a data migration and a `chown`, and every absolute path in the configuration would have to be rewritten.
 - **Bridge networking with published ports.** Every loopback address in the configuration and in the proxy would change.
 
 Both buy isolation, which is not this change's goal.
 
-### D4. The Docker socket only when `SSHDOCKER_HOST=local`
-At each deploy the deploy command reads the one key `SSHDOCKER_HOST` from the installation's `.env`, without printing it.
-- With `local`, the rendered file mounts the socket and adds the socket's group (`group_add`). The sandboxes are siblings on the host's Docker, so the paths in a project's `sandbox.mounts` stay host paths that the host's daemon resolves, as today.
-- With any other value, the bot container has no socket.
+### D4. Where the sandboxes run decides the socket and the keys
+The bot reaches its sandboxes in one of two ways, and the installation's `.env` names which. Both are supported placements, not one rule and one exception:
+- **On the box's own Docker** (`SSHDOCKER_HOST=local`): the rendered file mounts the Docker socket and adds the socket's group (`group_add`). The sandboxes are the bot's siblings on the host's Docker, so the paths in a project's `sandbox.mounts` stay host paths that the host's daemon resolves, as today. No SSH key is mounted: the sandbox transport is the bot's only SSH client. One installation runs this way today, and a quickstart will stand on it, with the socket as the only thing it needs from the host.
+- **On another host** (`SSHDOCKER_HOST=<ssh target>`): the deployer's `.ssh` is mounted read-only for the transport, and the bot container gets no Docker socket.
+
+At each deploy the deploy command reads the one key `SSHDOCKER_HOST` from the installation's `.env`, without printing it, and renders accordingly. The socket is root on the box for whoever holds it; the deployer holds it through the `docker` group today, so the bot gains nothing it does not have.
 
 ### D5. The image
 - **Base:** the official Node 24 image on Debian slim, pinned by digest, with Dependabot bumping it. Debian rather than Alpine: sharp and esbuild publish glibc binaries per platform, and `npm ci` picks the right ones at build time.
@@ -129,7 +135,8 @@ At each deploy the deploy command reads the one key `SSHDOCKER_HOST` from the in
   - Everything sits in `/app`.
   - `package.json` and the lockfile are copied, and `npm ci` runs, before the rest of the tree is copied. The dependency layer then depends only on the base image and those two files.
 - **Entry point:** `node --import <absolute path of tsx's loader> /app/src/cli.ts`, in exec form. `--import tsx` would resolve against the working directory, which is the installation directory here, and fail.
-- **Default user:** unprivileged. Compose replaces it with the deployer's uid (D3).
+- **Default user:** unprivileged, so a bare `docker run` is not root. Compose replaces it with the deployer's uid (D3).
+- **No installation inside.** The image fixes no user, path, address or key of a box: those are the compose file's (D3, D4). It runs as whatever uid the runtime gives it, with or without a user record in its `/etc/passwd`; only the SSH transport needs one, and D3 mounts the box's `passwd` for it. Everything it keeps lives under the installation directory and `HOME`. So one mounted directory, `AVEN_DIR` with `HOME` inside it, plus the Docker socket is a complete installation with local sandboxes, which is the shape a quickstart will mount.
 - **Labels:** `org.opencontainers.image.source`, `.revision` and `.created`.
 
 ### D6. Built once per commit on native runners, promoted on the tag
@@ -138,7 +145,8 @@ At each deploy the deploy command reads the one key `SSHDOCKER_HOST` from the in
 - **Callers:**
   - `ci.yml` calls `image.yml` on pushes to `main` after the verify job;
   - on a pull request that touches the image's inputs, `ci.yml` builds both architectures on their native runners without pushing; such a build reads the build cache and never writes it;
-  - `release.yml` runs verify, then the promotion, then the GitHub Release, then the dispatch. The promotion is `docker buildx imagetools create -t vX.Y.Z <image>:sha-<commit>`, or a build when the image is missing.
+  - `release.yml` runs verify, then the promotion, then the GitHub Release, then the dispatch. The promotion is `docker buildx imagetools create -t vX.Y.Z <image>:sha-<commit>`, with `-t latest` as well when the tag is the highest version among the repository's `v*` tags (`sort -V`), or a build when the image is missing.
+- **Tags.** Three names for three readers: `sha-<commit>` for the canary and the promotion, `vX.Y.Z` for a release installation, and `latest` for someone outside who wants the current release. A patch of an older line gets its `vX.Y.Z` and leaves `latest` alone.
 - **Registry:** `ghcr.io/<owner>/coach-aven`, public. The workflow writes it with its own `GITHUB_TOKEN` (`packages: write`), and nothing else gets a credential. Boxes pull anonymously, so no box holds a registry token. An owner of the organization makes the package public once, in its settings. A fork publishes to its own namespace the same way.
 - **Alternatives:**
   - Building on the tag: prod would run an image the canary never ran.

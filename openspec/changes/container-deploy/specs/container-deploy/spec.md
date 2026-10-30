@@ -29,7 +29,7 @@ A compose installation SHALL run the bot, and the sources daemon where it has on
 - **THEN** Docker starts it again with the same version
 
 ### Requirement: The containers see the box the way the service did
-The containers SHALL run as the deployer's user with host networking. They SHALL mount the installation directory at its own path as their working directory and as `AVEN_DIR`, and the deployer's `.ssh` (read-only) and `.config/coach-aven` at their own paths. Every path and address in `.env` and the projects config then means what it meant under systemd.
+The containers SHALL run as the deployer's user with host networking. They SHALL mount the installation directory at its own path as their working directory and as `AVEN_DIR`, the deployer's `.config/coach-aven` at its own path and, when the sandboxes are on another host, the deployer's `.ssh` read-only. Every path and address in `.env` and the projects config then means what it meant under systemd.
 
 #### Scenario: Remote sandbox host
 - **WHEN** `SSHDOCKER_HOST` names a host the deployer reaches with its key
@@ -47,16 +47,16 @@ The containers SHALL run as the deployer's user with host networking. They SHALL
 - **WHEN** `HUB_KEY_PATH` names a file under the deployer's `.config/coach-aven`
 - **THEN** the bot in the container reads it
 
-### Requirement: Docker access only for local sandboxes
-The bot container SHALL get the host's Docker socket only when the installation's `SSHDOCKER_HOST` is `local`. Otherwise it SHALL have no access to the host's Docker.
+### Requirement: Sandboxes on the box's own Docker or on another host
+An installation whose sandboxes run on the box's own Docker (`SSHDOCKER_HOST=local`) SHALL give the bot container the host's Docker socket and no SSH key; the sandboxes it starts are then its siblings on that engine, as they are under systemd. An installation whose sandboxes run on another host SHALL give the bot container the deployer's keys and no Docker socket. Both are supported placements of an installation.
 
 #### Scenario: Local sandboxes
 - **WHEN** the installation's `.env` sets `SSHDOCKER_HOST=local`
-- **THEN** the bot container can create and run sandboxes on the host's Docker
+- **THEN** the bot container creates and runs sandboxes on the host's Docker, and holds no SSH key
 
 #### Scenario: Remote sandboxes
 - **WHEN** `SSHDOCKER_HOST` names another host
-- **THEN** the bot container has no Docker socket
+- **THEN** the bot container has no Docker socket, and reaches that host with the deployer's key
 
 ### Requirement: Logs go to the journal
 Each container's output SHALL go to the host journal under the installation's service name, so `deploy.sh <slug> logs` shows it as it did under systemd.
