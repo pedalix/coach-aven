@@ -26,7 +26,8 @@
 - [x] 4.3 `needs: 'api-key'` on a scenario; `src/cliprobe/cli.ts` drops it from a token run before any transport is built, and the merge keeps its earlier row and recording. Verify: a test of selection and of the merge.
 - [x] 4.4 The `api-key-turn` candidate scenario: one turn with one Bash call that reports whether `ANTHROPIC_API_KEY` is set (never its value); it records `apiKeySource`, the cost and every `rate_limit_event`. Verify: a replay test over a hand-built recording.
 - [x] 4.5 `scripts/host-tools-smoke.mjs`: the credit prefix from the credit kind. Verify: a read; it runs on the home machine.
-- [ ] 4.6 **Needs the maintainer: an API key.** A live run of `api-key-turn` on the pinned CLI (2.1.292) through the sandbox transport, recording committed to `src/fixtures/cli/2.1.292/`. Verify: the report shows `holds` and `apiKeySource: "ANTHROPIC_API_KEY"`; what `rate_limit_event` carried and whether the tool subprocess saw the key go into the docs (task 5.2); adjust D5 if the recording surprises.
+- [x] 4.6 **Needs the maintainer: an API key.** A live run of `api-key-turn` on the pinned CLI (2.1.292) through the sandbox transport, recording committed to `src/fixtures/cli/2.1.292/`. Verify: the report shows `holds` and `apiKeySource: "ANTHROPIC_API_KEY"`; what `rate_limit_event` carried and whether the tool subprocess saw the key go into the docs (task 5.2); adjust D5 if the recording surprises.
+  - Done 2026-10-30 (promotional API credits): `holds`, `apiKeySource: "ANTHROPIC_API_KEY"`, no `rate_limit_event` under a key (D5 holds as designed), the Bash tool sees the key; $0.16.
 
 ## 5. Docs
 
