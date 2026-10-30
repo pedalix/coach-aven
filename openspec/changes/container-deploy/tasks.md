@@ -45,7 +45,7 @@
 
 ## 2. The image (PR 2)
 
-- [ ] 2.1 `orch mirror` (design D10): the body of `scripts/mirror.ts` moves into a function that `orch mirror` (`src/cli.ts`) and `scripts/mirror.ts` both call, with the list and the `mirrors/` cache in the installation directory (task 1.3). Verify:
+- [ ] 2.1 `orch mirror` (design D7): the body of `scripts/mirror.ts` moves into a function that `orch mirror` (`src/cli.ts`) and `scripts/mirror.ts` both call, with the list and the `mirrors/` cache in the installation directory (task 1.3). Verify:
   - `npm test`, `src/mirrors.test.ts` included;
   - `npm run orch -- mirror --help`;
   - a test that both entry points import the same function.
@@ -60,160 +60,94 @@
 
   Verify:
   - `git archive HEAD | docker build -t aven:test -`;
+  - the files under `/app`, `node_modules` aside, are the commit's tracked files and nothing else (`git ls-files` against `find`), checked once by hand;
   - a second build, of a commit that changes only a file under `src/`, shares every layer up to and including `npm ci` with the first (`docker history`);
   - `docker run --rm aven:test --help` lists the commands;
   - `docker run --rm -w /tmp aven:test routines --help` runs from another working directory;
   - `docker run --rm --entrypoint sh aven:test -c 'git --version && ssh -V && docker --version && age --version && gitleaks version'`;
   - `docker run --rm --user 4242:4242 -e HOME=/aven -e AVEN_DIR=/aven -v aven-test:/aven aven:test --help` runs as a uid the image does not know;
   - the one-directory scenario by hand (requirement *The image carries no installation*): a scratch directory with a `.env` for the web chat driver, mounted as `/aven`, `--user 4242:4242`, `-e HOME=/aven -e AVEN_DIR=/aven -e SSHDOCKER_HOST=local` and the Docker socket; the web chat answers on its port, a sandbox starts, and `ls -lnR` of the directory shows uid 4242 only.
-- [ ] 2.3 `scripts/image-contents.sh` compares `/app` in an image, `node_modules` aside, with `git ls-files` of its commit (requirement *The image holds the commit and nothing else*); CI runs it after every build. Verify: it passes on the built image, and fails on an image built by hand from a context with one extra file.
-- [ ] 2.4 `.github/workflows/image.yml`, a reusable workflow (design D6): one job per architecture on native runners (`ubuntu-24.04`, `ubuntu-24.04-arm`), each pushing by digest, then a merge job that publishes `sha-<commit>`. Each architecture's job reads and writes the registry build cache `buildcache-<arch>`. `packages: write` is granted in this workflow only. Verify:
+- [ ] 2.3 `.github/workflows/image.yml`, a reusable workflow (design D6): one job per architecture on native runners (`ubuntu-24.04`, `ubuntu-24.04-arm`), each pushing by digest, then a merge job that publishes `sha-<commit>`. Each architecture's job reads and writes the registry build cache `buildcache-<arch>`. `packages: write` is granted in this workflow only. Verify:
   - a manual run on the branch publishes `sha-<branch head>`;
   - `docker buildx imagetools inspect` lists `linux/amd64` and `linux/arm64`;
   - a second manual run, after a commit that changes only code, takes `npm ci` from the cache, and both images carry the same dependency layer digest;
   - the test image is deleted afterwards.
-- [ ] 2.5 `ci.yml`:
+- [ ] 2.4 `ci.yml`:
   - on pushes to `main`, `image.yml` runs after verify;
   - on a pull request that touches the build file, `.dockerignore`, `package.json` or the lockfile, both architectures build on their native runners without pushing; they read the build cache and never write it; each job runs the image it built once as a uid the image does not know (`--user 4242:4242 … --help`).
 
   Verify: this pull request's own run shows both build jobs, and after the merge `sha-<merge commit>` exists.
-- [ ] 2.6 `release.yml`: a promotion job sits between verify and the GitHub Release. It runs `imagetools create -t vX.Y.Z …:sha-<commit>`, with `-t latest` as well when the tag is the highest `v*` tag (`git tag -l 'v*' | sort -V | tail -1`), or builds when the image is missing; the release and the dispatch need it. Verify, on the next tag's run:
+- [ ] 2.5 `release.yml`: a promotion job sits between verify and the GitHub Release. It runs `imagetools create -t vX.Y.Z …:sha-<commit>`, with `-t latest` as well when the tag is the highest `v*` tag (`git tag -l 'v*' | sort -V | tail -1`), or builds when the image is missing; the release and the dispatch need it. Verify, on the next tag's run:
   - `vX.Y.Z`, `sha-<commit>` and `latest` have the same digest;
   - the release was created after the promotion.
-- [ ] 2.7 The registry package is public and linked to the repository. An owner of the organization sets the visibility once, in the package's settings, after the first publish. Verify: `docker logout ghcr.io && docker pull ghcr.io/<owner>/coach-aven:sha-<commit>`.
-- [ ] 2.8 Retention: a scheduled workflow deletes `sha-*` images older than 90 days that no `v*` tag names. It never touches `v*` images, `latest` or the `buildcache-*` caches. Verify:
-  - its dry run lists only such images;
-  - its first real run deletes nothing a release names.
-- [ ] 2.9 `.github/dependabot.yml` gets the `docker` ecosystem for the image's base. Verify: the diff of `.github/dependabot.yml`.
-- [ ] 2.10 Docs:
+- [ ] 2.6 The registry package is public and linked to the repository. An owner of the organization sets the visibility once, in the package's settings, after the first publish. Verify: `docker logout ghcr.io && docker pull ghcr.io/<owner>/coach-aven:sha-<commit>`.
+- [ ] 2.7 `.github/dependabot.yml` gets the `docker` ecosystem for the image's base. Verify: the diff of `.github/dependabot.yml`.
+- [ ] 2.8 Docs:
   - `infra/deploy/README.md` gets an *Images* section: the three tags and who each is for, the promotion, where the image is built and how to pull it;
   - `docs/runtime-config.md`, *Repo mirrors*, names `orch mirror`;
   - CLAUDE.md's release line names the image.
 
   Verify: the public guard is clean, and the README's commands run as written.
-- [ ] 2.11 The ledger row: the images, CI only, no box changes. Verify: the diff of `docs/rollout.md`.
+- [ ] 2.9 The ledger row: the images, CI only, no box changes. Verify: the diff of `docs/rollout.md`.
 
 ## 3. The compose runtime (PR 3)
 
-- [ ] 3.1 The template `infra/deploy/compose.yaml`, with a format number:
-  - a `bot` service whose command is the chat driver;
-  - an optional `sources-daemon` service;
-  - one image, `<repository>:<version>`;
-  - the compose project named after the service;
-  - `.netrc` and `.claude/.credentials.json` from the deployer's home, read-only, each only when it exists;
-  - the settings of design D3;
-  - the socket and its group for sandboxes on the box's own Docker, the deployer's `.ssh` for sandboxes on another host (D4);
-  - `SENTRY_RELEASE` (D9), and the log driver from the configuration.
+- [ ] 3.1 The template `infra/deploy/compose.yaml` (design D3, D4, D7):
+  - `name` set to the service;
+  - a `bot` service whose command is the chat driver, and a `sources-daemon` service when a listen address is given;
+  - `image: <repository>:${AVEN_VERSION}` and `SENTRY_RELEASE: ${AVEN_RELEASE}`, both from the compose directory's `.env`;
+  - the settings of D3, the optional home files only when present, and journald logging;
+  - the socket and its group for sandboxes on the box's own Docker, the deployer's `.ssh` for sandboxes on another host (D4).
 
-  Verify: render tests (new compose cases in `src/chat/teams/deploy.test.ts`) for Slack by default, Teams, with a daemon, local sandboxes, a remote Docker host, a canary's release name, and a home with and without the optional files. `docker compose -f <rendered> config` accepts each.
-- [ ] 3.2 `infra/deploy/aven-deploy.sh`, the box's deploy command, part one (design D7, D8):
-  - argument forms;
-  - pulling before anything stops;
-  - rendering from the template inside the pulled image, with the diff written to the log;
-  - `up -d`, then the wait for the driver's line;
-  - rollback to the last `ok` version;
-  - the deploy record in the installation directory;
-  - pruning down to two previous versions;
-  - refusing a newer template format.
-
-  Verify: `shellcheck`, and a test harness with a fake `docker` on `PATH`, run by `npm test`, covering:
-  - a malformed version is refused;
-  - an unknown version touches nothing;
-  - a healthy deploy is recorded;
-  - when the line does not come, the previous version runs again and the exit is 1;
-  - `sha-` is accepted only with the canary flag.
-- [ ] 3.3 The box's deploy command, part two: `start`, `stop`, `restart`, `status`, which shows the version, the digest and the previous version, `logs [-f]`, and `run <args…>`, which passes argv to the CLI and never goes through a shell. Verify: harness cases for `status` after two deploys, and for `run` with an argument holding `;` and spaces, which reaches the CLI verbatim.
-- [ ] 3.4 The box's deploy command, part three (design D11):
-  - the first compose deploy stops the systemd units, starts the containers and, on success, disables the units; on failure it starts the units again;
-  - `revert-to-systemd`, which refuses after cleanup.
-
-  Verify: harness cases with a fake `systemctl` for a successful first deploy, a failed one, and a revert.
-- [ ] 3.5 The box's deploy command, part four, `cleanup` (design D11):
-  - the lists: what is removed (the image's `/app` top level, `node_modules`, `.release`, the old unit files), what is kept (configuration and state) and what is unknown (kept);
-  - it refuses while a unit is enabled or a cron line runs `node`, `tsx` or `npm` from the directory;
-  - it removes only after `--yes`.
-
-  Verify: harness cases for the three lists, an enabled unit, a cron line, and a run without `--yes`.
-- [ ] 3.6 `deploy.sh` (design D12):
-  - `RUNTIME` and `CANARY` from `deploy.env`, and an unknown runtime refused, naming both values;
-  - the compose `install`: the Docker Engine and Compose check, then the command, `deploy.conf` and the sudo rule over the root SSH session, and the deployer's `.config/coach-aven` (mode 0700) when it is missing, starting nothing;
-  - the compose commands over `ssh deployer@host sudo …`;
-  - `deploy` requires a version;
-  - `run` and `cleanup`;
+  Verify: render tests in `src/chat/teams/deploy.test.ts` for Slack by default, Teams, with a daemon, local sandboxes, a remote Docker host, and a home with and without the optional files; `docker compose config` accepts each rendered file.
+- [ ] 3.2 `deploy.sh` (design D7, D8):
+  - `RUNTIME` and `CANARY` from `deploy.env`; an unknown runtime refused, naming both values;
+  - the compose `install`: the Docker Engine and Compose check, the deployer's `.config/coach-aven` (mode 0700) when it is missing, and the compose file rendered into `<dir>/compose/`, starting nothing;
+  - `deploy <version>`: the version's form, the canary rule, the refusal while the unit is active, the pull, the two-line pin, `up -d`, the 90 s wait, the line in `deploys.log`, a non-zero exit when the line does not come;
+  - `status`, `logs [-f]`, `restart` and `down` as compose commands;
   - a `render-compose` subcommand without SSH, for tests.
 
-  Verify, in `src/chat/teams/deploy.test.ts`:
-  - with no `RUNTIME`, today's unit renders byte for byte, all existing cases unchanged;
-  - `RUNTIME=docker` is refused;
-  - `render-compose` works for an example overlay.
-- [ ] 3.7 The ops workflow template (`infra/deploy/ops.example/workflows/deploy.yml`):
-  - it reads `RUNTIME` and `CANARY` from its own `deploy.env`;
-  - for compose there is no product checkout, and the deploy command runs over SSH with the version;
-  - `sha-<commit>` is accepted only with `CANARY=1`, and refused before any SSH connection.
-
-  Verify: `actionlint`, and a run against the canary installation (task 4.2).
-- [ ] 3.8 `infra/deploy/ops.example/deploy.env.example` documents `RUNTIME` and `CANARY`, and `ops.example/README.md` describes the compose path. Verify: the diff, and a clean public guard.
-- [ ] 3.9 Docs.
-  - `infra/deploy/README.md` presents the compose runtime as the recommended one:
-    - the prerequisites;
-    - install → export → deploy with a version;
-    - rollback;
-    - `status`, `logs` and `run`;
-    - the move and cleanup;
-    - the privilege model.
-
-    "Why systemd and not Docker" is replaced, and the systemd path stays as the legacy section.
-  - The self-host section of `README.md`.
-  - `docs/runtime-config.md`: the mirror's crontab line through `run mirror`.
+  Verify, in `src/chat/teams/deploy.test.ts`: with no `RUNTIME`, today's unit renders byte for byte and every existing case is unchanged; `RUNTIME=docker` is refused; `render-compose` works for an example overlay. And a harness with a fake `docker` and `systemctl` on `PATH`, run by `npm test`: a malformed version is refused; `sha-` only with the canary flag; `latest` is refused; an active unit refuses the deploy; a failed pull writes nothing; the line comes → `ok` logged, exit 0; the line does not come → `failed` logged, exit 1, the log's tail printed.
+- [ ] 3.3 The ops workflow template (`infra/deploy/ops.example/workflows/deploy.yml`): the version check moves after the overlay's checkout and accepts `sha-<commit>` only with `CANARY=1` in that `deploy.env`; the deploy step runs `deploy.sh "$OPS_SLUG" deploy "$TAG"`; the header comment describes both runtimes. Verify: `actionlint`, and a run against the canary (task 4.2).
+- [ ] 3.4 The ops template: `deploy.env.example` documents `RUNTIME`, `CANARY` and the daemon's listen address; `.gitignore` ignores `compose/` and `deploys.log`; `ops.example/README.md` describes the compose path. Verify: the diff, and a clean public guard.
+- [ ] 3.5 Docs (design D9):
+  - `infra/deploy/README.md`: the compose runtime as the recommended one: prerequisites, including the `docker` group and what it amounts to; install → export → deploy with a version; rollback; `status`, `logs`, `restart`, `down`; the move checklist; the cleanup list as one command; the crontab line; "Why systemd and not Docker" replaced, the systemd path as the legacy section;
+  - the self-host section of `README.md`;
+  - `docs/runtime-config.md`: the mirror's crontab line.
 
   Verify: a clean public guard, and the commands run as written against the canary (group 4).
-- [ ] 3.10 The ledger row: the compose runtime, bucket 3, gated per installation by `RUNTIME=compose`, with the stages canary → prod → template default → systemd path retired. Verify: the diff of `docs/rollout.md`.
-- [ ] 3.11 The Home tab does not change: no Slack surface changes. Verify: `git diff --stat src/fixtures/chat` is empty.
-- [ ] 3.12 The prompt goldens do not change. Verify: `git diff --stat src/fixtures/prompt` is empty.
+- [ ] 3.6 The ledger row: the compose runtime, bucket 3, gated per installation by `RUNTIME=compose`, with the stages canary → prod → template default → systemd path retired. Verify: the diff of `docs/rollout.md`.
+- [ ] 3.7 The Home tab and the prompt goldens do not change. Verify: `git diff --stat src/fixtures/chat src/fixtures/prompt` is empty.
 
 ## 4. The canary installation
 
 The operator's plan for their own boxes lives in their ops repository. These are the generic checks.
 
-- [ ] 4.1 `CANARY=1` and `RUNTIME=compose` in its overlay, then `install`. Verify:
-  - the output of `install`;
-  - `sudo -l` for the deployer shows the deploy command beside the rules it already had;
-  - no container was started.
-- [ ] 4.2 The first compose deploy, of the commit the installation runs now (from the ops workflow, task 3.7). Verify:
-  - `status` shows the version and the digest;
-  - `systemctl is-enabled` reports the old units as disabled;
+- [ ] 4.1 With `RUNTIME` still `systemd`: `deploy.sh <slug> down`. Then `RUNTIME=compose` and `CANARY=1` in the overlay, and `install`. Verify: no container was started; `compose/compose.yaml` is in the directory; the deployer's `.config/coach-aven` exists.
+- [ ] 4.2 `deploy sha-<the commit it ran>` from the ops workflow (task 3.3). Verify:
+  - `status` shows the pin and the containers;
   - `/aven status` and one turn work;
   - the routines are the same as before;
-  - the boot line names the installation directory.
-- [ ] 4.3 Rollback and moving back, once each:
-  - deploy the previous commit's image, then the current one again;
-  - run `revert-to-systemd`, then deploy with compose again.
-
-  Verify: the record and `status` after each step, and the bot answers each time.
+  - the boot line names the installation directory;
+  - the unit is disabled.
+- [ ] 4.3 Rollback once: deploy the previous commit's image, then the current one again. Verify: `deploys.log`, `status`, and the bot answers each time.
 - [ ] 4.4 Two days on the canary: routines at their slots, restart recovery, sandboxes created and stopped by the idle stop, and the listeners behind the host's proxy. Verify: the canary channel, and a journal without new errors.
-- [ ] 4.5 `cleanup`: review the list, then run with `--yes`. Verify:
-  - the bot keeps running;
-  - the directory holds only configuration and state;
-  - the list is saved in the operator's notes.
+- [ ] 4.5 The old code removed with the README's command. Verify: the bot keeps running, and the directory holds only configuration, state, `compose/` and `deploys.log`.
 
 ## 5. Prod
 
-- [ ] 5.1 With the first release tag after group 4:
-  - `RUNTIME=compose`, then `install`;
-  - the mirror's crontab line rewritten to `run mirror`;
-  - deploy `vX.Y.Z`.
-
-  Verify:
-  - `status` shows `vX.Y.Z` with the digest the canary ran;
+- [ ] 5.1 With the first release tag after group 4: `down` for the bot's unit and the daemon's; `RUNTIME=compose` and the daemon's listen address in the overlay; `install`; the mirror's crontab line rewritten; `deploy vX.Y.Z`. Verify:
+  - `status` shows `vX.Y.Z`, and `docker compose images` shows the digest the canary ran;
   - `/aven status` works;
   - the next mirror run writes its log line;
   - the sources daemon container answers the bot;
   - the next error-tracker event carries the release `vX.Y.Z`.
-- [ ] 5.2 `cleanup` after one release without trouble. Verify: as in 4.5.
+- [ ] 5.2 The old code removed after one release without trouble. Verify: as in 4.5.
 - [ ] 5.3 The ledger's canary and prod dates. Verify: the diff of `docs/rollout.md`.
 
 ## Workflow follow-up
 
 - After every installation we operate runs compose, a later change makes `compose` the template's default and retires the systemd path: the tar deploy, the unit templates, `.release` and the `scripts/mirror.ts` caller. The ledger row then moves to *Retired*.
 - The operator's plan for their own installations (which boxes, in which order, the crontab lines) is a change in their ops repository's OpenSpec store, linked from here in prose.
+- Hardening the deployer's privileges (a wrapper behind a sudo rule) and registry retention are separate changes, if ever.
 - Archive this change after group 5.

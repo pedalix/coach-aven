@@ -39,14 +39,16 @@ The motivation is in proposal.md, *Why*. What shapes the approach:
 ## Goals / Non-Goals
 
 **Goals:**
-- The code on a box is an immutable artifact named by a version. The canary and prod run the same bytes.
-- Nothing from an operator's machine can reach a box. This holds by construction, not through an exclude list.
-- Moving an installation moves no data and can be undone until cleanup.
-- The deployer's key keeps the privilege it has today: one narrow sudo rule.
-- The image is the basis of a later quickstart, an installation someone outside starts with `docker compose up`: whatever is specific to an operated box, the deployer's user, the same-path mounts and the host network, lives in the compose file and never in the image.
+- **Standard deploys.** Every installation runs the same artifact the same way, and a deploy is one command that names a version. Nothing from an operator's machine reaches a box, and nothing is built on a box.
+- **Predictable rollouts.** The canary and prod run the same bytes, and a deploy that does not come up fails loudly.
+- **Clear rollbacks.** A rollback is the same command with the earlier version, and that version's image is still on the box.
+- **A quickstart later.** The image is the basis of an installation someone outside starts with `docker compose up`: whatever is specific to an operated box, the deployer's user, the same-path mounts and the host network, lives in the compose file and never in the image.
+- **Simplicity.** The box runs plain `docker compose` in the installation directory. Everything on it is a file an operator can read in a minute: the compose file, a two-line version pin and a log of deploys.
 
 **Non-Goals:**
 - **Isolating the bot from its host.** The bot runs as the deployer with host networking, as the service did. Hardening is a later concern.
+- **Least privilege for the deployer.** The deployer is in the `docker` group, as it is on both boxes we operate, and so is the CI key that logs in as it. A root-owned wrapper behind a sudo rule would be a later hardening; this change adds no machinery for it.
+- **Automatic rollback.** A failed deploy is red, and the operator or the workflow deploys the earlier version.
 - **Zero-downtime deploys.** A deploy restarts the bot, as it does today. Socket Mode reconnects and queued turns replay from `queue.jsonl`.
 - **Changing the systemd path.** It gains only `RUNTIME`, `CANARY` and the meaning of `AVEN_DIR`. A later change retires it.
 - **The quickstart itself.** Web chat and sandboxes on the local Docker from one `docker compose up`, without Slack, is a change of its own after this one. This change only keeps the image free of anything that belongs to a box.
@@ -156,70 +158,42 @@ At each deploy the deploy command reads the one key `SSHDOCKER_HOST` from the in
   - Building only amd64 on pull requests: a dependency that breaks only on arm64 would surface after the merge and leave the arm64 installation without an image of `main`.
   - Docker Hub: a second account and a second secret.
 
-### D7. The box's deploy command
-- **What it is.** `/usr/local/sbin/<service>-deploy`, a root-owned bash script whose source is `infra/deploy/aven-deploy.sh`.
-- **What `deploy.sh install` puts beside it:**
-  - its configuration, `/etc/coach-aven/<service>/deploy.conf`, owned by root: the image repository, the installation directory, uid and gid, service name, chat driver, the sources daemon's listen address, the canary flag and the log driver;
-  - a sudoers rule, `<deployer> ALL=(root) NOPASSWD: /usr/local/sbin/<service>-deploy`, checked with `visudo` like today's rule.
-- **Subcommands:** `deploy <version>`, `start`, `stop`, `restart`, `status`, `logs [-f]`, `run <cli args…>`, `revert-to-systemd`, `cleanup [--yes]`.
-- **`deploy`, step by step:**
-  1. It checks the version's form: `v<major>.<minor>.<patch>`, or `sha-` with 40 hex digits when the canary flag is set.
-  2. It pulls `<repository>:<version>`. A failed pull stops the deploy with nothing touched.
-  3. It reads the digest.
-  4. It renders the Compose file from the template inside that image (`/app/infra/deploy/compose.yaml`) and from `deploy.conf`, into `/etc/coach-aven/<service>/compose.yaml`. The difference against the previous file goes to the log.
-  5. It runs `docker compose up -d`.
-  6. It waits for the driver's line (D8) and records the result.
-- **Where the files live.** The rendered file and its configuration stay outside the installation directory. The deployer owns that directory, and a Compose file the deployer could edit would make anyone holding its key root.
-- **`run`** runs `docker compose run --rm bot <args>` with the bot's mounts and environment. The arguments reach the CLI as argv, never through a shell.
-- **The template's format.** The template carries a format number. A command older than the template refuses it and says to rerun `install`.
+### D7. Deploying is `docker compose` in the installation directory
+- **The compose directory.** `<installation directory>/compose/` holds the rendered `compose.yaml` and a two-line `.env`: `AVEN_VERSION=<version>` and `AVEN_RELEASE=<release>`. Compose reads that `.env` for `${AVEN_VERSION}` in the image name and `${AVEN_RELEASE}` for `SENTRY_RELEASE`, and nothing else reads it. The bot's own `.env` stays one level up, read by the bot (D1). The project is named after the service (D3), so the directory's name never matters.
+- **`install`** on a compose installation: the root stage creates the installation directory as today, checks for Docker Engine with the Compose plugin and names what is missing, and creates the deployer's `~/.config/coach-aven` (D3). Then the compose file is rendered from `infra/deploy/compose.yaml` the way the unit is rendered today, with the overlay's values: the image repository, the directory, the service name, the chat driver, the daemon's listen address when `deploy.env` names one, the uid and gid read on the box, and `SSHDOCKER_HOST` from the overlay's own copy of `.env` (D4), never printed. Rerun after a template change, as for the unit. No sudo rule: compose needs none.
+- **`deploy <version>`**, over the deployer's SSH session:
+  1. refuse a version that is not `vX.Y.Z`, or `sha-` with 40 hex digits on a canary; `latest` included, because what runs must be nameable;
+  2. refuse while the installation's systemd unit is active, since the two would share the ports;
+  3. `docker pull <repository>:<version>`; a failed pull changes nothing;
+  4. write the two lines;
+  5. `docker compose up -d`;
+  6. wait up to 90 s for the driver's line (`Slack bot running`, `Teams bot running` or `Web chat running`) in `docker compose logs bot` since the start;
+  7. append `<time> <version> ok` or `failed` to `<installation directory>/deploys.log`.
+
+  On failure it prints the last lines of the log and exits 1. The containers stay as they are, and the operator deploys another version. Today's health check only warns; this one fails.
+- **Rollback.** `deploy <earlier version>`. The image is still on the box, so it works with the registry down. `deploys.log` and `docker image ls` name the candidates.
+- **The other commands.** `status`: the pin and `docker compose ps`. `logs [-f]`: `docker compose logs`. `restart`: `docker compose up -d --force-recreate` followed by the same wait, so an edited `.env` or a re-rendered compose file takes effect. `down`: `docker compose down`; the images and the files stay. `export`, `import` and `ssh` do not change. On a compose installation `deploy` requires a version: there is no default, so the operator names what runs.
+- **Privileges.** The deployer runs `docker compose` itself, so it is in the `docker` group, which is root on the box. That is today's position on both boxes we operate, for the same key. The README names the group as the prerequisite and says what it amounts to.
+- **Scheduled jobs.** `scripts/mirror.ts` becomes `orch mirror`: the function moves, and the script stays a thin caller for the systemd path. The crontab line on a moved installation: `cd <installation directory>/compose && docker compose run --rm --no-deps bot mirror >> <installation directory>/mirrors/mirror.log 2>&1`. Each run uses the pinned version.
+- **The ops workflow** keeps its shape: it checks out the product at the version and the overlay beside it, and runs `deploy.sh <slug> deploy <version>`. It accepts `sha-<commit>` only when its own `deploy.env` says `CANARY=1`. On a systemd installation it does what it does today.
 - **Alternatives:**
-  - The deployer in the `docker` group: one line, but the CI key becomes root on the box. Both boxes we operate already grant it; the template should not.
-  - An agent on the box that pulls versions by itself: out of scope.
+  - A root-owned deploy command behind a sudo rule, with its configuration and the rendered file under `/etc`, a deploy record, automatic rollback and `revert` and `cleanup` subcommands. That was the first draft: an orchestrator in bash for a two-installation setup, protecting a privilege the deployer already holds. Deferred to a hardening change, if one is ever wanted.
+  - Pinning the version by editing the image line of the compose file: two services, two lines. Compose's own `.env` interpolation does it in one place.
+  - Keeping the pin in the bot's `.env`: deploy state in the secrets file, which `import` would carry into the overlay.
 
-### D8. The health check and the automatic rollback
-- **The wait.** The deploy waits up to 90 s for the driver's line in the bot container's log since the container started. The lines are the ones `deploy.sh` waits for today: `Slack bot running`, `Teams bot running` and `Web chat running`.
-- **When the line does not come,** the deploy renders the previous version again, runs `up -d`, waits for that version's line, records `rolled-back` and exits 1. The previous version is the last record with outcome `ok`.
-- **The first compose deploy** has no such record. There, the previous version is the systemd units: a failure stops the containers and starts the units again (D11).
-- The systemd deploy keeps its warning until it retires.
+### D8. Moving an installation is a checklist, and the way back stays open until the old code goes
+1. While `RUNTIME` is still `systemd`: `deploy.sh <slug> down` stops and disables the bot's unit. The daemon's unit, installed by hand, is stopped and disabled the same way.
+2. `RUNTIME=compose`, and `CANARY=1` on the canary, in `deploy.env`. Then `install`, then `deploy <version>` with the version the box ran: the commit's `sha-` image on the canary, the release tag on prod.
+3. The crontab line is rewritten (D7).
+4. When the operator is happy, the old code is removed from the directory. The README gives the list: the product's top-level tracked names, `node_modules` and `.release`. None of them is an installation file (checked: no name collides), and configuration and state are never on the list.
 
-### D9. Versions, the canary and the error tracker's release
-- **The canary flag.** `CANARY=1` in `deploy.env` goes into `deploy.conf`. Only then is `sha-<commit>` accepted, by `deploy.sh` and by the ops workflow, which reads its own `deploy.env`.
-- **The release.** The rendered file sets `SENTRY_RELEASE` to `vX.Y.Z`, or to `main@<first 7 characters>` for a commit image, the stamp the canary uses today. `resolveRelease()` already prefers `SENTRY_RELEASE`, so no code changes. `.release` stays for the systemd path.
+- **Back before step 4:** `deploy.sh <slug> down` removes the containers; `systemctl enable --now` as root starts the unit on the code still in the directory, with the same state. After step 4: `RUNTIME=systemd` and a tar deploy from a clean checkout, while that path exists.
+- **The old sudoers rule**, the three `systemctl` verbs, stays until step 4. It is harmless, and the way back uses it.
+- **Alternative:** the first draft had the first compose deploy stop the units by itself, a `revert-to-systemd` command and a `cleanup` command with refusal rules. Three one-off operations per installation, done twice; a checklist in the ops plan is enough.
 
-### D10. Scheduled jobs
-- **`orch mirror`.** It runs the function that `scripts/mirror.ts` runs today. Since the first PR that function reads `mirrors.json` and keeps the `mirrors/` cache in the installation directory (D1). `scripts/mirror.ts` stays as a thin caller until the systemd path retires, so an installation that has not moved keeps its crontab line.
-- **The crontab line on a moved installation:** `sudo /usr/local/sbin/<service>-deploy run mirror >> <dir>/mirrors/mirror.log 2>&1`. The operator rewrites the line during the move, and `cleanup` refuses until that is done (D11).
-
-### D11. Moving an installation, moving back, cleaning up
-- **The first compose deploy** is the one with no `ok` record:
-  1. it pulls the image and renders the file;
-  2. it stops the systemd units, `<service>` and `<service>-sources-daemon` when present;
-  3. it runs `up -d` and waits for the line;
-  4. on success it disables the units;
-  5. on failure it brings the containers down and starts the units again.
-- **`revert-to-systemd`** brings the containers down, then enables and starts the units. After cleanup it refuses, because the code is gone: going back then takes `RUNTIME=systemd` and a tar deploy from a clean checkout, until that path retires.
-- **`cleanup`** sorts the top level of the installation directory into three groups:
-  - **Removed after `--yes`:** the top-level names in the running image's `/app`, plus `node_modules` and `.release`. That is everything a tar deploy can have put there, and the list follows the code by itself. The two old unit files go too.
-  - **Kept:** configuration (`.env`, `github-app-private-key.pem`, `projects.config.json`, `projects.d/`, `mirrors.json`, `hub.peers.json`) and state (`state.json`, `queue.jsonl`, `usage/`, `drafts/`, `facts/`, `memory/`, `feedback/`, `events/`, `shadow/`, `data/`, `mirrors/` and the deploy record).
-  - **Listed as unknown and kept:** anything else, such as an operator's backup.
-- **When `cleanup` refuses:** while a unit is still enabled, or while a cron line names the directory together with `node`, `tsx` or `npm`. It looks for such lines in the deployer's crontab and in `/etc/cron*`.
-
-### D12. `deploy.sh` and the ops workflow
-- **`deploy.sh`:**
-  - It reads `RUNTIME` (default `systemd`) and `CANARY` from `deploy.env`.
-  - On a compose installation, `install` copies the deploy command and writes its configuration over the root SSH session, the way it installs the unit today.
-  - On a compose installation, `deploy`, `start`, `stop`, `restart`, `status`, `logs`, `run`, `down` and `cleanup` run as `ssh deployer@host sudo /usr/local/sbin/<service>-deploy …`.
-  - On a compose installation, `deploy` requires a version: there is no default, so the operator names what runs.
-  - `export`, `import` and `ssh` do not change.
-- **The ops workflow template:**
-  - It reads `RUNTIME` and `CANARY` from its own `deploy.env`.
-  - For compose it does not check out the product. It runs the deploy command over SSH with the version.
-  - For systemd it does what it does today.
-  - The `tag` input takes `vX.Y.Z` always, and `sha-<commit>` only with `CANARY=1`.
-
-### D13. Docs and the ledger
-- `infra/deploy/README.md`: the compose runtime becomes the recommended one, and the systemd section stays until it retires.
-- The ops template: `deploy.env.example` gains `RUNTIME` and `CANARY`, and the workflow its compose path.
+### D9. Docs and the ledger
+- `infra/deploy/README.md`: the compose runtime becomes the recommended one: prerequisites (Docker Engine with Compose, the deployer in the `docker` group and what that means), install, export, deploy with a version, rollback, `status`, `logs`, `restart` and `down`, the move checklist, the cleanup list and the crontab line. "Why systemd and not Docker" is replaced, and the systemd section stays as legacy until it retires.
+- The ops template: `deploy.env.example` gains `RUNTIME`, `CANARY` and the daemon's listen address; its `.gitignore` ignores `compose/` and `deploys.log`; the workflow passes the version.
 - `docs/runtime-config.md`: `AVEN_DIR`, and the crontab line in *Repo mirrors*.
 - `docs/local-dev.md` and the self-host section of `README.md`.
 - CLAUDE.md's release line: tag, then CI, then the image, then the GitHub Release, then the deploy.
@@ -229,37 +203,30 @@ At each deploy the deploy command reads the one key `SSHDOCKER_HOST` from the in
 
 - [Docker becomes a dependency of the bot's box] → `install` checks for Docker Engine and the Compose plugin and names what is missing. The boxes we operate have both.
 - [Host networking, the passwd mount and the home mounts give the container the deployer's view of the box] → These are the privileges the service had. The socket comes only with local sandboxes, and isolation is a later change.
-- [On boxes where the deployer is already in the `docker` group, its key stays root-equivalent] → The template does not need the group. Removing it after the move is an operator step, not enforced.
-- [The registry is unavailable at deploy time] → The pull happens before anything stops. The running and the previous images stay on the box, so a rollback works offline.
+- [The deployer's key is root-equivalent through the `docker` group] → It is today, on both boxes. A later hardening can put a wrapper and a sudo rule in front of the same compose directory without changing anything else.
+- [The registry is unavailable at deploy time] → The pull happens before anything stops. The earlier image stays on the box, so a rollback works offline.
+- [A failed deploy leaves the failed version running] → The exit is non-zero, the workflow run is red, the log names the version, and the rollback is one command.
 - [arm64 runners are missing or slow to start] → That job falls back to QEMU: slow, but correct.
 - [Node 22 becomes Node 24 on an installation still on 22] → CI tests 24, and the canary installation already runs 24. The switch happens at that installation's move, under watch.
-- [Every deploy adds an image to the disk] → The deploy command keeps the running version and the two before it, and prunes the repository's other images.
-- [An image for every `main` commit clutters the registry] → A scheduled workflow deletes `sha-*` images older than 90 days that no release names.
-- [Docker Desktop has no journald logging] → `deploy.conf` names the log driver; it is `json-file` with rotation where journald is missing.
-- [The template in a new image is newer than the deploy command on the box] → The command refuses it and says to rerun `install` (D7).
-- [A crash loop restarts forever] → Restart delays grow, the journal shows the loop, and `status` reports the restart count.
+- [Every deploy adds an image to the disk] → Only the code layer differs between versions. `docker image prune -a` is documented; a pruned earlier version pulls again on rollback.
+- [An image for every `main` commit clutters the registry] → Accepted. A retention job is a separate change if it is ever needed.
+- [Docker Desktop has no journald logging] → The README says which line of the rendered file to change there.
+- [A crash loop restarts forever] → Restart delays grow, the journal shows the loop, and `docker compose ps` shows the restarts.
 - [A vulnerability in the base image] → The base is pinned by digest, and Dependabot covers the image's build file.
 
 ## Migration Plan
 
 1. **PR 1, the installation directory (bucket 2).** `AVEN_DIR`, `src/paths.ts`, the guard test and the boot line. Home and staging run it with `AVEN_DIR` unset; prod gets it with the next tag.
 2. **PR 2, the image.** The image's build file, `image.yml`, the jobs in `ci.yml` and `release.yml`, and `orch mirror`. Images appear for every `main` commit; no box changes.
-3. **PR 3, the compose runtime.** `compose.yaml`, `aven-deploy.sh`, `deploy.sh` (`RUNTIME`, `CANARY` and the new commands), the ops workflow template, the docs and the ledger row.
-4. **The canary installation**, following the operator's plan in their ops repository:
-   - set `CANARY=1` and `RUNTIME=compose`, run `install`, then deploy `sha-<the commit it runs now>`;
-   - watch it for two days;
-   - run `cleanup` once no cron line runs the old code.
-5. **Prod, after the canary period, with the next release tag:**
-   - set `RUNTIME=compose`, run `install`, rewrite the mirror's crontab line, deploy `vX.Y.Z`;
-   - run `cleanup` after one release without trouble.
+3. **PR 3, the compose runtime.** `compose.yaml`, `deploy.sh` (`RUNTIME`, `CANARY`, the compose commands), the ops workflow template, the docs and the ledger row.
+4. **The canary installation**, following the operator's plan in their ops repository: the checklist of D8 with the `sha-` image of the commit it runs, two days of watching, then the old code removed.
+5. **Prod, after the canary period, with the next release tag:** the checklist of D8 with `vX.Y.Z`; the old code removed after one release without trouble.
 6. **Retirement.** The template's default becomes `compose`. A later change retires the systemd path: the tar deploy, the unit templates and `.release`. The ledger row then moves to *Retired*.
 
-**Rollback:**
-- Before cleanup, `revert-to-systemd` is one command.
-- After cleanup, set `RUNTIME=systemd` and run `deploy.sh deploy` from a clean checkout, while the tar path still exists.
+**Rollback:** before the old code is removed, D8's way back; after, `RUNTIME=systemd` and a tar deploy from a clean checkout, while the tar path still exists.
 
 ## Open Questions
 
-- **Retention on the box.** How many old images a box keeps. The starting value is the two previous versions. The registry keeps `sha-*` images for 90 days unless a release names them.
 - **Serve units.** Whether `orch sources serve` units, installed by hand today, become Compose services once an installation needs one.
 - **The home bot.** Whether it moves to the image. It runs from a development checkout, so its operator decides.
+- **Hardening.** Whether the deployer ever leaves the `docker` group, behind a wrapper with a sudo rule. Not needed for the goals; a later change if an installation asks for it.
