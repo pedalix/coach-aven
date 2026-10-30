@@ -50,7 +50,7 @@ The documented Auth0 entry is `oauth: { "tokenUrl": "https://<tenant>/oauth/toke
 
 ### D3. The shared-request check runs at load and fails it
 
-When the installation pair is set, `loadProjects` groups the `oauth` entries whose project resolves to `source: installation` (D1) by their token request — the cache key's canonical part without the slug (token URL, scope, audience, resource, client authentication). A group with entries of two or more projects fails the load, naming the projects, the token URL's origin and the shared scope / audience / resource (no secret is part of a token request).
+When the installation pair is set, `loadProjects` groups the `oauth` entries whose project resolves to `source: installation` (D1) by the token they ask for — token URL, scope, audience, resource. Not the client authentication, unlike the cache key: `basic` or `post`, one client asking the same thing gets interchangeable tokens. A group with entries of two or more projects fails the load, naming the projects, the token URL's origin and the shared scope / audience / resource (no secret is part of a token request).
 
 Why at load: the result is deterministic and appears where config mistakes appear today — the deploy's wait for the driver's line goes red at boot, and `/aven reload` keeps the running registry and answers with the error. A check at mint time would let whichever project minted first keep working, and the order changes with every restart.
 

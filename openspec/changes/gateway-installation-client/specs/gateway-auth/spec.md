@@ -24,7 +24,7 @@ For a gateway entry with `oauth`, the bot SHALL take the client id and secret fr
 - **THEN** that project's gateway fails naming the `AUTH0_M2M_*` variables, as before this change, and the installation pair is not used
 
 ### Requirement: Projects on the installation pair ask distinct token requests
-When the installation pair is set, loading the project config (at boot and on reload) SHALL fail, naming both projects, if two projects whose `oauth` entries take their credentials from it ask the same token request — the same token URL, scope, audience, resource and client authentication — because a token minted for one would then be valid on the other's route.
+When the installation pair is set, loading the project config (at boot and on reload) SHALL fail, naming both projects, if two projects whose `oauth` entries take their credentials from it ask for the same token — the same token URL, scope, audience and resource, however the client authenticates — because a token minted for one would then be valid on the other's route.
 
 #### Scenario: A copied entry
 - **WHEN** projects `caldora` and `verdant` both take the installation pair and both entries have `oauth: { "tokenUrl": "https://idp.example/oauth/token", "audience": "https://gw.example/gw/caldora/mcp" }`

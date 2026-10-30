@@ -7,9 +7,14 @@ import {
   createGatewayTokens,
   createTokenCache,
   m2mEnvNames,
+  describeTokenRequest,
+  legacyGatewayProjects,
   oauthEnvNames,
   oauthMint,
+  resolveOAuthCredentials,
+  sharedTokenRequests,
   validateGatewayOAuth,
+  type GatewayOAuth,
 } from './gwtoken.js';
 
 const H = 3600_000;
@@ -299,4 +304,105 @@ test('avenSessionValue: header- and shell-safe, bounded', () => {
   assert.equal(avenSessionValue('C09ABC:1727000000.123'), 'C09ABC:1727000000.123');
   assert.equal(avenSessionValue("dm:U1:caldora'; rm -rf /"), 'dm:U1:caldora___rm_-rf__');
   assert.equal(avenSessionValue('x'.repeat(500)).length, 120);
+});
+
+// ── one client pair per installation (OpenSpec gateway-installation-client) ─────────────
+
+const basicUser = (h: Record<string, string>) => Buffer.from(h.authorization!.replace(/^Basic /, ''), 'base64').toString();
+
+// The bucket-2 pin (task 1.1 a), written against the code before the change: a project with its
+// own complete pair keeps authenticating with it, whatever installation pair sits beside it.
+test('createGatewayTokens: an oauth entry with its own complete pair uses it, even beside the installation pair', async () => {
+  const seen: Seen[] = [];
+  const env = {
+    GATEWAY_OAUTH_CALDORA_ID: 'cid-own',
+    GATEWAY_OAUTH_CALDORA_SECRET: 'sec-own',
+    GATEWAY_OAUTH_ID: 'cid-inst',
+    GATEWAY_OAUTH_SECRET: 'sec-inst',
+  };
+  const tokens = createGatewayTokens(env, recordingFetch(200, { access_token: 'AT', expires_in: 86400 }, seen));
+  assert.equal(await tokens.get('caldora', { url: 'https://gw.example/gw/caldora/mcp', oauth: OAUTH }), 'AT');
+  assert.equal(basicUser(seen[0]!.headers), 'cid-own:sec-own');
+});
+
+const INST = { GATEWAY_OAUTH_ID: 'cid-inst', GATEWAY_OAUTH_SECRET: 'sec-inst' };
+const OWN = { GATEWAY_OAUTH_CALDORA_ID: 'cid-own', GATEWAY_OAUTH_CALDORA_SECRET: 'sec-own' };
+
+test('resolveOAuthCredentials: the own pair, else the installation pair; a half pair or nothing is an error naming env vars only', () => {
+  assert.deepEqual(resolveOAuthCredentials(INST, 'caldora'), { clientId: 'cid-inst', clientSecret: 'sec-inst', source: 'installation' });
+  assert.deepEqual(resolveOAuthCredentials({ ...INST, ...OWN }, 'caldora'), { clientId: 'cid-own', clientSecret: 'sec-own', source: 'project' });
+  const errorOf = (env: Record<string, string | undefined>) => {
+    const r = resolveOAuthCredentials(env, 'caldora');
+    assert.ok('error' in r, JSON.stringify(Object.keys(env)));
+    assert.ok(!/cid-|sec-/.test(r.error), 'no value in the message');
+    return r.error;
+  };
+  // a half project pair never falls back, whichever half is set
+  for (const half of [{ GATEWAY_OAUTH_CALDORA_ID: 'cid-own' }, { GATEWAY_OAUTH_CALDORA_SECRET: 'sec-own' }]) {
+    const e = errorOf({ ...INST, ...half });
+    assert.match(e, /GATEWAY_OAUTH_CALDORA_ID and GATEWAY_OAUTH_CALDORA_SECRET must both be set/);
+  }
+  // nothing, or a half installation pair: all four names
+  for (const env of [{}, { GATEWAY_OAUTH_ID: 'cid-inst' }]) {
+    const e = errorOf(env);
+    for (const n of ['GATEWAY_OAUTH_CALDORA_ID', 'GATEWAY_OAUTH_CALDORA_SECRET', 'GATEWAY_OAUTH_ID', 'GATEWAY_OAUTH_SECRET']) assert.ok(e.includes(n), n);
+  }
+});
+
+test('createGatewayTokens: an oauth entry without its own pair authenticates with the installation pair', async () => {
+  const seen: Seen[] = [];
+  const tokens = createGatewayTokens(INST, recordingFetch(200, { access_token: 'AT', expires_in: 86400 }, seen));
+  assert.equal(await tokens.get('caldora', { url: 'https://gw.example/gw/caldora/mcp', oauth: OAUTH }), 'AT');
+  assert.equal(basicUser(seen[0]!.headers), 'cid-inst:sec-inst');
+  assert.ok(!seen[0]!.body.includes('sec-inst'), 'Basic: no secret in the body');
+});
+
+test('createGatewayTokens: a half project pair rejects for that project and sends nothing', async () => {
+  const seen: Seen[] = [];
+  const tokens = createGatewayTokens({ ...INST, GATEWAY_OAUTH_CALDORA_ID: 'cid-own' }, recordingFetch(200, { access_token: 'AT' }, seen));
+  await assert.rejects(tokens.get('caldora', { url: 'https://gw.example/gw/caldora/mcp', oauth: OAUTH }), /GATEWAY_OAUTH_CALDORA_SECRET/);
+  assert.equal(seen.length, 0);
+});
+
+test('createGatewayTokens: an entry without oauth never uses the installation pair', async () => {
+  const seen: Seen[] = [];
+  const tokens = createGatewayTokens({ ...INST, AUTH0_M2M_TOKEN_URL: 'https://tenant.example/oauth/token' }, recordingFetch(200, { access_token: 'AT' }, seen));
+  await assert.rejects(
+    tokens.get('caldora', { url: 'https://gw.example/gw/caldora/mcp' }),
+    (e: Error) => e.message.includes('AUTH0_M2M_CALDORA_ID') && e.message.includes('AUTH0_M2M_CALDORA_SECRET') && !e.message.includes('GATEWAY_OAUTH'),
+  );
+  assert.equal(seen.length, 0);
+});
+
+// ── the checks at config load ───────────────────────────────────────────────────────────
+
+const AUTH0 = (slug: string): GatewayOAuth => ({ tokenUrl: 'https://tenant.example/oauth/token', audience: `https://gw.example/gw/${slug}/mcp` });
+const gwProject = (slug: string, oauth?: GatewayOAuth) => ({ slug, mcp: [{ name: 'gw', auth: 'gateway-m2m', ...(oauth ? { oauth } : {}) }] });
+
+test('sharedTokenRequests: two projects on the installation pair asking for one token form a group; distinct tokens, own clients or no installation pair do not', () => {
+  const copied = [gwProject('caldora', AUTH0('caldora')), gwProject('verdant', AUTH0('caldora'))];
+  assert.deepEqual(sharedTokenRequests(copied, INST), [{ slugs: ['caldora', 'verdant'], request: AUTH0('caldora') }]);
+  // however the client authenticates: basic or post, the token is the same
+  assert.equal(sharedTokenRequests([gwProject('caldora', AUTH0('caldora')), gwProject('verdant', { ...AUTH0('caldora'), clientAuth: 'post' })], INST).length, 1);
+  // one audience per route
+  assert.deepEqual(sharedTokenRequests([gwProject('caldora', AUTH0('caldora')), gwProject('verdant', AUTH0('verdant'))], INST), []);
+  // verdant has its own client
+  assert.deepEqual(sharedTokenRequests(copied, { ...INST, GATEWAY_OAUTH_VERDANT_ID: 'v', GATEWAY_OAUTH_VERDANT_SECRET: 'w' }), []);
+  // no installation pair: every project has its own client (or fails at mint, as before)
+  assert.deepEqual(sharedTokenRequests(copied, {}), []);
+  // two entries of ONE project asking for the same token
+  const twice = { slug: 'caldora', mcp: [{ name: 'gw', auth: 'gateway-m2m', oauth: AUTH0('caldora') }, { name: 'gw2', auth: 'gateway-m2m', oauth: AUTH0('caldora') }] };
+  assert.deepEqual(sharedTokenRequests([twice], INST), []);
+  // entries without oauth are not on the installation pair
+  assert.deepEqual(sharedTokenRequests([gwProject('caldora'), gwProject('verdant')], INST), []);
+});
+
+test('describeTokenRequest: the origin and the fields that are set', () => {
+  assert.equal(describeTokenRequest(AUTH0('caldora')), 'https://tenant.example, audience https://gw.example/gw/caldora/mcp');
+  assert.equal(describeTokenRequest(OAUTH), 'https://idp.example, scope gw-caldora/bot');
+});
+
+test('legacyGatewayProjects: the projects with a gateway entry without oauth', () => {
+  const direct = { slug: 'ember', mcp: [{ name: 'docs' }] };
+  assert.deepEqual(legacyGatewayProjects([gwProject('caldora'), gwProject('verdant', AUTH0('verdant')), gwProject('alder'), direct, { slug: 'bare' }]), ['caldora', 'alder']);
 });
