@@ -9,7 +9,6 @@ drafts/
 usage/
 # per-month answer feedback (the value side of the same metering — see feedback.ts):
 feedback/
-.release
 projects.config.json
 # local-dev per-project prompt files (an installation's live in its overlay, infra/<slug>/projects.d/):
 /projects.d/

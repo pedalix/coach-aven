@@ -5,16 +5,12 @@ does; it shares fine with other services). One installation = one **ops repo** c
 `infra/<slug>/` (below); every command here names that slug. Where *your* box is, who runs on
 it and what it talks to belongs in that repo, not in this file.
 
-Two runtimes, chosen by `RUNTIME` in the overlay's `deploy.env` (OpenSpec `container-deploy`):
-
-- **`compose`** — the recommended one. The bot is the published image, `ghcr.io/<owner>/coach-aven`
-  (*Images*, below), run by `docker compose` in `REMOTE_DIR/compose/` as the deployer. A deploy names a
-  version — `deploy.sh <slug> deploy v1.4.0` — and uploads nothing: the box pulls the image, pins the
-  version in a two-line file, starts the containers and waits for the chat driver's "bot running" line. A
-  rollback is the same command with the earlier version; its image is still on the box. The canary and
-  prod run the same bytes, and a deploy that does not come up is red.
-- **`systemd`** — the default while installations move, legacy after that (*The systemd runtime*, at the
-  end): the code tarred up from a checkout, `npm ci` on the box, one Node process under a unit.
+One runtime (OpenSpec `container-deploy`; the systemd path retired after v0.43.0, OpenSpec
+`retire-systemd-deploy`): the bot is the published image, `ghcr.io/<owner>/coach-aven` (*Images*, below), run by
+`docker compose` in `REMOTE_DIR/compose/` as the deployer. A deploy names a version — `deploy.sh <slug> deploy
+v1.4.0` — and uploads nothing: the box pulls the image, pins the version in a two-line file, starts the containers
+and waits for the chat driver's "bot running" line. A rollback is the same command with the earlier version; its
+image is still on the box. The canary and prod run the same bytes, and a deploy that does not come up is red.
 
 CoachAven is just the **control plane**: one long-lived Node process that holds the chat connection
 (Slack Socket Mode dials *out*; Teams and the web chat listen on loopback behind the host's proxy) and
@@ -39,8 +35,7 @@ here is tiny: no nginx, no ports, no TLS of its own.
 | --- | --- |
 | `deploy.sh` | `<slug> <command>`: install / export·import / deploy / logs / status / start·stop·restart / ssh / down |
 | `compose.yaml` | the compose file template (placeholders and switches rendered at `install` from `deploy.env` and the box) |
-| `coach-aven.service.tmpl` | the systemd unit template (legacy runtime) |
-| `coach-aven-sources-daemon.service.tmpl`, `coach-aven-sources.service.tmpl`, `nginx-sources.conf.example` | the daemon and `orch sources serve` as units (legacy runtime), nginx in front of `serve` |
+| `nginx-sources.conf.example` | nginx in front of `orch sources serve` (TLS); the sources daemon itself is the `sources-daemon` compose service |
 | `ops.example/` | template for an ops repo: `deploy.env.example`, `.env.example`, `projects.d/example.md`, the deploy workflow |
 | `../<slug>/` | **your ops repo**, checked out beside this directory (gitignored) — see below |
 
@@ -75,7 +70,7 @@ would need is public; a line naming your host, customer or a person is ops.
 - SSH access to `deployer@<host>` (runs the containers, owns the files) and, for `install` only, to
   `root@<host>` (creates `REMOTE_DIR`). Uses your default SSH keys/agent. The deploy workflow and every
   day-2 command need the deployer alone.
-- Your ops repo cloned at `infra/<slug>/` with `deploy.env` (`RUNTIME=compose`), `.env`,
+- Your ops repo cloned at `infra/<slug>/` with `deploy.env`, `.env`,
   `github-app-private-key.pem`, `projects.config.json` present (from `ops.example/`, or pull a running box
   with `npm run ops -- <slug> import`).
 - On the box: **Docker Engine with the Compose plugin**, and the deployer **in the `docker` group**.
@@ -124,33 +119,34 @@ the project list is read at boot and re-read by `/aven reload` for new sessions 
 
 All take the slug first: `npm run ops -- <slug> <command>` (no slug → the help and the slugs found).
 
-| Command | compose | systemd (legacy) |
-| --- | --- | --- |
-| `deploy <version>` | pull → pin → `up -d` → wait → `deploys.log` | upload → `npm ci` → restart → health-check (no version: the checkout) |
-| `export` | push the ops repo, upload `infra/<slug>/` → the box | same |
-| `import` | pull the box's runtime back into the ops checkout, show the drift | same |
-| `status` | the pin, `docker compose ps`, the last deploys | `systemctl status` + `is-active` |
-| `logs [-f]` | the bot's log (`docker compose logs bot`) | `journalctl -u <service> -f` |
-| `restart` | `up -d --force-recreate` + the same wait (an edited `.env` or compose file takes effect) | restart the unit (deployer, via scoped sudoers) |
-| `start` / `stop` | `up -d` + wait / `docker compose stop` | start / stop the unit |
-| `ssh` | interactive shell on the box (deployer) | same |
-| `down` | `docker compose down` — the images, the pin and the files stay | stop **and disable** the unit (root) |
+| Command | What it does |
+| --- | --- |
+| `deploy <version>` | pull → pin → `up -d` → wait → `deploys.log` |
+| `export` | push the ops repo, upload `infra/<slug>/` → the box |
+| `import` | pull the box's runtime back into the ops checkout, show the drift |
+| `status` | the pin, `docker compose ps`, the last deploys |
+| `logs [-f]` | the bot's log (`docker compose logs bot`) |
+| `restart` | `up -d --force-recreate` + the same wait (an edited `.env` or compose file takes effect) |
+| `start` / `stop` | `up -d` + wait / `docker compose stop` |
+| `ssh` | interactive shell on the box (deployer) |
+| `down` | `docker compose down` — the images, the pin and the files stay |
 
-## Moving an installation from systemd to compose
+## Moving an installation from the systemd deploy of v0.43.0 or earlier
 
-Done once per installation, as a checklist; the way back stays open until the last step.
+Done once per installation, as a checklist. There is no way back: v0.43.0 is the last release whose tooling
+installs or deploys the unit, and `RUNTIME=systemd` in `deploy.env` is refused since, pointing here.
 
-1. With `RUNTIME` still `systemd`: `npm run ops -- <slug> down` stops and disables the bot's unit. A
-   sources daemon unit, installed by hand, is stopped and disabled the same way (`systemctl disable --now
-   <service>-sources-daemon`, as root).
-2. In `deploy.env`: `RUNTIME=compose`, `CANARY=1` on the canary installation, `DAEMON_LISTEN=…` where the
+1. As root on the box: stop and disable the bot's unit and, where one ran, the sources daemon's
+   (`systemctl disable --now <service> <service>-sources-daemon`), then remove the unit files and
+   `/etc/sudoers.d/<service>`. The compose deploy refuses while the bot's unit is still active.
+2. In `deploy.env`: drop `RUNTIME`, set `CANARY=1` on the canary installation, `DAEMON_LISTEN=…` where the
    box ran the daemon. Then `install`, then `deploy <version>` with the version the box ran: the commit's
-   `sha-<commit>` on the canary, the release tag on prod. The state (`state.json`, the journals, `data/`)
-   is where it was, now mounted into the containers.
+   `sha-<commit>` on the canary, the release tag on prod (v0.43.0 is the first tag with an image). The state
+   (`state.json`, the journals, `data/`) is where it was, now mounted into the containers.
 3. The crontab: the mirror job becomes `*/30 * * * * cd REMOTE_DIR/compose && docker compose --progress quiet run --rm --no-deps bot mirror >> REMOTE_DIR/mirrors/mirror.log 2>&1`
    (every run uses the pinned version; `--progress quiet` keeps compose's container lines out of the log).
-4. When you are happy: remove the old code from `REMOTE_DIR`. The list is the product's top-level names,
-   `node_modules` and `.release` — never configuration or state:
+4. Remove the old code from `REMOTE_DIR`. The list is the product's top-level names, `node_modules` and the
+   `.release` marker the tar deploy wrote — never configuration or state:
 
    ```bash
    cd REMOTE_DIR && rm -rf .claude .dockerignore .env.example .github .gitignore .gitleaks.toml .nvmrc \
@@ -162,13 +158,7 @@ Done once per installation, as a checklist; the way back stays open until the la
    Afterwards `ls -a` shows the configuration (`.env`, the key, `projects.config.json`, `projects.d/`,
    `mirrors.json`, `hub.peers.json`), the state (`state.json`, `queue.jsonl`, `usage/`, `drafts/`, `facts/`,
    `memory/`, `feedback/`, `events/`, `shadow/`, `data/`, `mirrors/`), `compose/` and `deploys.log`. Anything
-   else is a leftover of an earlier tar deploy and can go by hand. The old sudoers rule
-   (`/etc/sudoers.d/<service>`) is harmless; remove it with the unit file when you remove the code.
-
-**Back, before step 4:** `npm run ops -- <slug> down` removes the containers; `systemctl enable --now
-<service>` as root starts the unit on the code still in the directory, with the same state (the compose
-deploy refuses while that unit is active, so the two never share the ports). After step 4: `RUNTIME=systemd`
-and a tar deploy from a clean checkout, while that path exists.
+   else is a leftover of an earlier tar deploy and can go by hand, as can the Node.js the box no longer needs.
 
 ## Releases (CI/CD)
 
@@ -184,7 +174,7 @@ Two repositories, two jobs:
 - **Your ops repo deploys.** [`ops.example/workflows/deploy.yml`](ops.example/workflows/deploy.yml)
   is the whole deploy workflow: by hand with a version (`workflow_dispatch`) — the normal path — or
   on that dispatch, it checks out itself and this repo at the version beside it, installs its own deployer
-  key and runs `deploy.sh <slug> deploy <version>`, reading the target and the runtime from its own
+  key and runs `deploy.sh <slug> deploy <version>`, reading the target from its own
   `deploy.env`. `vX.Y.Z` only, plus `sha-<commit>` on the installation whose `deploy.env` says `CANARY=1`
   — a branch or `latest` is refused. Deploys are queued, never overlapped. Rollback = deploy the previous
   version.
@@ -269,23 +259,3 @@ don't rely on it here (the compose file mounts the file read-only when the box h
   if you need a backup.
 - No isolation of the bot from its box: the containers run as the deployer with host networking and the
   deployer's home, as the service did. Hardening is a later change.
-
-## The systemd runtime (legacy)
-
-`RUNTIME=systemd`, the default while installations move. The code is tarred up from this checkout
-(tracked and untracked files alike — deploy from a clean clone), `npm ci` runs on the box, and one Node
-process runs under `/etc/systemd/system/<service>.service` as the deployer with `WorkingDirectory=REMOTE_DIR`;
-`tsx` is a Node `--import` loader, so the unit's main PID is `node` and systemd's SIGTERM reaches the app
-directly. Needs Node 24 + git on the box, and `root@<host>` for `install` (the unit, a sudoers rule for the
-three `systemctl` verbs on the unit, the journal-read group).
-
-```bash
-npm run ops -- <slug> install   # root: REMOTE_DIR + systemd unit (enabled, not started) + sudoers + journal-read group
-npm run ops -- <slug> export    # push ops repo, upload → .env, GitHub App key, projects.config.json, projects.d/
-npm run ops -- <slug> deploy    # upload code, npm ci, restart, health-check for the driver's line (warns only)
-```
-
-The health check only warns when the line does not come, so a failed deploy ends green; the sources daemon
-(`coach-aven-sources-daemon.service.tmpl`) is a second unit installed by hand from the same code, restarted
-by `deploy`; the mirror job is `node --import tsx scripts/mirror.ts` from `REMOTE_DIR` in the deployer's
-crontab. A later change retires this path once every installation runs compose.

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { mirrorsPath, parseMirrors } from './mirrors.js';
 
 test('parseMirrors: an array or {mirrors}, notes ignored; bad shapes fail with a path', () => {
@@ -25,11 +25,9 @@ test('mirrorsPath: MIRRORS_CONFIG, else mirrors.json — both against the instal
   assert.equal(mirrorsPath({ MIRRORS_CONFIG: '/etc/m.json' }, '/srv/aven'), '/etc/m.json');
 });
 
-test('orch mirror and scripts/mirror.ts are the same job: both entry points import runMirror from src/mirrorjob.ts (container-deploy D7)', () => {
+test('orch mirror is the one mirror job: src/cli.ts imports runMirror from src/mirrorjob.ts, and no second caller exists (container-deploy D7; the crontab caller retired with the systemd path)', () => {
   const cli = readFileSync(new URL('./cli.ts', import.meta.url), 'utf8');
-  const script = readFileSync(new URL('../scripts/mirror.ts', import.meta.url), 'utf8');
   assert.match(cli, /import \{ runMirror \} from '\.\/mirrorjob\.js';/);
   assert.match(cli, /\.command\('mirror'\)/);
-  assert.match(script, /import \{ runMirror \} from '\.\.\/src\/mirrorjob\.js';/);
-  assert.doesNotMatch(script, /process\.cwd\(\)|dotenv/, 'the script is a thin caller: the job resolves the list and the cache through the installation directory');
+  assert.equal(existsSync(new URL('../scripts/mirror.ts', import.meta.url)), false, 'the systemd crontab caller is gone: the compose crontab runs `bot mirror` from the image');
 });

@@ -5,12 +5,12 @@
 // unit and npm script runs today, so nothing moves until an installation sets it.
 //
 // Pure: the resolvers take the environment and are evaluated on first use, never at import time, so the
-// order in which modules load cannot matter, and a test can point them anywhere. Only the release marker
-// (`.release`) and the bot's own assets (fixtures, static files, workers) stay beside the code: they
-// describe the code, not the installation — `src/paths.test.ts` guards the distinction.
+// order in which modules load cannot matter, and a test can point them anywhere. Only the bot's own assets
+// (fixtures, static files, workers) are located beside the code: they ARE the code — `src/paths.test.ts`
+// guards the distinction.
 import { isAbsolute, resolve } from 'node:path';
 
-/** Where the code is: one level up from src/. The default installation directory, and the home of `.release`. */
+/** Where the code is: one level up from src/. The default installation directory. */
 export const PACKAGE_ROOT = new URL('../', import.meta.url).pathname.replace(/\/$/, '');
 
 type Env = Record<string, string | undefined>;

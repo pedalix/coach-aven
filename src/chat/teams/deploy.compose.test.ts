@@ -95,7 +95,7 @@ test('sha-<commit> deploys only with CANARY=1 in deploy.env', () => {
 test('while the systemd unit is active the deploy refuses, names the command that stops it, and touches nothing', () => {
   const r = runOnBox(script(['deploy', 'v1.4.0']).out, { FAKE_UNIT_ACTIVE: '1' });
   assert.equal(r.status, 1);
-  assert.match(r.out, /the systemd unit zz-svc\.service is active .* deploy\.sh zz-compose-test-\d+ down/);
+  assert.match(r.out, /the systemd unit zz-svc\.service is active .* systemctl disable --now zz-svc\.service/);
   assert.deepEqual(calls(), ['systemctl is-active --quiet zz-svc.service']);
   assert.ok(!existsSync(`${DIR}/compose/.env`) && !existsSync(`${DIR}/deploys.log`));
 });

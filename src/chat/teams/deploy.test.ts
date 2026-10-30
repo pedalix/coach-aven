@@ -1,5 +1,6 @@
-// The deploy tooling follows the overlay's CHAT_DRIVER: absent = today's Slack unit, byte for
-// byte; `teams` runs `orch teams`; an unknown driver is refused with the list.
+// The deploy tooling has one runtime (OpenSpec container-deploy; the systemd path retired with
+// retire-systemd-deploy): deploy.env's CHAT_DRIVER is the bot container's command, a leftover RUNTIME=compose is
+// accepted, RUNTIME=systemd refused, and the compose file renders from the overlay and what the box says.
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -11,50 +12,8 @@ const SLUG = `zz-deploy-test-${process.pid}`;
 const OVERLAY = `${ROOT}infra/${SLUG}`;
 const BASE = 'DEPLOY_HOST=h\nDEPLOY_USER=deployer\nROOT_USER=root\nREMOTE_DIR=/var/www/coach-aven\nSERVICE_NAME=coach-aven\n';
 
-function render(deployEnv: string): { out: string; status: number } {
-  writeFileSync(`${OVERLAY}/deploy.env`, deployEnv);
-  try {
-    return { out: execFileSync('bash', [`${ROOT}infra/deploy/deploy.sh`, SLUG, 'render-unit', '/usr/bin/node'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), status: 0 };
-  } catch (e) {
-    const err = e as { stdout?: string; stderr?: string; status?: number };
-    return { out: `${err.stdout ?? ''}${err.stderr ?? ''}`, status: err.status ?? 1 };
-  }
-}
-
 before(() => mkdirSync(OVERLAY, { recursive: true }));
 after(() => rmSync(OVERLAY, { recursive: true, force: true }));
-
-test('no CHAT_DRIVER renders the Slack unit exactly as the template with slack filled in', () => {
-  const { out, status } = render(BASE);
-  assert.equal(status, 0);
-  const expected = readFileSync(`${ROOT}infra/deploy/coach-aven.service.tmpl`, 'utf8')
-    .replaceAll('__USER__', 'deployer')
-    .replaceAll('__REMOTE_DIR__', '/var/www/coach-aven')
-    .replaceAll('__NODE__', '/usr/bin/node')
-    .replaceAll('__SERVICE__', 'coach-aven')
-    .replaceAll('__DRIVER__', 'slack');
-  assert.equal(out, expected);
-  assert.match(out, /^ExecStart=\/usr\/bin\/node --import tsx src\/cli\.ts slack$/m);
-});
-
-test('CHAT_DRIVER=teams runs orch teams', () => {
-  const { out, status } = render(`${BASE}CHAT_DRIVER=teams\n`);
-  assert.equal(status, 0);
-  assert.match(out, /^ExecStart=\/usr\/bin\/node --import tsx src\/cli\.ts teams$/m);
-  assert.match(out, /\(teams bot\)/);
-});
-
-test('CHAT_DRIVER=web runs orch web', () => {
-  const { out, status } = render(`${BASE}CHAT_DRIVER=web\n`);
-  assert.equal(status, 0);
-  assert.match(out, /^ExecStart=\/usr\/bin\/node --import tsx src\/cli\.ts web$/m);
-});
-
-test('an unknown driver is refused with the list of drivers', () => {
-  const { out, status } = render(`${BASE}CHAT_DRIVER=irc\n`);
-  assert.notEqual(status, 0);
-  assert.match(out, /CHAT_DRIVER must be one of: slack, teams, web/);
-});
 
 test('export and import carry hub.peers.json beside the projects config when present — never the private hub key', () => {
   writeFileSync(`${OVERLAY}/deploy.env`, BASE);
@@ -115,11 +74,25 @@ function composeConfigAccepts(yaml: string): void {
   execFileSync('docker', ['compose', '-f', `${dir}/compose.yaml`, 'config', '--quiet'], { cwd: dir, stdio: ['ignore', 'pipe', 'pipe'] });
 }
 
-test('RUNTIME: absent is systemd (every existing case unchanged); docker is refused naming both values', () => {
-  const { out, status } = render(`${BASE}RUNTIME=docker\n`);
+test('one runtime: no RUNTIME renders the compose file, a leftover RUNTIME=compose the same bytes; systemd is refused naming v0.43.0 and the checklist, docker naming compose (retire-systemd-deploy)', () => {
+  const plain = renderCompose(BASE, [...BOX, 'local', '999']);
+  assert.equal(plain.status, 0, plain.out);
+  assert.match(plain.out, /^  image: ghcr\.io\/pedalix\/coach-aven:\$\{AVEN_VERSION\}$/m);
+  assert.equal(renderCompose(COMPOSE, [...BOX, 'local', '999']).out, plain.out);
+  const systemd = renderCompose(`${BASE}RUNTIME=systemd\n`, [...BOX, 'local', '999']);
+  assert.notEqual(systemd.status, 0);
+  assert.match(systemd.out, /RUNTIME=systemd .*retired after v0\.43\.0 .*infra\/deploy\/README\.md/);
+  const docker = renderCompose(`${BASE}RUNTIME=docker\n`, [...BOX, 'local', '999']);
+  assert.notEqual(docker.status, 0);
+  assert.match(docker.out, /RUNTIME must be compose or absent \(got 'docker'/);
+});
+
+test('CHAT_DRIVER is the bot container’s command: absent = slack, web runs orch web; an unknown driver is refused with the list', () => {
+  assert.match(renderCompose(BASE, [...BOX, 'local', '999']).out, /^    command: \["slack"\]$/m);
+  assert.match(renderCompose(`${BASE}CHAT_DRIVER=web\n`, [...BOX, 'local', '999']).out, /^    command: \["web"\]$/m);
+  const { out, status } = renderCompose(`${BASE}CHAT_DRIVER=irc\n`, [...BOX, 'local', '999']);
   assert.notEqual(status, 0);
-  assert.match(out, /RUNTIME must be systemd or compose \(got 'docker'/);
-  assert.equal(render(`${BASE}RUNTIME=systemd\n`).out, render(BASE).out);
+  assert.match(out, /CHAT_DRIVER must be one of: slack, teams, web/);
 });
 
 test('compose, Slack by default with the sandboxes on the box’s own Docker: the deployer’s user and home, the directory as AVEN_DIR and working directory, host network, the socket and its group, no ssh keys, no daemon', () => {

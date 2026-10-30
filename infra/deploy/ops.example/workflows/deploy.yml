@@ -18,16 +18,13 @@ name: Deploy CoachAven release
 #            Only needed while the product repo is private to you (a fork of your own);
 #            without them the checkout uses the default token, which reads any public repo.
 #
-# The deploy target (host, users, remote dir, service name, runtime) is deploy.env in this repo —
-# tracked, so the run reads it from its own checkout; no DEPLOY_ENV secret.
+# The deploy target (host, users, remote dir, service name) is deploy.env in this repo — tracked, so the
+# run reads it from its own checkout; no DEPLOY_ENV secret.
 #
-# What runs: exactly the manual `npm run ops -- <slug> deploy <version>`, by the runtime deploy.env names
-# (OpenSpec container-deploy):
-#   compose — the box pulls ghcr.io/<owner>/coach-aven:<version>, pins it, `docker compose up -d`, waits for
-#     the driver's "bot running" line; nothing is uploaded from here. A version is vX.Y.Z, or sha-<commit>
-#     when deploy.env says CANARY=1 (the installation that runs main). Rollback = the earlier version.
-#   systemd — upload the product checkout (code only), `npm ci` on the box, restart the unit, wait for the
-#     line. Tags only.
+# What runs: exactly the manual `npm run ops -- <slug> deploy <version>` (OpenSpec container-deploy): the box
+# pulls ghcr.io/<owner>/coach-aven:<version>, pins it, `docker compose up -d`, waits for the driver's "bot
+# running" line; nothing is uploaded from here. A version is vX.Y.Z, or sha-<commit> when deploy.env says
+# CANARY=1 (the installation that runs main). Rollback = the earlier version.
 # It never touches the box's .env, App key, projects.config.json or state.json; those go up
 # with `npm run ops -- <slug> export` from your machine.
 
@@ -64,20 +61,18 @@ jobs:
         id: version
         run: |
           [[ "$OPS_SLUG" =~ ^[a-z0-9-]+$ ]] || { echo "set the repository variable OPS_SLUG to your installation's slug"; exit 1; }
-          # The runtime and the canary mark come from the tracked deploy.env, like the target.
+          # The canary mark comes from the tracked deploy.env, like the target.
           CANARY="$(sed -n 's/^CANARY=//p' overlay/deploy.env | tail -1)"
-          RUNTIME="$(sed -n 's/^RUNTIME=//p' overlay/deploy.env | tail -1)"
           if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             ref="refs/tags/$TAG"
           elif [[ "$TAG" =~ ^sha-[0-9a-f]{40}$ ]]; then
             [[ "$CANARY" == 1 ]] || { echo "refusing to deploy '$TAG': a main commit's image deploys only on a canary installation (CANARY=1 in deploy.env)"; exit 1; }
-            [[ "${RUNTIME:-systemd}" == compose ]] || { echo "refusing to deploy '$TAG': a commit's image needs RUNTIME=compose (the tar deploy takes tags only)"; exit 1; }
             ref="${TAG#sha-}"
           else
             echo "refusing to deploy '$TAG': a version is vX.Y.Z, or sha-<commit> on a canary — never a branch or latest"; exit 1
           fi
           echo "ref=$ref" >> "$GITHUB_OUTPUT"
-          echo "deploying $PRODUCT_REPO@$TAG to installation $OPS_SLUG (runtime ${RUNTIME:-systemd})"
+          echo "deploying $PRODUCT_REPO@$TAG to installation $OPS_SLUG"
       - name: Mint a read token for the product repo (only if it is private to you)
         if: env.HAS_APP == 'true'
         id: app
@@ -88,7 +83,7 @@ jobs:
           owner: pedalix
           repositories: coach-aven
           permission-contents: read
-      - name: Check out the product repo at the version (its deploy tooling; on a compose installation the box pulls the image)
+      - name: Check out the product repo at the version (its deploy tooling; the box pulls the image)
         uses: actions/checkout@v7
         with:
           repository: ${{ env.PRODUCT_REPO }}
@@ -105,10 +100,6 @@ jobs:
           KEY
           chmod 600 ~/.ssh/id_ed25519
       - name: Deploy
-        # RELEASE stamps the version on the systemd path so the error tracker tags issues with the release
-        # (the compose path pins it with the version).
-        env:
-          RELEASE: ${{ env.TAG }}
         run: |
           if [[ -f src/infra/deploy/deploy.sh ]]; then
             bash src/infra/deploy/deploy.sh "$OPS_SLUG" deploy "$TAG"

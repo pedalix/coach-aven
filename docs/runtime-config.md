@@ -108,13 +108,13 @@ overlay checkout with its two secret files in place is a complete installation d
 - **Relative path settings resolve against it**, never against the working directory: `PROJECTS_CONFIG_PATH`,
   `AVEN_DATA_DIR`, `MIRRORS_CONFIG`, `GITHUB_APP_PRIVATE_KEY_PATH`, `HUB_KEY_PATH`. An absolute value is used
   as it is. A path given on a command line keeps resolving against the shell's directory, as with any tool.
-- **It comes from the process environment only** — the unit, the compose file or the shell — and must be
+- **It comes from the process environment only** — the compose file or the shell — and must be
   absolute. It says where `.env` is, so `.env` cannot set it: a `.env` that does, or a relative value, stops
   the boot with one sentence naming the setting. The boot logs `installation directory: …` once, before the
   chat driver starts.
-- Only the release marker `.release` and the bot's own assets (fixtures, static files, workers) stay beside
-  the code; `src/paths.test.ts` fails the suite when code under `src/` locates a runtime file through its own
-  location or the working directory.
+- Only the bot's own assets (fixtures, static files, workers) are located beside the code; `src/paths.test.ts`
+  fails the suite when code under `src/` locates a runtime file through its own location or the working
+  directory. The error tracker's release is `SENTRY_RELEASE`, which the compose file sets from the pinned version.
 
 ## MCP gateway (per project)
 
@@ -185,13 +185,11 @@ token is minted from ONE installation, so they can't simply be listed in `repos[
 project lists the mirror. Upstream stays the source of truth — the project prompt tells the
 agent not to push or open PRs there.
 
-- **Where it runs:** the deployer's crontab on the prod box, every 30 min. On a compose installation —
+- **Where it runs:** the deployer's crontab on the prod box, every 30 min —
   `*/30 * * * * cd /var/www/coach-aven/compose && docker compose --progress quiet run --rm --no-deps bot mirror >> /var/www/coach-aven/mirrors/mirror.log 2>&1`
-  (the pinned version's image, with the bot's mounts and environment; `--progress quiet` keeps compose's container
-  lines out of the log); on the systemd path —
-  `*/30 * * * * cd /var/www/coach-aven && <node> --import tsx scripts/mirror.ts >> mirrors/mirror.log 2>&1`
-  (`scripts/mirror.ts` is a thin caller of the same job). Not GitHub Actions: the write side needs the App
-  key, which must not leave the box.
+  (`orch mirror` from the pinned version's image, with the bot's mounts and environment; `--progress quiet`
+  keeps compose's container lines out of the log). Not GitHub Actions: the write side needs the App key, which
+  must not leave the box.
 - **Credentials:** read = `MIRROR_SRC_<OWNER>` fine-grained PATs (Contents:read, that repo only)
   in the runtime `.env`; write = an App token minted per run, scoped to the one mirror repo with
   `contents` + `workflows` write. Failures go to Sentry (tag `mirror`) and `mirrors/mirror.log`.
