@@ -15,6 +15,11 @@ project, on hosts you own.**
 privileged container: [`docs/quickstart.md`](docs/quickstart.md). Clone, `./init.sh`, three values,
 `docker compose up -d`, and the agent answers in a web chat on `localhost` in about three minutes of machine time.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/web-thread-dark.png">
+  <img alt="A thread in the web chat: asked to make add() reject non-numbers, the agent shows the change, says what its tests cover and links the pull request it opened" src="docs/img/web-thread-light.png" width="800">
+</picture>
+
 **Built for** an agency or a small team that runs many client systems: one installation, one sandbox and one set of
 tools per client project, each client's work billed to a credit you choose. It grew up on Laravel projects (Sail runs
 inside the sandbox), YouTrack and Grafana, and runs any stack whose tools fit in a container.
