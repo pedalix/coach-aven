@@ -5,7 +5,7 @@ does; it shares fine with other services). One installation = one **ops repo** c
 `infra/<slug>/` (below); every command here names that slug. Where *your* box is, who runs on
 it and what it talks to belongs in that repo, not in this file.
 
-One runtime (OpenSpec `container-deploy`; the systemd path retired after v0.43.0, OpenSpec
+One runtime (OpenSpec `container-deploy`; the systemd path retired after v0.44.0, OpenSpec
 `retire-systemd-deploy`): the bot is the published image, `ghcr.io/<owner>/coach-aven` (*Images*, below), run by
 `docker compose` in `REMOTE_DIR/compose/` as the deployer. A deploy names a version — `deploy.sh <slug> deploy
 v1.4.0` — and uploads nothing: the box pulls the image, pins the version in a two-line file, starts the containers
@@ -131,9 +131,9 @@ All take the slug first: `npm run ops -- <slug> <command>` (no slug → the help
 | `ssh` | interactive shell on the box (deployer) |
 | `down` | `docker compose down` — the images, the pin and the files stay |
 
-## Moving an installation from the systemd deploy of v0.43.0 or earlier
+## Moving an installation from the systemd deploy of v0.44.0 or earlier
 
-Done once per installation, as a checklist. There is no way back: v0.43.0 is the last release whose tooling
+Done once per installation, as a checklist. There is no way back: v0.44.0 is the last release whose tooling
 installs or deploys the unit, and `RUNTIME=systemd` in `deploy.env` is refused since, pointing here.
 
 1. As root on the box: stop and disable the bot's unit and, where one ran, the sources daemon's

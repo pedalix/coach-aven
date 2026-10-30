@@ -40,7 +40,7 @@
 # Update code:      deploy <version>
 # Rotate secrets:   export → restart
 # Sync from box:    import   (pull the box's runtime back into infra/<slug>/)
-# An installation still on the systemd deploy of v0.43.0 or earlier moves with the checklist in
+# An installation still on the systemd deploy of v0.44.0 or earlier moves with the checklist in
 # infra/deploy/README.md; this script no longer installs or deploys that path (OpenSpec retire-systemd-deploy).
 #
 # Config: infra/<slug>/deploy.env (DEPLOY_HOST, DEPLOY_USER, ROOT_USER, REMOTE_DIR, SERVICE_NAME; optional
@@ -119,10 +119,10 @@ load_env() {
   esac
   # One runtime: the published image under docker compose (OpenSpec container-deploy). RUNTIME is retired
   # (retire-systemd-deploy): a leftover `RUNTIME=compose` is accepted; `systemd` names the path that left with
-  # v0.43.0 — an installation still on it moves with the checklist in infra/deploy/README.md.
+  # v0.44.0 — an installation still on it moves with the checklist in infra/deploy/README.md.
   case "${RUNTIME:-compose}" in
     compose) ;;
-    systemd) die "RUNTIME=systemd in $ENV_FILE: the systemd unit and the tar deploy retired after v0.43.0 (OpenSpec retire-systemd-deploy) — move the installation with the checklist in infra/deploy/README.md, then drop the line" ;;
+    systemd) die "RUNTIME=systemd in $ENV_FILE: the systemd unit and the tar deploy retired after v0.44.0 (OpenSpec retire-systemd-deploy) — move the installation with the checklist in infra/deploy/README.md, then drop the line" ;;
     *) die "RUNTIME must be compose or absent (got '$RUNTIME' in $ENV_FILE)" ;;
   esac
   # CANARY=1 marks the installation that runs main: only it accepts a commit's image (sha-<commit>).
