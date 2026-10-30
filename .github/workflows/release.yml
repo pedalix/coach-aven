@@ -133,7 +133,9 @@ jobs:
 
   release:
     needs: promote
-    if: startsWith(github.ref, 'refs/tags/')
+    # After promote, which runs when image-build was skipped (the image existed): without !cancelled() GitHub
+    # would skip this job too, because a skipped job anywhere in its needs chain skips it (v0.43.0's run did).
+    if: ${{ !cancelled() && needs.promote.result == 'success' && startsWith(github.ref, 'refs/tags/') }}
     runs-on: ubuntu-latest
     permissions:
       contents: write

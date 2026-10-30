@@ -186,8 +186,9 @@ project lists the mirror. Upstream stays the source of truth — the project pro
 agent not to push or open PRs there.
 
 - **Where it runs:** the deployer's crontab on the prod box, every 30 min. On a compose installation —
-  `*/30 * * * * cd /var/www/coach-aven/compose && docker compose run --rm --no-deps bot mirror >> /var/www/coach-aven/mirrors/mirror.log 2>&1`
-  (the pinned version's image, with the bot's mounts and environment); on the systemd path —
+  `*/30 * * * * cd /var/www/coach-aven/compose && docker compose --progress quiet run --rm --no-deps bot mirror >> /var/www/coach-aven/mirrors/mirror.log 2>&1`
+  (the pinned version's image, with the bot's mounts and environment; `--progress quiet` keeps compose's container
+  lines out of the log); on the systemd path —
   `*/30 * * * * cd /var/www/coach-aven && <node> --import tsx scripts/mirror.ts >> mirrors/mirror.log 2>&1`
   (`scripts/mirror.ts` is a thin caller of the same job). Not GitHub Actions: the write side needs the App
   key, which must not leave the box.
