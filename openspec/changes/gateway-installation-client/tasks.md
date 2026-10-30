@@ -21,7 +21,7 @@
 - [x] 4.3 The public `.claude/skills/manage-project/SKILL.md`: a new gateway project gets an `oauth` entry (`tokenUrl` + `audience` = its route URL) and no per-project env when the installation pair is set; the slug row's env names; the `.env` step. Verify: read-through against 4.1; `public-guard.sh` clean.
 - [x] 4.4 The `CLAUDE.md` pointer for `src/gwtoken.ts`: one installation pair, any RFC 6749 server via `oauth` (Auth0 included), the Auth0-specific path deprecated. Verify: the diff.
 - [x] 4.5 Ledger row in `docs/rollout.md`: "One gateway client per installation (`GATEWAY_OAUTH_ID` / `_SECRET`, a project's own pair wins), projects on it must ask distinct token requests (load error), Auth0 through the standard `oauth` path, the path without `oauth` deprecated (load warning) (OpenSpec `gateway-installation-client`)"; gate "bucket 2 — the installation pair in `.env` (none set); tests 1.1 pin today's shapes"; watch: "prod logs the deprecation warning from the tag on; after its move (task 5.2) one mint per route on the first turn, no gateway error, no warning; the removal of the Auth0-specific path is a later change". No Slack surface changes, so no Home tab update. Verify: the row is in the PR diff.
-- [ ] 4.6 `npm run typecheck && npm test`, then the PR titled "One gateway client per installation; Auth0 through the standard OAuth path", label `feature`, the body naming bucket 2, the gate and the ledger row. Verify: CI green.
+- [x] 4.6 `npm run typecheck && npm test`, then the PR titled "One gateway client per installation; Auth0 through the standard OAuth path", label `feature`, the body naming bucket 2, the gate and the ledger row. Verify: CI green.
 
 ## 5. Canary and the prod move (after merge)
 
