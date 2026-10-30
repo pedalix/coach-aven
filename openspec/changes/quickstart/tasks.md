@@ -173,9 +173,15 @@
   - docs: `docs/quickstart.md`, `snapshot/README.md`, the header of `build-and-push.sh`.
 
   Verify: `src/quickstart.test.ts` (one version names both images, nothing built, the override written), shellcheck.
-- [ ] 6.3 The package `coach-aven-sandbox-plain` is public after its first publish. Verify: `docker pull` without a login.
-- [ ] 6.4 The rehearsal again on the published image (as 5.2). Verify:
+- [x] 6.3 The package `coach-aven-sandbox-plain` is public after its first publish. Verify: `docker pull` without a login.
+- [x] 6.4 The rehearsal again on the published image (as 5.2). Verify:
   - `init.sh` pulls both images;
   - `docker compose run --rm setup-token` reaches the paste prompt;
   - the first answer comes;
   - the page's times are updated.
+  *Done 2026-10-30 on `sha-b85e606`, in a fresh `docker:dind`:*
+  - 4 s clone; 115 s `init.sh`, both images from an empty cache;
+  - `docker compose run --rm setup-token` reaches the paste prompt in 4 s;
+  - 3 s `up`, 22 s to the first answer;
+  - the sandbox ran `ghcr.io/pedalix/coach-aven-sandbox-plain:sha-b85e606…`, unprivileged, with no pull during the turn;
+  - the package pulls anonymously (6.3: manifest 200 without a login).
