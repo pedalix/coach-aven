@@ -99,21 +99,21 @@ export function homePage(content: Html): Html {
 }
 
 export function loginPage(error?: string): Html {
-  return h`<section class="login"><h1>Aven</h1><p>Sign in to reach your projects' agent.</p>${error ? h`<p class="error">${error}</p>` : ''}<p><a class="btn primary" href="/login">Sign in</a></p></section>`;
+  return h`<section class="login"><h1>CoachAven</h1><p>Sign in to reach your projects' agent.</p>${error ? h`<p class="error">${error}</p>` : ''}<p><a class="btn primary" href="/login">Sign in</a></p></section>`;
 }
 
 /** WEB_AUTH=link without the key: where the sign-in link is (the quickstart's bot prints it at every boot). */
 export function linkLoginPage(): Html {
-  return h`<section class="login"><h1>Aven</h1><p>Open the sign-in link from the bot's log — it changes at every start:</p><p><code>docker compose logs bot | grep sign-in | tail -n 1</code></p></section>`;
+  return h`<section class="login"><h1>CoachAven</h1><p>Open the sign-in link from the bot's log — it changes at every start:</p><p><code>docker compose logs bot | grep sign-in | tail -n 1</code></p></section>`;
 }
 
 export function signedOutPage(): Html {
-  return h`<section class="login"><h1>Aven</h1><p>You are signed out.</p><p><a class="btn primary" href="/login">Sign in again</a></p></section>`;
+  return h`<section class="login"><h1>CoachAven</h1><p>You are signed out.</p><p><a class="btn primary" href="/login">Sign in again</a></p></section>`;
 }
 
 /** The hand-off to the identity provider's sign-out (the layout's refresh does the moving; the link is for a browser that waits). */
 export function signingOutPage(endSessionUrl: string): Html {
-  return h`<section class="login"><h1>Aven</h1><p>Signing you out…</p><p><a class="btn primary" href="${endSessionUrl}">Continue</a></p></section>`;
+  return h`<section class="login"><h1>CoachAven</h1><p>Signing you out…</p><p><a class="btn primary" href="${endSessionUrl}">Continue</a></p></section>`;
 }
 
 /** Denied people hold no session of ours: the way out is the provider's sign-out, to come back as someone else. */
@@ -125,7 +125,7 @@ export function deniedPage(email: string | undefined): Html {
 export function layout(shell: Shell, content: Html): string {
   const v = shell.viewer;
   const nav = v
-    ? h`<nav class="side"><a class="brand" href="/">Aven</a><h2>Rooms</h2><ul>${shell.projects.map((p) => h`<li><a href="/r/${encodeURIComponent(p.slug)}" data-conv="${roomConv(p.slug)}" data-last="${shell.activity?.[roomConv(p.slug)] ?? ''}"${shell.active?.slug === p.slug && shell.active.kind === 'room' ? ' class="active"' : ''}>#${p.slug}</a></li>`)}</ul><h2>Private</h2><ul>${shell.projects.map((p) => h`<li><a href="/p/${encodeURIComponent(p.slug)}" data-conv="${privateConv(v.user, p.slug)}" data-last="${shell.activity?.[privateConv(v.user, p.slug)] ?? ''}"${shell.active?.slug === p.slug && shell.active.kind === 'private' ? ' class="active"' : ''}>🔒 ${p.slug}</a></li>`)}</ul></nav>`
+    ? h`<nav class="side"><a class="brand" href="/">CoachAven</a><h2>Rooms</h2><ul>${shell.projects.map((p) => h`<li><a href="/r/${encodeURIComponent(p.slug)}" data-conv="${roomConv(p.slug)}" data-last="${shell.activity?.[roomConv(p.slug)] ?? ''}"${shell.active?.slug === p.slug && shell.active.kind === 'room' ? ' class="active"' : ''}>#${p.slug}</a></li>`)}</ul><h2>Private</h2><ul>${shell.projects.map((p) => h`<li><a href="/p/${encodeURIComponent(p.slug)}" data-conv="${privateConv(v.user, p.slug)}" data-last="${shell.activity?.[privateConv(v.user, p.slug)] ?? ''}"${shell.active?.slug === p.slug && shell.active.kind === 'private' ? ' class="active"' : ''}>🔒 ${p.slug}</a></li>`)}</ul></nav>`
     : raw('');
   const head = v
     ? h`<header class="top"><button type="button" class="btn small" id="notify" title="Browser notifications for answers while this tab is in the background">🔔 Notify</button><span class="viewer">${v.name ?? v.user}</span><form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="${v.csrf}"><button type="submit" class="btn small">Sign out</button></form></header>`
@@ -136,7 +136,7 @@ export function layout(shell: Shell, content: Html): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${h`${shell.title}`.html} · Aven</title>
+<title>${h`${shell.title}`.html} · CoachAven</title>
 ${v ? h`<meta name="csrf" content="${v.csrf}">`.html : ''}
 ${streamUrl ? h`<meta name="stream" content="${streamUrl}">`.html : ''}
 ${shell.verbs?.length ? h`<meta name="verbs" content="${shell.verbs.join(' ')}">`.html : ''}
