@@ -11,3 +11,8 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # The base stays on the Node line the boxes run and CI tests (24): no major bumps; minor, patch and
+    # digest bumps of every image in the Dockerfile are welcome.
+    ignore:
+      - dependency-name: node
+        update-types: ["version-update:semver-major"]

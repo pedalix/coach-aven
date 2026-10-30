@@ -147,8 +147,8 @@ Done once per installation, as a checklist; the way back stays open until the la
    box ran the daemon. Then `install`, then `deploy <version>` with the version the box ran: the commit's
    `sha-<commit>` on the canary, the release tag on prod. The state (`state.json`, the journals, `data/`)
    is where it was, now mounted into the containers.
-3. The crontab: the mirror job becomes `*/30 * * * * cd REMOTE_DIR/compose && docker compose run --rm --no-deps bot mirror >> REMOTE_DIR/mirrors/mirror.log 2>&1`
-   (every run uses the pinned version).
+3. The crontab: the mirror job becomes `*/30 * * * * cd REMOTE_DIR/compose && docker compose --progress quiet run --rm --no-deps bot mirror >> REMOTE_DIR/mirrors/mirror.log 2>&1`
+   (every run uses the pinned version; `--progress quiet` keeps compose's container lines out of the log).
 4. When you are happy: remove the old code from `REMOTE_DIR`. The list is the product's top-level names,
    `node_modules` and `.release` — never configuration or state:
 
