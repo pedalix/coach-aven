@@ -186,21 +186,16 @@ bot asks for its token:
   the route policy by **the route's own scope** (`jwt.scope` contains `gw-<slug>/bot`). With one installation
   client, `jwt.client_id` alone no longer tells the projects apart; check it in addition if you like.
 
-### Deprecated: an entry without `oauth`
+### Upgrading from an entry without `oauth`
 
-A `gateway-m2m` entry without `oauth` still mints with the Auth0-specific request — a JSON body with `audience` =
-the entry's `url`, credentials `AUTH0_M2M_TOKEN_URL` + `AUTH0_M2M_<SLUG>_ID/_SECRET` — and every config load logs
-one warning naming the projects still on it. A later release removes it. Moving an installation off it:
+Until v0.44.0 a `gateway-m2m` entry without `oauth` minted with an Auth0-specific request (a JSON body,
+`AUTH0_M2M_TOKEN_URL` + `AUTH0_M2M_<SLUG>_ID/_SECRET`). That request is gone: such an entry now fails the config
+load, naming the projects. To move an installation:
 
 1. Every gateway entry gets `"oauth": { "tokenUrl": "<the value of AUTH0_M2M_TOKEN_URL>", "audience": "<the entry's url>" }`.
 2. `.env`: `GATEWAY_OAUTH_ID` / `GATEWAY_OAUTH_SECRET` = the bot client (when all projects use one), or a
-   `GATEWAY_OAUTH_<SLUG>_*` pair per project. Keep the `AUTH0_M2M_*` lines for now.
-3. `npm run ops -- <slug> export`, then `restart` (the env is read at boot). The boot logs no deprecation warning;
-   each project's next turn mints once.
-4. Once every project has had a turn without a gateway error, remove the `AUTH0_M2M_*` lines.
-
-Rolling that back: remove the `oauth` objects, `export`, `restart` — the `AUTH0_M2M_*` lines are still there until
-step 4.
+   `GATEWAY_OAUTH_<SLUG>_*` pair per project; the `AUTH0_M2M_*` lines can go (nothing reads them).
+3. `npm run ops -- <slug> export`, then `restart` (the env is read at boot); each project's next turn mints once.
 
 **Rollback of the gateway itself** (one edit): in `projects.config.json` move the project's `mcpDirectBackup` list back
 to `mcp` (a project may keep its pre-gateway list there), `npm run ops -- <slug> export`, `/aven reload`; running

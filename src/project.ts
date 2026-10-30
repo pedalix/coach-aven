@@ -189,7 +189,8 @@ export async function seedMcpConfig(
 // always holds a token inside its refresh margin (gwtoken.ts: under min(1 h, half its
 // lifetime) it is replaced); a long-lived claude that hits 401 re-runs the helper and reads the
 // fresh file. The client SECRET never enters the sandbox — only the short-lived token does. The
-// registry gets the whole entry (its url, and its `oauth` request when set) and picks the mint.
+// registry gets the entry's url and its `oauth` request (always present: the load refuses a
+// gateway entry without it).
 // A mint failure is reported and the turn goes on without gateway tools rather than failing the
 // whole turn.
 export async function seedGatewayAuth(
@@ -198,14 +199,14 @@ export async function seedGatewayAuth(
   mcp: McpServerSpec[] | undefined,
   tokens: { get(slug: string, target: GatewayTarget): Promise<string> } = gatewayTokens,
 ): Promise<void> {
-  const specs = (mcp ?? []).filter((s) => s.auth === 'gateway-m2m' && s.url);
+  const specs = (mcp ?? []).filter((s) => s.auth === 'gateway-m2m' && s.url && s.oauth);
   if (!specs.length) return;
   await sandbox.exec(`mkdir -p ${GATEWAY_DIR} && chmod 700 ${GATEWAY_DIR}`, { check: true });
   await sandbox.uploadFile(Buffer.from(GATEWAY_HELPER_SCRIPT), GATEWAY_HELPER_PATH);
   await sandbox.exec(`chmod 700 ${GATEWAY_HELPER_PATH}`, { check: true });
   for (const s of specs) {
     try {
-      const token = await tokens.get(slug, { url: s.url!, ...(s.oauth ? { oauth: s.oauth } : {}) });
+      const token = await tokens.get(slug, { url: s.url!, oauth: s.oauth! });
       await sandbox.uploadFile(Buffer.from(token), gatewayTokenPath(s.name));
       await sandbox.exec(`chmod 600 ${gatewayTokenPath(s.name)}`, { check: true });
     } catch (e) {

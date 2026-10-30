@@ -3,20 +3,17 @@
 // The bot reaches a project's gateway route as a machine identity, a client at the
 // installation's identity provider, with one token PER ROUTE: the token proves "this is the
 // <slug> bot" to the gateway (its `aud` or its scope names the route), whose route policy decides
-// what it may do. Two ways to ask for it, chosen per mcp entry:
-//   - an `oauth` object (OpenSpec `gateway-oauth-client-credentials`) — THE path: the standard
-//     RFC 6749 §4.4 request any OAuth server takes: a form body, HTTP Basic (or `post`) client
-//     authentication, `scope` / `audience` / `resource` as configured. Cognito: a `scope` per
-//     route, tokens without `aud` (fine, the bot never reads a token). Auth0: `audience` = the
-//     route URL (Auth0 refuses `resource` on client credentials). Credentials: the project's
-//     GATEWAY_OAUTH_<SLUG>_* pair, or else the installation's ONE pair GATEWAY_OAUTH_ID / _SECRET
-//     (OpenSpec `gateway-installation-client`): a client per project buys no isolation — every
-//     secret sits in this one process's env — the per-route token does. That is also why two
-//     projects on the installation pair must not ask the same token request (sharedTokenRequests,
-//     checked at config load).
-//   - no `oauth` object: DEPRECATED (a warning at config load), Auth0's JSON request with
-//     `audience` = the entry's URL, credentials AUTH0_M2M_* — byte for byte as it always was
-//     (pinned by a test) until a later change removes it.
+// what it may do. One way to ask for it, whatever the provider: the entry's `oauth` object
+// (OpenSpec `gateway-auth`) — the standard RFC 6749 §4.4 request: a form body, HTTP Basic (or
+// `post`) client authentication, `scope` / `audience` / `resource` as configured. Cognito: a
+// `scope` per route, tokens without `aud` (fine, the bot never reads a token). Auth0: `audience`
+// = the route URL (Auth0 refuses `resource` on client credentials). Credentials: the project's
+// GATEWAY_OAUTH_<SLUG>_* pair, or else the installation's ONE pair GATEWAY_OAUTH_ID / _SECRET: a
+// client per project buys no isolation — every secret sits in this one process's env — the
+// per-route token does. That is also why two projects on the installation pair must not ask the
+// same token request (sharedTokenRequests, checked at config load), and why a gateway entry
+// without `oauth` fails the load (the Auth0-specific request it used to select is gone, OpenSpec
+// `retire-auth0-gateway-path`).
 //
 // Why a cache, and why here in the orchestrator: providers bill or cap mints (Auth0 Free: 1000
 // M2M tokens a month for the whole tenant), and the sandbox must never see the client secret.
@@ -62,53 +59,11 @@ export function createTokenCache(mint: MintFn, now: () => number = Date.now) {
   };
 }
 
-// Env names of a project's M2M client: AUTH0_M2M_<SLUG>_ID / _SECRET (slug upper-cased,
-// dashes → underscores — the bluefin-infra Terraform output naming).
-export function m2mEnvNames(slug: string): { id: string; secret: string } {
-  const s = slug.toUpperCase().replace(/[^A-Z0-9]/g, '_');
-  return { id: `AUTH0_M2M_${s}_ID`, secret: `AUTH0_M2M_${s}_SECRET` };
-}
-
-export interface M2mConfig {
-  tokenUrl: string; // https://<tenant>/oauth/token
-  clientId: string;
-  clientSecret: string;
-  audience: string; // the gateway route URL
-}
-
-// One client-credentials request. Errors carry the Auth0 error code only — never the body,
-// which could echo the client id.
-export function auth0Mint(c: M2mConfig, fetchFn: typeof fetch = fetch, now: () => number = Date.now): MintFn {
-  return async () => {
-    const res = await fetchFn(c.tokenUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        grant_type: 'client_credentials',
-        client_id: c.clientId,
-        client_secret: c.clientSecret,
-        audience: c.audience,
-      }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    const body = (await res.json().catch(() => ({}))) as {
-      access_token?: string;
-      expires_in?: number;
-      error?: string;
-    };
-    if (!res.ok || !body.access_token) {
-      const code = typeof body.error === 'string' && /^[a-z_]{1,64}$/.test(body.error) ? body.error : 'no_token';
-      throw new Error(`Auth0 M2M token request failed (${res.status} ${code}) for ${c.audience}`);
-    }
-    const ttl = typeof body.expires_in === 'number' && body.expires_in > 0 ? body.expires_in : 3600;
-    return { accessToken: body.access_token, expiresAt: now() + ttl * 1000 };
-  };
-}
-
-// ── The provider-neutral path: an `oauth` object on the gateway entry ─────────────────────
+// ── The `oauth` object on a gateway entry ──────────────────────────────────────────────────
 
 // The non-secret half of a project's gateway client, as projects.config.json carries it on a
-// `gateway-m2m` mcp entry. The secret half never sits here: GATEWAY_OAUTH_<SLUG>_ID / _SECRET.
+// `gateway-m2m` mcp entry. The secret half never sits here: GATEWAY_OAUTH_<SLUG>_ID / _SECRET, or the
+// installation's GATEWAY_OAUTH_ID / _SECRET.
 export interface GatewayOAuth {
   tokenUrl: string; // https only
   scope?: string; // RFC 6749 §3.3, space-delimited, sent as is (Cognito: <resource-server>/<scope>)
@@ -117,11 +72,11 @@ export interface GatewayOAuth {
   clientAuth?: 'basic' | 'post'; // RFC 6749 §2.3.1 HTTP Basic (default) or the body
 }
 
-// What a gateway entry asks the token registry for: the URL the sandbox connects to (the Auth0
-// path's audience) and, when set, the provider-neutral request.
+// What a gateway entry asks the token registry for: the URL the sandbox connects to (for the
+// messages only — the token is not bound to it) and the token request.
 export interface GatewayTarget {
   url: string;
-  oauth?: GatewayOAuth;
+  oauth: GatewayOAuth;
 }
 
 const OAUTH_FIELDS = new Set(['tokenUrl', 'scope', 'audience', 'resource', 'clientAuth']);
@@ -157,8 +112,8 @@ export function validateGatewayOAuth(raw: unknown, label: string): GatewayOAuth 
   return o as unknown as GatewayOAuth;
 }
 
-// Env names of a project's provider-neutral client: GATEWAY_OAUTH_<SLUG>_ID / _SECRET (the
-// m2mEnvNames mapping) — never under an AUTH0_ name, which would mislead whoever rotates it.
+// Env names of a project's own client: GATEWAY_OAUTH_<SLUG>_ID / _SECRET (slug upper-cased,
+// other characters → underscores).
 export function oauthEnvNames(slug: string): { id: string; secret: string } {
   const s = slug.toUpperCase().replace(/[^A-Z0-9]/g, '_');
   return { id: `GATEWAY_OAUTH_${s}_ID`, secret: `GATEWAY_OAUTH_${s}_SECRET` };
@@ -261,10 +216,8 @@ function oauthKey(slug: string, o: GatewayOAuth): string {
   return `${slug}|oauth|${oauthRequest(o)}`;
 }
 
-// Process-wide registry: one cache per (slug, token request). An entry without `oauth` keeps
-// today's key `${slug}|${url}` and today's env names; credentials are read from the env at
-// first use, so a missing pair fails loudly for that project only. The installation pair is
-// read for `oauth` entries only.
+// Process-wide registry: one cache per (slug, token request). Credentials are read from the env
+// at first use, so a missing pair fails loudly for that project only.
 export function createGatewayTokens(
   env: Record<string, string | undefined> = process.env,
   fetchFn: typeof fetch = fetch,
@@ -274,32 +227,13 @@ export function createGatewayTokens(
   return {
     get(slug: string, target: GatewayTarget): Promise<string> {
       const o = target.oauth;
-      if (o) {
-        const key = oauthKey(slug, o);
-        let cache = caches.get(key);
-        if (!cache) {
-          const cred = resolveOAuthCredentials(env, slug);
-          if ('error' in cred) return Promise.reject(new Error(cred.error));
-          const { clientId, clientSecret } = cred;
-          cache = createTokenCache(oauthMint({ ...o, slug, clientId, clientSecret }, fetchFn, now), now);
-          caches.set(key, cache);
-        }
-        return cache.get();
-      }
-      const audience = target.url;
-      const key = `${slug}|${audience}`;
+      const key = oauthKey(slug, o);
       let cache = caches.get(key);
       if (!cache) {
-        const names = m2mEnvNames(slug);
-        const clientId = env[names.id];
-        const clientSecret = env[names.secret];
-        const tokenUrl = env.AUTH0_M2M_TOKEN_URL;
-        if (!clientId || !clientSecret || !tokenUrl) {
-          return Promise.reject(
-            new Error(`gateway auth for ${slug} needs ${names.id}, ${names.secret} and AUTH0_M2M_TOKEN_URL in the env`),
-          );
-        }
-        cache = createTokenCache(auth0Mint({ tokenUrl, clientId, clientSecret, audience }, fetchFn, now), now);
+        const cred = resolveOAuthCredentials(env, slug);
+        if ('error' in cred) return Promise.reject(new Error(cred.error));
+        const { clientId, clientSecret } = cred;
+        cache = createTokenCache(oauthMint({ ...o, slug, clientId, clientSecret }, fetchFn, now), now);
         caches.set(key, cache);
       }
       return cache.get();
@@ -354,7 +288,7 @@ export function describeTokenRequest(o: GatewayOAuth): string {
   return parts.join(', ');
 }
 
-// Projects still on the deprecated path: a gateway entry without `oauth`.
+// Projects with a gateway entry without `oauth` — refused at config load.
 export function legacyGatewayProjects(projects: GatewayProjectView[]): string[] {
   return projects.filter((p) => (p.mcp ?? []).some((s) => s.auth === 'gateway-m2m' && !s.oauth)).map((p) => p.slug);
 }

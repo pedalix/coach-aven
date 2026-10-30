@@ -293,20 +293,6 @@ test('driver — "daytona", a typo or any other value fails the load naming the 
 
 const legacyGateway = (slug: string) => ({ slug, repos: [`Org/${slug}`], mcp: [{ name: 'gw', url: `https://gw.example/gw/${slug}/mcp`, auth: 'gateway-m2m' }] });
 
-// The bucket-2 pin (task 1.1 b), written against the code before the change: gateway entries
-// without `oauth` and no installation pair load to exactly the registry they loaded to before.
-test('gateway: entries without oauth and no installation pair load as before', () => {
-  withConfigDir((_dir, cfg) => {
-    writeFileSync(cfg, JSON.stringify({ projects: [legacyGateway('caldora'), legacyGateway('verdant')] }));
-    assert.deepEqual(loadProjects(cfg), {
-      projects: [
-        { slug: 'caldora', repos: ['Org/caldora'], mcp: [{ name: 'gw', url: 'https://gw.example/gw/caldora/mcp', auth: 'gateway-m2m' }] },
-        { slug: 'verdant', repos: ['Org/verdant'], mcp: [{ name: 'gw', url: 'https://gw.example/gw/verdant/mcp', auth: 'gateway-m2m' }] },
-      ],
-    });
-  });
-});
-
 const inst = { GATEWAY_OAUTH_ID: 'cid-inst', GATEWAY_OAUTH_SECRET: 'sec-inst' };
 const oauthGateway = (slug: string, audienceSlug = slug) => ({
   slug,
@@ -338,15 +324,14 @@ test('gateway: one audience per route on the installation client loads, with no 
   });
 });
 
-test('gateway: entries without oauth warn once, naming the projects and the replacement', (t) => {
+test('gateway: an entry without oauth fails the load, naming every such project and the replacement', () => {
   withConfigDir((_dir, cfg) => {
-    const warn = t.mock.method(log, 'warn', () => {});
     writeFileSync(cfg, JSON.stringify({ projects: [legacyGateway('caldora'), oauthGateway('alder'), legacyGateway('verdant')] }));
-    loadProjects(cfg, {});
-    assert.equal(warn.mock.callCount(), 1);
-    assert.match(
-      String(warn.mock.calls[0]!.arguments[0]),
-      /projects "caldora" and "verdant" reach the gateway with the deprecated Auth0-specific request .* "oauth" object with "tokenUrl" .* and "audience" \(its route URL\); see docs\/runtime-config\.md/,
+    assert.throws(
+      () => loadProjects(cfg, inst),
+      (e: Error) =>
+        e.message.includes(cfg) &&
+        /projects "caldora" and "verdant" have a gateway-m2m entry without "oauth" — the Auth0-specific token request it selected is removed; give each entry an "oauth" object with "tokenUrl" .* and "audience" \(its route URL\) or "scope" \(Cognito\)/.test(e.message),
     );
   });
 });

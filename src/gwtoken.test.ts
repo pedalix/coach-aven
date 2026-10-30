@@ -2,11 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   REFRESH_BEFORE_MS,
-  auth0Mint,
   avenSessionValue,
   createGatewayTokens,
   createTokenCache,
-  m2mEnvNames,
   describeTokenRequest,
   legacyGatewayProjects,
   oauthEnvNames,
@@ -60,104 +58,7 @@ test('createTokenCache: a failed mint is not cached — the next call retries', 
   assert.equal(await cache.get(), 'ok');
 });
 
-test('m2mEnvNames: upper-cases the slug and maps dashes to underscores', () => {
-  assert.deepEqual(m2mEnvNames('caldora'), { id: 'AUTH0_M2M_CALDORA_ID', secret: 'AUTH0_M2M_CALDORA_SECRET' });
-  assert.deepEqual(m2mEnvNames('holidayshop-hsx'), {
-    id: 'AUTH0_M2M_HOLIDAYSHOP_HSX_ID',
-    secret: 'AUTH0_M2M_HOLIDAYSHOP_HSX_SECRET',
-  });
-});
-
-function fakeFetch(status: number, body: unknown, seen?: { url?: string; body?: string }) {
-  return (async (url: string, init?: RequestInit) => {
-    if (seen) {
-      seen.url = url;
-      seen.body = String(init?.body);
-    }
-    return new Response(JSON.stringify(body), { status });
-  }) as unknown as typeof fetch;
-}
-
-test('auth0Mint: client_credentials with the audience; expiry from expires_in', async () => {
-  const seen: { url?: string; body?: string } = {};
-  const mint = auth0Mint(
-    { tokenUrl: 'https://t/oauth/token', clientId: 'cid', clientSecret: 'sec', audience: 'https://gw/x' },
-    fakeFetch(200, { access_token: 'AT', expires_in: 86400 }, seen),
-    () => 1000,
-  );
-  const t = await mint();
-  assert.equal(t.accessToken, 'AT');
-  assert.equal(t.expiresAt, 1000 + 86400_000);
-  assert.equal(seen.url, 'https://t/oauth/token');
-  const sent = JSON.parse(seen.body!);
-  assert.equal(sent.grant_type, 'client_credentials');
-  assert.equal(sent.audience, 'https://gw/x');
-});
-
-test('auth0Mint: an error response names the Auth0 code, never echoes the body', async () => {
-  const mint = auth0Mint(
-    { tokenUrl: 'https://t', clientId: 'cid', clientSecret: 'sec', audience: 'https://gw/x' },
-    fakeFetch(401, { error: 'access_denied', error_description: 'client cid is bad' }),
-  );
-  await assert.rejects(mint(), (e: Error) => /401 access_denied/.test(e.message) && !e.message.includes('cid is bad'));
-});
-
-test('createGatewayTokens: missing credentials fail for that project with the env names', async () => {
-  const tokens = createGatewayTokens({ AUTH0_M2M_TOKEN_URL: 'https://t' }, fakeFetch(200, {}));
-  await assert.rejects(tokens.get('caldora', { url: 'https://gw/caldora' }), /AUTH0_M2M_CALDORA_ID/);
-});
-
-test('createGatewayTokens: one cache per (slug, audience)', async () => {
-  let calls = 0;
-  const f = (async () => {
-    calls++;
-    return new Response(JSON.stringify({ access_token: `t${calls}`, expires_in: 86400 }), { status: 200 });
-  }) as unknown as typeof fetch;
-  const env = {
-    AUTH0_M2M_TOKEN_URL: 'https://t',
-    AUTH0_M2M_CALDORA_ID: 'a',
-    AUTH0_M2M_CALDORA_SECRET: 'b',
-  };
-  const tokens = createGatewayTokens(env, f);
-  assert.equal(await tokens.get('caldora', { url: 'https://gw/caldora' }), 't1');
-  assert.equal(await tokens.get('caldora', { url: 'https://gw/caldora' }), 't1');
-  assert.equal(calls, 1);
-});
-
-// The bucket-2 pin (OpenSpec gateway-oauth-client-credentials, task 1.1): an entry without
-// `oauth` must keep sending exactly today's Auth0 request — same URL, headers, JSON body, the
-// same three env names and the `${slug}|${url}` cache key. Written against the code before the
-// change; the request it asserts must never move.
-test('createGatewayTokens: an entry without oauth sends today\'s Auth0 request, byte for byte', async () => {
-  const read = new Set<string>();
-  const env = new Proxy(
-    {
-      AUTH0_M2M_TOKEN_URL: 'https://tenant.example/oauth/token',
-      AUTH0_M2M_CALDORA_ID: 'cid-1',
-      AUTH0_M2M_CALDORA_SECRET: 'sec-1',
-    } as Record<string, string | undefined>,
-    { get: (t, k: string) => (read.add(k), t[k]) },
-  );
-  const sent: { url: string; method?: string; headers: unknown; body: string }[] = [];
-  const f = (async (url: string, init?: RequestInit) => {
-    sent.push({ url, method: init?.method, headers: init?.headers, body: String(init?.body) });
-    return new Response(JSON.stringify({ access_token: 'AT', expires_in: 86400 }), { status: 200 });
-  }) as unknown as typeof fetch;
-  const tokens = createGatewayTokens(env, f);
-  const url = 'https://engine.example.com/gw/caldora/mcp';
-  assert.equal(await tokens.get('caldora', { url }), 'AT');
-  assert.equal(await tokens.get('caldora', { url }), 'AT', 'same slug + url → the cached token');
-  assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0], {
-    url: 'https://tenant.example/oauth/token',
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: '{"grant_type":"client_credentials","client_id":"cid-1","client_secret":"sec-1","audience":"https://engine.example.com/gw/caldora/mcp"}',
-  });
-  assert.deepEqual([...read].sort(), ['AUTH0_M2M_CALDORA_ID', 'AUTH0_M2M_CALDORA_SECRET', 'AUTH0_M2M_TOKEN_URL']);
-});
-
-// ── the provider-neutral path (an `oauth` object) ────────────────────────────────────────
+// ── the `oauth` request ────────────────────────────────────────
 
 test('createTokenCache: a one-hour token is reused at 40 min left and replaced under 30 min', async () => {
   let t = 0;
@@ -174,7 +75,7 @@ test('createTokenCache: a one-hour token is reused at 40 min left and replaced u
   assert.equal(mints, 2);
 });
 
-test('oauthEnvNames: GATEWAY_OAUTH_<SLUG>_ID / _SECRET, the m2mEnvNames mapping', () => {
+test('oauthEnvNames: GATEWAY_OAUTH_<SLUG>_ID / _SECRET, the slug upper-cased, other characters to underscores', () => {
   assert.deepEqual(oauthEnvNames('caldora'), { id: 'GATEWAY_OAUTH_CALDORA_ID', secret: 'GATEWAY_OAUTH_CALDORA_SECRET' });
   assert.deepEqual(oauthEnvNames('holidayshop-hsx'), {
     id: 'GATEWAY_OAUTH_HOLIDAYSHOP_HSX_ID',
@@ -364,14 +265,21 @@ test('createGatewayTokens: a half project pair rejects for that project and send
   assert.equal(seen.length, 0);
 });
 
-test('createGatewayTokens: an entry without oauth never uses the installation pair', async () => {
-  const seen: Seen[] = [];
-  const tokens = createGatewayTokens({ ...INST, AUTH0_M2M_TOKEN_URL: 'https://tenant.example/oauth/token' }, recordingFetch(200, { access_token: 'AT' }, seen));
-  await assert.rejects(
-    tokens.get('caldora', { url: 'https://gw.example/gw/caldora/mcp' }),
-    (e: Error) => e.message.includes('AUTH0_M2M_CALDORA_ID') && e.message.includes('AUTH0_M2M_CALDORA_SECRET') && !e.message.includes('GATEWAY_OAUTH'),
+// Leftover AUTH0_M2M_* lines (an installation that moved its entries but not its .env) change
+// nothing: the request is the oauth one, from the GATEWAY_OAUTH_* credentials (OpenSpec
+// retire-auth0-gateway-path).
+test('createGatewayTokens: leftover AUTH0_M2M_* variables are never read', async () => {
+  const read = new Set<string>();
+  const env = new Proxy(
+    { ...INST, AUTH0_M2M_TOKEN_URL: 'https://old.example/oauth/token', AUTH0_M2M_CALDORA_ID: 'cid-old', AUTH0_M2M_CALDORA_SECRET: 'sec-old' } as Record<string, string | undefined>,
+    { get: (t, k: string) => (read.add(k), t[k]) },
   );
-  assert.equal(seen.length, 0);
+  const seen: Seen[] = [];
+  const tokens = createGatewayTokens(env, recordingFetch(200, { access_token: 'AT', expires_in: 86400 }, seen));
+  assert.equal(await tokens.get('caldora', { url: 'https://gw.example/gw/caldora/mcp', oauth: OAUTH }), 'AT');
+  assert.equal(seen[0]!.url, OAUTH.tokenUrl);
+  assert.equal(basicUser(seen[0]!.headers), 'cid-inst:sec-inst');
+  assert.deepEqual([...read].filter((k) => k.startsWith('AUTH0')), []);
 });
 
 // ── the checks at config load ───────────────────────────────────────────────────────────

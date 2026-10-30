@@ -1,7 +1,7 @@
 # gateway-auth Specification
 
 ## Purpose
-How the bot obtains its machine token for a project's MCP gateway entry and hands only that token to the sandbox: the Auth0-compatible default, and a provider-neutral OAuth 2.0 client-credentials path selected per entry.
+How the bot obtains its machine token for a project's MCP gateway entry and hands only that token to the sandbox: one standard OAuth 2.0 client-credentials request for every identity provider (the entry's `oauth` object), one client pair per installation, one token per route.
 
 ## Requirements
 
