@@ -95,7 +95,9 @@ most of "tenancy" under a different name:
 **What is *global* (single-tenant) today:**
 
 - **Slack**: one app, one bot token + one app token, Socket Mode (`config.ts`, `slack.ts`).
-- **Claude**: one `CLAUDE_CODE_OAUTH_TOKEN` (one Claude Max subscription) for all projects.
+- **Claude**: one credit for all projects — `CLAUDE_CODE_OAUTH_TOKEN` (a Claude subscription) or
+  `ANTHROPIC_API_KEY` (an API key), exactly one (OpenSpec `model-credit`). A key per project or
+  tenant is a later step: the credit file and the command prefix are already per sandbox.
 - **Sandboxes**: one Docker host per installation (`SSHDOCKER_HOST`), every project's container on it.
 - **GitHub App**: one App (e.g. `acme-factory`), though it can be installed on many orgs.
 - **State/config**: a flat `projects.config.json` list and a single `state.json`, keyed by
@@ -275,10 +277,13 @@ timestamp, conversation key, project, kind, status, wall-clock, and the token/co
 figures from the claude CLI's `result` event (`usage` + `total_cost_usd`). `/aven usage
 [days]` renders per-project (and, once several teams exist, per-workspace) totals.
 
-- **Attribution, not billing.** All turns run on our Claude Max subscription today —
-  the `~$` figure is the CLI's computed token cost, i.e. what the traffic *would* cost
-  at API prices. That's exactly the number needed to (a) hand-write an invoice, and
-  (b) decide when a client's volume justifies a per-tenant API key.
+- **Attribution — or billing, on a key.** Each record names the credit that paid
+  (`usage.credit`, from the CLI's own `apiKeySource`; a record without it is a
+  subscription). On a subscription the `~$` figure is the CLI's computed token cost, i.e.
+  what the traffic *would* cost at API prices — the number needed to (a) hand-write an
+  invoice, and (b) decide when a client's volume justifies a key. On an API key it is what
+  the key is billed at list prices (before discounts and tax). `/aven usage` labels each,
+  and in the month of a switch shows the key's total on its own line — never one sum.
 - **Cost is per turn (metering fix, 2026-10).** The CLI's `total_cost_usd` is the
   *process's running total*, not the turn's — every turn of a persistent session reports
   everything spent so far — and from v0.22.0 until this fix it was recorded verbatim and
@@ -345,8 +350,9 @@ Data flows to be transparent about with clients (and to put in a DPA when one as
   is a consumer **Claude Max subscription** — before onboarding a paying external client,
   review whether client workloads on a consumer subscription fit Anthropic's commercial
   terms; the clean answer is a **per-tenant (or at least company) Claude API key**, which
-  also makes billing exact instead of attributed. The seams already exist
-  (`seedClaudeAuth` takes the token as a parameter; metering shows per-team volume).
+  also makes billing exact instead of attributed. An installation can run on a key today
+  (`ANTHROPIC_API_KEY`, OpenSpec `model-credit`); a key per tenant is the next step
+  (`seedClaudeAuth` takes the credit as a parameter; metering shows per-team volume).
 - **Slack content** (questions, answers, buttons) stays in the client's workspace under
   their retention policy; our `state.json` keeps thread↔session bindings, not transcripts.
 - Action item for the first real client: a one-page data-flow annex (the three bullets

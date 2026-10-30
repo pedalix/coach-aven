@@ -8,7 +8,7 @@ colleague would: it reads the repositories, the tickets and the conversation, ru
 the tests in its own sandbox, and opens a pull request for the team to review.
 
 It is open source (Apache-2.0) and self-hosted: one Node process you run, sandboxes on a Docker
-host you own, your Slack or Teams app, your GitHub App, your own Claude Code subscription. One
+host you own, your Slack or Teams app, your GitHub App, your own Claude Code credit. One
 person maintains it and runs it for real installations.
 
 This page is the story: who it is for, what problem it solves, how it is built and why that shape,
@@ -56,13 +56,13 @@ this page says where a rule is enforced by a mechanism and where it is a rule th
        ▼
  one warm sandbox per project   a persistent Claude Code process, a git worktree per task,
                                 the project's MCP (Model Context Protocol) tools,
-                                the team's own Claude subscription
+                                the team's own Claude credit (subscription or API key)
 ```
 
 - **The control plane holds no model.** The orchestrator is deterministic code: it binds channels
   to projects, queues turns, mints tokens, runs the schedule and keeps the journals (queue, usage,
   drafts). Every piece of thinking happens inside a sandbox, with the team's own Claude Code and
-  subscription. The agent is yours; CoachAven is the harness.
+  credit. The agent is yours; CoachAven is the harness.
 - **One sandbox per project, one worktree per task.** The agent works like an engineer with a
   checkout: a branch per task, builds and tests in its own containers, a pull request at the end.
   `pr` is the default git flow: the prompt forks a branch and opens a pull request. The project's
@@ -186,7 +186,7 @@ Halden is a five-person product company. One project, one channel, one agent.
 
 - **Not a hosted service.** You run it: one Node process on a small VM, sandboxes on a Docker host
   you own (that VM, to start), your Slack or Teams app, your GitHub App, your Claude Code
-  subscription. A single operator maintains the product and runs installations
+  credit. A single operator maintains the product and runs installations
   for real users; support is best-effort ([`CONTRIBUTING.md`](../CONTRIBUTING.md)).
 - **Not a chat of its own.** It lives in Slack or Teams. A web chat was designed and deliberately
   not built (OpenSpec `web-chat-driver`); for a trial, Slack in your own workspace is the way in.
@@ -197,9 +197,10 @@ Halden is a five-person product company. One project, one channel, one agent.
   chat, before anything risky, and the hard limits sit outside the sandbox: a per-project token
   whose pushes and merges stop at your branch protection, and the MCP tools the project declares
   with whatever access the installation gave them.
-- **Not a model.** Claude Code does the thinking, under a Claude Max subscription token
-  (`claude setup-token`; there is no API-key mode today) whose rate limits every project of the
-  installation shares.
+- **Not a model.** Claude Code does the thinking, on one credit per installation: a Claude
+  subscription token to try it (`claude setup-token`; every project shares its rate limits), or an
+  Anthropic API key for a team or clients (billed per key at list prices, which `/aven usage`
+  reports, and limited by the key's own workspace).
 
 ## Status
 

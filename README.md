@@ -12,7 +12,8 @@ Website: [coachaven.com](https://coachaven.com). Status: a single-operator proje
 installations for real users; self-hosting is supported and documented, support is best-effort
 (see [`SUPPORT.md`](SUPPORT.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md)).
 Rather not run it yourself? We can run it for you: [coachaven.com](https://coachaven.com).
-Model credit today is a Claude subscription token; API-key credit is coming.
+Model credit: a Claude subscription token to try it (`claude setup-token`, one command), an
+Anthropic API key for an installation that serves a team or clients (billed and metered per key).
 Licence: Apache-2.0.
 
 Start here:
@@ -39,7 +40,7 @@ Start here:
 ## Self-host quickstart
 
 You need: Node 24, a Slack workspace where you can create apps, a GitHub App (or token) for
-the repos, a Claude Code token from a Claude subscription (API-key credit is coming), and a
+the repos, a model credit (a Claude subscription token or an Anthropic API key, step 4), and a
 place to run sandboxes.
 
 1. **Slack app** — create it from [`slack-app-manifest.json`](slack-app-manifest.json)
@@ -53,7 +54,13 @@ place to run sandboxes.
 3. **GitHub** — a GitHub App installed on the org/repos with *Contents* + *Pull requests*
    read & write, *Checks* read and *Metadata* read; set `GITHUB_APP_ID` + the private key path. (A plain
    `GITHUB_TOKEN` works for a quick trial.)
-4. **Claude Code** — `claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`.
+4. **Claude Code credit** — exactly one of:
+   - to try it: `claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`;
+   - for a team or clients: a key from the [Anthropic console](https://console.anthropic.com/) →
+     `ANTHROPIC_API_KEY`. The sandbox can read it, so make it a dedicated key in its own workspace
+     with a monthly spend limit.
+
+   Both set stops the boot. A switch applies to new conversations ([`docs/runtime-config.md`](docs/runtime-config.md)).
 5. **Config**
    ```bash
    cp .env.example .env                                  # secrets + infra endpoints

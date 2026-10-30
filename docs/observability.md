@@ -40,8 +40,8 @@ Sentry is SaaS and CoachAven handles **private repos + Slack text**, so:
 
 ## Claude subscription quota
 
-All turns run on one Claude Max plan whose 5-hour / 7-day windows are an opaque server-side
-counter — the usage log (`/aven usage`) says what turns cost, not how close we are to the
+On a subscription token (`CLAUDE_CODE_OAUTH_TOKEN`) every turn of the installation runs on one
+Claude plan whose 5-hour / 7-day windows are an opaque server-side counter — the usage log (`/aven usage`) says what turns cost, not how close we are to the
 wall. The CLI emits a `rate_limit_event` at the start of every turn (see
 `docs/stream-json-contract.md`); `src/ratelimit.ts` parses it, one engine-wide tracker
 keeps the latest state, and transitions post to `AVEN_ALERT_CHANNEL`: ⚠️ on
@@ -49,6 +49,14 @@ keeps the latest state, and transitions post to `AVEN_ALERT_CHANNEL`: ⚠️ on
 ✅ once on recovery. `/aven status` (home workspace) shows the current line, e.g.
 `Claude quota ✅ · 5h 12% · 7d 42% · as of 3m ago`. Percentages need a sandbox CLI that
 sends `unifiedWindows`; older CLIs still yield the status and reset time.
+
+On an API key (`ANTHROPIC_API_KEY`) there is no subscription quota to track (OpenSpec
+`model-credit`): no session is connected to the tracker, no alert is posted and `/aven status`
+shows no quota line. A key's limits are its workspace's rate limits and spend limit in the
+Anthropic console; hitting one surfaces as an API error in the turn, like any other error.
+Which credit a turn really ran on is the CLI's own `apiKeySource` (`system/init`): the bot
+records it on every usage record and logs one warning per session when it disagrees with the
+configured credit (a process started before a switch).
 
 Not wired (yet): the `GET https://api.anthropic.com/api/oauth/usage` endpoint the interactive
 `/usage` command uses. It returns the same percentages on demand, but needs a token with the

@@ -160,12 +160,19 @@ unchanged and always available.
 Why a GitHub App and not a personal token: it is scoped at mint time, lives an hour, and
 is revoked by rotating one key — nobody's account, nothing that expires in a year.
 
-## Runtime token note
+## Runtime credit note
 
-The app resolves its Claude token from `CLAUDE_CODE_OAUTH_TOKEN` in the installation's runtime
-`.env` (`infra/<slug>/.env`, uploaded by `export`) — a stable `claude setup-token`
-value, recommended for an unattended service. The `~/.claude` credentials fallback is
-for dev boxes only; don't rely on it here.
+The app takes its Claude Code credit from the installation's runtime `.env`
+(`infra/<slug>/.env`, uploaded by `export`): **exactly one** of
+`CLAUDE_CODE_OAUTH_TOKEN` (a stable `claude setup-token` value) and `ANTHROPIC_API_KEY`
+(an Anthropic API key — the credit for an installation that serves a team or clients).
+Both set stops the boot, and so does a value in the other credit's variable. The sandbox can
+read the credit, so a key should be a dedicated one in its own Anthropic workspace with a
+monthly spend limit. The boot line in the journal names the credit and its variable, never
+the value. A switch applies to new conversations; a running one keeps its credit until its
+process ends (`docker rm -f` of the project's container applies it at once — the next turn
+creates the container again). The `~/.claude` credentials fallback is for dev boxes only;
+don't rely on it here.
 
 ## What this is NOT (yet)
 
