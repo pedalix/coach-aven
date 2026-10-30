@@ -50,10 +50,26 @@ export function parseMount(spec: string): Mount {
   return { source, target, mode };
 }
 
-export function resolveSandboxOptions(input?: SandboxOptions): ResolvedSandboxOptions {
-  if (!input) return DEFAULT_SANDBOX_OPTIONS;
-  const privileged = input.privileged ?? true;
-  const dind = input.dind ?? true;
+// The installation default for a project without a `sandbox` block (OpenSpec sandbox-privilege-opt-in D1):
+// `dind` — privileged docker-in-docker, the historical default and today's when SANDBOX_DEFAULT is unset;
+// `plain` — an unprivileged container without dockerd. Installation-wide because the image is: the laravel
+// image's php/composer/artisan are Sail shims that need dockerd, the plain image has no dockerd to guard.
+export type SandboxDefault = 'dind' | 'plain';
+
+/** SANDBOX_DEFAULT read and checked: unset = `dind` (stage 1), anything but dind|plain stops the boot. */
+export function sandboxDefaultFrom(env: Record<string, string | undefined> = process.env): { value: SandboxDefault; set: boolean } {
+  const raw = (env.SANDBOX_DEFAULT ?? '').trim();
+  if (!raw) return { value: 'dind', set: false };
+  if (raw !== 'dind' && raw !== 'plain') throw new Error(`SANDBOX_DEFAULT must be 'dind' or 'plain', got: ${raw}`);
+  return { value: raw, set: true };
+}
+
+export function resolveSandboxOptions(input?: SandboxOptions, installationDefault: SandboxDefault = 'dind'): ResolvedSandboxOptions {
+  const base = installationDefault === 'plain' ? { privileged: false, dind: false } : { privileged: true, dind: true };
+  if (!input) return installationDefault === 'plain' ? { ...base, mounts: [] } : DEFAULT_SANDBOX_OPTIONS;
+  // `dind: true` without `privileged` means privileged: docker-in-docker needs a runtime, whatever the default.
+  const privileged = input.privileged ?? (input.dind === true ? true : base.privileged);
+  const dind = input.dind ?? base.dind;
   if (!privileged && dind) {
     throw new Error('sandbox: "privileged": false requires "dind": false — docker-in-docker needs sysbox or --privileged');
   }
@@ -91,3 +107,36 @@ export function assertDeletable(name: string, namePrefix: string): void {
   }
 }
 
+
+/**
+ * The boot's privilege warnings (OpenSpec sandbox-privilege-opt-in D2), stage 1: lines to log, never an error.
+ * `defaulted` are the projects without a `sandbox` block. Pure.
+ */
+export function privilegeWarnings(inp: {
+  projects: { slug: string; sandbox?: SandboxOptions }[];
+  defaulted: string[];
+  installationDefault: SandboxDefault;
+  defaultSet: boolean;
+  runtimeSet: boolean;
+  local: boolean;
+  localConfirmed: boolean;
+}): string[] {
+  const out: string[] = [];
+  if (!inp.defaultSet && inp.defaulted.length) {
+    out.push(
+      `sandboxes: ${inp.defaulted.join(', ')} ${inp.defaulted.length === 1 ? 'has' : 'have'} no "sandbox" block and run as privileged docker-in-docker by default — ` +
+        'set SANDBOX_DEFAULT=dind to keep that, SANDBOX_DEFAULT=plain for unprivileged containers, or give the project a "sandbox" block (docs/sandbox-drivers.md)',
+    );
+  }
+  const privileged = inp.projects.filter((p) => resolveSandboxOptions(p.sandbox, inp.installationDefault).privileged).map((p) => p.slug);
+  if (privileged.length && !inp.runtimeSet) {
+    out.push(`sandboxes: ${privileged.join(', ')} run privileged and SSHDOCKER_RUNTIME is unset (--privileged) — set SSHDOCKER_RUNTIME=sysbox-runc (preferred, needs sysbox on the host) or SSHDOCKER_RUNTIME=privileged`);
+  }
+  if (inp.local && privileged.length && !inp.localConfirmed) {
+    out.push(
+      `sandboxes: ${privileged.join(', ')} run privileged on this machine (SSHDOCKER_HOST=local) — such a container is root-equivalent beside the bot's secrets and Docker socket; ` +
+        'make the project unprivileged ("sandbox": { "privileged": false, "dind": false }) or confirm with SANDBOX_LOCAL_PRIVILEGED=1',
+    );
+  }
+  return out;
+}

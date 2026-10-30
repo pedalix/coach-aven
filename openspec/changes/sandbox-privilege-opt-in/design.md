@@ -41,21 +41,15 @@ Stage 2 also lists the containers whose creation flags differ from their resolve
 
 *Why not errors now?* Prod would fail its next boot.
 
-### D3. Egress: say what a host can do today, honestly
-`docs/security.md` → *Accepted risks* gains a trust note on who can make the agent run what, and why privileged plus local is the worst combination. It also gains an egress section that does not oversell:
-- **Where sandboxes sit:** today they use the default bridge network (no `--network` in `docker run`).
-- **What a host can do:**
-  - a forward proxy with an allow-list (GitHub, `api.anthropic.com`, the image and package registries, the MCP hosts a project declares);
-  - a default-deny rule for the bridge's direct egress in the `DOCKER-USER` chain;
-  - `HTTPS_PROXY` set for the sandboxes. That needs an env passthrough the code does not have yet.
-- **Caveats:**
-  - DNS stays open, which leaves a way out;
-  - IPv6 needs its own rules;
-  - IP allow-lists do not work for CDN-fronted hosts;
-  - none of it applies under Docker Desktop.
-- **Follow-up:** a `--network` and proxy option for sandboxes is its own change.
+### D3. Egress: one honest line, no recipe
+The maintainer, 2026-10-31: outbound filtering is not planned. `docs/security.md` keeps *No egress filtering* as an accepted risk and says CoachAven does not filter outbound traffic and has no plan to yet. No recipe, no `--network` option.
 
-The section is marked untested until an installation runs it.
+### D4. Stage 2 is the maintainer's choice
+Two shapes, both after every operated installation sets `SANDBOX_DEFAULT`:
+- **A: `plain` becomes the default.** Docker-in-docker needs `SANDBOX_DEFAULT=dind` or `"dind": true`. A laravel-image installation that never set it loses Sail's php/composer silently. Today that is prod alone, and it sets `dind` first.
+- **B: unset stops the boot,** with a sentence naming both values.
+
+Either way stage 2 lists and recreates containers whose flags differ from the resolved options.
 
 ## Risks / Trade-offs
 

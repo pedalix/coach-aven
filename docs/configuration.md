@@ -60,6 +60,8 @@ session was opened with, and an existing container keeps the `sandbox` options i
 | `SANDBOX_DRIVER` | `ssh-docker` | The only sandbox driver; any other value (`daytona` above all) stops the boot. [Selecting the driver](sandbox-drivers.md#selecting-the-driver). |
 | `SSHDOCKER_HOST` | — (required at a project's first sandbox use) | The Docker host: `local` (this machine's daemon, no sshd) or an ssh target (`user@host`, an `~/.ssh/config` alias). [Sandbox drivers](sandbox-drivers.md). |
 | `SSHDOCKER_RUNTIME` | `privileged` | How a docker-in-docker container runs: `privileged` or `sysbox-runc`; anything else stops the boot. Irrelevant for `"privileged": false` projects. |
+| `SANDBOX_DEFAULT` | `dind` (with a boot warning) | What a project without a `sandbox` block gets: `dind` (privileged docker-in-docker) or `plain` (unprivileged); anything else stops the boot. [Sandbox drivers](sandbox-drivers.md). |
+| `SANDBOX_LOCAL_PRIVILEGED` | — | `1` confirms a privileged project on the bot's own machine (`SSHDOCKER_HOST=local`); without it the boot warns. |
 | `SANDBOX_AUTOSTOP_MINUTES` | `30` | Idle minutes before the bot stops a project's container (floor 10; `0` or negative = never). [Sandbox idle stop](runtime-config.md#sandbox-idle-stop-sandbox_autostop_minutes). |
 | `SANDBOX_NAME_PREFIX` | `proj-` | Container names are `<prefix><slug>`. Two installations on one Docker host need distinct prefixes. [Local dev → The settings](local-dev.md#the-settings). |
 | `SANDBOX_MANAGED_BY` | `coach-aven` | The `managedBy` label on every sandbox: the `/aven status` filter and the idle stop's guard. Must match the existing containers' label. |

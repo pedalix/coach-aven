@@ -2,7 +2,7 @@ import { CHAT_DRIVERS, type ChatDriverName } from './chat/drivers.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SandboxDriverKind } from './config.js';
-import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
+import { privilegeWarnings, resolveSandboxOptions, sandboxDefaultFrom, type SandboxOptions } from './sandboxopts.js';
 import { validateSourcesConfig } from './sources/config.js';
 import type { SourcesConfig } from './sources/types.js';
 import { validateMessagingConfig, type MessagingConfig } from './messaging/config.js';
@@ -131,6 +131,25 @@ export interface ProjectsRegistry {
   workspaces?: Record<string, WorkspaceEntry>;
 }
 
+// Not config: the slugs without a `sandbox` block (they take SANDBOX_DEFAULT), recorded by loadProjects
+// beside the registry for the boot's privilege warnings (OpenSpec sandbox-privilege-opt-in D2).
+const sandboxDefaulted = new WeakMap<ProjectsRegistry, string[]>();
+export const sandboxDefaultedOf = (reg: ProjectsRegistry): string[] => sandboxDefaulted.get(reg) ?? [];
+
+/** The privilege warnings for a loaded registry, from the process settings (logged at boot and at /aven reload). */
+export function registryPrivilegeWarnings(reg: ProjectsRegistry, env: Record<string, string | undefined> = process.env): string[] {
+  const def = sandboxDefaultFrom(env);
+  return privilegeWarnings({
+    projects: reg.projects,
+    defaulted: sandboxDefaultedOf(reg),
+    installationDefault: def.value,
+    defaultSet: def.set,
+    runtimeSet: !!(env.SSHDOCKER_RUNTIME ?? '').trim(),
+    local: (env.SSHDOCKER_HOST ?? '').trim() === 'local',
+    localConfirmed: env.SANDBOX_LOCAL_PRIVILEGED === '1',
+  });
+}
+
 // The slug list of a workspaces entry, whatever its shape.
 // "a", "b" and "c" — project slugs in a message.
 function quoted(slugs: string[]): string {
@@ -169,6 +188,8 @@ export function loadProjects(path: string, env: Record<string, string | undefine
   if (!Array.isArray(reg.projects) || reg.projects.length === 0) {
     throw new Error(`${path}: expected { "projects": [ … ] } with at least one project`);
   }
+  const sandboxDefault = sandboxDefaultFrom(env);
+  const defaulted: string[] = [];
   for (const p of reg.projects) {
     if (!p.slug || !Array.isArray(p.repos) || p.repos.length === 0) {
       throw new Error(`${path}: each project needs a "slug" and at least one repo in "repos"`);
@@ -200,7 +221,14 @@ export function loadProjects(path: string, env: Record<string, string | undefine
     // Validate at boot: a bad mount or a privileged:false/dind:true contradiction must fail
     // here, not at the first turn of that project.
     try {
-      resolveSandboxOptions(p.sandbox);
+      const resolved = resolveSandboxOptions(p.sandbox, sandboxDefault.value);
+      if (p.sandbox === undefined) defaulted.push(p.slug);
+      // Under a `plain` default the block is written out in full, so every reader of `project.sandbox`
+      // (the docker flags, the dockerd guards, the idle stop, the prompt) sees the installation's choice
+      // without knowing about it. Under `dind` (or unset) the config stays exactly as written: today's shape.
+      if (sandboxDefault.value === 'plain') {
+        p.sandbox = { privileged: resolved.privileged, dind: resolved.dind, ...(p.sandbox?.mounts ? { mounts: p.sandbox.mounts } : {}) };
+      }
     } catch (e) {
       throw new Error(`${path}: project "${p.slug}" ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -307,6 +335,7 @@ export function loadProjects(path: string, env: Record<string, string | undefine
       if (body) p.systemPrompt = body;
     }
   }
+  sandboxDefaulted.set(reg, defaulted);
   return reg;
 }
 

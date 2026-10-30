@@ -2,18 +2,18 @@
 
 ## 1. Settings and one resolved shape (bucket 2, stage 1)
 
-- [ ] 1.1 `src/config.ts`, as plain `process.env` reads so the configuration-docs test finds them:
+- [x] 1.1 `src/config.ts`, as plain `process.env` reads so the configuration-docs test finds them:
   - `SANDBOX_DEFAULT` (`dind` | `plain`, anything else is a boot error) and `sandboxDefaultSet`;
   - `sshDocker.runtimeSet`;
   - `SANDBOX_LOCAL_PRIVILEGED`.
 
   `src/cliprobe/sandbox.ts`'s own `Config` gains the same fields. Verify in `src/config.test.ts`: each value, an invalid one, unset.
-- [ ] 1.2 `resolveSandboxOptions(input, installationDefault)`: a `dind: true` block without `privileged` implies privileged. `loadProjects` keeps `resolvedSandbox` on each project; `/aven reload` (`src/chat/core/commands.ts`) and `src/sources/cli.ts` load through it. Verify in `src/sandboxopts.test.ts` and `src/projects.test.ts`:
+- [x] 1.2 `resolveSandboxOptions(input, installationDefault)`: a `dind: true` block without `privileged` implies privileged. `loadProjects` keeps `resolvedSandbox` on each project; `/aven reload` (`src/chat/core/commands.ts`) and `src/sources/cli.ts` load through it. Verify in `src/sandboxopts.test.ts` and `src/projects.test.ts`:
   - unset gives today's resolution;
   - a `plain` default;
   - field-by-field override;
   - `{ dind: true }` under `plain`.
-- [ ] 1.3 Every reader uses `resolvedSandbox`:
+- [x] 1.3 Every reader sees the installation default. *Done by writing the block out: under `plain`, `loadProjects` puts the resolved `sandbox` block on each project, so the five readers need no change, and under `dind` or unset the config stays as written. A per-project `resolvedSandbox` field was not needed.* Originally:
   - `src/sshdocker.ts` (flags);
   - `src/tasks.ts` (dockerd guard, prompt input);
   - `src/prompt.ts`;
@@ -24,7 +24,7 @@
 
 ## 2. Warnings
 
-- [ ] 2.1 Three pure warning functions in `src/sandboxopts.ts` (design D2: the runtime warning keyed on privileged), logged once at boot from `src/chat/root.ts` and by `/aven reload` for added projects. Verify with a test per function:
+- [x] 2.1 Three pure warning functions in `src/sandboxopts.ts` (design D2: the runtime warning keyed on privileged), logged once at boot from `src/chat/root.ts` and by `/aven reload` for added projects. Verify with a test per function:
   - prod's shape gives the implicit-default warning only;
   - staging's and home's shapes give none;
   - local plus privileged without the confirmation warns;
@@ -32,20 +32,20 @@
 
 ## 3. Templates and docs
 
-- [ ] 3.1 `SANDBOX_DEFAULT` written out with a one-line comment in:
+- [x] 3.1 `SANDBOX_DEFAULT` written out with a one-line comment in:
   - `.env.example`;
   - `quickstart/.env.example` (`plain`);
   - `infra/deploy/ops.example/.env.example` (a dotfile; `deploy.env.example` beside it is the deploy target's).
 
   `SANDBOX_LOCAL_PRIVILEGED` goes in commented. The root `projects.config.example.json` gives its block-less projects a `sandbox` block. Verify: `src/configdocs.test.ts` (rows in `docs/configuration.md` are required), `src/quickstart.test.ts`, the public guard.
-- [ ] 3.2 Docs:
-  - `docs/security.md`: the trust note and the egress section (design D3);
+- [x] 3.2 Docs:
+  - `docs/security.md`: the privileged-default note and one egress line, no recipe (design D3);
   - `docs/sandbox-drivers.md`: the three settings and which image goes with which default;
   - `docs/configuration.md`: the rows;
   - `docs/troubleshooting.md`: the three warnings.
 
   Verify: doclinks, guard, a read.
-- [ ] 3.3 `docs/rollout.md`: the row "sandbox privilege opt-in", bucket 2 (stage 1: settings and warnings). It names stage 2 (bucket 3: unset is an error, containers listed and recreated) as a later change and its own row.
+- [x] 3.3 `docs/rollout.md`: the row "sandbox privilege opt-in", bucket 2 (stage 1: settings and warnings). It names stage 2 (bucket 3: unset is an error, containers listed and recreated) as a later change and its own row.
 
 ## 4. Ship and stage
 

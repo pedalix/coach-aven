@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { homeWorkspaceWarning, loadProjects, noProjectsReason, type ProjectConfig } from './projects.js';
+import { homeWorkspaceWarning, loadProjects, noProjectsReason, sandboxDefaultedOf, type ProjectConfig } from './projects.js';
+import { resolveSandboxOptions } from './sandboxopts.js';
 import { log } from './log.js';
 
 // Each case gets its own throwaway config dir (loadProjects reads projects.d/ relative
@@ -354,4 +355,21 @@ test('homeWorkspaceWarning: only when a workspaces block leaves out the home wor
   assert.equal(homeWorkspaceWarning({ ...reg, workspaces: { T1: ['shop'] } }, 'T1'), undefined);
   assert.equal(homeWorkspaceWarning({ projects: reg.projects }, 'T1'), undefined, 'no block: the home sees everything');
   assert.equal(homeWorkspaceWarning(reg, undefined), undefined);
+});
+
+test('loadProjects and SANDBOX_DEFAULT: unset keeps the config exactly; plain writes the block out for every reader', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aven-sbx-'));
+  const path = join(dir, 'projects.config.json');
+  writeFileSync(path, JSON.stringify({ projects: [{ slug: 'shop', repos: ['acme/shop'] }, { slug: 'ops', repos: ['acme/ops'], sandbox: { privileged: true, mounts: ['/srv/data:/data'] } }] }));
+  const today = loadProjects(path, {});
+  assert.equal(today.projects[0].sandbox, undefined, 'unset: the config as written');
+  assert.deepEqual(sandboxDefaultedOf(today), ['shop']);
+  const plain = loadProjects(path, { SANDBOX_DEFAULT: 'plain' });
+  assert.deepEqual(plain.projects[0].sandbox, { privileged: false, dind: false });
+  assert.deepEqual(plain.projects[1].sandbox, { privileged: true, dind: false, mounts: ['/srv/data:/data'] });
+  // The readers that resolve or test the raw block (sshdocker flags, the dockerd guards, the idle stop, the prompt) now see plain.
+  assert.deepEqual(resolveSandboxOptions(plain.projects[0].sandbox), { privileged: false, dind: false, mounts: [] });
+  assert.equal(plain.projects[0].sandbox?.dind !== false, false, 'the dockerd guard is skipped');
+  assert.throws(() => loadProjects(path, { SANDBOX_DEFAULT: 'maybe' }), /SANDBOX_DEFAULT/);
+  rmSync(dir, { recursive: true, force: true });
 });
