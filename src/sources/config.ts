@@ -145,7 +145,10 @@ export function validateSourcesConfig(raw: unknown, where = 'sources'): SourcesC
     for (const f of folders) {
       // The number in a Wrike link (open.htm?id=…) is the legacy v2 id; API v4 answers "Invalid Folder ID" to it.
       if (/^\d+$/.test(f)) fail(w, `folder "${f}" is a permalink number — use the API v4 id (GET /folders, or GET /ids?type=ApiV2Folder&ids=[${f}])`);
-      if (!/^[A-Z0-9]{8,32}$/.test(f)) fail(w, `folder "${f}" must be a Wrike API v4 folder or space id (upper-case letters and digits)`);
+      // API v4 ids are mostly upper-case (IEAA…), but an account's older folders come back mixed-case (MQAAAA…n) from
+      // GET /folders and work everywhere a folder id does — an upper-case-only check refused a real one and the bot
+      // did not boot (2026-10-30).
+      if (!/^[A-Za-z0-9]{8,32}$/.test(f)) fail(w, `folder "${f}" must be a Wrike API v4 folder or space id (letters and digits)`);
     }
     const tokenEnv = optStr(w, k.tokenEnv, 'tokenEnv');
     if (tokenEnv && !/^[A-Z_][A-Z0-9_]*$/.test(tokenEnv)) fail(w, '"tokenEnv" must be an environment variable name');

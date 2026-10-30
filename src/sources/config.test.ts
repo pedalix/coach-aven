@@ -85,11 +85,13 @@ test('wrike: folders required, ids in API v4 shape, token by env name, host only
   const c = validateSourcesConfig({ wrike: { folders: [' IEAAB2CDI4ABCDEF ', 'IEAAB2CDI4ABCDEF', 'IEAAB2CDI5GHIJKL'], tokenEnv: 'WRIKE_STUDIO_TOKEN', host: 'App-EU.wrike.com', since: '2026-09-01' } });
   assert.deepEqual(c.wrike, { folders: ['IEAAB2CDI4ABCDEF', 'IEAAB2CDI5GHIJKL'], tokenEnv: 'WRIKE_STUDIO_TOKEN', host: 'app-eu.wrike.com', since: '2026-09-01' }, 'trimmed, deduped, host lower-cased');
   assert.deepEqual(validateSourcesConfig({ wrike: { folders: ['IEAAB2CDI4ABCDEF'] } }).wrike, { folders: ['IEAAB2CDI4ABCDEF'] }, 'defaults stay absent: WRIKE_API_TOKEN, www.wrike.com, 30 days are the puller\'s');
+  // An account's older folders have mixed-case v4 ids; they are real and must load.
+  assert.deepEqual(validateSourcesConfig({ wrike: { folders: ['MQAAAAAB1c2d'] } }).wrike, { folders: ['MQAAAAAB1c2d'] });
   for (const [wrike, re] of [
     [{}, /"folders" must be an array/],
     [{ folders: [] }, /"folders" must list at least one/],
     [{ folders: ['1234567890'] }, /permalink number — use the API v4 id/],
-    [{ folders: ['ieaab2cdi4abcdef'] }, /API v4 folder or space id/],
+    [{ folders: ['IEAA-B2CD/I4AB'] }, /API v4 folder or space id/],
     [{ folders: ['IEAAB2CDI4ABCDEF'], tokenEnv: 'wrike token' }, /environment variable name/],
     [{ folders: ['IEAAB2CDI4ABCDEF'], host: 'wrike.example' }, /wrike\.com host/],
     [{ folders: ['IEAAB2CDI4ABCDEF'], host: 'www.wrike.com.evil.example' }, /wrike\.com host/],
