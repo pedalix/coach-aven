@@ -140,14 +140,11 @@ test('compose with a daemon: a second container runs sources daemon on the liste
   composeConfigAccepts(out);
 });
 
-test('compose: the home files the code falls back to are mounted read-only only when they exist on the box', () => {
+test('compose: ~/.netrc is mounted read-only only when it exists on the box; the Claude credential never is (it comes from .env)', () => {
   const both = renderCompose(COMPOSE, [...BOX, 'local', '999', 'netrc,claude']);
   assert.equal(both.status, 0, both.out);
   assert.match(both.out, /^    - \/home\/deployer\/\.netrc:\/home\/deployer\/\.netrc:ro$/m);
-  assert.match(both.out, /^    - \/home\/deployer\/\.claude\/\.credentials\.json:\/home\/deployer\/\.claude\/\.credentials\.json:ro$/m);
-  const one = renderCompose(COMPOSE, [...BOX, 'local', '999', 'claude']);
-  assert.doesNotMatch(body(one.out), /\.netrc/);
-  assert.match(one.out, /\.credentials\.json/);
+  assert.doesNotMatch(body(both.out), /\.credentials\.json/, 'a single-file mount of a credential Claude Code rewrites breaks the container on its next start');
   const none = renderCompose(COMPOSE, [...BOX, 'local', '999']);
   assert.doesNotMatch(body(none.out), /\.netrc|\.credentials\.json/);
   composeConfigAccepts(both.out);
