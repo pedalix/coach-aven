@@ -28,7 +28,7 @@ export interface PersonLike {
   identities: readonly string[];
 }
 
-const PREFIX = /^(?:slack|msgraph|teams|jira|youtrack|asana|github|gitlab):/i;
+const PREFIX = /^(?:slack|msgraph|teams|jira|youtrack|asana|wrike|github|gitlab):/i;
 const EMAIL_G = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 const BRACKETED = /<\s*(?:mailto:)?([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\s*>/;
 const ADDRESS = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;

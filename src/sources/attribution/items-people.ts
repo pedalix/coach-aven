@@ -22,7 +22,7 @@ export interface Resolved {
   split?: string[]; // glued: the persons in the line, in line order
 }
 
-const PREFIX = /^(?:slack|msgraph|teams|jira|youtrack|asana|gitlab|github):/i;
+const PREFIX = /^(?:slack|msgraph|teams|jira|youtrack|asana|wrike|gitlab|github):/i;
 const ADDR = /[A-Za-z0-9._%+=-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 const BRACKETED = /[<(\[]\s*(?:mailto:)?\s*([A-Za-z0-9._%+=-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})\s*[>)\]]/;
 const LOGIN_AT_ORG = /^([^@\s]+)@([A-Za-z0-9_-]+)$/; // youtrack:<login>@<ORG>: no dot, no domain

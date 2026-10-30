@@ -21,6 +21,8 @@ import { runJiraAuth } from './jira/auth.js';
 import { pullJira } from './jira/pull.js';
 import { runYoutrackAuth } from './youtrack/auth.js';
 import { pullYoutrack } from './youtrack/pull.js';
+import { runWrikeAuth } from './wrike/auth.js';
+import { pullWrike } from './wrike/pull.js';
 import { UsageError } from './errors.js';
 import { runMeetingsAuth } from './meetings/auth.js';
 import { pullMeetings } from './meetings/pull.js';
@@ -186,9 +188,13 @@ export async function pullProject(p: ProjectConfig, o: PullProjectOptions = {}, 
       s = await pullLocal(ctx, p.sources.local!, { full: o.full ?? false, ...(o.since ? { since: o.since } : {}) });
     } else if (kind === 'meetings') {
       s = await pullMeetings(ctx, p.sources.meetings!, { full: o.full ?? false, ...(o.since ? { since: o.since } : {}) });
-    } else if (kind === 'youtrack' || kind === 'jira' || kind === 'asana') {
+    } else if (kind === 'youtrack' || kind === 'jira' || kind === 'asana' || kind === 'wrike') {
       const o2 = { full: o.full ?? false, ...(o.since ? { since: o.since } : {}) };
-      s = kind === 'youtrack' ? await pullYoutrack(ctx, p.sources.youtrack!, o2) : kind === 'jira' ? await pullJira(ctx, p.sources.jira!, o2) : await pullAsana(ctx, p.sources.asana!, o2);
+      s =
+        kind === 'youtrack' ? await pullYoutrack(ctx, p.sources.youtrack!, o2)
+        : kind === 'jira' ? await pullJira(ctx, p.sources.jira!, o2)
+        : kind === 'asana' ? await pullAsana(ctx, p.sources.asana!, o2)
+        : await pullWrike(ctx, p.sources.wrike!, o2);
     } else {
       const m = p.sources.msgraph!;
       s = await pullMsgraph(ctx, {
@@ -245,11 +251,13 @@ export async function runAuth(ctx: AuthContext, kind: SourceKind, args: string[]
       return 0;
     case 'youtrack':
     case 'jira':
-    case 'asana': {
+    case 'asana':
+    case 'wrike': {
       const cfg = p?.sources?.[kind];
-      if (!cfg) throw new UsageError(`project "${ctx.slug}" has no sources.${kind} block — configure it first (url/site/workspace live there)`);
+      if (!cfg) throw new UsageError(`project "${ctx.slug}" has no sources.${kind} block — configure it first (url/site/workspace/folders live there)`);
       if (kind === 'youtrack') return runYoutrackAuth(ctx, args, p!.sources!.youtrack!);
       if (kind === 'jira') return runJiraAuth(ctx, args, p!.sources!.jira!);
+      if (kind === 'wrike') return runWrikeAuth(ctx, args, p!.sources!.wrike!);
       return runAsanaAuth(ctx, args, p!.sources!.asana!);
     }
   }

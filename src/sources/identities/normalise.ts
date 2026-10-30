@@ -25,12 +25,13 @@ export function normaliseName(s: string | null | undefined): string {
 
 export function parseIdentity(raw: string): ParsedIdentity {
   const s = (raw ?? '').trim();
-  const body = s.replace(/^(slack|teams|msgraph|jira|youtrack|asana):/i, '');
+  const body = s.replace(/^(slack|teams|msgraph|jira|youtrack|asana|wrike):/i, '');
   const m = body.match(EMAIL_RE);
   const email = m ? m[0].toLowerCase() : null;
   const nameSrc = m ? body.replace(/<[^>]*>/, '').replace(EMAIL_RE, '') : body;
-  // Opaque ids: Slack user/bot ids, Jira account ids, numbers — never compared by name.
-  if (!email && (/^[UBW][A-Z0-9]{8,}$/.test(body) || /^\d+(:[0-9a-f-]+)?$/i.test(body) || /^[0-9a-f-]{20,}$/i.test(body))) {
+  // Opaque ids: Slack user/bot ids, Jira account ids, numbers — never compared by name. `wrike:` is only
+  // ever written for a contact id the puller could not resolve to a name or address (wrike/normalise.ts).
+  if (!email && (/^wrike:/i.test(s) || /^[UBW][A-Z0-9]{8,}$/.test(body) || /^\d+(:[0-9a-f-]+)?$/i.test(body) || /^[0-9a-f-]{20,}$/i.test(body))) {
     return { raw: s, email: null, name: null, kind: 'opaque' };
   }
   const name = normaliseName(nameSrc) || null;

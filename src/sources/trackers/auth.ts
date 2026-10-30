@@ -1,9 +1,10 @@
-// `orch sources auth <slug> <youtrack|jira|asana> <check|add …>` — the tracker family needs no
-// OAuth dance: each takes a long-lived personal token (YouTrack permanent token, Atlassian API
-// token, Asana PAT). `add` stores it (mode 600) after verifying it against the tracker's "who am
-// I" endpoint; `check` re-verifies headless (the poller's daily credential check runs exactly
-// this). The secret is read from an env var (`--token-env NAME`) or one line of stdin — never
-// from argv, which would land in shell history and `ps`.
+// `orch sources auth <slug> <youtrack|jira|asana|wrike> <check|add …>` — the tracker family needs
+// no OAuth dance: each takes a long-lived personal token (YouTrack permanent token, Atlassian API
+// token, Asana PAT, Wrike permanent token). `add` stores it (mode 600) after verifying it against
+// the tracker's "who am I" endpoint; `check` re-verifies headless (the poller's daily credential
+// check runs exactly this). The secret is read from an env var (`--token-env NAME`) or one line of
+// stdin — never from argv, which would land in shell history and `ps`. A tracker whose token lives
+// in an env var the config names (YouTrack `tokenEnv`, Wrike) has `check` only.
 import { createInterface } from 'node:readline';
 import { UsageError } from '../errors.js';
 import type { AuthContext } from '../types.js';

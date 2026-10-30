@@ -8,14 +8,14 @@
 // follow (see docs/sources.md "What comes next").
 import type { VaultPaths } from './common/vault.js';
 
-export type SourceKind = 'google' | 'slack' | 'msgraph' | 'youtrack' | 'jira' | 'asana' | 'meetings' | 'local';
-export const SOURCE_KINDS: readonly SourceKind[] = ['google', 'slack', 'msgraph', 'youtrack', 'jira', 'asana', 'meetings', 'local'];
+export type SourceKind = 'google' | 'slack' | 'msgraph' | 'youtrack' | 'jira' | 'asana' | 'wrike' | 'meetings' | 'local';
+export const SOURCE_KINDS: readonly SourceKind[] = ['google', 'slack', 'msgraph', 'youtrack', 'jira', 'asana', 'wrike', 'meetings', 'local'];
 /** Meeting recorders: one `meeting` shape (meetings/normalise.ts), several providers. */
 export type MeetingProvider = 'granola' | 'gmeet' | 'wispr';
 export const MEETING_PROVIDERS: readonly MeetingProvider[] = ['granola', 'gmeet', 'wispr'];
 /** The task-tracker family: same contract, one normalised `task` shape (trackers/task.ts). */
-export type TrackerKind = 'youtrack' | 'jira' | 'asana';
-export const TRACKER_KINDS: readonly TrackerKind[] = ['youtrack', 'jira', 'asana'];
+export type TrackerKind = 'youtrack' | 'jira' | 'asana' | 'wrike';
+export const TRACKER_KINDS: readonly TrackerKind[] = ['youtrack', 'jira', 'asana', 'wrike'];
 
 export type GoogleKind = 'gmail' | 'drive' | 'calendar';
 export type MsgraphKind = 'mail' | 'calendar' | 'chats' | 'channels' | 'files';
@@ -111,6 +111,21 @@ export interface AsanaSourcesConfig {
   since?: string;
 }
 
+export interface WrikeSourcesConfig {
+  /**
+   * Folder, project or space ids (API v4, e.g. IEAAB2CDI4ABCDEF) — every task in them and in every
+   * folder beneath them, subtasks included. A space id works wherever a folder id does. Required:
+   * an agency account holds every client, and the tenant names the ones it is about.
+   */
+  folders: string[];
+  /** Env var holding the permanent token (default WRIKE_API_TOKEN). Wrike has no token file: the value lives in `.env`. */
+  tokenEnv?: string;
+  /** API host (default www.wrike.com; an EU account answers on app-eu.wrike.com). Only *.wrike.com — the token goes there. */
+  host?: string;
+  /** YYYY-MM-DD lower bound on `updatedDate` for a folder's first pull (default 30 days back). */
+  since?: string;
+}
+
 export interface MeetingsSourcesConfig {
   /** Granola Personal API (Business plan): token in ~/.config/coach-aven/sources/<slug>/granola.json. */
   granola?: { since?: string };
@@ -157,6 +172,7 @@ export interface SourcesConfig {
   youtrack?: YoutrackSourcesConfig;
   jira?: JiraSourcesConfig;
   asana?: AsanaSourcesConfig;
+  wrike?: WrikeSourcesConfig;
   meetings?: MeetingsSourcesConfig;
   local?: LocalSourcesConfig;
   tenant?: TenantConfig;

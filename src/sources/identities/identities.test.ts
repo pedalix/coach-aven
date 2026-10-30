@@ -25,6 +25,8 @@ test('parseIdentity: Graph, prefixed and opaque forms; diacritics folded', () =>
   assert.equal(parseIdentity('slack:Rory').name, 'rory');
   assert.equal(parseIdentity('U03D1FXGTFZ').kind, 'opaque');
   assert.equal(parseIdentity('jira:557058:1cb1588c-6f1d-456f-8555-713fde3ef7c1').kind, 'opaque');
+  assert.equal(parseIdentity('wrike:KUAB2C09').kind, 'opaque', 'an unresolved Wrike contact id is no one-word name');
+  assert.deepEqual(parseIdentity('Mira Talbot <mira.talbot@studio.example>'), { raw: 'Mira Talbot <mira.talbot@studio.example>', email: 'mira.talbot@studio.example', name: 'mira talbot', kind: 'email' }, 'how a Wrike person arrives');
   assert.equal(parseIdentity('Jürgen Müller').name, 'jurgen muller');
   assert.ok(isSystem(parseIdentity('noreply@md.example')));
   assert.ok(isSystem(parseIdentity('Intercom Convert')));

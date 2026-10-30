@@ -1,4 +1,4 @@
-// The normalised TASK record every tracker connector (youtrack, jira, asana) emits — one shape,
+// The normalised TASK record every tracker connector (youtrack, jira, asana, wrike) emits — one shape,
 // so the store, the search tool and the overseer's prompt learn trackers once (docs/sources.md →
 // "Task trackers"). Raw files are `raw/<kind>/<account>/tasks.jsonl`; the store compacts by
 // `source:account:id` (last line wins) exactly like messages.
@@ -22,11 +22,11 @@ export interface TaskComment {
 
 export interface TaskRecord {
   source: TrackerKind;
-  /** youtrack: host · jira: site · asana: workspace gid — the `account` segment of the ref. */
+  /** youtrack: host · jira: site · asana: workspace gid · wrike: API host — the `account` segment of the ref. */
   account: string;
-  /** Tracker-internal stable id (YouTrack `id`, Jira `id`, Asana `gid`). */
+  /** Tracker-internal stable id (YouTrack `id`, Jira `id`, Asana `gid`, Wrike API v4 `id`). */
   id: string;
-  /** Human key: CG-50, P1-12; Asana has none → the gid. */
+  /** Human key: CG-50, P1-12; Asana has none → the gid; Wrike → the number in its permalink. */
   key: string;
   title: string;
   status: string;

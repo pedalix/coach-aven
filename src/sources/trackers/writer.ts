@@ -1,4 +1,4 @@
-// Shared pull plumbing for the tracker connectors: where tasks go, the per-account cursor, and
+// Shared pull plumbing for the tracker connectors: where tasks go, the per-account (or per-scope) cursor, and
 // the run loop that turns "fetch tasks updated since X" into an append-only, scrubbed JSONL
 // file + a PullSummary. Each connector supplies only `fetchUpdated(since)` and its token check.
 import { createHash } from 'node:crypto';
@@ -35,6 +35,12 @@ export function accountDir(outDir: string, kind: TrackerKind, account: string): 
   return join(outDir, kind, safe);
 }
 
+/** `<account>/<scope>` for a scoped run (TrackerRun.scope); the segment cannot climb out (`..` → `__`). */
+export function scopeDir(outDir: string, kind: TrackerKind, account: string, scope: string): string {
+  const seg = scope.replace(/[^A-Za-z0-9._@-]/g, '_');
+  return join(accountDir(outDir, kind, account), /^\.*$/.test(seg) ? seg.replace(/\./g, '_') || '_' : seg);
+}
+
 export function readCursor(dir: string): TrackerCursor {
   try {
     return JSON.parse(readFileSync(join(dir, 'cursor.json'), 'utf8')) as TrackerCursor;
@@ -64,6 +70,14 @@ export interface TrackerRun {
   /** Yields normalised (unscrubbed) tasks updated at/after `from`, any order. */
   fetchUpdated: (from: Date, log: (l: string) => void) => AsyncIterable<TaskRecord>;
   now?: () => Date;
+  /**
+   * A cursor of its own under the account: files and cursor in `<account>/<scope>/`, log lines and
+   * counts as `<account>/<scope>`. For a connector whose units are pulled one by one (Wrike: one per
+   * configured folder), so a unit added to the config later starts at `since` instead of inheriting
+   * the others' cursor and never seeing its own history. Records keep `account` — refs do not change.
+   * Unset = one cursor per account, as before.
+   */
+  scope?: string;
 }
 
 export async function runTrackerPull(ctx: PullContext, run: TrackerRun): Promise<PullSummary> {
@@ -72,7 +86,8 @@ export async function runTrackerPull(ctx: PullContext, run: TrackerRun): Promise
   const counts: Record<string, number> = {};
   const errors: string[] = [];
   let reauth = false;
-  const dir = accountDir(ctx.outDir, run.kind, run.account);
+  const label = run.scope ? `${run.account}/${run.scope}` : run.account;
+  const dir = run.scope ? scopeDir(ctx.outDir, run.kind, run.account, run.scope) : accountDir(ctx.outDir, run.kind, run.account);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
   const cursor = readCursor(dir);
   const from = startFrom(cursor, run.since, now(), run.full);
@@ -85,7 +100,7 @@ export async function runTrackerPull(ctx: PullContext, run: TrackerRun): Promise
   const prevHashes = cursor.hashes ?? {};
   const hashes: Record<string, string> = {};
   try {
-    ctx.log(`${run.account}: tasks updated since ${from.toISOString()}`);
+    ctx.log(`${label}: tasks updated since ${from.toISOString()}`);
     for await (const t of run.fetchUpdated(from, ctx.log)) {
       const s = scrubTask(t, { log: ctx.log, warned, ...(ctx.vault ? { vault: ctx.vault } : {}) });
       const line = JSON.stringify(s);
@@ -106,10 +121,10 @@ export async function runTrackerPull(ctx: PullContext, run: TrackerRun): Promise
     writeCursor(dir, { ...(maxUpdated ? { updated: maxUpdated } : {}), lastRunAt: now().toISOString(), hashes });
   } catch (e) {
     if (e instanceof TrackerHttpError && e.reauth) reauth = true;
-    errors.push(`${run.account}: ${e instanceof Error ? e.message : String(e)}`);
+    errors.push(`${label}: ${e instanceof Error ? e.message : String(e)}`);
   }
-  counts[`${run.account}/tasks`] = n;
-  ctx.log(`${run.account}: ${n} tasks${unchanged ? ` (${unchanged} unchanged, not re-appended)` : ''}${withheld ? ` (${withheld} with withheld bodies)` : ''}${errors.length ? ' — FAILED' : ''}`);
+  counts[`${label}/tasks`] = n;
+  ctx.log(`${label}: ${n} tasks${unchanged ? ` (${unchanged} unchanged, not re-appended)` : ''}${withheld ? ` (${withheld} with withheld bodies)` : ''}${errors.length ? ' — FAILED' : ''}`);
   return { kind: run.kind, ok: errors.length === 0, reauth, counts, errors, startedAt, finishedAt: now().toISOString() };
 }
 
