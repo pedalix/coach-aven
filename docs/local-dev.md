@@ -48,8 +48,8 @@ Then set, in `.env`:
 | `SNAPSHOT_IMAGE` | `ghcr.io/pedalix/coach-aven-sandbox-plain:<a release tag>` |
 | `WEB_AUTH` | `none` (no login; the listener stays on `127.0.0.1`) |
 
-and point `projects.config.json` (from `projects.config.example.json`) at a test repository, with
-`"sandbox": { "privileged": false, "dind": false }`. Then:
+and point `projects.config.json` (from `projects.config.example.json`) at a test repository. `.env.example` already
+sets `SANDBOX_DEFAULT=plain`, so its projects run unprivileged without a `sandbox` block. Then:
 
 ```bash
 npm run orch -- web          # "Web chat running (http://127.0.0.1:8787 …)"
