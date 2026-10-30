@@ -30,3 +30,13 @@ test('isolatedClaudeEnv — drops what a parent Claude Code session and the shel
   });
   assert.equal(base.CLAUDECODE, '1', 'the caller’s environment is not touched');
 });
+
+test('isolatedClaudeEnv — the credit kind picks the one variable: a key run sets ANTHROPIC_API_KEY only, a token run strips the shell’s key (api-key-credit D6)', () => {
+  const base = { PATH: '/usr/bin', ANTHROPIC_API_KEY: 'shell-key', CLAUDE_CODE_OAUTH_TOKEN: 'parent-token' };
+  const token = isolatedClaudeEnv(base, { configDir: '/c', token: 'sk-ant-oat01-test', credit: 'subscription' });
+  assert.deepEqual(token, { PATH: '/usr/bin', CLAUDE_CONFIG_DIR: '/c', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test' });
+  const key = isolatedClaudeEnv(base, { configDir: '/c', token: 'sk-ant-api03-test', credit: 'api-key' });
+  assert.deepEqual(key, { PATH: '/usr/bin', CLAUDE_CONFIG_DIR: '/c', ANTHROPIC_API_KEY: 'sk-ant-api03-test' });
+  // The lab bench's call, without a kind, is a token run as before.
+  assert.deepEqual(isolatedClaudeEnv(base, { configDir: '/c', token: 'sk-ant-oat01-test' }), token);
+});

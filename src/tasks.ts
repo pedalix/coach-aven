@@ -172,7 +172,7 @@ async function prepareChat(
 
   const scopeBefore = scopedRepos(slug, repos);
   await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeBefore));
-  await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
+  await seedClaudeAuth(sandbox, cfg.credit);
 
   for (const repo of repos) await cloneRepo(sandbox, cfg, slug, repo);
   // Writer: scan the fresh checkouts' manifests → `depends_on_repos` fact. Readers: if the
@@ -351,7 +351,7 @@ export async function openChat(
     if (session && !session.isDead()) {
       await withSandboxLock(opts.slug, async () => {
         sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug, opts.sandbox);
-        await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
+        await seedClaudeAuth(sandbox, cfg.credit);
         await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
         await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
         await seedMcpConfig(sandbox, mcp);
@@ -365,7 +365,7 @@ export async function openChat(
     return withSandboxLock(opts.slug, async () => {
       if (session && !session.isDead()) return session;
       sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug, opts.sandbox);
-      await seedClaudeAuth(sandbox, cfg.claudeOauthToken);
+      await seedClaudeAuth(sandbox, cfg.credit);
       await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
       await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
       const mcpConfigPath = await seedMcpConfig(sandbox, mcp);
@@ -386,6 +386,9 @@ export async function openChat(
             hostServers: opts.hostServers,
             attach: target,
             resumeSessionId: sessionId, // seed claudeSessionId; not used to relaunch
+            // The kind only: the running process keeps the credit it was started with (api-key-credit D2);
+            // this checks its init's apiKeySource and labels its usage.
+            credit: cfg.credit.kind,
             ...(opts.attachLedger ? { ledger: true } : {}),
             ...wiring,
           });
@@ -415,6 +418,7 @@ export async function openChat(
         scrubSecrets: opts.scrubSecrets,
         hostServers: opts.hostServers,
         model: cfg.claudeModel,
+        credit: cfg.credit.kind, // the command's prefix (ccCreditEnv) + the apiKeySource check
         ...(opts.ledger ? { ledger: true } : {}),
         ...wiring,
       });

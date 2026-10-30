@@ -391,6 +391,35 @@ answer is posted to the other surfaces' channels; a ticket investigation lands o
 with a driver and a channel (its dialogs belong to that thread). The auto-review channel is the one `review auto on`
 was typed in, on that surface.
 
+## Model credit (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`)
+
+The sandboxes' Claude Code runs on one credit per installation (OpenSpec `model-credit`): a Claude subscription token
+to try CoachAven, an Anthropic API key for an installation that serves a team or clients. Set **exactly one**.
+
+| Setting | Where | What |
+|---|---|---|
+| `CLAUDE_CODE_OAUTH_TOKEN` | `.env` | A subscription token (`claude setup-token`, starts `sk-ant-oat`). Every project shares the subscription's limits; `/aven usage` dollars are an API-list-price equivalent, not a bill. |
+| `ANTHROPIC_API_KEY` | `.env` | An API key from the Anthropic console (starts `sk-ant-api`). `/aven usage` dollars are what the key is billed at list prices; no subscription quota is tracked. |
+
+- **Checked at boot.** Both set stops the boot in one sentence, and so does a value in the other credit's variable (a
+  token in `ANTHROPIC_API_KEY` or a key in `CLAUDE_CODE_OAUTH_TOKEN`); an unknown prefix passes. Neither set: a
+  developer machine's own `~/.claude` login, else the boot stops naming both. The boot line names the credit and the
+  variable it came from, never the value. `.env` does not override the shell: an exported `ANTHROPIC_API_KEY` counts.
+- **Into the sandbox as a file.** The value is written to `/root/.cc-token` through the file API before each session
+  and turn; the CLI's command reads it into `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`, never through a command
+  line. With a token the command is today's, byte for byte.
+- **Exposure.** The sandbox can read the credit, as it can the token: anything that runs there (package scripts,
+  dependencies, a client repository's tooling, text the agent reads) could. Use a dedicated key in its own Anthropic
+  workspace with a monthly spend limit. A project's MCP `${ENV}` value can name `ANTHROPIC_API_KEY` like any bot
+  variable; do not, unless the server needs it.
+- **Confirmed per turn.** The CLI's own `apiKeySource` (`system/init`) decides which credit a usage record names; a
+  disagreement with the configured credit logs one warning per session.
+
+**Switching.** Put the new credit in the installation's `.env` in its ops repo, comment the old one out, `npm run ops --
+<slug> export`, and restart the bot. The switch applies to new conversations: a running one keeps its credit until its
+process ends (an idle stop, an error reopen), or at once when the project's container is recreated (`docker rm -f` of
+it; the next turn creates it again). Back: the reverse.
+
 ## Repo skills (`REPO_SKILLS`)
 
 A multi-repo project's sessions start in the project folder, where no repo's `.claude/skills` is visible. With

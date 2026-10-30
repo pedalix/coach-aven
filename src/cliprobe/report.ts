@@ -2,6 +2,7 @@
 // REPORT.md is what a pin bump is reviewed by — a new version's report is a new file, so a diff alone
 // shows nothing; its "Changed since" section compares it with the newest version already probed.
 import { createHash } from 'node:crypto';
+import type { CreditKind } from '../credit.js';
 import type { RecordLine, RunOutcome, Verdict } from './types.js';
 import { rowId } from './types.js';
 
@@ -68,6 +69,8 @@ export interface ReportScenario {
   recording: { file: string; sha256: string };
   /** How the runs reached the CLI: `local`, or `sandbox (<driver>)`, i.e. `sandbox (ssh-docker)`. */
   transport?: string;
+  /** The credit the runs were on (OpenSpec api-key-credit D6): absent means a subscription token — every row before it existed. */
+  credit?: CreditKind;
 }
 
 export interface ReportJson {
@@ -77,13 +80,23 @@ export interface ReportJson {
   transport: string;
   date: string;
   models: string[];
+  /** The subscription rows' cost (API-list-price equivalent) — with no API-key row, every row's. */
   totalCostUsd: number;
+  /** The API-key rows' cost (billed at list prices), when the report has any: never added to totalCostUsd. */
+  apiKeyCostUsd?: number;
   scenarios: ReportScenario[];
   catalogue: Record<string, { count: number; fields: string[] }>;
   findings: FindingGroup[];
 }
 
 export const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
+
+/** Pure: the report's cost per credit — a key's billed dollars and a token's equivalent are never one sum. */
+export function costTotals(scenarios: readonly ReportScenario[]): Pick<ReportJson, 'totalCostUsd' | 'apiKeyCostUsd'> {
+  const sum = (k: CreditKind): number => scenarios.filter((s) => (s.credit ?? 'subscription') === k).reduce((a, s) => a + s.costUsd, 0);
+  const key = scenarios.some((s) => s.credit === 'api-key');
+  return { totalCostUsd: sum('subscription'), ...(key ? { apiKeyCostUsd: sum('api-key') } : {}) };
+}
 
 /** A recording as committed: one JSON line per record. */
 export const recordingText = (lines: readonly RecordLine[]): string => lines.map((l) => JSON.stringify(l)).join('\n') + '\n';
@@ -183,7 +196,14 @@ export function renderReport(r: ReportJson, previous?: ReportJson): string {
   const sdk = r.sdk
     ? `\`@anthropic-ai/claude-agent-sdk\` ${r.sdk.release} (names CLI ${r.sdk.claudeCodeVersion}${r.sdk.exact ? '' : ', the nearest lower release'}) with \`@anthropic-ai/sdk\` ${r.sdk.anthropicSdk}`
     : 'not checked yet';
-  out.push(`- **CLI:** ${r.cli}`, `- **Declarations:** ${sdk}`, `- **Models:** ${r.models.join(', ')}`, `- **Transport:** ${r.transport}`, `- **Date:** ${r.date}`, `- **Cost:** ${usd(r.totalCostUsd)} API-equivalent`, '');
+  // A report with an API-key row lists its credits and splits the cost; one without reads as it always has.
+  const keyRows = r.scenarios.some((s) => s.credit === 'api-key');
+  const subRows = r.scenarios.some((s) => (s.credit ?? 'subscription') === 'subscription');
+  const credits = keyRows ? [`- **Credit:** ${[...(subRows ? ['subscription token'] : []), 'API key'].join(', ')}`] : [];
+  const cost = keyRows
+    ? [...(subRows ? [`${usd(r.totalCostUsd)} API-equivalent (subscription token)`] : []), `${usd(r.apiKeyCostUsd ?? 0)} billed at list prices (API key)`].join(' · ')
+    : `${usd(r.totalCostUsd)} API-equivalent`;
+  out.push(`- **CLI:** ${r.cli}`, `- **Declarations:** ${sdk}`, `- **Models:** ${r.models.join(', ')}`, `- **Transport:** ${r.transport}`, ...credits, `- **Date:** ${r.date}`, `- **Cost:** ${cost}`, '');
   if (previous) {
     const c = changedSince(r, previous);
     out.push(`## Changed since ${c.since}`, '');
@@ -202,7 +222,7 @@ export function renderReport(r: ReportJson, previous?: ReportJson): string {
   out.push('## Scenarios', '', '| Scenario | Contract | Verdict | Runs ✓/✗/? | Hypothesis | Observed | Cost |', '|---|---|---|---|---|---|---|');
   const rows = [...r.scenarios].sort((a, b) => Number(b.contract) - Number(a.contract) || rowId(a.id, a.variant).localeCompare(rowId(b.id, b.variant)));
   for (const s of rows) {
-    out.push(`| ${rowId(s.id, s.variant)} | ${s.contract ? 'yes' : ''} | **${s.verdict}** | ${s.holds}/${s.fails}/${s.inconclusive} | ${cell(s.hypothesis)} | ${observed(s)} | ${usd(s.costUsd)} |`);
+    out.push(`| ${rowId(s.id, s.variant)} | ${s.contract ? 'yes' : ''} | **${s.verdict}** | ${s.holds}/${s.fails}/${s.inconclusive} | ${cell(s.hypothesis)} | ${observed(s)} | ${usd(s.costUsd)}${s.credit === 'api-key' ? ' (API key)' : ''} |`);
   }
   out.push('', '## Event catalogue', '', 'Frames the CLI wrote, across all recordings.', '', '| Kind | Count | Fields |', '|---|---|---|');
   for (const [k, v] of Object.entries(r.catalogue)) out.push(`| \`${k}\` | ${v.count} | ${v.fields.map((f) => `\`${f}\``).join(' ')} |`);

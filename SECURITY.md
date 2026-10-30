@@ -15,3 +15,8 @@ credentials the project declares); the orchestrator keeps its own long-lived sec
 App key, chat tokens, gateway client secret, source credentials) out of every sandbox and scrubs
 every user turn and ingested document before it reaches the model (`src/scrub.ts`). A finding that crosses that boundary is the
 kind we most want to hear about.
+
+The Claude credential is readable inside the sandbox, a subscription token or an API key alike, and so is anything that
+runs there (package scripts, dependencies, a client repository's tooling, text the agent reads). On an API key, use a
+dedicated key in its own Anthropic workspace with a monthly spend limit ([`docs/runtime-config.md`](docs/runtime-config.md)
+→ *Model credit*).

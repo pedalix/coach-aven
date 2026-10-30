@@ -12,7 +12,7 @@ Decided once, before any product was picked, and not renegotiated per feature.
   People belong to many projects; who may drive is decided per workspace, and a workspace sees
   the projects its `workspaces` entry lists.
 - **No model in the control plane.** The orchestrator and the sources daemon run deterministic
-  code. Thinking happens in sandboxes, under the team's own subscription. The bench (`src/lab/`)
+  code. Thinking happens in sandboxes, on the installation's own model credit. The bench (`src/lab/`)
   and the CLI probe may call a model on the operator's machine; production never does.
 - **The orchestrator's own credentials never enter a sandbox.** Tokens are minted on the host per
   project, before every turn for GitHub (an hour) and at most daily for the gateway (a day); only
@@ -124,7 +124,7 @@ template for a new ops repo (`infra/deploy/ops.example/`). See [`infra/README.md
 | **The product** (this repository) | the orchestrator, the chat drivers, the sandbox images, the sources store and the attribution layer, the modules and templates, the tests, the release |
 | **The operator** (runs an installation) | the bot host and its service, the ops repo, secrets and their rotation, deploys and rollbacks, the sources daemon where the data lives, the MCP gateway if the installation has one, the canary before a tag |
 | **The team or client** | the chat workspace and its one-time admin steps, the repositories and the GitHub App, the identities of its people, the credentials of its own systems, answers to the questions the agent asks |
-| **The agent vendor** | Claude Code and the subscription it runs under |
+| **The agent vendor** | Claude Code and the credit it runs on (a subscription token or an API key) |
 
 The one-time admin steps, honestly:
 
@@ -145,8 +145,11 @@ The one-time admin steps, honestly:
   project this is the client's step. Grant less and that capability degrades with a warning in
   the log (without *Checks*, autofix cannot see CI), never a failed token. A personal token works
   for a trial.
-- **Claude Code.** `claude setup-token` on a Claude Max subscription; there is no API-key mode
-  today, and every project of the installation shares that subscription's limits.
+- **Claude Code.** Exactly one credit per installation. To try it, `claude setup-token` on a Claude
+  subscription: one command, and every project of the installation shares that subscription's
+  limits. For a team or clients, an Anthropic API key: a console account, billing and a workspace;
+  the key is billed and limited on its own, and `/aven usage` shows what it was billed at list
+  prices. The sandbox can read either, so a key belongs in its own workspace with a spend limit.
 - **Sandboxes.** A Docker host you own, which can be the bot host to start
   ([`sandbox-drivers.md`](sandbox-drivers.md)).
 

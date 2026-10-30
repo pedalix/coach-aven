@@ -1,29 +1,36 @@
-// Where a probe run gets its CLI and its token (design D2). The CLI version is installed into the
-// probe's own cache — never the machine's `claude` — and the token comes from the probe's own
-// variable only: an installation's .env is never read, even on a host that has one.
+// Where a probe run gets its CLI and its credit (design D2; OpenSpec api-key-credit D6). The CLI version is
+// installed into the probe's own cache — never the machine's `claude` — and the credit comes from the
+// probe's own variables only — a subscription token or an API key, exactly one: an installation's .env is
+// never read, even on a host that has one.
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isValidCliVersion } from '../cliversion.js';
+import type { CreditKind } from '../credit.js';
 
 export const TOKEN_VAR = 'CLI_PROBE_TOKEN';
+export const API_KEY_VAR = 'CLI_PROBE_API_KEY';
 
 /** The probe's cache: CLI installs and fetched SDK declarations. */
 export function probeCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
   return env.CLI_PROBE_CACHE || join(homedir(), '.cache', 'coach-aven', 'cli-probe');
 }
 
-/** The subscription token for a live run, or an error that names the variable to set. */
-export function probeToken(env: NodeJS.ProcessEnv = process.env): string {
-  const t = env[TOKEN_VAR]?.trim();
-  if (!t) {
-    throw new Error(
-      `${TOKEN_VAR} is not set — a live probe run takes its subscription token from this variable only ` +
-        '(create one with `claude setup-token`); it never reads an installation’s token',
-    );
-  }
-  return t;
+/**
+ * The credit for a live run — CLI_PROBE_TOKEN (a subscription token) or CLI_PROBE_API_KEY (an API key),
+ * exactly one — or an error that names both variables (never a value). Trimmed; blank counts as unset.
+ */
+export function probeCredit(env: NodeJS.ProcessEnv = process.env): { kind: CreditKind; value: string } {
+  const token = env[TOKEN_VAR]?.trim();
+  const key = env[API_KEY_VAR]?.trim();
+  if (token && key) throw new Error(`both ${TOKEN_VAR} and ${API_KEY_VAR} are set — a probe run takes exactly one credit: keep one`);
+  if (key) return { kind: 'api-key', value: key };
+  if (token) return { kind: 'subscription', value: token };
+  throw new Error(
+    `neither ${TOKEN_VAR} nor ${API_KEY_VAR} is set — a live probe run takes its credit from these variables only ` +
+      '(a subscription token from `claude setup-token`, or an API key from the Anthropic console); it never reads an installation’s credit',
+  );
 }
 
 export type Exec = (file: string, args: readonly string[]) => Promise<void>;

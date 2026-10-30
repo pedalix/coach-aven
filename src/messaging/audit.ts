@@ -3,6 +3,7 @@
 // Pure rendering (mrkdwn, Slack and Teams both get it through `say`); the runtime gathers the rows.
 import type { TaskState } from './a2a.js';
 import type { JournalEntry } from '../chat/shadow/driver.js';
+import type { CreditKind } from '../credit.js';
 
 export interface AskRow {
   dir: 'out' | 'in';
@@ -16,7 +17,7 @@ export interface AskRow {
   reason?: string;
   createdAt: string;
   updatedAt: string;
-  /** USD, API-equivalent: metering for turns run here, the reported cost for answers from another installation. */
+  /** USD — an API-list-price equivalent on a subscription, billed on an API key: metering for turns run here, the reported cost for answers from another installation. */
   cost?: number;
   question: string;
   /** The skill the task asked for (agent-skills). */
@@ -34,7 +35,9 @@ const first = (t: string | undefined, n = 80): string => {
 const when = (iso: string): string => iso.replace('T', ' ').slice(5, 16); // MM-DD HH:MM (UTC)
 const ICON: Record<string, string> = { held: '✋', submitted: '⏳', working: '⏳', 'input-required': '❔', completed: '✅', failed: '⚠️', canceled: '🚫', rejected: '⛔' };
 
-export function asksList(rows: readonly AskRow[]): string {
+// `credit`: the installation's credit kind. On an API key the footer says what the dollars are (USD billed to
+// the key at list prices); on a subscription — or unset — the list reads as it always has (api-key-credit D4).
+export function asksList(rows: readonly AskRow[], o: { credit?: CreditKind } = {}): string {
   if (!rows.length) return 'No tasks between agents yet.';
   const sorted = [...rows].sort((a, b) => (a.state === 'held') !== (b.state === 'held') ? (a.state === 'held' ? -1 : 1) : b.updatedAt.localeCompare(a.updatedAt)).slice(0, ASKS_LIMIT);
   const lines = sorted.map((r) => {
@@ -48,7 +51,8 @@ export function asksList(rows: readonly AskRow[]): string {
     const a = r.answer ? ` → “${first(r.answer)}”` : r.why ? ` — held: ${r.why}` : '';
     return `${ICON[r.state] ?? '•'} ${arrow} · ${state} · ${span}${cost}${skill}${tenant} · \`${r.id}\`\n    ${q}${a}`;
   });
-  return [`*Tasks between agents* — the last ${sorted.length}${rows.length > sorted.length ? ` of ${rows.length}` : ''}, held first (times UTC)`, ...lines, '_`/aven asks <task id>` shows a transcript; `/aven asks cancel <task id>` cancels a task._'].join('\n');
+  const costs = o.credit === 'api-key' && rows.some((r) => r.cost !== undefined) ? ['_$ = USD billed to this installation’s API key at list prices for turns run here; an answer from another installation shows the cost it reported._'] : [];
+  return [`*Tasks between agents* — the last ${sorted.length}${rows.length > sorted.length ? ` of ${rows.length}` : ''}, held first (times UTC)`, ...lines, ...costs, '_`/aven asks <task id>` shows a transcript; `/aven asks cancel <task id>` cancels a task._'].join('\n');
 }
 
 /** A task's transcript: its record, and for a task answered here the shadow conversation's journal. */

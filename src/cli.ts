@@ -3,6 +3,7 @@ import { Command } from 'commander';
 import { installDirLine, loadConfig, retiredEnvWarnings } from './config.js';
 import { runChat } from './chat/root.js';
 import { log } from './log.js';
+import { creditBootLine } from './credit.js';
 import { initSentry, captureError, flushSentry } from './sentry.js';
 import { registerSourcesCommands } from './sources/cli.js';
 import { registerRoutinesCommands } from './routinescli.js';
@@ -25,6 +26,7 @@ program
     const cfg = loadConfig();
     initSentry(cfg); // no-op unless SENTRY_DSN is set
     for (const w of retiredEnvWarnings(process.env)) log.warn(w);
+    log.info(creditBootLine(cfg.credit));
     await runChat(cfg, 'slack');
   });
 
@@ -36,6 +38,7 @@ program
     const cfg = loadConfig();
     initSentry(cfg);
     for (const w of retiredEnvWarnings(process.env)) log.warn(w);
+    log.info(creditBootLine(cfg.credit));
     await runChat(cfg, 'teams');
   });
 
@@ -47,6 +50,7 @@ program
     const cfg = loadConfig();
     initSentry(cfg);
     for (const w of retiredEnvWarnings(process.env)) log.warn(w);
+    log.info(creditBootLine(cfg.credit));
     await runChat(cfg, 'web');
   });
 

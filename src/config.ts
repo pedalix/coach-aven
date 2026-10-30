@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { config as loadDotenv } from 'dotenv';
 import { isValidCliVersion } from './cliversion.js';
 import { messagingEnv, type MessagingEnv } from './messaging/config.js';
+import type { Credit } from './credit.js';
 import { dotenvPath, installDir, PACKAGE_ROOT, projectsConfigDefault, settingPath } from './paths.js';
 
 // The installation's .env configures a RUNNING bot: it is read from the installation directory
@@ -66,23 +67,37 @@ function cliVersionEnv(): string | undefined {
   return v;
 }
 
-// Resolve the Claude Code subscription token. Prefer an explicit env var (a stable
-// `claude setup-token` value, recommended for production). On a dev box with Claude
-// installed, fall back to the live, auto-refreshing access token in ~/.claude — this
-// avoids the "baked a token that later expired" trap for warm sandboxes.
-function resolveClaudeToken(): string {
-  const explicit = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  if (explicit) return explicit;
-  const credPath = `${process.env.HOME}/.claude/.credentials.json`;
+// The model credit (OpenSpec api-key-credit D1): exactly one of ANTHROPIC_API_KEY (an API key — the path for
+// an installation that serves a team or clients) and CLAUDE_CODE_OAUTH_TOKEN (a `claude setup-token` value —
+// the quick way to try it). Both set stops the boot: the CLI would silently prefer the key, and the operator
+// would not know which credit pays. A value whose prefix belongs to the OTHER variable stops it too (the
+// commonest paste mistake); an unknown prefix passes, so a future key format is not refused. Neither set →
+// on a dev box with Claude installed, the live, auto-refreshing access token in `home`/.claude (avoids the
+// "baked a token that later expired" trap for warm sandboxes), as a subscription. Pure over env + home;
+// every message names variables, never a value. "Set" means non-empty after trimming.
+export function resolveCredit(env: Record<string, string | undefined>, home: string | undefined): Credit {
+  const key = env.ANTHROPIC_API_KEY?.trim();
+  const token = env.CLAUDE_CODE_OAUTH_TOKEN?.trim();
+  if (key && token) {
+    throw new Error('Both ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN are set: keep exactly one (an API key or a subscription token)');
+  }
+  if (key) {
+    if (key.startsWith('sk-ant-oat')) throw new Error('ANTHROPIC_API_KEY holds a subscription token (sk-ant-oat…): it belongs in CLAUDE_CODE_OAUTH_TOKEN');
+    return { kind: 'api-key', value: key, source: 'ANTHROPIC_API_KEY' };
+  }
+  if (token) {
+    if (token.startsWith('sk-ant-api')) throw new Error('CLAUDE_CODE_OAUTH_TOKEN holds an API key (sk-ant-api…): it belongs in ANTHROPIC_API_KEY');
+    return { kind: 'subscription', value: token, source: 'CLAUDE_CODE_OAUTH_TOKEN' };
+  }
   try {
-    const cred = JSON.parse(readFileSync(credPath, 'utf8'));
+    const cred = JSON.parse(readFileSync(`${home}/.claude/.credentials.json`, 'utf8'));
     const tok = cred?.claudeAiOauth?.accessToken;
-    if (tok) return tok;
+    if (typeof tok === 'string' && tok.trim()) return { kind: 'subscription', value: tok.trim(), source: '~/.claude' };
   } catch {
     /* fall through to error */
   }
   throw new Error(
-    'No Claude token: set CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) or have ~/.claude credentials present',
+    'No model credit: set ANTHROPIC_API_KEY (an API key from the Anthropic console) or CLAUDE_CODE_OAUTH_TOKEN (claude setup-token), exactly one',
   );
 }
 
@@ -192,7 +207,9 @@ export interface Config {
   // SANDBOX_NAME_PREFIX). The idle stop and a wake's clean-up assume one bot per container;
   // SANDBOX_MANAGED_BY alone does not keep two installations apart (sandbox-idle-stop D10).
   sandbox: { autoStopMinutes: number; workDir: string; namePrefix: string };
-  claudeOauthToken: string;
+  // The model credit the sandboxes' Claude Code runs on (credit.ts, resolveCredit above). The value goes into
+  // the sandbox's credit file only; logs, commands and errors name its kind and source.
+  credit: Credit;
   // Model for the sandbox claude processes (`--model`). Unset → the Claude Code default,
   // which historically resolved to Sonnet — set CLAUDE_MODEL explicitly (e.g.
   // claude-opus-5-5) so the fleet's model is a deliberate choice, not a CLI default.
@@ -415,7 +432,7 @@ export function loadConfig(): Config {
       workDir: process.env.SANDBOX_WORK_DIR || '/root/work',
       namePrefix: process.env.SANDBOX_NAME_PREFIX || 'proj-',
     },
-    claudeOauthToken: resolveClaudeToken(),
+    credit: resolveCredit(process.env, process.env.HOME),
     claudeModel: process.env.CLAUDE_MODEL || undefined,
     repoSkills: repoSkillsEnv(process.env.REPO_SKILLS),
     claudeCliVersion: cliVersionEnv(),
