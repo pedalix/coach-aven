@@ -136,7 +136,7 @@ and the chat's history go with them).
 
 ## Going on
 
-- **Slack or Teams** instead of, or beside, the web chat: [`../README.md#self-host-quickstart`](../README.md#self-host-quickstart),
+- **Slack or Teams** instead of, or beside, the web chat: [`../README.md#self-host-with-slack-or-teams`](../README.md#self-host-with-slack-or-teams),
   [`teams.md`](teams.md).
 - **More than one person** in the web chat: an identity provider, `WEB_AUTH=oidc` ([`web.md`](web.md)).
 - **Sandboxes on another host**: `SSHDOCKER_HOST=user@host` ([`sandbox-drivers.md`](sandbox-drivers.md)).
