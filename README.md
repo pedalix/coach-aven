@@ -26,20 +26,23 @@ need is thread-to-pull-request with zero operations, their path is the better ch
 
 | Capability | Status |
 |---|---|
-| Slack driver, project sandboxes on your Docker host, pull requests, PR review and autofix, routines, YouTrack | production (since June 2026) |
-| Microsoft Teams driver | pilot with one client (in releases since v0.42.0) |
-| Agent messaging between installations, through a relay hub | production (since v0.42.0) |
+| Slack driver, pull requests, PR review and autofix, routines, YouTrack | production (Slack since June 2026) |
+| Project sandboxes on your own Docker host | production for every project since v0.43.0 |
+| Microsoft Teams driver | in releases since v0.42.0; canary on a staging installation |
+| Agent messaging between installations, through a relay hub | in releases since v0.42.0; canary between three installations |
 | Anthropic API key as the model credit | in v0.44.0; canary on the maintainer's installation |
 | Web chat (OIDC login; a sign-in link on `localhost`) | canary; the quickstart runs it |
-| **Extensions** — sources (a scrubbed store of a project's mail, chat, calendar and tickets), attribution, the lab bench | opt-in, experimental, run on the maintainer's own tenant |
+| **Extensions** — sources (a scrubbed store of a project's mail, chat, calendar and tickets) | opt-in; production on one installation |
+| **Extensions** — attribution, the lab bench | opt-in, experimental, on the maintainer's own tenant |
 
 Every change reaches the maintainer's installation from `main` first and production with a tag; what is staged where
 is the flag ledger, [`docs/rollout.md`](docs/rollout.md).
 
-**Free and open:** everything here is Apache-2.0; there is no hosted tier. The commercial line is running and
-supporting installations on a client's own infrastructure — [coachaven.com](https://coachaven.com) — and that is what
-funds the project. **No telemetry:** an installation never reports to this project; it talks only to the services you
-configure (your chat platform, GitHub, Anthropic, your Docker host, and an error tracker or relay hub if you set one).
+**Free and open:** everything here is Apache-2.0; there is no hosted tier. Rather not run it yourself? We run and
+support installations on a client's own infrastructure — [coachaven.com](https://coachaven.com) — and that is what
+funds the project. **No telemetry:** an installation never reports to this project. Besides the services you configure
+(chat platform, GitHub, Anthropic, Docker host, MCP servers, YouTrack, sources, an error tracker or relay hub if you set
+one) it reads the npm registry once a day to check the Claude Code pin, and pulls its images from `ghcr.io`.
 What goes where and what the sandbox can reach: [`docs/security.md`](docs/security.md).
 
 Status: a single-maintainer project with installations for real users; self-hosting is documented, support is

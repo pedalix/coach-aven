@@ -188,7 +188,8 @@ Halden is a five-person product company. One project, one channel, one agent.
   credit. A single operator maintains the product and runs installations
   for real users; support is best-effort ([`CONTRIBUTING.md`](../CONTRIBUTING.md)).
 - **Not a chat of its own.** It lives in Slack or Teams. A web chat the installation serves itself
-  exists in canary (`orch web`, [`web.md`](web.md)); for a trial, Slack in your own workspace is the way in.
+  exists in canary (`orch web`, [`web.md`](web.md)); the trial path runs it on `localhost`
+  ([`quickstart.md`](quickstart.md)), so trying CoachAven needs no Slack workspace.
 - **Not autonomous deployment.** The agent opens pull requests; people merge. The bot's own side
   effects, a fix on a pull request, a comment back to the tracker, wait for a person's button; a
   request to another agent goes only to an agent whose accept list names the sender. Inside its sandbox the agent runs
