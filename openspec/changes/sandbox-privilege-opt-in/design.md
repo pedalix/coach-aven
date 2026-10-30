@@ -37,3 +37,4 @@ Not filtered, not planned (the maintainer, 2026-10-31): one line in `docs/securi
 
 - **A changed `sandbox.image` does not reach an existing container** until it is removed. Same as the flags today; the docs say `docker rm proj-<slug>`.
 - **Two names for a while.** One boot line per old name keeps it visible.
+- **A large project image on first use** is pulled before chat preparation (`ensureImage`); the `/aven` command and housekeeping wake paths rely on `docker run` pulling it within its timeout, as the installation image did before.

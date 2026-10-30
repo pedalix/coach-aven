@@ -61,6 +61,7 @@ session was opened with, and an existing container keeps the `sandbox` options i
 | `SANDBOX_HOST` | — (required at a project's first sandbox use) | The Docker host: `local` (this machine's daemon, no sshd) or an ssh target (`user@host`, an `~/.ssh/config` alias). [Sandbox drivers](sandbox-drivers.md). Formerly `SSHDOCKER_HOST`. |
 | `SANDBOX_DIND_RUNTIME` | `privileged` | How a docker-in-docker project (`"dind": true`) runs: `privileged` or `sysbox-runc` (preferred, needs sysbox on the host); anything else stops the boot. Irrelevant for plain projects. Formerly `SSHDOCKER_RUNTIME`. |
 | `SANDBOX_LOCAL_PRIVILEGED` | — | `1` confirms a privileged project on the bot's own machine (`SANDBOX_HOST=local`); without it the boot warns. |
+| `SANDBOX_DEFAULT` | — | Not a setting: an untagged build read it for a day. A value still in `.env` is named at boot; write the `sandbox` block on each project instead. |
 | `SANDBOX_AUTOSTOP_MINUTES` | `30` | Idle minutes before the bot stops a project's container (floor 10; `0` or negative = never). [Sandbox idle stop](runtime-config.md#sandbox-idle-stop-sandbox_autostop_minutes). |
 | `SANDBOX_NAME_PREFIX` | `proj-` | Container names are `<prefix><slug>`. Two installations on one Docker host need distinct prefixes. [Local dev → The settings](local-dev.md#the-settings). |
 | `SANDBOX_MANAGED_BY` | `coach-aven` | The `managedBy` label on every sandbox: the `/aven status` filter and the idle stop's guard. Must match the existing containers' label. |
@@ -244,7 +245,7 @@ the boot (or keeps the old config, on reload) naming the project.
 | `driver` | `"ssh-docker"` | `SANDBOX_DRIVER` | The sandbox driver; any other value stops the boot. [Selecting the driver](sandbox-drivers.md#selecting-the-driver). | boot, reload |
 | `cliVersion` | string (`x.y.z`) | `CLAUDE_CLI_VERSION` | This project's Claude Code CLI pin: the canary knob. | chat prep, housekeeping |
 | `youtrackProjects` | string[] | — | YouTrack id prefixes whose tagged tickets this project investigates. | each poll |
-| `sandbox` | object | `{ "privileged": true, "dind": true, "mounts": [] }` | How the container runs: `privileged`, `dind`, read-only `mounts`. [Sandbox drivers](sandbox-drivers.md#ssh-docker). | new containers only (`docker rm` to apply) |
+| `sandbox` | object | `{ "privileged": true, "dind": true, "mounts": [] }` | How the container runs: `privileged`, `dind` (`true` alone implies privileged), read-only `mounts`, its own `image` (else `SANDBOX_IMAGE`). A project without the block gets a boot warning: a later release runs it plain. [Sandbox drivers](sandbox-drivers.md#ssh-docker). | new containers only (`docker rm` to apply) |
 | `scrubSecrets` | boolean | `true` | Redacts secrets from what people type before it reaches the model; `false` opts out. | new sessions |
 | `sources` | object | — | Mail, chat, calendars, trackers and recorded calls ingested for the project, and an optional `daemon` (`url`, `tokenEnv`). [Sources → Config](sources.md#config). | each poll; the tools at session open |
 | `messaging` | object | — | Agent messaging: `send`, `accept`, `description`, `skills`, caps. Refused on a project several workspaces share. [Agent messaging](agent-messaging.md#turning-it-on). | read per call |

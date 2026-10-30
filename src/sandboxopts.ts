@@ -91,6 +91,9 @@ export const RENAMED_SANDBOX_SETTINGS: readonly (readonly [string, string])[] = 
 /** The boot line for old setting names still in use, or undefined. Pure. */
 export function renamedSettingsWarning(env: Record<string, string | undefined>): string | undefined {
   const old = RENAMED_SANDBOX_SETTINGS.filter(([, was]) => (env[was] ?? '').trim()).map(([now, was]) => `${was} → ${now}`);
+  // SANDBOX_DEFAULT was on main for a day (never tagged) and is read no more: say so rather than let a
+  // block-less project it made plain go back to docker-in-docker unnoticed.
+  if ((env.SANDBOX_DEFAULT ?? '').trim()) old.push('SANDBOX_DEFAULT is no longer read: write "sandbox": { … } on each project');
   return old.length ? `settings: renamed, the old names still work for now — ${old.join(', ')} (docs/configuration.md)` : undefined;
 }
 

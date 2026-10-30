@@ -60,7 +60,8 @@ test('resolveSandboxOptions: a block-less project is today\'s, { dind: true } al
     image: 'registry.example/acme/laravel:1.2',
   });
   assert.equal(resolveSandboxOptions({ privileged: false, dind: false, image: 'ghcr.io/acme/plain@sha256:abc' }).image, 'ghcr.io/acme/plain@sha256:abc');
-  for (const bad of ['', 'img; rm -rf /', 'has space', -1]) {
+  for (const ok of ['localhost:5000/acme/x:tag', 'acme/x:1@sha256:abc', 'plain']) assert.equal(resolveSandboxOptions({ image: ok }).image, ok);
+  for (const bad of ['', 'img; rm -rf /', 'has space', '-x', -1]) {
     assert.throws(() => resolveSandboxOptions({ image: bad as string }), /"image" must be an image reference/);
   }
   assert.throws(() => resolveSandboxOptions({ privileged: false }), /requires "dind": false/, 'today\'s contradiction stays an error');
@@ -71,6 +72,7 @@ test('renamedSettingsWarning names the old setting names in use, nothing when re
   const w = renamedSettingsWarning({ SNAPSHOT_IMAGE: 'img', SSHDOCKER_HOST: 'local', SANDBOX_DIND_RUNTIME: 'sysbox-runc' }) ?? '';
   assert.match(w, /SNAPSHOT_IMAGE → SANDBOX_IMAGE, SSHDOCKER_HOST → SANDBOX_HOST/);
   assert.doesNotMatch(w, /SSHDOCKER_RUNTIME/);
+  assert.match(renamedSettingsWarning({ SANDBOX_DEFAULT: 'plain' }) ?? '', /SANDBOX_DEFAULT is no longer read/);
 });
 
 test('privilegeWarnings: prod, staging and home as they are on 2026-10-31', () => {

@@ -580,3 +580,16 @@ test('SshDockerDriver.listStates — the host answers: the map; the host is down
   const down = fakeHost(() => ({ code: 255, stderr: 'ssh: connect to host sandboxes.example port 22: Connection refused' }));
   await assert.rejects(down.driver.listStates(), /sandbox listing failed \(exit 255\)[\s\S]*Connection refused/);
 });
+
+test('SshDockerDriver — a project image is pulled and run; without one, the installation image (sandbox-privilege-opt-in)', async () => {
+  const { seen, driver } = fakeHost((_cmd, script) => (isEnsure(script) ? { stdout: 'created\n' } : { stdout: 'present\n' }));
+  await driver.ensureImage('registry.example/acme/laravel:1');
+  await driver.ensureImage();
+  assert.match(seen[0].script, /docker image inspect 'registry\.example\/acme\/laravel:1'/);
+  assert.match(seen[1].script, /docker image inspect 'img'/);
+  await driver.ensureSandbox('proj-sail', 'sail', { dind: true, image: 'registry.example/acme/laravel:1' });
+  await driver.ensureSandbox('proj-shop', 'shop');
+  const runs = seen.filter((s) => isEnsure(s.script)).map((s) => s.script);
+  assert.match(runs[0], /--privileged[\s\S]*--entrypoint sh 'registry\.example\/acme\/laravel:1'/);
+  assert.match(runs[1], /--entrypoint sh 'img'/);
+});

@@ -69,9 +69,9 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
      over the session control channel (`docs/runtime-config.md` → *Host tools*). The store replica
      is never mounted (`docs/sources.md` → "Replica").
 
-   The image itself stays deployment-wide (`SANDBOX_IMAGE`), so a plain project lives on
-   an instance whose fleet image is the plain variant (how the variants are built and the
-   CLI pinned: `snapshot/README.md`). Options shape CREATION only: an
+   The installation's image (`SANDBOX_IMAGE`) is every project's unless it names its own
+   (`image`), so plain and docker-in-docker projects share an installation (how the variants
+   are built and the CLI pinned: `snapshot/README.md`). Options shape CREATION only: an
    existing `proj-<slug>` keeps the flags it was born with — `docker rm` it on the sandbox
    host and the next turn recreates it with the new ones.
 

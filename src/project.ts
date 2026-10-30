@@ -13,7 +13,7 @@ import { withGitRetry, type GitRetryOpts } from './gitretry.js';
 import { routineGuard } from './routineguard.js';
 import { GIT_EMAIL, GIT_NAME } from './gitidentity.js';
 
-// The snapshot image (snapshot/Dockerfile → SNAPSHOT_IMAGE) bakes in the sandbox tooling
+// The sandbox image (snapshot/Dockerfile → SANDBOX_IMAGE, or a project's sandbox.image) bakes in the sandbox tooling
 // (git, gh, node, Claude Code, sail shims), so per-boot provisioning is gone. This ensures
 // only additions NEWER than the running fleet's image — idempotently, on every chat prep —
 // so warm sandboxes pick them up on their next turn with no image rebuild and no lost
