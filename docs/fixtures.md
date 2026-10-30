@@ -6,7 +6,7 @@ and committed under `src/fixtures/`. The twin harness (`src/chat/slack/twin.ts`)
 envelopes composed from memory.
 
 > **Status: shipped.** 34 fixtures covering every envelope kind seen on prod so far; four
-> replay tests in `src/twin.test.ts` (rating click with a real 10-block answer, thumbs-down,
+> replay tests in `src/chat/slack/twin.test.ts` (rating click with a real 10-block answer, thumbs-down,
 > reason-modal submission, @-mention). Refresh whenever Slack changes a shape or a new
 > interaction lands.
 

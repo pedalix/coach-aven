@@ -1,15 +1,4 @@
 {
-  "workspaces": {
-    "T0YOURHOME1": [
-      "acme-shop",
-      "acme-cms",
-      "acme-monitoring",
-      "ops-plain"
-    ],
-    "T0CLIENT001": [
-      "acme-monitoring"
-    ]
-  },
   "projects": [
     {
       "slug": "acme-shop",

@@ -111,7 +111,7 @@ files are read on demand by the agent. This is Claude Code behaviour, not ours.
 
 ## Prerequisites — verified
 
-Checked on the live `proj-caldora` sandbox via `scripts/peek-sandbox.ts`, since removed (2026-06-26):
+Checked on the live `proj-caldora` sandbox via a sandbox exec script (since removed) (2026-06-26):
 
 1. **Claude Code version** — `2.1.183` (≥ 2.1.59 required). ✓
 2. **Auto memory writes files in our headless mode** (`--dangerously-skip-permissions`,

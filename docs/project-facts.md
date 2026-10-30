@@ -1,8 +1,7 @@
 # Project facts — `facts/<slug>.json`
 
 Structured, **derived** state about a project that deterministic code writes and other
-deterministic code reads. It is the first sliver of the "world state" from
-`ideas/aven-distributed-cognition-assessment.md`: not a message bus, not a blackboard
+deterministic code reads. It is the first sliver of a "world state" (from the operator's design notes): not a message bus, not a blackboard
 with confidence scores — a file of facts with provenance, one writer, a few readers, no
 LLM anywhere in the loop.
 

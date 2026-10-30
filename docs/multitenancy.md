@@ -97,7 +97,7 @@ most of "tenancy" under a different name:
 - **Slack**: one app, one bot token + one app token, Socket Mode (`config.ts`, `slack.ts`).
 - **Claude**: one `CLAUDE_CODE_OAUTH_TOKEN` (one Claude Max subscription) for all projects.
 - **Sandboxes**: one Docker host per installation (`SSHDOCKER_HOST`), every project's container on it.
-- **GitHub App**: one App (`pedalix-factory`), though it can be installed on many orgs.
+- **GitHub App**: one App (e.g. `acme-factory`), though it can be installed on many orgs.
 - **State/config**: a flat `projects.config.json` list and a single `state.json`, keyed by
   `thread:<ts>` / `dm:…` / `cmd:…` with **no tenant dimension**.
 

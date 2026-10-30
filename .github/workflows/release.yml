@@ -27,6 +27,10 @@ on:
   push:
     tags: ['v*']
 
+# Least privilege by default; the release job widens its own (contents: write).
+permissions:
+  contents: read
+
 env:
   OPS_REPO: ${{ vars.OPS_REPO }}
 
