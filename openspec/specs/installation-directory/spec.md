@@ -83,7 +83,7 @@ At boot the bot SHALL log, once and before the chat driver starts, the installat
 - **THEN** its log carries one line naming the resolved installation directory
 
 ### Requirement: No runtime file is located through the code or the working directory
-The release marker and the bot's own assets (fixtures, static files, workers) SHALL stay beside the code. Every other file the bot reads or writes at runtime SHALL be located through the installation directory. The test suite SHALL fail when code under `src/` builds such a path from its own location or from the working directory.
+The bot's own assets (fixtures, static files, workers) SHALL stay beside the code; nothing else SHALL be located through the code's own location. Every file the bot reads or writes at runtime SHALL be located through the installation directory. The test suite SHALL fail when code under `src/` builds such a path from its own location or from the working directory.
 
 #### Scenario: A new journal located through the code
 - **WHEN** a change adds `new URL('../journal', import.meta.url)` for a runtime file under `src/`
@@ -94,5 +94,5 @@ The release marker and the bot's own assets (fixtures, static files, workers) SH
 - **THEN** `npm test` fails and names the file
 
 #### Scenario: Release marker
-- **WHEN** a deploy stamps `.release` beside the code
-- **THEN** the bot reads the release from there, whatever `AVEN_DIR` says
+- **WHEN** the error tracker's release is wanted
+- **THEN** it comes from the environment the compose file sets from the pinned version, and no file beside the code is read for it

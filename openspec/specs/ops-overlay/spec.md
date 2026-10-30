@@ -58,38 +58,42 @@ The public repo's `.gitignore` SHALL ignore every path under `infra/` except the
 - **THEN** it is staged like any other tracked path
 
 ### Requirement: The overlay names the chat driver the service runs
-`deploy.env` SHALL name the installation's chat driver (`CHAT_DRIVER`, one of the build's drivers; absent = `slack`). On a systemd installation `deploy.sh install` SHALL render that driver into the service unit's run command. On a compose installation it SHALL be the bot container's command. Either way, the deploy health check SHALL wait for that driver's "bot running" line.
+`deploy.env` SHALL name the installation's chat driver (`CHAT_DRIVER`, one of the build's drivers; absent = `slack`). `deploy.sh install` SHALL render that driver into the bot container's command, and the deploy health check SHALL wait for that driver's "bot running" line.
 
 #### Scenario: Default stays Slack
 - **WHEN** an overlay's `deploy.env` has no `CHAT_DRIVER`
-- **THEN** the rendered unit runs `orch slack` exactly as before and the health check waits for `Slack bot running`
+- **THEN** the bot container runs `orch slack` and the health check waits for `Slack bot running`
 
 #### Scenario: Teams installation
 - **WHEN** `deploy.env` says `CHAT_DRIVER=teams` and `install` then `deploy` run
-- **THEN** the unit runs `orch teams` and the deploy reports healthy once `Teams bot running` appears in the journal
+- **THEN** the bot container runs `orch teams` and the deploy reports healthy once `Teams bot running` appears in the bot's log
 
 #### Scenario: Unknown driver
 - **WHEN** `CHAT_DRIVER` names a driver the build does not have
 - **THEN** `install` exits non-zero naming the drivers available
 
 #### Scenario: Compose installation
-- **WHEN** `deploy.env` says `RUNTIME=compose` and `CHAT_DRIVER=teams`
+- **WHEN** `deploy.env` says `CHAT_DRIVER=teams`, with or without a leftover `RUNTIME=compose`
 - **THEN** the bot container runs `orch teams` and the deploy reports healthy once `Teams bot running` appears in the bot's log
 
-### Requirement: The overlay names the runtime
-`deploy.env` SHALL name how the installation runs: `RUNTIME=systemd`, the default when the key is absent (the systemd unit and the tar deploy), or `RUNTIME=compose` (`container-deploy`). When `RUNTIME` has any other value, every `deploy.sh` command SHALL exit non-zero, naming the two values.
+### Requirement: The overlay has one runtime
+The overlay SHALL name no runtime: the published image under Docker Compose (`container-deploy`) is the only one, and the `RUNTIME` key is retired. A leftover `RUNTIME=compose` SHALL be accepted. `RUNTIME=systemd` SHALL make every `deploy.sh` command exit non-zero with a sentence naming the last release whose tooling had that path (v0.43.0) and the move checklist. Any other value SHALL make every command exit non-zero, naming `compose`.
 
 #### Scenario: No runtime named
 - **WHEN** an overlay's `deploy.env` has no `RUNTIME`
-- **THEN** `install`, `deploy` and the other commands do exactly what they did before this setting existed
+- **THEN** `install` renders the compose file, and `deploy` takes a version and uploads nothing
 
 #### Scenario: Compose
 - **WHEN** `deploy.env` says `RUNTIME=compose`
-- **THEN** `install` prepares the box's deploy command, and `deploy` takes a version and uploads nothing
+- **THEN** every command behaves exactly as with no `RUNTIME`
+
+#### Scenario: The retired runtime
+- **WHEN** `deploy.env` says `RUNTIME=systemd`
+- **THEN** every command exits non-zero, names v0.43.0 and points at the move checklist
 
 #### Scenario: Unknown runtime
 - **WHEN** `deploy.env` says `RUNTIME=docker`
-- **THEN** every command exits non-zero and names `systemd` and `compose`
+- **THEN** every command exits non-zero and names `compose`
 
 ### Requirement: The overlay marks a canary installation
 `deploy.env` SHALL mark a canary installation with `CANARY=1`. Only an installation marked this way SHALL accept a `main` commit's image, from `deploy.sh` and from the ops workflow alike.
