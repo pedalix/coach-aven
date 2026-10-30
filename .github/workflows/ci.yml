@@ -2,8 +2,11 @@ name: CI
 
 # Every push and pull request: typecheck, tests, and the two public-repo guards —
 # scripts/public-guard.sh (installation identifiers, from a private deny-list secret) and
-# gitleaks (secret-shaped strings). The tag pipeline in release.yml runs the same checks
-# before it deploys. Fork pull requests run this without any secret.
+# gitleaks (secret-shaped strings). After verify, a push to main builds the commit's image
+# (image.yml → ghcr.io/<owner>/coach-aven:sha-<commit>, OpenSpec bot-image), and a pull request
+# that changes the image's inputs builds both architectures without publishing. The tag
+# pipeline in release.yml runs the same checks before it promotes the image and releases.
+# Fork pull requests run this without any secret.
 on:
   push:
     branches: [main]      # PR branches are covered by the pull_request event — one run, not two
@@ -16,10 +19,24 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    outputs:
+      image_inputs: ${{ steps.image_inputs.outputs.changed }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0     # the PR's commit messages are checked below
+      - name: Does this pull request change the image's inputs? (then it builds the image below)
+        id: image_inputs
+        if: github.event_name == 'pull_request'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if git diff --name-only "$BASE" "$HEAD" | grep -qxE 'Dockerfile|\.dockerignore|package\.json|package-lock\.json'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
@@ -74,3 +91,59 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+  # The image of every main commit (OpenSpec bot-image): built on native runners after verify and
+  # published as sha-<commit>. The canary deploys it; a release tag promotes it (release.yml).
+  image:
+    needs: verify
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/image.yml
+    with:
+      commit: ${{ github.sha }}
+    permissions:
+      contents: read
+      packages: write
+
+  # A pull request that changes the image's inputs (the build file, .dockerignore, package.json, the
+  # lockfile) builds both architectures on their native runners without publishing — a dependency that
+  # does not install, or installs on one architecture only, fails here and never leaves main without an
+  # image. The build reads the registry cache and never writes it. Each image then runs once as a uid
+  # the image does not know, as a quickstart or the compose file would run it.
+  image-pr:
+    needs: verify
+    if: github.event_name == 'pull_request' && needs.verify.outputs.image_inputs == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: read
+    env:
+      ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build linux/${{ matrix.arch }} from the commit's tracked files (not published)
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/coach-aven"
+          git archive --format=tar HEAD | docker buildx build \
+            --platform "linux/$ARCH" \
+            --cache-from "type=registry,ref=$IMAGE:buildcache-$ARCH" \
+            --load -t coach-aven:pr -
+      - name: Run it once as a uid the image does not know
+        run: |
+          set -euo pipefail
+          docker run --rm --user 4242:4242 -e HOME=/tmp -e AVEN_DIR=/tmp coach-aven:pr --help
+          docker run --rm --entrypoint sh coach-aven:pr -c 'git --version && ssh -V && docker --version && age --version && gitleaks version'

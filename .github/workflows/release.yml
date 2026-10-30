@@ -8,10 +8,12 @@ name: Release
 # generated from the PRs merged since the previous tag (grouped per .github/release.yml),
 # so write human-readable PR titles.
 #
-# The tag push runs: verify (typecheck, tests, guards) → GitHub Release (auto-generated
-# notes) → a notification to the operator's ops repository, which deploys the tag with its
-# own secrets (infra/deploy/ops.example/workflows/deploy.yml). This repository holds no
-# deploy key, no deploy target and no environment: an installation is somebody's ops repo.
+# The tag push runs: verify (typecheck, tests, guards) → the image (OpenSpec bot-image: the tagged
+# commit's sha-<commit> image, built by ci.yml when the commit reached main, gets the names vX.Y.Z
+# and, when the tag is the highest release, latest; built here only when it is missing) → GitHub
+# Release (auto-generated notes) → a notification to the operator's ops repository, which deploys
+# the tag with its own secrets (infra/deploy/ops.example/workflows/deploy.yml). This repository
+# holds no deploy key, no deploy target and no environment: an installation is somebody's ops repo.
 #
 # Optional secrets (only an operator who wants the automatic hand-off sets them; a fork
 # cuts releases without them — the notify steps are skipped):
@@ -56,8 +58,81 @@ jobs:
       - name: gitleaks (no secret-shaped strings in the tree)
         run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 detect --source /repo --no-git --config /repo/.gitleaks.toml --redact --verbose
 
-  release:
+  # The tag's image: does the tagged commit's sha-<commit> image exist? (ci.yml built it when the commit
+  # reached main; a tag of a commit that never went through that run is built below.)
+  image-check:
     needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    outputs:
+      commit: ${{ steps.probe.outputs.commit }}
+      exists: ${{ steps.probe.outputs.exists }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: probe
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/coach-aven"
+          # The commit the tag points to, for a lightweight and an annotated tag alike.
+          COMMIT="$(git rev-parse "$GITHUB_REF_NAME^{commit}")"
+          if docker buildx imagetools inspect "$IMAGE:sha-$COMMIT" >/dev/null 2>&1; then exists=true; else exists=false; fi
+          echo "sha-$COMMIT exists: $exists"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "exists=$exists" >> "$GITHUB_OUTPUT"
+
+  image-build:
+    needs: image-check
+    if: needs.image-check.outputs.exists == 'false'
+    uses: ./.github/workflows/image.yml
+    with:
+      commit: ${{ needs.image-check.outputs.commit }}
+    permissions:
+      contents: read
+      packages: write
+
+  # vX.Y.Z is a second name of the commit's image, the same digest the canary ran — never a rebuild. latest
+  # as a third name when this tag is the highest release (a patch of an older line leaves it alone).
+  promote:
+    needs: [image-check, image-build]
+    if: ${{ !cancelled() && needs.image-check.result == 'success' && (needs.image-check.outputs.exists == 'true' || needs.image-build.result == 'success') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      COMMIT: ${{ needs.image-check.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0     # every v* tag, for the highest-version check
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Promote sha-<commit> to the release tag (and latest when it is the highest release)
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/coach-aven"
+          names=(-t "$IMAGE:$GITHUB_REF_NAME")
+          highest="$(git tag -l 'v*' | sort -V | tail -1)"
+          if [[ "$highest" == "$GITHUB_REF_NAME" ]]; then names+=(-t "$IMAGE:latest"); fi
+          docker buildx imagetools create "${names[@]}" "$IMAGE:sha-$COMMIT"
+          docker buildx imagetools inspect "$IMAGE:$GITHUB_REF_NAME"
+          echo "published ${names[*]} = $IMAGE:sha-$COMMIT (highest release: $highest)"
+
+  release:
+    needs: promote
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:

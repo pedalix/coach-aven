@@ -37,7 +37,10 @@ export function parseMirrors(raw: unknown, where = 'mirrors.json'): Mirror[] {
   });
 }
 
-/** Where the list is read from: `MIRRORS_CONFIG`, else `mirrors.json` in the working directory (REMOTE_DIR on the box). */
-export function mirrorsPath(env: Record<string, string | undefined>, cwd: string): string {
-  return resolve(cwd, env.MIRRORS_CONFIG || 'mirrors.json');
+/**
+ * Where the list is read from: `MIRRORS_CONFIG` (absolute, or relative to the installation directory), else
+ * `mirrors.json` in the installation directory (`installDir()` in src/paths.ts — never the working directory).
+ */
+export function mirrorsPath(env: Record<string, string | undefined>, installationDir: string): string {
+  return resolve(installationDir, env.MIRRORS_CONFIG || 'mirrors.json');
 }

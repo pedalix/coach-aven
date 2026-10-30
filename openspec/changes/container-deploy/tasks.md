@@ -2,17 +2,17 @@
 
 ## 1. The installation directory (PR 1, bucket 2)
 
-- [ ] 1.1 `src/paths.ts`, pure (design D1): `installDir(env, packageRoot)`, one resolver per runtime path, each evaluated on first use, and one helper that resolves a path setting's relative value against the installation directory.
+- [x] 1.1 `src/paths.ts`, pure (design D1): `installDir(env, packageRoot)`, one resolver per runtime path, each evaluated on first use, and one helper that resolves a path setting's relative value against the installation directory.
   - unset or empty gives the package root;
   - an absolute value is used as it is;
   - a relative value throws one sentence that names `AVEN_DIR`.
 
   Verify, in `src/paths.test.ts`: the default, an absolute value, a relative value, `AVEN_DATA_DIR` still narrowing `data/`, and the helper with a relative and an absolute setting.
-- [ ] 1.2 The eleven anchors go through `src/paths.ts`: `src/state.ts`, `src/queuejournal.ts`, `src/metering.ts`, `src/drafts.ts`, `src/facts.ts`, `src/feedback.ts`, `src/memjournal.ts`, `src/eventlog.ts`, `src/messaging/runtime.ts`, `src/sources/paths.ts`, and the projects config default in `src/config.ts`. `.release` stays where it is. Verify:
+- [x] 1.2 The eleven anchors go through `src/paths.ts`: `src/state.ts`, `src/queuejournal.ts`, `src/metering.ts`, `src/drafts.ts`, `src/facts.ts`, `src/feedback.ts`, `src/memjournal.ts`, `src/eventlog.ts`, `src/messaging/runtime.ts`, `src/sources/paths.ts`, and the projects config default in `src/config.ts`. `.release` stays where it is. Verify:
   - `npm run typecheck`;
   - `npm test` passes with no existing test changed;
   - a new test sets `AVEN_DIR` to a temporary directory and finds `state.json`, `queue.jsonl` and the month's usage file there.
-- [ ] 1.3 The working directory stops mattering (design D1):
+- [x] 1.3 The working directory stops mattering (design D1):
   - `src/config.ts` loads `.env` from the installation directory;
   - `mirrors.json` and the `mirrors/` cache come from the installation directory: `mirrorsPath` in `src/mirrors.ts` takes it instead of the working directory, and `scripts/mirror.ts` passes it;
   - relative path settings go through the helper: `PROJECTS_CONFIG_PATH` and `GITHUB_APP_PRIVATE_KEY_PATH` (`src/config.ts`), `AVEN_DATA_DIR` (`src/sources/paths.ts`), `MIRRORS_CONFIG` (`src/mirrors.ts`), `HUB_KEY_PATH` (`src/messaging/config.ts`, `src/messaging/cli.ts`).
@@ -20,24 +20,24 @@
   Verify:
   - `src/mirrors.test.ts` covers the list's path from the installation directory;
   - a test starts the CLI from a temporary working directory, with `AVEN_DIR` naming a fixture installation, and the command reads that installation's `.env` and `state.json`. The child's environment must not carry `NODE_TEST_CONTEXT`, or `.env` is never loaded.
-- [ ] 1.4 The overlay's layout (requirement *The configuration has the overlay's layout*): a test beside the deploy tests in `src/chat/teams/deploy.test.ts` compares the names `deploy.sh runtime-files` carries with the names the bot reads from the installation directory: `.env`, the projects config default with `projects.d/` and `hub.peers.json` beside it, `mirrors.json`, and the key path in `infra/deploy/ops.example/.env.example`. Verify: it passes, and renaming one side makes it fail (checked once, then reverted).
-- [ ] 1.5 `src/config.ts` at boot:
+- [x] 1.4 The overlay's layout (requirement *The configuration has the overlay's layout*): a test beside the deploy tests in `src/chat/teams/deploy.test.ts` compares the names `deploy.sh runtime-files` carries with the names the bot reads from the installation directory: `.env`, the projects config default with `projects.d/` and `hub.peers.json` beside it, `mirrors.json`, and the key path in `infra/deploy/ops.example/.env.example`. Verify: it passes, and renaming one side makes it fail (checked once, then reverted).
+- [x] 1.5 `src/config.ts` at boot:
   - `AVEN_DIR` is resolved from the process environment before `.env` is loaded, and a `.env` that sets `AVEN_DIR` stops the boot;
   - a relative value stops the boot;
   - one boot line names the installation directory before the chat driver starts.
 
   Verify: cases in `src/config.test.ts` for "set in .env", "relative", and the boot line's text.
-- [ ] 1.6 The guard, a test beside `src/chat/imports.test.ts`:
+- [x] 1.6 The guard, a test beside `src/chat/imports.test.ts`:
   - It fails on `new URL('../…', import.meta.url)` under `src/` (tests aside) when the target is not a code asset. The code assets are the fixtures, the static files, `sources/worker.mjs`, `snapshot/plain/sources-mcp.mjs` and `.release`.
   - It fails on `process.cwd()` under `src/` (tests aside) outside `src/cliprobe/typecheck.ts`.
 
   Verify: it passes on the tree. A fake anchor of each kind makes it fail, naming the file and the path (checked once, then reverted).
-- [ ] 1.7 Docs:
+- [x] 1.7 Docs:
   - `docs/runtime-config.md` gets an `AVEN_DIR` row: what lives under it (configuration and state), the default, that relative path settings resolve against it, and that it comes from the process environment only;
   - `docs/local-dev.md` says `.env` and the state live in the checkout unless `AVEN_DIR` is set.
 
   Verify: `git diff --stat docs` lists those two files, and the public guard is clean.
-- [ ] 1.8 `docs/rollout.md` gets a ledger row: the installation directory, bucket 2, nothing moves while it is unset. Verify: the diff of `docs/rollout.md`.
+- [x] 1.8 `docs/rollout.md` gets a ledger row: the installation directory, bucket 2, nothing moves while it is unset. Verify: the diff of `docs/rollout.md`.
 - [ ] 1.9 Canary: restart home and deploy staging with `AVEN_DIR` unset. Verify:
   - the boot line names the package root;
   - the routines, the queue journal and `/aven usage` keep working;
@@ -45,11 +45,11 @@
 
 ## 2. The image (PR 2)
 
-- [ ] 2.1 `orch mirror` (design D7): the body of `scripts/mirror.ts` moves into a function that `orch mirror` (`src/cli.ts`) and `scripts/mirror.ts` both call, with the list and the `mirrors/` cache in the installation directory (task 1.3). Verify:
+- [x] 2.1 `orch mirror` (design D7): the body of `scripts/mirror.ts` moves into a function that `orch mirror` (`src/cli.ts`) and `scripts/mirror.ts` both call, with the list and the `mirrors/` cache in the installation directory (task 1.3). Verify:
   - `npm test`, `src/mirrors.test.ts` included;
   - `npm run orch -- mirror --help`;
   - a test that both entry points import the same function.
-- [ ] 2.2 The image's build file and `.dockerignore` (design D5):
+- [x] 2.2 The image's build file and `.dockerignore` (design D5):
   - Node 24 on Debian slim, pinned by digest;
   - git, `openssh-client` and `age` from Debian;
   - the Docker CLI and gitleaks copied from their official images;
@@ -67,28 +67,28 @@
   - `docker run --rm --entrypoint sh aven:test -c 'git --version && ssh -V && docker --version && age --version && gitleaks version'`;
   - `docker run --rm --user 4242:4242 -e HOME=/aven -e AVEN_DIR=/aven -v aven-test:/aven aven:test --help` runs as a uid the image does not know;
   - the one-directory scenario by hand (requirement *The image carries no installation*): a scratch directory with a `.env` for the web chat driver, mounted as `/aven`, `--user 4242:4242`, `-e HOME=/aven -e AVEN_DIR=/aven -e SSHDOCKER_HOST=local` and the Docker socket; the web chat answers on its port, a sandbox starts, and `ls -lnR` of the directory shows uid 4242 only.
-- [ ] 2.3 `.github/workflows/image.yml`, a reusable workflow (design D6): one job per architecture on native runners (`ubuntu-24.04`, `ubuntu-24.04-arm`), each pushing by digest, then a merge job that publishes `sha-<commit>`. Each architecture's job reads and writes the registry build cache `buildcache-<arch>`. `packages: write` is granted in this workflow only. Verify:
+- [x] 2.3 `.github/workflows/image.yml`, a reusable workflow (design D6): one job per architecture on native runners (`ubuntu-24.04`, `ubuntu-24.04-arm`), each pushing by digest, then a merge job that publishes `sha-<commit>`. Each architecture's job reads and writes the registry build cache `buildcache-<arch>`. `packages: write` is granted in this workflow only. Verify:
   - a manual run on the branch publishes `sha-<branch head>`;
   - `docker buildx imagetools inspect` lists `linux/amd64` and `linux/arm64`;
   - a second manual run, after a commit that changes only code, takes `npm ci` from the cache, and both images carry the same dependency layer digest;
   - the test image is deleted afterwards.
-- [ ] 2.4 `ci.yml`:
+- [x] 2.4 `ci.yml`:
   - on pushes to `main`, `image.yml` runs after verify;
   - on a pull request that touches the build file, `.dockerignore`, `package.json` or the lockfile, both architectures build on their native runners without pushing; they read the build cache and never write it; each job runs the image it built once as a uid the image does not know (`--user 4242:4242 … --help`).
 
   Verify: this pull request's own run shows both build jobs, and after the merge `sha-<merge commit>` exists.
-- [ ] 2.5 `release.yml`: a promotion job sits between verify and the GitHub Release. It runs `imagetools create -t vX.Y.Z …:sha-<commit>`, with `-t latest` as well when the tag is the highest `v*` tag (`git tag -l 'v*' | sort -V | tail -1`), or builds when the image is missing; the release and the dispatch need it. Verify, on the next tag's run:
+- [x] 2.5 `release.yml`: a promotion job sits between verify and the GitHub Release. It runs `imagetools create -t vX.Y.Z …:sha-<commit>`, with `-t latest` as well when the tag is the highest `v*` tag (`git tag -l 'v*' | sort -V | tail -1`), or builds when the image is missing; the release and the dispatch need it. Verify, on the next tag's run:
   - `vX.Y.Z`, `sha-<commit>` and `latest` have the same digest;
   - the release was created after the promotion.
 - [ ] 2.6 The registry package is public and linked to the repository. An owner of the organization sets the visibility once, in the package's settings, after the first publish. Verify: `docker logout ghcr.io && docker pull ghcr.io/<owner>/coach-aven:sha-<commit>`.
-- [ ] 2.7 `.github/dependabot.yml` gets the `docker` ecosystem for the image's base. Verify: the diff of `.github/dependabot.yml`.
-- [ ] 2.8 Docs:
+- [x] 2.7 `.github/dependabot.yml` gets the `docker` ecosystem for the image's base. Verify: the diff of `.github/dependabot.yml`.
+- [x] 2.8 Docs:
   - `infra/deploy/README.md` gets an *Images* section: the three tags and who each is for, the promotion, where the image is built and how to pull it;
   - `docs/runtime-config.md`, *Repo mirrors*, names `orch mirror`;
   - CLAUDE.md's release line names the image.
 
   Verify: the public guard is clean, and the README's commands run as written.
-- [ ] 2.9 The ledger row: the images, CI only, no box changes. Verify: the diff of `docs/rollout.md`.
+- [x] 2.9 The ledger row: the images, CI only, no box changes. Verify: the diff of `docs/rollout.md`.
 
 ## 3. The compose runtime (PR 3)
 

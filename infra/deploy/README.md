@@ -122,7 +122,8 @@ Two repositories, two jobs:
 
 - **This repo releases.** Pushing a `vX.Y.Z` tag runs
   [`.github/workflows/release.yml`](../../.github/workflows/release.yml): typecheck, tests and
-  the two guards, then a GitHub Release whose notes are generated from the merged PR titles.
+  the two guards, then the image `vX.Y.Z` (*Images*, below), then a GitHub Release whose notes are
+  generated from the merged PR titles.
   Then, if the operator configured it, one `repository_dispatch` (`coach-aven-release`,
   payload `{tag}`) to the operator's ops repo. This repo holds **no deploy key, no deploy
   target, no environment** — a fork cuts releases just the same, the dispatch is skipped.
@@ -159,6 +160,36 @@ unchanged and always available.
 
 Why a GitHub App and not a personal token: it is scoped at mint time, lives an hour, and
 is revoked by rotating one key — nobody's account, nothing that expires in a year.
+
+## Images
+
+Every commit on `main` that passes verification is built once into an image,
+`ghcr.io/<owner>/coach-aven`, for `linux/amd64` and `linux/arm64` on native runners
+([`.github/workflows/image.yml`](../../.github/workflows/image.yml), called from `ci.yml`). The image holds
+the commit's tracked files, the dependencies of its lockfile, Node 24 and the host tools the bot starts
+(git, the OpenSSH client, the Docker CLI, age, gitleaks) — and nothing of any installation: no user, path,
+address or key of a box. Three names, three readers:
+
+| Tag | Who it is for |
+| --- | --- |
+| `sha-<commit>` (the full commit id) | the canary installation, and the promotion below |
+| `vX.Y.Z` | a release installation — the **same digest** the commit's `sha-` image had, never a rebuild |
+| `latest` | someone outside who wants the current release: the highest `vX.Y.Z`; a patch of an older line leaves it alone |
+
+A tag's run (`release.yml`) promotes the commit's image with `docker buildx imagetools create` and builds
+it first only when the commit has none. The package is public, so a box pulls anonymously and holds no
+registry token:
+
+```bash
+docker pull ghcr.io/<owner>/coach-aven:v1.4.0
+docker run --rm ghcr.io/<owner>/coach-aven:v1.4.0 --help     # the CLI, from any working directory
+docker buildx imagetools inspect ghcr.io/<owner>/coach-aven:v1.4.0   # both architectures, the digest
+```
+
+A pull request that changes the image's inputs (the `Dockerfile`, `.dockerignore`, `package.json` or the
+lockfile) builds both architectures without publishing, so a dependency that does not install — or
+installs on one architecture only — fails before the merge. A local build from a working tree,
+`git archive HEAD | docker build -t coach-aven:dev -`, sees tracked files only, like CI.
 
 ## Runtime token note
 

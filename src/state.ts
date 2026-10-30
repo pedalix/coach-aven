@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, renameSync } from 'node:fs';
 import { log } from './log.js';
+import { statePath } from './paths.js';
 import { splitTeam } from './teamkeys.js';
 import type { TeamAccess } from './access.js';
 import { countKeyDay, inTaskKey, isOpen, type DeliveryRecord, type HeldMessage, type InTask, type MessagingState, type OutTask } from './messaging/records.js';
@@ -191,13 +192,11 @@ export interface WebUser {
   seenAt: string; // ISO, the last login
 }
 
-const STATE_PATH = new URL('../state.json', import.meta.url).pathname;
-
 export class Store {
   private data: StateShape;
 
   // `path` is injectable so tests can use a throwaway file instead of the real state.json.
-  constructor(private readonly path: string = STATE_PATH) {
+  constructor(private readonly path: string = statePath()) {
     this.data = existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as StateShape) : { projects: {} };
     // The dispatch primitive is retired (OpenSpec `retire-agent-dispatch` D4): its records are dropped in
     // memory on load, and the bot's next normal save persists that. Never a save here: a read-only CLI

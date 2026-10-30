@@ -92,6 +92,30 @@ The soft/instructional needs are largely already covered by [project memory](mem
 - Config loading: `loadProjects` / `registry` in `src/projects.ts`, `src/chat/slack/app.ts`.
 - Server-owned state that survives deploy: `state.json` (`src/state.ts`).
 
+## Installation directory (`AVEN_DIR`)
+
+Everything an installation **has** lives in one directory, the installation directory (OpenSpec
+`installation-directory`): the configuration the bot reads — `.env`, `projects.config.json` with
+`projects.d/<slug>.md` and `hub.peers.json` beside it, `mirrors.json`, the GitHub App key under the name
+`.env` gives it — and every file the bot writes at runtime: `state.json`, `queue.jsonl`, `usage/`,
+`drafts/`, `facts/`, `memory/`, `feedback/`, `events/`, `shadow/`, the mirror job's `mirrors/`, and `data/`
+unless `AVEN_DATA_DIR` names another place. The layout is the ops overlay's (`infra/<slug>/`), so an
+overlay checkout with its two secret files in place is a complete installation directory.
+
+- **`AVEN_DIR`** names it. Unset or empty = the package root, which is where every unit and npm script
+  runs today, so nothing moves until an installation sets it. A compose installation sets it to the
+  directory it mounts (`infra/deploy/README.md`).
+- **Relative path settings resolve against it**, never against the working directory: `PROJECTS_CONFIG_PATH`,
+  `AVEN_DATA_DIR`, `MIRRORS_CONFIG`, `GITHUB_APP_PRIVATE_KEY_PATH`, `HUB_KEY_PATH`. An absolute value is used
+  as it is. A path given on a command line keeps resolving against the shell's directory, as with any tool.
+- **It comes from the process environment only** — the unit, the compose file or the shell — and must be
+  absolute. It says where `.env` is, so `.env` cannot set it: a `.env` that does, or a relative value, stops
+  the boot with one sentence naming the setting. The boot logs `installation directory: …` once, before the
+  chat driver starts.
+- Only the release marker `.release` and the bot's own assets (fixtures, static files, workers) stay beside
+  the code; `src/paths.test.ts` fails the suite when code under `src/` locates a runtime file through its own
+  location or the working directory.
+
 ## MCP gateway (per project)
 
 A project can reach all its MCP sources through the gateway (bluefin-infra `engine/`, agentgateway at
@@ -157,13 +181,14 @@ builds, the prompt paragraph) stays as for a mounted project.
 Some repos a project needs live outside the App's installations (the HSX studio in the old
 `BluefinAG` org, the Vallora studio in `vendor-labs/omni-cms-v2`). A project's GitHub
 token is minted from ONE installation, so they can't simply be listed in `repos[]`. Instead
-`scripts/mirror.ts` keeps a **one-way, read-only mirror** of each in BluefinOrg, and the
+`orch mirror` keeps a **one-way, read-only mirror** of each in BluefinOrg, and the
 project lists the mirror. Upstream stays the source of truth — the project prompt tells the
 agent not to push or open PRs there.
 
-- **Where it runs:** the deployer's crontab on the prod box, every 30 min —
-  `*/30 * * * * cd /var/www/coach-aven && <node> --import tsx scripts/mirror.ts >> mirrors/mirror.log 2>&1`.
-  Not GitHub Actions: the write side needs the App key, which must not leave the box.
+- **Where it runs:** the deployer's crontab on the prod box, every 30 min. On the systemd path —
+  `*/30 * * * * cd /var/www/coach-aven && <node> --import tsx scripts/mirror.ts >> mirrors/mirror.log 2>&1`
+  (`scripts/mirror.ts` is a thin caller of the same job). Not GitHub Actions: the write side needs the App
+  key, which must not leave the box.
 - **Credentials:** read = `MIRROR_SRC_<OWNER>` fine-grained PATs (Contents:read, that repo only)
   in the runtime `.env`; write = an App token minted per run, scoped to the one mirror repo with
   `contents` + `workflows` write. Failures go to Sentry (tag `mirror`) and `mirrors/mirror.log`.
@@ -175,9 +200,10 @@ agent not to push or open PRs there.
 - **The list is data:** `mirrors.json` in the installation's ops overlay (`infra/<slug>/mirrors.json`,
   uploaded beside `.env` by `npm run ops -- <slug> export`, pulled back by `import`) — an array of
   `{"src": "<owner>/<repo>", "dst": "<your-org>/<repo>", "srcTokenEnv": "MIRROR_SRC_<OWNER>", "note": "…"}`
-  (`note` is a comment; example: `infra/deploy/ops.example/mirrors.example.json`). The script reads
-  `MIRRORS_CONFIG` (a path) when set, else `./mirrors.json` in its working directory. A missing or
-  malformed list fails the run (exit 1, Sentry tag `mirror: config`) — it never mirrors nothing quietly.
+  (`note` is a comment; example: `infra/deploy/ops.example/mirrors.example.json`). The job reads
+  `MIRRORS_CONFIG` (a path) when set, else `mirrors.json` in the installation directory (`AVEN_DIR`, above);
+  the bare repos are cached in `mirrors/` beside it. A missing or malformed list fails the run (exit 1,
+  Sentry tag `mirror: config`) — it never mirrors nothing quietly.
 - **No token → snapshot:** a mirror whose `MIRROR_SRC_*` is unset is skipped (logged, no alert).
   `BluefinAG` is a *user* account where we're only collaborators — fine-grained PATs can't
   target it — so the HSX mirror stays a manual snapshot until those repos move into the org.

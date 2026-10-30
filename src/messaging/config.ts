@@ -3,6 +3,7 @@
 // HUB_URL, HUB_KEY_PATH). Pure: projects.ts validates the block at load, config.ts reads the env, and
 // both are read again at call time — a reload changes what the next call may do.
 import { collapseStars, isSkillPattern } from './skills.js';
+import { settingPath } from '../paths.js';
 import { INSTALLATION_RE, parseTarget } from './protocol.js';
 
 export interface MessagingConfig {
@@ -125,7 +126,7 @@ export function messagingEnv(env: Record<string, string | undefined>): Messaging
   }
   if (!parsed || (parsed.protocol !== 'wss:' && parsed.protocol !== 'ws:')) return { installation, hubProblem: `HUB_URL must be a wss:// URL, got ${JSON.stringify(url)}` };
   if (!explicit || explicit === DEFAULT_INSTALLATION) return { installation, hubProblem: 'HUB_URL needs an explicit INSTALLATION_ID (not "local")' };
-  const keyPath = env.HUB_KEY_PATH?.trim() || undefined;
+  const keyPath = settingPath(env.HUB_KEY_PATH, env); // relative → the installation directory (installation-directory)
   if (!keyPath) return { installation, hubProblem: 'HUB_URL needs HUB_KEY_PATH (run `orch hub keygen`)' };
   return { installation, hub: { url, keyPath } };
 }
