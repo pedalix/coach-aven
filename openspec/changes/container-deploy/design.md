@@ -101,12 +101,14 @@ Chosen: an image per commit, run with Compose.
 |---|---|
 | Installation directory mounted at its own path, read-write, as `AVEN_DIR` and `working_dir` | `.env`, the projects config, the mirror list, relative key paths, state and data resolve through `AVEN_DIR` (D1) to the files they use today, so no data moves; as `working_dir` it also anchors a relative argument given to `run` |
 | `~/.ssh` at its own path, read-only, when the sandboxes are on another host (D4) | the SSH transport with its keys and known hosts; with sandboxes on the box's own Docker nothing in the container uses them |
-| `~/.config/coach-aven` at its own path, read-write | the pullers refresh source tokens there; the hub key |
+| `~/.config/coach-aven` at its own path, read-write | the pullers refresh source tokens there; the hub key. `install` creates it for the deployer (mode 0700) when it is missing: Docker creates a missing mount source as root, and the bot could not write there |
+| `~/.netrc` and `~/.claude/.credentials.json` at their own paths, read-only, each only when the file exists on the box | the code falls back to them for tracker tokens and the Claude token when the settings are absent; a bind mount of a missing file would put a directory in its place, so the deploy command checks at each render |
 | `/etc/passwd` and `/etc/group`, read-only; `HOME` set to the deployer's home | OpenSSH refuses to run as a uid without a passwd entry, and git reads the home directory from it |
 | `user: <uid>:<gid>` of the deployer, read on the box at `install` | files keep today's owner |
 | `network_mode: host` | the loopback listeners behind the host's proxy (Teams, web chat) and the daemon's address in the projects config keep their addresses |
 | `init: true`, `stop_grace_period: 90s` | SIGTERM forwarding and reaping of the `ssh` and `sh` children the driver starts; 90 s is systemd's default stop timeout, which the units rely on, and lets the daemon finish a pass in flight |
 | `restart: unless-stopped` | `Restart=always`. Docker has no equivalent of `StartLimitBurst`: a crash loop restarts with growing delays instead of failing the unit. Accepted. |
+| `name: <service>` | the compose project is the service name, so the containers are `<service>-bot-1` and `<service>-sources-daemon-1` wherever the rendered file lives, and `down` never touches another project on the box |
 
 Everything the bot touches outside the installation directory is under `HOME`: the keys, `.config/coach-aven`, and the fallbacks the code keeps for a developer's machine (`~/.netrc`, `~/.claude/.credentials.json`). An installation that sets `HOME` inside the installation directory therefore needs one mounted directory, and a quickstart will do that. This change's compose file keeps the deployer's home, so the box's files stay where they are.
 

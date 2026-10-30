@@ -99,11 +99,13 @@
   - a `bot` service whose command is the chat driver;
   - an optional `sources-daemon` service;
   - one image, `<repository>:<version>`;
+  - the compose project named after the service;
+  - `.netrc` and `.claude/.credentials.json` from the deployer's home, read-only, each only when it exists;
   - the settings of design D3;
   - the socket and its group for sandboxes on the box's own Docker, the deployer's `.ssh` for sandboxes on another host (D4);
   - `SENTRY_RELEASE` (D9), and the log driver from the configuration.
 
-  Verify: render tests (new compose cases in `src/chat/teams/deploy.test.ts`) for Slack by default, Teams, with a daemon, local sandboxes, a remote Docker host, and a canary's release name. `docker compose -f <rendered> config` accepts each.
+  Verify: render tests (new compose cases in `src/chat/teams/deploy.test.ts`) for Slack by default, Teams, with a daemon, local sandboxes, a remote Docker host, a canary's release name, and a home with and without the optional files. `docker compose -f <rendered> config` accepts each.
 - [ ] 3.2 `infra/deploy/aven-deploy.sh`, the box's deploy command, part one (design D7, D8):
   - argument forms;
   - pulling before anything stops;
@@ -134,7 +136,7 @@
   Verify: harness cases for the three lists, an enabled unit, a cron line, and a run without `--yes`.
 - [ ] 3.6 `deploy.sh` (design D12):
   - `RUNTIME` and `CANARY` from `deploy.env`, and an unknown runtime refused, naming both values;
-  - the compose `install`: the Docker Engine and Compose check, then the command, `deploy.conf` and the sudo rule over the root SSH session, starting nothing;
+  - the compose `install`: the Docker Engine and Compose check, then the command, `deploy.conf` and the sudo rule over the root SSH session, and the deployer's `.config/coach-aven` (mode 0700) when it is missing, starting nothing;
   - the compose commands over `ssh deployer@host sudo …`;
   - `deploy` requires a version;
   - `run` and `cleanup`;

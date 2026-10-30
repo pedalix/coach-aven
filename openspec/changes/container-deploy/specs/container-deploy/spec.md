@@ -7,7 +7,7 @@ Runs an installation from the published image with Docker Compose. A deploy name
 ## ADDED Requirements
 
 ### Requirement: Install prepares the box and starts nothing
-On a compose installation, `deploy.sh <slug> install` SHALL check that the box has Docker Engine with the Compose plugin and SHALL refuse, naming what is missing, when it does not. When the check passes, it SHALL install the box's deploy command, that command's configuration and the deployer's sudo rule for it, and start nothing.
+On a compose installation, `deploy.sh <slug> install` SHALL check that the box has Docker Engine with the Compose plugin and SHALL refuse, naming what is missing, when it does not. When the check passes, it SHALL install the box's deploy command, that command's configuration and the deployer's sudo rule for it, create the deployer's `.config/coach-aven` when it is missing, and start nothing.
 
 #### Scenario: Docker missing
 - **WHEN** `install` runs against a box without the Compose plugin
@@ -17,8 +17,12 @@ On a compose installation, `deploy.sh <slug> install` SHALL check that the box h
 - **WHEN** `install` runs against a box with Docker Engine and the Compose plugin
 - **THEN** the deploy command and its sudo rule are in place, and no container and no unit has been started or stopped
 
+#### Scenario: Missing configuration directory
+- **WHEN** `install` runs for a deployer whose home has no `.config/coach-aven`
+- **THEN** the directory exists afterwards, owned by the deployer and readable by nobody else
+
 ### Requirement: An installation runs one version of the image
-A compose installation SHALL run the bot, and the sources daemon where it has one, as containers of the same pinned image version. Docker SHALL restart each container when it exits, and no code SHALL run from the installation directory.
+A compose installation SHALL run the bot, and the sources daemon where it has one, as containers of the same pinned image version, in a compose project named after the installation's service. Docker SHALL restart each container when it exits, and no code SHALL run from the installation directory.
 
 #### Scenario: Bot and daemon
 - **WHEN** `v1.4.0` is deployed to an installation that runs a sources daemon
@@ -27,6 +31,10 @@ A compose installation SHALL run the bot, and the sources daemon where it has on
 #### Scenario: Crash
 - **WHEN** the bot process exits
 - **THEN** Docker starts it again with the same version
+
+#### Scenario: Other projects on the box
+- **WHEN** the box runs other compose projects
+- **THEN** a deploy, a stop or a cleanup touches only the project named after the service, and the bot's containers carry that name
 
 ### Requirement: The containers see the box the way the service did
 The containers SHALL run as the deployer's user with host networking. They SHALL mount the installation directory at its own path as their working directory and as `AVEN_DIR`, the deployer's `.config/coach-aven` at its own path and, when the sandboxes are on another host, the deployer's `.ssh` read-only. Every path and address in `.env` and the projects config then means what it meant under systemd.
@@ -46,6 +54,17 @@ The containers SHALL run as the deployer's user with host networking. They SHALL
 #### Scenario: A key named by absolute path
 - **WHEN** `HUB_KEY_PATH` names a file under the deployer's `.config/coach-aven`
 - **THEN** the bot in the container reads it
+
+### Requirement: The home files the code falls back to follow the deployer
+When the deployer's home holds a file the code falls back to when a setting is absent, `.netrc` or `.claude/.credentials.json`, the bot container SHALL see it read-only at its own path. When the file is absent, the container SHALL start without it and nothing SHALL be created in its place.
+
+#### Scenario: A tracker's credentials in `.netrc`
+- **WHEN** the deployer's `.netrc` holds the entry a tracker puller falls back to
+- **THEN** the puller in the container reads the same entry
+
+#### Scenario: No such file
+- **WHEN** the deployer's home has no `.netrc`
+- **THEN** the container starts, and the deployer's home still has no `.netrc` and no directory of that name
 
 ### Requirement: Sandboxes on the box's own Docker or on another host
 An installation whose sandboxes run on the box's own Docker (`SSHDOCKER_HOST=local`) SHALL give the bot container the host's Docker socket and no SSH key; the sandboxes it starts are then its siblings on that engine, as they are under systemd. An installation whose sandboxes run on another host SHALL give the bot container the deployer's keys and no Docker socket. Both are supported placements of an installation.
