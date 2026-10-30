@@ -4,6 +4,7 @@ import {
   compareTs,
   containerLabel,
   flattenText,
+  historyOldest,
   isNoise,
   isThreadParent,
   isThreadReply,
@@ -15,6 +16,7 @@ import {
   permalink,
   slackTsToIso,
   sortByTs,
+  threadsToWatch,
   type RawConversation,
   type RawMessage,
   type RawUser,
@@ -182,6 +184,33 @@ test('thread predicates', () => {
   assert.equal(isThreadReply(reply), true);
   assert.equal(isThreadParent(reply), false);
   assert.equal(isThreadParent({ type: 'message', ts: '1', thread_ts: '1', reply_count: 0 }), false);
+});
+
+test('threadsToWatch: a parent that gained replies after it was pulled joins the watch list on a re-read', () => {
+  const windowStart = '1759000000.000000';
+  // First read: posted, nobody has answered yet — not a parent, nothing to watch.
+  const first: RawMessage = { type: 'message', ts: '1759740000.000100', text: 'can you check the logs?' };
+  assert.deepEqual(threadsToWatch([first], {}, windowStart), []);
+  // Read again (edit window or the thread rescan) after a reply landed: now it is a parent.
+  const again: RawMessage = { ...first, thread_ts: first.ts, reply_count: 1 };
+  assert.deepEqual(threadsToWatch([again], {}, windowStart).map((m) => m.ts), [first.ts]);
+  // Already watched, a reply itself, no replies, or older than the thread window: not added.
+  assert.deepEqual(threadsToWatch([again], { [first.ts]: {} }, windowStart), []);
+  assert.deepEqual(threadsToWatch([reply], {}, windowStart), []);
+  assert.deepEqual(threadsToWatch([{ type: 'message', ts: '1759740000.000200', thread_ts: '1759740000.000200', reply_count: 0 }], {}, windowStart), []);
+  assert.deepEqual(threadsToWatch([{ type: 'message', ts: '1758000000.000100', thread_ts: '1758000000.000100', reply_count: 4 }], {}, windowStart), []);
+});
+
+test('historyOldest: backfill on first contact, else the furthest of last_ts, edit window and a due rescan', () => {
+  const lastTs = '1759740000.000000';
+  const editWindow = '1759600000.000000'; // 48 h back, older than last_ts
+  const threadRescan = '1757000000.000000'; // 30 days back
+  assert.equal(historyOldest({ lastTs: '', backfill: '1750000000.000000', editWindow, threadRescan }), '1750000000.000000');
+  assert.equal(historyOldest({ lastTs, backfill: '', editWindow: '', threadRescan: '' }), lastTs);
+  assert.equal(historyOldest({ lastTs, backfill: '', editWindow, threadRescan: '' }), editWindow);
+  assert.equal(historyOldest({ lastTs, backfill: '', editWindow, threadRescan }), threadRescan);
+  // An edit window newer than last_ts (a conversation quiet for days) never moves the start forward.
+  assert.equal(historyOldest({ lastTs, backfill: '', editWindow: '1759800000.000000', threadRescan: '' }), lastTs);
 });
 
 test('permalink matches the Slack UI format, with thread params for replies', () => {

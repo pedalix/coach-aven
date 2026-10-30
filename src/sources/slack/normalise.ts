@@ -282,6 +282,28 @@ export function isThreadParent(msg: RawMessage): boolean {
 }
 
 /**
+ * Parents to start watching from one history read: messages with replies, inside the thread window, not
+ * watched yet — re-read ones included. A message pulled before anyone answered it carries reply_count 0
+ * and is no parent then; it shows up as one only when history is read again (the edit window, a thread
+ * rescan), and that is the moment it must join the watch list. The re-read path used to skip this, so a
+ * thread that started after its parent was pulled was never polled and its replies never reached the store.
+ */
+export function threadsToWatch(msgs: readonly RawMessage[], watched: Readonly<Record<string, unknown>>, windowStart: string): RawMessage[] {
+  return msgs.filter((m) => isThreadParent(m) && !(m.ts in watched) && compareTs(m.ts, windowStart) >= 0);
+}
+
+/**
+ * Where one conversations.history read starts (`oldest`, exclusive; '' = not applicable). First contact
+ * (no `lastTs`): the backfill start. Later: `lastTs`, or whichever of the edit window and a due thread
+ * rescan reaches further back — the edit window catches edits and deletions, the rescan (once per
+ * conversation) re-reads the thread window so parents that gained replies after they were pulled are seen.
+ */
+export function historyOldest(o: { lastTs: string; backfill: string; editWindow: string; threadRescan: string }): string {
+  if (!o.lastTs) return o.backfill;
+  return [o.editWindow, o.threadRescan].filter(Boolean).reduce((a, b) => (compareTs(b, a) < 0 ? b : a), o.lastTs);
+}
+
+/**
  * Permalink without calling chat.getPermalink (Tier 4, one per message — never worth it).
  * Format is the one Slack's own UI produces: `<workspace url>/archives/<channel>/p<ts sans dot>`,
  * with `?thread_ts=<parent>&cid=<channel>` for replies so the link opens the thread pane.
