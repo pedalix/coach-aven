@@ -406,7 +406,12 @@ constant-time on every call; without the variable the command refuses to start.
 gateway) — then the sandbox calls that url and the bot registers no `sources` server for it:
 
 ```jsonc
-"mcp": [{ "name": "sources", "url": "https://<gateway-host>/gw/<slug>/mcp", "auth": "gateway-m2m" }]
+"mcp": [{
+  "name": "sources",
+  "url": "https://<gateway-host>/gw/<slug>/mcp",
+  "auth": "gateway-m2m",
+  "oauth": { "tokenUrl": "https://<tenant>/oauth/token", "audience": "https://<gateway-host>/gw/<slug>/mcp" }
+}]
 ```
 
 **The daemon** (OpenSpec `sources-daemon`) puts ingest and this face in one process where the data

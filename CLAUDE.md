@@ -109,7 +109,7 @@ process. This is the control plane; the heavy work runs in the sandboxes. See `R
 - `src/gwtoken.ts` — OAuth client-credentials tokens for the MCP gateway (`mcp` entry with `auth: "gateway-m2m"`):
   any RFC 6749 server (Auth0 with `audience`, Cognito with `scope`) via the entry's `oauth` object, ONE client pair per
   installation (`GATEWAY_OAUTH_ID/_SECRET`, a project's own pair wins), one token per route; an entry without `oauth`
-  is the deprecated Auth0-specific path. Cached/single-flight mint in the orchestrator, only the token goes into the
+  fails the config load. Cached/single-flight mint in the orchestrator, only the token goes into the
   sandbox — see `docs/runtime-config.md` → *MCP gateway*.
 - `src/sources/` — per-project ingestion (mail, chat, calendars, trackers, recorded calls, local activity)
   into a scrubbed store the agent queries over MCP (`docs/sources.md`); `src/sources/attribution/` is the

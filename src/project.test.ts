@@ -18,6 +18,8 @@ test('composerAuthScript — http-basic + x-access-token (the only form GitHub a
   assert.ok(s.endsWith('; true'));
 });
 
+const AUTH0_OAUTH = { tokenUrl: 'https://tenant.example/oauth/token', audience: 'https://engine.example.com/gw/caldora/mcp' };
+
 test('seedGatewayAuth: writes the helper + a 600 token file per gateway entry; skips others', async () => {
   const uploads: Record<string, string> = {};
   const execs: string[] = [];
@@ -30,13 +32,12 @@ test('seedGatewayAuth: writes the helper + a 600 token file per gateway entry; s
     sandbox,
     'caldora',
     [
-      { name: 'gw', url: 'https://engine.example.com/gw/caldora/mcp', auth: 'gateway-m2m' },
+      { name: 'gw', url: 'https://engine.example.com/gw/caldora/mcp', auth: 'gateway-m2m', oauth: AUTH0_OAUTH },
       { name: 'grafana', url: 'https://observe.example.com/mcp' },
     ],
     { get: async (slug, target) => (asked.push([slug, target]), 'TOKEN') },
   );
-  // An entry without `oauth` asks with its url and nothing else — the registry's Auth0 path.
-  assert.deepEqual(asked, [['caldora', { url: 'https://engine.example.com/gw/caldora/mcp' }]]);
+  assert.deepEqual(asked, [['caldora', { url: 'https://engine.example.com/gw/caldora/mcp', oauth: AUTH0_OAUTH }]]);
   assert.equal(uploads['/root/.aven/gw-token-gw'], 'TOKEN');
   assert.ok(uploads['/root/.aven/gw-headers.sh'].startsWith('#!/bin/sh'));
   assert.ok(execs.some((c) => c === 'chmod 600 /root/.aven/gw-token-gw'));
@@ -66,9 +67,9 @@ test('seedGatewayAuth: a mint failure does not throw (the turn goes on without g
     uploadFile: async () => {},
     exec: async () => ({ exitCode: 0, result: '' }),
   } as unknown as SandboxHandle;
-  await seedGatewayAuth(sandbox, 'caldora', [{ name: 'gw', url: 'https://x', auth: 'gateway-m2m' }], {
+  await seedGatewayAuth(sandbox, 'caldora', [{ name: 'gw', url: 'https://x', auth: 'gateway-m2m', oauth: AUTH0_OAUTH }], {
     get: async () => {
-      throw new Error('auth0 down');
+      throw new Error('idp down');
     },
   });
 });

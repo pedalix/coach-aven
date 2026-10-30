@@ -88,7 +88,7 @@ test('no sources project mounts a replica any more — with or without its own `
   const base = { repos: ['x/y'], sources: { youtrack: { url: 'https://x.youtrack.cloud', projects: ['A'] } } };
   writeFileSync(cfg, JSON.stringify({ projects: [
     { slug: 'local', ...base },
-    { slug: 'remote', ...base, mcp: [{ name: 'sources', url: 'https://engine.example/gw/remote/mcp', auth: 'gateway-m2m' }] },
+    { slug: 'remote', ...base, mcp: [{ name: 'sources', url: 'https://engine.example/gw/remote/mcp', auth: 'gateway-m2m', oauth: { tokenUrl: 'https://tenant.example/oauth/token', audience: 'https://engine.example/gw/remote/mcp' } }] },
   ] }));
   const reg = loadProjects(cfg);
   const mounts = (slug: string) => (reg.projects.find((p) => p.slug === slug)!.sandbox?.mounts ?? []).map((m) => m.split(':')[1]);
