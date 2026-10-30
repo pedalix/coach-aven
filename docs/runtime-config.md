@@ -409,7 +409,8 @@ to try CoachAven, an Anthropic API key for an installation that serves a team or
   line. With a token the command is today's, byte for byte.
 - **Exposure.** The sandbox can read the credit, as it can the token: anything that runs there (package scripts,
   dependencies, a client repository's tooling, text the agent reads) could. Use a dedicated key in its own Anthropic
-  workspace with a monthly spend limit. A project's MCP `${ENV}` value can name `ANTHROPIC_API_KEY` like any bot
+  workspace with a monthly spend limit. Tool processes inherit it: on CLI 2.1.292 the Bash tool sees
+  `ANTHROPIC_API_KEY` in its environment (`api-key-turn`, `docs/cli-probe.md`). A project's MCP `${ENV}` value can name `ANTHROPIC_API_KEY` like any bot
   variable; do not, unless the server needs it.
 - **Confirmed per turn.** The CLI's own `apiKeySource` (`system/init`) decides which credit a usage record names; a
   disagreement with the configured credit logs one warning per session.
