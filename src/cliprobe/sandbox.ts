@@ -44,6 +44,7 @@ export interface SandboxTransportOptions {
   runId: string;
   /** The CLI version to install in the sandbox with the bot's own upgrade step. */
   version: string;
+  /** The credit's value (a token or a key): written to the credit file; its kind reaches the command through the launch options. */
   token: string;
   log?: (line: string) => void;
 }
@@ -58,7 +59,7 @@ export async function sandboxTransport(o: SandboxTransportOptions): Promise<Tran
   }
   const handle: SandboxHandle = await o.driver.ensureSandbox(name, 'cli-probe', { privileged: false, dind: false });
   try {
-    await seedClaudeAuth(handle, o.token); // the token file project prep writes; the command reads it (CC_TOKEN_ENV)
+    await seedClaudeAuth(handle, { value: o.token }); // the credit file project prep writes; the command reads it (ccCreditEnv, from the launch's credit kind)
     const r = await handle.exec(cliUpgradeCmd(o.version), { timeout: 600 });
     const markers = parseCliMarkers(r.result ?? '');
     if (markers.version !== o.version) {

@@ -1,7 +1,7 @@
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { log } from './log.js';
-import { costOf, type UsageRecord } from './metering.js';
+import { costOf, creditOf, type UsageRecord } from './metering.js';
 
 // Answer feedback — the "was that any good?" counter, the value half of the metering story
 // (metering.ts is the cost half). Cost has always been recorded; usefulness never was,
@@ -79,6 +79,11 @@ export interface FeedbackRow {
   legacyRated: number;
   legacyGood: number;
   legacyCostUsd: number;
+  // The rated turns that ran on an API key (api-key-credit D4): how many, how many helped, their dollars.
+  // Their dollars are inside ratedCostUsd; the summary keeps them apart from a subscription's equivalent.
+  keyRated: number;
+  keyGood: number;
+  keyCostUsd: number;
   reasons: Partial<Record<BadReason, number>>;
 }
 
@@ -122,8 +127,10 @@ export function joinUsage(records: FeedbackRecord[], usage: UsageRecord[]): Feed
   const costByTurn = new Map<string, number>();
   const legacyByTurn = new Map<string, number>();
   const slugByTurn = new Map<string, string>();
+  const keyTurns = new Set<string>();
   for (const u of usage) {
     if (!u.turnId) continue;
+    if (creditOf(u) === 'api-key') keyTurns.add(u.turnId);
     const { usd, legacyUsd } = costOf(u);
     costByTurn.set(u.turnId, (costByTurn.get(u.turnId) ?? 0) + usd);
     if (legacyUsd) legacyByTurn.set(u.turnId, (legacyByTurn.get(u.turnId) ?? 0) + legacyUsd);
@@ -134,7 +141,7 @@ export function joinUsage(records: FeedbackRecord[], usage: UsageRecord[]): Feed
     const group = slugByTurn.get(turnId) ?? v.slug;
     const row =
       rows.get(group) ??
-      { group, rated: 0, good: 0, bad: 0, ratedCostUsd: 0, goodCostUsd: 0, legacyRated: 0, legacyGood: 0, legacyCostUsd: 0, reasons: {} };
+      { group, rated: 0, good: 0, bad: 0, ratedCostUsd: 0, goodCostUsd: 0, legacyRated: 0, legacyGood: 0, legacyCostUsd: 0, keyRated: 0, keyGood: 0, keyCostUsd: 0, reasons: {} };
     const cost = costByTurn.get(turnId) ?? 0;
     const legacy = legacyByTurn.get(turnId);
     row.rated++;
@@ -143,6 +150,11 @@ export function joinUsage(records: FeedbackRecord[], usage: UsageRecord[]): Feed
       row.legacyRated++;
       row.legacyCostUsd += legacy;
       if (v.good) row.legacyGood++;
+    }
+    if (keyTurns.has(turnId)) {
+      row.keyRated++;
+      row.keyCostUsd += cost;
+      if (v.good) row.keyGood++;
     }
     if (v.good) {
       row.good++;
@@ -174,7 +186,19 @@ export function feedbackSummaryText(rows: FeedbackRow[], totalTurns: number, day
   // Per helped answer, over the turns whose cost is per-turn metered: a legacy turn's
   // dollars are not in ratedCost, so it must not be in the divisor either.
   const pricedGood = good - legacyGood;
-  const perGood = pricedGood > 0 ? `~$${(ratedCost / pricedGood).toFixed(2)}` : 'n/a';
+  // One credit's dollars only (api-key-credit D4): with no key turns, today's figure as it was; otherwise the
+  // credit with the most dollars in the period, named — a key's billed dollars and a subscription's
+  // equivalent are never divided together.
+  const keyRated = rows.reduce((a, r) => a + (r.keyRated ?? 0), 0);
+  const keyGood = rows.reduce((a, r) => a + (r.keyGood ?? 0), 0);
+  const keyCost = rows.reduce((a, r) => a + (r.keyCostUsd ?? 0), 0);
+  const per = (usd: number, n: number): string => (n > 0 ? `~$${(usd / n).toFixed(2)}` : 'n/a');
+  const perGood =
+    keyRated === 0
+      ? per(ratedCost, pricedGood)
+      : keyCost >= ratedCost - keyCost
+        ? `${per(keyCost, keyGood)} (API key)`
+        : `${per(ratedCost - keyCost, pricedGood - keyGood)} (subscription equivalent)`;
   // The denominator can lag the ratings (a turn whose usage line predates turnId, or a
   // window boundary that caught the click but not the turn). Clamp it rather than print a
   // nonsense "1 of 0" — coverage is never over 100%, and never over the turns we counted.

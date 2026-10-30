@@ -6,9 +6,10 @@ import { log } from './log.js';
 // Usage metering — the "whose Claude tokens are we burning?" counter (multi-tenancy
 // slice 4, docs/multitenancy.md §7). Every settled agent turn appends one JSONL line to
 // ./usage/<YYYY-MM>.jsonl (beside state.json; month files keep reads bounded and make
-// manual invoicing "attach the month file"). This is attribution, not billing: today all
-// turns run on our one Claude Max subscription, but the moment a client asks "what did
-// we use?" — or we mint per-tenant API keys — the history already exists.
+// manual invoicing "attach the month file"). Each record's usage names the credit that paid
+// (`usage.credit`, OpenSpec api-key-credit D3/D4): on an API key the dollars are what the key
+// is billed at list prices; on a subscription token they are an API-list-price equivalent,
+// not a bill. A record without `credit` (written before the field existed) is a subscription.
 //
 // teamId is best-effort until the slice-2/3 re-keying lands: conversation keys carry no
 // team today, so records without one aggregate as the home team. When keys become
@@ -20,6 +21,7 @@ import { log } from './log.js';
 // without usage still counts turns.
 export type { TurnUsage } from './claudeSession.js';
 import type { TurnUsage } from './claudeSession.js';
+import type { CreditKind } from './credit.js';
 
 export interface UsageRecord {
   at: string; // ISO timestamp of turn settle
@@ -63,6 +65,10 @@ export function costOf(r: UsageRecord): { usd: number; legacyUsd: number } {
 export const turnUsd = (u: TurnUsage | undefined): number | undefined =>
   u?.costUsd !== undefined && u.costUsdCumulative !== undefined ? u.costUsd : undefined;
 
+// The credit that paid for a record (D4): absent — records from before the field, and every token
+// installation's history — is a subscription. Undefined for a record with no usage at all.
+export const creditOf = (r: UsageRecord): CreditKind | undefined => (r.usage ? (r.usage.credit ?? 'subscription') : undefined);
+
 // The stamp the scheduler puts on a routine turn's record (optional: live turns, and every
 // record from before the stamp existed, carry none). Read structurally so this cut neither
 // depends on nor conflicts with the fields' declaration on UsageRecord.
@@ -88,6 +94,11 @@ export interface UsageRow {
   // they overstate, and how many turns carry them.
   legacyCostUsd: number;
   legacyTurns: number;
+  // The API key's share of costUsd, and how many records with usage ran on each credit — so the report
+  // labels key dollars apart and never sums them with a subscription's equivalent (D4).
+  keyCostUsd: number;
+  keyTurns: number;
+  subscriptionTurns: number;
 }
 
 // Pure: records → per-group totals, biggest cost first (legacy dollars count for the
@@ -103,7 +114,7 @@ export function aggregateUsage(records: UsageRecord[], by: 'slug' | 'team' | 'ro
     if (!group) continue;
     const row =
       rows.get(group) ??
-      { group, turns: 0, background: 0, errors: 0, wallMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0, legacyCostUsd: 0, legacyTurns: 0 };
+      { group, turns: 0, background: 0, errors: 0, wallMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0, costUsd: 0, legacyCostUsd: 0, legacyTurns: 0, keyCostUsd: 0, keyTurns: 0, subscriptionTurns: 0 };
     if (r.kind === 'background') row.background++;
     else row.turns++;
     if (r.status === 'error') row.errors++;
@@ -114,6 +125,11 @@ export function aggregateUsage(records: UsageRecord[], by: 'slug' | 'team' | 'ro
     row.cacheCreationTokens += r.usage?.cacheCreationTokens ?? 0;
     const { usd, legacyUsd } = costOf(r);
     row.costUsd += usd;
+    const credit = creditOf(r);
+    if (credit === 'api-key') {
+      row.keyCostUsd += usd;
+      row.keyTurns++;
+    } else if (credit) row.subscriptionTurns++;
     if (legacyUsd) {
       row.legacyCostUsd += legacyUsd;
       row.legacyTurns++;
@@ -155,31 +171,51 @@ const fmtH = (ms: number): string => `${(ms / 3_600_000).toFixed(1)}h`;
 // and overstate ~2×, so they get their own "Legacy" line and a per-row suffix instead of
 // being added to the figures — both vanish once the window holds only per-turn records,
 // and the rest of the layout is exactly what operators have been reading.
+//
+// The header follows the credits in the period (api-key-credit D4): subscription records only → today's
+// text, untouched; API-key records only → the dollars are what the key is billed at list prices; both (the
+// month of a switch) → the figures count the subscription's equivalent and one extra line gives the key's
+// billed total — never one sum. Project lines are not split per credit.
 export function usageSummaryText(bySlug: UsageRow[], byTeam: UsageRow[], days: number, byRoutine: UsageRow[] = []): string {
   if (bySlug.length === 0) return `No agent turns recorded in the last ${days}d.`;
+  const keyTurns = bySlug.reduce((a, r) => a + (r.keyTurns ?? 0), 0);
+  const subTurns = bySlug.reduce((a, r) => a + (r.subscriptionTurns ?? 0), 0) + bySlug.reduce((a, r) => a + r.legacyTurns, 0);
+  const mode: 'subscription' | 'api-key' | 'mixed' = keyTurns === 0 ? 'subscription' : subTurns === 0 ? 'api-key' : 'mixed';
+  // In a mixed period every figure but the key line is the subscription's.
+  const usd = (r: UsageRow): number => (mode === 'mixed' ? r.costUsd - (r.keyCostUsd ?? 0) : r.costUsd);
   const line = (r: UsageRow) =>
     `• *${r.group}* — ${r.turns} turns${r.background ? ` + ${r.background} background` : ''}${r.errors ? ` (${r.errors} errors)` : ''} · ` +
     `${fmtK(r.cacheReadTokens)} cache read / ${fmtK(r.cacheCreationTokens)} cache write / ` +
-    `${fmtK(r.inputTokens)} in / ${fmtK(r.outputTokens)} out tok · ~$${r.costUsd.toFixed(2)}` +
+    `${fmtK(r.inputTokens)} in / ${fmtK(r.outputTokens)} out tok · ~$${usd(r).toFixed(2)}` +
     `${r.legacyCostUsd ? ` (+ ~$${r.legacyCostUsd.toFixed(2)} legacy)` : ''} · ${fmtH(r.wallMs)} active`;
   const sum = bySlug.reduce(
     (a, r) => ({
       turns: a.turns + r.turns,
       background: a.background + r.background,
-      cost: a.cost + r.costUsd,
+      cost: a.cost + usd(r),
+      key: a.key + (r.keyCostUsd ?? 0),
       legacy: a.legacy + r.legacyCostUsd,
       legacyTurns: a.legacyTurns + r.legacyTurns,
       wall: a.wall + r.wallMs,
       cache: a.cache + r.cacheReadTokens,
       tok: a.tok + r.cacheReadTokens + r.cacheCreationTokens + r.inputTokens + r.outputTokens,
     }),
-    { turns: 0, background: 0, cost: 0, legacy: 0, legacyTurns: 0, wall: 0, cache: 0, tok: 0 },
+    { turns: 0, background: 0, cost: 0, key: 0, legacy: 0, legacyTurns: 0, wall: 0, cache: 0, tok: 0 },
   );
   const cachePct = sum.tok ? Math.round((sum.cache / sum.tok) * 100) : 0;
+  const header =
+    mode === 'subscription'
+      ? '(~$ = API-list-price equivalent computed by the CLI, not a bill — we run on a Max subscription)'
+      : mode === 'api-key'
+        ? '(~$ = billed to the API key at list prices, before discounts and tax — computed by the CLI)'
+        : '(~$ = subscription turns: API-list-price equivalent computed by the CLI, not a bill; API-key turns are on their own line)';
   const parts = [
-    `*Usage — last ${days}d*  (~$ = API-list-price equivalent computed by the CLI, not a bill — we run on a Max subscription)`,
+    `*Usage — last ${days}d*  ${header}`,
     `Total: ${sum.turns} turns${sum.background ? ` + ${sum.background} background` : ''} · ~$${sum.cost.toFixed(2)} · ${fmtK(sum.tok)} tok, ${cachePct}% of them cache reads · ${fmtH(sum.wall)} agent-active time`,
   ];
+  if (mode === 'mixed') {
+    parts.push(`API key: ~$${sum.key.toFixed(2)} billed at list prices (before discounts and tax) across ${keyTurns} turns — not in the figures above`);
+  }
   if (sum.legacy) {
     parts.push(
       `Legacy: ~$${sum.legacy.toFixed(2)} across ${sum.legacyTurns} turns recorded before the per-turn cost fix — session running totals, overstated roughly 2×; not in the figures above`,

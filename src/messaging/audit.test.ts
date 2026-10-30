@@ -36,3 +36,14 @@ test('a task that asked for a skill shows it, in the list and in the transcript 
   assert.match(asksTranscript(r, []), /· completed · skill brand-profile/);
   assert.doesNotMatch(asksList([row({})]), /skill/);
 });
+
+test('task costs on an API-key installation: the list says the dollars are USD billed to the key; a subscription list is unchanged (api-key-credit D4)', () => {
+  const rows = [row({ cost: 0.42 }), row({ id: 'b'.repeat(24), dir: 'in', slug: 'caldora', peer: 'home/owen-ops' })];
+  const today = asksList(rows);
+  assert.equal(asksList(rows, { credit: 'subscription' }), today);
+  assert.doesNotMatch(today, /USD/);
+  const key = asksList(rows, { credit: 'api-key' });
+  assert.equal(key.split('\n').length, today.split('\n').length + 1);
+  assert.match(key, /^_\$ = USD billed to this installation’s API key at list prices for turns run here; an answer from another installation shows the cost it reported\._$/m);
+  assert.equal(asksList([row({})], { credit: 'api-key' }), asksList([row({})]), 'no costs, no note');
+});

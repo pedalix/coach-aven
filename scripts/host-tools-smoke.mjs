@@ -3,13 +3,32 @@
 // does, register one in-process MCP server over the control channel (`initialize` → sdkMcpServers),
 // answer its handshake and tools/call as control_request{mcp_message}, and check the model actually
 // called the tool and got its result. Run it on every Claude Code pin bump, INSIDE a sandbox (the
-// pinned CLI + the seeded token):
+// pinned CLI + the seeded credit file):
 //   docker cp scripts/host-tools-smoke.mjs proj-<slug>:/tmp/ && docker exec proj-<slug> sh -lc \
-//     'export CLAUDE_CODE_OAUTH_TOKEN=$(cat /root/.cc-token) IS_SANDBOX=1 DISABLE_AUTOUPDATER=1; node /tmp/host-tools-smoke.mjs'
-// Exit 0 = the tools/call round trip happened; 2–4 = it did not (see the log). Costs one tiny turn.
+//     'IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 SMOKE_CREDIT=subscription node /tmp/host-tools-smoke.mjs'
+// SMOKE_CREDIT is the installation's credit kind: `subscription` (default) or `api-key` (OpenSpec
+// api-key-credit). The script reads /root/.cc-token into the variable that kind is read from, as the bot's
+// command does (project.ts ccCreditEnv), so the value never appears on a command line.
+// Exit 0 = the tools/call round trip happened; 1 = no credit; 2–4 = it did not (see the log). Costs one tiny turn.
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+const kind = process.env.SMOKE_CREDIT || 'subscription';
+if (kind !== 'subscription' && kind !== 'api-key') {
+  console.error(`SMOKE_CREDIT must be subscription or api-key (got ${kind})`);
+  process.exit(1);
+}
+// Exactly one Claude credential reaches the CLI: the shell's are dropped, the credit file's goes into its kind's variable.
+const env = { ...process.env };
+delete env.ANTHROPIC_API_KEY;
+delete env.CLAUDE_CODE_OAUTH_TOKEN;
+try {
+  env[kind === 'api-key' ? 'ANTHROPIC_API_KEY' : 'CLAUDE_CODE_OAUTH_TOKEN'] = readFileSync('/root/.cc-token', 'utf8').trim();
+} catch {
+  console.error('no /root/.cc-token in this sandbox — run it inside a project sandbox the bot has prepared');
+  process.exit(1);
+}
 const args = ['--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose', '--dangerously-skip-permissions', '--permission-prompt-tool', 'stdio', '--strict-mcp-config', ...(process.env.SMOKE_MODEL ? ['--model', process.env.SMOKE_MODEL] : [])];
-const p = spawn('claude', args, { cwd: process.env.SMOKE_CWD || '/tmp', env: process.env, stdio: ['pipe', 'pipe', 'pipe'] });
+const p = spawn('claude', args, { cwd: process.env.SMOKE_CWD || '/tmp', env, stdio: ['pipe', 'pipe', 'pipe'] });
 const write = (o) => p.stdin.write(JSON.stringify(o) + '\n');
 const seen = [];
 let buf = '';

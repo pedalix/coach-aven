@@ -1,5 +1,6 @@
 import type { SandboxHandle } from './driver.js';
 import type { Config } from './config.js';
+import type { Credit, CreditKind } from './credit.js';
 import type { McpServerSpec } from './projects.js';
 import { buildMcpServers, GATEWAY_DIR, GATEWAY_HELPER_PATH, GATEWAY_HELPER_SCRIPT, gatewayTokenPath } from './mcp.js';
 import { gatewayTokens, type GatewayTarget } from './gwtoken.js';
@@ -149,16 +150,21 @@ export async function seedGitHubAuth(
 }
 const headLine = (err: unknown): string => (err instanceof Error ? err.message : String(err)).split('\n')[0]!.slice(0, 200);
 
-// Write the Claude Code token into the sandbox (via fs, not echoed). claude reads
-// CLAUDE_CODE_OAUTH_TOKEN; we set it per-command as `$(cat /root/.cc-token)` so the
-// token never lands in command logs and a warm sandbox always uses the fresh token.
-export async function seedClaudeAuth(sandbox: SandboxHandle, token: string) {
-  await sandbox.uploadFile(Buffer.from(token), '/root/.cc-token');
+// Write the model credit into the sandbox (via fs, not echoed) — a subscription token or an API key, one
+// file either way (api-key-credit D2): a switch of credit overwrites the old value instead of leaving a
+// token beside a key. The CLI's command reads it per spawn as `$(cat /root/.cc-token)` (ccCreditEnv), so
+// the value never lands in command logs and a warm sandbox always uses the fresh one.
+export async function seedClaudeAuth(sandbox: SandboxHandle, credit: Pick<Credit, 'value'>) {
+  await sandbox.uploadFile(Buffer.from(credit.value), '/root/.cc-token');
   await sandbox.exec('chmod 600 /root/.cc-token', { check: true });
 }
 
-// Prefix that injects the token without leaking it into the command string/logs.
+// Prefix that injects the subscription token without leaking it into the command string/logs — today's
+// string, byte for byte (claudeSession.test.ts's spawn golden pins it).
 export const CC_TOKEN_ENV = 'CLAUDE_CODE_OAUTH_TOKEN=$(cat /root/.cc-token)';
+// The prefix per credit kind: the same file into the variable the CLI reads for that credit, and no other
+// Claude credential — with a key, CLAUDE_CODE_OAUTH_TOKEN is not set at all.
+export const ccCreditEnv = (kind: CreditKind): string => (kind === 'api-key' ? 'ANTHROPIC_API_KEY=$(cat /root/.cc-token)' : CC_TOKEN_ENV);
 
 const MCP_CONFIG_PATH = '/root/.mcp-config.json';
 

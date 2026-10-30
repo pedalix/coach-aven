@@ -219,3 +219,64 @@ test('usageSummaryText — the routine section appears only when there are routi
   assert.ok(!usageSummaryText(aggregateUsage(live, 'slug'), aggregateUsage(live, 'team'), 7, aggregateUsage(live, 'routine')).includes('By routine'));
   assert.ok(!usageSummaryText(aggregateUsage(live, 'slug'), aggregateUsage(live, 'team'), 7).includes('By routine')); // the pre-existing call shape
 });
+
+// ── the credit that paid (OpenSpec api-key-credit D4) ──────────────────────────────────────────────
+
+// A subscription installation's report, byte for byte as it read before records named their credit: old
+// records (no `credit`), a new one stamped `subscription`, a legacy one, a usage-less canceled turn.
+test('usageSummaryText — subscription records only: today\'s text, byte for byte, with or without `credit` on them', () => {
+  const base = { at: '2026-07-12T10:00:00Z', key: 'thread:1.2', kind: 'turn' as const, status: 'ok' as const, elapsedMs: 120_000 };
+  const records: UsageRecord[] = [
+    { ...base, slug: 'caldora', usage: { inputTokens: 500_000, outputTokens: 20_000, cacheReadTokens: 400_000, costUsd: 1.25, costUsdCumulative: 1.25 } },
+    { ...base, slug: 'caldora', kind: 'background', usage: { inputTokens: 1000, cacheReadTokens: 90_000, costUsd: 0.4, costUsdCumulative: 1.65, credit: 'subscription' } },
+    { ...base, slug: 'art', status: 'error', usage: { costUsd: 0.9 } },
+    { ...base, slug: 'art', key: 'T0AAAAAA:thread:1', status: 'canceled' },
+  ];
+  assert.equal(
+    usageSummaryText(aggregateUsage(records, 'slug'), aggregateUsage(records, 'team'), 7),
+    [
+      '*Usage — last 7d*  (~$ = API-list-price equivalent computed by the CLI, not a bill — we run on a Max subscription)',
+      'Total: 3 turns + 1 background · ~$1.65 · 1.0M tok, 48% of them cache reads · 0.1h agent-active time',
+      'Legacy: ~$0.90 across 1 turns recorded before the per-turn cost fix — session running totals, overstated roughly 2×; not in the figures above',
+      '',
+      '*By project*',
+      '• *caldora* — 1 turns + 1 background · 490k cache read / 0 cache write / 501k in / 20k out tok · ~$1.65 · 0.1h active',
+      '• *art* — 2 turns (1 errors) · 0 cache read / 0 cache write / 0 in / 0 out tok · ~$0.00 (+ ~$0.90 legacy) · 0.1h active',
+      '',
+      '*By workspace*',
+      '• *home* — 2 turns + 1 background (1 errors) · 490k cache read / 0 cache write / 501k in / 20k out tok · ~$1.65 (+ ~$0.90 legacy) · 0.1h active',
+      '• *T0AAAAAA* — 1 turns · 0 cache read / 0 cache write / 0 in / 0 out tok · ~$0.00 · 0.0h active',
+    ].join('\n'),
+  );
+});
+
+test('usageSummaryText — API-key records only: the header says billed to the key at list prices, never "not a bill"', () => {
+  const key = (over: Partial<UsageRecord> = {}) => rec({ usage: { inputTokens: 1000, costUsd: 0.8, costUsdCumulative: 0.8, credit: 'api-key' }, ...over });
+  const records = [key(), key({ slug: 'art' })];
+  const text = usageSummaryText(aggregateUsage(records, 'slug'), aggregateUsage(records, 'team'), 30);
+  assert.equal(text.split('\n')[0], '*Usage — last 30d*  (~$ = billed to the API key at list prices, before discounts and tax — computed by the CLI)');
+  assert.ok(!/not a bill|Max subscription/.test(text));
+  assert.match(text, /^Total: 2 turns · ~\$1\.60 · /m);
+  assert.ok(!/^API key:/m.test(text), 'no separate key line when the key is all there is');
+  assert.match(text, /• \*caldora\* — 1 turns · .* ~\$0\.80 · /);
+});
+
+test('usageSummaryText — a mixed period (the month of a switch): subscription figures, the key\'s total on its own line, never one sum', () => {
+  const records = [
+    rec({ usage: { costUsd: 1.25, costUsdCumulative: 1.25 } }), // an old record: subscription
+    rec({ usage: { costUsd: 0.5, costUsdCumulative: 0.5, credit: 'subscription' } }),
+    rec({ usage: { costUsd: 2, costUsdCumulative: 2, credit: 'api-key' } }),
+    rec({ slug: 'art', usage: { costUsd: 0.3, costUsdCumulative: 0.3, credit: 'api-key' } }),
+  ];
+  const rows = aggregateUsage(records, 'slug');
+  assert.ok(Math.abs(rows[0].keyCostUsd - 2) < 1e-9);
+  assert.equal(rows[0].keyTurns, 1);
+  assert.equal(rows[0].subscriptionTurns, 2);
+  const text = usageSummaryText(rows, aggregateUsage(records, 'team'), 30);
+  assert.match(text.split('\n')[0], /subscription turns: API-list-price equivalent .* not a bill; API-key turns are on their own line/);
+  assert.match(text, /^Total: 4 turns · ~\$1\.75 · /m); // turns are summed as before; dollars are the subscription's
+  assert.match(text, /^API key: ~\$2\.30 billed at list prices \(before discounts and tax\) across 2 turns — not in the figures above$/m);
+  assert.match(text, /• \*caldora\* — 3 turns · .* ~\$1\.75 · /);
+  assert.match(text, /• \*art\* — 1 turns · .* ~\$0\.00 · /);
+  assert.ok(!text.includes('4.05'), 'never the sum of both');
+});

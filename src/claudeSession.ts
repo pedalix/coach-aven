@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { SandboxHandle } from './driver.js';
-import { CC_TOKEN_ENV } from './project.js';
+import { ccCreditEnv } from './project.js';
+import { creditFromApiKeySource, type CreditKind } from './credit.js';
 import { narrationLabel } from './format.js';
 import { stepLabel } from './steps.js';
 
@@ -35,6 +36,9 @@ export interface ClaudeLaunchOpts {
   settings?: Record<string, unknown>;
   // Appended after the bot's own flags.
   extraArgs?: readonly string[];
+  // The installation's credit KIND (never its value; api-key-credit D2): which variable the command reads
+  // the credit file into. Absent → a subscription token, today's prefix byte for byte.
+  credit?: CreditKind;
 }
 export interface ClaudeLaunch {
   // The variables every spawn sets besides PATH and the token: behaviour + git identity (+ AVEN_SESSION).
@@ -83,7 +87,7 @@ export function claudeLaunch(o: ClaudeLaunchOpts): ClaudeLaunch {
       // CLI_PATH_ENV: the pinned per-sandbox Claude Code (cliversion.ts) wins over the image's.
       // gitIdentityEnv + --settings attribution: commits are authored by and credit
       // coach-aven[bot], whatever identity the agent tries to pass (gitidentity.ts).
-      `cd ${sq(cwd)} && ${CLI_PATH_ENV} ${CC_TOKEN_ENV} ${gitIdentityEnv()} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
+      `cd ${sq(cwd)} && ${CLI_PATH_ENV} ${ccCreditEnv(o.credit ?? 'subscription')} ${gitIdentityEnv()} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
       (o.avenSession ? `AVEN_SESSION=${sq(o.avenSession)} ` : '') +
       `claude --output-format stream-json --input-format stream-json --verbose ` +
       `--dangerously-skip-permissions --permission-prompt-tool stdio --strict-mcp-config ` +
@@ -192,6 +196,9 @@ export interface TurnUsage {
   // what tells metering.ts the record was written with per-turn cost (records from before
   // the fix carry the running total in costUsd and nothing here).
   costUsdCumulative?: number;
+  // Which credit paid for the turn (api-key-credit D3): from the session's `system/init` apiKeySource, else the
+  // installation's configured kind. Set only on a session told its configured kind (tasks.ts always does).
+  credit?: CreditKind;
 }
 
 // What became of a message written into a session with the message ledger (agent-messaging D11, D13):
@@ -426,6 +433,10 @@ export class ClaudeSession {
   private wakeup?: { id?: string; dueAt: number; capAt: number };
   // The CLI this process runs (system/init), for the per-session contract check (D12, task 4.3).
   private cli?: { version?: string; capabilities: string[] };
+  // The credit the CLI reports it runs on (the last `system/init`'s apiKeySource, api-key-credit D3), and
+  // whether this session already warned about it: one warning per session, not one per turn.
+  private reportedCredit?: CreditKind;
+  private creditWarned = false;
   // On reattach with the ledger: the snapshot's turns (the echoes each covered, and its result).
   private snapTurns: { echoes: string[]; result?: TurnResult }[] = [];
   // Every stdin write goes through this chain, one at a time. A host tool answer can be tens of KB
@@ -492,6 +503,10 @@ export class ClaudeSession {
       // Every `system/init`: the names the session reports as its slash commands and skills (agent-skills —
       // the card withholds a project skill whose name a CLI command takes).
       onInitCommands?: (names: string[]) => void;
+      // The installation's credit kind (api-key-credit D2/D3): the spawn command's prefix, and what each
+      // `system/init`'s apiKeySource is checked against. Absent → today's subscription prefix and usage
+      // records without `credit` (which count as subscription).
+      credit?: CreditKind;
     },
   ) {
     this.sessionKey =
@@ -602,7 +617,8 @@ export class ClaudeSession {
     await this.sandbox.createSession(this.sessionKey);
     const { model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession } = this.opts;
     const extraArgs = [...(this.opts.ledger ? LEDGER_ARGS : []), ...addDirArgs(this.opts.addDirs)];
-    const command = claudeLaunch({ model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession, ...(extraArgs.length ? { extraArgs } : {}) }).command(this.opts.cwd);
+    const credit = this.opts.credit;
+    const command = claudeLaunch({ model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession, ...(extraArgs.length ? { extraArgs } : {}), ...(credit ? { credit } : {}) }).command(this.opts.cwd);
     const started = await this.sandbox.startSessionCommand(this.sessionKey, command);
     this.cmdId = started.cmdId;
     // Stream stdout until the process exits; resolution/rejection both mean "process gone".
@@ -812,7 +828,7 @@ export class ClaudeSession {
         // against that, not as the whole total the old bot already recorded turn by turn.
         if (ev.type === 'result') {
           lastResult = ev;
-          lastUsage = usageOf(ev, this.costs);
+          lastUsage = this.turnUsage(ev);
           // The ledger rebuilt (D13 "Reattach"): which echoed messages each finished turn covered.
           this.snapTurns.push({
             echoes: echoes.map((e) => e.uuid),
@@ -1036,11 +1052,11 @@ export class ClaudeSession {
       if (this.opts.ledger) return this.onLedgerResult(ev, resultText);
       if (this.pending) {
         const status: TurnResult['status'] = this.pending.canceled ? 'canceled' : 'ok';
-        this.settle({ status, resultText, isError: !!ev.is_error, usage: usageOf(ev, this.costs) });
+        this.settle({ status, resultText, isError: !!ev.is_error, usage: this.turnUsage(ev) });
       } else {
         // No turn was waiting on this — a background task finished on its own.
         this.onIdleUsage?.({
-          usage: usageOf(ev, this.costs),
+          usage: this.turnUsage(ev),
           isError: !!ev.is_error,
           durationMs: typeof ev.duration_ms === 'number' ? ev.duration_ms : 0,
         });
@@ -1078,8 +1094,18 @@ export class ClaudeSession {
     }
   }
 
+  // A `result`'s usage, with the credit that paid for it when this session knows its configured kind.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private turnUsage(ev: any): TurnUsage | undefined {
+    const u = usageOf(ev, this.costs);
+    const configured = this.opts.credit;
+    if (!u || !configured) return u;
+    return { ...u, credit: this.reportedCredit ?? configured };
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private noteCli(ev: any): void {
+    this.noteCredit(ev.apiKeySource);
     const version = typeof ev.claude_code_version === 'string' ? ev.claude_code_version : undefined;
     const capabilities = Array.isArray(ev.capabilities) ? ev.capabilities.filter((c: unknown): c is string => typeof c === 'string') : [];
     this.cli = { version: version ?? this.cli?.version, capabilities };
@@ -1091,6 +1117,24 @@ export class ClaudeSession {
         /* a recorder's failure never touches the session */
       }
     }
+  }
+
+  // apiKeySource → the credit the usage records carry (D3): `ANTHROPIC_API_KEY` a key, `none` our token; any
+  // other value (or none at all, on a CLI that dropped the field) is not a credit we configure → the
+  // configured kind, and a warning. A disagreement with the configured kind warns too — after a credit
+  // switch, that is a process started before it. Once per session; the warning names kinds, never values.
+  private noteCredit(source: unknown): void {
+    const configured = this.opts.credit;
+    if (!configured) return;
+    const reported = creditFromApiKeySource(source);
+    this.reportedCredit = reported ?? configured;
+    if (reported === configured || this.creditWarned) return;
+    this.creditWarned = true;
+    const said = typeof source === 'string' ? `apiKeySource "${source.slice(0, 40)}"` : 'no apiKeySource';
+    log.warn(
+      `credit: session ${this.sessionKey} reports ${said} but the installation runs on ${configured === 'api-key' ? 'an API key' : 'a subscription token'}` +
+        (reported ? ' — a process started before a credit switch keeps its credit until it ends' : ' — metered as the configured credit'),
+    );
   }
 
   private onEcho(uuid: string, internal: boolean): void {
@@ -1116,7 +1160,7 @@ export class ClaudeSession {
     this.turnEchoes = [];
     this.running = false;
     this.idleSince = Date.now();
-    const usage = usageOf(ev, this.costs);
+    const usage = this.turnUsage(ev);
     const p = this.pending;
     if (p && (!p.uuid || covered.some((e) => e.uuid === p.uuid))) {
       this.settle({ status: p.canceled ? 'canceled' : 'ok', resultText, isError: !!ev.is_error, usage });

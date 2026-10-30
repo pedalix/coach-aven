@@ -11,7 +11,8 @@
 //                         renders REPORT.md again
 //   list                → the scenarios, contract first
 //
-// Environment: CLI_PROBE_TOKEN — a live run's subscription token, and nothing else is read for one;
+// Environment: CLI_PROBE_TOKEN (a subscription token) or CLI_PROBE_API_KEY (an API key) — a live run's credit,
+// exactly one, and nothing else is read for one; a scenario that needs a key is skipped on a token run;
 // CLI_PROBE_CACHE (default ~/.cache/coach-aven/cli-probe) for CLI installs and fetched declarations;
 // --transport sandbox reads the driver's settings from the probe's own environment (sandbox.ts).
 // A live run costs model usage (reported per scenario); CI never runs one.
@@ -22,15 +23,15 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { compareVersions, isValidCliVersion, PROBED_CLI_VERSIONS } from '../cliversion.js';
-import { ensureCli, probeCacheRoot, probeToken } from './install.js';
+import { ensureCli, probeCacheRoot, probeCredit } from './install.js';
 import { localTransport } from './local.js';
-import { catalogue, failing, groupFindings, mergeScenarios, recordingText, renderReport, sha256, type FindingGroup, type ReportJson, type ReportScenario } from './report.js';
+import { catalogue, costTotals, failing, groupFindings, mergeScenarios, recordingText, renderReport, sha256, type FindingGroup, type ReportJson, type ReportScenario } from './report.js';
 import { runScenario } from './runner.js';
 import { driverFromEnv, PROBE_MANAGED_BY, sandboxTransport } from './sandbox.js';
 import { SCENARIOS } from './scenarios/index.js';
 import { API_SDK_PACKAGE, SDK_PACKAGE, chooseSdkRelease, ensureDeclarations, fetchPackument, publishedAt, releaseAt } from './sdk.js';
 import { checkRecordings, loadChecker } from './typecheck.js';
-import { recordingFile, rowId, type RecordLine } from './types.js';
+import { recordingFile, rowId, runsOn, type RecordLine } from './types.js';
 
 class UsageError extends Error {}
 
@@ -106,8 +107,15 @@ async function run(argv: string[]): Promise<void> {
   const cli = values.cli ?? '';
   if (!isValidCliVersion(cli)) throw new UsageError('--cli <x.y.z> is required');
   if (values.transport !== 'local' && values.transport !== 'sandbox') throw new UsageError('--transport must be local or sandbox');
-  const picked = select(positionals);
-  const token = probeToken();
+  const credit = probeCredit();
+  const token = credit.value;
+  // A scenario that needs another credit (an API key, on a token run) is dropped here, before any transport is
+  // built: no sandbox for it, and the merge below keeps its earlier row and recording as they are.
+  const picked = select(positionals).filter(({ s, variant }) => {
+    if (runsOn(s.meta, credit.kind)) return true;
+    console.log(`-- ${rowId(s.meta.id, variant)}: skipped (needs ${s.meta.needs === 'api-key' ? 'an API key: CLI_PROBE_API_KEY' : 'a subscription token: CLI_PROBE_TOKEN'})`);
+    return false;
+  });
   const cacheRoot = probeCacheRoot();
   const bin = values.bin ?? (await ensureCli(cli, { cacheRoot }));
   let label = 'local';
@@ -118,7 +126,7 @@ async function run(argv: string[]): Promise<void> {
     label = d.label;
     factory = (dirs) => sandboxTransport({ driver: d.driver, runId: dirs.runId, version: cli, token, log: (l) => console.log(`        ${l}`) });
   } else {
-    factory = async (dirs) => localTransport({ bin, workDir: dirs.workDir, configDir: dirs.configDir, token, log: (l) => console.log(`        ${l}`) });
+    factory = async (dirs) => localTransport({ bin, workDir: dirs.workDir, configDir: dirs.configDir, token, credit: credit.kind, log: (l) => console.log(`        ${l}`) });
   }
   const outDir = values.out ? resolve(values.out) : fixturesDir(cli);
   mkdirSync(outDir, { recursive: true });
@@ -131,13 +139,14 @@ async function run(argv: string[]): Promise<void> {
       cache: cacheRoot,
       modelOverride: values.model,
       runsOverride: values.runs ? Number(values.runs) : undefined,
+      credit: credit.kind,
       log: (l) => console.log(l),
     });
     const text = recordingText(r.recording);
     const file = recordingFile(r.id, r.variant);
     writeFileSync(join(outDir, file), text);
     const { recording: _rec, ...rest } = r;
-    rows.push({ ...rest, recording: { file, sha256: sha256(text) }, transport: label });
+    rows.push({ ...rest, recording: { file, sha256: sha256(text) }, transport: label, ...(credit.kind === 'api-key' ? { credit: 'api-key' as const } : {}) });
     console.log(`== ${rowId(r.id, r.variant)}: ${r.verdict} (${r.holds}/${r.fails}/${r.inconclusive}) $${r.costUsd.toFixed(3)}`);
   }
   const existing = readReport(outDir);
@@ -151,7 +160,7 @@ async function run(argv: string[]): Promise<void> {
     transport: [...new Set(scenarios.map((s) => s.transport ?? 'local'))].join(', '),
     date: new Date().toISOString().slice(0, 10),
     models: [...new Set(scenarios.map((s) => s.model))].sort(),
-    totalCostUsd: scenarios.reduce((a, s) => a + s.costUsd, 0),
+    ...costTotals(scenarios),
     scenarios,
     catalogue: catalogue(recordings.map((r) => r.lines)),
     findings,
@@ -159,7 +168,8 @@ async function run(argv: string[]): Promise<void> {
   writeReport(outDir, report);
   const fails = failing(findings);
   console.log(`\nreport: ${join(outDir, 'REPORT.md')}`);
-  console.log(`this run: $${rows.reduce((a, r) => a + r.costUsd, 0).toFixed(3)} API-equivalent; protocol violations: ${fails.length}`);
+  const spent = `$${rows.reduce((a, r) => a + r.costUsd, 0).toFixed(3)} ${credit.kind === 'api-key' ? 'billed to the API key at list prices' : 'API-equivalent'}`;
+  console.log(`this run: ${spent}; protocol violations: ${fails.length}`);
 }
 
 async function check(argv: string[]): Promise<number> {

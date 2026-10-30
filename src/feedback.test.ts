@@ -245,3 +245,36 @@ test('feedbackSummaryText — cost per helped answer divides by the helped turns
   assert.ok(!/legacy|predate/.test(clean));
   assert.match(clean, /1 helped, 0 missed · ~\$1\.00 per answer that helped/);
 });
+
+// ── one credit's dollars per helped answer (OpenSpec api-key-credit D4) ─────────────────────────────
+
+test('feedbackSummaryText — a subscription installation: the figure and its line as before, with or without `credit` on the records', () => {
+  const ratings = [fb({ turnId: 'tabc123-1' }), fb({ turnId: 'tabc123-2', verdict: 'bad', reason: 'tone' })];
+  const old = feedbackSummaryText(joinUsage(ratings, [usage({ turnId: 'tabc123-1' }), usage({ turnId: 'tabc123-2', usage: { costUsd: 3, costUsdCumulative: 4 } })]), 10, 7);
+  const stamped = feedbackSummaryText(
+    joinUsage(ratings, [usage({ turnId: 'tabc123-1', usage: { costUsd: 1, costUsdCumulative: 1, credit: 'subscription' } }), usage({ turnId: 'tabc123-2', usage: { costUsd: 3, costUsdCumulative: 4, credit: 'subscription' } })]),
+    10,
+    7,
+  );
+  assert.equal(stamped, old);
+  assert.match(old, /^2 of 10 turns rated \(20%\) · 1 helped, 1 missed · ~\$4\.00 per answer that helped$/m);
+});
+
+test('feedbackSummaryText — key and subscription turns: one credit\'s dollars (the larger), named; never divided together', () => {
+  const ratings = [fb({ turnId: 't1-1' }), fb({ turnId: 't1-2' }), fb({ turnId: 't1-3', verdict: 'bad', reason: 'wrong' })];
+  const keyHeavy = joinUsage(ratings, [
+    usage({ turnId: 't1-1', usage: { costUsd: 1, costUsdCumulative: 1 } }), // subscription (an old record)
+    usage({ turnId: 't1-2', usage: { costUsd: 4, costUsdCumulative: 4, credit: 'api-key' } }),
+    usage({ turnId: 't1-3', usage: { costUsd: 2, costUsdCumulative: 6, credit: 'api-key' } }),
+  ]);
+  assert.equal(keyHeavy[0].keyRated, 2);
+  assert.equal(keyHeavy[0].keyGood, 1);
+  assert.equal(keyHeavy[0].keyCostUsd, 6);
+  assert.match(feedbackSummaryText(keyHeavy, 3, 7), /· ~\$6\.00 \(API key\) per answer that helped$/m); // 6 key dollars / 1 helped key turn
+  const subHeavy = joinUsage(ratings, [
+    usage({ turnId: 't1-1', usage: { costUsd: 5, costUsdCumulative: 5, credit: 'subscription' } }),
+    usage({ turnId: 't1-2', usage: { costUsd: 1, costUsdCumulative: 1, credit: 'api-key' } }),
+    usage({ turnId: 't1-3', usage: { costUsd: 1, costUsdCumulative: 2, credit: 'api-key' } }),
+  ]);
+  assert.match(feedbackSummaryText(subHeavy, 3, 7), /· ~\$5\.00 \(subscription equivalent\) per answer that helped$/m);
+});

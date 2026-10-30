@@ -14,7 +14,7 @@ import { loadProjects, resolveBySlug, teamProjects, projectOwnerTeam, type Proje
 import { splitTeam, normalizeTenant } from '../../teamkeys.js';
 import { keyFor } from '../surfaces.js';
 import type { ChatDriverName } from '../drivers.js';
-import { rateLimitStatusLine } from '../../ratelimit.js';
+import { statusQuotaLine } from '../../ratelimit.js';
 import { effectiveAccess, mayDrive, isAdmin, deniedText, parseUsersCmd, applyUsersCmd, usersListText } from '../../access.js';
 import type { TurnEngine } from '../../turn.js';
 import type { Channels } from '../../channels.js';
@@ -191,7 +191,7 @@ export function createCommands(deps: CommandDeps) {
       turnsInFlight: engine.runningCount(),
       sandboxesOk,
       githubOk,
-      claudeQuota: tid === undefined ? rateLimitStatusLine(engine.claudeQuota()) : undefined,
+      claudeQuota: tid === undefined ? statusQuotaLine(engine.quotaTracked?.() !== false, engine.claudeQuota()) : undefined,
     };
   }
 

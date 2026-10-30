@@ -3,7 +3,7 @@
 import { LEDGER_ARGS } from '../../claudeSession.js';
 import type { ProbeCtx } from '../ctx.js';
 import type { Scenario } from '../types.js';
-import { answeredIn, CHAIN, SIDE } from './lib.js';
+import { answeredIn, CHAIN, SIDE, toolResults } from './lib.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -104,4 +104,34 @@ const compaction: Scenario<ProbeCtx> = {
   },
 };
 
-export const CANDIDATES: Scenario<ProbeCtx>[] = [interruptReceipt, cancelAsyncMessage, originPeer, compaction];
+// What the CLI reports on an API key (OpenSpec api-key-credit D6). A candidate until an installation we operate
+// runs on a key; then contract, so that every pin bump proves it. The Bash call reports whether the key is in a
+// tool subprocess's environment — KEY-SEEN / KEY-ABSENT, never the value — for what the docs tell an operator.
+export const KEY_PROBE_COMMAND = 'if [ -n "$ANTHROPIC_API_KEY" ]; then echo KEY-SEEN; else echo KEY-ABSENT; fi';
+const apiKeyTurn: Scenario<ProbeCtx> = {
+  meta: {
+    id: 'api-key-turn',
+    contract: false,
+    runs: 1,
+    needs: 'api-key',
+    hypothesis:
+      'On an API key (`ANTHROPIC_API_KEY` from the credit file), `system/init` reports `apiKeySource: "ANTHROPIC_API_KEY"` and the turn succeeds with its cost; the rate-limit events it emits, if any, and whether a tool subprocess sees the key are recorded.',
+  },
+  async run(ctx) {
+    await ctx.send(`Use the Bash tool once to run exactly this command, then reply with only its output: ${KEY_PROBE_COMMAND}`);
+    const result = (await ctx.expect(ctx.is.result, 120 * S, 'a result')) as Any;
+    await ctx.sleep(2 * S);
+    const init = ctx.frames.find(ctx.is.init) as Any;
+    const out = toolResults(ctx.frames).map((r) => r.text).join('\n');
+    const toolSawKey = /KEY-SEEN/.test(out) ? true : /KEY-ABSENT/.test(out) ? false : null;
+    const rateLimitEvents = ctx.frames.filter((f) => f.type === 'rate_limit_event').map((f) => {
+      const i = ((f as Any).rate_limit_info ?? {}) as Any;
+      return { status: i.status ?? null, rateLimitType: i.rateLimitType ?? null };
+    });
+    ctx.check(init?.apiKeySource === 'ANTHROPIC_API_KEY', `system/init reports apiKeySource "ANTHROPIC_API_KEY" (got ${JSON.stringify(init?.apiKeySource ?? null)})`);
+    ctx.check(result.is_error === false && typeof result.total_cost_usd === 'number', 'the turn succeeds and carries total_cost_usd');
+    return { apiKeySource: init.apiKeySource, costUsd: result.total_cost_usd, rateLimitEvents, toolSawKey };
+  },
+};
+
+export const CANDIDATES: Scenario<ProbeCtx>[] = [interruptReceipt, cancelAsyncMessage, originPeer, compaction, apiKeyTurn];

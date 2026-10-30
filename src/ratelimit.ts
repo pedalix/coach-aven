@@ -125,6 +125,12 @@ export function rateLimitStatusLine(info: RateLimitInfo | undefined, now = Date.
   return [head, ...bits, `as of ${age}`].join(' · ');
 }
 
+// Pure: the `/aven status` quota line, or none at all on an installation that tracks no subscription quota
+// (an API key, api-key-credit D5): a key has no five-hour or seven-day window to report.
+export function statusQuotaLine(tracked: boolean, info: RateLimitInfo | undefined, now = Date.now()): string | undefined {
+  return tracked ? rateLimitStatusLine(info, now) : undefined;
+}
+
 export interface RateLimitAlert {
   level: 'warning' | 'rejected' | 'recovered';
   text: string; // alert-channel body (no emoji prefix — the sink adds its own)

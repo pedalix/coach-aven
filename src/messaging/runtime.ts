@@ -138,7 +138,7 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
     configured: () => o.reg.current.projects.some((p) => p.messaging !== undefined),
     asks: {
       enabled: () => o.reg.current.projects.some((p) => p.messaging !== undefined) || env.hub !== undefined || env.hubProblem !== undefined,
-      list: () => asksList(rows()),
+      list: () => asksList(rows(), { credit: o.cfg.credit?.kind }),
       transcript: (taskId) => {
         const r = rows().find((x) => x.id === taskId);
         if (!r) return `No task \`${taskId}\` here.`;
