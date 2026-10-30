@@ -9,6 +9,8 @@ In scope: the orchestrator (`src/`), the sandbox images (`snapshot/`), the deplo
 (`infra/deploy/`, `infra/teams/`). Out of scope: third-party services the bot talks to (Slack, GitHub, Anthropic)
 and installations you do not operate.
 
+What goes where, retention and the accepted risks, in one page: [`docs/security.md`](docs/security.md).
+
 What the design assumes: the sandbox is the untrusted side (the model runs there with a
 per-project, short-lived GitHub token, the Claude credential and only the MCP endpoints and
 credentials the project declares); the orchestrator keeps its own long-lived secrets (the GitHub

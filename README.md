@@ -1,30 +1,55 @@
 # CoachAven
 
-A coding agent that lives in Slack (Microsoft Teams in canary). One bot, many channels; each channel is bound to a project,
-and each project gets its own warm, isolated sandbox running a persistent **Claude Code**
-process. The agent reads the repos, answers questions, runs builds and tests, and opens pull
-requests; your team reviews and merges. Optional, per project: it reviews pull requests as they
-open, runs routines on a schedule, investigates YouTrack tickets, and queries a scrubbed store of
-the project's mail, chat, calendar and ticket trackers. The bot itself is a small TypeScript
-control plane with no model calls of its own: all the thinking happens inside the sandboxes.
+**A coding agent your team — or your agency — runs in Slack, Microsoft Teams or a web chat. One warm sandbox per
+project, on hosts you own.**
 
-Website: [coachaven.com](https://coachaven.com). Status: a single-operator project that runs
-installations for real users; self-hosting is supported and documented, support is best-effort
-(see [`SUPPORT.md`](SUPPORT.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md)).
-Rather not run it yourself? We can run it for you: [coachaven.com](https://coachaven.com).
-Model credit: a Claude subscription token to try it (`claude setup-token`, one command), an
-Anthropic API key for an installation that serves a team or clients (billed and metered per key).
-Licence: Apache-2.0.
+- Each project gets a long-running container with its repositories and a persistent **Claude Code** process; a chat
+  channel (or web room) drives it.
+- The agent reads the code, answers questions, runs builds and tests, and opens pull requests; people review and merge.
+- Per project, opt-in: it reviews pull requests as they open, runs routines on a schedule, investigates YouTrack
+  tickets, and calls the MCP servers the project declares (Grafana, Sentry, trackers, your own).
+- The bot is a small TypeScript control plane with **no model calls of its own**: all the thinking happens in the
+  sandboxes, on your model credit — a Claude subscription token to try it, an Anthropic API key for a team or clients.
 
 **Try it on one machine** — Docker, a GitHub account and a Claude subscription; no Slack, no registry, no
 privileged container: [`docs/quickstart.md`](docs/quickstart.md). Clone, `./init.sh`, three values,
-`docker compose up -d`, and the agent answers in a web chat on `localhost`.
+`docker compose up -d`, and the agent answers in a web chat on `localhost` in about three minutes of machine time.
+
+**Built for** an agency or a small team that runs many client systems: one installation, one sandbox and one set of
+tools per client project, each client's work billed to a credit you choose. It grew up on Laravel projects (Sail runs
+inside the sandbox), YouTrack and Grafana, and runs any stack whose tools fit in a container.
+
+**Why not Anthropic's own Claude Code in Slack?** Their integration runs each thread in an Anthropic-hosted sandbox
+tied to Claude Code on the web. CoachAven keeps a warm sandbox per project on your own Docker host, with your
+toolchain and the MCP servers your project declares, and adds routines, PR review and ticket investigation. If all you
+need is thread-to-pull-request with zero operations, their path is the better choice.
+
+| Capability | Status |
+|---|---|
+| Slack driver, project sandboxes on your Docker host, pull requests, PR review and autofix, routines, YouTrack | production (since June 2026) |
+| Microsoft Teams driver | pilot with one client (in releases since v0.42.0) |
+| Agent messaging between installations, through a relay hub | production (since v0.42.0) |
+| Anthropic API key as the model credit | in v0.44.0; canary on the maintainer's installation |
+| Web chat (OIDC login; a sign-in link on `localhost`) | canary; the quickstart runs it |
+| **Extensions** — sources (a scrubbed store of a project's mail, chat, calendar and tickets), attribution, the lab bench | opt-in, experimental, run on the maintainer's own tenant |
+
+Every change reaches the maintainer's installation from `main` first and production with a tag; what is staged where
+is the flag ledger, [`docs/rollout.md`](docs/rollout.md).
+
+**Free and open:** everything here is Apache-2.0; there is no hosted tier. The commercial line is running and
+supporting installations on a client's own infrastructure — [coachaven.com](https://coachaven.com) — and that is what
+funds the project. **No telemetry:** an installation never reports to this project; it talks only to the services you
+configure (your chat platform, GitHub, Anthropic, your Docker host, and an error tracker or relay hub if you set one).
+What goes where and what the sandbox can reach: [`docs/security.md`](docs/security.md).
+
+Status: a single-maintainer project with installations for real users; self-hosting is documented, support is
+best-effort ([`SUPPORT.md`](SUPPORT.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), [`SECURITY.md`](SECURITY.md)).
 
 Start here:
 
 - [**Why CoachAven**](docs/why.md): who it is for, what it does differently, what it is not.
 - [**How it is built and run**](docs/how-we-work.md): invariants, specs first, canary then tag,
-  who does what.
+  who does what — built with Claude Code, every change specified first (OpenSpec) and canaried.
 - [**All docs**](docs/README.md): running an installation, what the agent can do, under the hood.
 
 ## How it works
@@ -32,6 +57,7 @@ Start here:
 ```
  Slack ⇄ Socket Mode (the bot dials out: no public endpoint needed)
  Teams ⇄ HTTPS (Microsoft dials in: a public endpoint behind your reverse proxy)
+ Web   ⇄ HTTPS (the installation serves it: OIDC login, or a sign-in link on localhost)
    │       one chat driver per installation
  orchestrator  (Node, one process; state.json; pollers for routines / PR review / tickets)
    │  sandbox driver: containers on a Docker host you own, over SSH (or this host's own Docker)
@@ -41,7 +67,7 @@ Start here:
                          MCP servers the project declares (Grafana, Sentry, trackers, …)
 ```
 
-## Self-host quickstart
+## Self-host with Slack or Teams
 
 You need: Node 24, a Slack workspace where you can create apps, a GitHub App (or token) for
 the repos, a model credit (a Claude subscription token or an Anthropic API key, step 4), and a

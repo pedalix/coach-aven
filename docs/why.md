@@ -214,6 +214,6 @@ tenant or a person lives in an installation's private ops repo ([`how-we-work.md
 
 A Slack workspace you can create apps in, a GitHub App (a personal token for a trial), a Claude
 Code token and a Docker host: the six steps are the README's
-[self-host quickstart](../README.md#self-host-quickstart). The one-time admin steps and how long
+[self-host quickstart](../README.md#self-host-with-slack-or-teams). The one-time admin steps and how long
 each takes are in [`how-we-work.md`](how-we-work.md), *Who does what*. Questions and feature
 requests: open an issue. Vulnerabilities: [`SECURITY.md`](../SECURITY.md).
