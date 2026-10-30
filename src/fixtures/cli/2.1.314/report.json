@@ -1,0 +1,2602 @@
+{
+ "cli": "2.1.314",
+ "sdk": {
+  "release": "0.3.314",
+  "claudeCodeVersion": "2.1.314",
+  "exact": true,
+  "anthropicSdk": "1.3.0"
+ },
+ "transport": "local",
+ "date": "2026-10-30",
+ "models": [
+  "claude-haiku-5-5",
+  "claude-opus-5-5"
+ ],
+ "totalCostUsd": 0.44323717000000007,
+ "scenarios": [
+  {
+   "id": "add-dir-loads-skills",
+   "contract": true,
+   "hypothesis": "A skill folder under each `--add-dir` directory is a session skill: both are listed in `system/init` `skills` (a multi-repo project loads its repos’ skills this way).",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "listed": "[\"probe-alpha\",\"probe-beta\"]"
+     },
+     "costUsd": 0.00140832,
+     "durationMs": 3474
+    }
+   ],
+   "costUsd": 0.00140832,
+   "recording": {
+    "file": "add-dir-loads-skills.jsonl",
+    "sha256": "5dfe33f21f142d1a91a4f2f1220e00fdeb9bc8256a995ac8b59f67b6b45d9a1a"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "ask-user-question",
+   "contract": true,
+   "hypothesis": "With `--dangerously-skip-permissions` and `--permission-prompt-tool stdio`, Bash runs with no permission round trip, `AskUserQuestion` sends `can_use_tool`, and the answers given in `updatedInput` reach the model.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "prompted": [
+       "AskUserQuestion"
+      ],
+      "answerReached": "Your questions have been answered: \"Which color?\"=\"blue\". You can now continue with these answers in mind."
+     },
+     "costUsd": 0.0025493100000000004,
+     "durationMs": 9269
+    }
+   ],
+   "costUsd": 0.0025493100000000004,
+   "recording": {
+    "file": "ask-user-question.jsonl",
+    "sha256": "aa40ef84ee1add430f4de1d2439275c1c068e3be68d2e895f0e43babd9614a4c"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "background-report",
+   "contract": true,
+   "hypothesis": "A background Bash task that outlives its turn produces an unsolicited turn with its own `result` once it ends.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "secondAfterMs": 10826,
+      "second": "The background command finished with exit code 0 and printed"
+     },
+     "costUsd": 0.00241557,
+     "durationMs": 17245
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "secondAfterMs": 9286,
+      "second": "The background command finished with exit code 0. I didn't r"
+     },
+     "costUsd": 0.00207238,
+     "durationMs": 14870
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "secondAfterMs": 24214,
+      "second": "The background command finished with exit code 0. I didn't r"
+     },
+     "costUsd": 0.00207857,
+     "durationMs": 34672
+    }
+   ],
+   "costUsd": 0.00656652,
+   "recording": {
+    "file": "background-report.jsonl",
+    "sha256": "55dfc0a1ddfb30358d05298e289d59d85b09c07dac0bc8d02328cb7f8e5fc404"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "background-tasks-changed",
+   "contract": true,
+   "hypothesis": "`system/background_tasks_changed` lists the running background tasks, then `[]` when the last one ends.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "changes": [
+       1,
+       0
+      ]
+     },
+     "costUsd": 0.00211451,
+     "durationMs": 12340
+    }
+   ],
+   "costUsd": 0.00211451,
+   "recording": {
+    "file": "background-tasks-changed.jsonl",
+    "sha256": "55315b6a34e456f7eea2b17d9a7b56bd59c56d1620548315862440206d130b54"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "cancel-async-message",
+   "contract": false,
+   "hypothesis": "A message written mid-tool and withdrawn with `cancel_async_message` before the boundary is never taken up.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "response": "success",
+      "results": 1
+     },
+     "costUsd": 0.0022066,
+     "durationMs": 40351
+    }
+   ],
+   "costUsd": 0.0022066,
+   "recording": {
+    "file": "cancel-async-message.jsonl",
+    "sha256": "971cfff2bddb010f554e9734a8b02cf7388cafc21ef71cccd2aa49b284e0ec1c"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "chain-priority",
+   "variant": "later",
+   "contract": false,
+   "hypothesis": "A message written while a tool chain runs: with no priority or `next` it is folded in at the next tool boundary and answered in the same result; `later` gets its own turn after the running one; `now` ends the turn at the boundary with an empty result, and a new turn answers.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "echoAfterSendMs": 20987
+     },
+     "costUsd": 0.0024205800000000003,
+     "durationMs": 44253
+    }
+   ],
+   "costUsd": 0.0024205800000000003,
+   "recording": {
+    "file": "chain-priority.later.jsonl",
+    "sha256": "1cb7e58a60cb5ce8150281c64b281604028b040fe9a715c197e69648ca17fc9e"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "chain-priority",
+   "variant": "next",
+   "contract": false,
+   "hypothesis": "A message written while a tool chain runs: with no priority or `next` it is folded in at the next tool boundary and answered in the same result; `later` gets its own turn after the running one; `now` ends the turn at the boundary with an empty result, and a new turn answers.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoAfterSendMs": 4236
+     },
+     "costUsd": 0.0022821300000000003,
+     "durationMs": 41969
+    }
+   ],
+   "costUsd": 0.0022821300000000003,
+   "recording": {
+    "file": "chain-priority.next.jsonl",
+    "sha256": "027c1858498c4cc5bfde69a7aab5a1c91d1f5f7a43b3cb2dea5a236caa32f101"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "chain-priority",
+   "variant": "none",
+   "contract": false,
+   "hypothesis": "A message written while a tool chain runs: with no priority or `next` it is folded in at the next tool boundary and answered in the same result; `later` gets its own turn after the running one; `now` ends the turn at the boundary with an empty result, and a new turn answers.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoAfterSendMs": 4284
+     },
+     "costUsd": 0.00232116,
+     "durationMs": 48332
+    }
+   ],
+   "costUsd": 0.00232116,
+   "recording": {
+    "file": "chain-priority.none.jsonl",
+    "sha256": "052436ba149cb3dd66561ba60a19170f462bfb5eca701f34871f0470186b26c8"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "chain-priority",
+   "variant": "now",
+   "contract": false,
+   "hypothesis": "A message written while a tool chain runs: with no priority or `next` it is folded in at the next tool boundary and answered in the same result; `later` gets its own turn after the running one; `now` ends the turn at the boundary with an empty result, and a new turn answers.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 1,
+      "echoAfterSendMs": 5047
+     },
+     "costUsd": 0.00226355,
+     "durationMs": 28262
+    }
+   ],
+   "costUsd": 0.00226355,
+   "recording": {
+    "file": "chain-priority.now.jsonl",
+    "sha256": "e9274b66c95f735b27e0919e84f8be27e6c7dcdbcd44a73475dcf27c9f4394f3"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "compaction",
+   "contract": false,
+   "hypothesis": "`/compact` written as a user message compacts the conversation: `system/compact_boundary` comes, and the session goes on.",
+   "model": "claude-haiku-5-5",
+   "verdict": "fails",
+   "holds": 0,
+   "fails": 1,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "fails",
+     "reason": "the session goes on — not within 120000 ms",
+     "observations": {},
+     "costUsd": 0.00362291,
+     "durationMs": 129619
+    }
+   ],
+   "costUsd": 0.00362291,
+   "recording": {
+    "file": "compaction.jsonl",
+    "sha256": "47f2162394c54f7b6482e59b8047f9d08a956e28cc7782200e1b344d8c4062ab"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "during-final-text",
+   "contract": false,
+   "hypothesis": "A message written while the final text streams (no tool left to run) is neither folded in nor lost: it gets its own turn after the running one.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0
+     },
+     "costUsd": 0.00376456,
+     "durationMs": 41982
+    }
+   ],
+   "costUsd": 0.00376456,
+   "recording": {
+    "file": "during-final-text.jsonl",
+    "sha256": "2bf57fbc3891b0b2646d6f9df274b2d586693dc4f6ebb8ce16955bfd09f8810f"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "echo-at-take-up",
+   "contract": true,
+   "hypothesis": "The echo (`--replay-user-messages`) of a message written while a tool runs comes when the CLI takes it up — after that tool’s result — not when it is written.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 8127,
+      "echoAfterToolResultMs": 5
+     },
+     "costUsd": 0.00175229,
+     "durationMs": 15269
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 8161,
+      "echoAfterToolResultMs": 5
+     },
+     "costUsd": 0.0017441800000000001,
+     "durationMs": 14659
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 8225,
+      "echoAfterToolResultMs": 11
+     },
+     "costUsd": 0.00174455,
+     "durationMs": 18154
+    }
+   ],
+   "costUsd": 0.005241020000000001,
+   "recording": {
+    "file": "echo-at-take-up.jsonl",
+    "sha256": "d8cc59f418e15b7f379337d29b2ca8c184e35e80f424bdd57745bc395643338d"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "echo-carries-uuid",
+   "contract": true,
+   "hypothesis": "A message written with a `uuid` is echoed with that `uuid`: the message that starts a turn when the CLI starts it, and a message written mid-tool when it is taken up. The message ledger tells its messages apart by it (agent-messaging D13).",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "turnEchoCarriesUuid": true,
+      "sideEchoCarriesUuid": true
+     },
+     "costUsd": 0.00173355,
+     "durationMs": 12675
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "turnEchoCarriesUuid": true,
+      "sideEchoCarriesUuid": true
+     },
+     "costUsd": 0.0017317900000000002,
+     "durationMs": 10978
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "turnEchoCarriesUuid": true,
+      "sideEchoCarriesUuid": true
+     },
+     "costUsd": 0.0017329200000000002,
+     "durationMs": 11826
+    }
+   ],
+   "costUsd": 0.00519826,
+   "recording": {
+    "file": "echo-carries-uuid.jsonl",
+    "sha256": "aa301653aeb5849464f0b2ca1bc598198f7ccc6522e7322c60b5fde3182892fb"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "event-kinds",
+   "contract": false,
+   "hypothesis": "The echo of a message written mid-tool comes after that tool’s result.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "untilEcho": [
+       "command_lifecycle",
+       "system/task_started",
+       "system/task_notification",
+       "user",
+       "user (replay)",
+       "command_lifecycle"
+      ],
+      "kinds": {
+       "command_lifecycle": 6,
+       "system/init": 1,
+       "user": 3,
+       "assistant": 3,
+       "rate_limit_event": 1,
+       "system/task_started": 1,
+       "system/task_notification": 1,
+       "system/thinking_tokens": 2,
+       "result/success": 1
+      }
+     },
+     "costUsd": 0.00172603,
+     "durationMs": 17356
+    }
+   ],
+   "costUsd": 0.00172603,
+   "recording": {
+    "file": "event-kinds.jsonl",
+    "sha256": "5afe0cc4df9f673a04b82be57f31720a7eba9bba3384f4063e1aef5abfbb8f98"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "event-kinds-hooks",
+   "contract": false,
+   "hypothesis": "With hooks configured, the UserPromptSubmit hook fires for an injected message at the tool boundary, right before its echo.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "untilEcho": [
+       "command_lifecycle",
+       "system/task_started",
+       "system/task_notification",
+       "system/hook_started:PostToolUse",
+       "system/hook_response:PostToolUse",
+       "user",
+       "system/hook_started:UserPromptSubmit",
+       "system/hook_response:UserPromptSubmit",
+       "user (replay)",
+       "command_lifecycle"
+      ],
+      "kinds": {
+       "command_lifecycle": 6,
+       "system/hook_started": 4,
+       "system/hook_response": 4,
+       "system/init": 1,
+       "system/status": 2,
+       "user": 3,
+       "stream_event": 25,
+       "assistant": 3,
+       "rate_limit_event": 1,
+       "system/task_started": 1,
+       "system/task_notification": 1,
+       "system/thinking_tokens": 2,
+       "result/success": 1
+      }
+     },
+     "costUsd": 0.0017170299999999998,
+     "durationMs": 16238
+    }
+   ],
+   "costUsd": 0.0017170299999999998,
+   "recording": {
+    "file": "event-kinds-hooks.jsonl",
+    "sha256": "2d65b7e895a059edf770bc82612721c771b298ef568a127ecd54ec109f1d8e0a"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "final-text-race",
+   "variant": "0ms",
+   "contract": false,
+   "hypothesis": "A message written right after the last tool result is not folded into that turn, even before the final text starts: it gets its own turn after the running one.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": false,
+      "sentAfterToolResultMs": 2
+     },
+     "costUsd": 0.00187909,
+     "durationMs": 27233
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": false,
+      "sentAfterToolResultMs": 3
+     },
+     "costUsd": 0.00187909,
+     "durationMs": 29539
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": false,
+      "sentAfterToolResultMs": 2
+     },
+     "costUsd": 0.0018744300000000003,
+     "durationMs": 27850
+    }
+   ],
+   "costUsd": 0.00563261,
+   "recording": {
+    "file": "final-text-race.0ms.jsonl",
+    "sha256": "0280c1853153eb4f45c5f19364895ab457fbf70927198d104cba02a75094e3d1"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "final-text-race",
+   "variant": "400ms",
+   "contract": false,
+   "hypothesis": "A message written right after the last tool result is not folded into that turn, even before the final text starts: it gets its own turn after the running one.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": false,
+      "sentAfterToolResultMs": 401
+     },
+     "costUsd": 0.00187909,
+     "durationMs": 29127
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": false,
+      "sentAfterToolResultMs": 401
+     },
+     "costUsd": 0.0018797500000000001,
+     "durationMs": 29605
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "answeredIn": 2,
+      "emptyResults": 0,
+      "textStartedBeforeSend": false,
+      "sentAfterToolResultMs": 401
+     },
+     "costUsd": 0.0018750899999999998,
+     "durationMs": 28014
+    }
+   ],
+   "costUsd": 0.0056339300000000005,
+   "recording": {
+    "file": "final-text-race.400ms.jsonl",
+    "sha256": "c02efa87a00309ecd73cacb51d2cfd1c9f689de1a3af7935e6d813b55babee3c"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "fold-in",
+   "contract": true,
+   "hypothesis": "A message written (no priority) while a tool of a chain runs is folded into the running turn at the next tool boundary: its echo comes between a tool result and the turn’s only `result`.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 4231,
+      "toolResultsBeforeEcho": 1,
+      "answeredInTurn": true
+     },
+     "costUsd": 0.0023453000000000002,
+     "durationMs": 40250
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 4206,
+      "toolResultsBeforeEcho": 1,
+      "answeredInTurn": true
+     },
+     "costUsd": 0.00227822,
+     "durationMs": 35895
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "echoAfterSendMs": 4275,
+      "toolResultsBeforeEcho": 1,
+      "answeredInTurn": true
+     },
+     "costUsd": 0.0022345399999999997,
+     "durationMs": 40742
+    }
+   ],
+   "costUsd": 0.006858060000000001,
+   "recording": {
+    "file": "fold-in.jsonl",
+    "sha256": "3cfee5224f15020d7c14a501ddc2314670befd7d940f67c7a12c50236eb9fe98"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "fold-in-opus",
+   "contract": false,
+   "hypothesis": "On the fleet’s model, in a long turn over a grown context, a message written mid-chain still folds in at the next tool boundary (one result).",
+   "model": "claude-opus-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoAfterSendMs": 3104
+     },
+     "costUsd": 0.10835140000000001,
+     "durationMs": 50662
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoAfterSendMs": 3198
+     },
+     "costUsd": 0.1039568,
+     "durationMs": 62351
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoAfterSendMs": 3053
+     },
+     "costUsd": 0.10733700000000002,
+     "durationMs": 52673
+    }
+   ],
+   "costUsd": 0.3196452,
+   "recording": {
+    "file": "fold-in-opus.jsonl",
+    "sha256": "2ad33e296f4e811543cb59e810b56cb7a124203fa0637ca27582346f0a868777"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "host-tool",
+   "contract": true,
+   "hypothesis": "After `initialize` with `sdkMcpServers`, the MCP handshake and the model’s call of a host tool come as `control_request {mcp_message}`, and the host’s `control_response` reaches the model as the tool result.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "toolName": "mcp__probe__probe_echo",
+      "mcpMethods": [
+       "initialize",
+       "notifications/initialized",
+       "tools/list",
+       "tools/call"
+      ]
+     },
+     "costUsd": 0.0019604200000000005,
+     "durationMs": 7038
+    }
+   ],
+   "costUsd": 0.0019604200000000005,
+   "recording": {
+    "file": "host-tool.jsonl",
+    "sha256": "6b4fa15c69732e08d985f839bc323fd37d1368ee62c54c7056a937d3beae074e"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "interrupt",
+   "contract": true,
+   "hypothesis": "`control_request {interrupt}` during a tool produces a `result` within 10 s (the bot’s CANCEL_GRACE_MS), and the process takes the next message.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "afterMs": 61,
+      "subtype": "error_during_execution",
+      "isError": true,
+      "next": "PROBE-AFTER"
+     },
+     "costUsd": 0.00171612,
+     "durationMs": 7472
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "afterMs": 64,
+      "subtype": "error_during_execution",
+      "isError": true,
+      "next": "PROBE-AFTER"
+     },
+     "costUsd": 0.00171892,
+     "durationMs": 7669
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "afterMs": 27,
+      "subtype": "error_during_execution",
+      "isError": true,
+      "next": "PROBE-AFTER"
+     },
+     "costUsd": 0.0017134600000000004,
+     "durationMs": 7057
+    }
+   ],
+   "costUsd": 0.0051485,
+   "recording": {
+    "file": "interrupt.jsonl",
+    "sha256": "53c08f58644811ccbcff039daeb24600b85ea14347ed13a718341dd86633eff9"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "interrupt-after-inject",
+   "contract": true,
+   "hypothesis": "A message written just before an interrupt is kept: the interrupted turn ends with `error_during_execution`, and the message runs as its own turn.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "subtypes": [
+       "error_during_execution",
+       "success"
+      ],
+      "answeredInOwnTurn": true
+     },
+     "costUsd": 0.0018205600000000001,
+     "durationMs": 7105
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "subtypes": [
+       "error_during_execution",
+       "success"
+      ],
+      "answeredInOwnTurn": true
+     },
+     "costUsd": 0.00179856,
+     "durationMs": 9877
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2,
+      "subtypes": [
+       "error_during_execution",
+       "success"
+      ],
+      "answeredInOwnTurn": true
+     },
+     "costUsd": 0.00181106,
+     "durationMs": 8634
+    }
+   ],
+   "costUsd": 0.00543018,
+   "recording": {
+    "file": "interrupt-after-inject.jsonl",
+    "sha256": "479aa7c3a4380cec08707798dd2fb2477c4fe89c42bc033b32eea61dfea18430"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "interrupt-receipt",
+   "contract": false,
+   "hypothesis": "An interrupt’s response lists in `still_queued` the uuid of a message written before it and not yet taken up (`interrupt_receipt_v1`).",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "capabilities": [
+       "interrupt_receipt_v1",
+       "interrupt_cancel_queued_v1",
+       "interrupt_send_now_v1",
+       "interrupt_requeue_taken_v1",
+       "msg_lifecycle_v1",
+       "request_marker_lists_v1",
+       "ask_user_question_unanswered_v1",
+       "lifecycle_wakeup_source_v1",
+       "sdk_mcp_tools_list_changed",
+       "sdk_mcp_manifests",
+       "mcp_read_resource_v1",
+       "mcp_tool_ui_meta_v1",
+       "ui_surface_v1",
+       "mcp_call_result_not_for_model_v1"
+      ],
+      "stillQueued": 1
+     },
+     "costUsd": 0.00185806,
+     "durationMs": 7357
+    }
+   ],
+   "costUsd": 0.00185806,
+   "recording": {
+    "file": "interrupt-receipt.jsonl",
+    "sha256": "97e98b9c925d885e5e5c39db06831c8db06c53a077ea83d1b8457c36ee7d38ba"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "kill-resume",
+   "contract": true,
+   "hypothesis": "A message written but not yet taken up is lost when the process is killed: after `--resume` it is not in the conversation.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "answer": "NONE\n\nSeparately, the earlier Bash task did not finish. The first `sleep 5; echo A1` call was interrupted, so I have no "
+     },
+     "costUsd": 0.00045664,
+     "durationMs": 9074
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "answer": "NONE\n\nThe earlier `sleep 5; echo A1` call was interrupted before it returned, so I don't know whether it ran. I haven't "
+     },
+     "costUsd": 0.00048914,
+     "durationMs": 10436
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "answer": "NONE\n\nThe earlier three-step Bash task is still incomplete. The first call (`sleep 5; echo A1`) was interrupted and its "
+     },
+     "costUsd": 0.00046664000000000005,
+     "durationMs": 11325
+    }
+   ],
+   "costUsd": 0.0014124200000000002,
+   "recording": {
+    "file": "kill-resume.jsonl",
+    "sha256": "23c0d52c543a25fa74cb2a7e473457f118bf93882cfa6ea7399dfccdde41f8dd"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "long-tool",
+   "contract": false,
+   "hypothesis": "A message written during one long tool waits for the tool to finish: its echo follows the tool result, and one result answers both.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoAfterSendMs": 17121
+     },
+     "costUsd": 0.0017088900000000002,
+     "durationMs": 40811
+    }
+   ],
+   "costUsd": 0.0017088900000000002,
+   "recording": {
+    "file": "long-tool.jsonl",
+    "sha256": "ef571c911c1fa2a3c1701a9a0143a69ac10de34538f09d7f131f67344cb05220"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "origin-peer",
+   "variant": "bypass",
+   "contract": false,
+   "hypothesis": "A peer message (`origin.kind: \"peer\"`) to a session that runs without asking is delivered like any message when it declares `fromMode: \"bypass\"`, and held when it declares no mode.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoed": true
+     },
+     "costUsd": 0.00227077,
+     "durationMs": 44721
+    }
+   ],
+   "costUsd": 0.00227077,
+   "recording": {
+    "file": "origin-peer.bypass.jsonl",
+    "sha256": "1763bda7a33f6e69257e8177fe0b3ebe401ef6b955608e78aeaecddc0f7ac2bd"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "origin-peer",
+   "variant": "undeclared",
+   "contract": false,
+   "hypothesis": "A peer message (`origin.kind: \"peer\"`) to a session that runs without asking is delivered like any message when it declares `fromMode: \"bypass\"`, and held when it declares no mode.",
+   "model": "claude-haiku-5-5",
+   "verdict": "fails",
+   "holds": 0,
+   "fails": 1,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "fails",
+     "reason": "held (results 1, answered in #1)",
+     "observations": {},
+     "costUsd": 0.0022658,
+     "durationMs": 44497
+    }
+   ],
+   "costUsd": 0.0022658,
+   "recording": {
+    "file": "origin-peer.undeclared.jsonl",
+    "sha256": "ce338d36db28e2376b62bfd13d37c29da92f67c7e1d205a010fdfd36fa979374"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "parallel-tools",
+   "contract": false,
+   "hypothesis": "A message written while parallel tools run is folded in after all of their results.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "parallelResultsBeforeEcho": 2
+     },
+     "costUsd": 0.00208533,
+     "durationMs": 40098
+    }
+   ],
+   "costUsd": 0.00208533,
+   "recording": {
+    "file": "parallel-tools.jsonl",
+    "sha256": "cbd868d508c389c9bc4feeea8f443eaf6dff5558f3e4549045964634cdcb476f"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "pending-permission",
+   "contract": false,
+   "hypothesis": "A message written while a permission request (AskUserQuestion) is pending waits for the answer and the tool’s result, then is folded in.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoAfterAnswerMs": 25
+     },
+     "costUsd": 0.00200034,
+     "durationMs": 33462
+    }
+   ],
+   "costUsd": 0.00200034,
+   "recording": {
+    "file": "pending-permission.jsonl",
+    "sha256": "fff5da4390c8874c24a69c46259acd4c2b6c5c31ada0b9ce1494392527dc577b"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "question-withdrawn",
+   "contract": true,
+   "hypothesis": "An interrupt while an `AskUserQuestion` `can_use_tool` is open sends `control_cancel_request` for that request id.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "cancelAfterMs": 4
+     },
+     "costUsd": 0.0014626200000000002,
+     "durationMs": 4782
+    }
+   ],
+   "costUsd": 0.0014626200000000002,
+   "recording": {
+    "file": "question-withdrawn.jsonl",
+    "sha256": "4293eaf57bbd7d2b73a17fdec30eac26e17de7f5a6cc6e7a4c4ae49a50cbd39a"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "rate-limit-event",
+   "contract": true,
+   "hypothesis": "`rate_limit_event` carries the fields `src/ratelimit.ts` reads (status, resets, window type, windows).",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "fields": [
+       "isUsingOverage",
+       "overageDisabledReason",
+       "overageStatus",
+       "rateLimitType",
+       "resetsAt",
+       "status",
+       "unifiedWindows"
+      ],
+      "parsed": [
+       "fiveHour",
+       "limitType",
+       "resetsAt",
+       "sevenDay",
+       "status"
+      ]
+     },
+     "costUsd": 0.00139612,
+     "durationMs": 4458
+    }
+   ],
+   "costUsd": 0.00139612,
+   "recording": {
+    "file": "rate-limit-event.jsonl",
+    "sha256": "923acf9397ef9aba44f6d6b0346b3ae027869ab2f3cbbc27fbb4882df5f93daf"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "resume",
+   "contract": true,
+   "hypothesis": "After the process exits, `--resume` with the last `result`’s session id continues the conversation.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "sameSessionId": true
+     },
+     "costUsd": 0.0036817,
+     "durationMs": 8486
+    }
+   ],
+   "costUsd": 0.0036817,
+   "recording": {
+    "file": "resume.jsonl",
+    "sha256": "62390486e4336d740fdcb27537e57223d77eb172947cbaf3328c3c5d9728a364"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "schedule-wakeup",
+   "contract": false,
+   "hypothesis": "A ScheduleWakeup in a headless session schedules a wakeup whose tool result carries `scheduledFor`; it is not listed in `background_tasks_changed`; when due, the CLI runs a turn of its own (`system/init` … `result`) with no message written.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "toolUseResultKeys": [
+       "clampedDelaySeconds",
+       "scheduledFor",
+       "wasClamped"
+      ],
+      "scheduledForIsNumber": true,
+      "listedInBackgroundTasks": false,
+      "firedAfterMs": 63486
+     },
+     "costUsd": 0.0026862,
+     "durationMs": 70287
+    }
+   ],
+   "costUsd": 0.0026862,
+   "recording": {
+    "file": "schedule-wakeup.jsonl",
+    "sha256": "fdf8a4c23811bd8e88ca62775ed2241330d79d35cd613491eb4bcec40c9c5e97"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "skill-slash-via-stdin",
+   "contract": true,
+   "hypothesis": "A user message `/<skill> <text>` written to stream-json stdin runs that project skill with the whole text, every line of it, as its arguments; unknown frontmatter keys (`tags`, `examples`) do not stop it from loading.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "result": "SKILL-RAN final-word-xyz"
+     },
+     "costUsd": 0.00154232,
+     "durationMs": 4211
+    }
+   ],
+   "costUsd": 0.00154232,
+   "recording": {
+    "file": "skill-slash-via-stdin.jsonl",
+    "sha256": "20b51e97c28fd56a350ada029fd7d5341ecc181ba6d007df8efa942c1063d10f"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "subagent-background",
+   "contract": false,
+   "hypothesis": "With a background subagent (the default) the parent turn ends at once; a message then gets its own turn, and the subagent’s report comes as an unsolicited turn.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 2
+     },
+     "costUsd": 0.0033212700000000003,
+     "durationMs": 10139
+    }
+   ],
+   "costUsd": 0.0033212700000000003,
+   "recording": {
+    "file": "subagent-background.jsonl",
+    "sha256": "fee0be84d804a4b6869cea03c358d5bf0c5eecd4d7f5715b223ee8bbbc7ee96d"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "subagent-parent",
+   "contract": true,
+   "hypothesis": "A subagent’s events carry `parent_tool_use_id` equal to the id of the `Task` / `Agent` call that started it.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "toolName": "Agent",
+      "subagentFrames": 3
+     },
+     "costUsd": 0.0035068449999999998,
+     "durationMs": 8491
+    }
+   ],
+   "costUsd": 0.0035068449999999998,
+   "recording": {
+    "file": "subagent-parent.jsonl",
+    "sha256": "56d1428566794c490381059e0c4e25489a86c0437db69c248b2eb9a5b28a207a"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "subagent-sync",
+   "contract": false,
+   "hypothesis": "A message written while a synchronous subagent runs reaches the parent after the subagent returns; the subagent never sees it.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "answeredIn": 1,
+      "emptyResults": 0,
+      "echoHadParent": false
+     },
+     "costUsd": 0.003796995,
+     "durationMs": 39692
+    }
+   ],
+   "costUsd": 0.003796995,
+   "recording": {
+    "file": "subagent-sync.jsonl",
+    "sha256": "0e97b0a030d527f6676db16455cc5c22b1041a0a5148ee98cccf64d68a3ee635"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "task-notification-mid-turn",
+   "contract": false,
+   "hypothesis": "A background task that ends while the turn still runs is reported into that turn: a `<task-notification>` message is taken up at a tool boundary before the turn’s result (claude-code#102220 reports that in headless mode it never is).",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 3,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "notificationsBeforeResult": 4,
+      "takenUpAfterToolResult": true,
+      "echoed": true,
+      "origin": {
+       "kind": "task-notification",
+       "producer": "session-task",
+       "runId": "000000000-00000002"
+      },
+      "modelQuotedOutput": true
+     },
+     "costUsd": 0.00284312,
+     "durationMs": 31646
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "notificationsBeforeResult": 4,
+      "takenUpAfterToolResult": true,
+      "echoed": true,
+      "origin": {
+       "kind": "task-notification",
+       "producer": "session-task",
+       "runId": "000000000-00000002"
+      },
+      "modelQuotedOutput": true
+     },
+     "costUsd": 0.0027367000000000003,
+     "durationMs": 38155
+    },
+    {
+     "verdict": "holds",
+     "observations": {
+      "notificationsBeforeResult": 4,
+      "takenUpAfterToolResult": true,
+      "echoed": true,
+      "origin": {
+       "kind": "task-notification",
+       "producer": "session-task",
+       "runId": "000000000-00000002"
+      },
+      "modelQuotedOutput": true
+     },
+     "costUsd": 0.00293646,
+     "durationMs": 37794
+    }
+   ],
+   "costUsd": 0.008516280000000001,
+   "recording": {
+    "file": "task-notification-mid-turn.jsonl",
+    "sha256": "22baa221a49e639dadc1fd87387722f2c7a5894ca27ccf463e587b0fe7f04501"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "turn",
+   "contract": true,
+   "hypothesis": "`system/init` comes first (the rate-limit event aside), with `session_id` and only the CLI’s built-in plugins; `assistant` events carry `text` and `tool_use` blocks; the turn ends with one `result` carrying `result`, `is_error`, `session_id`, `total_cost_usd`, `usage` and `duration_ms`.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "resultSubtype": "success",
+      "tools": 28,
+      "skills": 19,
+      "plugins": [
+       "cc-plugin-agents-md",
+       "cc-plugin-telemetry",
+       "cc-plugin-plugin-authoring"
+      ]
+     },
+     "costUsd": 0.0016622,
+     "durationMs": 13619
+    }
+   ],
+   "costUsd": 0.0016622,
+   "recording": {
+    "file": "turn.jsonl",
+    "sha256": "c866d90ef8f9e467c64980583bd48292e5fc89db5510392180904d670b91876b"
+   },
+   "transport": "local"
+  },
+  {
+   "id": "two-injects",
+   "contract": false,
+   "hypothesis": "Two messages written during a tool chain are both folded in at the next boundary and answered in the same result.",
+   "model": "claude-haiku-5-5",
+   "verdict": "holds",
+   "holds": 1,
+   "fails": 0,
+   "inconclusive": 0,
+   "runs": [
+    {
+     "verdict": "holds",
+     "observations": {
+      "results": 1,
+      "replays": 3
+     },
+     "costUsd": 0.00235162,
+     "durationMs": 43580
+    }
+   ],
+   "costUsd": 0.00235162,
+   "recording": {
+    "file": "two-injects.jsonl",
+    "sha256": "8b591f2abb1689f1f4b2616dc0b3c842a6fb9544e4de07e01e74bf15ca5ee481"
+   },
+   "transport": "local"
+  }
+ ],
+ "catalogue": {
+  "assistant": {
+   "count": 158,
+   "fields": [
+    "agent_id",
+    "message",
+    "parent_tool_use_id",
+    "request_id",
+    "session_id",
+    "subagent_type",
+    "task_description",
+    "thinking_display",
+    "thinking_duration_ms",
+    "timestamp",
+    "tool_use_meta",
+    "type",
+    "user_message_uuid",
+    "user_message_uuids",
+    "uuid",
+    "wire_tool_inputs"
+   ]
+  },
+  "command_lifecycle": {
+   "count": 160,
+   "fields": [
+    "command_uuid",
+    "scheduled_for",
+    "session_id",
+    "state",
+    "type",
+    "uuid",
+    "wakeup_source"
+   ]
+  },
+  "control_cancel_request": {
+   "count": 1,
+   "fields": [
+    "request_id",
+    "type"
+   ]
+  },
+  "control_request:can_use_tool": {
+   "count": 3,
+   "fields": [
+    "request",
+    "request_id",
+    "type"
+   ]
+  },
+  "control_request:mcp_message": {
+   "count": 4,
+   "fields": [
+    "request",
+    "request_id",
+    "type"
+   ]
+  },
+  "control_response:success": {
+   "count": 6,
+   "fields": [
+    "response",
+    "type"
+   ]
+  },
+  "rate_limit_event": {
+   "count": 44,
+   "fields": [
+    "rate_limit_info",
+    "session_id",
+    "type",
+    "uuid"
+   ]
+  },
+  "result/error_during_execution": {
+   "count": 4,
+   "fields": [
+    "duration_api_ms",
+    "duration_ms",
+    "errors",
+    "fast_mode_disabled_reason",
+    "fast_mode_state",
+    "is_error",
+    "modelUsage",
+    "model_usage_since_last_result",
+    "num_turns",
+    "permission_denials",
+    "queued_turn_count",
+    "result_index",
+    "safety_stops",
+    "session_id",
+    "stop_reason",
+    "subagent_stats",
+    "subtype",
+    "terminal_reason",
+    "total_cost_usd",
+    "type",
+    "usage",
+    "user_message_uuid",
+    "user_message_uuids",
+    "uuid"
+   ]
+  },
+  "result/success": {
+   "count": 51,
+   "fields": [
+    "api_error_status",
+    "duration_api_ms",
+    "duration_ms",
+    "fast_mode_disabled_reason",
+    "fast_mode_state",
+    "first_content_frame_ms",
+    "first_request_input_tokens",
+    "is_error",
+    "local_command",
+    "modelUsage",
+    "model_usage_since_last_result",
+    "num_turns",
+    "origin",
+    "permission_denials",
+    "queued_turn_count",
+    "request_sent_wall_ms",
+    "result",
+    "result_index",
+    "safety_stops",
+    "session_id",
+    "stop_reason",
+    "subagent_stats",
+    "subtype",
+    "terminal_reason",
+    "time_to_request_ms",
+    "total_cost_usd",
+    "ttft_ms",
+    "ttft_stream_ms",
+    "type",
+    "usage",
+    "user_message_uuid",
+    "user_message_uuids",
+    "uuid"
+   ]
+  },
+  "stream_event:content_block_delta": {
+   "count": 14,
+   "fields": [
+    "api_message_id",
+    "event",
+    "parent_tool_use_id",
+    "session_id",
+    "thinking_display",
+    "type",
+    "uuid"
+   ]
+  },
+  "stream_event:content_block_start": {
+   "count": 12,
+   "fields": [
+    "api_message_id",
+    "event",
+    "parent_tool_use_id",
+    "session_id",
+    "thinking_display",
+    "type",
+    "uuid"
+   ]
+  },
+  "stream_event:content_block_stop": {
+   "count": 12,
+   "fields": [
+    "api_message_id",
+    "event",
+    "parent_tool_use_id",
+    "session_id",
+    "type",
+    "uuid"
+   ]
+  },
+  "stream_event:message_delta": {
+   "count": 10,
+   "fields": [
+    "api_message_id",
+    "event",
+    "parent_tool_use_id",
+    "session_id",
+    "type",
+    "uuid"
+   ]
+  },
+  "stream_event:message_start": {
+   "count": 10,
+   "fields": [
+    "api_message_id",
+    "event",
+    "parent_tool_use_id",
+    "session_id",
+    "thinking_display",
+    "ttft_ms",
+    "type",
+    "user_message_uuid",
+    "user_message_uuids",
+    "uuid"
+   ]
+  },
+  "stream_event:message_stop": {
+   "count": 10,
+   "fields": [
+    "api_message_id",
+    "event",
+    "parent_tool_use_id",
+    "session_id",
+    "type",
+    "uuid"
+   ]
+  },
+  "system/background_tasks_changed": {
+   "count": 7,
+   "fields": [
+    "session_id",
+    "subtype",
+    "tasks",
+    "type",
+    "uuid"
+   ]
+  },
+  "system/compact_boundary": {
+   "count": 1,
+   "fields": [
+    "compact_metadata",
+    "logical_parent_uuid",
+    "session_id",
+    "subtype",
+    "type",
+    "uuid"
+   ]
+  },
+  "system/hook_response": {
+   "count": 4,
+   "fields": [
+    "exit_code",
+    "hook_event",
+    "hook_id",
+    "hook_name",
+    "outcome",
+    "output",
+    "session_id",
+    "stderr",
+    "stdout",
+    "subtype",
+    "type",
+    "uuid"
+   ]
+  },
+  "system/hook_started": {
+   "count": 4,
+   "fields": [
+    "hook_event",
+    "hook_id",
+    "hook_name",
+    "session_id",
+    "subtype",
+    "type",
+    "uuid"
+   ]
+  },
+  "system/init": {
+   "count": 56,
+   "fields": [
+    "additional_directories",
+    "agents",
+    "analytics_disabled",
+    "apiKeySource",
+    "capabilities",
+    "claude_code_version",
+    "cwd",
+    "fast_mode_disabled_reason",
+    "fast_mode_state",
+    "mcp_servers",
+    "memory_paths",
+    "messaging_socket_path",
+    "model",
+    "original_cwd",
+    "output_style",
+    "per_turn_effort_active",
+    "permissionMode",
+    "plugins",
+    "product_feedback_disabled",
+    "session_id",
+    "skills",
+    "slash_commands",
+    "subtype",
+    "terminal_slash_commands",
+    "tools",
+    "type",
+    "user_message_uuids",
+    "uuid",
+    "view_mode"
+   ]
+  },
+  "system/status": {
+   "count": 12,
+   "fields": [
+    "compact_result",
+    "session_id",
+    "status",
+    "subtype",
+    "type",
+    "user_message_uuids",
+    "uuid"
+   ]
+  },
+  "system/task_notification": {
+   "count": 53,
+   "fields": [
+    "output_file",
+    "run_id",
+    "session_id",
+    "status",
+    "subtype",
+    "summary",
+    "task_id",
+    "tool_use_id",
+    "type",
+    "usage",
+    "uuid"
+   ]
+  },
+  "system/task_progress": {
+   "count": 4,
+   "fields": [
+    "description",
+    "last_tool_name",
+    "run_id",
+    "session_id",
+    "subagent_type",
+    "subtype",
+    "task_id",
+    "tool_use_id",
+    "type",
+    "usage",
+    "uuid"
+   ]
+  },
+  "system/task_started": {
+   "count": 54,
+   "fields": [
+    "description",
+    "is_backgrounded",
+    "owned_by_subagent",
+    "parent_task_id",
+    "prompt",
+    "run_id",
+    "session_id",
+    "spawn_depth",
+    "subagent_type",
+    "subtype",
+    "task_id",
+    "task_type",
+    "tool_use_id",
+    "type",
+    "uuid"
+   ]
+  },
+  "system/task_updated": {
+   "count": 5,
+   "fields": [
+    "patch",
+    "run_id",
+    "session_id",
+    "subtype",
+    "task_id",
+    "type",
+    "uuid"
+   ]
+  },
+  "system/thinking_tokens": {
+   "count": 53,
+   "fields": [
+    "estimated_tokens",
+    "estimated_tokens_delta",
+    "session_id",
+    "subtype",
+    "type",
+    "user_message_uuid",
+    "uuid"
+   ]
+  },
+  "user": {
+   "count": 79,
+   "fields": [
+    "agent_id",
+    "isReplay",
+    "isSynthetic",
+    "message",
+    "parent_tool_use_id",
+    "session_id",
+    "subagent_type",
+    "task_description",
+    "timestamp",
+    "tool_result_meta",
+    "tool_use_result",
+    "type",
+    "uuid"
+   ]
+  },
+  "user (replay)": {
+   "count": 54,
+   "fields": [
+    "isReplay",
+    "message",
+    "origin",
+    "parent_tool_use_id",
+    "session_id",
+    "timestamp",
+    "type",
+    "uuid"
+   ]
+  }
+ },
+ "findings": [
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "assistant",
+   "path": "$.thinking_display",
+   "detail": "not declared",
+   "count": 29,
+   "first": {
+    "file": "background-report.jsonl",
+    "line": 4
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "assistant",
+   "path": "$.thinking_duration_ms",
+   "detail": "not declared",
+   "count": 29,
+   "first": {
+    "file": "background-report.jsonl",
+    "line": 4
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "assistant",
+   "path": "$.tool_use_meta",
+   "detail": "not declared",
+   "count": 1,
+   "first": {
+    "file": "host-tool.jsonl",
+    "line": 16
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "assistant",
+   "path": "$.wire_tool_inputs",
+   "detail": "not declared",
+   "count": 69,
+   "first": {
+    "file": "ask-user-question.jsonl",
+    "line": 4
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "rate_limit_event",
+   "path": "$.rate_limit_info.unifiedWindows",
+   "detail": "not declared",
+   "count": 44,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 5
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "result/error_during_execution",
+   "path": "$.model_usage_since_last_result",
+   "detail": "not declared",
+   "count": 4,
+   "first": {
+    "file": "interrupt-after-inject.jsonl",
+    "line": 15
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "result/error_during_execution",
+   "path": "$.safety_stops",
+   "detail": "not declared",
+   "count": 4,
+   "first": {
+    "file": "interrupt-after-inject.jsonl",
+    "line": 15
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "result/error_during_execution",
+   "path": "$.subagent_stats",
+   "detail": "not declared",
+   "count": 4,
+   "first": {
+    "file": "interrupt-after-inject.jsonl",
+    "line": 15
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "result/success",
+   "path": "$.first_request_input_tokens",
+   "detail": "not declared",
+   "count": 33,
+   "first": {
+    "file": "cancel-async-message.jsonl",
+    "line": 26
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "result/success",
+   "path": "$.model_usage_since_last_result",
+   "detail": "not declared",
+   "count": 51,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 6
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "result/success",
+   "path": "$.origin.producer",
+   "detail": "not declared",
+   "count": 2,
+   "first": {
+    "file": "background-report.jsonl",
+    "line": 22
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "result/success",
+   "path": "$.safety_stops",
+   "detail": "not declared",
+   "count": 51,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 6
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "result/success",
+   "path": "$.subagent_stats",
+   "detail": "not declared",
+   "count": 51,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 6
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "stream_event:content_block_delta",
+   "path": "$.api_message_id",
+   "detail": "not declared",
+   "count": 14,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 11
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "stream_event:content_block_delta",
+   "path": "$.thinking_display",
+   "detail": "not declared",
+   "count": 2,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 11
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "stream_event:content_block_start",
+   "path": "$.api_message_id",
+   "detail": "not declared",
+   "count": 12,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 9
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "stream_event:content_block_start",
+   "path": "$.thinking_display",
+   "detail": "not declared",
+   "count": 2,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 9
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "stream_event:content_block_stop",
+   "path": "$.api_message_id",
+   "detail": "not declared",
+   "count": 12,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 23
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "stream_event:message_delta",
+   "path": "$.api_message_id",
+   "detail": "not declared",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 30
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "stream_event:message_start",
+   "path": "$.api_message_id",
+   "detail": "not declared",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 8
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "stream_event:message_start",
+   "path": "$.thinking_display",
+   "detail": "not declared",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 8
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "stream_event:message_stop",
+   "path": "$.api_message_id",
+   "detail": "not declared",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 31
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/compact_boundary",
+   "path": "$.compact_metadata.cumulative_dropped_tokens",
+   "detail": "not declared",
+   "count": 1,
+   "first": {
+    "file": "compaction.jsonl",
+    "line": 11
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/compact_boundary",
+   "path": "$.logical_parent_uuid",
+   "detail": "not declared",
+   "count": 1,
+   "first": {
+    "file": "compaction.jsonl",
+    "line": 11
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/init",
+   "path": "$.additional_directories",
+   "detail": "not declared",
+   "count": 56,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 3
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/init",
+   "path": "$.analytics_disabled",
+   "detail": "not declared",
+   "count": 56,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 3
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/init",
+   "path": "$.memory_paths",
+   "detail": "not declared",
+   "count": 56,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 3
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/init",
+   "path": "$.messaging_socket_path",
+   "detail": "not declared",
+   "count": 56,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 3
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/init",
+   "path": "$.original_cwd",
+   "detail": "not declared",
+   "count": 56,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 3
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/init",
+   "path": "$.per_turn_effort_active",
+   "detail": "not declared",
+   "count": 56,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 3
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/init",
+   "path": "$.plugins[].source",
+   "detail": "not declared",
+   "count": 168,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 3
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/init",
+   "path": "$.product_feedback_disabled",
+   "detail": "not declared",
+   "count": 56,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 3
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/init",
+   "path": "$.user_message_uuids",
+   "detail": "not declared",
+   "count": 36,
+   "first": {
+    "file": "cancel-async-message.jsonl",
+    "line": 5
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/status",
+   "path": "$.user_message_uuids",
+   "detail": "not declared",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 6
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "system/task_started",
+   "path": "$.owned_by_subagent",
+   "detail": "not declared",
+   "count": 3,
+   "first": {
+    "file": "subagent-background.jsonl",
+    "line": 25
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "user (replay)",
+   "path": "$.origin.producer",
+   "detail": "not declared",
+   "count": 1,
+   "first": {
+    "file": "task-notification-mid-turn.jsonl",
+    "line": 22
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "user",
+   "path": "$.isReplay",
+   "detail": "not declared",
+   "count": 1,
+   "first": {
+    "file": "compaction.jsonl",
+    "line": 13
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-field",
+   "frameKind": "user",
+   "path": "$.tool_result_meta",
+   "detail": "not declared",
+   "count": 72,
+   "first": {
+    "file": "ask-user-question.jsonl",
+    "line": 6
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "protocol",
+   "kind": "undeclared-kind",
+   "frameKind": "command_lifecycle",
+   "path": "$",
+   "detail": "no declared kind matches its literal fields",
+   "count": 160,
+   "first": {
+    "file": "cancel-async-message.jsonl",
+    "line": 3
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "assistant",
+   "path": "$.message.content[].citations",
+   "detail": "required, missing",
+   "count": 56,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 4
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "assistant",
+   "path": "$.message.usage.fallback_credit",
+   "detail": "required, missing",
+   "count": 158,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 4
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "assistant",
+   "path": "$.message.usage.iterations",
+   "detail": "required, missing",
+   "count": 158,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 4
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "assistant",
+   "path": "$.message.usage.output_tokens_details",
+   "detail": "required, missing",
+   "count": 158,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 4
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "assistant",
+   "path": "$.message.usage.server_tool_use",
+   "detail": "required, missing",
+   "count": 158,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 4
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "result/error_during_execution",
+   "path": "$.usage.iterations[].model",
+   "detail": "required, missing",
+   "count": 4,
+   "first": {
+    "file": "interrupt-after-inject.jsonl",
+    "line": 15
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "result/success",
+   "path": "$.usage.iterations[].model",
+   "detail": "required, missing",
+   "count": 50,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 6
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "stream_event:content_block_start",
+   "path": "$.event.content_block.citations",
+   "detail": "required, missing",
+   "count": 7,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 24
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "stream_event:message_delta",
+   "path": "$.event.usage.fallback_credit",
+   "detail": "required, missing",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 30
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "stream_event:message_delta",
+   "path": "$.event.usage.iterations[].model",
+   "detail": "required, missing",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 30
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "stream_event:message_delta",
+   "path": "$.event.usage.server_tool_use",
+   "detail": "required, missing",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 30
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "stream_event:message_start",
+   "path": "$.event.message.usage.fallback_credit",
+   "detail": "required, missing",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 8
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "stream_event:message_start",
+   "path": "$.event.message.usage.iterations",
+   "detail": "required, missing",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 8
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "stream_event:message_start",
+   "path": "$.event.message.usage.output_tokens_details",
+   "detail": "required, missing",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 8
+   }
+  },
+  {
+   "dir": "out",
+   "origin": "api",
+   "kind": "violation",
+   "frameKind": "stream_event:message_start",
+   "path": "$.event.message.usage.server_tool_use",
+   "detail": "required, missing",
+   "count": 10,
+   "first": {
+    "file": "during-final-text.jsonl",
+    "line": 8
+   }
+  },
+  {
+   "dir": "in",
+   "origin": "protocol",
+   "kind": "violation",
+   "frameKind": "user",
+   "path": "$.parent_tool_use_id",
+   "detail": "required, missing",
+   "count": 71,
+   "first": {
+    "file": "add-dir-loads-skills.jsonl",
+    "line": 2
+   }
+  }
+ ]
+}

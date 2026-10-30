@@ -30,7 +30,7 @@
 
 const VERSION_RE = /^\d+\.\d+\.\d+$/;
 
-export const PROBED_CLI_VERSIONS: readonly string[] = ['2.1.282', '2.1.292'];
+export const PROBED_CLI_VERSIONS: readonly string[] = ['2.1.282', '2.1.292', '2.1.314'];
 
 // The per-sandbox install prefix (npm --prefix → <prefix>/bin/claude, <prefix>/lib/node_modules).
 export const CLI_PREFIX = '/root/.local';

@@ -26,7 +26,7 @@ RUN apk add --no-cache \
 # CLAUDE_CLI_VERSION (build-and-push.sh passes it) so fresh sandboxes match what
 # provisionTooling converges warm ones to — see src/cliversion.ts. (Runtime upgrades land
 # in /root/.local, ahead of this copy on PATH: under sysbox /usr/local isn't writable.)
-ARG CLAUDE_CLI_VERSION=2.1.292
+ARG CLAUDE_CLI_VERSION=2.1.314
 RUN npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}
 
 # Sail shims: bare `php`/`composer`/`artisan` forward into the Sail container.
