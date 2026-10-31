@@ -1,5 +1,6 @@
 # Dependabot: npm security updates only (version-update PRs are off — open-pull-requests-limit 0); the
-# image's base and tool images (Dockerfile, pinned by digest) get version PRs (OpenSpec bot-image).
+# image's base and tool images (Dockerfile, pinned by digest) get version PRs (OpenSpec bot-image); the workflows'
+# actions get version PRs too, majors included — a major is how an action moves to a new Node runtime.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -25,3 +26,7 @@ updates:
     ignore:
       - dependency-name: node
         update-types: ["version-update:semver-major"]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
