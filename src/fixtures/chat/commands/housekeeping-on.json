@@ -13,7 +13,7 @@
       "token": "",
       "payload": {
         "response_type": "ephemeral",
-        "text": ":broom: Housekeeping on for *alpha* — `daily 4:30` (UTC). Nightly janitor: dockerd guard, docker prune past 80% disk, stale-worktree reap. `/aven housekeeping` shows the last run."
+        "text": ":broom: Housekeeping on for *alpha* — `daily 4:30` (UTC). Nightly janitor: stale-worktree reap; on a docker-in-docker project also the dockerd guard and a docker prune past 80% disk. `/aven housekeeping` shows the last run."
       }
     }
   ],

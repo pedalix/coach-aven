@@ -229,8 +229,8 @@ export function ensureSandboxScript(
   projectSlug: string,
   image: string,
   runtimeFlag: string,
-  mounts: Mount[] = [],
-  dind = true,
+  mounts: Mount[],
+  dind: boolean,
 ): string {
   const n = sq(safeToken(name));
   const volumeArgs = mounts.map((m) => `-v ${sq(`${safeToken(m.source)}:${safeToken(m.target)}:${m.mode}`)}`).join(' ');

@@ -190,7 +190,7 @@ export interface Config {
   // BatchMode), or the literal `local` to drive this machine's own Docker daemon via
   // `sh -c` with no sshd at all (single-box self-hosted instance — see
   // docs/sandbox-drivers.md "Local mode"). `runtime` picks how containers get DinD for
-  // Laravel Sail; irrelevant for projects that run with `sandbox.privileged: false`.
+  // Laravel Sail; it applies only to projects that resolve to privileged (`"dind": true`).
   sshDocker?: { host: string; runtime: 'sysbox-runc' | 'privileged' };
   sandboxDriver: SandboxDriverKind;
   // SANDBOX_IMAGE: the image a project container is created from unless

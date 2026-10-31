@@ -187,12 +187,12 @@ test('housekeepingSandboxStep — wake an asleep sandbox only where the bot stop
 
 test('candidateList — registry projects the bot stops, with a project record, by the stored name; one warning per project for a prefix mismatch', () => {
   const projects: IdleProject[] = [
-    { slug: 'caldora' }, // default driver, default sandbox shape
+    { slug: 'caldora', sandbox: { dind: true } }, // default driver, docker-in-docker
     { slug: 'bluefin', sandbox: { privileged: false, dind: false } },
     { slug: 'harbor', driver: 'self-stopping' }, // a driver whose provider stops its sandboxes itself
     { slug: 'newbie' }, // never had a turn
     { slug: 'renamed' },
-    { slug: 'broken', sandbox: { privileged: false, dind: true } }, // refused at boot; read as the default
+    { slug: 'broken', sandbox: { privileged: false, dind: true } }, // refused at boot; read as docker-in-docker
   ];
   const stored: Record<string, string> = { caldora: 'proj-caldora', bluefin: 'proj-bluefin', harbor: 'proj-harbor', renamed: 'old-renamed', broken: 'proj-broken' };
   const warns: string[] = [];
@@ -207,7 +207,7 @@ test('candidateList — registry projects the bot stops, with a project record, 
   const expected: SweepCandidate[] = [
     { slug: 'caldora', name: 'proj-caldora', kind: 'ssh-docker', dind: true },
     { slug: 'bluefin', name: 'proj-bluefin', kind: 'ssh-docker', dind: false },
-    { slug: 'renamed', name: 'old-renamed', kind: 'ssh-docker', dind: true },
+    { slug: 'renamed', name: 'old-renamed', kind: 'ssh-docker', dind: false }, // no block: plain
     { slug: 'broken', name: 'proj-broken', kind: 'ssh-docker', dind: true },
   ];
   assert.deepEqual(list(), expected);
@@ -215,7 +215,7 @@ test('candidateList — registry projects the bot stops, with a project record, 
   assert.deepEqual(warns, ["idle stop: project 'renamed' runs in 'old-renamed' (state.json) but SANDBOX_NAME_PREFIX gives 'proj-renamed' — the idle stop follows the stored name"], 'once per bot start');
   projects.push({ slug: 'added' }); // /aven reload
   stored.added = 'proj-added';
-  assert.deepEqual(list().at(-1), { slug: 'added', name: 'proj-added', kind: 'ssh-docker', dind: true });
+  assert.deepEqual(list().at(-1), { slug: 'added', name: 'proj-added', kind: 'ssh-docker', dind: false });
 });
 
 // ── the sweep ──────────────────────────────────────────────────────────────

@@ -273,12 +273,12 @@ export function candidateList(d: CandidateDeps): () => SweepCandidate[] {
 }
 
 // The project's dind answer; a block that does not validate (loadProjects refuses it at boot, so only
-// a hand-edited registry gets here) reads as the default shape, docker-in-docker.
+// a hand-edited registry gets here) reads as docker-in-docker.
 function dindOf(sandbox: SandboxOptions | undefined): boolean {
   try {
     return resolveSandboxOptions(sandbox).dind;
   } catch {
-    return resolveSandboxOptions(undefined).dind;
+    return true; // stopping an inner dockerd that is not there costs nothing; leaving one running does
   }
 }
 

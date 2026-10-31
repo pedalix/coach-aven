@@ -28,7 +28,7 @@ Pure `privilegeWarnings` in `src/sandboxopts.ts`, logged at boot (`src/chat/root
 
 The runtime-unset warning of the first merge is dropped: with docker-in-docker written per project, the runtime default (`privileged`) is documented, not a silent choice.
 
-The flip (block-less = plain) is a later bucket-3 change, after prod writes `"dind": true`. It also lists containers whose flags or image differ from their project's, since `docker run` alone applies them.
+The flip (block-less = plain) shipped as its own bucket-3 PR once prod wrote `"dind": true` on every project. The planned listing of containers whose flags differ was dropped: no operated project is block-less, and for anyone else the release notes and `docs/troubleshooting.md` say to write `"dind": true` and `docker rm` the container.
 
 ### D4. Egress
 Not filtered, not planned (the maintainer, 2026-10-31): one line in `docs/security.md`.

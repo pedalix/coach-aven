@@ -92,8 +92,8 @@ export interface ProjectConfig {
   // ticket whose id is "<PREFIX>-<n>" is investigated in this project's sandbox/channel. One
   // project may carry several (e.g. caldora ← its several help-desk projects). See youtrack.ts.
   youtrackProjects?: string[];
-  // How this project's container is run (ssh-docker): privileged/dind (the fleet default, for
-  // Sail) or a plain unprivileged container, plus read-only host mounts. See sandboxopts.ts.
+  // How this project's container is run (ssh-docker): a plain unprivileged container by default,
+  // docker-in-docker with `"dind": true` (Sail), plus read-only host mounts and its own image. See sandboxopts.ts.
   // Applies to NEW containers only — an existing proj-<slug> keeps its flags until recreated
   // (`docker rm` it on the sandbox host; the next turn creates it with the new options).
   sandbox?: SandboxOptions;

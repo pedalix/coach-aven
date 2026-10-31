@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { buildSystemPrompt, type SystemPromptInputs } from './prompt.js';
-import { DEFAULT_SANDBOX_OPTIONS, type ResolvedSandboxOptions } from './sandboxopts.js';
+import type { ResolvedSandboxOptions } from './sandboxopts.js';
 
 // Golden snapshot of the layer-1 system prompt that PRODUCTION sends to every session:
 // src/fixtures/prompt/*.txt were captured byte-exact from buildSystemPrompt on main@3f293c7,
@@ -17,8 +17,8 @@ import { DEFAULT_SANDBOX_OPTIONS, type ResolvedSandboxOptions } from './sandboxo
 // deliberate: re-capture the golden on purpose, never "fix the test".
 const golden = (name: string) => readFileSync(new URL(`./fixtures/prompt/${name}.txt`, import.meta.url), 'utf8');
 
-// The fleet default (privileged + dind) and the plain, docker-less container.
-const DIND: ResolvedSandboxOptions = DEFAULT_SANDBOX_OPTIONS;
+// A docker-in-docker project (`"dind": true`) and the plain, docker-less container (the default).
+const DIND: ResolvedSandboxOptions = { privileged: true, dind: true, mounts: [] };
 const PLAIN: ResolvedSandboxOptions = { privileged: false, dind: false, mounts: [] };
 
 // Single repo, nothing optional: the smallest production shape.

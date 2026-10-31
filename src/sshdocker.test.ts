@@ -75,7 +75,7 @@ test('runningProbeScript — zombie counts as down, the pid must hold this sessi
 });
 
 test('ensureSandboxScript — reuses, wakes, or creates; --init and labels survive', () => {
-  const s = ensureSandboxScript('proj-caldora', 'caldora', 'ghcr.io/x/dind:pilot', '--runtime sysbox-runc');
+  const s = ensureSandboxScript('proj-caldora', 'caldora', 'ghcr.io/x/dind:pilot', '--runtime sysbox-runc', [], true);
   assert.ok(s.includes(`docker inspect -f '{{.State.Running}}' 'proj-caldora'`));
   assert.ok(s.includes('outcome=ready'));
   // A failed start is tried once more after two seconds: with the idle stop, starts are routine.
@@ -89,11 +89,11 @@ test('ensureSandboxScript — reuses, wakes, or creates; --init and labels survi
   assert.ok(s.includes('--runtime sysbox-runc'));
   assert.ok(s.includes(`--label project='caldora'`));
   assert.ok(s.trim().endsWith('echo "$outcome"'));
-  assert.throws(() => ensureSandboxScript('a b', 'caldora', 'img', '--privileged'));
+  assert.throws(() => ensureSandboxScript('a b', 'caldora', 'img', '--privileged', [], true));
 });
 
 test('ensureSandboxScript — probes exec and recycles a running-but-wedged container', () => {
-  const s = ensureSandboxScript('proj-coach-aven', 'coach-aven', 'img', '--privileged');
+  const s = ensureSandboxScript('proj-coach-aven', 'coach-aven', 'img', '--privileged', [], true);
   // The sysbox-orphan case: `docker ps` says Up, every exec dies. Probe twice (a busy
   // daemon must not cost a live session), then stop+start, then re-probe.
   assert.ok(s.includes(`docker exec 'proj-coach-aven' true`));
@@ -133,7 +133,7 @@ test('ensureSandboxScript — unprivileged plain project: no runtime flag, ro mo
 });
 
 test('ensureSandboxScript — default (no options) is byte-identical to the historical dind script', () => {
-  const a = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged');
+  const a = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged', [], true);
   const b = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged', [], true);
   assert.equal(a, b);
   assert.ok(a.includes(`docker run -d --init --name 'proj-caldora' --privileged \\`));
@@ -228,7 +228,7 @@ test('SshDockerDriver.deleteSandbox — refuses a project sandbox before touchin
 // ── the idle stop (OpenSpec sandbox-idle-stop) ─────────────────────────────
 
 test('ensureSandboxScript — the boot step runs after the probes, on stderr, before the outcome line', () => {
-  const s = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged');
+  const s = ensureSandboxScript('proj-caldora', 'caldora', 'img', '--privileged', [], true);
   const lines = s.split('\n');
   const step = lines.findIndex((l) => l.startsWith('docker exec -e AVEN_BOOT="$boot" -e AVEN_OUTCOME="$outcome" '));
   assert.ok(step > lines.findIndex((l) => l.includes('outcome=revived')), 'after the exec probe and its recycle');

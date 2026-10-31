@@ -44,9 +44,9 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
 
 ## Warnings at boot about sandboxes
 
-- **`… have no "sandbox" block and run as privileged docker-in-docker`** — write the choice on each project:
-  `"sandbox": { "dind": true }` to keep Docker inside (Laravel Sail), `{ "privileged": false, "dind": false }` for a
-  plain container.
+- **`php`, `composer` or `artisan` fail, or Sail has no Docker, after an upgrade** — since the release after v0.48.0 a
+  project without a `sandbox` block is a plain container. Write `"sandbox": { "dind": true }` on it, then
+  `docker rm proj-<slug>` on the sandbox host so the next turn creates it with docker-in-docker.
 - **`… run privileged on this machine (SANDBOX_HOST=local)`** — make the projects plain, or confirm with
   `SANDBOX_LOCAL_PRIVILEGED=1`.
 - **`Missing required env var: SANDBOX_IMAGE`** or **`SANDBOX_HOST is not set`** after an upgrade — the settings were

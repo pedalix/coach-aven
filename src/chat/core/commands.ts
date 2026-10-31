@@ -385,7 +385,7 @@ export function createCommands(deps: CommandDeps) {
       });
       return {
         kind: 'text',
-        text: `:broom: Housekeeping on for *${slug}* — \`${rec.spec}\` (${ROUTINE_TZ}). Nightly janitor: dockerd guard, docker prune past ${pruneThreshold()}% disk, stale-worktree reap. \`${CMD} housekeeping\` shows the last run.`,
+        text: `:broom: Housekeeping on for *${slug}* — \`${rec.spec}\` (${ROUTINE_TZ}). Nightly janitor: stale-worktree reap; on a docker-in-docker project also the dockerd guard and a docker prune past ${pruneThreshold()}% disk. \`${CMD} housekeeping\` shows the last run.`,
       };
     }
     // bare / status

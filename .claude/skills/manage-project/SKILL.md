@@ -55,7 +55,7 @@ then gather only what changes. The field reference (shape in `src/projects.ts`):
 | `mcpDirectBackup` | Not read by the code — the pre-gateway direct list parked for rollback (move it back into `mcp` to bypass the gateway). Keep it when switching a project to `gw`. | — |
 | `youtrackProjects` | `["CG","CAR",…]` — YouTrack prefixes whose tagged tickets the investigation poller routes here. A new prefix ALSO needs the bot's read scope in your YouTrack proxy (`YT_MCP_SCOPES`, see Step 4) or the agent can't read the ticket (CAR-14 lesson). | reload |
 | `driver` | Set `"ssh-docker"`, the only driver. Omitted, it is the installation's `SANDBOX_DRIVER`: ssh-docker on current releases, but a rollback to v0.42.0 or older reads an omitted field as the removed Daytona driver unless `.env` sets `SANDBOX_DRIVER=ssh-docker`. Any other value is refused at boot and at `/aven reload`, never followed (`docs/sandbox-drivers.md`). | next turn |
-| `sandbox` | ssh-docker only: `{privileged, dind, mounts}` — container-creation flags; existing `proj-<slug>` must be `docker rm`'d to pick them up. | new container |
+| `sandbox` | ssh-docker only: `{dind, privileged, mounts, image}` — container-creation options. Without it the project is a plain unprivileged container; Laravel Sail needs `"dind": true` (and the laravel image, as the installation's `SANDBOX_IMAGE` or the project's `image`). An existing `proj-<slug>` must be `docker rm`'d to pick changes up. | new container |
 | `cliVersion` | per-project Claude Code CLI pin (canary over `CLAUDE_CLI_VERSION`). | next chat prep |
 | `scrubSecrets` | default true; `false` opts out of redacting pasted secrets. | new sessions |
 | `slackChannel` | explicit channel id override — avoid, name binding is the default. | reload |
