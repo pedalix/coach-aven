@@ -102,7 +102,7 @@ jobs:
       image: ${{ steps.publish.outputs.image }}
       tag: ${{ steps.publish.outputs.tag }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: ${{ runner.temp }}/digests
           pattern: digest-*
