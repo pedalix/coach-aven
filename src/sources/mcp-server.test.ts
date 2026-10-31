@@ -393,7 +393,7 @@ test('handleMessage speaks the JSON-RPC subset the MCP client needs and never th
     (list.result as { tools: { name: string }[] }).tools.map((t) => t.name),
     TOOLS.map((t) => t.name),
   );
-  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'transcript', 'tasks', 'meetings', 'calendar', 'activity', 'fragments', 'unanswered', 'stuck', 'attribution', 'timelog', 'identities', 'commitments', 'people', 'stats']);
+  assert.deepEqual(TOOLS.map((t) => t.name), ['search', 'get', 'transcript', 'tasks', 'meetings', 'calendar', 'activity', 'fragments', 'unanswered', 'stuck', 'attribution', 'timelog', 'timesheet', 'identities', 'commitments', 'people', 'stats']);
   // the subagent pattern and the attribution rule live in the tool descriptions, not in a tenant prompt
   assert.match(TOOLS.find((t) => t.name === 'transcript')!.description, /spawn one Agent with the question \+ ref/);
   assert.match(TOOLS.find((t) => t.name === 'get')!.description, /me-them is attribution-grade/);
@@ -935,7 +935,7 @@ test('attribution learn: true adds the shadow section (rows of the asked days an
   const db = openStore(join(dir, 'store.sqlite'));
   const NOW = new Date('2026-10-15T16:00:00.000Z');
   try {
-    assert.equal(SERVER_VERSION, '1.12.1');
+    assert.equal(SERVER_VERSION, '1.13.0');
     assert.equal(runAttribution(db, { learn: true }, NOW).configured, false, 'no layer: no section either');
     const meta = db.prepare('INSERT OR REPLACE INTO sync_state(key, value) VALUES (?, ?)');
     for (const [k, v] of [['att:subject', 'me'], ['att:since', '2026-10-01'], ['att:until', '2026-10-15'], ['att:computed_at', NOW.toISOString()]]) meta.run(k, v);

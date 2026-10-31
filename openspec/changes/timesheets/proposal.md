@@ -14,9 +14,10 @@ recorded what was handed in — the month's reconciliation kept warning "over th
 ## What changes
 
 - **Sheets as tenant data**: `annotations/sheets.json` in the tenant repository — per sheet: the umbrella it bills,
-  the unit (`half_day` / `hour`) and rounding, the columns, the language of the comment, the layout rules, and an
-  ordered list of **project rules** that map evidence to the sheet's projects (by initiative, and inside an initiative
-  by tracker key, repository, container or title pattern).
+  the unit (`half_day` / `hour`) and rounding step, the paste columns, the language of the comment, the layout rules,
+  and an ordered list of **project rules** that map evidence to the sheet's projects (by initiative, and inside an
+  initiative by tracker key, repository, container or title pattern; by billing code; or following the project the
+  same initiative's work got that day). Read at build into the store; a broken file is reported, never fatal.
 - **A `timesheet` readout** (sources MCP): `timesheet({sheet, since, until})` → one row per date and sheet project:
   minutes, units, the evidence (titles and refs) the agent writes the one-line comment from, and what the rules could
   not place (`unmapped`, with candidates). Deterministic; the platform never writes the comment (no model step).

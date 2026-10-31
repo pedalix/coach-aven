@@ -132,6 +132,38 @@ test('recomputeAttribution: the subject\'s fragments with ledger precedence, lad
   }
 });
 
+test('sheets and what was handed in reach the store only when the tenant has them; a broken sheets.json costs the build nothing', () => {
+  const db = store();
+  try {
+    const billed = { initiatives: registry.initiatives.map((i) => (i.id === 'globex/shop' ? { ...i, billing_code: 'shop' } : i)) };
+    const t = tenant({ 'initiatives.json': billed, 'annotations/attribution.json': { subject: 'owner', since: '2026-10-14' } });
+    const read = () => readAttributionInputs({ tenantRoot: t.root, annotationsDir: t.ann, timezone: 'Europe/Moscow' })!;
+    const meta = (k: string) => (db.prepare('SELECT value FROM sync_state WHERE key = ?').get(k) as { value: string } | undefined)?.value;
+    const without = read();
+    assert.equal([without.inputs.sheets, without.inputs.submitted].join(), ',', 'no files: no inputs');
+    recomputeAttribution(db, without.inputs, people, [], NOW);
+    assert.equal([meta('att:sheets'), meta('att:submitted')].join(), ',');
+    writeFileSync(join(t.ann, 'sheets.json'), JSON.stringify({ sheets: [{ id: 'globex', umbrella: 'globex', unit: 'hour', step: 1, projects: [{ project: 'shop' }] }] }));
+    mkdirSync(join(t.root, 'ledger'));
+    writeFileSync(join(t.root, 'ledger', 'submitted.jsonl'), `${JSON.stringify({ id: 'g-1', sheet: 'globex', since: '2026-10-01', until: '2026-10-13', rows: [{ date: '2026-10-02', project: 'shop', units: 2 }] })}\n`);
+    const withFiles = read();
+    assert.notEqual(withFiles.text, without.text, 'the files move the fingerprint');
+    recomputeAttribution(db, withFiles.inputs, people, [], NOW);
+    assert.equal(JSON.parse(meta('att:sheets')!).sheets[0].id, 'globex');
+    assert.deepEqual(JSON.parse(meta('att:submitted')!).periods.map((p: { id: string }) => p.id), ['g-1']);
+    writeFileSync(join(t.ann, 'sheets.json'), JSON.stringify({ sheets: [{ id: 'globex', umbrella: 'nowhere', unit: 'hour', projects: [{ project: 'shop' }] }] }));
+    const sum = recomputeAttribution(db, read().inputs, people, [], NOW);
+    assert.ok(sum.fragments > 0, 'the plan is built as usual');
+    assert.match(JSON.parse(meta('att:sheets')!).error, /sheet "globex": no initiative in the registry has umbrella "nowhere"/);
+    rmSync(join(t.ann, 'sheets.json'));
+    rmSync(join(t.root, 'ledger', 'submitted.jsonl'));
+    recomputeAttribution(db, read().inputs, people, [], NOW);
+    assert.equal([meta('att:sheets'), meta('att:submitted')].join(), ',', 'removed files leave nothing stale behind');
+  } finally {
+    db.close();
+  }
+});
+
 test('days are local: the horizon ends today in the tenant\'s zone', () => {
   assert.equal(localDay('2026-10-15T22:30:00.000Z', 'Europe/Moscow'), '2026-10-16');
   assert.equal(localDay('2026-10-15T22:30:00.000Z', 'UTC'), '2026-10-15');
