@@ -10,6 +10,7 @@ const DOC = 'docs/configuration.md';
 // Each entry says why; anything else the code reads must be documented there.
 const NOT_SETTINGS: ReadonlyMap<string, string> = new Map([
   ['HOME', "the user's home: where the dev-box credit fallback finds ~/.claude (src/config.ts resolveCredit)"],
+  ['PREVIEW_ENV', "where `npm run preview` finds the operator's preview.env (src/previewcli.ts): a path for the preview tool, read by no installation"],
   ['NODE_TEST_CONTEXT', "set by node --test in every test process: keeps the installation's .env out of tests (src/config.ts)"],
 ]);
 

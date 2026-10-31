@@ -57,3 +57,6 @@ web-session.secret
 !/quickstart/compose/
 /quickstart/compose/*
 !/quickstart/compose/compose.yaml
+
+# npm run preview: a worktree's preview bot (its .env holds the operator's preview credit and token)
+.preview/

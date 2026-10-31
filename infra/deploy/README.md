@@ -115,6 +115,32 @@ pruned earlier version is pulled again when deployed).
 secret or the project list in the ops checkout → commit → `export` → `restart` (`.env` is read at boot;
 the project list is read at boot and re-read by `/aven reload` for new sessions only).
 
+## Several installations: `ship` and `where`
+
+With more than one installation — say a canary on your own machine, a staging box and prod — deploy them through one
+command instead of by hand (OpenSpec `ship-dispatcher`). Give each overlay a `STAGE` in its `deploy.env` (1, 2, 3 …),
+then, from the checkout that holds the overlays:
+
+```bash
+npm run ship -- --plan home pilot prod   # what would go out: the version per installation, the range, the merged PRs
+npm run ship -- home                     # the lowest stage: the newest main commit with green CI and a published image
+npm run ship -- pilot prod               # each later stage: what the stage below it runs; prod gets a new tag
+npm run ship -- prod --version v1.4.0    # a rollback: an earlier release, through the same checks
+npm run where -- 142                     # which installation runs PR #142 (or a commit); no argument: all pins
+```
+
+- **The stage rule.** An installation above the lowest stage only receives a commit that a lower stage runs (or an
+  ancestor of it); `--commit` and `--version` are checked the same way. A canary takes `sha-<commit>`; a release
+  installation takes `vX.Y.Z`, and `ship` creates the tag (the next minor when a merged PR since the last tag has the
+  `feature` label, else the next patch; `--version` overrides), waits for the release workflow, then deploys.
+- **One at a time.** `ship` holds a lock (`.ship.lock` in `infra/`) for the whole run, stops at the first failed installation (later
+  stages are not touched) and appends one line per step to `ships.log` in `infra/`. `--plan` and `where` take no lock.
+- **What runs is read where it runs.** `deploy.sh <slug> pinned` prints the pinned version (over ssh, or locally);
+  `where` and `ship` decide from that, never from the journal.
+- **A local installation.** `DEPLOY_HOST=localhost` in `deploy.env` deploys on this machine without ssh.
+- `ship` deploys from your machine with `deploy.sh`, as `npm run ops -- <slug> deploy` does; the ops repository's
+  deploy workflow and `npm run release` stay for deploying from GitHub instead.
+
 ## Day-2 commands
 
 All take the slug first: `npm run ops -- <slug> <command>` (no slug → the help and the slugs found).
@@ -125,6 +151,7 @@ All take the slug first: `npm run ops -- <slug> <command>` (no slug → the help
 | `export` | push the ops repo, upload `infra/<slug>/` → the box |
 | `import` | pull the box's runtime back into the ops checkout, show the drift |
 | `status` | the pin, `docker compose ps`, the last deploys |
+| `pinned` | the pinned version alone (`vX.Y.Z` or `sha-<commit>`); exit 1 when nothing is pinned |
 | `logs [-f]` | the bot's log (`docker compose logs bot`) |
 | `restart` | `up -d --force-recreate` + the same wait (an edited `.env` or compose file takes effect) |
 | `start` / `stop` | `up -d` + wait / `docker compose stop` |

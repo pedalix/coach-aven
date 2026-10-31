@@ -86,6 +86,34 @@ delete it when it gets weird; you lose only thread → session resumes.
 **Dev tasks open real pull requests** against the repositories a project lists: point your projects at a test
 repository.
 
+## Preview: a worktree's change before it merges
+
+`npm run preview` in a checkout or worktree starts that checkout's code as a web-chat bot on loopback — the
+[quickstart](quickstart.md)'s installation, run from source, on one scratch project (OpenSpec `ship-dispatcher`,
+spec `worktree-preview`). It reads nothing from any installation on the machine: not its `.env`, projects, state or
+data, so a live node beside it is never touched.
+
+1. Once per machine, `~/.config/coach-aven/preview.env` (or a file named by `PREVIEW_ENV`):
+
+   ```bash
+   CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-…   # or ANTHROPIC_API_KEY=…
+   GITHUB_TOKEN=github_pat_…                # fine-grained: ONLY the scratch repository; Contents + Pull requests: read and write; an expiry
+   PREVIEW_REPO=your-org/scratch            # a repository you can let an agent push to
+   ```
+
+   Use a fine-grained token on a scratch repository rather than a GitHub App: an App token reaches every repository
+   of its installation, so a preview agent could push to real ones. Any other key in the file overrides the
+   quickstart's (`CLAUDE_MODEL`, `SANDBOX_IMAGE`, …), except the ones a preview may not carry (Slack, Teams, hub,
+   tracker, error tracker) and the ones it sets itself (web chat, port, sandbox prefix, directories).
+2. `npm run preview` → `http://127.0.0.1:8790` (the first free port from 8790, so a second worktree gets 8791). No
+   sign-in; one room, the `demo` project on `PREVIEW_REPO`.
+3. `npm run preview -- stop` stops the bot and removes its sandboxes (`pv-<branch>-*`); `--clean` also removes
+   `.preview/` (its `.env`, state and log; ignored by git).
+
+Its turns are real: they spend the credit and may open pull requests on the scratch repository. The sandboxes run on
+this machine's Docker from the plain sandbox image of the newest release (`SANDBOX_IMAGE` in `preview.env` for
+another). A preview has the web chat only — check Slack- or Teams-specific rendering on the first stage after `ship`.
+
 ## Level 3: beside a production bot
 
 Your machine and a production installation can share a Slack workspace and, if you point your dev bot at production's
