@@ -47,6 +47,7 @@ go in as `CREATE TABLE IF NOT EXISTS` (no `SCHEMA_VERSION` bump, so no prod rebu
 ## Ledger
 
 Canary = the home bot runs it. Prod = tagged and deployed. Default = flag no longer needed.
+PR numbers in rows older than v0.42.0 belong to the repository's earlier history, not to this repository's pull requests.
 
 | Change | PR | Gate | Canary since | Prod since | Default since | What to watch / notes |
 |---|---|---|---|---|---|---|

@@ -7,7 +7,7 @@ compatibility: Requires openspec CLI.
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.14.1"
+  generatedBy: "1.14.3"
 ---
 
 Archive a completed change in the experimental workflow.
@@ -41,7 +41,7 @@ In both branches, never create the root as a side effect: do not run `openspec i
    When prompting, show only active changes (not already archived).
    Include the schema used for each change if available.
 
-   Always announce: "Using change: <name>" and how to override (e.g., `/opsx:archive <other>`).
+   Always announce: "Using change: <name>" and how to override (e.g., `/openspec-archive-change <other>`).
 
    **Load current archive inputs before the existing archive checks:**
 

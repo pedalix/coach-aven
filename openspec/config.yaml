@@ -12,6 +12,9 @@ context: |
   first). The host runs deterministic code only — no model calls in the bot process; models run in
   sandboxes. Pure logic lives in its own module with a *.test.ts beside it.
 
+# Quote any rule that contains ": " (as the long specs rule below is): unquoted, YAML reads it as a mapping and
+# OpenSpec silently drops the WHOLE rules block. Check with `openspec instructions proposal --change <name>` that
+# the <rules> block shows.
 rules:
   proposal:
     - State the rollout bucket (1/2/3 per docs/rollout.md) and the flag or config gate in Impact

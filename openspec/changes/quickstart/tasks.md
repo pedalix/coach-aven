@@ -151,7 +151,7 @@
   - first answer in 21 s;
   - the home containers were untouched.
 - [ ] 5.4 **Needs the maintainer: a clean cloud VM and a stopwatch, after the next release tag.** The maintainer follows the page. Goal: under 60 minutes from clone to first answer. The times replace the rehearsal's, with the date and the VM type. Verify: the page's numbers and the date; the ledger row retired.
-- [ ] 5.5 Archive with `/opsx:archive` after 5.4.
+- [ ] 5.5 Archive with `/openspec-archive-change` after 5.4.
 
 ## 6. The published sandbox image (design D3, revised)
 

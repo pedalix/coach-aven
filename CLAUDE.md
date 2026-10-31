@@ -49,9 +49,9 @@ process. This is the control plane; the heavy work runs in the sandboxes. See `R
   the installation's ops repo (`infra/<slug>/`). CI's `scripts/public-guard.sh` checks against a private deny-list.
 - Match the surrounding style: dense, explanatory comments on the *why*; concise code.
 - **Plan before code — OpenSpec.** Shared-code work starts as a change in `openspec/changes/<name>/`
-  (`/opsx:propose`: proposal → spec delta → design → tasks), is implemented with `/opsx:apply` in a
+  (`/openspec-propose`: proposal → spec delta → design → tasks), is implemented with `/openspec-apply-change` in a
   worktree, ships as a PR that names its rollout bucket and ledger row, and is archived into
-  `openspec/specs/` with `/opsx:archive` after the merge. `openspec list` shows what is in flight;
+  `openspec/specs/` with `/openspec-archive-change` after the merge. `openspec list` shows what is in flight;
   a tenant's own repository records its plans and decisions, this repo records behaviour.
   A requirement's text stays under 500 characters — one behaviour, stated; the why, examples and
   edge cases go in its scenarios or the design. Older specs break this (`openspec validate --specs
