@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_SANDBOX_OPTIONS, assertDeletable, parseMount, privilegeWarnings, renamedSettingsWarning, resolveSandboxOptions } from './sandboxopts.js';
+import { DEFAULT_SANDBOX_OPTIONS, assertDeletable, parseMount, privilegeWarnings, resolveSandboxOptions } from './sandboxopts.js';
 
 test('resolveSandboxOptions — absent/empty → fleet defaults (privileged dind, no mounts)', () => {
   assert.deepEqual(resolveSandboxOptions(undefined), DEFAULT_SANDBOX_OPTIONS);
@@ -65,14 +65,6 @@ test('resolveSandboxOptions: a block-less project is today\'s, { dind: true } al
     assert.throws(() => resolveSandboxOptions({ image: bad as string }), /"image" must be an image reference/);
   }
   assert.throws(() => resolveSandboxOptions({ privileged: false }), /requires "dind": false/, 'today\'s contradiction stays an error');
-});
-
-test('renamedSettingsWarning names the old setting names in use, nothing when renamed', () => {
-  assert.equal(renamedSettingsWarning({ SANDBOX_IMAGE: 'img', SANDBOX_HOST: 'local' }), undefined);
-  const w = renamedSettingsWarning({ SNAPSHOT_IMAGE: 'img', SSHDOCKER_HOST: 'local', SANDBOX_DIND_RUNTIME: 'sysbox-runc' }) ?? '';
-  assert.match(w, /SNAPSHOT_IMAGE → SANDBOX_IMAGE, SSHDOCKER_HOST → SANDBOX_HOST/);
-  assert.doesNotMatch(w, /SSHDOCKER_RUNTIME/);
-  assert.match(renamedSettingsWarning({ SANDBOX_DEFAULT: 'plain' }) ?? '', /SANDBOX_DEFAULT is no longer read/);
 });
 
 test('privilegeWarnings: prod, staging and home as they are on 2026-10-31', () => {

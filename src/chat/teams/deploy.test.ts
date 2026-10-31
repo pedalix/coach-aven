@@ -158,13 +158,10 @@ test('compose: IMAGE and SERVICE_NAME from the overlay name the image and the pr
   assert.match(out, /^        tag: acme-bot$/m);
 });
 
-test('the sandbox host deploy.sh reads is the bot\'s: SANDBOX_HOST, else the old SSHDOCKER_HOST, the last non-empty line', () => {
+test('the sandbox host deploy.sh reads is the bot\'s: the last non-empty SANDBOX_HOST; the retired name is not read', () => {
   writeFileSync(`${OVERLAY}/deploy.env`, BASE);
   const host = (env: string) => execFileSync('bash', [`${ROOT}infra/deploy/deploy.sh`, SLUG, 'sandbox-host'], { encoding: 'utf8', input: env }).trim();
   assert.equal(host('SANDBOX_HOST=local\n'), 'local');
-  assert.equal(host('SSHDOCKER_HOST=aven@sandboxes.example\n'), 'aven@sandboxes.example');
-  assert.equal(host('SSHDOCKER_HOST=aven@old.example\nSANDBOX_HOST=local\n'), 'local', 'the new name wins');
-  assert.equal(host('SANDBOX_HOST=\nSSHDOCKER_HOST=aven@old.example\n'), 'aven@old.example', 'an empty new name is unset');
-  assert.equal(host('SANDBOX_HOST=a@one.example\nSANDBOX_HOST=a@two.example\n'), 'a@two.example', 'the last one, as dotenv');
-  assert.equal(host('OTHER=1\n'), '');
+  assert.equal(host('SANDBOX_HOST=a@one.example\nSANDBOX_HOST=a@two.example\nSANDBOX_HOST=\n'), 'a@two.example', 'the last non-empty one, as dotenv');
+  assert.equal(host('SSHDOCKER_HOST=aven@old.example\n'), '');
 });

@@ -120,17 +120,16 @@ export async function sandboxTransport(o: SandboxTransportOptions): Promise<Tran
  * The bot's driver, from the probe's OWN environment only (never an installation's configuration
  * files): SANDBOX_DRIVER, which must say `ssh-docker` — still required here, so a probe run never
  * guesses where its sandbox goes, and anything else (a leftover `daytona`) is refused before any sandbox
- * exists — then SANDBOX_HOST / SANDBOX_DIND_RUNTIME, SANDBOX_IMAGE (each with its old name as a
- * fallback: SSHDOCKER_HOST / SSHDOCKER_RUNTIME / SNAPSHOT_IMAGE), and SANDBOX_NAME_PREFIX for the
+ * exists — then SANDBOX_HOST / SANDBOX_DIND_RUNTIME, SANDBOX_IMAGE, and SANDBOX_NAME_PREFIX for the
  * delete guard.
  */
 export function driverFromEnv(env: NodeJS.ProcessEnv): { driver: SandboxDriver; label: string } {
   const kind = env.SANDBOX_DRIVER;
   if (kind !== 'ssh-docker') throw new Error('--transport sandbox needs SANDBOX_DRIVER=ssh-docker in the probe’s environment');
-  const image = env.SANDBOX_IMAGE || env.SNAPSHOT_IMAGE;
+  const image = env.SANDBOX_IMAGE;
   if (!image) throw new Error('--transport sandbox needs SANDBOX_IMAGE (the plain sandbox image) in the probe’s environment');
-  const host = env.SANDBOX_HOST || env.SSHDOCKER_HOST;
-  const runtime = env.SANDBOX_DIND_RUNTIME || env.SSHDOCKER_RUNTIME;
+  const host = env.SANDBOX_HOST;
+  const runtime = env.SANDBOX_DIND_RUNTIME;
   // Only the fields SshDockerDriver reads. autoStopMinutes is a Config field the probe never acts on:
   // it starts no idle sweep, and its sandbox is deleted when the run ends.
   const cfg = {

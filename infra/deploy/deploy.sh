@@ -262,12 +262,11 @@ render_compose() {
       }'
 }
 
-# SANDBOX_HOST (or its old name SSHDOCKER_HOST) of the installation, never printed: the box's .env when it is there, else the overlay's
+# SANDBOX_HOST of the installation, never printed: the box's .env when it is there, else the overlay's
 # own copy (a first install, before export). It decides the socket or the keys (D4).
-# The host a .env on stdin names, as the bot reads it: the last non-empty SANDBOX_HOST, else the last
-# non-empty SSHDOCKER_HOST (its old name).
+# The host a .env on stdin names, as the bot reads it: the last non-empty SANDBOX_HOST.
 pick_sandbox_host() {
-  awk -F= '/^SANDBOX_HOST=/ && $2 != "" { n = $0 } /^SSHDOCKER_HOST=/ && $2 != "" { o = $0 } END { print (n != "" ? n : o) }' | cut -d= -f2-
+  awk -F= '/^SANDBOX_HOST=/ && $2 != "" { n = $0 } END { print n }' | cut -d= -f2-
 }
 
 sshdocker_host() {

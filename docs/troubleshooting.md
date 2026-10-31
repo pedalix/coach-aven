@@ -49,8 +49,9 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
   plain container.
 - **`… run privileged on this machine (SANDBOX_HOST=local)`** — make the projects plain, or confirm with
   `SANDBOX_LOCAL_PRIVILEGED=1`.
-- **`settings: renamed, the old names still work for now — …`** — rename them in `.env` as the line says
-  (`SNAPSHOT_IMAGE` → `SANDBOX_IMAGE`, `SSHDOCKER_HOST` → `SANDBOX_HOST`, `SSHDOCKER_RUNTIME` → `SANDBOX_DIND_RUNTIME`).
+- **`Missing required env var: SANDBOX_IMAGE`** or **`SANDBOX_HOST is not set`** after an upgrade — the settings were
+  renamed in v0.48.0, and the releases after it no longer read the old names: `SNAPSHOT_IMAGE` → `SANDBOX_IMAGE`, `SSHDOCKER_HOST` →
+  `SANDBOX_HOST`, `SSHDOCKER_RUNTIME` → `SANDBOX_DIND_RUNTIME`.
 
 ## The first turn fails
 

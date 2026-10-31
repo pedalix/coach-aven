@@ -385,10 +385,10 @@ test('loadProjects keeps every sandbox block as written; a project image reaches
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('registryPrivilegeWarnings reads the real variable names, the old host name as a fallback', () => {
+test('registryPrivilegeWarnings reads the real variable names', () => {
   const reg = { projects: [{ slug: 'x', repos: ['acme/x'], sandbox: { dind: true } }] as ProjectConfig[] };
   assert.match(registryPrivilegeWarnings(reg, { SANDBOX_HOST: ' local ' }).join('\n'), /SANDBOX_HOST=local/);
-  assert.match(registryPrivilegeWarnings(reg, { SSHDOCKER_HOST: 'local' }).join('\n'), /root-equivalent/);
+  assert.deepEqual(registryPrivilegeWarnings(reg, { SSHDOCKER_HOST: 'local' }), [], 'the retired name is not read');
   assert.deepEqual(registryPrivilegeWarnings(reg, { SANDBOX_HOST: 'local', SANDBOX_LOCAL_PRIVILEGED: '1' }), []);
   assert.deepEqual(registryPrivilegeWarnings(reg, { SANDBOX_HOST: 'aven@sandboxes.example.com' }), []);
 });

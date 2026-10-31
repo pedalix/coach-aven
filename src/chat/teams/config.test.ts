@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadConfig } from '../../config.js';
 
-const BASE = { SNAPSHOT_IMAGE: 'img', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', GITHUB_TOKEN: 'ghp_x' };
+const BASE = { SANDBOX_IMAGE: 'img', CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', GITHUB_TOKEN: 'ghp_x' };
 const TEAMS = { TEAMS_APP_ID: 'app', TEAMS_APP_PASSWORD: 'pw', TEAMS_TENANT_ID: 'tenant' };
 // Tests never load .env, but a developer shell may export these: a SANDBOX_DRIVER other than ssh-docker
 // makes loadConfig throw (a leftover `daytona` above all), and an ANTHROPIC_API_KEY beside BASE's token would too.

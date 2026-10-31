@@ -19,7 +19,7 @@ The two are independent on purpose: an installation of mostly Laravel projects s
 *Why not an installation-wide mode default (`SANDBOX_DEFAULT`, first merged)?* It hides the most dangerous setting in one global place, and the reason for it — one image per installation — goes away with `sandbox.image`.
 
 ### D2. The `SANDBOX_` names, the old ones as fallbacks
-`SANDBOX_IMAGE`, `SANDBOX_HOST`, `SANDBOX_DIND_RUNTIME`; a new name wins over its old one. The old names are read so no installation breaks on upgrade, and the boot names them once. `infra/deploy/deploy.sh` reads the host under either name. Removing the fallbacks is a later, announced step.
+`SANDBOX_IMAGE`, `SANDBOX_HOST`, `SANDBOX_DIND_RUNTIME`; a new name wins over its old one. The old names are read so no installation breaks on upgrade, and the boot names them once. `infra/deploy/deploy.sh` reads the host under either name. The fallbacks were removed right after every operated installation renamed (2026-10-31), the maintainer's call; the release notes name the renames.
 
 ### D3. Warnings now, the flip later
 Pure `privilegeWarnings` in `src/sandboxopts.ts`, logged at boot (`src/chat/root.ts`) and at `/aven reload`:
