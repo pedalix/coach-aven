@@ -57,6 +57,9 @@ test('branch names make container-safe prefixes', () => {
   assert.equal(branchSlug('HEAD'), 'head');
   assert.equal(branchSlug('///'), 'detached');
   assert.ok(branchSlug('a'.repeat(80)).length <= 30);
+  const a = branchSlug('feat/ship-dispatcher-preview-github-app'), b = branchSlug('feat/ship-dispatcher-preview-github-token');
+  assert.notEqual(a, b, 'two long branches with one prefix get different slugs');
+  assert.match(a, /^feat-ship-dispatcher-pr-[0-9a-f]{6}$/);
 });
 
 test('the bot process inherits only the basics and AVEN_DIR — a tracker token in the operator\'s shell stays out', () => {

@@ -71,6 +71,16 @@ test('Staging does not come up: prod is not touched, the journal says failed, th
   assert.match(d.errs.join('\n'), /pilot: deploy of sha-\S+ failed — it still runs sha-0303.*npm run ship -- pilot --version sha-0303/);
 });
 
+test('a tag push that fails removes the local tag, so the next ship does not take it for a release', () => {
+  const root = checkout({});
+  const s = stub((cmd, args) => (cmd === 'git' && args[0] === 'push' ? res('', 1, 'fatal: unable to access') : res()));
+  const d = deps(s.runner, root);
+  assert.equal(executeSteps(d, [STEPS[2]]), 1);
+  assert.ok(s.calls.includes('git tag -d v0.49.0'));
+  assert.equal(s.calls.some((c) => c.includes('prod deploy')), false);
+  assert.match(d.errs.join('\n'), /could not push tag v0\.49\.0 \(the local tag is removed/);
+});
+
 test('The release workflow fails: nothing is deployed after the tag, and the run is linked', () => {
   const root = checkout({});
   const s = stub((cmd, args) => {
