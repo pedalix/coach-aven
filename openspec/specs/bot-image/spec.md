@@ -58,14 +58,14 @@ The image's entry point SHALL run the product's CLI with the arguments the conta
 - **THEN** the CLI process receives SIGTERM and shuts down the way it does under systemd
 
 ### Requirement: The image carries no installation
-The image SHALL hold nothing of any box: no user, path, address or key of an installation. It SHALL run under any uid the runtime gives it, with or without a user record in the image, and keep everything it writes under the installation directory and `HOME`. With sandboxes on the local Docker (`SSHDOCKER_HOST=local`) it SHALL need no SSH key and no user record.
+The image SHALL hold nothing of any box: no user, path, address or key of an installation. It SHALL run under any uid the runtime gives it, with or without a user record in the image, and keep everything it writes under the installation directory and `HOME`. With sandboxes on the local Docker (`SANDBOX_HOST=local`) it SHALL need no SSH key and no user record.
 
 #### Scenario: One mounted directory
-- **WHEN** a container of the image runs as uid 4242, which the image does not know, with one directory holding a `.env` for the web chat driver mounted as `AVEN_DIR`, `HOME` set inside that directory, `SSHDOCKER_HOST=local` and the host's Docker socket
+- **WHEN** a container of the image runs as uid 4242, which the image does not know, with one directory holding a `.env` for the web chat driver mounted as `AVEN_DIR`, `HOME` set inside that directory, `SANDBOX_HOST=local` and the host's Docker socket
 - **THEN** the web chat comes up, its sandboxes start on that Docker, and everything the bot writes lands in the mounted directory
 
 #### Scenario: Sandboxes over SSH
-- **WHEN** `SSHDOCKER_HOST` names another host
+- **WHEN** `SANDBOX_HOST` names another host
 - **THEN** the uid needs a user record and the deployer's keys, which the runtime supplies (`container-deploy`); the image itself holds neither
 
 ### Requirement: The image names its source
