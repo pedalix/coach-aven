@@ -120,7 +120,7 @@ The bot SHALL decide a stop again immediately before issuing it, while no other 
 - **THEN** the container is not stopped
 
 #### Scenario: A stop that hangs
-- **WHEN** the Docker daemon stops answering in the middle of a stop, with the bot in local mode (`SSHDOCKER_HOST=local`)
+- **WHEN** the Docker daemon stops answering in the middle of a stop, with the bot in local mode (`SANDBOX_HOST=local`)
 - **THEN** the stop is ended at its timeout, together with every process it started, and a turn waiting for it goes on
 
 #### Scenario: A peek during a stop
@@ -196,7 +196,7 @@ The bot SHALL consider for a stop only the stored sandbox names of the projects 
 - **THEN** it is left running and one warning names it
 
 #### Scenario: Other containers on a local Docker host
-- **WHEN** the bot runs with `SSHDOCKER_HOST=local` next to a developer's own containers and the CLI probe's `cli-probe-*` containers
+- **WHEN** the bot runs with `SANDBOX_HOST=local` next to a developer's own containers and the CLI probe's `cli-probe-*` containers
 - **THEN** none of them is ever stopped by the bot
 
 ### Requirement: Housekeeping keeps running where the bot stops containers
