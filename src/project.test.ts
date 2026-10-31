@@ -168,11 +168,13 @@ test('seedClaudeAuth — the credit goes into the one credit file through the fi
   }
 });
 
-test('seedGitHubAuth without a token (GITHUB_AUTH=none): nothing uploaded, no credential helper, no gh login — only the identity', async () => {
+test('seedGitHubAuth without a token (GITHUB_AUTH=none): nothing uploaded, an earlier token taken out, no gh login — only the identity', async () => {
   const s = ghSandbox([0]);
   let uploads = 0;
   (s.sandbox as unknown as { uploadFile: () => Promise<void> }).uploadFile = async () => void uploads++;
   await seedGitHubAuth(s.sandbox, '', 'strict');
   assert.equal(uploads, 0);
-  assert.deepEqual(s.execs.map((e) => e.cmd.split(' ').slice(0, 4).join(' ')), ['git config --global user.name', 'git config --global user.email']);
+  assert.deepEqual(s.execs.map((e) => e.cmd.split(' ').slice(0, 4).join(' ')), ['rm -f /root/.gh-token; git', 'git config --global user.name', 'git config --global user.email']);
+  assert.match(s.execs[0]!.cmd, /--unset-all credential\.helper; gh auth logout --hostname github\.com$/);
+  assert.equal(s.execs[0]!.check, false, 'a fresh sandbox has nothing to take out');
 });

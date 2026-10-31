@@ -114,7 +114,10 @@ export async function seedGitHubAuth(
 ) {
   if (!token) {
     // GITHUB_AUTH=none (config.ts): nothing to seed — git reads public repositories anonymously, and gh stays
-    // logged out. The identity still goes in, so a local commit in the sandbox looks like every other one.
+    // logged out. A sandbox that ran with a token before keeps that token until it expires, so take it out: the file,
+    // the credential helper, gh's login (none of them may exist — no check). The identity still goes in, so a local
+    // commit in the sandbox looks like every other one.
+    await sandbox.exec(`rm -f /root/.gh-token; git config --global --unset-all credential.helper; gh auth logout --hostname github.com`, { check: false });
     await sandbox.exec(`git config --global user.name "${GIT_NAME}"`, { check: true });
     await sandbox.exec(`git config --global user.email "${GIT_EMAIL}"`, { check: true });
     return;

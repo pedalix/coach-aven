@@ -116,9 +116,9 @@ test('up, first run at a terminal, Enter twice: the demo repository with no GitH
 
 test('up, first run at a terminal: an API key, the person\'s repository and a GitHub token', () => {
   const dir = copy();
-  run(dir, ['up'], { answers: 'sk-ant-api03-key\nacme/shop\nghp_token1\n' });
+  run(dir, ['up'], { answers: 'sk-ant-api03-key\nacme/shop\nghs_1a2B.c3-D4_e\n' });
   const env = envOf(dir);
-  assert.deepEqual([env.ANTHROPIC_API_KEY, env.CLAUDE_CODE_OAUTH_TOKEN, env.GITHUB_TOKEN, env.GITHUB_AUTH], ['sk-ant-api03-key', '', 'ghp_token1', undefined]);
+  assert.deepEqual([env.ANTHROPIC_API_KEY, env.CLAUDE_CODE_OAUTH_TOKEN, env.GITHUB_TOKEN, env.GITHUB_AUTH], ['sk-ant-api03-key', '', 'ghs_1a2B.c3-D4_e', undefined], 'an App installation token carries . and -');
   assert.deepEqual(reposOf(dir), ['acme/shop']);
 });
 

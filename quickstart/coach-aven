@@ -24,7 +24,7 @@ cd "$here"
 compose() { docker compose -f "$here/compose/compose.yaml" --project-directory "$here/compose" "$@"; }
 need_setup() { [ -f compose/.env ] || { echo "error: run ./coach-aven up first" >&2; exit 1; }; }
 
-# .env, read and written by key; a value is one token of [A-Za-z0-9_-], checked before it is written.
+# .env, read and written by key; a value is one token of [A-Za-z0-9_.-], checked before it is written.
 envval() { sed -n "s/^$1=//p" .env | tail -n 1 | tr -d "\"'" ; }
 setenv() {
   awk -v k="$1" -v v="$2" 'BEGIN { done = 0 }
@@ -158,7 +158,8 @@ questions() {
   if [ -z "$(envval GITHUB_TOKEN)$(envval GITHUB_AUTH)" ]; then
     ask_secret "GitHub token for $repo (docs/quickstart.md, step 3), or Enter for none — questions only, no pull requests: "
     if [ -n "$answer" ]; then
-      echo "$answer" | grep -Eq '^[A-Za-z0-9_]+$' || { echo "error: that is not a GitHub token" >&2; exit 1; }
+      # A GitHub App's installation tokens can carry `.` and `-` (seen in the 2026-10-31 rehearsal); personal ones do not.
+      echo "$answer" | grep -Eq '^[A-Za-z0-9_.-]+$' || { echo "error: that is not a GitHub token" >&2; exit 1; }
       setenv GITHUB_TOKEN "$answer"
       echo "saved    the GitHub token in .env" >&2
     else

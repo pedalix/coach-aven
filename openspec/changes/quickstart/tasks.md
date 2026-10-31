@@ -200,8 +200,12 @@
   `docs/quickstart.md` (steps, what to ask next, uninstall, Slack), `docs/troubleshooting.md`, the README (the try-it
   line, *Self-host with Slack or Teams* as one path: trial → Slack → server), `docs/why.md`, `docs/glossary.md`,
   `docs/local-dev.md`, `docs/README.md`. Verify: `npm test`, `grep -rn init.sh` finds only archived changes.
-- [ ] 7.4 A rehearsal of the new steps in a fresh `docker:dind` (as 6.4), with Slack added once a test Slack app exists.
+- [x] 7.4 A rehearsal of the new steps in a fresh `docker:dind` (as 6.4). Slack waits for a test Slack app.
   Verify: `up` → answers → the link → first answer → `uninstall` leaves nothing (see 8.5).
+  *Done 2026-10-31 on `sha-2ac440b`, in a fresh `docker:dind`, answers on stdin (`QS_ASK=1`), an API key as the credit:*
+  - 5 s clone; the two images ~10 min from an empty cache (a slow network that day; 115 s on 2026-10-30);
+  - `up` asked three questions, wrote `.env` (credit, `GITHUB_AUTH=none`), printed the current start's link in 6 s;
+  - `uninstall` in 2 s: no labelled container, no image left.
 
 ## 8. One command that asks; GitHub access optional (design D10)
 
@@ -218,5 +222,12 @@
 - [x] 8.4 `pedalix/coachaven-quickstart-demo` public, its rehearsal PRs closed. Verify: an anonymous `git clone`.
   *Done 2026-10-31: five rehearsal PRs closed with their branches, no deny-list hit in the tree or the PRs, the
   repository public; an anonymous clone and the unauthenticated API (200) work.*
-- [ ] 8.5 Task 7.4's rehearsal covers both paths: Enter twice (the demo, a question, a change shown as a diff) and the
+- [x] 8.5 Task 7.4's rehearsal covers both paths: Enter twice (the demo, a question, a change shown as a diff) and the
   person's repository with a token (a pull request).
+  *Done 2026-10-31:*
+  - demo, no GitHub access: the first answer in 42 s, in an unprivileged `qs-demo`; a change request answered in 50 s
+    with the diff, a local branch and the token it would need — no pull request;
+  - with an App installation token scoped to the demo repository: the pull request in 28 s (closed afterwards).
+
+  Found and fixed in the follow-up: the script refused an App installation token (they carry `.` and `-`), and a
+  sandbox that once had a token kept it after a switch to `GITHUB_AUTH=none` (now taken out at every seed).
