@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_SANDBOX_OPTIONS, assertDeletable, parseMount, privilegeWarnings, resolveSandboxOptions } from './sandboxopts.js';
 
-test('resolveSandboxOptions — absent/empty → fleet defaults (privileged dind, no mounts)', () => {
+test('resolveSandboxOptions — absent/empty → a plain container (unprivileged, no dockerd, no mounts)', () => {
+  assert.deepEqual(DEFAULT_SANDBOX_OPTIONS, { privileged: false, dind: false, mounts: [] });
   assert.deepEqual(resolveSandboxOptions(undefined), DEFAULT_SANDBOX_OPTIONS);
   assert.deepEqual(resolveSandboxOptions({}), DEFAULT_SANDBOX_OPTIONS);
 });
@@ -14,8 +15,10 @@ test('resolveSandboxOptions — unprivileged plain project with a read-only data
   assert.deepEqual(o.mounts, [{ source: '/srv/owen-ops/sources', target: '/data/sources', mode: 'ro' }]);
 });
 
-test('resolveSandboxOptions — privileged:false without dind:false is a contradiction', () => {
-  assert.throws(() => resolveSandboxOptions({ privileged: false }), /requires "dind": false/);
+test('resolveSandboxOptions — privileged:false with dind:true is a contradiction; each field defaults from the other', () => {
+  assert.deepEqual(resolveSandboxOptions({ privileged: false }), { privileged: false, dind: false, mounts: [] });
+  assert.deepEqual(resolveSandboxOptions({ privileged: true }), { privileged: true, dind: false, mounts: [] }, 'privileged without dockerd');
+  assert.deepEqual(resolveSandboxOptions({ dind: false }), { privileged: false, dind: false, mounts: [] });
   assert.throws(() => resolveSandboxOptions({ privileged: false, dind: true }), /requires "dind": false/);
 });
 
@@ -49,8 +52,8 @@ test('assertDeletable — only throwaway sandboxes; a project sandbox is refused
 
 
 // OpenSpec sandbox-privilege-opt-in.
-test('resolveSandboxOptions: a block-less project is today\'s, { dind: true } alone is privileged, an image is the project\'s', () => {
-  assert.deepEqual(resolveSandboxOptions(undefined), { privileged: true, dind: true, mounts: [] }, 'block-less: today');
+test('resolveSandboxOptions: a block-less project is plain, { dind: true } alone is privileged, an image is the project\'s', () => {
+  assert.deepEqual(resolveSandboxOptions(undefined), { privileged: false, dind: false, mounts: [] }, 'block-less: plain');
   assert.deepEqual(resolveSandboxOptions({ dind: true }), { privileged: true, dind: true, mounts: [] });
   assert.deepEqual(resolveSandboxOptions({ privileged: false, dind: false }), { privileged: false, dind: false, mounts: [] });
   assert.deepEqual(resolveSandboxOptions({ dind: true, image: 'registry.example/acme/laravel:1.2' }), {
@@ -64,21 +67,15 @@ test('resolveSandboxOptions: a block-less project is today\'s, { dind: true } al
   for (const bad of ['', 'img; rm -rf /', 'has space', '-x', -1]) {
     assert.throws(() => resolveSandboxOptions({ image: bad as string }), /"image" must be an image reference/);
   }
-  assert.throws(() => resolveSandboxOptions({ privileged: false }), /requires "dind": false/, 'today\'s contradiction stays an error');
+  assert.throws(() => resolveSandboxOptions({ privileged: false, dind: true }), /requires "dind": false/, 'the contradiction stays an error');
 });
 
-test('privilegeWarnings: prod, staging and home as they are on 2026-10-31', () => {
-  const blockless = ['harbor', 'shop', 'ops'].map((slug) => ({ slug }));
+test('privilegeWarnings: prod, staging and home as they are on 2026-10-31; a block-less project is plain and quiet', () => {
   const plain = (slug: string) => ({ slug, sandbox: { privileged: false, dind: false } });
-  // prod: block-less projects on a remote host → the one line naming them and the opt-in
-  const prod = privilegeWarnings({ projects: blockless, local: false, localConfirmed: false });
-  assert.equal(prod.length, 1);
-  assert.match(prod[0], /harbor, shop, ops have no "sandbox" block/);
-  assert.match(prod[0], /"dind": true/);
-  // prod after it writes the opt-in → quiet
-  assert.deepEqual(privilegeWarnings({ projects: blockless.map((p) => ({ ...p, sandbox: { dind: true } })), local: false, localConfirmed: false }), []);
-  // staging and home: every project plain, local mode → nothing
-  assert.deepEqual(privilegeWarnings({ projects: [plain('platform'), plain('newsletter')], local: true, localConfirmed: false }), []);
+  // prod: every project says "dind": true, on a remote host → nothing
+  assert.deepEqual(privilegeWarnings({ projects: ['harbor', 'shop'].map((slug) => ({ slug, sandbox: { dind: true } })), local: false, localConfirmed: false }), []);
+  // staging and home: every project plain, local mode → nothing; a block-less project is plain too
+  assert.deepEqual(privilegeWarnings({ projects: [plain('platform'), { slug: 'newsletter' }], local: true, localConfirmed: false }), []);
   // local + privileged without the confirmation; confirmed → quiet
   const local = privilegeWarnings({ projects: [{ slug: 'x', sandbox: { dind: true } }], local: true, localConfirmed: false });
   assert.equal(local.length, 1);

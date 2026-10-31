@@ -32,7 +32,7 @@ In detail:
   - a privileged project on a local sandbox host without `SANDBOX_LOCAL_PRIVILEGED=1`;
   - the old setting names.
 - **`SANDBOX_DEFAULT`** (stage 1 as first merged, never released in a tag) is removed: the default is not an installation setting.
-- **A later change flips the default:** a project without a block runs plain. It ships only after every operated installation writes `"dind": true` where it needs it.
+- **The flip, a separate PR:** a project without a block runs plain. It shipped after every operated installation wrote `"dind": true` where it needs it.
 
 ## Capabilities
 

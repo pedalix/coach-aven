@@ -49,6 +49,7 @@ import { listOpenPRs, getPrMeta, ciStatusForSha, listReviews } from './github.js
 import { createDriver, type SandboxDriver } from './driver.js';
 import type { SandboxDriverKind } from './config.js';
 import { STREAM_HARD_MAX_MS, STREAM_MAX_MS } from './claudeSession.js';
+import { resolveSandboxOptions } from './sandboxopts.js';
 import { candidateList, createIdleSweep, housekeepingSandboxStep, idleStopPlan, monoNow, sandboxActivity, SWEEP_EVERY_MS } from './idlestop.js';
 import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
 import { housekeepingScript, parseHousekeepingReport, pruneThreshold } from './housekeeping.js';
@@ -364,7 +365,7 @@ export function createPollers(
           reaped += await reapWorktrees(sandbox, repoCheckout(cfg, project.slug, repo));
         }
         const pin = project.cliVersion ?? cfg.claudeCliVersion;
-        const res = await sandbox.exec(housekeepingScript(pruneThreshold(), pin, project.sandbox?.dind !== false), {
+        const res = await sandbox.exec(housekeepingScript(pruneThreshold(), pin, resolveSandboxOptions(project.sandbox).dind), {
           timeout: 900,
         });
         const report = parseHousekeepingReport(res.result ?? '', reaped);

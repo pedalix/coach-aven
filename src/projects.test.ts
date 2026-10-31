@@ -358,7 +358,7 @@ test('homeWorkspaceWarning: only when a workspaces block leaves out the home wor
   assert.equal(homeWorkspaceWarning(reg, undefined), undefined);
 });
 
-test('loadProjects keeps every sandbox block as written; a project image reaches docker run, the installation image stays byte for byte', () => {
+test('loadProjects keeps every sandbox block as written; a project image reaches docker run; a block-less project runs plain', () => {
   const dir = mkdtempSync(join(tmpdir(), 'aven-sbx-'));
   const path = join(dir, 'projects.config.json');
   const raw = {
@@ -377,7 +377,8 @@ test('loadProjects keeps every sandbox block as written; a project image reaches
     const o = resolveSandboxOptions(sandbox);
     return ensureSandboxScript('proj-x', 'x', o.image ?? 'ghcr.io/acme/sandbox:1', o.privileged ? '--runtime sysbox-runc' : '', o.mounts, o.dind);
   };
-  assert.equal(script(reg.projects[0].sandbox), ensureSandboxScript('proj-x', 'x', 'ghcr.io/acme/sandbox:1', '--runtime sysbox-runc', [], true));
+  assert.equal(script(reg.projects[0].sandbox), ensureSandboxScript('proj-x', 'x', 'ghcr.io/acme/sandbox:1', '', [], false), 'block-less: plain, the installation image');
+  assert.equal(script({ dind: true }), ensureSandboxScript('proj-x', 'x', 'ghcr.io/acme/sandbox:1', '--runtime sysbox-runc', [], true), '"dind": true: exactly the docker-in-docker script');
   assert.match(script(reg.projects[2].sandbox), /--runtime sysbox-runc [\s\S]*'registry\.example\/acme\/laravel:1'/);
   assert.doesNotMatch(script(reg.projects[2].sandbox), /ghcr\.io\/acme\/sandbox/);
   writeFileSync(path, JSON.stringify({ projects: [{ slug: 'bad', repos: ['acme/bad'], sandbox: { image: 'x y' } }] }));

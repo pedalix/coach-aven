@@ -18,7 +18,8 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
 1. Docker installed; the SSH user in the `docker` group.
 2. Key-based SSH from the bot's host, non-interactive (`BatchMode`); an `~/.ssh/config`
    alias is the place for port/key/user options — `SANDBOX_HOST` can be that alias.
-3. DinD runtime, one of:
+3. For a project with `"sandbox": { "dind": true }` only (a project without it is a plain,
+   unprivileged container), a DinD runtime, one of:
    - **sysbox** (`SANDBOX_DIND_RUNTIME=sysbox-runc`) — preferred: containers get a working
      inner dockerd without host-root equivalence. Install: https://github.com/nestybox/sysbox
    - **privileged** (`SANDBOX_DIND_RUNTIME=privileged`, default) — works everywhere, but a
@@ -46,9 +47,11 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
    }
    ```
 
+   - Without a block, or with `privileged`/`dind` unset, a project is plain: `privileged`
+     defaults to what `dind` says, `dind` to false.
    - `privileged: false` → plain `docker run`, no `--privileged`, no `--runtime` (requires
-     `dind: false`; docker-in-docker needs one of the two runtimes).
-   - `dind: false` → no dockerd guard at chat prep or in housekeeping, no docker prune, no
+     `dind` not true; docker-in-docker needs one of the two runtimes).
+   - `dind: false` (the default) → no dockerd guard at chat prep or in housekeeping, no docker prune, no
      exec-probe/recycle dance (that one exists for sysbox's registry), and the base system
      prompt drops its Sail/Docker-in-Docker toolchain paragraph (`src/prompt.ts`) — there are
      no shims to explain.
@@ -57,10 +60,7 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
      need dockerd) with `"dind": true`; the plain image with `"privileged": false, "dind": false`. Like the
      flags, it applies when the container is created: after a change, `docker rm proj-<slug>`.
    - `"dind": true` alone means privileged: `{ "dind": true }` is the whole docker-in-docker opt-in.
-   - **A project without a `sandbox` block** still runs privileged docker-in-docker, and the boot names it:
-     a later release runs such projects plain, so write `"dind": true` where Docker inside is needed
-     (OpenSpec `sandbox-privilege-opt-in`).
-   - The boot also warns when a privileged project runs on the bot's own machine (`SANDBOX_HOST=local`)
+   - The boot warns when a privileged project runs on the bot's own machine (`SANDBOX_HOST=local`)
      without `SANDBOX_LOCAL_PRIVILEGED=1`.
    - `mounts` → `-v host:container:mode`; mode defaults to `ro`. Paths must be absolute,
      `[A-Za-z0-9._/-]`, no `..`. Read-only is the point: the agent reads the archive, it

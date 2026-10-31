@@ -167,8 +167,8 @@ async function prepareChat(
   await provisionTooling(sandbox, { cliVersion, upgradeCli, where: proj.sandboxName });
   // dockerd liveness guard: a dead daemon breaks Sail (php/composer/artisan shims) for
   // every turn until revived — catch it here rather than mid-conversation. A plain project
-  // (sandbox.dind === false) has no dockerd to guard — the probe would only ever "fail".
-  if (sandboxOpts?.dind !== false) await ensureDockerd(sandbox, slug);
+  // (no `"dind": true`) has no dockerd to guard — the probe would only ever "fail".
+  if (resolveSandboxOptions(sandboxOpts).dind) await ensureDockerd(sandbox, slug);
 
   const scopeBefore = scopedRepos(slug, repos);
   await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeBefore));

@@ -1,19 +1,18 @@
 // Per-project sandbox options (projects.config.json → `sandbox`), resolved to one shape the
-// drivers can act on. Why per project: the fleet image is docker-in-docker and needs sysbox
-// or --privileged, but a project that never runs containers of its own (a plain-code repo,
-// the ops/overseer tenant on a Mac mini) is better off as an ORDINARY unprivileged
-// container on the `plain` image — smaller blast radius, works where sysbox doesn't exist.
+// drivers can act on. A project is an ORDINARY unprivileged container unless it asks for
+// docker-in-docker (`"dind": true`, Laravel Sail): privilege is written where it applies,
+// never inherited from a default (OpenSpec sandbox-privilege-opt-in).
 // Mounts exist for the same tenant: a host directory of ingested, scrubbed data exposed
 // read-only, so the agent can read it but never alter the archive.
 //
 // Pure: validate + normalise only. Drivers consume ResolvedSandboxOptions; loadProjects runs
 // resolveSandboxOptions at boot so a typo fails the boot, not the first turn.
 export interface SandboxOptions {
-  // false → plain `docker run` (no --privileged, no --runtime). Default true.
+  // true → `--privileged` or `--runtime sysbox-runc` (SANDBOX_DIND_RUNTIME). Default: what `dind` says.
   privileged?: boolean;
-  // false → the project has no dockerd: skip the dockerd guard at chat prep and in
-  // housekeeping, and the exec-probe/recycle dance (a sysbox symptom). Default true.
-  // `privileged: false` with `dind: true` is a contradiction — dind needs a runtime.
+  // true → the project runs its own dockerd (Sail): the dockerd guard at chat prep and in
+  // housekeeping, the exec-probe/recycle dance (a sysbox symptom), the prompt's Sail paragraph.
+  // Default false. `privileged: false` with `dind: true` is a contradiction — dind needs a runtime.
   dind?: boolean;
   // "<abs host path>:<abs container path>[:ro|:rw]"; mode defaults to ro.
   mounts?: string[];
@@ -36,7 +35,7 @@ export interface ResolvedSandboxOptions {
   image?: string; // absent → the installation's image
 }
 
-export const DEFAULT_SANDBOX_OPTIONS: ResolvedSandboxOptions = { privileged: true, dind: true, mounts: [] };
+export const DEFAULT_SANDBOX_OPTIONS: ResolvedSandboxOptions = { privileged: false, dind: false, mounts: [] };
 
 // Same charset sshdocker.safeToken accepts — these become `-v` argv segments on the host.
 const SAFE_PATH = /^\/[A-Za-z0-9._/-]*$/;
@@ -63,8 +62,8 @@ export function resolveSandboxOptions(input?: SandboxOptions): ResolvedSandboxOp
   if (!input) return DEFAULT_SANDBOX_OPTIONS;
   // `dind: true` without `privileged` means privileged: docker-in-docker needs a runtime, so the
   // one-line opt-in `{ "dind": true }` says everything.
-  const privileged = input.privileged ?? true;
-  const dind = input.dind ?? true;
+  const dind = input.dind ?? false;
+  const privileged = input.privileged ?? dind;
   if (!privileged && dind) {
     throw new Error('sandbox: "privileged": false requires "dind": false — docker-in-docker needs sysbox or --privileged');
   }
@@ -107,19 +106,11 @@ export function assertDeletable(name: string, namePrefix: string): void {
 
 
 /**
- * The privilege warnings (sandbox-privilege-opt-in D3), logged at boot and at /aven reload; never an
- * error. A project without a `sandbox` block still runs privileged docker-in-docker; a later release
- * runs it plain, so the line names each one and the opt-in that keeps it. Pure.
+ * The privilege warning (sandbox-privilege-opt-in D3), logged at boot and at /aven reload; never an
+ * error: a privileged project on the bot's own machine without the operator's confirmation. Pure.
  */
 export function privilegeWarnings(inp: { projects: { slug: string; sandbox?: SandboxOptions }[]; local: boolean; localConfirmed: boolean }): string[] {
   const out: string[] = [];
-  const blockless = inp.projects.filter((p) => p.sandbox === undefined).map((p) => p.slug);
-  if (blockless.length) {
-    out.push(
-      `sandboxes: ${blockless.join(', ')} ${blockless.length === 1 ? 'has' : 'have'} no "sandbox" block and run as privileged docker-in-docker; ` +
-        'a later release runs such projects unprivileged — add "sandbox": { "dind": true } to keep docker-in-docker, or { "privileged": false, "dind": false } for a plain container (docs/sandbox-drivers.md)',
-    );
-  }
   const privileged = inp.projects.filter((p) => resolveSandboxOptions(p.sandbox).privileged).map((p) => p.slug);
   if (inp.local && privileged.length && !inp.localConfirmed) {
     out.push(
