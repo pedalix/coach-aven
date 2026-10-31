@@ -13,14 +13,17 @@ process. This is the control plane; the heavy work runs in the sandboxes. See `R
 - `npm run orch -- routines list [slug]` / `npm run orch -- routines run <id>` — the scheduled routines in
   `state.json`, or ask the running bot to fire one now (a request in the control channel it watches:
   `src/routinescli.ts`, `src/control.ts`).
-- `npm run ops -- <slug> <command>` — deploy/export/import/logs for ONE installation: the ops repo
+- `npm run ops -- <slug> <command>` — export/import/logs/status for ONE installation: the ops repo
   checked out at `infra/<slug>/` (`infra/README.md`). No default slug, on purpose.
-- Release — merge PRs to `main`, then `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag
-  triggers CI (typecheck + test → the image `ghcr.io/<owner>/coach-aven:vX.Y.Z`, the same digest `main`'s
-  `sha-<commit>` image had → GitHub Release → deploy). No changelog or version edits.
-  **`main` is the canary**: the home bot runs it; prod runs the last tag. Tag only after ~2 days
-  on the canary, and start every work session by checking `docs/rollout.md` (the flag ledger)
-  and `git log $(git describe --tags --abbrev=0)..main` for what is due to ship, flip or retire.
+- **Deploys go through `npm run ship -- <slug>…` only** (OpenSpec `ship-dispatcher`): sessions merge, `ship` moves
+  installations in `STAGE` order (`deploy.env`) under one lock — the lowest stage gets the newest green `main`, a
+  later stage what the stage below runs, a release stage is tagged by `ship` (the tag triggers CI: typecheck + test →
+  the image `ghcr.io/<owner>/coach-aven:vX.Y.Z`, the same digest as `main`'s `sha-<commit>` → GitHub Release). No
+  changelog or version edits. `ship --plan <slug>` changes nothing; `npm run where -- <PR#>` says which installation
+  runs a change; `npm run preview` runs a worktree as a loopback web chat on a scratch project before it merges.
+  `ship` and `where` run in the checkout that holds the overlays. Start every work session with `docs/rollout.md`
+  (the flag ledger), `npm run where` and `git log $(git describe --tags --abbrev=0)..main` for what is due to ship,
+  flip or retire.
 
 ## Conventions
 

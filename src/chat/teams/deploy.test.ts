@@ -4,8 +4,9 @@
 
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
 const ROOT = new URL('../../../', import.meta.url).pathname;
 const SLUG = `zz-deploy-test-${process.pid}`;
@@ -164,4 +165,73 @@ test('the sandbox host deploy.sh reads is the bot\'s: the last non-empty SANDBOX
   assert.equal(host('SANDBOX_HOST=local\n'), 'local');
   assert.equal(host('SANDBOX_HOST=a@one.example\nSANDBOX_HOST=a@two.example\nSANDBOX_HOST=\n'), 'a@two.example', 'the last non-empty one, as dotenv');
   assert.equal(host('SSHDOCKER_HOST=aven@old.example\n'), '');
+});
+
+// ── ship-dispatcher: a local installation deploys without ssh, a box exactly as before, and `pinned` ──────────
+// Fake docker/systemctl/ssh on PATH: the deploy runs end to end with no Docker and no network. The fake ssh logs
+// its argv (one line per call) and, for `bash -s`, keeps the script it was fed.
+const SHA = 'a'.repeat(40);
+function fakeBox(): { bin: string; dir: string; sshLog: string; sshStdin: string; env: NodeJS.ProcessEnv } {
+  const base = `${tmpdir()}/zz-ship-${process.pid}-${Math.random().toString(36).slice(2)}`;
+  const bin = `${base}/bin`, dir = `${base}/box`;
+  mkdirSync(bin, { recursive: true });
+  mkdirSync(`${dir}/compose`, { recursive: true });
+  writeFileSync(`${dir}/.env`, '');
+  writeFileSync(`${dir}/compose/compose.yaml`, 'services: {}\n');
+  const sshLog = `${base}/ssh.log`, sshStdin = `${base}/ssh.stdin`;
+  const exe = (name: string, body: string) => writeFileSync(`${bin}/${name}`, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  exe('docker', 'case "$1 $2" in "compose logs") echo "Slack bot running";; esac; exit 0');
+  exe('systemctl', 'exit 3');
+  exe('ssh', `echo "$*" >> ${sshLog}
+for last; do :; done
+case "$last" in -s) cat > ${sshStdin}; exit 0;; esac
+case "$*" in *AVEN_VERSION*) echo v9.9.9;; *"echo ok"*) echo ok;; esac
+exit 0`);
+  return { bin, dir, sshLog, sshStdin, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } };
+}
+const overlay = (slug: string, env: string) => { mkdirSync(`${ROOT}infra/${slug}`, { recursive: true }); writeFileSync(`${ROOT}infra/${slug}/deploy.env`, env); };
+const dropOverlay = (slug: string) => rmSync(`${ROOT}infra/${slug}`, { recursive: true, force: true });
+const deploySh = (slug: string, args: string[], env: NodeJS.ProcessEnv) =>
+  spawnSync('bash', [`${ROOT}infra/deploy/deploy.sh`, slug, ...args], { encoding: 'utf8', env });
+
+test('DEPLOY_HOST=localhost: deploy pulls, pins and starts on this machine with no ssh (ship-dispatcher)', () => {
+  const box = fakeBox(), slug = `zz-local-${process.pid}`;
+  overlay(slug, `DEPLOY_HOST=localhost\nDEPLOY_USER=me\nROOT_USER=root\nREMOTE_DIR=${box.dir}\nSERVICE_NAME=svc-test\nCANARY=1\n`);
+  try {
+    const r = deploySh(slug, ['deploy', `sha-${SHA}`], box.env);
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(readFileSync(`${box.dir}/compose/.env`, 'utf8'), `AVEN_VERSION=sha-${SHA}\nAVEN_RELEASE=main@aaaaaaa\n`);
+    assert.match(readFileSync(`${box.dir}/deploys.log`, 'utf8'), new RegExp(`^\\S+Z sha-${SHA} ok$`, 'm'));
+    assert.equal(existsSync(box.sshLog), false, 'no ssh connection for a local installation');
+  } finally { dropOverlay(slug); }
+});
+
+test('a remote host still deploys over ssh with the same argv and script (ship-dispatcher, default-preserving)', () => {
+  const box = fakeBox(), slug = `zz-remote-${process.pid}`;
+  overlay(slug, `DEPLOY_HOST=h\nDEPLOY_USER=deployer\nROOT_USER=root\nREMOTE_DIR=${box.dir}\nSERVICE_NAME=svc-test\n`);
+  try {
+    const r = deploySh(slug, ['deploy', 'v1.2.3'], box.env);
+    assert.equal(r.status, 0, r.stderr);
+    const calls = readFileSync(box.sshLog, 'utf8').trim().split('\n');
+    const opts = '-o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -o ServerAliveInterval=30 -o ServerAliveCountMax=10 deployer@h';
+    assert.equal(calls.at(-1), `${opts} bash -s`);
+    assert.ok(calls.every((c) => c.startsWith(opts)), calls.join('\n'));
+    const script = readFileSync(box.sshStdin, 'utf8');
+    assert.match(script, /docker pull --quiet "ghcr\.io\/pedalix\/coach-aven:v1\.2\.3"/);
+    assert.match(script, /AVEN_VERSION=%s\\nAVEN_RELEASE=%s\\n' "v1\.2\.3" "v1\.2\.3"/);
+  } finally { dropOverlay(slug); }
+});
+
+test('pinned prints the pinned version, locally or over ssh; nothing pinned exits 1 (ship-dispatcher D4)', () => {
+  const box = fakeBox(), local = `zz-pin-l-${process.pid}`, remote = `zz-pin-r-${process.pid}`;
+  overlay(local, `DEPLOY_HOST=localhost\nDEPLOY_USER=me\nROOT_USER=root\nREMOTE_DIR=${box.dir}\nSERVICE_NAME=svc-test\n`);
+  overlay(remote, `DEPLOY_HOST=h\nDEPLOY_USER=deployer\nROOT_USER=root\nREMOTE_DIR=${box.dir}\nSERVICE_NAME=svc-test\n`);
+  try {
+    const none = deploySh(local, ['pinned'], box.env);
+    assert.equal(none.status, 1);
+    writeFileSync(`${box.dir}/compose/.env`, 'AVEN_VERSION=v1.2.3\nAVEN_RELEASE=v1.2.3\n');
+    assert.equal(deploySh(local, ['pinned'], box.env).stdout, 'v1.2.3\n');
+    assert.equal(existsSync(box.sshLog), false);
+    assert.equal(deploySh(remote, ['pinned'], box.env).stdout, 'v9.9.9\n', 'read on the box over ssh');
+  } finally { dropOverlay(local); dropOverlay(remote); }
 });

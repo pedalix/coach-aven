@@ -32,6 +32,7 @@
 #                  version> (its image is still on the box).
 #   logs [-f]      The bot's log (docker compose logs).
 #   status         The pinned version, the containers, the last deploys.
+#   pinned         The pinned version alone (vX.Y.Z or sha-<commit>); exit 1 when nothing is pinned.
 #   start|stop|restart  Lifecycle; restart = up -d --force-recreate + the same wait.
 #   ssh            Interactive SSH session (deployer).
 #   down           docker compose down (the images, the pin and the files stay).
@@ -47,6 +48,8 @@
 # CHAT_DRIVER=slack|teams|web, CANARY=1, IMAGE, DAEMON_LISTEN — copy from ops.example/deploy.env.example).
 # CHAT_DRIVER is the run command (`orch <driver>`); absent = slack. A leftover RUNTIME=compose is accepted,
 # RUNTIME=systemd refused. SSH uses your default keys/agent (deployer@HOST, and root@HOST for install).
+# DEPLOY_HOST=localhost: an installation on this machine — the deployer's commands run here, no ssh
+# (install's root stage is not supported there). STAGE=<n> is read by `npm run ship` only.
 # Needs: ssh, scp, tar.
 set -euo pipefail
 
@@ -140,7 +143,10 @@ load_env() {
             -o ServerAliveInterval=30 -o ServerAliveCountMax=10)
 }
 
-dssh() { ssh "${SSH_OPTS[@]}" "$DEPLOYER" "$@"; }
+# DEPLOY_HOST=localhost: the installation runs on this machine (an operator's own one, beside the checkout),
+# so the deployer's commands run here with no ssh — the same script a box gets over `ssh … bash -s`
+# (OpenSpec ship-dispatcher D8). Every other host goes over ssh exactly as before.
+dssh() { if [[ "$DEPLOY_HOST" == localhost ]]; then bash -c "$*"; else ssh "${SSH_OPTS[@]}" "$DEPLOYER" "$@"; fi; }
 rssh() { ssh "${SSH_OPTS[@]}" "$ROOT" "$@"; }
 
 # Day-2 ops (export/import/deploy) only need the deployer; root is required just for
@@ -407,6 +413,13 @@ cmd_restart() {
 }
 cmd_logs()   { local f=""; [[ "${1:-}" == -f ]] && f="-f"; dssh "cd $REMOTE_DIR/compose && docker compose logs --no-log-prefix --tail=100 $f bot"; }
 cmd_status() { dssh "cd $REMOTE_DIR/compose && echo '# pinned ($REMOTE_DIR/compose/.env)' && cat .env && echo && docker compose ps && echo && echo '# last deploys ($REMOTE_DIR/deploys.log)' && tail -5 $REMOTE_DIR/deploys.log 2>/dev/null || true"; }
+# The pinned version alone, for `ship` and `where` (OpenSpec ship-dispatcher D4): what runs, read where it runs.
+cmd_pinned() {
+  local v
+  v="$(dssh "sed -n 's/^AVEN_VERSION=//p' $REMOTE_DIR/compose/.env 2>/dev/null" </dev/null)" || true
+  [[ -n "$v" ]] || { echo "✗ no pinned version in $DEPLOYER:$REMOTE_DIR/compose/.env" >&2; exit 1; }
+  printf '%s\n' "$v"
+}
 cmd_start()  { preflight_deployer; remote_script restart | dssh bash -s; }
 cmd_stop()   { dssh "cd $REMOTE_DIR/compose && docker compose stop" && ok "stopped (docker compose stop; the pin and the images stay)"; }
 cmd_down()   { dssh "cd $REMOTE_DIR/compose && docker compose down" && ok "containers removed (docker compose down; the images, the pin and the files stay — deploy <version> brings it back)"; }
@@ -428,6 +441,7 @@ case "${2:-}" in
   deploy)       cmd_deploy "${3:-}" ;;
   logs)         cmd_logs "${3:-}" ;;
   status)       cmd_status ;;
+  pinned)       cmd_pinned ;;
   start)        cmd_start ;;
   stop)         cmd_stop ;;
   restart)      cmd_restart ;;

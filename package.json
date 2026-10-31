@@ -23,7 +23,10 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test 'src/**/*.test.ts'",
     "ops": "infra/deploy/deploy.sh",
-    "release": "bash scripts/release.sh"
+    "release": "bash scripts/release.sh",
+    "ship": "tsx src/shipcli.ts ship",
+    "where": "tsx src/shipcli.ts where",
+    "preview": "tsx src/previewcli.ts"
   },
   "dependencies": {
     "@microsoft/teams.api": "2.1.0",
