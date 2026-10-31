@@ -113,6 +113,11 @@ and the schema version. A deploy drops every socket, and the bots reconnect.
   - 1000 envelopes or 50 MB waiting for one recipient;
   - 200 envelopes or 10 MB from one sender to one recipient, so one peer cannot fill a mailbox for the
     others.
+- **Why pins and installation keys.** An agent is not a cryptographic principal — the installation that runs it
+  is — so keys per agent, group keys and the hub as a certificate authority were rejected: the hub never vouches for
+  anyone. Pins grow with pairs (50 installations in a full mesh are 1225 pairs, and one key rotation touches up to 49
+  peers); the steps after them are pairing codes, then organisation keys, then well-known names (OpenSpec
+  `hub-open-network`).
 
 ## Removing an installation
 

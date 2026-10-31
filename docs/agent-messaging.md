@@ -139,7 +139,7 @@ An agent card says what an agent is (its one-line `description`) and what it can
   - At most 32 skills on a card.
 - **Before the first scan** (no session since the skills were listed) the card offers nothing yet.
 - **Asking for a skill.** `send_message(target, text, {skill})` names one of the ids on the target's card; only a task's first message carries it. The receiving installation decides: a skill it does not offer — or a malformed id — ends the task `rejected: unknown skill`, with the ids it does offer (a sender it does not accept is told `not accepted`, as always, and learns nothing about its skills). A rejected task does not count against the sender's daily limit. In the own installation the tool refuses at once.
-- **Running it.** The answering shadow conversation starts with the skill's slash invocation, `/<skill>`, followed by the task frame as its arguments: the bot runs the skill, not the prompt. Both task records and `/aven asks` name the skill.
+- **Running it.** The answering shadow conversation starts with the skill's slash invocation, `/<skill>`, followed by the task frame as its arguments: the bot runs the skill, not the prompt. Both task records and `/aven asks` name the skill. A skill removed from the sandbox after the last scan still reaches the model: CLI 2.1.292 hands an unknown `/<name>` to the model as an ordinary request. That is a CLI feature flag; should the CLI ever answer such a name itself, the turn would wait for the watchdog.
 - **No skills is fine.** An agent that offers none works as before: general requests, `skills: []` on its card.
 
 **An offered skill must take free-text arguments.** Its arguments are the whole task frame, which begins with `[Request from another agent]`, the sender and the task id; the request itself follows. So `$ARGUMENTS` is the frame, while positional (`$0`, `$ARGUMENTS[0]`) and named arguments get the frame's first words, not the request's. The request is deliberately not moved to the front: a request that starts with `/` would chain a second skill. Write such a skill to read its arguments as a message.
@@ -305,6 +305,22 @@ A held new task is a `submitted` task that has not left its installation yet: Se
 | A person keeps chatting meanwhile | Their messages are ordinary turns. The answer joins whichever turn is running, or starts its own. |
 | Host clock drifts | Nothing breaks, and the bot warns once it is more than 30 s off. |
 | A session is compacted | The conversation keeps its marks; only `🔄 Restart session` clears them. |
+
+## Why its own transport
+
+Checked in 2026-10, with the trigger that would change each answer:
+
+- **Claude Code's own session messaging** reaches sessions of one claude.ai account only, and a message goes straight
+  into the Claude session — past the bot's access rules, metering, turn queue, restart recovery and the chat. Revisit
+  if a cross-account protocol appears.
+- **MCP Tasks** (asynchronous tool calls): the Claude Code client does not support them (anthropics/claude-code#52137
+  closed as not planned, #76571 open), and the MCP spec keeps moving Tasks around. Revisit if the client gains them:
+  `send_message` could then return a task handle.
+- **A2A** is the model for the task states and the agent card; its HTTP transport needs each installation reachable,
+  which a hub relay avoids.
+- Also rejected: a mailbox in a git repository (polling delays), the chat platform itself (bots ignore bots, and it
+  would not cover Teams), and the other installation as an MCP server behind a gateway (the agent would call it
+  directly, past the human gate — fine for read-only, not for tasks).
 
 ## Where it can grow
 

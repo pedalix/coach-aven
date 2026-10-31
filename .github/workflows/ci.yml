@@ -78,6 +78,7 @@ jobs:
         run: |
           printf '%s\n\n%s\n' "$PR_TITLE" "$PR_BODY" | bash scripts/public-guard.sh --text pr
           git log --format='commit %h%n%B' "$BASE..$HEAD" | bash scripts/public-guard.sh --text commits
+      # The image, not gitleaks-action: the Action asks for a licence key on organisation repositories.
       - name: gitleaks (no secret-shaped strings in the tree)
         run: docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 detect --source /repo --no-git --config /repo/.gitleaks.toml --redact --verbose
 

@@ -457,7 +457,13 @@ A multi-repo project's sessions start in the project folder, where no repo's `.c
 `REPO_SKILLS=1`, every such session starts with `--add-dir <checkout>` for each repo, so it loads each repo's own Claude
 Code skills as a Claude Code started in that repo would (OpenSpec `agent-skills`); `--add-dir` also loads each repo's
 legacy `.claude/commands/`. Off by default: unset or anything else, every spawn line stays as it was. Single-repo
-projects are unaffected either way: their session starts in the repo.
+projects are unaffected either way: their session starts in the repo, so it always loads all of that repo's skills and
+commands, whoever asks.
+
+`--add-dir` does **not** load a repo's `CLAUDE.md` (verified on CLI 2.1.292 with marker files); the CLI would with
+`CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`, which the bot leaves unset on purpose: every turn would carry every
+repo's instructions, and rules from different repos can contradict each other. The base prompt tells the agent to read
+the `CLAUDE.md` of the repo it works in instead.
 
 | Setting | Where | What |
 |---|---|---|
@@ -466,7 +472,8 @@ projects are unaffected either way: their session starts in the repo.
 **Off everywhere; switch it on per installation when a skill worth it exists.** What turning it on brings: whatever
 skills and commands the repos carry — typically OpenSpec workflow skills (`openspec-*`) and `/opsx` commands, plus a
 few framework development helpers (a Laravel media-library or HTTP-client helper, a Tailwind helper). A skill or command
-defined in two of a project's repos loads twice, and `/name` runs the first `--add-dir`'s. Watch for skills the agent
+defined in two of a project's repos loads twice, and `/name` runs the first `--add-dir`'s (an agent card withholds such a
+name, so this concerns only what the agent itself sees; how to load each name once is an open decision). Watch for skills the agent
 starts using on its own. The canary installations are single-repo, so the multi-repo path rests on the live measurement
 (design `agent-skills`) and the tests until an installation with a multi-repo project switches it on.
 
