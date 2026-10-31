@@ -90,10 +90,11 @@ place to run sandboxes.
    (Socket Mode on). Note the bot token (`xoxb-…`) and the app-level token (`xapp-…`).
 2. **Sandboxes** — containers on a Docker host you own (`docs/sandbox-drivers.md`): over SSH
    (`SANDBOX_HOST=user@host`), or on this very machine (`SANDBOX_HOST=local`). Keep
-   `SANDBOX_DRIVER=ssh-docker` as the template writes it. The containers run the sandbox image
-   from [`snapshot/`](snapshot/README.md): build it and push it to your own registry (none is
-   published), then point `SANDBOX_IMAGE` at the `:<gitsha>` tag the build prints. The `plain`
-   variant needs no privileged containers and runs on arm64.
+   `SANDBOX_DRIVER=ssh-docker` as the template writes it. The containers run a sandbox image
+   ([`snapshot/`](snapshot/README.md)): the `plain` one is published with every release
+   (`ghcr.io/pedalix/coach-aven-sandbox-plain:vX.Y.Z`), runs unprivileged and on arm64, and is what a project
+   without a `sandbox` block gets. A project that needs more (PHP, Sail) gets an image of your own: build the
+   `laravel` variant, push it to your registry, and give the project `"sandbox": { "image": "…", "dind": true }`.
 3. **GitHub** — a GitHub App installed on the org/repos with *Contents* + *Pull requests*
    read & write, *Checks* read and *Metadata* read; set `GITHUB_APP_ID` + the private key path. (A plain
    `GITHUB_TOKEN` works for a quick trial.)
@@ -116,13 +117,13 @@ place to run sandboxes.
 
 The bot's App Home tab lists every command and button.
 
-Microsoft Teams instead of Slack: the same bot with `orch teams` — [`docs/teams.md`](docs/teams.md)
+Microsoft Teams instead of Slack: the same bot with `orch teams`; its bot identity comes from the `infra/teams/`
+Terraform module — [`docs/teams.md`](docs/teams.md)
 
 A web chat the installation serves itself (OIDC login, rooms per project): `orch web` — [`docs/web.md`](docs/web.md) (canary)
 
 Both at once: `CHAT_SURFACES=teams` (or `slack`, `web`) in `.env` runs a second chat driver beside the run mode's, over the same
 projects and sandboxes — [`docs/runtime-config.md`](docs/runtime-config.md) → *Chat surfaces*.
-(one chat driver per installation; the bot identity comes from the `infra/teams/` Terraform module).
 
 Production: the published image `ghcr.io/<owner>/coach-aven` under `docker compose` on any Linux box,
 deployed by `npm run ops -- <slug> deploy vX.Y.Z` or by your ops repo's GitHub Action (a rollback is the

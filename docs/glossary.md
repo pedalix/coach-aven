@@ -33,3 +33,6 @@ The words these docs use, each in a sentence or two.
 - **DinD and Sail.** Docker inside the sandbox, so that a Laravel Sail stack can run there. The plain sandbox image has none.
 - **Quickstart.** The trial installation in `quickstart/`: the web chat and unprivileged local sandboxes from one
   `docker compose up` ([`quickstart.md`](quickstart.md)).
+- **CoachAven and `aven`.** The product is CoachAven everywhere people read it, the agent's own voice included. Two
+  names keep the short form on purpose, because renaming them would break what installations already have: the
+  `/aven` command (an installed Slack slash command) and the `aven-` channel prefix (`SLACK_CHANNEL_PREFIX`).

@@ -4,11 +4,11 @@ The tooling (git, gh, node, Claude Code and, in `laravel`, the Sail shims and im
 into the image; the bot's `provisionTooling()` (`src/project.ts`) only tops up what the image lacks:
 imagemagick where it is missing, and the Claude Code pin. Two variants, one directory per Dockerfile:
 
-- **`laravel`** (`Dockerfile`, the historical default): `docker:28-dind` + the Sail shims in
-  `shims/`, linux/amd64 only. Needs sysbox or `--privileged` on the sandbox host.
+- **`laravel`** (`Dockerfile`): `docker:28-dind` + the Sail shims in `shims/`, linux/amd64 only.
+  Needs sysbox or `--privileged` on the sandbox host: a project using it says `"sandbox": { "dind": true }`.
 - **`plain`** (`plain/Dockerfile`): drops dockerd, builds amd64 + arm64 and runs unprivileged —
-  for projects that never start containers of their own, and for arm64 hosts. Pair it with the
-  project's `sandbox` block (`dind: false`, `privileged: false`; `docs/sandbox-drivers.md`).
+  for projects that never start containers of their own, and for arm64 hosts. A project without a
+  `sandbox` block runs this way (`docs/sandbox-drivers.md`).
 
 Build and push with `build-and-push.sh` (usage and prerequisites in its header):
 
@@ -22,7 +22,7 @@ the `plain` variant of every `main` commit and release as `ghcr.io/pedalix/coach
 `:vX.Y.Z`, the same version names as the bot image, for the quickstart (`docs/quickstart.md`) and anyone whose projects
 need nothing beyond its toolchain. Anything more (PHP, a database client, Sail) is an image of your own. Point
 `SANDBOX_IMAGE` (the installation's default) or a project's `sandbox.image` at the `:<gitsha>` tag the build prints,
-not `:latest`. The laravel image goes with `"dind": true`, the plain one with `"privileged": false, "dind": false`.
+not `:latest`. The laravel image goes with `"dind": true`; the plain one needs no `sandbox` block.
 
 The Claude Code CLI inside sandboxes is pinned by `CLAUDE_CLI_VERSION` (warm sandboxes converge in
 place; `"cliVersion"` per project is the canary) — see `src/cliversion.ts`. Pin only probed versions

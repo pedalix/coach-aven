@@ -374,6 +374,11 @@ Per bot per thread (a thread = one 1:1, one group chat, or one channel) [S3]:
   chat member"; tenant-wide switches live in the Entra admin center (teams) / Graph (chats), so
   an admin can block RSC. Still filter on `recipient.id` to prioritise @mentions. Personal-scope
   RSC is limited to `ChatMessageReadReceipt.Read.Chat`. [S10][S25]
+- **Renaming or republishing the app** (observed 2026-10-30): `infra/teams/publish.sh`'s device code lasts about
+  15 minutes — finish the sign-in or rerun. A catalog publish does not update the copy installed in a team: upgrade
+  it through Graph (`POST /teams/{id}/installedApps/{id}/upgrade`). A person's own installation updates within about a
+  day, or by hand (Apps → Manage your apps → Update); the bot's token cannot do either. Teams desktop caches the old
+  name and icon for a while.
 - Graph change-notification subscriptions on `/channels/{id}/messages` with RSC are **blocked
   (403) in shared and private channels**. [S23]
 - `installationUpdate`: `action` = `add` | `remove`; on app **upgrade** it fires only if the

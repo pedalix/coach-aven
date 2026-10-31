@@ -39,4 +39,4 @@
 
 - [ ] 6.1 One PR for sections 1–5, bucket 2, with the ledger row. Verify: `npm run typecheck`, `npm test`, public guard and gitleaks on every changed file and the PR text; an independent review before merge.
 - [ ] 6.2 **Needs the maintainer: the same key or another, in its own workspace with a spend limit.** Canary: the home bot on the key for one weekday cycle. Switch: `ANTHROPIC_API_KEY` in its `.env`, `CLAUDE_CODE_OAUTH_TOKEN` commented out, restart in the 20:30–08:00 window. Watch: the boot line, no credit warning on new conversations, `/aven usage` showing key dollars, the Anthropic console's usage for the same day within a few percent. Back: the reverse. Record dates in the ledger row.
-- [ ] 6.3 Archive with `/opsx:archive` after the canary.
+- [ ] 6.3 Archive with `/openspec-archive-change` after the canary.

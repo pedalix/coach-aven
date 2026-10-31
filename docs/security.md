@@ -56,7 +56,10 @@ Back up `state.json` and the directories above together; delete a project's dire
   dedicated key in its own Anthropic workspace with a monthly spend limit; MCP credentials behind the gateway, which
   hands the sandbox a token instead of the upstream secret.
 - **No egress filtering.** A sandbox can reach any host, and a prompt-injected agent could send what it can read
-  anywhere. CoachAven does not filter outbound traffic and has no plan to yet.
+  anywhere. CoachAven does not filter outbound traffic and has no plan to yet. Why it is not a quick add: GitHub,
+  Anthropic and the registries sit behind rotating CDN addresses, so an IP allow-list (`DOCKER-USER` rules) does not
+  hold; DNS stays open and IPv6 needs its own rules; Docker Desktop has neither. A proxy allow-list holds only with
+  `HTTPS_PROXY` set inside the sandbox and direct egress dropped.
 - **The `pr` git flow is an instruction, not a permission.** The token can push to any branch it is scoped to; require
   reviews on the default branch so that GitHub, not the prompt, enforces "people merge".
 - **Privileged docker-in-docker** is what a project gets with `"sandbox": { "dind": true }`, and only then: a

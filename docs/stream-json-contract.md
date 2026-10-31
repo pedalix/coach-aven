@@ -30,6 +30,14 @@ claude --output-format stream-json --input-format stream-json --verbose \
   `permissionMode=bypassPermissions`.
 - `--strict-mcp-config` ignores the cloned repo's own `.mcp.json` (e.g. a `browsermcp`
   server that can't start headless and would hang the run).
+- **Why the CLI and not the Agent SDK** (checked 2026-10): the bot must reattach to a running process after its own
+  restart, which the SDK does not offer; the SDK passes CLI flags the CLI reference does not document
+  (`--resume-session-at`, `--resume-drops-turn`); and its `streamInput()` closed stdin at the first `result`
+  (claude-agent-sdk-typescript#438, open then), which would end a persistent session after one turn. Revisit when
+  these change; until then the SDK's `sdk.d.ts` serves as the schema only.
+- **Experimenting by hand:** user settings leak into a hand-run CLI — with `defaultMode: auto` in `~/.claude`, no
+  `can_use_tool` ever arrives. Run experiments with `--permission-mode default --setting-sources local`, or a scratch
+  `CLAUDE_CONFIG_DIR` as the CLI probe does.
 
 ## stdin (us → claude)
 
