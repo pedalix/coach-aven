@@ -86,7 +86,7 @@ test('sandboxTransport — the run fails midway: a wrong version after the upgra
 // The probe's own environment picks the driver (OpenSpec retire-daytona-driver D3): SANDBOX_DRIVER stays
 // required there, and only ssh-docker is accepted — a missing value or a leftover `daytona` stops the run
 // before a driver (let alone a sandbox) exists.
-const PROBE_ENV = { SNAPSHOT_IMAGE: 'registry.example/sandbox-plain:1', SSHDOCKER_HOST: 'sandboxes.example' };
+const PROBE_ENV = { SANDBOX_IMAGE: 'registry.example/sandbox-plain:1', SANDBOX_HOST: 'sandboxes.example' };
 
 test('driverFromEnv — ssh-docker: the bot’s driver, labelled for the report', () => {
   const d = driverFromEnv({ ...PROBE_ENV, SANDBOX_DRIVER: 'ssh-docker' });

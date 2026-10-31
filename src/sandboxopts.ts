@@ -80,23 +80,6 @@ export function resolveSandboxOptions(input?: SandboxOptions): ResolvedSandboxOp
   return { privileged, dind, mounts, ...(input.image ? { image: input.image } : {}) };
 }
 
-// The sandbox settings' names (sandbox-privilege-opt-in D2): the `SANDBOX_` name, then the old one it
-// replaces — read as a fallback so no installation breaks on upgrade, named once at boot.
-export const RENAMED_SANDBOX_SETTINGS: readonly (readonly [string, string])[] = [
-  ['SANDBOX_IMAGE', 'SNAPSHOT_IMAGE'],
-  ['SANDBOX_HOST', 'SSHDOCKER_HOST'],
-  ['SANDBOX_DIND_RUNTIME', 'SSHDOCKER_RUNTIME'],
-];
-
-/** The boot line for old setting names still in use, or undefined. Pure. */
-export function renamedSettingsWarning(env: Record<string, string | undefined>): string | undefined {
-  const old = RENAMED_SANDBOX_SETTINGS.filter(([, was]) => (env[was] ?? '').trim()).map(([now, was]) => `${was} → ${now}`);
-  // SANDBOX_DEFAULT was on main for a day (never tagged) and is read no more: say so rather than let a
-  // block-less project it made plain go back to docker-in-docker unnoticed.
-  if ((env.SANDBOX_DEFAULT ?? '').trim()) old.push('SANDBOX_DEFAULT is no longer read: write "sandbox": { … } on each project');
-  return old.length ? `settings: renamed, the old names still work for now — ${old.join(', ')} (docs/configuration.md)` : undefined;
-}
-
 // The `managedBy` label every sandbox of this deployment carries, and the filter `/aven status`
 // lists them by. An installation whose sandboxes already carry another value keeps it with
 // SANDBOX_MANAGED_BY. The value must equal the label on the existing containers: the status

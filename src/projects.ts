@@ -135,7 +135,7 @@ export interface ProjectsRegistry {
 export function registryPrivilegeWarnings(reg: ProjectsRegistry, env: Record<string, string | undefined> = process.env): string[] {
   return privilegeWarnings({
     projects: reg.projects,
-    local: (env.SANDBOX_HOST || env.SSHDOCKER_HOST || '').trim() === 'local',
+    local: (env.SANDBOX_HOST ?? '').trim() === 'local',
     localConfirmed: env.SANDBOX_LOCAL_PRIVILEGED === '1',
   });
 }

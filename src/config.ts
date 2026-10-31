@@ -193,7 +193,7 @@ export interface Config {
   // Laravel Sail; irrelevant for projects that run with `sandbox.privileged: false`.
   sshDocker?: { host: string; runtime: 'sysbox-runc' | 'privileged' };
   sandboxDriver: SandboxDriverKind;
-  // SANDBOX_IMAGE (formerly SNAPSHOT_IMAGE): the image a project container is created from unless
+  // SANDBOX_IMAGE: the image a project container is created from unless
   // the project names its own (`sandbox.image`).
   snapshot: { image: string };
   // namePrefix keeps two installations (dev and prod) apart on ONE Docker host: dev →
@@ -447,14 +447,12 @@ export const withSessionSecret = (web: WebConfig | undefined, dir: () => string 
 
 export function loadConfig(): Config {
   const sandboxDriver = sandboxDriverEnv(process.env.SANDBOX_DRIVER);
-  // The SANDBOX_ names, each old name read as its fallback (sandbox-privilege-opt-in D2;
-  // renamedSettingsWarning names the old ones at boot).
-  const sshRuntime = process.env.SANDBOX_DIND_RUNTIME || process.env.SSHDOCKER_RUNTIME || 'privileged';
+  const sshRuntime = process.env.SANDBOX_DIND_RUNTIME || 'privileged';
   if (sshRuntime !== 'privileged' && sshRuntime !== 'sysbox-runc') {
     throw new Error(`SANDBOX_DIND_RUNTIME must be 'sysbox-runc' or 'privileged', got: ${sshRuntime}`);
   }
-  const sandboxHost = process.env.SANDBOX_HOST || process.env.SSHDOCKER_HOST;
-  const image = process.env.SANDBOX_IMAGE || process.env.SNAPSHOT_IMAGE;
+  const sandboxHost = process.env.SANDBOX_HOST;
+  const image = process.env.SANDBOX_IMAGE;
   if (!image) throw new Error('Missing required env var: SANDBOX_IMAGE (the image project containers are created from)');
   return {
     sshDocker: sandboxHost ? { host: sandboxHost, runtime: sshRuntime } : undefined,

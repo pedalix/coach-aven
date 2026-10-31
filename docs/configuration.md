@@ -56,12 +56,11 @@ session was opened with, and an existing container keeps the `sandbox` options i
 
 | Variable | Default | What it does |
 |---|---|---|
-| `SANDBOX_IMAGE` | required | The image a project container is created from, unless the project names its own (`sandbox.image`). Read when a container is created; an existing one keeps its image until removed. Formerly `SNAPSHOT_IMAGE`. |
+| `SANDBOX_IMAGE` | required | The image a project container is created from, unless the project names its own (`sandbox.image`). Read when a container is created; an existing one keeps its image until removed. |
 | `SANDBOX_DRIVER` | `ssh-docker` | The only sandbox driver; any other value (`daytona` above all) stops the boot. [Selecting the driver](sandbox-drivers.md#selecting-the-driver). |
-| `SANDBOX_HOST` | — (required at a project's first sandbox use) | The Docker host: `local` (this machine's daemon, no sshd) or an ssh target (`user@host`, an `~/.ssh/config` alias). [Sandbox drivers](sandbox-drivers.md). Formerly `SSHDOCKER_HOST`. |
-| `SANDBOX_DIND_RUNTIME` | `privileged` | How a docker-in-docker project (`"dind": true`) runs: `privileged` or `sysbox-runc` (preferred, needs sysbox on the host); anything else stops the boot. Irrelevant for plain projects. Formerly `SSHDOCKER_RUNTIME`. |
+| `SANDBOX_HOST` | — (required at a project's first sandbox use) | The Docker host: `local` (this machine's daemon, no sshd) or an ssh target (`user@host`, an `~/.ssh/config` alias). [Sandbox drivers](sandbox-drivers.md). |
+| `SANDBOX_DIND_RUNTIME` | `privileged` | How a docker-in-docker project (`"dind": true`) runs: `privileged` or `sysbox-runc` (preferred, needs sysbox on the host); anything else stops the boot. Irrelevant for plain projects. |
 | `SANDBOX_LOCAL_PRIVILEGED` | — | `1` confirms a privileged project on the bot's own machine (`SANDBOX_HOST=local`); without it the boot warns. |
-| `SANDBOX_DEFAULT` | — | Not a setting: an untagged build read it for a day. A value still in `.env` is named at boot; write the `sandbox` block on each project instead. |
 | `SANDBOX_AUTOSTOP_MINUTES` | `30` | Idle minutes before the bot stops a project's container (floor 10; `0` or negative = never). [Sandbox idle stop](runtime-config.md#sandbox-idle-stop-sandbox_autostop_minutes). |
 | `SANDBOX_NAME_PREFIX` | `proj-` | Container names are `<prefix><slug>`. Two installations on one Docker host need distinct prefixes. [Local dev → The settings](local-dev.md#the-settings). |
 | `SANDBOX_MANAGED_BY` | `coach-aven` | The `managedBy` label on every sandbox: the `/aven status` filter and the idle stop's guard. Must match the existing containers' label. |
