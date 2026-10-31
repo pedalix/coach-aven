@@ -19,14 +19,16 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
 | `Partial web config: missing …` / `Partial Teams config: missing …` | some of a surface's settings are set, not all | set the rest, or remove them all |
 | `CLAUDE_CLI_VERSION must be x.y.z` | a malformed pin | `2.1.292`, not `v2.1.292` or `latest` |
 
-## The quickstart's `init.sh` stops
+## The quickstart's `coach-aven up` stops
 
 | Message | Fix |
 |---|---|
 | `Docker does not answer` | start Docker Desktop or the docker service |
 | `… is not published — only release tags and main's commits have images` | the clone is on a branch or a local commit: `git checkout $(git describe --tags --abbrev=0)` (or `main`) and rerun |
 | `a container running as uid … with group … cannot reach /var/run/docker.sock` | the socket's group is not what Docker reported; rootless Docker, Podman and Colima are untested — report what you run |
-| `docker compose …`: `required variable … is missing a value: run ./init.sh first` | run `./init.sh` before any `docker compose` command |
+| `missing in …/.env: …` | run `quickstart/coach-aven up` in a terminal, which asks for them, or fill the named values in `quickstart/.env` |
+| `run ./coach-aven up first` (from `link`, `logs`, `down`, or `required variable … is missing a value` from `docker compose`) | run `quickstart/coach-aven up` first |
+| `no sign-in link after 30 s` (from `./coach-aven up`) | `./coach-aven logs` shows why the bot did not start: usually the credit or `GITHUB_TOKEN` missing in `.env` |
 
 ## The bot runs but does not answer
 
@@ -57,7 +59,7 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
 
 - **`SANDBOX_HOST is not set`** — set `local` for this machine's Docker, or an ssh target ([`sandbox-drivers.md`](sandbox-drivers.md)).
 - **`the bot cannot reach Docker at /var/run/docker.sock`** (a boot log line, a minute after the start) — the bot's
-  process is not in the socket's group. In the quickstart, rerun `./init.sh` and `docker compose up -d`; on a box, put
+  process is not in the socket's group. In the quickstart, rerun `quickstart/coach-aven up`; on a box, put
   the bot's user in the `docker` group.
 - **`image pull failed: …`** — the sandbox image `SANDBOX_IMAGE` names cannot be pulled by the sandbox host: a typo, a
   private registry without a login on that host, or a tag that was never pushed.

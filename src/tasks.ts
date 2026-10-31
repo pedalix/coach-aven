@@ -188,7 +188,8 @@ async function prepareChat(
   if (scopeAfter.join() !== scopeBefore.join()) {
     await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeAfter));
   }
-  await seedComposerAuth(sandbox, checkouts.map((c) => c.dir));
+  // No GitHub access (GITHUB_AUTH=none): no token to mirror into composer's auth.json.
+  if (cfg.github.kind !== 'none') await seedComposerAuth(sandbox, checkouts.map((c) => c.dir));
   // Agents on the `pr` flow work in per-task worktrees (prompt.ts); reap finished/orphaned
   // ones — a no-op for a `direct` project, which never creates any.
   for (const repo of repos) await reapWorktrees(sandbox, repoCheckout(cfg, slug, repo));
@@ -331,6 +332,7 @@ export async function openChat(
     sourcesEnabled,
     ...(opts.messagingSend ? { messagingSend: true } : {}),
     gitFlow: opts.gitFlow,
+    ...(cfg.github.kind === 'none' ? { noGitHub: true } : {}),
     // Resolved again here (loadProjects already validated it) so the prompt sees the same
     // dind answer as the dockerd guard in prepareChat.
     sandbox: resolveSandboxOptions(opts.sandbox),
@@ -353,7 +355,7 @@ export async function openChat(
         sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug, opts.sandbox);
         await seedClaudeAuth(sandbox, cfg.credit);
         await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
-        await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
+        if (cfg.github.kind !== 'none') await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
         await seedMcpConfig(sandbox, mcp);
         await seedGatewayAuth(sandbox, opts.slug, mcp);
       });
@@ -367,7 +369,7 @@ export async function openChat(
       sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug, opts.sandbox);
       await seedClaudeAuth(sandbox, cfg.credit);
       await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
-      await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
+      if (cfg.github.kind !== 'none') await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
       const mcpConfigPath = await seedMcpConfig(sandbox, mcp);
       await seedGatewayAuth(sandbox, opts.slug, mcp);
       // Bot restarted while a command was still running? Reattach to it once, rather than

@@ -123,6 +123,12 @@ function warnMissingPermissions(installationId: number, missing: string[]): void
   );
 }
 
+// The REST headers for a token; an empty one (GITHUB_AUTH=none) asks anonymously — public repositories
+// answer, within GitHub's unauthenticated rate limit.
+export function apiHeaders(token: string): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } : { Accept: 'application/vnd.github+json' };
+}
+
 // Resolve a GitHub token for in-box clone / push / `gh pr create`.
 //  - 'token' auth: returned as-is (a PAT or `gh auth token`).
 //  - 'app' auth: mints a short-lived (≈1h) installation token SCOPED to only the
@@ -146,6 +152,8 @@ export async function getGitHubToken(cfg: Config, repos: string[]): Promise<stri
 async function resolveGitHubToken(cfg: Config, repos: string[]): Promise<string> {
   const auth = cfg.github;
   if (auth.kind === 'token') return auth.token;
+  // GITHUB_AUTH=none: no credential at all — callers seed nothing and ask the API anonymously.
+  if (auth.kind === 'none') return '';
 
   if (repos.length === 0) throw new Error('getGitHubToken: at least one repo required');
 
@@ -191,7 +199,7 @@ export async function listOpenPRs(cfg: Config, repo: string): Promise<OpenPullRe
   try {
     const token = await getGitHubToken(cfg, [repo]);
     const res = await fetch(`https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+      headers: apiHeaders(token),
     });
     if (!res.ok) {
       if (isAuthFailure(res)) reportGitHubAuthFailure('listOpenPRs', new Error(`GitHub pulls → ${res.status}`));
@@ -228,7 +236,7 @@ export async function countOpenPRs(cfg: Config, repos: string[]): Promise<number
     for (const repo of repos) {
       const res = await fetch(
         `https://api.github.com/repos/${repo}/pulls?state=open&per_page=100`,
-        { headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' } },
+        { headers: apiHeaders(token) },
       );
       if (!res.ok) {
         if (isAuthFailure(res)) reportGitHubAuthFailure('countOpenPRs', new Error(`GitHub pulls → ${res.status}`));
@@ -249,7 +257,7 @@ export async function countOpenPRs(cfg: Config, repos: string[]): Promise<number
 const gh = async (cfg: Config, repo: string, path: string, op: string): Promise<unknown> => {
   const token = await getGitHubToken(cfg, [repo]);
   const res = await fetch(`https://api.github.com/repos/${repo}${path}`, {
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' },
+    headers: apiHeaders(token),
   });
   if (!res.ok) {
     if (isAuthFailure(res)) reportGitHubAuthFailure(op, new Error(`GitHub ${path} → ${res.status}`));

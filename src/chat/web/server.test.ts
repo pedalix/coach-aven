@@ -452,7 +452,7 @@ test('WEB_AUTH=link: only the key signs in — no key, a wrong key or a stale on
       const r = await at(path);
       assert.equal(r.status, 401, path);
       assert.equal(cookies(r).filter((c) => c.startsWith(`${SESSION_COOKIE}=`)).length, 0, `${path}: no session cookie`);
-      assert.match(await r.text(), /docker compose logs bot \| grep sign-in \| tail -n 1/);
+      assert.match(await r.text(), /\.\/coach-aven link/);
     }
     assert.equal(link.store.getWebUser('local'), undefined, 'a refused login stores nobody');
     const home = await at('/');
