@@ -215,6 +215,8 @@
   a later token, no terminal, a bad repository, unpublished image, link).
 - [x] 8.3 The page, the README, troubleshooting, glossary, `why.md`, the Docker boot error and `configuration.md`
   (`GITHUB_AUTH`). Verify: `npm test` (`configdocs.test.ts`), `grep -rn 'coach-aven init'` finds only the design.
-- [ ] 8.4 `pedalix/coachaven-quickstart-demo` public, its rehearsal PRs closed. Verify: an anonymous `git clone`.
+- [x] 8.4 `pedalix/coachaven-quickstart-demo` public, its rehearsal PRs closed. Verify: an anonymous `git clone`.
+  *Done 2026-10-31: five rehearsal PRs closed with their branches, no deny-list hit in the tree or the PRs, the
+  repository public; an anonymous clone and the unauthenticated API (200) work.*
 - [ ] 8.5 Task 7.4's rehearsal covers both paths: Enter twice (the demo, a question, a change shown as a diff) and the
   person's repository with a token (a pull request).
