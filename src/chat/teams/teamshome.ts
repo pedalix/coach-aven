@@ -28,7 +28,7 @@ export function teamsHomeBullets(opts: { messaging?: boolean } = {}): string[] {
     '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a reply chain in the matching project\'s channel: the ticket card (*🔍 Full ticket* for the whole thing), a read-only investigation, then a ping to the owners. Reply there to dig deeper or to have the fix implemented as a pull request, or *📝 Report to YouTrack* to post an internal comment back after you review the draft. _(Only for projects with a YouTrack mapping.)_',
     '• *What\'s here* — `/access` shows this channel\'s repos and tools.',
     '• *Inspect my context* — `/memory` shows what I have learned (`/memory <topic>`, `/memory live`, `/memory log`); `/prompt` shows my system prompt.',
-    '• *Memory upkeep* — `/dream on|off` schedules (or pauses) nightly memory consolidation; `/dream` for status, `/dream now` to run it once.',
+    '• *Memory upkeep* — `/dream on|off` schedules (or pauses) nightly memory consolidation, `/dream on weekly sun 3:00` a weekly one; `/dream` for status, `/dream now` to run it once.',
     '• *Sandbox upkeep* — `/housekeeping on|off` schedules (or pauses) the nightly janitor; `/housekeeping` for the last run, `/housekeeping now` to run it once.',
     '• *Status* — `/status` for a live view of sandboxes, sessions and open PRs — and (operators) the Claude subscription quota, on an installation that runs on a subscription token.',
     '• *Check or restart a conversation* — *⚙️ Session* on a finished answer shows the session, repos, tools and PR, with *🔄 Restart session* to start the next message fresh.',

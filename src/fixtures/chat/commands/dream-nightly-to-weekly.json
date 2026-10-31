@@ -1,0 +1,38 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":crescent_moon: Dreaming on for *alpha* — `daily 3:00` (UTC). I'll quietly consolidate memory; `/aven dream` shows the last digest."
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":crescent_moon: Dreaming on for *alpha* — `weekly sun 3:00` (UTC)."
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":crescent_moon: *Dreaming — alpha* 🟢 on · `weekly sun 3:00` (UTC)\n_Manage:_ `/aven dream on [when]|off|now`"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

@@ -304,9 +304,11 @@ export function createCommands(deps: CommandDeps) {
     return { kind: 'text', text: `:information_source: Usage: \`${CMD} routines all | run|on|off|rm <id>\`` };
   }
 
-  // ── /aven dream [on|off] → enable/disable nightly memory consolidation for this project ──
+  // ── /aven dream [on [<when>]|off] → enable/disable memory consolidation for this project ──
   // 'now' is handled in the command handler (it fires through the pollers). Bare = status.
-  // One dream routine per project channel (kind: 'dream'); reuses the routine scheduler.
+  // One dream routine per project channel (kind: 'dream'); reuses the routine scheduler. `on <when>` takes the
+  // /aven schedule forms (`weekly sun 3:00`, `daily 3:00`, `cron …`) — a quiet project need not dream every night,
+  // and a dream reads a lot (prod, Oct 2026: up to ~$5.7 a run). Bare `on` keeps a routine's schedule, or starts nightly.
   const DREAM_DEFAULT_CRON = '0 3 * * *'; // 03:00 daily, in ROUTINE_TZ
   function handleDream(channelId: string, userId: string, slug: string | undefined, cmdText: string, tid?: string): PrivateView {
     if (!slug) return { kind: 'text', text: `:x: Use \`${CMD} dream\` from a project channel.` };
@@ -318,18 +320,23 @@ export function createCommands(deps: CommandDeps) {
       return { kind: 'text', text: `:white_check_mark: Dreaming paused for *${slug}*.` };
     }
     if (sub === 'on') {
+      const when = cmdText.split(/\s+/).slice(2).join(' ').trim();
+      const parsed = when ? parseSchedule(when) : undefined;
+      if (parsed && 'error' in parsed) {
+        return { kind: 'text', text: `:x: ${parsed.error} — e.g. \`${CMD} dream on weekly sun 3:00\` or \`${CMD} dream on daily 3:00\`.` };
+      }
       if (existing) {
-        store.patchRoutine(existing.id, { enabled: true });
-        return { kind: 'text', text: `:crescent_moon: Dreaming on for *${slug}* — \`${existing.spec}\` (${existing.tz}).` };
+        const rec = store.patchRoutine(existing.id, { enabled: true, ...(parsed ? { cron: parsed.cron, spec: parsed.spec, tz: ROUTINE_TZ } : {}) }) ?? existing;
+        return { kind: 'text', text: `:crescent_moon: Dreaming on for *${slug}* — \`${rec.spec}\` (${rec.tz}).` };
       }
       const rec = store.addRoutine({
         slug,
         teamId: tid,
         ...(surface ? { surface } : {}),
         channel: channelId,
-        cron: DREAM_DEFAULT_CRON,
+        cron: parsed?.cron ?? DREAM_DEFAULT_CRON,
         tz: ROUTINE_TZ,
-        spec: 'daily 3:00',
+        spec: parsed?.spec ?? 'daily 3:00',
         prompt: '',
         enabled: true,
         createdBy: userId,
@@ -349,7 +356,7 @@ export function createCommands(deps: CommandDeps) {
     const digest = existing.lastSummary ? `\nLast: _${existing.lastSummary}_` : '';
     return {
       kind: 'text',
-      text: `:crescent_moon: *Dreaming — ${slug}* ${state} · \`${existing.spec}\` (${existing.tz})${last}${digest}\n_Manage:_ \`${CMD} dream on|off|now\``,
+      text: `:crescent_moon: *Dreaming — ${slug}* ${state} · \`${existing.spec}\` (${existing.tz})${last}${digest}\n_Manage:_ \`${CMD} dream on [when]|off|now\``,
     };
   }
 

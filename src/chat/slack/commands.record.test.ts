@@ -268,6 +268,18 @@ for (const verb of ['dream', 'housekeeping']) {
   });
   C(`${verb}-unbound`, (t) => t.receiver.send(cmd(verb, { channel: 'C_RANDOM' })));
 }
+// `dream on <when>`: a weekly dream from the start; a nightly one moved to weekly (status shows the new schedule); a
+// schedule it cannot read is refused with the forms, and nothing is created.
+C('dream-on-weekly', (t) => t.receiver.send(cmd('dream on weekly sun 3:00')));
+C('dream-nightly-to-weekly', async (t) => {
+  await t.receiver.send(cmd('dream on'));
+  await t.receiver.send(cmd('dream on weekly sun 3:00'));
+  await t.receiver.send(cmd('dream'));
+});
+C('dream-on-bad-when', async (t) => {
+  await t.receiver.send(cmd('dream on fortnightly'));
+  await t.receiver.send(cmd('dream'));
+});
 C('memory-unbound', (t) => t.receiver.send(cmd('memory', { channel: 'C_RANDOM' })));
 C('memory-bad-topic', (t) => t.receiver.send(cmd('memory ../etc', { channel: 'C_MEM' })));
 C('memory-log-empty', (t) => t.receiver.send(cmd('memory log', { channel: 'C_MEM' })));

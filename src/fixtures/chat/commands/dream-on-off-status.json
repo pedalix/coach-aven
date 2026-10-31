@@ -29,7 +29,7 @@
       "token": "",
       "payload": {
         "response_type": "ephemeral",
-        "text": ":crescent_moon: *Dreaming — alpha* ⚪️ off · `daily 3:00` (UTC)\n_Manage:_ `/aven dream on|off|now`"
+        "text": ":crescent_moon: *Dreaming — alpha* ⚪️ off · `daily 3:00` (UTC)\n_Manage:_ `/aven dream on [when]|off|now`"
       }
     },
     {
