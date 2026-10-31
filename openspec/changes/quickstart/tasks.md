@@ -185,3 +185,20 @@
   - 3 s `up`, 22 s to the first answer;
   - the sandbox ran `ghcr.io/pedalix/coach-aven-sandbox-plain:sha-b85e606…`, unprivileged, with no pull during the turn;
   - the package pulls anonymously (6.3: manifest 200 without a login).
+
+## 7. One script (design D9)
+
+- [x] 7.1 `quickstart/coach-aven` replaces `init.sh`: `init [owner/repo]`, `setup-token`, `up` (force-recreate, then the
+  current start's link), `link`, `logs`, `down`, `uninstall` (the label's containers, this version's two images).
+  `compose.yaml` names `./coach-aven init` in every `${…:?}`. Verify: `src/quickstart.test.ts` (init copies and rewrites,
+  the repository written and replaced, a bad one refused, `up`/`link` print the current start's link, nothing before
+  init), `sh -n`.
+- [x] 7.2 The templates: no `sandbox` block in the quickstart example (the default is plain); the root example drops
+  `driver`, the default `sandbox` flags and the mount; Slack beside the web chat as commented lines in
+  `quickstart/.env.example`. Verify: `src/quickstart.test.ts`, `src/preview.test.ts`, `src/projects.test.ts`.
+- [x] 7.3 The texts that named `init.sh` or the grep: the web login page and its test, the local-Docker boot error,
+  `docs/quickstart.md` (steps, what to ask next, uninstall, Slack), `docs/troubleshooting.md`, the README (the try-it
+  line, *Self-host with Slack or Teams* as one path: trial → Slack → server), `docs/why.md`, `docs/glossary.md`,
+  `docs/local-dev.md`, `docs/README.md`. Verify: `npm test`, `grep -rn init.sh` finds only archived changes.
+- [ ] 7.4 A rehearsal of the new steps in a fresh `docker:dind` (as 6.4), with Slack added once a test Slack app exists.
+  Verify: `init acme/…` → tokens → `up` prints the link → first answer → `uninstall` leaves nothing.

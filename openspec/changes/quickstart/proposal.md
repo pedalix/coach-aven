@@ -81,3 +81,7 @@ Otherwise none. The web chat's and the compose runtime's own specs belong to cha
   - **An `orch doctor`.** Checks will come from real failure reports, one at a time; the Docker check is the first.
   - **Slack or Teams in the quickstart.** They are documented as the next step, not part of the trial.
   - **The sources daemon, MCP servers, routines and the hub.**
+
+**Amendment 2026-10-31 (design D9):** one script, `quickstart/coach-aven`, replaces `init.sh` and the compose commands of
+the page (`init owner/repo`, `up` with the sign-in link, `link`, `logs`, `down`, `uninstall`); the page adds what to ask
+next and Slack on the same installation; the README's self-host section becomes one path, trial → Slack → server.

@@ -25,7 +25,7 @@ test('failing throughout: retried for the window, then one error naming the sock
   assert.match(f.errors[0], /groups: 1000/);
   assert.match(f.errors[0], /permission denied/);
   assert.doesNotMatch(f.errors[0], /more/, 'the first line of docker\'s answer only');
-  assert.match(f.errors[0], /\.\/init\.sh/);
+  assert.match(f.errors[0], /\.\/coach-aven init/);
 });
 
 test('Docker answering after 30 s, or at once: nothing logged', async () => {
