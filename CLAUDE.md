@@ -50,6 +50,10 @@ process. This is the control plane; the heavy work runs in the sandboxes. See `R
   worktree, ships as a PR that names its rollout bucket and ledger row, and is archived into
   `openspec/specs/` with `/opsx:archive` after the merge. `openspec list` shows what is in flight;
   a tenant's own repository records its plans and decisions, this repo records behaviour.
+  A requirement's text stays under 500 characters — one behaviour, stated; the why, examples and
+  edge cases go in its scenarios or the design. Older specs break this (`openspec validate --specs
+  --strict` warns): when a change touches a spec, split that spec's over-long requirements in the
+  same change, so it passes `openspec validate <name> --type spec --strict`.
 
 ## Architecture pointers
 
