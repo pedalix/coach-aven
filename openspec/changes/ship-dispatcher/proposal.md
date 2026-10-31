@@ -24,7 +24,7 @@ A release is really a snapshot of `main` that has passed some checks. The deploy
 - **A preview bot per worktree: `npm run preview`.** It starts the worktree's code as a web-chat bot on loopback (`WEB_AUTH=none`, a free port). The maintainer looks at the change before it merges, and no installation is involved.
   - It reads nothing from any installation: not home's either, which is a live node of the network even if experimental.
   - It is the quickstart's installation shape run from source: the quickstart's settings and its one `demo` project on a scratch repository, in a `.preview/` directory of its own, with its own sandbox prefix.
-  - The operator's values (Claude credit, a fine-grained token for the scratch repository only, the repository's name) come from one file, `~/.config/coach-aven/preview.env`.
+  - The operator's values (Claude credit, GitHub access — the App or a token — that reaches the scratch repository only, the repository's name) come from one file, `~/.config/coach-aven/preview.env`.
   - `npm run preview -- stop` removes its process and sandboxes.
 - **A `ship` project skill.** Before a release step, the session gets one independent read-only review of the diff since the last tag and shows the maintainer one screen (PRs, findings, version). It runs `ship` only on the maintainer's go.
 - **Docs follow.**

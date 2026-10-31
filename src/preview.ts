@@ -39,9 +39,14 @@ export function buildPreview(
   o: { port: number; branch: string; sandboxImage: string },
 ): PreviewFiles | { missing: string[] } {
   const credit = previewEnv.CLAUDE_CODE_OAUTH_TOKEN || previewEnv.ANTHROPIC_API_KEY;
+  // GitHub access: a token, or a GitHub App. The bot mints an App's installation token per turn scoped to the
+  // project's repositories (src/github.ts), so either way a preview agent reaches the scratch repository only. The key
+  // path must be absolute: a relative one would resolve against .preview/, the preview's installation directory.
+  const keyPath = previewEnv.GITHUB_APP_PRIVATE_KEY_PATH;
+  const app = !!previewEnv.GITHUB_APP_ID && (!!previewEnv.GITHUB_APP_PRIVATE_KEY || (!!keyPath && keyPath.startsWith('/')));
   const missing = [
     ...(credit ? [] : ['CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY']),
-    ...(previewEnv.GITHUB_TOKEN ? [] : ['GITHUB_TOKEN']),
+    ...(previewEnv.GITHUB_TOKEN || app ? [] : ['GITHUB_TOKEN, or GITHUB_APP_ID with an absolute GITHUB_APP_PRIVATE_KEY_PATH']),
     ...(/^[\w.-]+\/[\w.-]+$/.test(previewEnv.PREVIEW_REPO ?? '') ? [] : ['PREVIEW_REPO (owner/repo)']),
   ];
   if (missing.length) return { missing };

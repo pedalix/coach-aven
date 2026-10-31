@@ -32,7 +32,7 @@ test('First preview on a machine: demo on the scratch repo, the quickstart\'s un
 });
 
 test('Missing operator file values: nothing is built, the missing keys are named', () => {
-  assert.deepEqual(buildPreview(T, {}, O), { missing: ['CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY', 'GITHUB_TOKEN', 'PREVIEW_REPO (owner/repo)'] });
+  assert.deepEqual(buildPreview(T, {}, O), { missing: ['CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY', 'GITHUB_TOKEN, or GITHUB_APP_ID with an absolute GITHUB_APP_PRIVATE_KEY_PATH', 'PREVIEW_REPO (owner/repo)'] });
   assert.deepEqual(buildPreview(T, { ...OPERATOR, PREVIEW_REPO: 'just-a-name' }, O), { missing: ['PREVIEW_REPO (owner/repo)'] });
 });
 
@@ -62,4 +62,11 @@ test('branch names make container-safe prefixes', () => {
 test('the bot process inherits only the basics and AVEN_DIR — a tracker token in the operator\'s shell stays out', () => {
   const env = childEnv({ PATH: '/usr/bin', HOME: '/home/me', YOUTRACK_TOKEN: 'perm', GRAFANA_SERVICE_ACCOUNT_TOKEN: 'g', SLACK_BOT_TOKEN: 'x' }, '/wt/.preview');
   assert.deepEqual(env, { PATH: '/usr/bin', HOME: '/home/me', AVEN_DIR: '/wt/.preview' });
+});
+
+test('a GitHub App instead of a token: its settings pass through, the template\'s empty GITHUB_TOKEN stays empty (the bot then mints per turn, scoped to the project\'s repo)', () => {
+  const op = { CLAUDE_CODE_OAUTH_TOKEN: 't', PREVIEW_REPO: 'acme/scratch', GITHUB_APP_ID: '123', GITHUB_APP_PRIVATE_KEY_PATH: '/home/me/app.pem' };
+  const env = parseEnvFile(files(buildPreview(T, op, O)).env);
+  assert.deepEqual([env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY_PATH, env.GITHUB_TOKEN ?? ''], ['123', '/home/me/app.pem', '']);
+  assert.deepEqual(buildPreview(T, { ...op, GITHUB_APP_PRIVATE_KEY_PATH: 'app.pem' }, O), { missing: ['GITHUB_TOKEN, or GITHUB_APP_ID with an absolute GITHUB_APP_PRIVATE_KEY_PATH'] }, 'a relative key path would resolve inside .preview/');
 });
