@@ -990,7 +990,9 @@ export const TOOLS = [
       'units over the per-day cap moved to days with room; source_days are the facts. unmapped = the umbrella\'s time no rule ' +
       'places, undecided = time not attributed yet with a candidate there: say both, never drop them silently. folded = a day\'s ' +
       'project time too small for a step of its own (its minutes count in the project\'s total, carried by its other rows); ' +
-      'moved_in/moved_out = units the per-day cap moved. cap = the month of `until`: handed in + these rows against the budget. ' +
+      'moved_in/moved_out = units the per-day cap moved. range (a sheet with monthRange) = the month of `until`: handed in + ' +
+      'these rows; "scaled" = the rows were shrunk to its max (computed_units on a changed row, dropped = rows that went to ' +
+      'zero), "below" = under its min by below_by — say it, never pad. cap (no range) = handed in + these rows against the budget. ' +
       `since/until: YYYY-MM-DD, each a whole day in ${ZONE_DOC}; default: this month so far. Quote the numbers; never recompute them.`,
     inputSchema: {
       type: 'object',
@@ -2238,6 +2240,34 @@ export function layoutSheet(rows, sheet, window) {
   return { rows: out, shifted, ...(folded.length ? { folded } : {}), ...(over.length ? { over_cap_days: over } : {}) };
 }
 
+/**
+ * A month's rows shrunk to `target` units (the sheet's `monthRange.max`): each row keeps its share, in whole steps by
+ * largest remainder (ties: the bigger row, then the earlier day); a row that ends at zero is dropped and said. Never
+ * grows a row — a month below the range is reported, not padded.
+ */
+export function fitToTotal(rows, target, step) {
+  const steps = rows.map((r) => Math.round(r.units / step));
+  const total = steps.reduce((a, b) => a + b, 0);
+  const goal = Math.max(0, Math.round(target / step));
+  if (total <= goal) return { rows, dropped: [] };
+  const exact = steps.map((x) => (x * goal) / total);
+  const next = exact.map((x) => Math.floor(round6(x)));
+  let left = goal - next.reduce((a, b) => a + b, 0);
+  const order = rows.map((_, i) => i).sort((a, b) => round6(exact[b] - next[b]) - round6(exact[a] - next[a]) || steps[b] - steps[a] || rows[a].date.localeCompare(rows[b].date));
+  for (const i of order) {
+    if (left <= 0) break;
+    next[i]++;
+    left--;
+  }
+  const out = [];
+  const dropped = [];
+  rows.forEach((r, i) => {
+    if (!next[i]) dropped.push({ date: r.date, project: r.project, units: r.units });
+    else out.push(next[i] === steps[i] ? r : { ...r, units: round6(next[i] * step), computed_units: r.units });
+  });
+  return { rows: out, dropped };
+}
+
 const EVIDENCE_PER_ROW = 12;
 
 /** The handed-in periods of one sheet, and the day test for them. */
@@ -2293,6 +2323,24 @@ export function runTimesheet(db, args, now = new Date()) {
     else if (!e.initiative && (e.candidates ?? []).some((c) => umbrellaIds.has(c))) undecided.push({ date: e.day, minutes: e.minutes, confidence: e.confidence, candidates: e.candidates });
   }
   const laid = layoutSheet(raw, sheet, { since, until, blocked: skip });
+  // The month of `until`: what was handed in, and — with the sheet's `monthRange` — the month's rows shrunk to its max.
+  const month = until.slice(0, 7);
+  const submittedInMonth = round6(sub.periods.flatMap((p) => p.rows).filter((r) => r.date.startsWith(month)).reduce((a, r) => a + r.units, 0));
+  const inMonth = (r) => r.date.startsWith(month);
+  const computedInMonth = round6(laid.rows.filter(inMonth).reduce((a, r) => a + r.units, 0));
+  let range;
+  if (sheet.monthRange) {
+    const { min, max } = sheet.monthRange;
+    let dropped = [];
+    if (max !== undefined) {
+      const fit = fitToTotal(laid.rows.filter(inMonth), Math.max(0, max - submittedInMonth), sheet.step);
+      laid.rows = [...laid.rows.filter((r) => !inMonth(r)), ...fit.rows].sort((a, b) => a.date.localeCompare(b.date) || b.units - a.units || a.project.localeCompare(b.project));
+      dropped = fit.dropped;
+    }
+    const total = round6(submittedInMonth + laid.rows.filter(inMonth).reduce((a, r) => a + r.units, 0));
+    const status = max !== undefined && total < round6(submittedInMonth + computedInMonth) ? 'scaled' : min !== undefined && total < min ? 'below' : 'within';
+    range = { month, ...sheet.monthRange, submitted: submittedInMonth, computed: computedInMonth, total, status, ...(status === 'below' ? { below_by: round6(min - total) } : {}), ...(dropped.length ? { dropped } : {}) };
+  }
   const byProject = {};
   for (const r of laid.rows) {
     const p = (byProject[r.project] ??= { units: 0, minutes: 0 });
@@ -2301,11 +2349,9 @@ export function runTimesheet(db, args, now = new Date()) {
   }
   const rows = laid.rows.map((r) => ({ ...r, evidence: r.evidence.slice(0, EVIDENCE_PER_ROW), ...(r.evidence.length > EVIDENCE_PER_ROW ? { more_evidence: r.evidence.length - EVIDENCE_PER_ROW } : {}) }));
   const units = round6(rows.reduce((a, r) => a + r.units, 0));
-  // The month of `until` against the umbrella's budget, when its unit is the sheet's: what was handed in plus these rows.
-  const month = until.slice(0, 7);
-  const budget = parseJson(meta.budgets || '[]', []).find((b) => b.umbrella === sheet.umbrella && b.unit === sheet.unit);
+  // Without a range: the month against the umbrella's budget, when its unit is the sheet's — handed in plus these rows.
+  const budget = sheet.monthRange ? undefined : parseJson(meta.budgets || '[]', []).find((b) => b.umbrella === sheet.umbrella && b.unit === sheet.unit);
   const capUnits = budget ? (budget.overrides?.[month] ?? budget.perMonth) : undefined;
-  const submittedInMonth = round6(sub.periods.flatMap((p) => p.rows).filter((r) => r.date.startsWith(month)).reduce((a, r) => a + r.units, 0));
   const rowsInMonth = round6(rows.filter((r) => r.date.startsWith(month) && !sub.covered(r.date)).reduce((a, r) => a + r.units, 0));
   return {
     sheet: sheet.id,
@@ -2329,6 +2375,7 @@ export function runTimesheet(db, args, now = new Date()) {
     ...(undecided.length ? { undecided } : {}),
     ...(sub.periods.length ? { submitted: sub.periods.map((p) => ({ id: p.id, since: p.since, until: p.until, units: round6(p.rows.reduce((a, r) => a + r.units, 0)), ...(p.submitted_at ? { submitted_at: p.submitted_at } : {}) })) } : {}),
     ...(sub.errors.length ? { submitted_errors: sub.errors } : {}),
+    ...(range ? { range } : {}),
     ...(capUnits !== undefined ? { cap: { month, cap: capUnits, submitted: submittedInMonth, rows: rowsInMonth, left: round6(capUnits - submittedInMonth - rowsInMonth) } } : {}),
     ...(since < meta.since || until > meta.until ? { note: `outside the computed horizon ${meta.since}..${meta.until}: days there have no fragments` } : {}),
   };

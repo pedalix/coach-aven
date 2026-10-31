@@ -33,6 +33,7 @@ the day's wall-clock scaling is exactly the timelog's and a sheet's minutes neve
       "who": "Jane", "dateFormat": "DD/MM/YYYY",
       "comment": { "language": "en", "style": "one line, what was done" },
       "layout": { "weekends": "shift", "maxUnitsPerDay": 2 },
+      "monthRange": { "min": 24, "max": 30 },  // what a calendar month should bill (optional)
       "projects": [                            // first match wins
         { "initiative": "northwind/shop", "match": { "keys": ["NS"] }, "project": "shop-north" },
         { "initiative": "northwind/shop", "match": { "keys": ["SS"] }, "project": "shop-south" },
@@ -73,7 +74,8 @@ Non-billable initiatives (no billing code) never enter a sheet; a split across u
   "totals": { "units": 5, "minutes": 310, "by_project": { … } },
   "folded": [ … ], "unmapped": [ … ], "undecided": [ … ], "over_cap_days": [ … ],
   "submitted": [ { "id": "nw-1", "since": "…", "until": "…", "units": 30 } ],
-  "cap": { "month": "2026-10", "cap": 70, "submitted": 30, "rows": 5, "left": 35 } }
+  "cap": { "month": "2026-10", "cap": 70, "submitted": 30, "rows": 5, "left": 35 } }   // or, with monthRange:
+  // "range": { "month": "2026-10", "min": 24, "max": 30, "submitted": 0, "computed": 34, "total": 30, "status": "scaled" }
 ```
 
 Days inside a submitted period of the sheet are left out of the rows (and are never a layout target) unless
@@ -92,6 +94,10 @@ language and style and lays the table out in `columns` order.
    nearest weekday with room (outside the window, submitted days and — when shifting — weekends are no targets),
    preferring a day the same project already has; a row made by the cap carries the evidence it came from. No room
    anywhere → `over_cap_days`, never dropped.
+4. Month range (`monthRange`), on the month of `until` after what was handed in: above `max` the month's rows shrink
+   to it — each keeps its share in whole steps by largest remainder, a shrunk row carries `computed_units`, a row at zero
+   is listed as dropped; below `min` the readout says by how much. It never pads: billing above the measured time is
+   the person's call, made in the sheet, not in the platform.
 A sheet with any move says `layout: "shifted"`; the rows' dates are then a layout of the work, `source_days` the facts.
 
 ## `ledger/submitted.jsonl`
@@ -107,5 +113,5 @@ computed month, so the person sees computed against billed. Without a period the
 ## Not doing
 
 No comment writing in the platform, no spreadsheet API, no new attribution rules from sheet answers (a mapping the
-person corrects becomes a `projects` rule in `sheets.json`, committed by the tenant's tooling), no monthly cap applied
-to the rows (`cap` reports; the person decides what to bill).
+person corrects becomes a `projects` rule in `sheets.json`, committed by the tenant's tooling), no padding of a month
+below its range and no budget cap applied to the rows (`cap` reports; `monthRange` is the sheet's own choice).

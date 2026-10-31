@@ -15,6 +15,9 @@
 //       "who": "Jane", "dateFormat": "DD/MM/YYYY",
 //       "comment": { "language": "en", "style": "one line, what was done" },   for the agent: the platform writes none
 //       "layout": { "weekends": "keep" | "shift", "maxUnitsPerDay": 2 },
+//       "monthRange": { "min": 24, "max": 30 },   units a calendar month should bill: above max the month's rows
+//                                                 shrink to it (largest remainder), below min the readout says by how
+//                                                 much — it never pads
 //       "projects": [ rules, first match wins ] } ] }
 //
 // A rule maps evidence to one sheet project — exactly one of:
@@ -50,6 +53,7 @@ export interface Sheet {
   dateFormat: (typeof DATE_FORMATS)[number];
   comment: { language: string; style?: string };
   layout: { weekends: 'keep' | 'shift'; maxUnitsPerDay?: number };
+  monthRange?: { min?: number; max?: number };
   projects: SheetRule[];
 }
 
@@ -137,7 +141,7 @@ export function parseSheets(raw: unknown, registry: RegistryData, where = 'annot
     if (seen.has(s.id)) throw new Error(`${w0}: sheet "${s.id}" is defined twice`);
     seen.add(s.id);
     const w = `${where}: sheet "${s.id}"`;
-    unknownKeys(s, ['id', 'umbrella', 'unit', 'unitMinutes', 'step', 'columns', 'who', 'dateFormat', 'comment', 'layout', 'projects'], w);
+    unknownKeys(s, ['id', 'umbrella', 'unit', 'unitMinutes', 'step', 'columns', 'who', 'dateFormat', 'comment', 'layout', 'monthRange', 'projects'], w);
     if (typeof s.umbrella !== 'string' || !s.umbrella) throw new Error(`${w}: "umbrella" is required`);
     const umbrella = s.umbrella;
     const umbrellaIds = new Set(registry.initiatives.filter((x) => x.umbrella === umbrella).map((x) => x.id));
@@ -172,7 +176,18 @@ export function parseSheets(raw: unknown, registry: RegistryData, where = 'annot
     const unit = s.unit;
     const step = (s.step as number | undefined) ?? (unit === 'half_day' ? 0.5 : 0.1);
     const max = l.maxUnitsPerDay as number | undefined;
-    if (max !== undefined && Math.abs(max / step - Math.round(max / step)) > 1e-9) throw new Error(`${w}.layout: "maxUnitsPerDay" must be a multiple of "step" (${step})`);
+    const onStep = (x: number) => Math.abs(x / step - Math.round(x / step)) < 1e-9;
+    if (max !== undefined && !onStep(max)) throw new Error(`${w}.layout: "maxUnitsPerDay" must be a multiple of "step" (${step})`);
+    let monthRange: Sheet['monthRange'];
+    if (s.monthRange !== undefined) {
+      const r = s.monthRange;
+      if (!isObj(r)) throw new Error(`${w}: "monthRange" must be an object like {"min": 24, "max": 30}`);
+      unknownKeys(r, ['min', 'max'], `${w}.monthRange`);
+      for (const k of ['min', 'max'] as const) if (r[k] !== undefined && (typeof r[k] !== 'number' || !Number.isFinite(r[k] as number) || (r[k] as number) < 0 || !onStep(r[k] as number))) throw new Error(`${w}.monthRange: "${k}" must be a number ≥ 0 and a multiple of "step" (${step})`);
+      if (r.min === undefined && r.max === undefined) throw new Error(`${w}.monthRange: give "min", "max" or both`);
+      if (r.min !== undefined && r.max !== undefined && (r.min as number) > (r.max as number)) throw new Error(`${w}.monthRange: "min" must not exceed "max"`);
+      monthRange = { ...(r.min !== undefined ? { min: r.min as number } : {}), ...(r.max !== undefined ? { max: r.max as number } : {}) };
+    }
     return {
       id: s.id,
       umbrella,
@@ -184,6 +199,7 @@ export function parseSheets(raw: unknown, registry: RegistryData, where = 'annot
       dateFormat: (s.dateFormat as Sheet['dateFormat'] | undefined) ?? 'YYYY-MM-DD',
       comment: { language: (c.language as string | undefined) ?? 'en', ...(c.style !== undefined ? { style: c.style as string } : {}) },
       layout: { weekends: (l.weekends as 'keep' | 'shift' | undefined) ?? 'keep', ...(max !== undefined ? { maxUnitsPerDay: max } : {}) },
+      ...(monthRange ? { monthRange } : {}),
       projects,
     };
   });

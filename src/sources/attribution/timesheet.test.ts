@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { openStore } from '../store.js';
 import { parseSheets, parseSubmitted, sheetsForStore } from './sheets.js';
-import { buildTimelog, layoutSheet, reconcile, repoTailMatches, runTimelog, runTimesheet, sheetEvidence, withSubmitted, type TlEvidence, type TsSheet } from '../../../snapshot/plain/sources-mcp.mjs';
+import { buildTimelog, fitToTotal, layoutSheet, reconcile, repoTailMatches, runTimelog, runTimesheet, sheetEvidence, withSubmitted, type TlEvidence, type TsSheet } from '../../../snapshot/plain/sources-mcp.mjs';
 
 const registry = {
   initiatives: [
@@ -54,6 +54,8 @@ test('sheets.json: defaults filled; every mistake names the sheet and the rule',
   bad({ ...northwindRaw, projects: [{ initiative: 'northwind/cms', match: { title: '(' }, project: 'x' }] }, /projects\[0\]\.match: "title" is not a valid regular expression/);
   bad({ ...acmeRaw, layout: { maxUnitsPerDay: 1.25 } }, /"maxUnitsPerDay" must be a multiple of "step" \(0\.5\)/);
   bad({ ...northwindRaw, who: undefined }, /the "who" column needs "who"/);
+  bad({ ...acmeRaw, monthRange: { min: 30, max: 24 } }, /"min" must not exceed "max"/);
+  bad({ ...acmeRaw, monthRange: { max: 24.25 } }, /"max" must be a number ≥ 0 and a multiple of "step"/);
   // the build stores a broken file as its error, never throws (the layer keeps building)
   assert.match((sheetsForStore('{"sheets": [{"id": "x"}]}', registry) as { error: string }).error, /sheet "x": "umbrella" is required/);
 });
@@ -155,6 +157,24 @@ test('layout: largest remainder per project, ties to the bigger row; the per-day
   assert.deepEqual(r4.rows.map((r) => r.date), ['2026-10-05']);
 });
 
+test('a month above its range shrinks to the max by largest remainder; nothing ever grows', () => {
+  const rows = [
+    { date: '2026-10-01', project: 'P5', units: 2 },
+    { date: '2026-10-02', project: 'P5', units: 2 },
+    { date: '2026-10-05', project: 'P3', units: 1 },
+    { date: '2026-10-06', project: 'AA', units: 0.5 },
+  ];
+  // 11 steps to 9: shares 3.27, 3.27, 1.64, 0.82 → floors 3, 3, 1, 0 and the two largest remainders (AA, P3) get a step
+  const fit = fitToTotal(rows, 4.5, 0.5);
+  assert.deepEqual(fit.rows.map((r) => [r.date, r.units, r.computed_units]), [['2026-10-01', 1.5, 2], ['2026-10-02', 1.5, 2], ['2026-10-05', 1, undefined], ['2026-10-06', 0.5, undefined]]);
+  assert.deepEqual(fit.dropped, []);
+  // 11 steps to 4: shares 1.45, 1.45, 0.73, 0.36 → P3 first, then the tie goes to the earlier day; AA ends at zero
+  const tight = fitToTotal(rows, 2, 0.5);
+  assert.deepEqual(tight.rows.map((r) => [r.date, r.units]), [['2026-10-01', 1], ['2026-10-02', 0.5], ['2026-10-05', 0.5]]);
+  assert.deepEqual(tight.dropped, [{ date: '2026-10-06', project: 'AA', units: 0.5 }]);
+  assert.equal(fitToTotal(rows, 10, 0.5).rows, rows, 'under the max: the same rows');
+});
+
 test('reconcile with what was handed in: submitted + open judge the cap; budgets without a period are untouched', () => {
   const budgets = [{ umbrella: 'acme', unit: 'half_day' as const, perMonth: 24, by: 'billing_code' as const }, { umbrella: 'northwind', unit: 'hour' as const, perMonth: 70 }];
   const entries = buildTimelog([
@@ -225,6 +245,27 @@ test('timesheet: rows with evidence, unmapped and undecided said, handed-in days
     const rec = runTimelog(db, { since: '2026-10-01', until: '2026-10-31' }, NOW).reconciliation as { budgets: Array<Record<string, unknown>> };
     assert.deepEqual([rec.budgets[0]!.submitted, rec.budgets[0]!.open, rec.budgets[0]!.committed, rec.budgets[0]!.remaining], [30, 6.2, 36.2, 33.8], 'open: the budget counts the unmapped CMS hour too — it is billable time');
     assert.equal(rec.budgets[1]!.submitted, undefined, 'acme has no handed-in period');
+  } finally {
+    db.close();
+  }
+});
+
+test('timesheet: monthRange shrinks the month to its max and says what moved; below its min it says by how much', () => {
+  const ranged = { ...acmeRaw, monthRange: { min: 2, max: 2.5 } };
+  const frags = [
+    frag('a1', '2026-10-05T06:00:00Z', '2026-10-05T14:00:00Z', 'acme/p1', { title: 'security review' }), // 2 half-days
+    frag('a2', '2026-10-06T06:00:00Z', '2026-10-06T10:00:00Z', 'acme/p3', { title: 'portfolio scorecard' }), // 1
+    frag('a3', '2026-10-07T06:00:00Z', '2026-10-07T08:00:00Z', 'acme/p3', { title: 'portfolio write-up' }), // 0.5
+  ];
+  const db = storeWith({ 'att:sheets': JSON.stringify(sheetsForStore(JSON.stringify({ sheets: [ranged] }), registry)), 'att:budgets': JSON.stringify([{ umbrella: 'acme', unit: 'half_day', perMonth: 24 }]) }, frags);
+  try {
+    const out = runTimesheet(db, { since: '2026-10-01', until: '2026-10-31' }, NOW);
+    assert.equal(out.totals!.units, 2.5);
+    assert.deepEqual(out.range, { month: '2026-10', min: 2, max: 2.5, submitted: 0, computed: 3.5, total: 2.5, status: 'scaled' });
+    assert.ok(out.rows!.some((r) => r.computed_units !== undefined), 'a shrunk row says what it was');
+    assert.equal(out.cap, undefined, 'a range replaces the budget line');
+    const below = runTimesheet(db, { since: '2026-10-07', until: '2026-10-31' }, NOW);
+    assert.deepEqual([below.range!.status, below.range!.below_by, below.totals!.units], ['below', 1.5, 0.5], 'never padded');
   } finally {
     db.close();
   }

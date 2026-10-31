@@ -213,9 +213,10 @@ export interface TsSheet {
   dateFormat: string;
   comment: { language: string; style?: string };
   layout: { weekends: 'keep' | 'shift'; maxUnitsPerDay?: number };
+  monthRange?: { min?: number; max?: number };
   projects: Array<{ project?: string; projectFrom?: 'billing_code'; sameDay?: true; initiatives?: string[]; match?: { keys?: string[]; repos?: string[]; containers?: string[]; title?: string } }>;
 }
-export interface TsRow { date: string; project: string; units: number; minutes: number; source_days?: string[]; moved_in?: Array<{ from: string; units: number }>; moved_out?: number; evidence: Array<Record<string, unknown>>; more_evidence?: number }
+export interface TsRow { date: string; project: string; units: number; computed_units?: number; minutes: number; source_days?: string[]; moved_in?: Array<{ from: string; units: number }>; moved_out?: number; evidence: Array<Record<string, unknown>>; more_evidence?: number }
 export function repoTailMatches(pattern: string, container: string | null | undefined): boolean;
 export function sheetEvidence(evidence: TlEvidence[], sheet: TsSheet, reg: Record<string, { umbrella?: string; billing_code?: string; alias_of?: string; split_into?: Record<string, number> }>, dayOf: (iso: string) => string): TlEvidence[];
 export function layoutSheet(
@@ -231,6 +232,7 @@ export function withSubmitted<R extends ReturnType<typeof reconcile>>(
   sheets: Array<{ id: string; umbrella: string }>,
   periods: Array<{ id: string; sheet: string; since: string; until: string; rows: Array<{ date: string; units: number }> }>,
 ): R;
+export function fitToTotal<T extends { date: string; project: string; units: number }>(rows: T[], target: number, step: number): { rows: Array<T & { computed_units?: number }>; dropped: Array<{ date: string; project: string; units: number }> };
 export function runTimesheet(db: unknown, args: { sheet?: string; since?: string; until?: string; include_submitted?: boolean }, now?: Date): Record<string, unknown> & {
   configured?: false;
   error?: string;
@@ -243,6 +245,7 @@ export function runTimesheet(db: unknown, args: { sheet?: string; since?: string
   over_cap_days?: Array<{ date: string; units: number }>;
   submitted?: Array<{ id: string; since: string; until: string; units: number; submitted_at?: string }>;
   cap?: { month: string; cap: number; submitted: number; rows: number; left: number };
+  range?: { month: string; min?: number; max?: number; submitted: number; computed: number; total: number; status: 'within' | 'scaled' | 'below'; below_by?: number; dropped?: Array<{ date: string; project: string; units: number }> };
 };
 export function runTimelog(db: unknown, args: { since?: string; until?: string }, now?: Date): Record<string, unknown> & { configured?: false; total_minutes?: number; totals?: { initiative: string; minutes: number }[]; days?: Array<{ day: string; minutes: number; entries: Array<Record<string, unknown>> }> };
 export function handleMessage(msg: unknown, dbPath: string): Record<string, unknown> | undefined;

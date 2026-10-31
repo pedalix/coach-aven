@@ -794,14 +794,18 @@ evidence the agent writes the one-line comment from — the platform writes no c
 project's period total equal to its rounded total (largest remainder); time too small for a step on a day is `folded`
 into the project's other rows. Weekend work moves to Friday (Saturday) or Monday (Sunday) when the sheet says
 `shift`; units over the per-day cap move a step at a time to the nearest weekday with room (`moved_in` /
-`moved_out`); `source_days` keep the facts. `unmapped` (the umbrella's billable time no rule places) and `undecided`
-(time not attributed yet with a candidate in the umbrella) are listed, never dropped.
+`moved_out`); `source_days` keep the facts. `monthRange: {min, max}` is what a calendar month should bill: above
+`max` the month's rows shrink to it (each row keeps its share, largest remainder; a shrunk row carries
+`computed_units`, rows that reach zero are listed), below `min` the readout says by how much and never pads.
+`unmapped` (the umbrella's billable time no rule places) and `undecided` (time not attributed yet with a candidate in
+the umbrella) are listed, never dropped.
 
 **What was handed in**: `ledger/submitted.jsonl` in the tenant repository, one line per handed-in sheet period
 `{id, sheet, since, until, submitted_at?, by?, rows: [{date, project, units, comment?}]}` (the last line per id wins;
 a bad line is named and skipped). Written by the tenant's tooling when the person says the sheet went out — the
 platform only reads it. `timesheet` leaves those days out (and never lays units onto them) unless
-`include_submitted`, and reports `cap` for the month of `until`: handed in + its rows against the umbrella's budget.
+`include_submitted`, and reports the month of `until`: `range` (handed in + its rows against `monthRange`) or, without
+one, `cap` (against the umbrella's budget).
 The `timelog` reconciliation then carries, for a budget whose sheet has a period in the month, `submitted`, `open`
 (the budget's own units over the days no period covers) and `committed`, and judges `remaining` on `committed`.
 Both files are read at build into the store (`att:sheets`, `att:submitted`); a broken `sheets.json` is stored as its

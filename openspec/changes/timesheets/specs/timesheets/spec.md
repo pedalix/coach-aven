@@ -41,6 +41,10 @@ keep each row's source days.
 - **WHEN** a sheet with `"weekends": "shift"` has 3 half-days of one code on a Saturday
 - **THEN** they appear on the adjacent Friday (or the next weekdays with room under the cap) with `source_days` naming the Saturday
 
+#### Scenario: A month above its range
+- **WHEN** a sheet with `"monthRange": {"min": 24, "max": 30}` computes 34 half-days for the month and none were handed in
+- **THEN** the rows total 30, each keeping its share, and the readout says the month was scaled from 34
+
 #### Scenario: A day over the cap
 - **WHEN** a sheet with `"maxUnitsPerDay": 2` has 4 half-days on a Monday and no other day of the month is full
 - **THEN** the Monday keeps 2 and the other 2 move to the nearest weekdays with room, the period total unchanged
