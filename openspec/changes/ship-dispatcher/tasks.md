@@ -25,7 +25,7 @@
 ## 4. Preview (`src/preview.ts`, `src/previewcli.ts`)
 
 - [x] 4.1 Pure builder (design D10): from the real `quickstart/.env.example` and `quickstart/projects.config.example.json` plus a `preview.env` map → `.env` text (credit, `GITHUB_TOKEN` from `preview.env`; `WEB_AUTH=none`, `WEB_BIND=127.0.0.1`, port, base URL, `AVEN_DIR`/`AVEN_DATA_DIR`, `pv-<branch-slug>-` prefix, `coach-aven-preview` label; `SANDBOX_IMAGE` override) and projects config (`demo` on `PREVIEW_REPO`). Verify: `src/preview.test.ts` reads the real templates — *First preview on a machine*; *Missing operator file* (names the missing keys); the output has no `SLACK_`/`TEAMS_`/`HUB_`/`YOUTRACK_` key; branch `fix/thread` → prefix `pv-fix-thread-`.
-- [ ] 4.2 `npm run preview`: read `~/.config/coach-aven/preview.env` (refuse naming the file/keys when absent), first free port from 8790, write `.preview/.env` + `.preview/projects.config.json` each start, default sandbox image = plain image of the newest release tag, detached `tsx src/cli.ts web` with `AVEN_DIR=<wt>/.preview`, pid + log files, wait for `Web chat running`, print the URL. Verify: in a worktree, `npm run preview` → `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8790` answers; a turn in `demo` creates `pv-<branch>-proj-demo` and answers about the scratch repo; a second worktree gets 8791.
+- [x] 4.2 `npm run preview`: read `~/.config/coach-aven/preview.env` (refuse naming the file/keys when absent), first free port from 8790, write `.preview/.env` + `.preview/projects.config.json` each start, default sandbox image = plain image of the newest release tag, detached `tsx src/cli.ts web` with `AVEN_DIR=<wt>/.preview`, pid + log files, wait for `Web chat running`, print the URL. Verify: in a worktree, `npm run preview` → `curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8790` answers; a turn in `demo` creates `pv-<branch>-proj-demo` and answers about the scratch repo; a second worktree gets 8791.
 - [x] 4.3 `npm run preview -- stop [--clean]`: kill the pid, remove `pv-<branch-slug>-*` containers, keep `.preview/` unless `--clean`. Verify: after stop, the port is free and `docker ps -a --filter name=^pv-` lists none of the branch's containers; home's `proj-*` containers unchanged.
 - [x] 4.4 `.gitignore`: `.preview/`. Verify: `git check-ignore .preview/bot.log`.
 
@@ -45,5 +45,5 @@
 
 ## Workflow follow-up
 
-- Operator (not in this repo): `STAGE` in each ops overlay (home 1, staging 2, prod 3); local guard hook denies direct deploys and asks before a release-stage `ship` (design D11); `~/.config/coach-aven/preview.env` with the credit, a fine-grained token on the scratch repo and `PREVIEW_REPO`.
+- Operator (not in this repo): `STAGE` in each ops overlay (home 1, staging 2, prod 3); local guard hook denies direct deploys and asks before a release-stage `ship` (design D11); `~/.config/coach-aven/preview.env` with the credit, the GitHub App (or a fine-grained token) reaching the scratch repo, and `PREVIEW_REPO`.
 - First runs per the Migration Plan in design.md; then `/opsx:archive`.

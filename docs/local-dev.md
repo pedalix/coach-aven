@@ -97,12 +97,15 @@ data, so a live node beside it is never touched.
 
    ```bash
    CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-…   # or ANTHROPIC_API_KEY=…
-   GITHUB_TOKEN=github_pat_…                # fine-grained: ONLY the scratch repository; Contents + Pull requests: read and write; an expiry
    PREVIEW_REPO=your-org/scratch            # a repository you can let an agent push to
+   # GitHub access, either:
+   GITHUB_APP_ID=123456                     # your GitHub App, installed on the scratch repository's owner,
+   GITHUB_APP_PRIVATE_KEY_PATH=/abs/app.pem #   with an absolute key path
+   # GITHUB_TOKEN=github_pat_…              # or a fine-grained token: the scratch repository only, Contents + Pull requests: read and write
    ```
 
-   Use a fine-grained token on a scratch repository rather than a GitHub App: an App token reaches every repository
-   of its installation, so a preview agent could push to real ones. Any other key in the file overrides the
+   Either way a preview agent reaches the scratch repository only: the bot mints an App's installation token before
+   every turn, scoped to the project's repositories (`src/github.ts`). Any other key in the file overrides the
    quickstart's (`CLAUDE_MODEL`, `SANDBOX_IMAGE`, …), except the ones a preview may not carry (Slack, Teams, hub,
    tracker, error tracker) and the ones it sets itself (web chat, port, sandbox prefix, directories).
 2. `npm run preview` → `http://127.0.0.1:8790` (the first free port from 8790, so a second worktree gets 8791). No

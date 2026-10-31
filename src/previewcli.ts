@@ -39,7 +39,7 @@ async function start(root: string, branch: string, dir: string): Promise<number>
     return 0;
   }
   const envPath = process.env.PREVIEW_ENV || `${homedir()}/.config/coach-aven/preview.env`;
-  const needed = 'CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY), GITHUB_TOKEN (fine-grained, the scratch repository only), PREVIEW_REPO=<owner/repo>';
+  const needed = 'CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY), GITHUB_APP_ID + an absolute GITHUB_APP_PRIVATE_KEY_PATH (or a fine-grained GITHUB_TOKEN on the scratch repository), PREVIEW_REPO=<owner/repo>';
   if (!existsSync(envPath)) return console.error(`✗ no ${envPath} — create it with ${needed} (docs/local-dev.md → Preview)`), 1;
 
   // A worktree commit has no published image: the plain sandbox image of the newest release, unless preview.env names one.

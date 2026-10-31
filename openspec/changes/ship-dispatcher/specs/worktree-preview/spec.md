@@ -18,14 +18,14 @@ Running a worktree's code as a private web-chat bot on a scratch project, on the
 - **THEN** the second listens on 8791
 
 ### Requirement: A preview is the quickstart's installation on a scratch project
-A preview SHALL build its settings from the repository's quickstart templates (`quickstart/.env.example`, `quickstart/projects.config.example.json`) and the operator's `~/.config/coach-aven/preview.env`, which supplies the Claude credit, the GitHub token and `PREVIEW_REPO`, the scratch repository of the `demo` project.
+A preview SHALL build its settings from the repository's quickstart templates (`quickstart/.env.example`, `quickstart/projects.config.example.json`) and the operator's `~/.config/coach-aven/preview.env`, which supplies the Claude credit, the GitHub access (a GitHub App or a token, reaching the scratch repository only) and `PREVIEW_REPO`, the scratch repository of the `demo` project.
 
 #### Scenario: First preview on a machine
-- **WHEN** `preview.env` names a credit, a token and `PREVIEW_REPO=acme/scratch`
+- **WHEN** `preview.env` names a credit, a GitHub App or token and `PREVIEW_REPO=acme/scratch`
 - **THEN** the preview's only project is `demo` on `acme/scratch`, with the quickstart's unprivileged sandbox settings
 
 #### Scenario: Missing operator file
-- **WHEN** `~/.config/coach-aven/preview.env` does not exist or lacks one of the three values
+- **WHEN** `~/.config/coach-aven/preview.env` does not exist or lacks the credit, the GitHub access or `PREVIEW_REPO`
 - **THEN** nothing starts, and the message names the file and the missing keys
 
 ### Requirement: A preview reads nothing from an installation
