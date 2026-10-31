@@ -32,7 +32,7 @@ The words these docs use, each in a sentence or two.
 - **Socket Mode.** The Slack connection the bot dials out on, so no public URL is needed. Teams dials in, so it needs one.
 - **DinD and Sail.** Docker inside the sandbox, so that a Laravel Sail stack can run there. The plain sandbox image has none.
 - **Quickstart.** The trial installation in `quickstart/`: the web chat and unprivileged local sandboxes, driven by
-  one script, `./coach-aven` (`init`, `up`, `uninstall`; [`quickstart.md`](quickstart.md)).
+  one command, `quickstart/coach-aven up` ([`quickstart.md`](quickstart.md)).
 - **CoachAven and `aven`.** The product is CoachAven everywhere people read it, the agent's own voice included. Two
   names keep the short form on purpose, because renaming them would break what installations already have: the
   `/aven` command (an installed Slack slash command) and the `aven-` channel prefix (`SLACK_CHANNEL_PREFIX`).

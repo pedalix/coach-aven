@@ -213,7 +213,7 @@ tenant or a person lives in an installation's private ops repo ([`how-we-work.md
 
 ## Try it
 
-Docker, a GitHub token for one repository and a Claude subscription: the quickstart
+Docker and a Claude subscription: the quickstart
 ([`quickstart.md`](quickstart.md)) answers in a web chat in about three minutes of machine time, and Slack, then a
 server, grow from the same installation ([the README](../README.md#self-host-with-slack-or-teams)). The one-time admin steps and how long
 each takes are in [`how-we-work.md`](how-we-work.md), *Who does what*. Questions and feature

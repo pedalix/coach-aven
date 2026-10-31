@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isAuthFailure, intersectPermissions } from './github.js';
+import { apiHeaders, getGitHubToken, isAuthFailure, intersectPermissions } from './github.js';
+import type { Config } from './config.js';
 
 // Minimal stand-in for the bits of a fetch Response that isAuthFailure reads.
 const res = (status: number, rateRemaining?: string) => ({
@@ -53,4 +54,10 @@ test('intersect: no granted permissions → everything missing, nothing requeste
   const { permissions, missing } = intersectPermissions(DESIRED, undefined);
   assert.deepEqual(permissions, {});
   assert.deepEqual(missing.sort(), ['checks', 'contents', 'metadata', 'pull_requests']);
+});
+
+test('GITHUB_AUTH=none: no token to mint, and the API is asked without an Authorization header', async () => {
+  assert.equal(await getGitHubToken({ github: { kind: 'none' } } as Config, ['acme/shop']), '');
+  assert.deepEqual(apiHeaders(''), { Accept: 'application/vnd.github+json' });
+  assert.deepEqual(apiHeaders('ghs_x'), { Authorization: 'Bearer ghs_x', Accept: 'application/vnd.github+json' });
 });

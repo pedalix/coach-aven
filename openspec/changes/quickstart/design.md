@@ -188,6 +188,31 @@ repository and the compose project.
 Slack joins the same installation as a second surface (`CHAT_SURFACES=slack` and the two tokens, commented out in
 `.env.example`): no other path to Slack is documented for a newcomer, and running from source moves to `local-dev.md`.
 
+### D10. One command that asks; GitHub access optional (2026-10-31)
+D9's `init` + `up` was still two steps and two files to edit. Now `up` alone:
+- **Writes the machine every time** (D4's work, cheap on a rerun: images are pulled only when missing), so "rerun init
+  after moving the clone" and a stale socket group fix themselves.
+- **Asks only for what `.env` lacks**, at a terminal (or `QS_ASK=1`, answers on stdin): the Claude credit (Enter runs
+  `claude setup-token` from the sandbox image, then asks for the token it printed; `sk-ant-oat…` goes to
+  `CLAUDE_CODE_OAUTH_TOKEN`, any other `sk-ant-…` to `ANTHROPIC_API_KEY`), the repository on a new configuration (Enter:
+  the demo), a GitHub token (Enter: `GITHUB_AUTH=none`). Typed values are checked for their character set before they
+  are written, go into `.env` (mode 600) and are never printed. This relaxes D4's "never reads a credential": the
+  script reads `.env` to see what is missing; it still never prints one. Without a terminal, one line names what is
+  missing.
+- `init` and `setup-token` are gone: five commands are left (`up`, `link`, `logs`, `down`, `uninstall`). To change an
+  answer, edit `.env` or `projects.config.json` and run `up`; a token typed into `.env` later empties `GITHUB_AUTH`.
+
+**`GITHUB_AUTH=none` in the bot** (spec `github-access`). Without it, the bot cannot start without a GitHub credential,
+so a first look needed the clickiest step (a fine-grained token, ~10 clicks). With it: no token seeded (git reads public
+repositories anonymously, `gh` stays logged out), composer's `auth.json` skipped, the three REST reads unauthenticated
+(60 requests an hour, enough for a trial), and one paragraph in the system prompt — absent, every prompt is
+byte-identical (golden fixtures). Only the explicit value: an operated installation that forgets its token still stops
+at boot rather than turning read-only in silence. *Why not infer read-only from a missing token?* That silence.
+
+**The demo repository** is `pedalix/coachaven-quickstart-demo` (a calculator with tests, 4 KB, public): the first
+answer in seconds and cents of the visitor's credit, and the page's web screenshots come from it. *Why not this
+repository?* 11 MB of TypeScript: a slower, costlier first answer on someone else's credit.
+
 ## Risks / Trade-offs
 
 - **`WEB_AUTH=link` reaches people only with a release.** Until the next tag, the quickstart runs only from a `main` commit, as a canary (D4). The maintainer's measurement waits for the tag.

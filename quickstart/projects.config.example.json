@@ -2,8 +2,8 @@
   "projects": [
     {
       "slug": "demo",
-      "repos": ["your-org/your-repo"],
-      "systemPrompt": "This is a trial of CoachAven on one repository. Answer questions about the code, and open a pull request when asked for a change."
+      "repos": ["pedalix/coachaven-quickstart-demo"],
+      "systemPrompt": "This is a trial of CoachAven on one repository. Answer questions about the code, and make the change when asked for one."
     }
   ]
 }

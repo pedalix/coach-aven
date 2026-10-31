@@ -71,7 +71,8 @@ session was opened with, and an existing container keeps the `sandbox` options i
 | Variable | Default | What it does |
 |---|---|---|
 | `GITHUB_TOKEN` | — | A plain token (a PAT, `gh auth token`). Wins over the App when set; not repo-scoped. |
-| `GITHUB_APP_ID` | required unless `GITHUB_TOKEN` | The GitHub App whose installation tokens, scoped to a project's repos, are minted before every turn. |
+| `GITHUB_APP_ID` | required unless `GITHUB_TOKEN` or `GITHUB_AUTH=none` | The GitHub App whose installation tokens, scoped to a project's repos, are minted before every turn. |
+| `GITHUB_AUTH` | — | `none`: no GitHub access at all — public repositories cloned anonymously, no push, no pull requests, the API asked unauthenticated, and the agent told so (the quickstart's read-only trial). Only this value; refused beside `GITHUB_TOKEN` or `GITHUB_APP_ID`. Unset, a missing credential stops the boot as always. |
 | `GITHUB_APP_INSTALLATION_ID` | — (discovered from the repo owner) | Skips the installation lookup. |
 | `GITHUB_APP_PRIVATE_KEY_PATH` | — | The App's PEM file (relative = in `AVEN_DIR`). One of the two key settings is required with the App; the path wins. |
 | `GITHUB_APP_PRIVATE_KEY` | — | The PEM inline, `\n`-escaped. |

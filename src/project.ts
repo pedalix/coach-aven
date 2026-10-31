@@ -112,6 +112,13 @@ export async function seedGitHubAuth(
   ghLogin: GhLoginMode = routineGuard.enabled ? 'tolerant' : 'strict',
   retry: GitRetryOpts = {}, // tests inject the sleep; production uses gitretry's defaults
 ) {
+  if (!token) {
+    // GITHUB_AUTH=none (config.ts): nothing to seed — git reads public repositories anonymously, and gh stays
+    // logged out. The identity still goes in, so a local commit in the sandbox looks like every other one.
+    await sandbox.exec(`git config --global user.name "${GIT_NAME}"`, { check: true });
+    await sandbox.exec(`git config --global user.email "${GIT_EMAIL}"`, { check: true });
+    return;
+  }
   await sandbox.uploadFile(Buffer.from(token), '/root/.gh-token');
   await sandbox.exec('chmod 600 /root/.gh-token', { check: true });
   // git: credential helper that emits the token for github.com over https.

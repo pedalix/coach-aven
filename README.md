@@ -11,10 +11,10 @@ project, on hosts you own.**
 - The bot is a small TypeScript control plane with **no model calls of its own**: all the thinking happens in the
   sandboxes, on your model credit — a Claude subscription token to try it, an Anthropic API key for a team or clients.
 
-**Try it on one machine** — Docker, a GitHub account and a Claude subscription; no Slack, no registry, no
-privileged container: [`docs/quickstart.md`](docs/quickstart.md). Clone, `./coach-aven init your-org/your-repo`, two
-tokens, `./coach-aven up`, and the agent answers in a web chat on `localhost` in about three minutes of machine time.
-Slack beside it is two more tokens on the same installation.
+**Try it on one machine** — Docker and a Claude subscription; no GitHub token, Slack, registry or
+privileged container: [`docs/quickstart.md`](docs/quickstart.md). Clone, run `quickstart/coach-aven up`, paste a
+Claude token, and the agent answers in a web chat on `localhost` about our demo repository — or yours, with a GitHub
+token for its pull requests — in about three minutes of machine time. Slack beside it is two more tokens.
 
 <img alt="CoachAven in Slack: a teammate asks why voucher changes do not reach the shop; in the thread the agent opens a pull request that adds logging and a metric, the teammate merges it, and the agent cleans up and records what it learned (client names replaced)" src="docs/img/slack-investigation-pr.png" width="860">
 
@@ -88,7 +88,7 @@ One installation layout from the first try to production, so you grow it instead
 1. **Try it** — the quickstart: the web chat and local sandboxes ([`docs/quickstart.md`](docs/quickstart.md)).
 2. **Add Slack** — on the same installation: a Slack app from [`slack-app-manifest.json`](slack-app-manifest.json)
    (Socket Mode on), its bot token (`xoxb-…`) and app token (`xapp-…`) in `quickstart/.env` beside
-   `CHAT_SURFACES=slack`, then `./coach-aven up`. A channel named `aven-<slug>` drives the project `<slug>`;
+   `CHAT_SURFACES=slack`, then `quickstart/coach-aven up`. A channel named `aven-<slug>` drives the project `<slug>`;
    `@mention` the bot there, and its App Home tab lists every command and button
    ([`docs/quickstart.md`](docs/quickstart.md#going-on)). Microsoft Teams needs a public HTTPS endpoint and a bot
    identity from the `infra/teams/` Terraform module: [`docs/teams.md`](docs/teams.md).

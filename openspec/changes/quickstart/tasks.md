@@ -201,4 +201,20 @@
   line, *Self-host with Slack or Teams* as one path: trial → Slack → server), `docs/why.md`, `docs/glossary.md`,
   `docs/local-dev.md`, `docs/README.md`. Verify: `npm test`, `grep -rn init.sh` finds only archived changes.
 - [ ] 7.4 A rehearsal of the new steps in a fresh `docker:dind` (as 6.4), with Slack added once a test Slack app exists.
-  Verify: `init acme/…` → tokens → `up` prints the link → first answer → `uninstall` leaves nothing.
+  Verify: `up` → answers → the link → first answer → `uninstall` leaves nothing (see 8.5).
+
+## 8. One command that asks; GitHub access optional (design D10)
+
+- [x] 8.1 `GITHUB_AUTH=none` (spec `github-access`): `githubAuthNone` in `config.ts`, an empty token from
+  `getGitHubToken`, `seedGitHubAuth` seeds only the identity, composer auth skipped, `apiHeaders` without
+  `Authorization`, the prompt paragraph (`noGitHub`). Verify: `src/config.test.ts`, `src/github.test.ts`,
+  `src/project.test.ts`, `src/prompt.test.ts` (golden `single-repo-no-github`, the four others unchanged).
+- [x] 8.2 `quickstart/coach-aven up` writes the machine every run and asks for what `.env` lacks; `init` and
+  `setup-token` removed; the example points at `pedalix/coachaven-quickstart-demo`; `.env.example` carries
+  `# GITHUB_AUTH=none`. Verify: `src/quickstart.test.ts` (Enter twice, own repository and token, a rerun asks nothing,
+  a later token, no terminal, a bad repository, unpublished image, link).
+- [x] 8.3 The page, the README, troubleshooting, glossary, `why.md`, the Docker boot error and `configuration.md`
+  (`GITHUB_AUTH`). Verify: `npm test` (`configdocs.test.ts`), `grep -rn 'coach-aven init'` finds only the design.
+- [ ] 8.4 `pedalix/coachaven-quickstart-demo` public, its rehearsal PRs closed. Verify: an anonymous `git clone`.
+- [ ] 8.5 Task 7.4's rehearsal covers both paths: Enter twice (the demo, a question, a change shown as a diff) and the
+  person's repository with a token (a pull request).

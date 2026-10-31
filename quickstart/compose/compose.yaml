@@ -3,7 +3,7 @@
 # projects.config.json, the state and the bot's HOME live there — the same layout as an operated installation, whose
 # compose file sits in <installation directory>/compose/ too (infra/deploy/compose.yaml).
 #
-# Every ${…} comes from .env beside this file, which `../coach-aven init` writes from this machine: the image version of the
+# Every ${…} comes from .env beside this file, which `../coach-aven up` writes from this machine: the image version of the
 # clone's commit (its tag, or sha-<commit>; never `latest` — what runs must be nameable), your uid and gid (the
 # state stays yours, no sudo to clean up), the Docker socket's group as a container sees it, and the web port.
 #
@@ -12,40 +12,41 @@
 #                  siblings — root-equivalent on this machine, which is why the agent never runs in this container,
 #                  only in the unprivileged sandboxes.
 #
-#   setup-token    not started by `up` (a profile): `../coach-aven setup-token` runs `claude setup-token` in
-#                  the sandbox image, to get a subscription token without installing Claude Code.
+#   setup-token    a profile, never started by `docker compose up`: `../coach-aven up` runs it when you press Enter
+#                  at the Claude question — `claude setup-token` in the sandbox image, a subscription token
+#                  without installing Claude Code.
 #
 # The sandboxes run the published plain sandbox image of the same version as the bot
-# (ghcr.io/pedalix/coach-aven-sandbox-plain:${AVEN_VERSION}), pulled by `coach-aven init`; SANDBOX_IMAGE in compose/.env
-# (`coach-aven init` writes it when you set it) names another — a local build of snapshot/plain, say.
+# (ghcr.io/pedalix/coach-aven-sandbox-plain:${AVEN_VERSION}), pulled by `coach-aven up`; SANDBOX_IMAGE in compose/.env
+# (`coach-aven up` writes it when you set it) names another — a local build of snapshot/plain, say.
 # The sandboxes are not compose services: `docker compose down` leaves them. Uninstall in docs/quickstart.md.
 name: coach-aven-quickstart
 
 services:
   bot:
-    image: ghcr.io/pedalix/coach-aven:${AVEN_VERSION:?run ./coach-aven init first}
+    image: ghcr.io/pedalix/coach-aven:${AVEN_VERSION:?run ./coach-aven up first}
     command: ["web"]
-    user: "${AVEN_UID:?run ./coach-aven init first}:${AVEN_GID:?run ./coach-aven init first}"
+    user: "${AVEN_UID:?run ./coach-aven up first}:${AVEN_GID:?run ./coach-aven up first}"
     group_add:
-      - "${DOCKER_GID:?run ./coach-aven init first}"
+      - "${DOCKER_GID:?run ./coach-aven up first}"
     working_dir: /aven
     environment:
       AVEN_DIR: /aven
       HOME: /aven/home
       NODE_ENV: production
-      WEB_PORT: ${AVEN_WEB_PORT:?run ./coach-aven init first}
-      WEB_BASE_URL: http://localhost:${AVEN_WEB_PORT:?run ./coach-aven init first}
-      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/pedalix/coach-aven-sandbox-plain:${AVEN_VERSION:?run ./coach-aven init first}}
+      WEB_PORT: ${AVEN_WEB_PORT:?run ./coach-aven up first}
+      WEB_BASE_URL: http://localhost:${AVEN_WEB_PORT:?run ./coach-aven up first}
+      SANDBOX_IMAGE: ${SANDBOX_IMAGE:-ghcr.io/pedalix/coach-aven-sandbox-plain:${AVEN_VERSION:?run ./coach-aven up first}}
     volumes:
       - ..:/aven
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
-      - "127.0.0.1:${AVEN_WEB_PORT:?run ./coach-aven init first}:${AVEN_WEB_PORT:?run ./coach-aven init first}"
+      - "127.0.0.1:${AVEN_WEB_PORT:?run ./coach-aven up first}:${AVEN_WEB_PORT:?run ./coach-aven up first}"
     init: true
     stop_grace_period: 90s
     restart: unless-stopped
 
   setup-token:
-    image: ${SANDBOX_IMAGE:-ghcr.io/pedalix/coach-aven-sandbox-plain:${AVEN_VERSION:?run ./coach-aven init first}}
+    image: ${SANDBOX_IMAGE:-ghcr.io/pedalix/coach-aven-sandbox-plain:${AVEN_VERSION:?run ./coach-aven up first}}
     profiles: [tools]
     command: ["claude", "setup-token"]

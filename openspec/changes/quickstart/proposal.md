@@ -85,3 +85,6 @@ Otherwise none. The web chat's and the compose runtime's own specs belong to cha
 **Amendment 2026-10-31 (design D9):** one script, `quickstart/coach-aven`, replaces `init.sh` and the compose commands of
 the page (`init owner/repo`, `up` with the sign-in link, `link`, `logs`, `down`, `uninstall`); the page adds what to ask
 next and Slack on the same installation; the README's self-host section becomes one path, trial → Slack → server.
+**Amendment 2026-10-31 (design D10):** `up` is the one command — it writes the machine, asks only for what `.env` lacks
+(Claude credit; repository, default the public demo; GitHub token, default none) — and the bot gains `GITHUB_AUTH=none`
+(bucket 2, explicit only), so a first look needs a Claude token and Docker, nothing else.

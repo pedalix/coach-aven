@@ -1,30 +1,48 @@
 #!/bin/sh
-# CoachAven quickstart (docs/quickstart.md; OpenSpec quickstart D4, D9). Run it from anywhere:
+# CoachAven quickstart (docs/quickstart.md; OpenSpec quickstart D9, D10). Run it from anywhere:
 #
-#   ./coach-aven init [owner/repo]   set up this directory; with a repository, write it into projects.config.json
-#   ./coach-aven setup-token         get a Claude subscription token without installing Claude Code
-#   ./coach-aven up                  start (or restart, after an edit) the bot, then print the sign-in link
-#   ./coach-aven link                print the sign-in link of the running bot
-#   ./coach-aven logs                follow the bot's log
-#   ./coach-aven down                stop the bot (the sandbox stays, with your tokens: see uninstall)
-#   ./coach-aven uninstall           stop the bot, remove its sandboxes and the two images of this version
+#   ./coach-aven up          set up what is missing, ask for what .env lacks, start the bot, print the sign-in link
+#   ./coach-aven link        print the sign-in link of the running bot
+#   ./coach-aven logs        follow the bot's log
+#   ./coach-aven down        stop the bot (the sandbox stays, with your tokens: see uninstall)
+#   ./coach-aven uninstall   stop the bot, remove its sandboxes and the two images of this version
 #
-# `init` writes what it can learn from this machine and nothing you have to obtain:
-#   - .env and projects.config.json from their examples, only when they are missing (yours are never touched,
-#     except the `repos` line when you name a repository);
-#   - compose/.env, rewritten every time: the bot image of this clone's commit (its tag, else sha-<commit>),
-#     your uid and gid, the Docker socket's group as a container sees it, the web port (AVEN_WEB_PORT, 8787), and
-#     SANDBOX_IMAGE when you set it (another sandbox image than the published one of the same version);
-#   - the bot image and the sandbox image pulled, so the first answer does not wait for a download;
-#   - home/, the bot's HOME.
-# Nothing here reads, writes or prints a token.
+# `up` asks, in a terminal, only for what is missing: the Claude credit (Enter: get a subscription token now), the
+# repository on the first run (Enter: the public demo repository), and a GitHub token (Enter: none — the agent
+# answers questions and opens no pull requests). What you type goes into .env (mode 600) and is never printed. To
+# change an answer, edit .env or projects.config.json and run `up` again. Without a terminal, QS_ASK=1 reads the
+# answers from stdin, one per line.
+#
+# Every `up` also writes compose/.env from this machine — the bot image of this clone's commit (its tag, else
+# sha-<commit>; never `latest`), your uid and gid, the Docker socket's group as a container sees it, the web port
+# (AVEN_WEB_PORT, 8787) and SANDBOX_IMAGE when you set it — and pulls the two images when they are missing.
 set -eu
 
 here=$(cd "$(dirname "$0")" && pwd)
 cd "$here"
 
 compose() { docker compose -f "$here/compose/compose.yaml" --project-directory "$here/compose" "$@"; }
-need_init() { [ -f compose/.env ] || { echo "error: run ./coach-aven init first" >&2; exit 1; }; }
+need_setup() { [ -f compose/.env ] || { echo "error: run ./coach-aven up first" >&2; exit 1; }; }
+
+# .env, read and written by key; a value is one token of [A-Za-z0-9_-], checked before it is written.
+envval() { sed -n "s/^$1=//p" .env | tail -n 1 | tr -d "\"'" ; }
+setenv() {
+  awk -v k="$1" -v v="$2" 'BEGIN { done = 0 }
+    !done && ($0 ~ "^" k "=" || $0 ~ "^# " k "=") { print k "=" v; done = 1; next }
+    { print } END { if (!done) print k "=" v }' .env > .env.tmp
+  chmod 600 .env.tmp
+  mv .env.tmp .env
+}
+
+interactive() { [ "${QS_ASK:-}" = 1 ] || { [ -t 0 ] && [ -t 1 ]; }; }
+ask() { printf '%s' "$1" >&2; IFS= read -r answer || answer=; }
+ask_secret() {
+  printf '%s' "$1" >&2
+  stty -echo 2>/dev/null || true
+  IFS= read -r answer || answer=
+  stty echo 2>/dev/null || true
+  echo >&2
+}
 
 # The sign-in line of the bot's current start: the log keeps every earlier start's line, and only the newest key
 # signs in, so read the log from the moment the running container started.
@@ -35,26 +53,21 @@ signin() {
   compose logs --no-log-prefix --since "$since" bot 2>/dev/null | grep 'sign-in' | tail -n 1 | sed 's/.*sign-in: //'
 }
 
-init() {
+templates() {
+  fresh_config=
   for f in .env projects.config.json; do
     case $f in .env) src=.env.example ;; *) src=projects.config.example.json ;; esac
-    if [ -e "$f" ]; then
-      echo "kept     $f"
-    else
+    if [ ! -e "$f" ]; then
       cp "$src" "$f"
       chmod 600 "$f"
       echo "created  $f (from $src)"
+      if [ "$f" = projects.config.json ]; then fresh_config=1; fi
     fi
   done
-  if [ -n "${1:-}" ]; then
-    echo "$1" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || { echo "error: '$1' is not owner/repo" >&2; exit 1; }
-    grep -Eq '"repos": \[[^]]*\]' projects.config.json || { echo "error: no one-line \"repos\" in projects.config.json — edit it by hand" >&2; exit 1; }
-    sed -E "s#\"repos\": \[[^]]*\]#\"repos\": [\"$1\"]#" projects.config.json > projects.config.json.tmp
-    mv projects.config.json.tmp projects.config.json
-    echo "wrote    $1 into projects.config.json"
-  fi
   mkdir -p home
+}
 
+machine() {
   # The image of this very commit, so the bot and the sandbox's Dockerfile come from the same point.
   if tag=$(git describe --tags --exact-match 2>/dev/null); then
     version=$tag
@@ -62,7 +75,7 @@ init() {
     head=$(git rev-parse HEAD 2>/dev/null) || { echo "error: $here is not in a git clone of CoachAven — clone it (docs/quickstart.md, step 1)" >&2; exit 1; }
     version=sha-$head
     echo "warning: this clone is not at a release tag; using $version, the image of a main commit (a canary build)." >&2
-    echo "         For a release: git checkout \$(git describe --tags --abbrev=0) and rerun ./coach-aven init" >&2
+    echo "         For a release: git checkout \$(git describe --tags --abbrev=0) and rerun ./coach-aven up" >&2
   fi
   image=ghcr.io/pedalix/coach-aven:$version
 
@@ -72,15 +85,15 @@ init() {
     echo "       Check out a release (git checkout \$(git describe --tags --abbrev=0)) or main, and rerun." >&2
     exit 1
   }
-  # Both images now, so the first answer does not wait for a download.
-  echo "pulling  $image"
-  docker pull -q "$image" >/dev/null 2>&1 || unpublished "$image"
+  # Both images before the first answer, so it does not wait for a download; a rerun pulls nothing.
+  docker image inspect "$image" >/dev/null 2>&1 || { echo "pulling  $image"; docker pull -q "$image" >/dev/null 2>&1 || unpublished "$image"; }
   sandbox=${SANDBOX_IMAGE:-ghcr.io/pedalix/coach-aven-sandbox-plain:$version}
-  echo "pulling  $sandbox (the sandbox)"
-  case $sandbox in
-    ghcr.io/*) docker pull -q "$sandbox" >/dev/null 2>&1 || unpublished "$sandbox" ;;
-    *) docker image inspect "$sandbox" >/dev/null 2>&1 || { echo "error: no local image $sandbox — build it first" >&2; exit 1; } ;;
-  esac
+  if ! docker image inspect "$sandbox" >/dev/null 2>&1; then
+    case $sandbox in
+      ghcr.io/*) echo "pulling  $sandbox (the sandbox)"; docker pull -q "$sandbox" >/dev/null 2>&1 || unpublished "$sandbox" ;;
+      *) echo "error: no local image $sandbox — build it first" >&2; exit 1 ;;
+    esac
+  fi
 
   # The socket's group as a container sees it: on Docker Desktop the host's own `stat` reads a symlink, not that.
   docker_gid=$(docker run --rm --entrypoint stat -v /var/run/docker.sock:/var/run/docker.sock "$image" -c %g /var/run/docker.sock)
@@ -94,7 +107,7 @@ init() {
 
   port=${AVEN_WEB_PORT:-8787}
   cat > compose/.env <<ENV
-# Written by ../coach-aven init from this machine — rerun it rather than editing.
+# Written by ../coach-aven up from this machine — rerun it rather than editing.
 AVEN_VERSION=$version
 AVEN_UID=$(id -u)
 AVEN_GID=$(id -g)
@@ -102,17 +115,63 @@ DOCKER_GID=$docker_gid
 AVEN_WEB_PORT=$port
 ${SANDBOX_IMAGE:+SANDBOX_IMAGE=$SANDBOX_IMAGE}
 ENV
-  echo "wrote    compose/.env ($version, uid $(id -u), docker group $docker_gid, port $port)"
+}
 
-  echo
-  echo "Next:"
-  echo "  1. Fill CLAUDE_CODE_OAUTH_TOKEN and GITHUB_TOKEN in $here/.env (./coach-aven setup-token gets the first)"
-  [ -n "${1:-}" ] || echo "     and your repository in $here/projects.config.json (or rerun: ./coach-aven init owner/repo)."
-  echo "  2. ./coach-aven up"
+questions() {
+  repo=$(sed -n 's/.*"repos": \["\([^"]*\)".*/\1/p' projects.config.json | head -n 1)
+  # A token typed into .env later wins over an earlier "none": the bot refuses the two together.
+  if [ -n "$(envval GITHUB_TOKEN)" ] && [ -n "$(envval GITHUB_AUTH)" ]; then setenv GITHUB_AUTH ''; fi
+  missing=
+  [ -n "$(envval CLAUDE_CODE_OAUTH_TOKEN)$(envval ANTHROPIC_API_KEY)" ] || missing="$missing CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY),"
+  [ -n "$(envval GITHUB_TOKEN)$(envval GITHUB_AUTH)" ] || missing="$missing GITHUB_TOKEN (or GITHUB_AUTH=none),"
+  [ -n "$missing$fresh_config" ] || return 0
+  if ! interactive; then
+    [ -z "$missing" ] && return 0
+    echo "error: missing in $here/.env:${missing%,} — run ./coach-aven up in a terminal, or fill them in" >&2
+    exit 1
+  fi
+
+  if [ -z "$(envval CLAUDE_CODE_OAUTH_TOKEN)$(envval ANTHROPIC_API_KEY)" ]; then
+    ask_secret "Claude: paste a subscription token (sk-ant-oat…) or an API key, or press Enter to get a token now: "
+    if [ -z "$answer" ]; then
+      compose run --rm setup-token
+      ask_secret "Paste the token it printed: "
+    fi
+    echo "$answer" | grep -Eq '^sk-ant-[A-Za-z0-9_-]+$' || { echo "error: that is not a Claude token or key (sk-ant-…)" >&2; exit 1; }
+    case $answer in
+      sk-ant-oat*) setenv CLAUDE_CODE_OAUTH_TOKEN "$answer" ;;
+      *) setenv ANTHROPIC_API_KEY "$answer"; setenv CLAUDE_CODE_OAUTH_TOKEN '' ;;
+    esac
+    echo "saved    the Claude credit in .env" >&2
+  fi
+
+  if [ -n "$fresh_config" ]; then
+    ask "Repository the agent works on (owner/repo), or Enter for the demo $repo: "
+    if [ -n "$answer" ]; then
+      echo "$answer" | grep -Eq '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' || { echo "error: '$answer' is not owner/repo" >&2; rm -f projects.config.json; exit 1; }
+      sed -E "s#\"repos\": \[[^]]*\]#\"repos\": [\"$answer\"]#" projects.config.json > projects.config.json.tmp
+      mv projects.config.json.tmp projects.config.json
+      repo=$answer
+    fi
+  fi
+
+  if [ -z "$(envval GITHUB_TOKEN)$(envval GITHUB_AUTH)" ]; then
+    ask_secret "GitHub token for $repo (docs/quickstart.md, step 3), or Enter for none — questions only, no pull requests: "
+    if [ -n "$answer" ]; then
+      echo "$answer" | grep -Eq '^[A-Za-z0-9_]+$' || { echo "error: that is not a GitHub token" >&2; exit 1; }
+      setenv GITHUB_TOKEN "$answer"
+      echo "saved    the GitHub token in .env" >&2
+    else
+      setenv GITHUB_AUTH none
+      echo "saved    GITHUB_AUTH=none in .env: the agent reads $repo and opens no pull requests" >&2
+    fi
+  fi
 }
 
 up() {
-  need_init
+  templates
+  machine
+  questions
   # Always a fresh start: the bot reads .env and projects.config.json only when it starts.
   compose up -d --force-recreate
   echo "waiting for the sign-in link …"
@@ -128,7 +187,7 @@ up() {
 }
 
 uninstall() {
-  need_init
+  need_setup
   version=$(sed -n 's/^AVEN_VERSION=//p' compose/.env)
   sandbox=$(sed -n 's/^SANDBOX_IMAGE=//p' compose/.env)
   label=$(sed -n 's/^SANDBOX_MANAGED_BY=//p' .env 2>/dev/null)
@@ -142,12 +201,10 @@ uninstall() {
 }
 
 case ${1:-} in
-  init) shift; init "${1:-}" ;;
-  setup-token) need_init; compose run --rm setup-token ;;
   up) up ;;
-  link) need_init; url=$(signin) || url=; [ -n "$url" ] && echo "$url" || { echo "error: the bot is not running — ./coach-aven up" >&2; exit 1; } ;;
-  logs) need_init; compose logs -f bot ;;
-  down) need_init; compose down ;;
+  link) need_setup; url=$(signin) || url=; [ -n "$url" ] && echo "$url" || { echo "error: the bot is not running — ./coach-aven up" >&2; exit 1; } ;;
+  logs) need_setup; compose logs -f bot ;;
+  down) need_setup; compose down ;;
   uninstall) uninstall ;;
-  *) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; [ -z "${1:-}" ] || exit 1 ;;
+  *) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; [ -z "${1:-}" ] || exit 1 ;;
 esac

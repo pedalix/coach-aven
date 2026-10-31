@@ -33,6 +33,8 @@ export interface SystemPromptInputs {
   messagingSend?: boolean;
   // ProjectConfig.gitFlow; absent → "pr".
   gitFlow?: GitFlow;
+  // GITHUB_AUTH=none (config.ts): no GitHub access at all; absent → today's text, byte for byte.
+  noGitHub?: boolean;
   // The project's container options as resolved at boot (sandboxopts.ts) — `dind` gates the
   // toolchain paragraph, exactly as it gates the dockerd guard in prepareChat.
   sandbox: ResolvedSandboxOptions;
@@ -47,6 +49,15 @@ const GIT_HYGIENE =
   `https://github.com/<org>/<repo>.git remote and NEVER embed a token in a remote URL ` +
   `(no x-access-token:<token>@github.com): a baked-in token expires within the hour and ` +
   `breaks later pushes`;
+
+// GITHUB_AUTH=none: this installation reads public repositories anonymously and can push nothing — the
+// quickstart's read-only trial (OpenSpec quickstart D10). It overrides the flow's last step, not the flow.
+const NO_GITHUB =
+  `This installation has NO GitHub access: the repositories were cloned anonymously, nothing can be ` +
+  `pushed, no pull request can be opened, and gh is not logged in. Answer questions as usual. When asked ` +
+  `for a change, make it in a worktree as described, show the diff in your reply, and say that a GitHub ` +
+  `token in the installation's .env (\`GITHUB_TOKEN\`, with Contents and Pull requests read and write) lets you ` +
+  `open the pull request yourself. Never ask the user to paste a token into the chat.`;
 
 // "pr": a dedicated worktree off the fresh remote default, a PR via gh. The shared checkout
 // is never edited in place — the sandbox outlives the task and may sit on an old branch.
@@ -144,6 +155,7 @@ export function buildSystemPrompt(inp: SystemPromptInputs): string {
   if (inp.sandbox.dind) {
     lines.push('', TOOLCHAIN);
   }
+  if (inp.noGitHub) lines.push('', NO_GITHUB);
   if (packageRepos.length) {
     lines.push(
       '',
