@@ -6,11 +6,11 @@ a GitHub token only if the agent should open pull requests. No Slack app, no ide
 build of your own, no privileged container and no one else's approval. This is the trial path (OpenSpec `quickstart`): the same installation
 layout as an operated one, with the safe settings. When you want more, see [Going on](#going-on).
 
-**Measured:** a rehearsal on 2026-10-30, on a fresh Linux machine (a `docker:dind` container standing in for a clean
-VM, on a laptop's network) and on Docker Desktop under WSL. About **3 minutes of machine time** from clone to the first
-answer, most of it downloading the two images; the rest is your own time — signing in to Claude, and making a GitHub
-token if you want pull requests (a few minutes each). A timed run on a clean cloud VM replaces these numbers after the
-next release.
+**Measured:** rehearsals on a fresh Linux machine (a `docker:dind` container standing in for a clean VM, on a laptop's
+network) on 2026-10-30 and, with this page's steps, on 2026-10-31; and on Docker Desktop under WSL. Most of the machine
+time is downloading the two images once — 2 minutes on a good day, 10 on a slow one; after that, `up` takes seconds and
+the first answer under a minute. The rest is your own time: signing in to Claude, and making a GitHub token if you want
+pull requests (a few minutes each). A timed run on a clean cloud VM replaces these numbers after the next release.
 
 ## Before you start
 
@@ -28,9 +28,9 @@ Run on: Docker Engine on Linux and Docker Desktop on Windows (WSL), 2026-10-30. 
 | # | Step | Time |
 |---|---|---|
 | 1 | Clone at the latest release | 5 s |
-| 2 | `quickstart/coach-aven up`: it pulls the two images, asks three questions and prints the sign-in link | 2 min + your answers |
-| 3 | Ask in the project's room: the first answer (sandbox created, repository cloned) | 22 s |
-| – | With a GitHub token: ask for a change, and the agent opens a pull request | 25 s |
+| 2 | `quickstart/coach-aven up`: it pulls the two images, asks three questions and prints the sign-in link | 2–10 min (the download) + your answers |
+| 3 | Ask in the project's room: the first answer (sandbox created, repository cloned) | 42 s |
+| – | With a GitHub token: ask for a change, and the agent opens a pull request (without one: the change as a diff, 50 s) | 28 s |
 
 **1. Clone at the latest release.**
 
