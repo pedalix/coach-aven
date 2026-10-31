@@ -16,6 +16,9 @@ rules:
   proposal:
     - State the rollout bucket (1/2/3 per docs/rollout.md) and the flag or config gate in Impact
     - Say what is out of scope
+  specs:
+    - Keep each requirement's text under 500 characters, one behaviour per requirement; put the why, examples and edge cases in scenarios or design.md
+    - The maintainer asks for this standing split (it counts as the user asking): when a change touches an existing spec, split that spec's requirements over 500 characters in the same delta, the OpenSpec way — under MODIFIED keep the header and every scenario and cut the description to one behaviour without changing its meaning; add each behaviour removed as its own ADDED requirement with its scenarios. The touched spec should then pass `openspec validate <name> --type spec --strict`
   tasks:
     - Include the docs/rollout.md ledger row and the Home tab update (if a Slack surface changes) as tasks
     - Name the test or command that verifies each task
@@ -29,6 +32,11 @@ rules:
 #       - Always state what is out of scope
 #     tasks:
 #       - Break tasks into chunks of max 2 hours
+
+operations:
+  archive:
+    guidance:
+      - After merging the delta, run `openspec validate <spec> --type spec --strict` on every main spec the change touched; if one still has requirements over 500 characters, split them (text stays a short SHALL statement, details move into scenarios) in the same archive PR
 
 # Per-operation guidance (optional)
 # Add advisory guidance for how apply and archive work should be conducted.
