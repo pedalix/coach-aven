@@ -60,7 +60,7 @@ export function dockerdGuardCmd(): string {
 // for projects idle since the pin moved; without one it just reports the version.
 // `dind` false (a plain, docker-less project — sandboxopts.ts): no dockerd guard and no
 // prune, there is nothing to guard or prune; the disk line still reports.
-export function housekeepingScript(thresholdPct: number, cliPin?: string, dind = true): string {
+export function housekeepingScript(thresholdPct: number, cliPin: string | undefined, dind: boolean): string {
   return [
     cliPin ? cliUpgradeCmd(cliPin) : cliVersionCmd(),
     ...(dind ? [dockerdGuardCmd()] : []),

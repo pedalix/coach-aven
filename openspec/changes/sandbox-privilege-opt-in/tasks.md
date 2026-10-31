@@ -22,4 +22,4 @@
 ## 4. Later
 
 - [x] 4.1 The flip, its own PR (bucket 3): block-less = plain; the block-less warning gone. No container listing: no operated project is block-less, and the release notes and `docs/troubleshooting.md` say to write `"dind": true` and `docker rm` the container.
-- [ ] 4.2 Archive this change after 3.2, renaming the settings in the main specs (`container-deploy`, `bot-image`, `sandbox-idle-stop` still say the old names).
+- [ ] 4.2 Archive this change after 3.2, renaming the settings in the main specs (`sandbox-drivers`, `container-deploy`, `bot-image`, `sandbox-idle-stop` still say the old names).

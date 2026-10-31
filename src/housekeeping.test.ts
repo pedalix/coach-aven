@@ -35,7 +35,7 @@ test('dockerd guard clears stale pid files, keeps live dockerd/containerd ones',
 });
 
 test('housekeeping script: threshold gates the prune, and volumes are NEVER pruned', () => {
-  const s = housekeepingScript(85);
+  const s = housekeepingScript(85, undefined, true);
   assert.match(s, /"\$usage" -ge 85/);
   assert.match(s, /docker container prune -f/);
   // A stopped Sail stack (an idle project's normal state since the idle stop) keeps its containers,
@@ -75,10 +75,10 @@ test('parse: garbage output degrades to unknowns, digest still one line', () => 
 });
 
 test('script: a CLI pin adds the in-place upgrade step; no pin → version probe only', () => {
-  const pinned = housekeepingScript(80, '2.1.260');
+  const pinned = housekeepingScript(80, '2.1.260', true);
   assert.match(pinned, /npm install -g --prefix \/root\/\.local @anthropic-ai\/claude-code@2\.1\.260/);
   assert.match(pinned, /cli:upgrade=/);
-  const probe = housekeepingScript(80);
+  const probe = housekeepingScript(80, undefined, true);
   assert.match(probe, /cli:version=/);
   assert.ok(!probe.includes('npm install'));
 });

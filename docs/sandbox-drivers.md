@@ -48,7 +48,9 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
    ```
 
    - Without a block, or with `privileged`/`dind` unset, a project is plain: `privileged`
-     defaults to what `dind` says, `dind` to false.
+     defaults to what `dind` says, `dind` to false. So `{ "privileged": true }` alone is privileged
+     without dockerd, and an `image` alone (even the laravel one) is a plain container: Sail needs
+     `"dind": true`.
    - `privileged: false` → plain `docker run`, no `--privileged`, no `--runtime` (requires
      `dind` not true; docker-in-docker needs one of the two runtimes).
    - `dind: false` (the default) → no dockerd guard at chat prep or in housekeeping, no docker prune, no

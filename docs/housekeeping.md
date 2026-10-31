@@ -5,8 +5,8 @@ the DinD disk from filling, clearing wedged processes. The janitor, as opposed t
 [Dreaming](memory.md#dreaming) (the agent's memory consolidation).
 
 > **Status: v1 shipped.** A `housekeeping` routine kind (`/aven housekeeping on|off|now`)
-> runs the janitor nightly: dockerd guard, threshold-gated docker prune (never volumes),
-> proactive worktree reap, and (with `CLAUDE_CLI_VERSION` set) converging the sandbox's
+> runs the janitor nightly: on a docker-in-docker project (`"dind": true`) the dockerd guard and a threshold-gated
+> docker prune (never volumes); on every project a proactive worktree reap, and (with `CLAUDE_CLI_VERSION` set) converging the sandbox's
 > Claude Code CLI to the pin (`src/cliversion.ts`; the bump/canary procedure, which starts with a
 > probe of the new version, is in `docs/cli-probe.md`). Pure script/report logic in `src/housekeeping.ts` (tested);
 > firing in `src/pollers.ts`; the dockerd guard also runs at every chat prep

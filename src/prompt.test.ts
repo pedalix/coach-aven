@@ -17,7 +17,7 @@ import type { ResolvedSandboxOptions } from './sandboxopts.js';
 // deliberate: re-capture the golden on purpose, never "fix the test".
 const golden = (name: string) => readFileSync(new URL(`./fixtures/prompt/${name}.txt`, import.meta.url), 'utf8');
 
-// The fleet default (privileged + dind) and the plain, docker-less container.
+// A docker-in-docker project (`"dind": true`) and the plain, docker-less container (the default).
 const DIND: ResolvedSandboxOptions = { privileged: true, dind: true, mounts: [] };
 const PLAIN: ResolvedSandboxOptions = { privileged: false, dind: false, mounts: [] };
 
