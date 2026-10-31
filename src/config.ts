@@ -107,13 +107,28 @@ function githubPrivateKey(): string {
 // GitHub auth in-box can come from EITHER:
 //   - GITHUB_TOKEN  — a plain token (PAT or `gh auth token`). Simplest; used as-is.
 //   - a GitHub App  — short-lived installation tokens minted per task (production).
+//   - nothing, said out loud: GITHUB_AUTH=none — public repositories cloned anonymously, no push, no
+//     pull requests, the GitHub API unauthenticated (the quickstart's read-only trial, OpenSpec quickstart
+//     D10). Only the explicit value: a missing token still stops the boot, so a forgotten secret can never
+//     turn an installation read-only in silence.
 // The plain token wins if set.
 export type GitHubAuth =
   | { kind: 'token'; token: string }
   // installationId is optional — if absent it's discovered from the repo owner.
-  | { kind: 'app'; appId: string; installationId?: string; privateKey: string };
+  | { kind: 'app'; appId: string; installationId?: string; privateKey: string }
+  | { kind: 'none' };
+
+/** GITHUB_AUTH: unset → the token or the App, as always; `none` → no GitHub access (refused beside a credential). */
+export function githubAuthNone(env: Record<string, string | undefined>): boolean {
+  const mode = env.GITHUB_AUTH?.trim();
+  if (!mode) return false;
+  if (mode !== 'none') throw new Error(`GITHUB_AUTH takes only "none" (no GitHub access), not "${mode}"`);
+  if (env.GITHUB_TOKEN || env.GITHUB_APP_ID) throw new Error('GITHUB_AUTH=none beside GITHUB_TOKEN or GITHUB_APP_ID: keep one');
+  return true;
+}
 
 function githubAuth(): GitHubAuth {
+  if (githubAuthNone(process.env)) return { kind: 'none' };
   const token = process.env.GITHUB_TOKEN;
   if (token) return { kind: 'token', token };
   return {

@@ -27,8 +27,8 @@ test('First preview on a machine: demo on the scratch repo, the quickstart\'s un
   assert.deepEqual([env.SANDBOX_DRIVER, env.SANDBOX_HOST], ['ssh-docker', 'local'], 'the quickstart\'s sandboxes on this machine\'s Docker');
   assert.deepEqual([env.SANDBOX_NAME_PREFIX, env.SANDBOX_MANAGED_BY, env.SANDBOX_IMAGE], ['pv-fix-thread-proj-', 'coach-aven-preview', O.sandboxImage]);
   assert.equal(f.env.match(/^WEB_AUTH=/gm)?.length, 1, 'the template\'s WEB_AUTH=link is replaced, not shadowed');
-  const cfg = JSON.parse(f.projects) as { projects: { slug: string; repos: string[]; sandbox: { privileged: boolean; dind: boolean } }[] };
-  assert.deepEqual(cfg.projects.map((p) => [p.slug, p.repos, p.sandbox]), [['demo', ['acme/scratch'], { privileged: false, dind: false }]]);
+  const cfg = JSON.parse(f.projects) as { projects: { slug: string; repos: string[]; sandbox?: unknown }[] };
+  assert.deepEqual(cfg.projects.map((p) => [p.slug, p.repos, p.sandbox]), [['demo', ['acme/scratch'], undefined]], 'no sandbox block: plain and unprivileged');
 });
 
 test('Missing operator file values: nothing is built, the missing keys are named', () => {

@@ -383,7 +383,7 @@ export type SshRun = (host: string, remoteCmd: string, opts?: SshRunOpts) => Pro
 export const LOCAL_HOST = 'local';
 
 // The boot check of a local sandbox host (OpenSpec quickstart D6): does this process's Docker CLI reach the
-// daemon? The likely miss is the socket's group (it differs per machine, and the quickstart's init.sh asks Docker
+// daemon? The likely miss is the socket's group (it differs per machine, and the quickstart's `coach-aven up` asks Docker
 // for it), and without the check it surfaces as an error inside the first turn. Started without waiting from
 // the boot path, retried for a minute (Docker Desktop may come up after the bot at logon), one error line
 // after the last miss — a log line, never an error-tracker event, so a slow morning engine pages nobody.
@@ -391,7 +391,7 @@ export const DOCKER_CHECK_WINDOW_MS = 60_000;
 export const DOCKER_CHECK_EVERY_MS = 10_000;
 
 export function dockerUnreachableText(detail: string, groups: string): string {
-  return `the bot cannot reach Docker at /var/run/docker.sock (process groups: ${groups || 'unknown'}): ${detail.trim().split('\n')[0] || 'no answer'} — in the quickstart, rerun ./init.sh and \`docker compose up -d\`; on a box, put the bot's user in the socket's group`;
+  return `the bot cannot reach Docker at /var/run/docker.sock (process groups: ${groups || 'unknown'}): ${detail.trim().split('\n')[0] || 'no answer'} — in the quickstart, rerun \`./coach-aven up\`; on a box, put the bot's user in the socket's group`;
 }
 
 export async function checkLocalDocker(

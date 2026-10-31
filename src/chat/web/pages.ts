@@ -104,7 +104,7 @@ export function loginPage(error?: string): Html {
 
 /** WEB_AUTH=link without the key: where the sign-in link is (the quickstart's bot prints it at every boot). */
 export function linkLoginPage(): Html {
-  return h`<section class="login"><h1>CoachAven</h1><p>Open the sign-in link from the bot's log — it changes at every start:</p><p><code>docker compose logs bot | grep sign-in | tail -n 1</code></p></section>`;
+  return h`<section class="login"><h1>CoachAven</h1><p>Open the sign-in link from the bot's log — it changes at every start. In the quickstart:</p><p><code>./coach-aven link</code></p></section>`;
 }
 
 export function signedOutPage(): Html {

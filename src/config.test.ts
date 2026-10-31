@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { autoStopMinutesEnv, loadConfig, repoSkillsEnv, resolveCredit, retiredEnvWarnings, sandboxDriverEnv, type Config } from './config.js';
+import { autoStopMinutesEnv, githubAuthNone, loadConfig, repoSkillsEnv, resolveCredit, retiredEnvWarnings, sandboxDriverEnv, type Config } from './config.js';
 
 test('retired switches: DISPATCH set to 1 or true warns once at boot, and nothing else reads it (retire-agent-dispatch D4)', () => {
   for (const v of ['1', 'true']) assert.deepEqual(retiredEnvWarnings({ DISPATCH: v }), ['config: DISPATCH is retired — agent messaging replaces it']);
@@ -166,4 +166,12 @@ test('the SANDBOX_ names are the only ones: the retired names load nothing, a mi
   assert.throws(() => withEnv({ ...base, SNAPSHOT_IMAGE: 'old:1' }, () => loadConfig()), /SANDBOX_IMAGE/);
   assert.equal(withEnv({ ...base, SANDBOX_IMAGE: 'i', SSHDOCKER_HOST: 'aven@old.example', SSHDOCKER_RUNTIME: 'runc' }, () => loadConfig()).sshDocker, undefined);
   assert.throws(() => withEnv({ ...base, SANDBOX_IMAGE: 'i', SANDBOX_DIND_RUNTIME: 'runc' }, () => loadConfig()), /SANDBOX_DIND_RUNTIME must be/);
+});
+
+test('GITHUB_AUTH: unset keeps the token or the App; `none` alone means no GitHub access; anything else, or none beside a credential, stops the boot', () => {
+  for (const v of [undefined, '', '  ']) assert.equal(githubAuthNone({ GITHUB_AUTH: v, GITHUB_TOKEN: 'ghp_x' }), false, `${v}`);
+  assert.equal(githubAuthNone({ GITHUB_AUTH: 'none' }), true);
+  assert.throws(() => githubAuthNone({ GITHUB_AUTH: 'anonymous' }), /GITHUB_AUTH takes only "none"/);
+  assert.throws(() => githubAuthNone({ GITHUB_AUTH: 'none', GITHUB_TOKEN: 'ghp_x' }), /keep one/);
+  assert.throws(() => githubAuthNone({ GITHUB_AUTH: 'none', GITHUB_APP_ID: '1' }), /keep one/);
 });

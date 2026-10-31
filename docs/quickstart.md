@@ -1,15 +1,16 @@
 # Try it on one machine
 
-CoachAven on one machine with Docker: the agent answers in a web chat on `localhost` and works on one of your GitHub
-repositories in an unprivileged sandbox container. You need no Slack app, no identity provider, no registry or image build of
-your own, no privileged container and no one else's approval. This is the trial path (OpenSpec `quickstart`): the same installation
+CoachAven on one machine with Docker, from one command: the agent answers in a web chat on `localhost` about a GitHub
+repository — our public demo, or yours — in an unprivileged sandbox container. You need a Claude subscription and Docker;
+a GitHub token only if the agent should open pull requests. No Slack app, no identity provider, no registry or image
+build of your own, no privileged container and no one else's approval. This is the trial path (OpenSpec `quickstart`): the same installation
 layout as an operated one, with the safe settings. When you want more, see [Going on](#going-on).
 
 **Measured:** a rehearsal on 2026-10-30, on a fresh Linux machine (a `docker:dind` container standing in for a clean
 VM, on a laptop's network) and on Docker Desktop under WSL. About **3 minutes of machine time** from clone to the first
-answer, most of it downloading the two images; the rest is your own time for the three steps marked *(you)* — signing in to Claude, making the GitHub token and
-editing two files, about 10 minutes the first time. A timed run on a clean cloud VM replaces these numbers after the next
-release.
+answer, most of it downloading the two images; the rest is your own time — signing in to Claude, and making a GitHub
+token if you want pull requests (a few minutes each). A timed run on a clean cloud VM replaces these numbers after the
+next release.
 
 ## Before you start
 
@@ -17,8 +18,8 @@ release.
 |---|---|---|
 | Docker: Docker Engine on Linux, or Docker Desktop (macOS, Windows with WSL) | the bot and the sandboxes | you |
 | `git` | the clone | you |
-| A GitHub account with a repository you may push to | the agent's work and its pull requests | you |
 | A Claude subscription (Pro or Max) — or an Anthropic Console account for an API key | the model | you |
+| Optional: a GitHub repository you may push to | your own code and the agent's pull requests | you |
 
 Run on: Docker Engine on Linux and Docker Desktop on Windows (WSL), 2026-10-30. macOS: not yet reported.
 
@@ -27,14 +28,9 @@ Run on: Docker Engine on Linux and Docker Desktop on Windows (WSL), 2026-10-30. 
 | # | Step | Time |
 |---|---|---|
 | 1 | Clone at the latest release | 5 s |
-| 2 | `./init.sh` (pulls the bot image and the sandbox image) | 2 min |
-| 3 | A Claude subscription token *(you)* | your sign-in |
-| 4 | A GitHub token for one repository *(you)* | a few minutes |
-| 5 | Fill three values *(you)* | a minute |
-| 6 | `docker compose up -d` | 3 s |
-| 7 | Open the sign-in link | seconds |
-| 8 | Ask in the project's room: the first answer (sandbox created, repository cloned) | 22 s |
-| – | Ask for a change: the agent's pull request | 25 s |
+| 2 | `quickstart/coach-aven up`: it pulls the two images, asks three questions and prints the sign-in link | 2 min + your answers |
+| 3 | Ask in the project's room: the first answer (sandbox created, repository cloned) | 22 s |
+| – | With a GitHub token: ask for a change, and the agent opens a pull request | 25 s |
 
 **1. Clone at the latest release.**
 
@@ -43,71 +39,58 @@ git clone https://github.com/pedalix/coach-aven.git && cd coach-aven
 git checkout "$(git describe --tags --abbrev=0)"
 ```
 
-No `quickstart/` after the checkout? The latest release predates it: stay on `main` (`git checkout main`). `init.sh`
-then runs the image of that `main` commit, a canary build.
+No `quickstart/coach-aven` after the checkout? The latest release predates it: stay on `main` (`git checkout main`).
+The script then runs the image of that `main` commit, a canary build.
 
-**2. Set up the directory.** `quickstart/` is the installation directory: its settings, its state and the bot's home
-live there, and git ignores all of them.
-
-```sh
-cd quickstart && ./init.sh
-```
-
-It copies `.env` and `projects.config.json` from their examples (only when they are missing) and writes
-`compose/.env` from this machine: the bot image of this clone's commit, your user and group, the Docker socket's group
-and the web port (`AVEN_WEB_PORT=8790 ./init.sh` for another one than 8787). It never touches a token. Rerun it after
-moving the clone to another release.
-
-**3. A Claude subscription token.** Either on any machine with Claude Code:
+**2. Start it.**
 
 ```sh
-claude setup-token
+quickstart/coach-aven up
 ```
 
-or without installing anything, from the sandbox image `init.sh` pulled:
+`quickstart/` is the installation directory: its settings, its state and the bot's home live there, and git ignores
+all of them. The first run copies `.env` and `projects.config.json` from their examples, pulls the bot image and the
+sandbox image of this clone's commit, and asks only for what is missing — what you type is saved in `quickstart/.env`
+and never printed:
 
-```sh
-cd compose && docker compose run --rm setup-token; cd ..
-```
+| Question | Enter alone |
+|---|---|
+| **Claude**: a subscription token (`sk-ant-oat…`, from `claude setup-token` on any machine with Claude Code) or an API key | gets a token right there, from the sandbox image — no Claude Code to install: open the URL it shows, sign in, paste the code back, then paste the token it prints |
+| **Repository** (`owner/repo`) the agent works on | our public demo, `pedalix/coachaven-quickstart-demo` |
+| **GitHub token** for that repository | none: the agent reads the repository (a public one) and answers questions; asked for a change, it shows the diff instead of a pull request |
 
-Either one opens a sign-in URL, asks you to paste back a code, and prints a token starting with `sk-ant-oat`. For a
-team or clients, use an Anthropic API key instead (`ANTHROPIC_API_KEY`, commented out in `.env`): the sandbox can read
-the credit, so make it a dedicated key in its own Anthropic workspace with a monthly spend limit.
+The GitHub token, for pull requests: github.com → Settings → Developer settings → Fine-grained tokens → Generate;
+repository access *Only select repositories* (the one you named); permissions *Contents: Read and write* and *Pull
+requests: Read and write*; an expiry. The sandbox can read this token, which is why it reaches one repository; for the
+same reason, a team or clients use an Anthropic API key in its own workspace with a monthly spend limit rather than a
+personal subscription. To change an answer later, edit `quickstart/.env` or `quickstart/projects.config.json` and run
+`up` again.
 
-**4. A GitHub token for one repository.** github.com → Settings → Developer settings → Fine-grained tokens → Generate:
-repository access *Only select repositories* (the one the agent works on); permissions *Contents: Read and write* and
-*Pull requests: Read and write*; an expiry. The sandbox can read this token too, which is why it reaches one repository.
-
-**5. Fill three values.** In `quickstart/.env`: `CLAUDE_CODE_OAUTH_TOKEN` and `GITHUB_TOKEN`. In
-`quickstart/projects.config.json`: your repository in place of `your-org/your-repo`.
-
-**6. Start it.**
-
-```sh
-cd compose && docker compose up -d
-```
-
-Nothing is built or downloaded here: `init.sh` pulled both images.
-
-**7. Sign in.**
-
-```sh
-docker compose logs bot | grep sign-in | tail -n 1
-```
-
-The line comes a few seconds after the start; run it again if it shows nothing. Open the
-`http://localhost:8787/login?key=…` link it shows — the last one: the log keeps every earlier start's line, and only the
-newest key signs in. The key changes at every start of the bot; you stay signed
-in across restarts, and need a new link only for a new browser.
+A few seconds after the start it prints the `http://localhost:8787/login?key=…` link: open it. The key changes at every
+start of the bot (`quickstart/coach-aven link` prints the current one); you stay signed in across restarts, and need a
+new link only for a new browser. Another port than 8787: `AVEN_WEB_PORT=8790 quickstart/coach-aven up`.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="img/web-room-dark.png">
   <img alt="The demo room with two threads: a question about the tests and a change request answered with a pull request" src="img/web-room-light.png" width="800">
 </picture>
 
-**8. Ask.** Open the room `demo` and post a question about the repository — "what does this repository do, and how is
-it tested?". The first answer takes longer: the bot creates the sandbox and clones the repository. Ask for a small
-change and the agent opens a pull request.
+**3. Ask.** Open the room `demo` and post a question about the repository — "what does this repository do, and how is
+it tested?". The first answer takes longer: the bot creates the sandbox and clones the repository.
+
+## What to ask next
+
+| Try | What happens |
+|---|---|
+| "Add a section on running the tests to the README" | with a GitHub token, the agent works in its own branch and opens a pull request for you to review and merge; without one, it shows the diff |
+| `/review #12` (a pull request of your repository; needs the GitHub token) | a read-only review in the room; `/review auto on` reviews every new pull request |
+| `/schedule weekdays 9:00 \| open pull requests and what changed yesterday` | a recurring summary in the room |
+| `/memory` | what the agent has learned about the project so far |
+| `/status` | the sandbox, the sessions and the open pull requests |
+
+Every command and button: the room's Home (`/help`), or [`commands.md`](commands.md). Projects beyond the trial —
+several repositories, MCP servers, a Laravel Sail stack, a project prompt: the annotated
+[`projects.config.example.json`](../projects.config.example.json) and [`configuration.md`](configuration.md).
 
 ## What runs where
 
@@ -119,30 +102,30 @@ change and the agent opens a pull request.
 - **The images:** both published by this repository's CI for every `main` commit and release, under one version name —
   `ghcr.io/pedalix/coach-aven` (the bot) and `ghcr.io/pedalix/coach-aven-sandbox-plain` (the sandbox: Claude Code, git,
   `gh`, Node, Python and the usual shell tools; no Docker). A project that needs more tools needs its own sandbox image:
-  build one from `snapshot/plain` and name it with `SANDBOX_IMAGE=<image> ./init.sh`.
+  build one from `snapshot/plain` and name it with `SANDBOX_IMAGE=<image> quickstart/coach-aven up`.
 - **The state:** `quickstart/` — `.env`, `projects.config.json`, `state.json`, the journals, `data/` (the chat's
   history), `home/`, `web-session.secret`.
 
-Logs: `docker compose logs -f bot` in `quickstart/compose/`. After an edit of `.env` or `projects.config.json`:
-`docker compose up -d --force-recreate`.
+Logs: `quickstart/coach-aven logs`. After an edit of `.env` or `projects.config.json`: `quickstart/coach-aven up` (it
+always restarts the bot, which reads both only when it starts). Stop: `quickstart/coach-aven down`.
 
 ## Uninstall
 
-The sandbox is not a compose service, so `down` leaves it — and it holds your tokens. From the clone's root:
-
 ```sh
-(cd quickstart/compose && docker compose down)
-docker ps -aq --filter label=managedBy=coach-aven-quickstart | xargs -r docker rm -f
-docker images -q 'ghcr.io/pedalix/coach-aven*' | xargs -r docker image rm -f
+quickstart/coach-aven uninstall
 ```
 
-Then delete the clone, or only `quickstart/`'s untracked files: `git clean -fdX quickstart/` (your `.env`, the state
-and the chat's history go with them).
+It stops the bot, removes the sandbox containers (they are not compose services, and they hold your tokens) and the
+two images of this version. Then delete the clone, or only `quickstart/`'s untracked files: `git clean -fdX
+quickstart/` (your `.env`, the state and the chat's history go with them).
 
 ## Going on
 
-- **Slack or Teams** instead of, or beside, the web chat: [`../README.md#self-host-with-slack-or-teams`](../README.md#self-host-with-slack-or-teams),
-  [`teams.md`](teams.md).
+- **Slack beside the web chat**, on this very installation: create a Slack app from
+  [`slack-app-manifest.json`](../slack-app-manifest.json) (Socket Mode on), uncomment the three Slack lines at the end of
+  `quickstart/.env` with its bot token (`xoxb-…`) and app token (`xapp-…`), and `quickstart/coach-aven up`. A channel named
+  `aven-demo` drives the project `demo`: invite the bot and @mention it there.
+- **Microsoft Teams** needs a public HTTPS endpoint and a bot identity: [`teams.md`](teams.md).
 - **More than one person** in the web chat: an identity provider, `WEB_AUTH=oidc` ([`web.md`](web.md)).
 - **Sandboxes on another host**: `SANDBOX_HOST=user@host` ([`sandbox-drivers.md`](sandbox-drivers.md)).
 - **A server you operate**: the ops tooling ([`../infra/README.md`](../infra/README.md)). Copy `.env`,

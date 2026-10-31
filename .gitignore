@@ -53,7 +53,7 @@ web-session.secret
 /quickstart/*
 !/quickstart/.env.example
 !/quickstart/projects.config.example.json
-!/quickstart/init.sh
+!/quickstart/coach-aven
 !/quickstart/compose/
 /quickstart/compose/*
 !/quickstart/compose/compose.yaml

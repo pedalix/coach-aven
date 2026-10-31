@@ -11,9 +11,10 @@ project, on hosts you own.**
 - The bot is a small TypeScript control plane with **no model calls of its own**: all the thinking happens in the
   sandboxes, on your model credit — a Claude subscription token to try it, an Anthropic API key for a team or clients.
 
-**Try it on one machine** — Docker, a GitHub account and a Claude subscription; no Slack, no registry, no
-privileged container: [`docs/quickstart.md`](docs/quickstart.md). Clone, `./init.sh`, three values,
-`docker compose up -d`, and the agent answers in a web chat on `localhost` in about three minutes of machine time.
+**Try it on one machine** — Docker and a Claude subscription; no GitHub token, Slack, registry or
+privileged container: [`docs/quickstart.md`](docs/quickstart.md). Clone, run `quickstart/coach-aven up`, paste a
+Claude token, and the agent answers in a web chat on `localhost` about our demo repository — or yours, with a GitHub
+token for its pull requests — in about three minutes of machine time. Slack beside it is two more tokens.
 
 <img alt="CoachAven in Slack: a teammate asks why voucher changes do not reach the shop; in the thread the agent opens a pull request that adds logging and a metric, the teammate merges it, and the agent cleans up and records what it learned (client names replaced)" src="docs/img/slack-investigation-pr.png" width="860">
 
@@ -82,55 +83,33 @@ Start here:
 
 ## Self-host with Slack or Teams
 
-You need: Node 24, a Slack workspace where you can create apps, a GitHub App (or token) for
-the repos, a model credit (a Claude subscription token or an Anthropic API key, step 4), and a
-place to run sandboxes.
+One installation layout from the first try to production, so you grow it instead of starting over:
 
-1. **Slack app** — create it from [`slack-app-manifest.json`](slack-app-manifest.json)
-   (Socket Mode on). Note the bot token (`xoxb-…`) and the app-level token (`xapp-…`).
-2. **Sandboxes** — containers on a Docker host you own (`docs/sandbox-drivers.md`): over SSH
-   (`SANDBOX_HOST=user@host`), or on this very machine (`SANDBOX_HOST=local`). Keep
-   `SANDBOX_DRIVER=ssh-docker` as the template writes it. The containers run a sandbox image
-   ([`snapshot/`](snapshot/README.md)): the `plain` one is published with every release
-   (`ghcr.io/pedalix/coach-aven-sandbox-plain:vX.Y.Z`), runs unprivileged and on arm64, and is what a project
-   without a `sandbox` block gets. A project that needs more (PHP, Sail) gets an image of your own: build the
-   `laravel` variant, push it to your registry, and give the project `"sandbox": { "image": "…", "dind": true }`.
-3. **GitHub** — a GitHub App installed on the org/repos with *Contents* + *Pull requests*
-   read & write, *Checks* read and *Metadata* read; set `GITHUB_APP_ID` + the private key path. (A plain
-   `GITHUB_TOKEN` works for a quick trial.)
-4. **Claude Code credit** — exactly one of:
-   - to try it: `claude setup-token` → `CLAUDE_CODE_OAUTH_TOKEN`;
-   - for a team or clients: a key from the [Anthropic console](https://console.anthropic.com/) →
-     `ANTHROPIC_API_KEY`. The sandbox can read it, so make it a dedicated key in its own workspace
-     with a monthly spend limit.
+1. **Try it** — the quickstart: the web chat and local sandboxes ([`docs/quickstart.md`](docs/quickstart.md)).
+2. **Add Slack** — on the same installation: a Slack app from [`slack-app-manifest.json`](slack-app-manifest.json)
+   (Socket Mode on), its bot token (`xoxb-…`) and app token (`xapp-…`) in `quickstart/.env` beside
+   `CHAT_SURFACES=slack`, then `quickstart/coach-aven up`. A channel named `aven-<slug>` drives the project `<slug>`;
+   `@mention` the bot there, and its App Home tab lists every command and button
+   ([`docs/quickstart.md`](docs/quickstart.md#going-on)). Microsoft Teams needs a public HTTPS endpoint and a bot
+   identity from the `infra/teams/` Terraform module: [`docs/teams.md`](docs/teams.md).
+3. **Operate it on a server** — the same published image under `docker compose` on any Linux box, its configuration
+   in a private **ops repo** checked out at `infra/<slug>/`, deployed with `npm run ops -- <slug> deploy vX.Y.Z` (a
+   rollback is the same command with the earlier version): [`infra/README.md`](infra/README.md),
+   [`infra/deploy/README.md`](infra/deploy/README.md). What changes from the trial:
+   - **GitHub:** a GitHub App installed on the org/repos with *Contents* + *Pull requests* read & write, *Checks* read
+     and *Metadata* read (`GITHUB_APP_ID` + the private key path) instead of one repository's token.
+   - **Model credit:** exactly one of `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) and `ANTHROPIC_API_KEY`; both
+     set stops the boot. For a team or clients, the key: the sandbox can read it, so make it a dedicated key in its own
+     [Anthropic console](https://console.anthropic.com/) workspace with a monthly spend limit.
+   - **Sandboxes:** on another Docker host over SSH (`SANDBOX_HOST=user@host`, `docs/sandbox-drivers.md`). A project
+     runs the published `plain` image ([`snapshot/`](snapshot/README.md)) unless it needs more (PHP, Sail): then an
+     image of your own — the `laravel` variant, pushed to your registry — and `"sandbox": { "image": "…", "dind": true }`.
+   - **Projects:** `projects.config.json` (the annotated [`projects.config.example.json`](projects.config.example.json))
+     and a prompt per project in `projects.d/<slug>.md` ([`docs/runtime-config.md`](docs/runtime-config.md)).
+     Several Slack workspaces on one bot: [`docs/multitenancy.md`](docs/multitenancy.md#enabling-multi-workspace-installs-operator-steps).
 
-   Both set stops the boot. A switch applies to new conversations ([`docs/runtime-config.md`](docs/runtime-config.md)).
-5. **Config**
-   ```bash
-   cp .env.example .env                                  # secrets + infra endpoints
-   cp projects.config.example.json projects.config.json  # projects: slug, repos[], mcp[], git flow
-   npm install && npm run orch -- slack
-   ```
-6. **A channel per project** named `aven-<slug>` (prefix configurable with
-   `SLACK_CHANNEL_PREFIX`) auto-binds to the project; `@mention` the bot there. Project
-   prompts go in `projects.d/<slug>.md` beside the config (`docs/runtime-config.md`).
-
-The bot's App Home tab lists every command and button.
-
-Microsoft Teams instead of Slack: the same bot with `orch teams`; its bot identity comes from the `infra/teams/`
-Terraform module — [`docs/teams.md`](docs/teams.md)
-
-A web chat the installation serves itself (OIDC login, rooms per project): `orch web` — [`docs/web.md`](docs/web.md) (canary)
-
-Both at once: `CHAT_SURFACES=teams` (or `slack`, `web`) in `.env` runs a second chat driver beside the run mode's, over the same
-projects and sandboxes — [`docs/runtime-config.md`](docs/runtime-config.md) → *Chat surfaces*.
-
-Production: the published image `ghcr.io/<owner>/coach-aven` under `docker compose` on any Linux box,
-deployed by `npm run ops -- <slug> deploy vX.Y.Z` or by your ops repo's GitHub Action (a rollback is the
-same command with the earlier version); each installation's config lives in a private **ops repo**
-checked out at `infra/<slug>/` — [`infra/README.md`](infra/README.md), [`infra/deploy/README.md`](infra/deploy/README.md).
-Several Slack workspaces on one bot: [`docs/multitenancy.md`](docs/multitenancy.md#enabling-multi-workspace-installs-operator-steps).
-Local dev beside a prod bot: [`docs/local-dev.md`](docs/local-dev.md).
+Running the bot from source (Node 24, `npm install`, then the `orch` command with `slack` or `web`) is the
+contributor's path, also beside a production bot: [`docs/local-dev.md`](docs/local-dev.md).
 
 ## What goes where
 

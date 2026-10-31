@@ -12,7 +12,7 @@ or a person lives in an installation's private ops repo (`infra/<slug>/`).
 - [Troubleshooting](troubleshooting.md): by symptom — the bot does not start, does not answer, the first turn fails.
 - [Security: what goes where](security.md): the data flow, what a sandbox can reach, retention, accepted risks.
 - [Try it on one machine](quickstart.md): the web chat and local sandboxes from one `docker compose up`, measured.
-- [Self-host quickstart](../README.md#self-host-with-slack-or-teams): what you need and the six steps.
+- [Self-host with Slack or Teams](../README.md#self-host-with-slack-or-teams): from the trial to Slack to a server, one installation layout.
 - [Security policy](../SECURITY.md) and [contributing](../CONTRIBUTING.md); licence Apache-2.0.
 
 ## What the agent can do

@@ -9,7 +9,6 @@
         "SHOP",
         "CMS"
       ],
-      "driver": "ssh-docker",
       "systemPrompt": "Project context goes here (appended after the base prompt): domain, what each repo is and how they relate, merge/deploy-order rules, doc links. Repo coding conventions belong in each repo's own CLAUDE.md, not here.",
       "env": {},
       "mcp": [
@@ -57,11 +56,7 @@
         "your-org/acme-cms-sync"
       ],
       "env": {},
-      "mcp": [],
-      "sandbox": {
-        "privileged": false,
-        "dind": false
-      }
+      "mcp": []
     },
     {
       "slug": "acme-monitoring",
@@ -69,28 +64,16 @@
         "your-org/acme-monitoring"
       ],
       "env": {},
-      "mcp": [],
-      "sandbox": {
-        "privileged": false,
-        "dind": false
-      }
+      "mcp": []
     },
     {
       "slug": "ops-plain",
       "repos": [
         "REPLACE-you/REPLACE-ops-ledger"
       ],
-      "driver": "ssh-docker",
       "gitFlow": "direct",
-      "sandbox": {
-        "privileged": false,
-        "dind": false,
-        "mounts": [
-          "/srv/ops/sources:/data/sources"
-        ]
-      },
       "scrubSecrets": true,
-      "systemPrompt": "Example of a docker-less project on the `plain` image variant (snapshot/plain/Dockerfile): an ordinary unprivileged container with a read-only data mount, whose agent commits straight to the checkout's branch (gitFlow direct — no worktree, no PR). See docs/sandbox-drivers.md and docs/runtime-config.md.",
+      "systemPrompt": "Example of a project on the published `plain` sandbox image (what a project without a `sandbox` block gets): an ordinary unprivileged container whose agent commits straight to the checkout's branch (gitFlow direct — no worktree, no PR). See docs/sandbox-drivers.md and docs/runtime-config.md.",
       "env": {},
       "mcp": []
     }

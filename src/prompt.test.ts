@@ -148,3 +148,8 @@ test('matrix: gitFlow × dind — the toolchain follows dind, the worktree flow 
 test('golden: a project with messaging.send gets the messaging paragraph (agent-messaging D9); every other prompt is unchanged', () => {
   assert.equal(buildSystemPrompt({ ...MULTI, messagingSend: true }), golden('multi-repo-messaging'));
 });
+
+test('golden: no GitHub access (GITHUB_AUTH=none) adds one paragraph after the flow; absent, every prompt is unchanged', () => {
+  assert.equal(buildSystemPrompt({ ...SINGLE, sandbox: PLAIN, noGitHub: true }), golden('single-repo-no-github'));
+  assert.equal(buildSystemPrompt({ ...SINGLE, noGitHub: false }), golden('single-repo'));
+});

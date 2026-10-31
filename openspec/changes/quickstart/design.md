@@ -112,7 +112,7 @@ The bot runs as `${AVEN_UID}:${AVEN_GID}` with `group_add: ["${DOCKER_GID}"]`, s
 ### D5. The project example is the safe shape, under its own names
 `quickstart/projects.config.example.json` holds one project:
 - `"slug": "demo"`, `"repos": ["your-org/your-repo"]`;
-- `"sandbox": { "privileged": false, "dind": false }`;
+- no `sandbox` block: a block-less project is the unprivileged plain container (`sandbox-privilege-opt-in`; until then the example wrote `{ "privileged": false, "dind": false }`);
 - a two-sentence `systemPrompt`;
 - no `driver`, `mcp`, `workspaces` or `youtrackProjects`.
 
@@ -164,6 +164,54 @@ The measurement:
 2. **The maintainer's run.** It happens on a clean cloud VM after the next release tag, with a stopwatch. Its times replace the rehearsal's in the page.
 
 The outside person's run is the community plan's day-30 metric, not a task of this change.
+
+### D9. One script, `coach-aven` (2026-10-31, replaces `init.sh`)
+The first rehearsals worked, but the page sent the person between `quickstart/` and `quickstart/compose/`, found the
+link with `docker compose logs bot | grep sign-in | tail -n 1` (and the newest line was not always the current start's),
+and uninstalled in three commands. One script now does each step, from any directory:
+- `init [owner/repo]` is D4's `init.sh`, plus the repository written into the project's one-line `repos` (sed on that
+  line; another shape is refused with "edit it by hand"). Two files to edit became one.
+- `up` runs `docker compose up -d --force-recreate`: the bot reads `.env` and `projects.config.json` only when it starts,
+  so "start" and "apply my edit" are the same command. It then waits up to 30 s for the sign-in line and prints it.
+- `link` reads the log `--since` the running container's `StartedAt`, so an earlier start's key never comes back.
+- `uninstall` removes the label's containers and only this version's two images (not every `ghcr.io/pedalix/coach-aven*`
+  image: a machine may run another installation), without `-f`.
+- `setup-token`, `logs`, `down` wrap the compose commands.
+
+Still true: it never reads, writes or prints a credential, so it does not check that the tokens are filled — the bot's
+boot says what is missing (`up` points at `logs` after 30 s without a link).
+
+*Why not keep `init.sh` and add a second script?* Two entry points for one directory. *Why no `init.sh` shim?* The
+latest release ships `init.sh` with its own page; nobody runs a `main` quickstart with an old page. The name follows the
+repository and the compose project.
+
+Slack joins the same installation as a second surface (`CHAT_SURFACES=slack` and the two tokens, commented out in
+`.env.example`): no other path to Slack is documented for a newcomer, and running from source moves to `local-dev.md`.
+
+### D10. One command that asks; GitHub access optional (2026-10-31)
+D9's `init` + `up` was still two steps and two files to edit. Now `up` alone:
+- **Writes the machine every time** (D4's work, cheap on a rerun: images are pulled only when missing), so "rerun init
+  after moving the clone" and a stale socket group fix themselves.
+- **Asks only for what `.env` lacks**, at a terminal (or `QS_ASK=1`, answers on stdin): the Claude credit (Enter runs
+  `claude setup-token` from the sandbox image, then asks for the token it printed; `sk-ant-oat…` goes to
+  `CLAUDE_CODE_OAUTH_TOKEN`, any other `sk-ant-…` to `ANTHROPIC_API_KEY`), the repository on a new configuration (Enter:
+  the demo), a GitHub token (Enter: `GITHUB_AUTH=none`). Typed values are checked for their character set before they
+  are written, go into `.env` (mode 600) and are never printed. This relaxes D4's "never reads a credential": the
+  script reads `.env` to see what is missing; it still never prints one. Without a terminal, one line names what is
+  missing.
+- `init` and `setup-token` are gone: five commands are left (`up`, `link`, `logs`, `down`, `uninstall`). To change an
+  answer, edit `.env` or `projects.config.json` and run `up`; a token typed into `.env` later empties `GITHUB_AUTH`.
+
+**`GITHUB_AUTH=none` in the bot** (spec `github-access`). Without it, the bot cannot start without a GitHub credential,
+so a first look needed the clickiest step (a fine-grained token, ~10 clicks). With it: no token seeded (git reads public
+repositories anonymously, `gh` stays logged out), composer's `auth.json` skipped, the three REST reads unauthenticated
+(60 requests an hour, enough for a trial), and one paragraph in the system prompt — absent, every prompt is
+byte-identical (golden fixtures). Only the explicit value: an operated installation that forgets its token still stops
+at boot rather than turning read-only in silence. *Why not infer read-only from a missing token?* That silence.
+
+**The demo repository** is `pedalix/coachaven-quickstart-demo` (a calculator with tests, 4 KB, public): the first
+answer in seconds and cents of the visitor's credit, and the page's web screenshots come from it. *Why not this
+repository?* 11 MB of TypeScript: a slower, costlier first answer on someone else's credit.
 
 ## Risks / Trade-offs
 
