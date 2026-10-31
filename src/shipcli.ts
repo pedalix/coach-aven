@@ -202,7 +202,9 @@ export function executeSteps(d: Deps, steps: Step[]): number {
     if (s.createTag && !tagged.has(s.version)) {
       d.out(`▶ tagging ${s.version} on ${short(s.commit)}`);
       if (!ok(git(d, 'tag', s.version, s.commit))) return fail(`could not create tag ${s.version}`);
-      if (!ok(git(d, 'push', 'origin', s.version))) return fail(`could not push tag ${s.version}`);
+      // A tag that never reached origin must not stay local: the planner would take it for an existing release on the
+      // next run and deploy a version whose image was never published.
+      if (!ok(git(d, 'push', 'origin', s.version))) return git(d, 'tag', '-d', s.version), fail(`could not push tag ${s.version} (the local tag is removed; run ship again)`);
       tagged.add(s.version);
       const rel = waitForRelease(d, s.version);
       if (!rel.ok) return fail(rel.url ? `the release workflow for ${s.version} did not succeed: ${rel.url}` : `no release workflow run appeared for ${s.version}`);

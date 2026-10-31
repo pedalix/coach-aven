@@ -2,6 +2,7 @@
 // source, on a scratch project. Pure: from the two quickstart templates and the operator's preview.env, the preview's
 // `.env` and projects config, plus the process environment the bot starts with. No installation is ever a source —
 // home included, which is a live node — so nothing here reads one (design D10).
+import { createHash } from 'node:crypto';
 
 // Settings that give a bot an identity, a tracker or an error sink: never in a preview, whatever preview.env says.
 const FORBIDDEN = /^(SLACK_|TEAMS_|HUB_|YOUTRACK_|SENTRY_|INSTALLATION_ID$|CHAT_SURFACES$|DAEMON_LISTEN$)/;
@@ -22,9 +23,12 @@ export function parseEnvFile(text: string): Record<string, string> {
   return out;
 }
 
-// `fix/Thread_42` → `fix-thread-42`: a container-name-safe slice of the branch.
-export const branchSlug = (branch: string): string =>
-  branch.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30).replace(/-+$/, '') || 'detached';
+// `fix/Thread_42` → `fix-thread-42`: a container-name-safe slice of the branch. A name too long to keep whole is cut
+// and carries a short hash of the full name, so two long branches with one prefix never share a sandbox.
+export const branchSlug = (branch: string): string => {
+  const s = branch.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'detached';
+  return s.length <= 30 ? s : `${s.slice(0, 23).replace(/-+$/, '')}-${createHash('sha256').update(branch).digest('hex').slice(0, 6)}`;
+};
 
 export const previewPrefix = (branch: string): string => `pv-${branchSlug(branch)}-`;
 
