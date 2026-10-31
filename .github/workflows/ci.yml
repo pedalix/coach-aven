@@ -53,7 +53,7 @@ jobs:
       # OpenSpec cli-probe: the committed CLI recordings (src/fixtures/cli/) re-checked against the SDK
       # declarations their reports name — fetched from the npm registry, never committed. No model
       # credential: CI never runs the CLI; live runs are the operator's step (docs/cli-probe.md).
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/coach-aven/cli-probe/sdk
           key: cli-probe-sdk-${{ hashFiles('src/fixtures/cli/*/report.json') }}
