@@ -26,7 +26,7 @@ import { pathToFileURL } from 'node:url';
 
 export const DEFAULT_DB_PATH = '/data/sources/store.sqlite';
 export const SERVER_NAME = 'sources';
-export const SERVER_VERSION = '1.12.1';
+export const SERVER_VERSION = '1.13.0';
 // Task-tracker sources live in their own table (`tasks`); everything else is a message.
 export const TRACKER_SOURCES = ['youtrack', 'jira', 'asana', 'wrike'];
 // Meeting recorders live in `meetings`.
@@ -968,12 +968,39 @@ export const TOOLS = [
       `(sum | wallclock). since/until: YYYY-MM-DD, each a whole day in ${ZONE_DOC}; default: this month so far. ` +
       'With budgets in the tenant config, `reconciliation` covers the month of `until` from its first day (whatever the window): per ' +
       'budget the units used (half-days rounded per billing code, hours), the month\'s cap (overrides win) and what is left, plus ' +
-      'minutes per umbrella, non-billable and unrouted time. Quote it; never recompute it.',
+      'minutes per umbrella, non-billable and unrouted time; a budget whose sheet was handed in for part of the month (timesheet) ' +
+      'also says submitted, open (the days after it) and committed = submitted + open, and `remaining` is then cap − committed. ' +
+      'Quote it; never recompute it.',
     inputSchema: {
       type: 'object',
       properties: {
         since: { type: 'string', description: 'YYYY-MM-DD, a local day' },
         until: { type: 'string', description: 'YYYY-MM-DD, a local day' },
+      },
+    },
+  },
+  {
+    name: 'timesheet',
+    description:
+      'A client sheet from the timelog, by the tenant\'s rules (annotations/sheets.json): one row per date and sheet project with ' +
+      'units (rounded per row to the sheet\'s step; each project\'s period total is its rounded total), minutes and the evidence ' +
+      '(titles, keys, repos) — write each row\'s one-line comment from it, in comment.language, and lay the table out in `columns` ' +
+      'order with date_format (who = the sheet\'s `who`; "skip" = an empty cell the sheet fills itself). Days already handed in ' +
+      '(ledger/submitted.jsonl) are left out unless include_submitted. layout "shifted": weekend work moved to weekdays and/or ' +
+      'units over the per-day cap moved to days with room; source_days are the facts. unmapped = the umbrella\'s time no rule ' +
+      'places, undecided = time not attributed yet with a candidate there: say both, never drop them silently. folded = a day\'s ' +
+      'project time too small for a step of its own (its minutes count in the project\'s total, carried by its other rows); ' +
+      'moved_in/moved_out = units the per-day cap moved. range (a sheet with monthRange) = the month of `until`: handed in + ' +
+      'these rows; "scaled" = the rows were shrunk to its max (computed_units on a changed row, dropped = rows that went to ' +
+      'zero), "below" = under its min by below_by — say it, never pad. cap (no range) = handed in + these rows against the budget. ' +
+      `since/until: YYYY-MM-DD, each a whole day in ${ZONE_DOC}; default: this month so far. Quote the numbers; never recompute them.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        sheet: { type: 'string', description: 'the sheet id from sheets.json (optional when there is one)' },
+        since: { type: 'string', description: 'YYYY-MM-DD, a local day' },
+        until: { type: 'string', description: 'YYYY-MM-DD, a local day' },
+        include_submitted: { type: 'boolean', description: 'true: also lay out the days already handed in (to compare)' },
       },
     },
   },
@@ -1784,12 +1811,19 @@ export function fragmentsToEvidence(rows, reg) {
     const start = fs.map((f) => f.start).sort()[0];
     const end = fs.map((f) => f.end).sort().slice(-1)[0];
     const ds = fs.filter(decided);
-    out.push({ kind: 'meeting', start, end, minutes: mins(start, end), title: key, ref: `fragment:${fs.map((f) => f.id).join('+')}`, route: ds.length ? routeOfAttributions(ds.flatMap((f) => f.attributions), reg) : undecided(fs[0]) });
+    out.push({ kind: 'meeting', start, end, minutes: mins(start, end), title: key, ref: `fragment:${fs.map((f) => f.id).join('+')}`, route: ds.length ? routeOfAttributions(ds.flatMap((f) => f.attributions), reg) : undecided(fs[0]), ...facetsOf(fs) });
   }
   for (const f of live.filter((f) => f.kind !== 'call')) {
-    out.push({ kind: 'session', start: f.start, end: f.end, minutes: mins(f.start, f.end), title: f.id, ref: `fragment:${f.id}`, route: decided(f) ? routeOfAttributions(f.attributions, reg) : undecided(f), workKey: `fragment:${f.kind}` });
+    out.push({ kind: 'session', start: f.start, end: f.end, minutes: mins(f.start, f.end), title: f.id, ref: `fragment:${f.id}`, route: decided(f) ? routeOfAttributions(f.attributions, reg) : undecided(f), workKey: `fragment:${f.kind}`, ...facetsOf([f]) });
   }
   return out;
+}
+// What a sheet rule matches on (timesheets): titles, the container (repo, channel, folder) and the tracker key prefixes —
+// present only when the rows carry them (the timesheet's query does; the timelog's does not, so its evidence is unchanged).
+function facetsOf(fs) {
+  if (!fs.some((f) => f.title !== undefined || f.container !== undefined || f.project_keys !== undefined)) return {};
+  const containers = [...new Set(fs.map((f) => f.container).filter(Boolean))];
+  return { facets: { titles: fs.map((f) => f.title).filter(Boolean), container: containers.length === 1 ? containers[0] : null, keys: [...new Set(fs.flatMap((f) => f.project_keys ?? []))] } };
 }
 
 /** Shared-repo rule: open WORK with several candidates follows the one candidate that has other decided time that day. */
@@ -1995,7 +2029,11 @@ export function runTimelog(db, args, now = new Date()) {
     const month = until.slice(0, 7);
     const first = `${month}-01`;
     const monthEntries = since === first ? entries : entriesBetween(normalizeTime(first, 'since', tz), hi);
-    reconciliation = { month, since: first, until, ...reconcile(monthEntries, budgets, month) };
+    const rec = reconcile(monthEntries, budgets, month);
+    // What was handed in (timesheets): only when the tenant keeps both files — without them the output is unchanged.
+    const sheets = meta.sheets && meta.submitted ? parseJson(meta.sheets, {}).sheets : undefined;
+    const periods = sheets ? parseJson(meta.submitted, {}).periods ?? [] : [];
+    reconciliation = { month, since: first, until, ...(sheets && periods.length ? withSubmitted(rec, monthEntries, budgets, month, sheets, periods) : rec) };
   }
   return {
     subject: meta.subject,
@@ -2009,6 +2047,359 @@ export function runTimelog(db, args, now = new Date()) {
     totals: [...totals].map(([initiative, minutes]) => ({ initiative, minutes })).sort((a, b) => b.minutes - a.minutes),
     days: [...days.values()],
     ...(reconciliation ? { reconciliation } : {}),
+  };
+}
+
+// ── timesheets ───────────────────────────────────────────────────────────────────────────
+// The client's sheet from the timelog (OpenSpec `timesheets`). The sheets are tenant data (annotations/sheets.json,
+// validated at build by src/sources/attribution/sheets.ts and stored as att:sheets); what was handed in is
+// ledger/submitted.jsonl (att:submitted). Deterministic: rows per date and sheet project, units, and the evidence
+// behind them — the one-line comment per row is the agent's, in the sheet's language (no model step here).
+
+const DAY_MS = 86_400_000;
+const addDays = (day, n) => new Date(Date.parse(`${day}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
+const weekdayOf = (day) => new Date(`${day}T00:00:00Z`).getUTCDay(); // 0 Sunday … 6 Saturday
+const isWeekend = (day) => weekdayOf(day) === 0 || weekdayOf(day) === 6;
+const reEscape = (x) => x.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+const round6 = (x) => Math.round(x * 1e6) / 1e6;
+
+/** A repo pattern (`org/repo`, `repo`, `*` glob within a segment) against a work block's container, on its tail. */
+export function repoTailMatches(pattern, container) {
+  if (!container) return false;
+  const p = String(pattern).toLowerCase().replace(/\/+$/, '');
+  const tail = String(container).toLowerCase().replace(/\/+$/, '').split('/').slice(-p.split('/').length).join('/');
+  if (!p.includes('*')) return tail === p;
+  return new RegExp(`^${p.split('*').map(reEscape).join('[^/]*')}$`).test(tail);
+}
+
+function ruleMatches(rule, initiative, e) {
+  if (rule.initiatives && !rule.initiatives.includes(initiative)) return false;
+  const m = rule.match;
+  if (!m) return true;
+  const f = e.facets ?? {};
+  if (m.keys && !m.keys.some((k) => (f.keys ?? []).includes(k.replace(/-$/, '')))) return false;
+  if (m.repos && !m.repos.some((p) => repoTailMatches(p, f.container))) return false;
+  if (m.containers && !m.containers.some((c) => c.toLowerCase() === String(f.container ?? '').toLowerCase())) return false;
+  if (m.title && !new RegExp(m.title, 'i').test((f.titles ?? []).join('\n'))) return false;
+  return true;
+}
+
+/**
+ * Evidence re-keyed for one sheet: each billable part of the sheet's umbrella goes to `sheet:<project>` by the first
+ * rule that places it, or to `unmapped:<initiative>`; everything else (other umbrellas, non-billable buckets,
+ * undecided time) keeps its route, so the day's wall-clock scaling is exactly the timelog's. A `sameDay` rule takes the
+ * project an earlier explicit rule gave the same initiative's evidence that day (most minutes); none → the next rule.
+ * Run after the co-activity rule (it reads real initiative ids).
+ */
+export function sheetEvidence(evidence, sheet, reg, dayOf) {
+  const inUmbrella = (id) => reg[id]?.umbrella === sheet.umbrella;
+  const billable = (id) => inUmbrella(id) && typeof reg[id]?.billing_code === 'string';
+  const parts = (e) => (e.route.split ? Object.entries(e.route.split) : e.route.initiative ? [[e.route.initiative, 1]] : []);
+  const rules = sheet.projects;
+  const projectOf = (r, ini) => r.project ?? reg[ini].billing_code;
+  const explicit = (ini, e) => {
+    for (let i = 0; i < rules.length; i++) if (!rules[i].sameDay && ruleMatches(rules[i], ini, e)) return { i, project: projectOf(rules[i], ini) };
+    return null;
+  };
+  const anchors = new Map();
+  for (const e of evidence) {
+    for (const [ini, w] of parts(e)) {
+      if (!billable(ini)) continue;
+      const hit = explicit(ini, e);
+      if (!hit) continue;
+      const key = `${dayOf(e.start)}|${ini}`;
+      anchors.set(key, [...(anchors.get(key) ?? []), { ...hit, minutes: e.minutes * w }]);
+    }
+  }
+  const place = (e, ini) => {
+    for (let i = 0; i < rules.length; i++) {
+      const r = rules[i];
+      if (!ruleMatches(r, ini, e)) continue;
+      if (!r.sameDay) return projectOf(r, ini);
+      const by = new Map();
+      for (const a of anchors.get(`${dayOf(e.start)}|${ini}`) ?? []) if (a.i < i) by.set(a.project, (by.get(a.project) ?? 0) + a.minutes);
+      if (by.size) return [...by].sort((x, y) => y[1] - x[1] || x[0].localeCompare(y[0]))[0][0];
+    }
+    return null;
+  };
+  return evidence.map((e) => {
+    const ps = parts(e);
+    if (!ps.some(([ini]) => billable(ini))) return e;
+    const split = {};
+    for (const [ini, w] of ps) {
+      const p = billable(ini) ? place(e, ini) : undefined;
+      const key = p === undefined ? ini : p === null ? `unmapped:${ini}` : `sheet:${p}`;
+      split[key] = (split[key] ?? 0) + w;
+    }
+    const keys = Object.keys(split);
+    const route = { initiative: keys.length === 1 ? keys[0] : null, confidence: e.route.confidence, candidates: e.route.candidates, ...(keys.length > 1 ? { split } : {}) };
+    return { ...e, route };
+  });
+}
+
+/**
+ * The sheet's layout (pure): rows {date, project, minutes, evidence} → units per row. In order, each opt-in:
+ * 1. weekends (`shift`): Saturday → Friday, Sunday → Monday (the other one when the first is outside the window or
+ *    blocked — a day already handed in); 2. rounding to `step` per row, each project's period total being its rounded
+ * total, spread over its rows by largest remainder (so rounding never invents or loses a unit over the period); 3. a
+ * per-day cap: units above it move one step at a time to the nearest open weekday with room, preferring a day the same
+ * project already has (`moved_in`/`moved_out`). Rows keep the days their work came from (`source_days`); a day's project
+ * time below a step is `folded` — counted in its project's total, which the project's other rows carry.
+ */
+export function layoutSheet(rows, sheet, window) {
+  const open = (d) => d >= window.since && d <= window.until && !(window.blocked && window.blocked(d));
+  const shift = sheet.layout?.weekends === 'shift';
+  let shifted = false;
+  const target = (day) => {
+    if (!shift || !isWeekend(day)) return day;
+    const sat = weekdayOf(day) === 6;
+    const fri = addDays(day, sat ? -1 : -2);
+    const mon = addDays(day, sat ? 2 : 1);
+    return (sat ? [fri, mon] : [mon, fri]).find(open) ?? day;
+  };
+  const cells = new Map();
+  for (const r of rows) {
+    const date = target(r.date);
+    if (date !== r.date) shifted = true;
+    const key = `${date}|${r.project}`;
+    const c = cells.get(key) ?? { date, project: r.project, minutes: 0, source_days: new Set(), evidence: [] };
+    c.minutes += r.minutes;
+    c.source_days.add(r.date);
+    c.evidence.push(...(r.evidence ?? []));
+    cells.set(key, c);
+  }
+  const step = sheet.step;
+  const um = sheet.unitMinutes;
+  const byProject = new Map();
+  for (const c of cells.values()) byProject.set(c.project, [...(byProject.get(c.project) ?? []), c]);
+  for (const cs of byProject.values()) {
+    const total = Math.round(cs.reduce((a, c) => a + c.minutes, 0) / um / step);
+    for (const c of cs) {
+      const q = c.minutes / um / step;
+      c.steps = Math.floor(round6(q));
+      c.rem = round6(q - c.steps);
+    }
+    let left = total - cs.reduce((a, c) => a + c.steps, 0);
+    for (const c of [...cs].sort((a, b) => b.rem - a.rem || b.minutes - a.minutes || a.date.localeCompare(b.date))) {
+      if (left <= 0) break;
+      c.steps++;
+      left--;
+    }
+  }
+  const over = [];
+  const max = sheet.layout?.maxUnitsPerDay;
+  if (max) {
+    const cap = Math.round(max / step);
+    const dayCells = (d) => [...cells.values()].filter((c) => c.date === d);
+    const daySteps = (d) => dayCells(d).reduce((a, c) => a + c.steps, 0);
+    const room = (d) => open(d) && !(shift && isWeekend(d)) && daySteps(d) < cap;
+    const span = Math.round((Date.parse(window.until) - Date.parse(window.since)) / DAY_MS);
+    for (const day of [...new Set([...cells.values()].map((c) => c.date))].sort()) {
+      while (daySteps(day) > cap) {
+        const donor = dayCells(day).sort((a, b) => b.steps - a.steps || a.project.localeCompare(b.project))[0];
+        let to = null;
+        for (let k = 1; k <= span && !to; k++) {
+          const near = [addDays(day, -k), addDays(day, k)].filter(room);
+          to = near.find((d) => cells.has(`${d}|${donor.project}`)) ?? near[0] ?? null;
+        }
+        if (!to) {
+          over.push({ date: day, units: round6((daySteps(day) - cap) * step) });
+          break;
+        }
+        const key = `${to}|${donor.project}`;
+        const c = cells.get(key) ?? { date: to, project: donor.project, minutes: 0, steps: 0, rem: 0, source_days: new Set(), evidence: donor.evidence };
+        donor.steps--;
+        c.steps++;
+        donor.moved_out = (donor.moved_out ?? 0) + 1;
+        (c.moved_in ??= new Map()).set(day, (c.moved_in.get(day) ?? 0) + 1);
+        for (const d of donor.source_days) c.source_days.add(d);
+        cells.set(key, c);
+        shifted = true;
+      }
+    }
+  }
+  const out = [];
+  const folded = [];
+  for (const c of [...cells.values()].sort((a, b) => a.date.localeCompare(b.date) || b.steps - a.steps || a.project.localeCompare(b.project))) {
+    const sources = [...c.source_days].sort();
+    if (!c.steps) {
+      if (c.minutes > 0) folded.push({ date: c.date, project: c.project, minutes: c.minutes, ...(c.moved_out ? { moved_out: round6(c.moved_out * step) } : {}) });
+      continue;
+    }
+    out.push({
+      date: c.date,
+      project: c.project,
+      units: round6(c.steps * step),
+      minutes: c.minutes,
+      ...(sources.length !== 1 || sources[0] !== c.date ? { source_days: sources } : {}),
+      ...(c.moved_in ? { moved_in: [...c.moved_in].map(([from, n]) => ({ from, units: round6(n * step) })) } : {}),
+      ...(c.moved_out ? { moved_out: round6(c.moved_out * step) } : {}),
+      evidence: c.evidence,
+    });
+  }
+  return { rows: out, shifted, ...(folded.length ? { folded } : {}), ...(over.length ? { over_cap_days: over } : {}) };
+}
+
+/**
+ * A month's rows shrunk to `target` units (the sheet's `monthRange.max`): each row keeps its share, in whole steps by
+ * largest remainder (ties: the bigger row, then the earlier day); a row that ends at zero is dropped and said. Never
+ * grows a row — a month below the range is reported, not padded.
+ */
+export function fitToTotal(rows, target, step) {
+  const steps = rows.map((r) => Math.round(r.units / step));
+  const total = steps.reduce((a, b) => a + b, 0);
+  const goal = Math.max(0, Math.round(target / step));
+  if (total <= goal) return { rows, dropped: [] };
+  const exact = steps.map((x) => (x * goal) / total);
+  const next = exact.map((x) => Math.floor(round6(x)));
+  let left = goal - next.reduce((a, b) => a + b, 0);
+  const order = rows.map((_, i) => i).sort((a, b) => round6(exact[b] - next[b]) - round6(exact[a] - next[a]) || steps[b] - steps[a] || rows[a].date.localeCompare(rows[b].date));
+  for (const i of order) {
+    if (left <= 0) break;
+    next[i]++;
+    left--;
+  }
+  const out = [];
+  const dropped = [];
+  rows.forEach((r, i) => {
+    if (!next[i]) dropped.push({ date: r.date, project: r.project, units: r.units });
+    else out.push(next[i] === steps[i] ? r : { ...r, units: round6(next[i] * step), computed_units: r.units });
+  });
+  return { rows: out, dropped };
+}
+
+const EVIDENCE_PER_ROW = 12;
+
+/** The handed-in periods of one sheet, and the day test for them. */
+function submittedOf(meta, sheetId) {
+  const stored = parseJson(meta.submitted || '{}', {});
+  const periods = (stored.periods ?? []).filter((p) => p.sheet === sheetId);
+  return { periods, errors: stored.errors ?? [], covered: (d) => periods.some((p) => d >= p.since && d <= p.until) };
+}
+
+export function runTimesheet(db, args, now = new Date()) {
+  const meta = attMeta(db);
+  if (!hasTable(db, 'att_fragments') || !meta.subject) return NOT_CONFIGURED;
+  if (!meta.sheets) return { configured: false, note: 'no sheets configured: the tenant repo has no annotations/sheets.json' };
+  const stored = parseJson(meta.sheets, {});
+  if (stored.error) return { error: `sheets.json is invalid, fix it in the tenant repo: ${stored.error}` };
+  const sheets = stored.sheets ?? [];
+  const id = args.sheet ? String(args.sheet) : sheets.length === 1 ? sheets[0].id : '';
+  const sheet = sheets.find((s) => s.id === id);
+  if (!sheet) return { error: id ? `unknown sheet "${id}"` : 'name the sheet', sheets: sheets.map((s) => s.id) };
+  const tz = LOCAL_TZ;
+  const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const dayOf = (iso) => dayFmt.format(new Date(iso));
+  const today = dayOf(now.toISOString());
+  const since = DAY_ARG.test(String(args.since ?? '')) ? String(args.since) : `${today.slice(0, 8)}01`;
+  const until = DAY_ARG.test(String(args.until ?? '')) ? String(args.until) : today;
+  const reg = parseJson(meta.registry || '{}', {});
+  const policy = meta.policy === 'wallclock' ? 'wallclock' : 'sum';
+  const frags = db
+    .prepare("SELECT id, kind, start, \"end\", state, attributions, candidates, refs, title, container, project_keys FROM att_fragments WHERE start >= ? AND start <= ? AND kind IN ('call', 'thread', 'work') ORDER BY start")
+    .all(normalizeTime(since, 'since', tz), normalizeTime(until, 'until', tz))
+    .map((f) => ({ ...f, attributions: parseJson(f.attributions || '[]', []), candidates: parseJson(f.candidates || '[]', []), refs: parseJson(f.refs || '[]', []), project_keys: parseJson(f.project_keys || '[]', []) }));
+  // The co-activity rule first, over real initiative ids, then the sheet's rules; the timelog's merge does the rest.
+  const byDay = new Map();
+  for (const e of fragmentsToEvidence(frags, reg)) byDay.set(dayOf(e.start), [...(byDay.get(dayOf(e.start)) ?? []), e]);
+  const evidence = sheetEvidence([...byDay.values()].flatMap((evs) => resolveByCoActivity(evs)), sheet, reg, dayOf);
+  const entries = buildTimelog(evidence, reg, tz, policy);
+  const sub = submittedOf(meta, sheet.id);
+  const includeSubmitted = args.include_submitted === true;
+  const skip = (d) => !includeSubmitted && sub.covered(d);
+  const umbrellaIds = new Set(Object.keys(reg).filter((k) => reg[k]?.umbrella === sheet.umbrella));
+  const evOf = (day, key) =>
+    evidence
+      .filter((e) => dayOf(e.start) === day && (e.route.initiative === key || (e.route.split && e.route.split[key])))
+      .map((e) => ({ kind: e.kind === 'meeting' ? 'call' : (e.workKey ?? '').replace('fragment:', '') || 'work', title: (e.facets?.titles ?? []).join(' / ').slice(0, 240), minutes: Math.round(e.minutes * (e.route.split ? e.route.split[key] : 1)), ...(e.facets?.keys?.length ? { keys: e.facets.keys } : {}), ...(e.facets?.container ? { container: e.facets.container } : {}) }))
+      .sort((a, b) => b.minutes - a.minutes);
+  const raw = [];
+  const unmapped = [];
+  const undecided = [];
+  for (const e of entries) {
+    if (skip(e.day)) continue;
+    if (e.initiative?.startsWith('sheet:')) raw.push({ date: e.day, project: e.initiative.slice(6), minutes: e.minutes, evidence: evOf(e.day, e.initiative) });
+    else if (e.initiative?.startsWith('unmapped:')) unmapped.push({ date: e.day, initiative: e.initiative.slice(9), minutes: e.minutes, evidence: evOf(e.day, e.initiative).slice(0, EVIDENCE_PER_ROW) });
+    else if (!e.initiative && (e.candidates ?? []).some((c) => umbrellaIds.has(c))) undecided.push({ date: e.day, minutes: e.minutes, confidence: e.confidence, candidates: e.candidates });
+  }
+  const laid = layoutSheet(raw, sheet, { since, until, blocked: skip });
+  // The month of `until`: what was handed in, and — with the sheet's `monthRange` — the month's rows shrunk to its max.
+  const month = until.slice(0, 7);
+  const submittedInMonth = round6(sub.periods.flatMap((p) => p.rows).filter((r) => r.date.startsWith(month)).reduce((a, r) => a + r.units, 0));
+  const inMonth = (r) => r.date.startsWith(month);
+  const computedInMonth = round6(laid.rows.filter(inMonth).reduce((a, r) => a + r.units, 0));
+  let range;
+  if (sheet.monthRange) {
+    const { min, max } = sheet.monthRange;
+    let dropped = [];
+    if (max !== undefined) {
+      const fit = fitToTotal(laid.rows.filter(inMonth), Math.max(0, max - submittedInMonth), sheet.step);
+      laid.rows = [...laid.rows.filter((r) => !inMonth(r)), ...fit.rows].sort((a, b) => a.date.localeCompare(b.date) || b.units - a.units || a.project.localeCompare(b.project));
+      dropped = fit.dropped;
+    }
+    const total = round6(submittedInMonth + laid.rows.filter(inMonth).reduce((a, r) => a + r.units, 0));
+    const status = max !== undefined && total < round6(submittedInMonth + computedInMonth) ? 'scaled' : min !== undefined && total < min ? 'below' : 'within';
+    range = { month, ...sheet.monthRange, submitted: submittedInMonth, computed: computedInMonth, total, status, ...(status === 'below' ? { below_by: round6(min - total) } : {}), ...(dropped.length ? { dropped } : {}) };
+  }
+  const byProject = {};
+  for (const r of laid.rows) {
+    const p = (byProject[r.project] ??= { units: 0, minutes: 0 });
+    p.units = round6(p.units + r.units);
+    p.minutes += r.minutes;
+  }
+  const rows = laid.rows.map((r) => ({ ...r, evidence: r.evidence.slice(0, EVIDENCE_PER_ROW), ...(r.evidence.length > EVIDENCE_PER_ROW ? { more_evidence: r.evidence.length - EVIDENCE_PER_ROW } : {}) }));
+  const units = round6(rows.reduce((a, r) => a + r.units, 0));
+  // Without a range: the month against the umbrella's budget, when its unit is the sheet's — handed in plus these rows.
+  const budget = sheet.monthRange ? undefined : parseJson(meta.budgets || '[]', []).find((b) => b.umbrella === sheet.umbrella && b.unit === sheet.unit);
+  const capUnits = budget ? (budget.overrides?.[month] ?? budget.perMonth) : undefined;
+  const rowsInMonth = round6(rows.filter((r) => r.date.startsWith(month) && !sub.covered(r.date)).reduce((a, r) => a + r.units, 0));
+  return {
+    sheet: sheet.id,
+    umbrella: sheet.umbrella,
+    unit: sheet.unit,
+    step: sheet.step,
+    since,
+    until,
+    tz,
+    policy,
+    layout: laid.shifted ? 'shifted' : 'kept',
+    columns: sheet.columns,
+    ...(sheet.who ? { who: sheet.who } : {}),
+    date_format: sheet.dateFormat,
+    comment: sheet.comment,
+    rows,
+    totals: { units, minutes: rows.reduce((a, r) => a + r.minutes, 0), by_project: byProject },
+    ...(laid.folded ? { folded: laid.folded } : {}),
+    ...(laid.over_cap_days ? { over_cap_days: laid.over_cap_days } : {}),
+    ...(unmapped.length ? { unmapped } : {}),
+    ...(undecided.length ? { undecided } : {}),
+    ...(sub.periods.length ? { submitted: sub.periods.map((p) => ({ id: p.id, since: p.since, until: p.until, units: round6(p.rows.reduce((a, r) => a + r.units, 0)), ...(p.submitted_at ? { submitted_at: p.submitted_at } : {}) })) } : {}),
+    ...(sub.errors.length ? { submitted_errors: sub.errors } : {}),
+    ...(range ? { range } : {}),
+    ...(capUnits !== undefined ? { cap: { month, cap: capUnits, submitted: submittedInMonth, rows: rowsInMonth, left: round6(capUnits - submittedInMonth - rowsInMonth) } } : {}),
+    ...(since < meta.since || until > meta.until ? { note: `outside the computed horizon ${meta.since}..${meta.until}: days there have no fragments` } : {}),
+  };
+}
+
+/**
+ * The month's reconciliation with what was handed in (ledger/submitted.jsonl): per budget whose umbrella has a sheet
+ * with a submitted period in the month, `submitted` (the units of its rows dated in the month), `open` (the budget's
+ * own units over the month's days no period covers) and `committed` = submitted + open — the cap is judged on that,
+ * not on a recount of billed days. `used` and `by` stay the computed month. Budgets without one are untouched.
+ */
+export function withSubmitted(rec, monthEntries, budgets, month, sheets, periods) {
+  return {
+    ...rec,
+    budgets: rec.budgets.map((b, i) => {
+      const ids = new Set(sheets.filter((s) => s.umbrella === b.umbrella).map((s) => s.id));
+      const mine = periods.filter((p) => ids.has(p.sheet) && p.since <= `${month}-31` && p.until >= `${month}-01`);
+      if (!mine.length) return b;
+      const covered = (d) => mine.some((p) => d >= p.since && d <= p.until);
+      const submitted = round6(mine.flatMap((p) => p.rows).filter((r) => r.date.startsWith(month)).reduce((a, r) => a + r.units, 0));
+      const open = reconcile(monthEntries.filter((e) => !covered(e.day)), [budgets[i]], month).budgets[0].used;
+      const committed = round6(submitted + open);
+      return { ...b, submitted, open, committed, ...(b.cap !== undefined ? { remaining: round6(b.cap - committed) } : {}) };
+    }),
   };
 }
 
@@ -2335,6 +2726,8 @@ export function callTool(dbPath, name, args) {
         return runAttribution(db, args ?? {});
       case 'timelog':
         return runTimelog(db, args ?? {});
+      case 'timesheet':
+        return runTimesheet(db, args ?? {});
       case 'identities':
         return runIdentities(db);
       case 'commitments':

@@ -26,6 +26,7 @@ import { loadObservations } from '../identities/observations.js';
 import { attendeeNames, extractCommitments, subjectNames, type CallIn } from '../commitments.js';
 import { recomputeItems, type ItemsSummary } from './items.js';
 import { clearLearn, recomputeLearn, type LearnSummary } from './learn-load.js';
+import { parseSubmitted, sheetsForStore, type Sheet, type Submitted } from './sheets.js';
 
 export interface AttributionFiles {
   /** The tenant checkout's root (initiatives.json lives here). */
@@ -49,6 +50,10 @@ export interface AttributionInputs {
   versionText: string;
   /** annotations/labels.jsonl — people's answers about items; read only while the learning loop is on. */
   labelsText?: string;
+  /** annotations/sheets.json, parsed (or the error naming what to fix) — absent when the tenant has none. */
+  sheets?: { sheets: Sheet[] } | { error: string };
+  /** ledger/submitted.jsonl — the handed-in sheet periods; absent when the tenant has none. */
+  submitted?: { periods: Submitted[]; errors: string[] };
 }
 
 export interface AttributionSummary {
@@ -101,9 +106,26 @@ export function readAttributionInputs(f: AttributionFiles): { inputs: Attributio
   // People's item answers move the loop's keys and calibration: part of the fingerprint, but only while the loop is on —
   // a tenant without `learn` keeps its fingerprint (and its builds) exactly as before.
   const labelsText = config.learn ? read(join(f.annotationsDir, 'labels.jsonl'), '') : undefined;
+  // The client sheets and what was handed in feed the `timesheet` readout only (the plan and the pins never read them);
+  // part of the fingerprint only when present, so a tenant without them keeps its builds exactly as before.
+  const sheetsPath = join(f.annotationsDir, 'sheets.json');
+  const submittedPath = join(f.tenantRoot, 'ledger', 'submitted.jsonl');
+  const sheetsText = existsSync(sheetsPath) ? readFileSync(sheetsPath, 'utf8') : undefined;
+  const submittedText = existsSync(submittedPath) ? readFileSync(submittedPath, 'utf8') : undefined;
+  const registry = parseRegistry(JSON.parse(regText));
   return {
-    inputs: { config, registry: parseRegistry(JSON.parse(regText)), rules: parseRules(JSON.parse(rulesText)), timezone: f.timezone ?? 'UTC', ...(f.pinsPath ? { pinsPath: f.pinsPath } : {}), versionText: [rulesText, regText, versionConfig(cfgRaw)].join('\0'), ...(labelsText !== undefined ? { labelsText } : {}) },
-    text: [cfgText, regText, rulesText, f.timezone ?? 'UTC', pinsText, ...(labelsText !== undefined ? [labelsText] : [])].join('\0'),
+    inputs: {
+      config,
+      registry,
+      rules: parseRules(JSON.parse(rulesText)),
+      timezone: f.timezone ?? 'UTC',
+      ...(f.pinsPath ? { pinsPath: f.pinsPath } : {}),
+      versionText: [rulesText, regText, versionConfig(cfgRaw)].join('\0'),
+      ...(labelsText !== undefined ? { labelsText } : {}),
+      ...(sheetsText !== undefined ? { sheets: sheetsForStore(sheetsText, registry) } : {}),
+      ...(submittedText !== undefined ? { submitted: parseSubmitted(submittedText) } : {}),
+    },
+    text: [cfgText, regText, rulesText, f.timezone ?? 'UTC', pinsText, ...(labelsText !== undefined ? [labelsText] : []), ...(sheetsText !== undefined ? ['sheets', sheetsText] : []), ...(submittedText !== undefined ? ['submitted', submittedText] : [])].join('\0'),
   };
 }
 
@@ -331,6 +353,10 @@ export function recomputeAttribution(db: DatabaseSync, inputs: AttributionInputs
     meta.run('att:budgets', JSON.stringify(config.budgets ?? []));
     meta.run('att:identities', JSON.stringify(identities));
     meta.run('att:computed_at', now.toISOString());
+    // The timesheet readout's inputs: written only when the tenant has the files, removed when it no longer does.
+    db.exec("DELETE FROM sync_state WHERE key IN ('att:sheets', 'att:submitted')");
+    if (inputs.sheets) meta.run('att:sheets', JSON.stringify(inputs.sheets));
+    if (inputs.submitted) meta.run('att:submitted', JSON.stringify(inputs.submitted));
     db.exec('COMMIT');
   } catch (e) {
     db.exec('ROLLBACK');

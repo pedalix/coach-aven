@@ -780,6 +780,38 @@ summed, hours rounded to 0.1 on the total), the month's cap (an override wins) a
 per umbrella, non-billable time (routed initiatives without a billing code) and unrouted time. It never bends
 the minutes; a model quotes it and never recomputes it.
 
+**Timesheets** (OpenSpec `timesheets`): `timesheet({sheet, since, until, include_submitted?})` — a client's sheet from
+the timelog, by rules the tenant keeps as data in `annotations/sheets.json` (format in
+`src/sources/attribution/sheets.ts`): per sheet its umbrella, unit (`hour` / `half_day`), rounding `step`, the paste
+`columns` (`date`, `comment`, `project`, `who`, `units`, and `skip` for a column the sheet fills itself), `who`,
+`dateFormat`, the comment's language and style, `layout` (`weekends: keep | shift`, `maxUnitsPerDay`) and an ordered
+list of project rules — first match wins: `project` (a name), `projectFrom: "billing_code"` (a sheet whose projects
+are the codes) or `sameDay: true` (the project an earlier explicit rule gave the same initiative's evidence that day),
+optionally narrowed by `initiative` and `match: {keys, repos, containers, title}`. Only billable time of the umbrella
+enters (non-billable buckets stay out); the evidence is re-keyed to sheet projects before the timelog's merge, so the
+day's wall-clock scaling is exactly the timelog's. Rows: one per date and sheet project, with units, minutes and the
+evidence the agent writes the one-line comment from — the platform writes no comment. Rounding is per row with each
+project's period total equal to its rounded total (largest remainder); time too small for a step on a day is `folded`
+into the project's other rows. Weekend work moves to Friday (Saturday) or Monday (Sunday) when the sheet says
+`shift`; units over the per-day cap move a step at a time to the nearest weekday with room (`moved_in` /
+`moved_out`); `source_days` keep the facts. `monthRange: {min, max}` is what a calendar month should bill: above
+`max` the month's rows shrink to it (each row keeps its share, largest remainder; a shrunk row carries
+`computed_units`, rows that reach zero are listed), below `min` the readout says by how much and never pads.
+`unmapped` (the umbrella's billable time no rule places) and `undecided` (time not attributed yet with a candidate in
+the umbrella) are listed, never dropped.
+
+**What was handed in**: `ledger/submitted.jsonl` in the tenant repository, one line per handed-in sheet period
+`{id, sheet, since, until, submitted_at?, by?, rows: [{date, project, units, comment?}]}` (the last line per id wins;
+a bad line is named and skipped). Written by the tenant's tooling when the person says the sheet went out — the
+platform only reads it. `timesheet` leaves those days out (and never lays units onto them) unless
+`include_submitted`, and reports the month of `until`: `range` (handed in + its rows against `monthRange`) or, without
+one, `cap` (against the umbrella's budget).
+The `timelog` reconciliation then carries, for a budget whose sheet has a period in the month, `submitted`, `open`
+(the budget's own units over the days no period covers) and `committed`, and judges `remaining` on `committed`.
+Both files are read at build into the store (`att:sheets`, `att:submitted`); a broken `sheets.json` is stored as its
+error — the readout names the sheet and the rule — and costs the build nothing. A tenant without the files keeps its
+fingerprint, its builds and its readouts unchanged.
+
 **Recompute**: at every build that consumed new lines or saw a tenant file change (and at least hourly,
 since the horizon ends today), over `since` to today in the tenant's zone (`sources.timezone`; the table stores
 UTC instants only, the tool turns the asked days into UTC bounds and labels each row with its local day) — 389 fragments of 15 days in

@@ -175,11 +175,11 @@ export function runAttribution(
 export interface LearnQuestion { group: string; units: string[]; value: number; guess: string | null; form: 'choose' | 'confirm'; unit?: 'fragment' | 'item' }
 export interface LearnUnitRow { id: string; day: string; label: string | null; conf?: number; rung: string; ask?: { group: string; value: number; guess: string | null; form: 'choose' | 'confirm' }; audit?: true }
 export interface TlRoute { initiative: string | null; confidence: string; candidates: string[]; split?: Record<string, number> }
-export interface TlEvidence { kind: 'meeting' | 'session'; start: string; end: string; minutes: number; title: string; ref: string; route: TlRoute; workKey?: string }
+export interface TlEvidence { kind: 'meeting' | 'session'; start: string; end: string; minutes: number; title: string; ref: string; route: TlRoute; workKey?: string; facets?: { titles: string[]; container: string | null; keys: string[] } }
 export function unionIntervals(xs: { start: number; end: number }[]): { start: number; end: number }[];
 export function subtractIntervals(xs: { start: number; end: number }[], cut: { start: number; end: number }[]): { start: number; end: number }[];
 export function routeOfAttributions(atts: { initiative: string; share: number }[], reg: Record<string, { umbrella?: string; billing_code?: string; alias_of?: string; split_into?: Record<string, number> }>): TlRoute;
-export function fragmentsToEvidence(rows: Array<{ id: string; kind: string; start: string; end: string; state: string; attributions: { initiative: string; share: number }[]; candidates: string[]; refs: string[] }>, reg: Record<string, unknown>): TlEvidence[];
+export function fragmentsToEvidence(rows: Array<{ id: string; kind: string; start: string; end: string; state: string; attributions: { initiative: string; share: number }[]; candidates: string[]; refs: string[]; title?: string; container?: string | null; project_keys?: string[] }>, reg: Record<string, unknown>): TlEvidence[];
 export function resolveByCoActivity(evs: TlEvidence[]): TlEvidence[];
 export function buildTimelog(evidence: TlEvidence[], reg: Record<string, { umbrella?: string; billing_code?: string; alias_of?: string; split_into?: Record<string, number> }>, tz: string, policy?: 'sum' | 'wallclock'): Array<{ day: string; initiative: string | null; umbrella?: string; billing_code?: string; minutes: number; confidence: string; candidates?: string[]; refs: string[] }>;
 export function reconcile(
@@ -201,6 +201,51 @@ export function runIdentities(db: unknown): Record<string, unknown> & {
 export function runCommitments(db: unknown, args: { since?: string; until?: string; owner?: string }, now?: Date): Record<string, unknown> & {
   configured?: false;
   commitments?: Array<{ id: string; owner: string | null; to: string | null; what: string; source: string; call: string; call_title: string; call_start: string; day: string; provenance: Array<{ kind: string; ref: string }> }>;
+};
+export interface TsSheet {
+  id: string;
+  umbrella: string;
+  unit: 'hour' | 'half_day';
+  unitMinutes: number;
+  step: number;
+  columns: string[];
+  who?: string;
+  dateFormat: string;
+  comment: { language: string; style?: string };
+  layout: { weekends: 'keep' | 'shift'; maxUnitsPerDay?: number };
+  monthRange?: { min?: number; max?: number };
+  projects: Array<{ project?: string; projectFrom?: 'billing_code'; sameDay?: true; initiatives?: string[]; match?: { keys?: string[]; repos?: string[]; containers?: string[]; title?: string } }>;
+}
+export interface TsRow { date: string; project: string; units: number; computed_units?: number; minutes: number; source_days?: string[]; moved_in?: Array<{ from: string; units: number }>; moved_out?: number; evidence: Array<Record<string, unknown>>; more_evidence?: number }
+export function repoTailMatches(pattern: string, container: string | null | undefined): boolean;
+export function sheetEvidence(evidence: TlEvidence[], sheet: TsSheet, reg: Record<string, { umbrella?: string; billing_code?: string; alias_of?: string; split_into?: Record<string, number> }>, dayOf: (iso: string) => string): TlEvidence[];
+export function layoutSheet(
+  rows: Array<{ date: string; project: string; minutes: number; evidence?: Array<Record<string, unknown>> }>,
+  sheet: Pick<TsSheet, 'step' | 'unitMinutes' | 'layout'>,
+  window: { since: string; until: string; blocked?: (day: string) => boolean },
+): { rows: TsRow[]; shifted: boolean; folded?: Array<{ date: string; project: string; minutes: number; moved_out?: number }>; over_cap_days?: Array<{ date: string; units: number }> };
+export function withSubmitted<R extends ReturnType<typeof reconcile>>(
+  rec: R,
+  monthEntries: Array<{ day: string; initiative: string | null; umbrella?: string; billing_code?: string; minutes: number }>,
+  budgets: Parameters<typeof reconcile>[1],
+  month: string,
+  sheets: Array<{ id: string; umbrella: string }>,
+  periods: Array<{ id: string; sheet: string; since: string; until: string; rows: Array<{ date: string; units: number }> }>,
+): R;
+export function fitToTotal<T extends { date: string; project: string; units: number }>(rows: T[], target: number, step: number): { rows: Array<T & { computed_units?: number }>; dropped: Array<{ date: string; project: string; units: number }> };
+export function runTimesheet(db: unknown, args: { sheet?: string; since?: string; until?: string; include_submitted?: boolean }, now?: Date): Record<string, unknown> & {
+  configured?: false;
+  error?: string;
+  layout?: 'kept' | 'shifted';
+  rows?: TsRow[];
+  totals?: { units: number; minutes: number; by_project: Record<string, { units: number; minutes: number }> };
+  unmapped?: Array<{ date: string; initiative: string; minutes: number }>;
+  undecided?: Array<{ date: string; minutes: number; confidence: string; candidates: string[] }>;
+  folded?: Array<{ date: string; project: string; minutes: number; moved_out?: number }>;
+  over_cap_days?: Array<{ date: string; units: number }>;
+  submitted?: Array<{ id: string; since: string; until: string; units: number; submitted_at?: string }>;
+  cap?: { month: string; cap: number; submitted: number; rows: number; left: number };
+  range?: { month: string; min?: number; max?: number; submitted: number; computed: number; total: number; status: 'within' | 'scaled' | 'below'; below_by?: number; dropped?: Array<{ date: string; project: string; units: number }> };
 };
 export function runTimelog(db: unknown, args: { since?: string; until?: string }, now?: Date): Record<string, unknown> & { configured?: false; total_minutes?: number; totals?: { initiative: string; minutes: number }[]; days?: Array<{ day: string; minutes: number; entries: Array<Record<string, unknown>> }> };
 export function handleMessage(msg: unknown, dbPath: string): Record<string, unknown> | undefined;
