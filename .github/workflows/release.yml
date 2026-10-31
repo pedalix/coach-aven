@@ -174,7 +174,7 @@ jobs:
       - name: "Mint a token for the ops repository (scoped to that repo, contents: write)"
         if: env.HAS_OPS_APP == 'true'
         id: ops_token
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.OPS_APP_ID }}
           private-key: ${{ secrets.OPS_APP_PRIVATE_KEY }}
