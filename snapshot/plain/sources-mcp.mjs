@@ -2326,7 +2326,8 @@ export function runTimesheet(db, args, now = new Date()) {
   // The month of `until`: what was handed in, and — with the sheet's `monthRange` — the month's rows shrunk to its max.
   const month = until.slice(0, 7);
   const submittedInMonth = round6(sub.periods.flatMap((p) => p.rows).filter((r) => r.date.startsWith(month)).reduce((a, r) => a + r.units, 0));
-  const inMonth = (r) => r.date.startsWith(month);
+  // Only the month's open days: with include_submitted the handed-in days stay in the rows to compare, never re-counted.
+  const inMonth = (r) => r.date.startsWith(month) && !sub.covered(r.date);
   const computedInMonth = round6(laid.rows.filter(inMonth).reduce((a, r) => a + r.units, 0));
   let range;
   if (sheet.monthRange) {
