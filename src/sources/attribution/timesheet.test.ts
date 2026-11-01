@@ -271,6 +271,26 @@ test('timesheet: monthRange shrinks the month to its max and says what moved; be
   }
 });
 
+test('timesheet: with include_submitted the handed-in days are shown as they were and never count twice against the range', () => {
+  const ranged = { ...acmeRaw, monthRange: { max: 4 } };
+  const frags = [
+    frag('a1', '2026-10-05T06:00:00Z', '2026-10-05T14:00:00Z', 'acme/p1'), // 2 half-days, handed in
+    frag('a2', '2026-10-06T06:00:00Z', '2026-10-06T10:00:00Z', 'acme/p3'), // 1, handed in
+    frag('a3', '2026-10-07T06:00:00Z', '2026-10-07T08:00:00Z', 'acme/p3'), // 0.5, open
+  ];
+  const submitted = JSON.stringify(parseSubmitted(JSON.stringify({ id: 'a-1', sheet: 'acme', since: '2026-10-01', until: '2026-10-06', rows: [{ date: '2026-10-05', project: 'P1', units: 2 }, { date: '2026-10-06', project: 'P3', units: 1 }] })));
+  const db = storeWith({ 'att:sheets': JSON.stringify(sheetsForStore(JSON.stringify({ sheets: [ranged] }), registry)), 'att:submitted': submitted }, frags);
+  try {
+    const open = runTimesheet(db, { since: '2026-10-01', until: '2026-10-31' }, NOW);
+    const all = runTimesheet(db, { since: '2026-10-01', until: '2026-10-31', include_submitted: true }, NOW);
+    assert.deepEqual(open.range, { month: '2026-10', max: 4, submitted: 3, computed: 0.5, total: 3.5, status: 'within' });
+    assert.deepEqual(all.range, open.range, 'the comparison view judges the month the same way');
+    assert.deepEqual(all.rows!.map((r) => [r.date, r.units, r.computed_units]), [['2026-10-05', 2, undefined], ['2026-10-06', 1, undefined], ['2026-10-07', 0.5, undefined]]);
+  } finally {
+    db.close();
+  }
+});
+
 test('timesheet: without the ledger the reconciliation is exactly today\'s', () => {
   const frags = [frag('f2', '2026-10-12T08:00:00Z', '2026-10-12T10:30:00Z', 'northwind/shop', { keys: ['NS'] })];
   const budgets = JSON.stringify([{ umbrella: 'northwind', unit: 'hour', perMonth: 70 }]);
