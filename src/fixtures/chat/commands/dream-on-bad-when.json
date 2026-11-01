@@ -1,0 +1,30 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":x: schedule must be `daily HH:MM`, `weekdays HH:MM`, `weekly <mon..sun> HH:MM`, or `cron <5 fields>` — e.g. `/aven dream on weekly sun 3:00` or `/aven dream on daily 3:00`."
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":crescent_moon: No dreaming for *alpha*. Enable nightly memory consolidation: `/aven dream on`."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}
