@@ -25,7 +25,8 @@ const resign = (env: WireEnvelope, k: KeyFile): WireEnvelope => {
 test('seal / open — round trip; the wire shows the installations and nothing else', () => {
   const env = seal(header, content, { signing: home.signing, recipientBox: bluefin.encryption.public });
   const wire = JSON.stringify(env);
-  for (const hidden of ['Which orders failed', 'owen-ops', 'caldora', 'ask', content.task]) assert.ok(!wire.includes(hidden), `${hidden} is sealed`);
+  // The kind as a JSON string: a bare `ask` turns up by chance in base64url ciphertext about once in a few hundred runs.
+  for (const hidden of ['Which orders failed', 'owen-ops', 'caldora', '"ask"', content.task]) assert.ok(!wire.includes(hidden), `${hidden} is sealed`);
   assert.deepEqual(Object.keys(env).sort(), ['ct', 'eph', 'from', 'id', 'sig', 'to', 'v']);
   const r = open(env, { senderKeys: homeKeys, own: bluefin });
   assert.equal(r.ok, true);
