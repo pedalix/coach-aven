@@ -9,9 +9,9 @@
 
 ## 2. Verification
 
-- [ ] 2.1 After `ship` to an App-mode installation, in a project without a grant ask the agent to push a change to
+- [x] 2.1 After `ship` to an App-mode installation, in a project without a grant ask the agent to push a change to
   `.github/workflows/`: its reply names `/aven grant workflows` and does not ask to change the App. Record the date in
-  the ledger row.
+  the ledger row. Done 2026-11-05 on prod (v0.53.0): the reply named the grant command.
 
 ## Workflow follow-up
 
