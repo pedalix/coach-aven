@@ -35,6 +35,9 @@ export interface SystemPromptInputs {
   gitFlow?: GitFlow;
   // GITHUB_AUTH=none (config.ts): no GitHub access at all; absent → today's text, byte for byte.
   noGitHub?: boolean;
+  // GITHUB_AUTH=app (config.ts): the sandbox token is an App installation token, so `/aven grant workflows` can widen
+  // it (OpenSpec prompt-grant-hint); absent → today's text, byte for byte.
+  githubApp?: boolean;
   // The project's container options as resolved at boot (sandboxopts.ts) — `dind` gates the
   // toolchain paragraph, exactly as it gates the dockerd guard in prepareChat.
   sandbox: ResolvedSandboxOptions;
@@ -58,6 +61,16 @@ const NO_GITHUB =
   `for a change, make it in a worktree as described, show the diff in your reply, and say that a GitHub ` +
   `token in the installation's .env (\`GITHUB_TOKEN\`, with Contents and Pull requests read and write) lets you ` +
   `open the pull request yourself. Never ask the user to paste a token into the chat.`;
+
+// GITHUB_AUTH=app: the sandbox token leaves out `workflows` on purpose (github.ts AGENT_PERMISSIONS), and an operator
+// can lend it to the project for a while (grants.ts). Without this the agent misreads the refusal as a permission the
+// App lacks and asks an org admin to change the App (OpenSpec prompt-grant-hint). Not in token mode: there the grant
+// changes nothing.
+const WORKFLOW_GRANT =
+  `A push that adds or changes a file under \`.github/workflows/\` is refused for a missing \`workflows\` ` +
+  `permission on purpose — not because the GitHub App lacks it. Say so, and that an operator can allow it for this ` +
+  `project for a while with \`/aven grant workflows\` (\`/grant workflows\` on Teams and the web chat); push again ` +
+  `once they have. Do not ask anyone to change the App's permissions.`;
 
 // "pr": a dedicated worktree off the fresh remote default, a PR via gh. The shared checkout
 // is never edited in place — the sandbox outlives the task and may sit on an old branch.
@@ -156,6 +169,7 @@ export function buildSystemPrompt(inp: SystemPromptInputs): string {
     lines.push('', TOOLCHAIN);
   }
   if (inp.noGitHub) lines.push('', NO_GITHUB);
+  if (inp.githubApp) lines.push('', WORKFLOW_GRANT);
   if (packageRepos.length) {
     lines.push(
       '',

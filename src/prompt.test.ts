@@ -153,3 +153,12 @@ test('golden: no GitHub access (GITHUB_AUTH=none) adds one paragraph after the f
   assert.equal(buildSystemPrompt({ ...SINGLE, sandbox: PLAIN, noGitHub: true }), golden('single-repo-no-github'));
   assert.equal(buildSystemPrompt({ ...SINGLE, noGitHub: false }), golden('single-repo'));
 });
+
+test('golden: an App-auth installation adds the workflow-grant paragraph after the flow (prompt-grant-hint); absent, every prompt is unchanged', () => {
+  assert.equal(buildSystemPrompt({ ...SINGLE, githubApp: true }), golden('single-repo-github-app'));
+  assert.equal(buildSystemPrompt({ ...SINGLE, githubApp: false }), golden('single-repo'));
+  // The golden is the production single-repo prompt plus exactly one blank line and the paragraph.
+  const added = golden('single-repo-github-app').split('\n').filter((l) => !golden('single-repo').split('\n').includes(l));
+  assert.equal(added.length, 1);
+  assert.match(added[0]!, /^A push that adds or changes a file under `\.github\/workflows\/`.*`\/aven grant workflows`/);
+});
