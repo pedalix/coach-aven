@@ -340,6 +340,7 @@ export async function openChat(
     ...(opts.messagingSend ? { messagingSend: true } : {}),
     gitFlow: opts.gitFlow,
     ...(cfg.github.kind === 'none' ? { noGitHub: true } : {}),
+    ...(cfg.github.kind === 'app' ? { githubApp: true } : {}),
     // Resolved again here (loadProjects already validated it) so the prompt sees the same
     // dind answer as the dockerd guard in prepareChat.
     sandbox: resolveSandboxOptions(opts.sandbox),
