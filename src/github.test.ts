@@ -63,11 +63,11 @@ test('GITHUB_AUTH=none: no token to mint, and the API is asked without an Author
 });
 
 // OpenSpec project-grants: the sandbox mint's request, with and without a grant's extras.
-const INSTALL = { contents: 'write', pull_requests: 'write', checks: 'write', metadata: 'read', workflows: 'write', issues: 'write' };
+const INSTALL = { contents: 'write', pull_requests: 'write', checks: 'write', actions: 'read', metadata: 'read', workflows: 'write', issues: 'write' };
 
-test('requested permissions without a grant are exactly today\'s (bucket-2 proof)', () => {
+test('requested permissions without a grant are exactly the standing set', () => {
   assert.deepEqual(requestedPermissions(INSTALL), {
-    permissions: { contents: 'write', pull_requests: 'write', checks: 'read', metadata: 'read' },
+    permissions: { contents: 'write', pull_requests: 'write', checks: 'read', actions: 'read', metadata: 'read' },
     missing: [],
   });
   assert.deepEqual(requestedPermissions(INSTALL, {}), requestedPermissions(INSTALL));
@@ -78,9 +78,24 @@ test('requested permissions with a workflows grant add workflows write and nothi
     contents: 'write',
     pull_requests: 'write',
     checks: 'read',
+    actions: 'read',
     metadata: 'read',
     workflows: 'write',
   });
+});
+
+// OpenSpec agent-actions-read: an installation granting Actions write still yields a read-only token, and one that
+// has not approved Actions mints without it.
+test('actions is requested read-only, even when the installation grants write', () => {
+  assert.equal(requestedPermissions({ ...INSTALL, actions: 'write' }).permissions.actions, 'read');
+});
+
+test('an installation that has not approved actions drops it; the mint request still succeeds', () => {
+  const { actions: _, ...without } = INSTALL;
+  const r = requestedPermissions(without);
+  assert.equal(r.permissions.actions, undefined);
+  assert.deepEqual(r.missing, ['actions']);
+  assert.equal(r.permissions.contents, 'write');
 });
 
 test('an extra never lowers an agent permission', () => {
