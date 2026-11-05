@@ -29,7 +29,7 @@ import { memoryFilePath } from '../../memory.js';
 import { snapshotLog, memoryRepoDir, readSnapshotFile } from '../../memjournal.js';
 import { HOUSEKEEPING_DEFAULT_CRON, HOUSEKEEPING_DEFAULT_SPEC, pruneThreshold } from '../../housekeeping.js';
 import { countOpenPRs, getPrMeta, ciStatusForSha, listReviews, installationPermissions } from '../../github.js';
-import { activeGrants, effectNote, endNotice, grantListText, grantNotice, isActive, parseGrantCmd, type GrantRecord } from '../../grants.js';
+import { activeGrants, effectNote, grantListText, grantNotice, isActive, parseGrantCmd, type GrantRecord } from '../../grants.js';
 import { CMD, MAX_SLACK_TEXT, info, errText, shortRepo, notConfiguredText } from '../slack/blocks.js';
 import type { Actor, ChatCommand, ChatDriver } from '../driver.js';
 import type { PrivateView, ProjectStatus, StatusReport } from '../views.js';
@@ -43,7 +43,7 @@ export interface CommandDeps {
   reg: RegistryRef;
   engine: TurnEngine;
   channels: Channels;
-  pollers: Pick<Pollers, 'fireRoutine' | 'fireReview'>;
+  pollers: Pick<Pollers, 'fireRoutine' | 'fireReview' | 'endGrant'>;
   // The home tenant id (resolved at boot). Every subcommand scopes to the CALLING
   // workspace's project subset; operator commands (reload, usage) are home-only.
   homeTeamId?: string;
@@ -411,8 +411,9 @@ export function createCommands(deps: CommandDeps) {
 
   // ── /aven grant [<capability> [<duration>|off]] → temporary project grants (OpenSpec project-grants) ──
   // Listing is a read surface; granting and ending are operator verbs (the `/aven reload` check), so a client
-  // workspace never widens the App's tokens. Start and early end are posted to the channel (the private reply alone
-  // would leave the rest of the channel unaware); the pollers' sweep posts a grant's end at its time.
+  // workspace never widens the App's tokens. The start is posted to this channel (the private reply alone would leave
+  // the rest of it unaware); an early end and the end at its time both go through the pollers' end path, which posts
+  // where the grant was made.
   async function handleGrant(
     d: ChatDriver,
     cmd: ChatCommand,
@@ -445,10 +446,9 @@ export function createCommands(deps: CommandDeps) {
     if (parsed.action === 'off') {
       const held = store.getGrant(project.slug, parsed.capability);
       if (!held || !isActive(held, now)) return { kind: 'text', text: `:information_source: *${project.slug}* holds no \`${parsed.capability}\` grant.` };
-      store.deleteGrant(project.slug, parsed.capability);
-      log.info(`grant: ${project.slug} ${parsed.capability} ended early by ${cmd.actor.user}`);
-      const failed = await announce(endNotice(held, cmd.actor.user));
-      return { kind: 'text', text: `:white_check_mark: Ended *${project.slug}*'s \`${parsed.capability}\` grant.${failed}` };
+      // The pollers' end path: the notice goes where the grant was made (its channel and surface), not necessarily here.
+      await pollers.endGrant(held, cmd.actor.user);
+      return { kind: 'text', text: `:white_check_mark: Ended *${project.slug}*'s \`${parsed.capability}\` grant.` };
     }
     const rec: GrantRecord = {
       slug: project.slug,

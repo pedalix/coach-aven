@@ -78,7 +78,7 @@ const STREAMS_PER_PERSON = 10; // open pages (live streams) one person may hold 
 const MAX_TEXT = 20_000;
 // The router's verbs (src/chat/core/commands.ts), for the composer's suggestions; `help` is the web's own: the Home
 // cheat-sheet as a dialog (the router has no help verb — Slack has the App Home tab, Teams the Home card).
-const VERBS = ['help', 'home', 'status', 'access', 'memory', 'prompt', 'schedule', 'routines', 'review', 'autofix', 'dream', 'housekeeping', 'users', 'usage', 'asks', 'reload'];
+const VERBS = ['help', 'home', 'status', 'access', 'memory', 'prompt', 'schedule', 'routines', 'review', 'autofix', 'dream', 'housekeeping', 'users', 'usage', 'asks', 'reload', 'grant'];
 const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
 const STATIC = new URL('./static/', import.meta.url).pathname;
 // The Slack spelling of a command (`/aven status`) is accepted too, so a hint copied from an answer works.

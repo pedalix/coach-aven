@@ -178,6 +178,21 @@ test('pollers record: an expired grant is removed and its end announced in its c
     assert.deepEqual(h.log, [], 'no turn, no sandbox');
     return n;
   }));
+test('pollers record: an early end posts where the grant was made, naming who ended it', () =>
+  record('grant-ended-early', 'answer', async (h) => {
+    h.store.setGrant(grantRec('2026-10-15T07:30:00.000Z'));
+    const ok = await h.pollers.endGrant(h.store.getGrant('alpha', 'workflows')!, 'U_EVE');
+    assert.deepEqual(h.store.listGrants(), []);
+    return ok;
+  }));
+test('pollers record: a stale record (granted again meanwhile) is neither removed nor announced', () =>
+  record('grant-regranted', 'answer', async (h) => {
+    const old = grantRec('2026-10-15T06:59:00.000Z');
+    h.store.setGrant({ ...old, until: '2026-10-15T08:00:00.000Z' }); // the operator granted again after the sweep listed
+    const ok = await h.pollers.endGrant(old);
+    assert.equal(h.store.getGrant('alpha', 'workflows')?.until, '2026-10-15T08:00:00.000Z');
+    return ok;
+  }));
 test('pollers record: a grant not yet due produces nothing', () =>
   record('grant-not-due', 'answer', async (h) => {
     h.store.setGrant(grantRec('2026-10-15T07:30:00.000Z'));
