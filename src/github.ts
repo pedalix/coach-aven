@@ -71,13 +71,18 @@ async function fetchInstallation(
 
 // Least-privilege permissions a coding agent needs in-box: read/write code +
 // open PRs. (metadata:read is implied but spelled out for clarity.) checks:read lets the
-// autofix watcher read CI check-runs. This is the DESIRED set — the mint scopes it down further
-// to what the installation actually granted (see intersectPermissions), so requesting more here
-// than a given install has approved degrades that capability instead of breaking the whole mint.
+// autofix watcher read CI check-runs. actions:read lets the agent read why CI failed — workflow
+// runs and their job logs (`gh run list`, `gh run view --log-failed`) — where checks:read only says
+// THAT a check failed (OpenSpec `agent-actions-read`). It is read-only: Actions secrets and variables
+// are separate permissions, and writing a workflow stays behind a grant (grants.ts). This is the
+// DESIRED set — the mint scopes it down further to what the installation actually granted (see
+// intersectPermissions), so requesting more here than a given install has approved degrades that
+// capability instead of breaking the whole mint.
 const AGENT_PERMISSIONS = {
   contents: 'write',
   pull_requests: 'write',
   checks: 'read',
+  actions: 'read',
   metadata: 'read',
 } as const;
 
@@ -86,7 +91,7 @@ const LEVEL_RANK: Record<string, number> = { read: 1, write: 2, admin: 3 };
 
 // What a sandbox mint asks for: AGENT_PERMISSIONS, widened by `extra` (a project's active grants — grants.ts
 // githubExtras; never lowered by it), then scoped to what the installation granted. With no `extra` this is exactly
-// the request of every mint before project grants existed (the bucket-2 proof in github.test.ts).
+// the standing set (pinned by a test in github.test.ts).
 export function requestedPermissions(
   granted: Record<string, string> | undefined,
   extra: Record<string, string> = {},
