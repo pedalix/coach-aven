@@ -61,9 +61,10 @@
 ## 6. Verification
 
 - [x] 6.1 `npm run typecheck` and `npm test` green; `openspec validate project-grants --strict` passes.
-- [ ] 6.2 On an installation in App mode, after `ship`: grant `workflows` for a few minutes in a project's channel, have
+- [x] 6.2 On an installation in App mode, after `ship`: grant `workflows` for a few minutes in a project's channel, have
   the agent push a branch that adds `.github/workflows/noop.yml` (succeeds), wait for the end notice, then start a new
-  turn and confirm a push of a workflow change is refused again. Record the date in the ledger row.
+  turn and confirm a push of a workflow change is refused again. Record the date in the ledger row. Done 2026-11-05
+  on prod: the push of a workflow change succeeded during a grant and was refused again after its end.
 
 ## Workflow follow-up
 
