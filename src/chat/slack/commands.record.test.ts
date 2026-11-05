@@ -82,6 +82,10 @@ async function twin(o: { asks?: CommandDeps['asks'] } = {}) {
     fireRoutine: (d: SlackChatDriver, r: { id: string }) => (pollerLog.push({ fireRoutine: { token: (d.client as { token?: string }).token, id: r.id } }), true),
     fireReview: (d: SlackChatDriver, project: { slug: string }, repo: string, number: number, channel: string, effort: string, tid?: string) =>
       (pollerLog.push({ fireReview: { token: (d.client as { token?: string }).token, slug: project.slug, repo, number, channel, effort, tid } }), true),
+    // The real one posts the end notice where the grant was made (pollers.record.test.ts); here, the call and its effect.
+    endGrant: async (g: { slug: string; capability: string; channel: string }, by?: string) => (
+      pollerLog.push({ endGrant: { slug: g.slug, capability: g.capability, channel: g.channel, by } }), store.deleteGrant(g.slug, g.capability)
+    ),
   } as unknown as Pollers;
   const channels = createChannels(reg as never, () => HOME);
   const servedTenant = (t: string | undefined) =>

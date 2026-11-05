@@ -57,7 +57,7 @@ import { cliUpgradeNotice, cliPinDrift, fetchCliDistTags } from './cliversion.js
 import { dreamPrompt, dreamDigest } from './dream.js';
 import { snapshotMemory } from './memjournal.js';
 import { routineLabel, startRoutineTurn } from './routinerun.js';
-import { endNotice, expiredGrants } from './grants.js';
+import { endNotice, expiredGrants, type GrantRecord } from './grants.js';
 import { shortRepo, alertOps } from './chat/slack/blocks.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
@@ -90,6 +90,10 @@ export interface Pollers {
   // End the project grants whose time has passed (OpenSpec project-grants): the minute sweep's body, exposed for
   // the recorded tests. Resolves to how many it ended.
   endExpiredGrants(now?: number): Promise<number>;
+  // End one grant now — the sweep and `/aven grant … off` (`by` = who ended it). The notice goes where the grant was
+  // made, with that record's tenant and surface, whichever surface `off` was typed on. False when the stored record
+  // is no longer this one (ended meanwhile, or granted again).
+  endGrant(g: GrantRecord, by?: string): Promise<boolean>;
   // `fire` says why this fire happens (scheduled/late/retry — the scheduler's business); the
   // command and CLI paths leave it out and get a manual run.
   fireRoutine(chat: ChatDriver, r: RoutineRecord, fire?: Fire): boolean;
@@ -838,18 +842,25 @@ export function createPollers(
   // post the end notice where the grant was made, with that record's tenant and surface (as a routine delivers).
   // Nothing touches the sandbox: every mint decides "active" by the clock (tasks.ts grantExtras), so new turns are
   // already ordinary before this runs; tokens minted during the grant are not revoked and expire within the hour.
-  async function endExpiredGrants(now = Date.now()): Promise<number> {
-    const due = expiredGrants(store.listGrants(), now);
-    for (const g of due) {
-      store.deleteGrant(g.slug, g.capability);
-      log.info(`grant: ${g.slug} ${g.capability} ended (until ${g.until})`);
-      const c = driverOrSkip(refOf(g), `grant ${g.slug}:${g.capability}`);
-      if (!c) continue;
+  // The stored record is re-read before it is removed: the sweep's list is a snapshot, and while an earlier notice
+  // posts an operator may grant the same capability again — that new grant must survive.
+  async function endGrant(g: GrantRecord, by?: string): Promise<boolean> {
+    if (store.getGrant(g.slug, g.capability)?.until !== g.until) return false;
+    store.deleteGrant(g.slug, g.capability);
+    log.info(`grant: ${g.slug} ${g.capability} ${by ? `ended early by ${by}` : `ended (until ${g.until})`}`);
+    const c = driverOrSkip(refOf(g), `grant ${g.slug}:${g.capability}`);
+    if (c) {
       await c
-        .post({ conv: g.channel }, { kind: 'text', text: endNotice(g) })
+        .post({ conv: g.channel }, { kind: 'text', text: endNotice(g, by) })
         .catch((e: unknown) => log.warn(`grant ${g.slug}:${g.capability}: end notice not posted: ${e instanceof Error ? e.message : String(e)}`));
     }
-    return due.length;
+    return true;
+  }
+
+  async function endExpiredGrants(now = Date.now()): Promise<number> {
+    let ended = 0;
+    for (const g of expiredGrants(store.listGrants(), now)) if (await endGrant(g)) ended++;
+    return ended;
   }
 
   // The first tick at boot ends what expired while the bot was down.
@@ -876,5 +887,6 @@ export function createPollers(
     fireRoutine,
     fireReview,
     endExpiredGrants,
+    endGrant,
   };
 }

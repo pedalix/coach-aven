@@ -34,15 +34,6 @@
       }
     },
     {
-      "method": "chat.postMessage",
-      "token": "xoxb-THOME1111",
-      "payload": {
-        "team_id": "THOME1111",
-        "channel": "C_HOME",
-        "text": ":lock: <@U_HUMAN> ended *alpha*'s GitHub workflows write. New turns get the usual token; tokens already handed out expire within the hour."
-      }
-    },
-    {
       "method": "respond",
       "token": "",
       "payload": {
@@ -60,5 +51,14 @@
     }
   ],
   "engine": [],
-  "pollers": []
+  "pollers": [
+    {
+      "endGrant": {
+        "slug": "alpha",
+        "capability": "workflows",
+        "channel": "C_HOME",
+        "by": "U_HUMAN"
+      }
+    }
+  ]
 }
