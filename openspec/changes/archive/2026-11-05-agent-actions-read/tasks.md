@@ -14,9 +14,10 @@
 
 ## 3. Verification
 
-- [ ] 3.1 After `ship` to an installation in App mode: in a project's thread, ask the agent for the log of a failed
+- [x] 3.1 After `ship` to an installation in App mode: in a project's thread, ask the agent for the log of a failed
   run of one of its repositories (`gh run view <id> --log-failed`) — it reads it; a push of a workflow file is still
-  refused without a grant. Record the date in the ledger row.
+  refused without a grant. Record the date in the ledger row. Done 2026-11-05 on prod (v0.53.0): the agent read a
+  failed deploy run's log by itself.
 
 ## Workflow follow-up
 

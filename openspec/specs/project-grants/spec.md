@@ -90,7 +90,7 @@ outside the sandbox SHALL stay as they are.
 #### Scenario: The agent retries a refused push
 - **WHEN** a push of `.github/workflows/ci.yml` was refused for missing `workflows` permission, then an operator grants
   `workflows`, and the user asks the agent to push again
-- **THEN** the push succeeds, with no change to the agent's prompt or tools
+- **THEN** the push succeeds, with no change to the agent's tools
 
 #### Scenario: Pollers' own reads
 - **WHEN** a poller lists `atlas`'s open pull requests while the grant is active
@@ -98,11 +98,21 @@ outside the sandbox SHALL stay as they are.
 
 ### Requirement: Without a grant the token is unchanged
 
-A project holding no grant SHALL be minted exactly the permissions it is minted today, and nothing SHALL be posted.
+A project holding no grant SHALL be minted exactly the agent's standing permissions — contents write, pull requests
+write, checks read, actions read and metadata read — and nothing SHALL be posted.
 
 #### Scenario: No grant
 - **WHEN** a turn starts for a project with no grant recorded
-- **THEN** the requested permissions are exactly contents write, pull requests write, checks read and metadata read
+- **THEN** the requested permissions are exactly contents write, pull requests write, checks read, actions read and
+  metadata read
+
+#### Scenario: Reading why CI failed
+- **WHEN** a check of the project's pull request failed and the agent asks GitHub for that run's job log
+- **THEN** it gets the log, with no grant, while a push of a workflow file is still refused
+
+#### Scenario: Installation without Actions access
+- **WHEN** the App installation holding the project's repositories has not approved `actions`
+- **THEN** the token is minted without it, and every other permission is requested as before
 
 ### Requirement: An ended grant stops widening new tokens
 
@@ -136,3 +146,19 @@ installation that holds the project's repositories has not granted `workflows`; 
 #### Scenario: Installation without the permission
 - **WHEN** the App installation for `atlas`'s repositories has not approved `workflows`
 - **THEN** the reply says an organization owner must approve it first
+
+### Requirement: The agent knows how a refused workflow push is lifted
+
+On an installation that mints GitHub App tokens, the agent's system prompt SHALL say that a refused push of a workflow
+file is deliberate and that an operator can allow it for the project with the grant command, and SHALL tell it not to
+ask for the App's permissions to be changed. Other installations' prompts SHALL NOT mention it.
+
+#### Scenario: App installation, refused workflow push
+- **WHEN** on an App-auth installation the agent's push of `.github/workflows/ci.yml` is refused for missing
+  `workflows` permission
+- **THEN** its reply says the refusal is deliberate and that an operator can run `/aven grant workflows`, and it does
+  not ask anyone to change the GitHub App's permissions
+
+#### Scenario: Static token
+- **WHEN** an installation authenticates to GitHub with a static token
+- **THEN** the system prompt has no paragraph about granting `workflows`
