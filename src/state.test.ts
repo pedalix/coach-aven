@@ -71,6 +71,27 @@ test('routines — id is max(existing)+1 (can reuse a freed number)', () => {
   assert.equal(store.addRoutine(routine()).id, 'r2'); // max is r1 → next r2
 });
 
+test('grants — one per (project, capability): a repeat replaces, survives a reload, delete removes', () => {
+  const { store, path } = freshStore();
+  const g = { slug: 'caldora', capability: 'workflows', at: '2026-03-02T14:00:00.000Z', until: '2026-03-02T14:30:00.000Z', by: 'U1', channel: 'C1' };
+  assert.deepEqual(store.listGrants(), []);
+  store.setGrant(g);
+  store.setGrant({ ...g, until: '2026-03-02T15:20:00.000Z' });
+  assert.equal(store.listGrants().length, 1);
+  const reloaded = new Store(path); // a restart
+  assert.equal(reloaded.getGrant('caldora', 'workflows')?.until, '2026-03-02T15:20:00.000Z');
+  assert.equal(reloaded.deleteGrant('caldora', 'workflows'), true);
+  assert.equal(reloaded.deleteGrant('caldora', 'workflows'), false);
+  assert.deepEqual(new Store(path).listGrants(), []);
+});
+
+test('grants — a state file written before grants existed reads as none', () => {
+  const { path } = freshStore();
+  writeFileSync(path, JSON.stringify({ projects: {} }));
+  assert.deepEqual(new Store(path).listGrants(), []);
+  assert.equal(new Store(path).getGrant('caldora', 'workflows'), undefined);
+});
+
 test('patchChat — merges fields without clobbering, deletes on undefined', () => {
   const { store } = freshStore();
   store.patchChat('thread:1', 'caldora', { sessionId: 'sess1' });

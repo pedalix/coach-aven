@@ -1,0 +1,15 @@
+{
+  "calls": [
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-home",
+      "payload": {
+        "channel": "C_HOME",
+        "text": ":lock: Time is up for *alpha*'s GitHub workflows write. New turns get the usual token; tokens already handed out expire within the hour."
+      }
+    }
+  ],
+  "engine": [],
+  "result": 1,
+  "routines": []
+}

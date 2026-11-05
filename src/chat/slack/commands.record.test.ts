@@ -280,6 +280,43 @@ C('dream-on-bad-when', async (t) => {
   await t.receiver.send(cmd('dream on fortnightly'));
   await t.receiver.send(cmd('dream'));
 });
+// `grant` (OpenSpec project-grants): listing for anyone, granting and ending for operators; the start and an early end
+// are posted to the channel. The twin has no GitHub App auth, so the grant's reply says it changes nothing here.
+C('grant-list-none', (t) => t.receiver.send(cmd('grant')));
+C('grant-workflows', async (t) => {
+  await t.receiver.send(cmd('grant workflows'));
+  await t.receiver.send(cmd('grant'));
+  assert.deepEqual(t.store.listGrants().map((g) => [g.slug, g.capability, g.until, g.by, g.channel]), [
+    ['alpha', 'workflows', '1970-01-01T00:30:00.000Z', 'U_HUMAN', 'C_HOME'],
+  ]);
+});
+C('grant-workflows-2h', async (t) => {
+  await t.receiver.send(cmd('grant workflows 2h'));
+  assert.equal(t.store.getGrant('alpha', 'workflows')?.until, '1970-01-01T02:00:00.000Z');
+});
+C('grant-too-long', async (t) => {
+  await t.receiver.send(cmd('grant workflows 6h'));
+  assert.deepEqual(t.store.listGrants(), []);
+});
+C('grant-unknown', async (t) => {
+  await t.receiver.send(cmd('grant deploy'));
+  assert.deepEqual(t.store.listGrants(), []);
+});
+C('grant-not-operator', async (t) => {
+  await t.receiver.send(cmd('grant workflows', { team: CLIENT, channel: 'C_CLIENT' }));
+  assert.deepEqual(t.store.listGrants(), []);
+});
+C('grant-unbound', async (t) => {
+  await t.receiver.send(cmd('grant workflows', { channel: 'C_RANDOM' }));
+  assert.deepEqual(t.store.listGrants(), []);
+});
+C('grant-off', async (t) => {
+  await t.receiver.send(cmd('grant workflows off'));
+  await t.receiver.send(cmd('grant workflows'));
+  await t.receiver.send(cmd('grant workflows off'));
+  await t.receiver.send(cmd('grant'));
+  assert.deepEqual(t.store.listGrants(), []);
+});
 C('memory-unbound', (t) => t.receiver.send(cmd('memory', { channel: 'C_RANDOM' })));
 C('memory-bad-topic', (t) => t.receiver.send(cmd('memory ../etc', { channel: 'C_MEM' })));
 C('memory-log-empty', (t) => t.receiver.send(cmd('memory log', { channel: 'C_MEM' })));

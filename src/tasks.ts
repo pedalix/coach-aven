@@ -2,6 +2,7 @@ import type { Config, SandboxDriverKind } from './config.js';
 import type { Store } from './state.js';
 import { createDriver, type SandboxHandle } from './driver.js';
 import { getGitHubToken } from './github.js';
+import { githubExtras } from './grants.js';
 import {
   seedGitHubAuth,
   seedClaudeAuth,
@@ -171,7 +172,7 @@ async function prepareChat(
   if (resolveSandboxOptions(sandboxOpts).dind) await ensureDockerd(sandbox, slug);
 
   const scopeBefore = scopedRepos(slug, repos);
-  await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeBefore));
+  await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeBefore, grantExtras(store, slug)));
   await seedClaudeAuth(sandbox, cfg.credit);
 
   for (const repo of repos) await cloneRepo(sandbox, cfg, slug, repo);
@@ -186,7 +187,7 @@ async function prepareChat(
   if (scanSkills) await scanProjectSkills(sandbox, facts, slug, skillOrigins(cfg, slug, repos));
   const scopeAfter = scopedRepos(slug, repos);
   if (scopeAfter.join() !== scopeBefore.join()) {
-    await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeAfter));
+    await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeAfter, grantExtras(store, slug)));
   }
   // No GitHub access (GITHUB_AUTH=none): no token to mirror into composer's auth.json.
   if (cfg.github.kind !== 'none') await seedComposerAuth(sandbox, checkouts.map((c) => c.dir));
@@ -209,6 +210,12 @@ async function prepareChat(
  * a project that offers skills, a recorder of the commands its `init` reports (skills.ts
  * recordSessionCommands). Exported for its test; both `new ClaudeSession` below spread it.
  */
+// The extra GitHub permissions a sandbox token mint requests now: the project's active grants (OpenSpec
+// project-grants). Asked at every mint — "active" is decided here, by the clock, so a turn that starts after a grant's
+// end gets the ordinary token even before the pollers' sweep has announced the end. No grant → {} → today's request.
+export const grantExtras = (store: Pick<Store, 'listGrants'>, slug: string, now = Date.now()): Record<string, string> =>
+  githubExtras(store.listGrants(), slug, now);
+
 export function sessionWiring(cfg: Config, opts: { slug: string; repos: string[]; scanSkills?: boolean }, store: FactStore): { addDirs?: string[]; onInitCommands?: (names: string[]) => void } {
   const addDirs = repoSkillDirs(cfg, opts.slug, opts.repos);
   return {
@@ -354,7 +361,7 @@ export async function openChat(
       await withSandboxLock(opts.slug, async () => {
         sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug, opts.sandbox);
         await seedClaudeAuth(sandbox, cfg.credit);
-        await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
+        await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos), grantExtras(store, opts.slug)));
         if (cfg.github.kind !== 'none') await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
         await seedMcpConfig(sandbox, mcp);
         await seedGatewayAuth(sandbox, opts.slug, mcp);
@@ -368,7 +375,7 @@ export async function openChat(
       if (session && !session.isDead()) return session;
       sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug, opts.sandbox);
       await seedClaudeAuth(sandbox, cfg.credit);
-      await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos)));
+      await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos), grantExtras(store, opts.slug)));
       if (cfg.github.kind !== 'none') await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
       const mcpConfigPath = await seedMcpConfig(sandbox, mcp);
       await seedGatewayAuth(sandbox, opts.slug, mcp);

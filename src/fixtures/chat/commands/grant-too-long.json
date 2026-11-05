@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":x: A grant lasts at most 4h — `6h` is longer."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

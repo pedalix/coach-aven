@@ -57,6 +57,7 @@ import { cliUpgradeNotice, cliPinDrift, fetchCliDistTags } from './cliversion.js
 import { dreamPrompt, dreamDigest } from './dream.js';
 import { snapshotMemory } from './memjournal.js';
 import { routineLabel, startRoutineTurn } from './routinerun.js';
+import { endNotice, expiredGrants } from './grants.js';
 import { shortRepo, alertOps } from './chat/slack/blocks.js';
 import { log } from './log.js';
 import { captureError } from './sentry.js';
@@ -86,6 +87,9 @@ const sourcesDaemonOn = process.env.SOURCES_DAEMON === '1';
 
 export interface Pollers {
   startAll(): void;
+  // End the project grants whose time has passed (OpenSpec project-grants): the minute sweep's body, exposed for
+  // the recorded tests. Resolves to how many it ended.
+  endExpiredGrants(now?: number): Promise<number>;
   // `fire` says why this fire happens (scheduled/late/retry — the scheduler's business); the
   // command and CLI paths leave it out and get a manual run.
   fireRoutine(chat: ChatDriver, r: RoutineRecord, fire?: Fire): boolean;
@@ -830,9 +834,35 @@ export function createPollers(
     setInterval(() => void sweep.tick().catch(pollFail('idle-stop')), SWEEP_EVERY_MS);
   }
 
+  // Temporary project grants (OpenSpec project-grants D8): end the ones whose time has passed — remove the record and
+  // post the end notice where the grant was made, with that record's tenant and surface (as a routine delivers).
+  // Nothing touches the sandbox: every mint decides "active" by the clock (tasks.ts grantExtras), so new turns are
+  // already ordinary before this runs; tokens minted during the grant are not revoked and expire within the hour.
+  async function endExpiredGrants(now = Date.now()): Promise<number> {
+    const due = expiredGrants(store.listGrants(), now);
+    for (const g of due) {
+      store.deleteGrant(g.slug, g.capability);
+      log.info(`grant: ${g.slug} ${g.capability} ended (until ${g.until})`);
+      const c = driverOrSkip(refOf(g), `grant ${g.slug}:${g.capability}`);
+      if (!c) continue;
+      await c
+        .post({ conv: g.channel }, { kind: 'text', text: endNotice(g) })
+        .catch((e: unknown) => log.warn(`grant ${g.slug}:${g.capability}: end notice not posted: ${e instanceof Error ? e.message : String(e)}`));
+    }
+    return due.length;
+  }
+
+  // The first tick at boot ends what expired while the bot was down.
+  function startGrantSweep(): void {
+    const tick = (): void => void endExpiredGrants().catch(pollFail('grants'));
+    tick();
+    setInterval(tick, 60_000);
+  }
+
   return {
     startAll: () => {
       startScheduler();
+      startGrantSweep();
       startControlWatcher();
       startAutoReviewPoller();
       startAutofixPoller();
@@ -845,5 +875,6 @@ export function createPollers(
     },
     fireRoutine,
     fireReview,
+    endExpiredGrants,
   };
 }

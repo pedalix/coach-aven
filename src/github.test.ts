@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { apiHeaders, getGitHubToken, isAuthFailure, intersectPermissions } from './github.js';
+import { apiHeaders, getGitHubToken, isAuthFailure, intersectPermissions, requestedPermissions } from './github.js';
 import type { Config } from './config.js';
 
 // Minimal stand-in for the bits of a fetch Response that isAuthFailure reads.
@@ -60,4 +60,37 @@ test('GITHUB_AUTH=none: no token to mint, and the API is asked without an Author
   assert.equal(await getGitHubToken({ github: { kind: 'none' } } as Config, ['acme/shop']), '');
   assert.deepEqual(apiHeaders(''), { Accept: 'application/vnd.github+json' });
   assert.deepEqual(apiHeaders('ghs_x'), { Authorization: 'Bearer ghs_x', Accept: 'application/vnd.github+json' });
+});
+
+// OpenSpec project-grants: the sandbox mint's request, with and without a grant's extras.
+const INSTALL = { contents: 'write', pull_requests: 'write', checks: 'write', metadata: 'read', workflows: 'write', issues: 'write' };
+
+test('requested permissions without a grant are exactly today\'s (bucket-2 proof)', () => {
+  assert.deepEqual(requestedPermissions(INSTALL), {
+    permissions: { contents: 'write', pull_requests: 'write', checks: 'read', metadata: 'read' },
+    missing: [],
+  });
+  assert.deepEqual(requestedPermissions(INSTALL, {}), requestedPermissions(INSTALL));
+});
+
+test('requested permissions with a workflows grant add workflows write and nothing else', () => {
+  assert.deepEqual(requestedPermissions(INSTALL, { workflows: 'write' }).permissions, {
+    contents: 'write',
+    pull_requests: 'write',
+    checks: 'read',
+    metadata: 'read',
+    workflows: 'write',
+  });
+});
+
+test('an extra never lowers an agent permission', () => {
+  assert.equal(requestedPermissions(INSTALL, { contents: 'read' }).permissions.contents, 'write');
+});
+
+test('an installation that has not approved workflows drops it; the mint request still succeeds', () => {
+  const { workflows: _, ...without } = INSTALL;
+  const r = requestedPermissions(without, { workflows: 'write' });
+  assert.equal(r.permissions.workflows, undefined);
+  assert.deepEqual(r.missing, ['workflows']);
+  assert.equal(r.permissions.contents, 'write');
 });

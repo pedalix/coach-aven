@@ -84,6 +84,20 @@ const AGENT_PERMISSIONS = {
 // GitHub permission levels are ordered: read < write < admin.
 const LEVEL_RANK: Record<string, number> = { read: 1, write: 2, admin: 3 };
 
+// What a sandbox mint asks for: AGENT_PERMISSIONS, widened by `extra` (a project's active grants — grants.ts
+// githubExtras; never lowered by it), then scoped to what the installation granted. With no `extra` this is exactly
+// the request of every mint before project grants existed (the bucket-2 proof in github.test.ts).
+export function requestedPermissions(
+  granted: Record<string, string> | undefined,
+  extra: Record<string, string> = {},
+): { permissions: Record<string, string>; missing: string[] } {
+  const desired: Record<string, string> = { ...AGENT_PERMISSIONS };
+  for (const [key, level] of Object.entries(extra)) {
+    if ((LEVEL_RANK[level] ?? 0) > (LEVEL_RANK[desired[key] ?? ''] ?? 0)) desired[key] = level;
+  }
+  return intersectPermissions(desired, granted);
+}
+
 // Scope the desired permissions down to what the installation actually granted:
 //   - granted at a lower level than desired → request the lower (granted) level (can't exceed it)
 //   - granted → request desired (our least-privilege intent, even if the install granted more)
@@ -107,6 +121,24 @@ export function intersectPermissions(
     permissions[key] = (LEVEL_RANK[have] ?? 0) < (LEVEL_RANK[want] ?? 0) ? have : want;
   }
   return { permissions, missing };
+}
+
+// The permissions the App installation holding `repo` ("Org/name") granted, for `/aven grant`'s reply (OpenSpec
+// project-grants D9). App auth only; undefined when it cannot be read — the caller then claims nothing.
+export async function installationPermissions(cfg: Config, repo: string): Promise<Record<string, string> | undefined> {
+  const auth = cfg.github;
+  if (auth?.kind !== 'app') return undefined;
+  try {
+    const install = await fetchInstallation(
+      auth.appId,
+      auth.privateKey,
+      auth.installationId ? { installationId: Number(auth.installationId) } : { repo },
+    );
+    return install.permissions ?? {};
+  } catch (err) {
+    log.warn(`grant: could not read the GitHub App installation for ${repo}: ${err instanceof Error ? err.message : String(err)}`);
+    return undefined;
+  }
 }
 
 // A granted-but-not-all-desired install is degraded, not broken — surface it once (throttled,
@@ -137,9 +169,11 @@ export function apiHeaders(token: string): Record<string, string> {
 //    ONLY that project's repo(s). `repositoryNames` are bare names (no owner). The
 //    installation id is taken from config or discovered from the first repo. Re-resolve
 //    per task so the token stays fresh; long runs that outlast an hour should re-seed.
-export async function getGitHubToken(cfg: Config, repos: string[]): Promise<string> {
+//    `extra`: more permissions for this mint — only the sandbox seeds pass it, from the project's active grants
+//    (OpenSpec project-grants); the orchestrator's own reads never do.
+export async function getGitHubToken(cfg: Config, repos: string[], extra?: Record<string, string>): Promise<string> {
   try {
-    return await resolveGitHubToken(cfg, repos);
+    return await resolveGitHubToken(cfg, repos, extra);
   } catch (err) {
     // Failing to even mint/find a token is unambiguously a credential problem — report it here,
     // the one chokepoint every caller shares, then rethrow so behavior is unchanged (chat turns
@@ -149,7 +183,7 @@ export async function getGitHubToken(cfg: Config, repos: string[]): Promise<stri
   }
 }
 
-async function resolveGitHubToken(cfg: Config, repos: string[]): Promise<string> {
+async function resolveGitHubToken(cfg: Config, repos: string[], extra?: Record<string, string>): Promise<string> {
   const auth = cfg.github;
   if (auth.kind === 'token') return auth.token;
   // GITHUB_AUTH=none: no credential at all — callers seed nothing and ask the API anonymously.
@@ -168,7 +202,7 @@ async function resolveGitHubToken(cfg: Config, repos: string[]): Promise<string>
   const repositoryNames = repos.map((r) => r.split('/')[1]).filter(Boolean);
 
   // Request desired ∩ granted so the mint can never fail on an un-approved permission.
-  const { permissions, missing } = intersectPermissions(AGENT_PERMISSIONS, install.permissions);
+  const { permissions, missing } = requestedPermissions(install.permissions, extra);
   if (missing.length) warnMissingPermissions(install.id, missing);
 
   const { token } = await createAppAuth({

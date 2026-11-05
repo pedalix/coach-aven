@@ -36,6 +36,7 @@ export function teamsHomeBullets(opts: { messaging?: boolean } = {}): string[] {
     '• *Usage* — `/usage [days]` for token, cost and turn totals per project (and per routine), plus how many answers helped and what those cost. _(Operators only.)_',
     '• *Who may drive me* — `/users` shows who may (everyone in a bound channel, by default); the operators can `restrict` to an allowlist and manage it with `allow @person` / `deny @person` (a real mention) / `open`.',
     '• *Reload config* — `/reload` re-reads the project registry without a restart; applies to new conversations. _(Operators only.)_',
+    '• *Lift a limit for a while* — `/grant workflows [30m|2h]` in a project channel lets my GitHub token change CI workflows for that project, from the next message, 30 minutes by default and 4 hours at most; the channel sees when it starts and ends. `/grant` lists what is granted, `/grant workflows off` ends it early. _(Operators only.)_',
     '• *Connected sources* — projects with linked mail, chat or calendar archives are pulled regularly and scrubbed before anything reaches me; ask me about a conversation or a meeting and I cite the original.',
     '• *Pasted secrets stay here* — passwords, tokens, API keys and connection strings in what you type are redacted to `[REDACTED:…]` before the model sees them. Prefer a vault reference to a pasted credential.',
   ];
