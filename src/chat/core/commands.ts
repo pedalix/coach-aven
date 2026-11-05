@@ -28,7 +28,8 @@ import { projectCwd } from '../../project.js';
 import { memoryFilePath } from '../../memory.js';
 import { snapshotLog, memoryRepoDir, readSnapshotFile } from '../../memjournal.js';
 import { HOUSEKEEPING_DEFAULT_CRON, HOUSEKEEPING_DEFAULT_SPEC, pruneThreshold } from '../../housekeeping.js';
-import { countOpenPRs, getPrMeta, ciStatusForSha, listReviews } from '../../github.js';
+import { countOpenPRs, getPrMeta, ciStatusForSha, listReviews, installationPermissions } from '../../github.js';
+import { activeGrants, effectNote, endNotice, grantListText, grantNotice, isActive, parseGrantCmd, type GrantRecord } from '../../grants.js';
 import { CMD, MAX_SLACK_TEXT, info, errText, shortRepo, notConfiguredText } from '../slack/blocks.js';
 import type { Actor, ChatCommand, ChatDriver } from '../driver.js';
 import type { PrivateView, ProjectStatus, StatusReport } from '../views.js';
@@ -408,6 +409,65 @@ export function createCommands(deps: CommandDeps) {
     };
   }
 
+  // ── /aven grant [<capability> [<duration>|off]] → temporary project grants (OpenSpec project-grants) ──
+  // Listing is a read surface; granting and ending are operator verbs (the `/aven reload` check), so a client
+  // workspace never widens the App's tokens. Start and early end are posted to the channel (the private reply alone
+  // would leave the rest of the channel unaware); the pollers' sweep posts a grant's end at its time.
+  async function handleGrant(
+    d: ChatDriver,
+    cmd: ChatCommand,
+    cmdText: string,
+    tenant: string | undefined,
+    tid: string | undefined,
+    operator: boolean,
+    myProjects: ProjectConfig[],
+  ): Promise<PrivateView> {
+    const parsed = parseGrantCmd(cmdText.slice('grant'.length), CMD);
+    if (parsed.action === 'error') return { kind: 'text', text: `:x: ${parsed.message}` };
+    const { project } = await channels.pickProject(d, cmd.conv, '', tenant);
+    if (!project) {
+      return {
+        kind: 'text',
+        text: ':x: Use `' + CMD + ' grant` from a project channel (e.g. `' + `${channels.prefixFor(tenant)}${myProjects[0]?.slug ?? 'my-project'}` + '`).',
+      };
+    }
+    const now = Date.now();
+    if (parsed.action === 'list') return { kind: 'text', text: grantListText(project.slug, activeGrants(store.listGrants(), project.slug, now), ROUTINE_TZ) };
+    if (!operator) return { kind: 'text', text: ':lock: Granting is operator-only.' };
+    const announce = async (text: string): Promise<string> =>
+      d.post({ conv: cmd.conv }, { kind: 'text', text }).then(
+        () => '',
+        (e: unknown) => {
+          log.warn(`grant: announcement not posted in ${cmd.conv}: ${e instanceof Error ? e.message : String(e)}`);
+          return ' _(The channel announcement could not be posted.)_';
+        },
+      );
+    if (parsed.action === 'off') {
+      const held = store.getGrant(project.slug, parsed.capability);
+      if (!held || !isActive(held, now)) return { kind: 'text', text: `:information_source: *${project.slug}* holds no \`${parsed.capability}\` grant.` };
+      store.deleteGrant(project.slug, parsed.capability);
+      log.info(`grant: ${project.slug} ${parsed.capability} ended early by ${cmd.actor.user}`);
+      const failed = await announce(endNotice(held, cmd.actor.user));
+      return { kind: 'text', text: `:white_check_mark: Ended *${project.slug}*'s \`${parsed.capability}\` grant.${failed}` };
+    }
+    const rec: GrantRecord = {
+      slug: project.slug,
+      capability: parsed.capability,
+      at: new Date(now).toISOString(),
+      until: new Date(now + parsed.ms).toISOString(),
+      by: cmd.actor.user,
+      ...(tid ? { teamId: tid } : {}),
+      ...(surface ? { surface } : {}),
+      channel: cmd.conv,
+    };
+    store.setGrant(rec);
+    log.info(`grant: ${project.slug} ${parsed.capability} until ${rec.until} by ${cmd.actor.user}`);
+    const failed = await announce(grantNotice(rec, ROUTINE_TZ));
+    const repo = project.repos[0];
+    const note = effectNote(cfg.github?.kind, parsed.capability, repo ? await installationPermissions(cfg, repo) : undefined);
+    return { kind: 'text', text: `:white_check_mark: Granted — it applies from the next message on.${failed}${note ? `\n:warning: ${note}` : ''}` };
+  }
+
   // ── /aven → private answer in the user's DM (per project) ───────────────────
   async function run(cmd: ChatCommand, d: ChatDriver): Promise<void> {
     // Every reply is private to the caller; `replace` rewrites the previous private reply.
@@ -475,7 +535,7 @@ export function createCommands(deps: CommandDeps) {
     }
 
     // Read-only surfaces stay open to viewers; everything else needs drive clearance.
-    const VIEWER_VERBS = new Set(['status', 'usage', 'users', 'access', 'memory', 'prompt', 'home']);
+    const VIEWER_VERBS = new Set(['status', 'usage', 'users', 'access', 'memory', 'prompt', 'home', 'grant']);
     if (!canDrive && !VIEWER_VERBS.has(verb ?? '')) {
       await say(deniedText(access));
       return;
@@ -570,6 +630,12 @@ export function createCommands(deps: CommandDeps) {
       } catch (err) {
         await say(`${errText(err)}\n_The previous config stays active._`);
       }
+      return;
+    }
+
+    // `/aven grant …` → temporary project grants; listing for viewers, the rest for operators (handleGrant).
+    if (verb === 'grant') {
+      await say(await handleGrant(d, cmd, cmdText, tenant, tid, operator, myProjects));
       return;
     }
 

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Config } from './config.js';
 import { FactStore } from './facts.js';
-import { sessionWiring } from './tasks.js';
+import { grantExtras, sessionWiring } from './tasks.js';
 import { addDirArgs, claudeLaunch } from './claudeSession.js';
 
 const cfg = (repoSkills = false) => ({ sandbox: { workDir: '/root/work' }, repoSkills }) as unknown as Config;
@@ -58,4 +58,29 @@ test('openChat — processEnded hands its notice to endStoppedSession with this 
   const src = readFileSync(new URL('./tasks.ts', import.meta.url), 'utf8');
   assert.match(src, /\n {4}processEnded: \(notice\) => endStoppedSession\(session, idleNotify, notice\),\n/);
   assert.equal(src.match(/endStoppedSession\(/g)?.length, 2, 'its definition and that one call');
+});
+
+// OpenSpec project-grants: every token the bot seeds into a sandbox asks for the project's active grants; the
+// orchestrator's own reads (pollers, sources) never do.
+test('grants — every sandbox token mint in tasks.ts passes the project\'s grant extras', () => {
+  const src = readFileSync(new URL('./tasks.ts', import.meta.url), 'utf8');
+  const mints = src.match(/getGitHubToken\([^;]*\)\)/g) ?? [];
+  assert.equal(mints.length, 4, 'project preparation (before + after the dependency scan) and the two ensureSession seeds');
+  for (const m of mints) assert.match(m, /grantExtras\(store, (opts\.)?slug\)\)\)$/, m);
+});
+
+test('grants — grantExtras: none without a grant or after its end, workflows write while it is active', () => {
+  const g = { slug: 'caldora', capability: 'workflows', at: '2026-03-02T14:00:00.000Z', until: '2026-03-02T14:30:00.000Z', by: 'U1', channel: 'C1' };
+  const store = { listGrants: () => [g] };
+  assert.deepEqual(grantExtras({ listGrants: () => [] }, 'caldora'), {});
+  assert.deepEqual(grantExtras(store, 'caldora', Date.parse('2026-03-02T14:29:59Z')), { workflows: 'write' });
+  assert.deepEqual(grantExtras(store, 'caldora', Date.parse('2026-03-02T14:30:00Z')), {});
+  assert.deepEqual(grantExtras(store, 'atlas', Date.parse('2026-03-02T14:10:00Z')), {});
+});
+
+test('grants — the orchestrator\'s own mints pass no extras', () => {
+  for (const f of ['./github.ts', './sources/run.ts', './pollers.ts']) {
+    const src = readFileSync(new URL(f, import.meta.url), 'utf8');
+    for (const m of src.match(/getGitHubToken\([^)]*\)/g) ?? []) assert.doesNotMatch(m, /grant/i, `${f}: ${m}`);
+  }
 });

@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":x: There is no capability `deploy`. Capabilities: `workflows`."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

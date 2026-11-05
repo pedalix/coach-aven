@@ -168,6 +168,24 @@ test('pollers record: a routine whose project left the registry is skipped', () 
 test('pollers record: a routine whose tenant lost the project is skipped', () =>
   withGuard(false, () => record('routine-revoked', 'answer', async (h) => h.pollers.fireRoutine(h.client, routine(h, { teamId: 'TOTHER99' })))));
 
+// ── project grants (OpenSpec project-grants) ────────────────────────────────
+const grantRec = (until: string) => ({ slug: 'alpha', capability: 'workflows', at: '2026-10-15T06:00:00.000Z', until, by: 'U_DANA', channel: 'C_HOME' });
+test('pollers record: an expired grant is removed and its end announced in its channel', () =>
+  record('grant-ended', 'answer', async (h) => {
+    h.store.setGrant(grantRec('2026-10-15T06:59:00.000Z'));
+    const n = await h.pollers.endExpiredGrants();
+    assert.deepEqual(h.store.listGrants(), []);
+    assert.deepEqual(h.log, [], 'no turn, no sandbox');
+    return n;
+  }));
+test('pollers record: a grant not yet due produces nothing', () =>
+  record('grant-not-due', 'answer', async (h) => {
+    h.store.setGrant(grantRec('2026-10-15T07:30:00.000Z'));
+    const n = await h.pollers.endExpiredGrants();
+    assert.equal(h.store.listGrants().length, 1);
+    return n;
+  }));
+
 // ── reviews ──────────────────────────────────────────────────────────────────
 test('pollers record: review fired', () =>
   record('review', 'answer', async (h) => h.pollers.fireReview(h.client, h.reg.current.projects[1] as never, 'Org/beta', 12, 'C_BETA', 'high')));

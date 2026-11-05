@@ -1,0 +1,31 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "chat.postMessage",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME",
+        "text": ":unlock: <@U_HUMAN> gave *alpha* GitHub workflows write until 02:00 (UTC). Every turn of this project that starts before then gets it."
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":white_check_mark: Granted — it applies from the next message on.\n:warning: This installation has no GitHub App auth, so the grant changes nothing here."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

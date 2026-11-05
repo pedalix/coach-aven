@@ -3,6 +3,7 @@ import { log } from './log.js';
 import { statePath } from './paths.js';
 import { splitTeam } from './teamkeys.js';
 import type { TeamAccess } from './access.js';
+import type { GrantRecord } from './grants.js';
 import { countKeyDay, inTaskKey, isOpen, type DeliveryRecord, type HeldMessage, type InTask, type MessagingState, type OutTask } from './messaging/records.js';
 import type { Marks } from './messaging/protocol.js';
 import type { OutboxRecord, RecordStore } from './messaging/transport.js';
@@ -171,6 +172,9 @@ interface StateShape {
   // Absent = the access.ts defaults (home open; client teams installer-allowlisted).
   teamAccess?: Record<string, TeamAccess>;
   routines?: Record<string, RoutineRecord>;
+  // Temporary project grants (OpenSpec project-grants), keyed "<slug>:<capability>" — at most one per pair. Operator-
+  // only, so always the home tenant's: exportTenant/purgeTenant (client tenants) have nothing to carry.
+  grants?: Record<string, GrantRecord>;
   projectSettings?: Record<string, ProjectSettings>;
   // "<Org/repo>#<number>" → ISO timestamp it was auto-reviewed (dedup across restarts).
   reviewedPrs?: Record<string, string>;
@@ -415,6 +419,29 @@ export class Store {
   deleteRoutine(id: string): boolean {
     if (!this.data.routines?.[id]) return false;
     delete this.data.routines[id];
+    this.save();
+    return true;
+  }
+
+  // ── temporary project grants (grants.ts) ─────────────────────────────────
+  listGrants(): GrantRecord[] {
+    return Object.values(this.data.grants ?? {});
+  }
+
+  getGrant(slug: string, capability: string): GrantRecord | undefined {
+    return this.data.grants?.[`${slug}:${capability}`];
+  }
+
+  // Granting a held capability again replaces the record (its end moves), so there is never a second one.
+  setGrant(rec: GrantRecord): void {
+    (this.data.grants ??= {})[`${rec.slug}:${rec.capability}`] = rec;
+    this.save();
+  }
+
+  deleteGrant(slug: string, capability: string): boolean {
+    const key = `${slug}:${capability}`;
+    if (!this.data.grants?.[key]) return false;
+    delete this.data.grants[key];
     this.save();
     return true;
   }

@@ -27,7 +27,7 @@ export function webHomeBullets(opts: { messaging?: boolean } = {}): string[] {
     '• *Tell me if it landed* — *👍 Helped* / *👎 Missed* on every answer; a thumbs-down asks what went wrong.',
     '• *Notifications* — *🔔 Notify* (once your browser allows it) shows a notification for an answer while the tab is hidden; the tab title counts new activity.',
     '• *Who may use me* — `/users`: everyone who signs in; the operators administer it.',
-    '• *Operators* — `/usage [days]` for tokens, cost and turns per project and how many answers helped; `/reload` re-reads the project registry (new conversations).',
+    '• *Operators* — `/usage [days]` for tokens, cost and turns per project and how many answers helped; `/reload` re-reads the project registry (new conversations); `/grant workflows [30m|2h]` in a project\'s room lets my GitHub token change CI workflows for a while (`/grant` lists, `/grant workflows off` ends it).',
     ...(opts.messaging
       ? [
           '• *Agents asking agents* — an agent configured to send can ask other agents, here or in another installation; the answer arrives in its own thread as quoted data. A message that would carry this project\'s data elsewhere waits as a *✋ Held* card until someone *Sends* or *Dismisses* it.',
