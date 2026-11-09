@@ -81,6 +81,14 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
   new conversation.
 - **A sandbox stopped.** The idle stop stops a container after `SANDBOX_AUTOSTOP_MINUTES` without activity; the next
   turn wakes it and resumes the conversation.
+- **In a Laravel project the first `composer install` fails on platform requirements, or Sail's commands cannot write
+  `.env`, `storage/` or `vendor/`.** The container's laravel sandbox image was built from a `snapshot/` older than the
+  release after v0.54.0: `docker exec proj-<slug> sh -c 'command -v sail; echo $APP_USER'` prints
+  `/usr/local/bin/sail` and `root` on a current one. Rebuild the image from `snapshot/`, move `SANDBOX_IMAGE` (or the
+  project's `sandbox.image`), restart the bot and `docker rm proj-<slug>` on the sandbox host
+  ([`snapshot/README.md`](../snapshot/README.md)). On a current image the same permission errors mean a `laravel/sail`
+  older than 1.41.1 (update the package), or the web process of a stock Sail compose file, which runs as uid 1337: set
+  `SUPERVISOR_PHP_USER: root` on the service.
 - **A changed prompt or MCP server does not apply.** `/aven reload` reaches new conversations only; a running one keeps
   what it started with until it ends or you press 🔄 Restart session.
 - **`Claude Code pin … is behind npm stable …`** — a daily reminder, not an error: probe a newer CLI and raise the pin

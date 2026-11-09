@@ -58,7 +58,7 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
      prompt drops its Sail/Docker-in-Docker toolchain paragraph (`src/prompt.ts`) — there are
      no shims to explain.
    - `image` → the image this project's container is created from, instead of the installation's
-     `SANDBOX_IMAGE`. Pair it with the mode: a laravel image (php/composer/artisan are Sail shims that
+     `SANDBOX_IMAGE`. Pair it with the mode: a laravel image (php/composer/artisan/sail are Sail shims that
      need dockerd) with `"dind": true`; the plain image with `"privileged": false, "dind": false`. Like the
      flags, it applies when the container is created: after a change, `docker rm proj-<slug>`.
    - `"dind": true` alone means privileged: `{ "dind": true }` is the whole docker-in-docker opt-in.
