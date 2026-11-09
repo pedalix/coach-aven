@@ -70,7 +70,9 @@ const WORKFLOW_GRANT =
   `A push that adds or changes a file under \`.github/workflows/\` is refused for a missing \`workflows\` ` +
   `permission on purpose — not because the GitHub App lacks it. Say so, and that an operator can allow it for this ` +
   `project for a while with \`/aven grant workflows\` (\`/grant workflows\` on Teams and the web chat); push again ` +
-  `once they have. Do not ask anyone to change the App's permissions.`;
+  `once they have. Likewise, dispatching, re-running or cancelling a workflow run (a deploy, say) is refused with ` +
+  `403 on purpose; an operator can allow it with \`/aven grant actions\` (\`/grant actions\`). ` +
+  `Do not ask anyone to change the App's permissions.`;
 
 // "pr": a dedicated worktree off the fresh remote default, a PR via gh. The shared checkout
 // is never edited in place — the sandbox outlives the task and may sit on an old branch.

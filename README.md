@@ -97,7 +97,9 @@ One installation layout from the first try to production, so you grow it instead
    rollback is the same command with the earlier version): [`infra/README.md`](infra/README.md),
    [`infra/deploy/README.md`](infra/deploy/README.md). What changes from the trial:
    - **GitHub:** a GitHub App installed on the org/repos with *Contents* + *Pull requests* read & write, *Checks* read
-     and *Metadata* read (`GITHUB_APP_ID` + the private key path) instead of one repository's token.
+     and *Metadata* read (`GITHUB_APP_ID` + the private key path) instead of one repository's token. The full set the
+     agent can use — further reads, and *Actions* / *Workflows* write for `/aven grant` — is in
+     [`docs/security.md`](docs/security.md); grant less and that capability degrades.
    - **Model credit:** exactly one of `CLAUDE_CODE_OAUTH_TOKEN` (`claude setup-token`) and `ANTHROPIC_API_KEY`; both
      set stops the boot. For a team or clients, the key: the sandbox can read it, so make it a dedicated key in its own
      [Anthropic console](https://console.anthropic.com/) workspace with a monthly spend limit.

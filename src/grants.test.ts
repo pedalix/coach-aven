@@ -61,8 +61,14 @@ test('parseGrantCmd: an unreadable or zero duration is refused with the usage', 
 test('parseGrantCmd: an unknown capability is refused, listing the ones that exist', () => {
   const r = parseGrantCmd('deploy');
   assert.equal(r.action, 'error');
-  assert.match((r as { message: string }).message, /no capability `deploy`.*`workflows`/);
+  assert.match((r as { message: string }).message, /no capability `deploy`.*`workflows`, `actions`/);
   assert.equal(parseGrantCmd('toString').action, 'error'); // not an inherited property
+});
+
+// OpenSpec agent-github-read-superset: the actions capability.
+test('parseGrantCmd: actions is a capability of its own', () => {
+  assert.deepEqual(parseGrantCmd('actions 2h'), { action: 'grant', capability: 'actions', ms: 2 * 3600_000 });
+  assert.deepEqual(parseGrantCmd('actions off'), { action: 'off', capability: 'actions' });
 });
 
 test('parseGrantCmd: off', () => {
@@ -99,6 +105,11 @@ test('githubExtras: an active workflows grant adds workflows write', () => {
   assert.deepEqual(githubExtras([grant()], 'atlas', T0 + 1), { workflows: 'write' });
 });
 
+test('githubExtras: an actions grant adds actions write; both grants add both', () => {
+  assert.deepEqual(githubExtras([grant({ capability: 'actions' })], 'atlas', T0 + 1), { actions: 'write' });
+  assert.deepEqual(githubExtras([grant(), grant({ capability: 'actions' })], 'atlas', T0 + 1), { workflows: 'write', actions: 'write' });
+});
+
 test('githubExtras: a record naming a capability that no longer exists adds nothing', () => {
   assert.deepEqual(githubExtras([grant({ capability: 'retired' })], 'atlas', T0 + 1), {});
 });
@@ -123,4 +134,10 @@ test('effectNote: token mode and no auth change nothing; an installation without
   assert.match(effectNote('app', 'workflows', { contents: 'write' }), /not approved `workflows`.*organization owner/);
   assert.equal(effectNote('app', 'workflows', { contents: 'write', workflows: 'write' }), '');
   assert.equal(effectNote('app', 'workflows', undefined), ''); // could not read the installation: claim nothing
+});
+
+test('effectNote: a permission approved at a lower level than the grant needs is named with the level', () => {
+  assert.match(effectNote('app', 'actions', { contents: 'write', actions: 'read' }), /not approved `actions: write`.*organization owner/);
+  assert.match(effectNote('app', 'actions', { contents: 'write' }), /not approved `actions` —/);
+  assert.equal(effectNote('app', 'actions', { contents: 'write', actions: 'write' }), '');
 });

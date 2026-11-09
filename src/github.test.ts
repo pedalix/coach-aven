@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { apiHeaders, getGitHubToken, isAuthFailure, intersectPermissions, requestedPermissions } from './github.js';
+import { apiHeaders, EXCLUDED_PERMISSIONS, getGitHubToken, isAuthFailure, intersectPermissions, requestedPermissions } from './github.js';
 import type { Config } from './config.js';
 
 // Minimal stand-in for the bits of a fetch Response that isAuthFailure reads.
@@ -63,25 +63,57 @@ test('GITHUB_AUTH=none: no token to mint, and the API is asked without an Author
 });
 
 // OpenSpec project-grants: the sandbox mint's request, with and without a grant's extras.
-const INSTALL = { contents: 'write', pull_requests: 'write', checks: 'write', actions: 'read', metadata: 'read', workflows: 'write', issues: 'write' };
+// An installation as they stood before agent-github-read-superset was approved…
+const INSTALL_BEFORE = { contents: 'write', pull_requests: 'write', checks: 'write', actions: 'read', metadata: 'read', workflows: 'write', issues: 'write', deployments: 'read' };
+// …and after: the reads, Actions write for the grant, and the two reads the token must never take even though
+// an App may hold them.
+const INSTALL = {
+  ...INSTALL_BEFORE,
+  actions: 'write',
+  environments: 'read',
+  administration: 'read',
+  vulnerability_alerts: 'read',
+  security_events: 'read',
+  secret_scanning_alerts: 'read',
+  repository_hooks: 'read',
+};
+const STANDING = {
+  contents: 'write',
+  pull_requests: 'write',
+  checks: 'read',
+  actions: 'read',
+  metadata: 'read',
+  deployments: 'read',
+  environments: 'read',
+  administration: 'read',
+  vulnerability_alerts: 'read',
+  security_events: 'read',
+};
 
 test('requested permissions without a grant are exactly the standing set', () => {
-  assert.deepEqual(requestedPermissions(INSTALL), {
-    permissions: { contents: 'write', pull_requests: 'write', checks: 'read', actions: 'read', metadata: 'read' },
-    missing: [],
-  });
+  assert.deepEqual(requestedPermissions(INSTALL), { permissions: STANDING, missing: [] });
   assert.deepEqual(requestedPermissions(INSTALL, {}), requestedPermissions(INSTALL));
 });
 
 test('requested permissions with a workflows grant add workflows write and nothing else', () => {
-  assert.deepEqual(requestedPermissions(INSTALL, { workflows: 'write' }).permissions, {
-    contents: 'write',
-    pull_requests: 'write',
-    checks: 'read',
-    actions: 'read',
-    metadata: 'read',
-    workflows: 'write',
-  });
+  assert.deepEqual(requestedPermissions(INSTALL, { workflows: 'write' }).permissions, { ...STANDING, workflows: 'write' });
+});
+
+// OpenSpec agent-github-read-superset: the reads light up per installation as its owner approves them.
+test('an installation that has not approved the newer reads mints exactly what it approved', () => {
+  const r = requestedPermissions(INSTALL_BEFORE);
+  assert.deepEqual(r.permissions, { contents: 'write', pull_requests: 'write', checks: 'read', actions: 'read', metadata: 'read', deployments: 'read' });
+  assert.deepEqual(r.missing.sort(), ['administration', 'environments', 'security_events', 'vulnerability_alerts']);
+});
+
+test('secret scanning alerts and webhooks are never requested, not even through a grant', () => {
+  const r = requestedPermissions(INSTALL, { workflows: 'write', actions: 'write', secret_scanning_alerts: 'read', repository_hooks: 'read' });
+  for (const p of EXCLUDED_PERMISSIONS) assert.equal(r.permissions[p], undefined, p);
+});
+
+test('an actions grant raises actions to write where the installation approved it, and only to read where not', () => {
+  assert.equal(requestedPermissions(INSTALL, { actions: 'write' }).permissions.actions, 'write');
+  assert.equal(requestedPermissions(INSTALL_BEFORE, { actions: 'write' }).permissions.actions, 'read');
 });
 
 // OpenSpec agent-actions-read: an installation granting Actions write still yields a read-only token, and one that

@@ -18,6 +18,10 @@ export const CAPABILITIES = {
   // The agent's token omits `workflows` on purpose (src/github.ts AGENT_PERMISSIONS): with it, an `on: push`
   // workflow runs with the repository's Actions secrets.
   workflows: { label: 'GitHub workflows write', github: { workflows: 'write' } },
+  // Dispatch, re-run and cancel workflow runs — a deploy, typically (OpenSpec agent-github-read-superset D3). Kept
+  // apart from `workflows`: starting a deploy is not rewriting what it runs. It can also delete runs and their logs,
+  // which is one more reason it is lent for a while and announced, never standing.
+  actions: { label: 'GitHub Actions write', github: { actions: 'write' } },
 } as const satisfies Record<string, Capability>;
 
 export type CapabilityName = keyof typeof CAPABILITIES;
@@ -139,8 +143,11 @@ export function effectNote(authKind: string | undefined, capability: CapabilityN
       : 'This installation has no GitHub App auth, so the grant changes nothing here.';
   }
   if (!granted) return '';
-  const missing = Object.keys(CAPABILITIES[capability].github).filter((p) => !granted[p]);
+  // By level, not presence: `actions` is approved read-only on most installations, which a write grant cannot use.
+  const needs = Object.entries(CAPABILITIES[capability].github as Record<string, string>);
+  const missing = needs.filter(([p, level]) => (RANK[granted[p] ?? ''] ?? 0) < (RANK[level] ?? 0));
+  const named = missing.map(([p, level]) => (granted[p] ? `\`${p}: ${level}\`` : `\`${p}\``));
   return missing.length
-    ? `The GitHub App installation for this project has not approved ${missing.map((p) => `\`${p}\``).join(', ')} — an organization owner must approve it before the grant has any effect.`
+    ? `The GitHub App installation for this project has not approved ${named.join(', ')} — an organization owner must approve it before the grant has any effect.`
     : '';
 }

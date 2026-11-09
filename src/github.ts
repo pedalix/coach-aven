@@ -78,13 +78,26 @@ async function fetchInstallation(
 // DESIRED set — the mint scopes it down further to what the installation actually granted (see
 // intersectPermissions), so requesting more here than a given install has approved degrades that
 // capability instead of breaking the whole mint.
+// The reads below metadata let the agent answer delivery and security questions itself (OpenSpec
+// `agent-github-read-superset`): which deployment a fix is on, whether an environment allows only `main`, how a branch
+// is protected (`administration: read` — settings and rules, no secret, nothing writable), open Dependabot and
+// code scanning alerts. Two reads stay out on purpose, whatever the App is granted: `secret_scanning_alerts` (an alert
+// carries the detected secret in clear) and `repository_hooks` (hook URLs often embed tokens) — see EXCLUDED below.
 const AGENT_PERMISSIONS = {
   contents: 'write',
   pull_requests: 'write',
   checks: 'read',
   actions: 'read',
   metadata: 'read',
+  deployments: 'read',
+  environments: 'read',
+  administration: 'read',
+  vulnerability_alerts: 'read',
+  security_events: 'read',
 } as const;
+
+/** Permissions a sandbox token never requests, with or without a grant (see the note above AGENT_PERMISSIONS). */
+export const EXCLUDED_PERMISSIONS: readonly string[] = ['secret_scanning_alerts', 'repository_hooks'];
 
 // GitHub permission levels are ordered: read < write < admin.
 const LEVEL_RANK: Record<string, number> = { read: 1, write: 2, admin: 3 };
@@ -98,6 +111,7 @@ export function requestedPermissions(
 ): { permissions: Record<string, string>; missing: string[] } {
   const desired: Record<string, string> = { ...AGENT_PERMISSIONS };
   for (const [key, level] of Object.entries(extra)) {
+    if (EXCLUDED_PERMISSIONS.includes(key)) continue;
     if ((LEVEL_RANK[level] ?? 0) > (LEVEL_RANK[desired[key] ?? ''] ?? 0)) desired[key] = level;
   }
   return intersectPermissions(desired, granted);
