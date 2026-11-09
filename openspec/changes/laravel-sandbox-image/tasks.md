@@ -13,10 +13,10 @@
 
 ## 3. CI, docs, ledger
 
-- [ ] 3.1 CI: a pull request that touches `snapshot/Dockerfile` or `snapshot/shims/` builds the laravel image for `linux/amd64` (not published) and runs the spec's tool check. Verify: the job is green on this change's pull request.
+- [x] 3.1 CI: a pull request that touches `snapshot/Dockerfile` or `snapshot/shims/` builds the laravel image for `linux/amd64` (not published) and runs the spec's tool check. Verify: the job is green on this change's pull request.
 - [x] 3.2 Docs: `snapshot/README.md`, `docs/sandbox-drivers.md`, `docs/troubleshooting.md`. Verify: doclinks, the public guard.
 - [x] 3.3 `docs/rollout.md`: the ledger row.
-- [ ] 3.4 One PR; typecheck, tests, guard, gitleaks.
+- [x] 3.4 One PR (#196); typecheck, tests, guard, gitleaks.
 
 ## 4. Operators
 
