@@ -140,7 +140,7 @@ The one-time admin steps, honestly:
   one admin consent. Teams dials in, so the bot host needs a public HTTPS endpoint behind a
   reverse proxy, which Slack never needed. Hours, and a calendar slot ([`teams.md`](teams.md)).
 - **GitHub.** A GitHub App with *Contents* and *Pull requests* read and write, *Checks* read and
-  *Metadata* read, installed on the organisation or on the project's repositories and on the
+  *Metadata* read (the full set the agent can use, with the grants' *Actions* / *Workflows* write: [`security.md`](security.md)), installed on the organisation or on the project's repositories and on the
   repositories its private packages come from, with its private key on the bot host. It is created by hand in GitHub's settings (there is no manifest for it), and
   installing it on a client's organisation needs an owner of that organisation, so for a client
   project this is the client's step. Grant less and that capability degrades with a warning in

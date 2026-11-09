@@ -161,4 +161,6 @@ test('golden: an App-auth installation adds the workflow-grant paragraph after t
   const added = golden('single-repo-github-app').split('\n').filter((l) => !golden('single-repo').split('\n').includes(l));
   assert.equal(added.length, 1);
   assert.match(added[0]!, /^A push that adds or changes a file under `\.github\/workflows\/`.*`\/aven grant workflows`/);
+  // agent-github-read-superset: the same paragraph names the actions grant for a refused dispatch / re-run / cancel.
+  assert.match(added[0]!, /dispatching, re-running or cancelling a workflow run.*`\/aven grant actions`/);
 });
