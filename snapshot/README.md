@@ -26,8 +26,10 @@ need nothing beyond its toolchain. Anything more (PHP, a database client, Sail) 
 not `:latest`. The laravel image goes with `"dind": true`; the plain one needs no `sandbox` block.
 
 A container keeps the image it was created from. After a rebuild, move the pin, restart the bot (`SANDBOX_IMAGE` is
-read at boot) and `docker rm proj-<slug>` on the sandbox host: the next turn creates the container from the new image
-and clones again; what was inside the old one (installed dependencies, the inner Docker's images and volumes) is gone.
+read at boot) and `docker rm -v proj-<slug>` on the sandbox host: the next turn creates the container from the new
+image and clones again; what was inside the old one (installed dependencies, the inner Docker's images and volumes) is
+gone. `-v` matters for the laravel image: its base declares a volume for `/var/lib/docker`, so the inner Docker's
+store is an anonymous volume on the host, and a plain `docker rm` leaves it behind.
 
 The Claude Code CLI inside sandboxes is pinned by `CLAUDE_CLI_VERSION` (warm sandboxes converge in
 place; `"cliVersion"` per project is the canary) — see `src/cliversion.ts`. Pin only probed versions

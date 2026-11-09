@@ -85,7 +85,7 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
   `.env`, `storage/` or `vendor/`.** The container's laravel sandbox image was built from a `snapshot/` older than the
   release after v0.54.0: `docker exec proj-<slug> sh -c 'command -v sail; echo $APP_USER'` prints
   `/usr/local/bin/sail` and `root` on a current one. Rebuild the image from `snapshot/`, move `SANDBOX_IMAGE` (or the
-  project's `sandbox.image`), restart the bot and `docker rm proj-<slug>` on the sandbox host
+  project's `sandbox.image`), restart the bot and `docker rm -v proj-<slug>` on the sandbox host
   ([`snapshot/README.md`](../snapshot/README.md)). On a current image the same permission errors mean a `laravel/sail`
   older than 1.41.1 (update the package), or the web process of a stock Sail compose file, which runs as uid 1337: set
   `SUPERVISOR_PHP_USER: root` on the service.

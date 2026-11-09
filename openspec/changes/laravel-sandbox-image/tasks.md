@@ -20,5 +20,5 @@
 
 ## 4. Operators
 
-- [ ] 4.1 Each installation that runs a laravel image: rebuild it from the merged `snapshot/`, move `SANDBOX_IMAGE` (or the project's `sandbox.image`) to the new tag, restart the bot, `docker rm` the containers that should get it. Verify in a recreated sandbox: `command -v sail rg python3`, `echo $APP_USER`, and `composer install` in a fresh Laravel checkout.
+- [ ] 4.1 Each installation that runs a laravel image: rebuild it from the merged `snapshot/`, move `SANDBOX_IMAGE` (or the project's `sandbox.image`) to the new tag, restart the bot, `docker rm -v` the containers that should get it (`-v`: the inner Docker's store is an anonymous volume, which a plain `docker rm` leaves on the host). Verify in a recreated sandbox: `command -v sail rg python3`, `echo $APP_USER`, and `composer install` in a fresh Laravel checkout.
 - [ ] 4.2 Archive this change: the delta into `openspec/specs/sandbox-image/`; `openspec validate sandbox-image --type spec --strict` passes.
