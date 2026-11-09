@@ -13,7 +13,8 @@ capability (the July `checks` lesson).
 ## What Changes
 
 - The sandbox token's standing permissions grow by read-only access to **deployments, environments, administration,
-  Dependabot alerts and code scanning alerts**. Nothing among them can change a repository; none returns a secret value.
+  Dependabot alerts, code scanning alerts, packages and Actions variables**. Nothing among them can change a
+  repository; none returns a secret value (Actions variables are not secrets; secrets are a separate permission).
 - Two read permissions stay out on purpose and are named in the code: **secret scanning alerts** (an alert carries the
   detected secret in clear) and **webhooks** (hook URLs often embed tokens).
 - A new grant capability **`actions`**: `/aven grant actions [duration]` lets a project's sandbox token carry

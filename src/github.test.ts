@@ -74,6 +74,8 @@ const INSTALL = {
   administration: 'read',
   vulnerability_alerts: 'read',
   security_events: 'read',
+  packages: 'read',
+  actions_variables: 'read',
   secret_scanning_alerts: 'read',
   repository_hooks: 'read',
 };
@@ -88,6 +90,8 @@ const STANDING = {
   administration: 'read',
   vulnerability_alerts: 'read',
   security_events: 'read',
+  packages: 'read',
+  actions_variables: 'read',
 };
 
 test('requested permissions without a grant are exactly the standing set', () => {
@@ -103,7 +107,7 @@ test('requested permissions with a workflows grant add workflows write and nothi
 test('an installation that has not approved the newer reads mints exactly what it approved', () => {
   const r = requestedPermissions(INSTALL_BEFORE);
   assert.deepEqual(r.permissions, { contents: 'write', pull_requests: 'write', checks: 'read', actions: 'read', metadata: 'read', deployments: 'read' });
-  assert.deepEqual(r.missing.sort(), ['administration', 'environments', 'security_events', 'vulnerability_alerts']);
+  assert.deepEqual(r.missing.sort(), ['actions_variables', 'administration', 'environments', 'packages', 'security_events', 'vulnerability_alerts']);
 });
 
 test('secret scanning alerts and webhooks are never requested, not even through a grant', () => {
