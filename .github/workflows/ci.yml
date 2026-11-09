@@ -22,6 +22,7 @@ jobs:
     outputs:
       image_inputs: ${{ steps.image_inputs.outputs.changed }}
       sandbox_inputs: ${{ steps.image_inputs.outputs.sandbox }}
+      laravel_inputs: ${{ steps.image_inputs.outputs.laravel }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -42,6 +43,11 @@ jobs:
             echo "sandbox=true" >> "$GITHUB_OUTPUT"
           else
             echo "sandbox=false" >> "$GITHUB_OUTPUT"
+          fi
+          if git diff --name-only "$BASE" "$HEAD" | grep -qE '^snapshot/(Dockerfile$|shims/)'; then
+            echo "laravel=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "laravel=false" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-node@v7
         with:
@@ -186,3 +192,25 @@ jobs:
         run: |
           set -euo pipefail
           docker run --rm sandbox-plain:pr sh -c 'for t in bash git gh curl jq ssh rg node npm python3 pip3 make unzip rsync claude; do command -v $t >/dev/null || { echo "missing: $t"; exit 1; }; done; ! command -v docker; claude --version'
+
+  # And for the laravel sandbox image, which is never published (an installation builds its own): a pull request
+  # that changes snapshot/Dockerfile or the Sail shim builds it for linux/amd64, its only architecture, and checks
+  # what its spec (sandbox-image) promises — the plain image's tools, Docker with its daemon, the four Sail
+  # commands as the shim, the user Sail runs its commands as, the pinned CLI.
+  sandbox-laravel-pr:
+    needs: verify
+    if: github.event_name == 'pull_request' && needs.verify.outputs.laravel_inputs == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the laravel sandbox image for linux/amd64 (not published)
+        run: |
+          set -euo pipefail
+          git archive --format=tar HEAD:snapshot | docker buildx build --platform linux/amd64 --load -t sandbox-laravel:pr -
+      - name: The toolchain the spec promises, the Sail commands as the shim, Sail's user
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint sh sandbox-laravel:pr -c 'for t in bash git gh curl jq ssh rg node npm python3 pip3 make unzip rsync claude docker dockerd magick php composer artisan sail; do command -v $t >/dev/null || { echo "missing: $t"; exit 1; }; done; for c in php composer artisan sail; do [ "$(readlink -f "$(command -v $c)")" = /usr/local/bin/sail-shim ] || { echo "not the shim: $c"; exit 1; }; done; docker compose version; [ "$APP_USER" = root ] || { echo "APP_USER=$APP_USER"; exit 1; }; claude --version'
