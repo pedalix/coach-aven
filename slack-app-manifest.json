@@ -28,15 +28,6 @@
             "https://bot.aven.guru/slack/oauth_redirect"
         ],
         "scopes": {
-            "user": [
-                "channels:history",
-                "channels:read",
-                "groups:read",
-                "im:read",
-                "mpim:history",
-                "mpim:read",
-                "search:read"
-            ],
             "bot": [
                 "app_mentions:read",
                 "bookmarks:read",
@@ -48,7 +39,6 @@
                 "chat:write",
                 "chat:write.customize",
                 "commands",
-                "conversations.connect:manage",
                 "conversations.connect:read",
                 "conversations.connect:write",
                 "emoji:read",

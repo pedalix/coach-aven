@@ -154,8 +154,10 @@ export interface SlackOauthConfig {
 
 // The bot scopes from slack-app-manifest.json — the default install request. Keep in sync
 // when the manifest grows a scope (a mismatch = clients install without the new scope and
-// hit missing_scope until they reinstall).
-const DEFAULT_BOT_SCOPES = [
+// hit missing_scope until they reinstall; src/manifests.test.ts pins it). No admin-only scope:
+// `conversations.connect:manage` makes Slack refuse every installer who is not a workspace
+// owner or admin, even after an admin approved the app.
+export const DEFAULT_BOT_SCOPES = [
   'app_mentions:read',
   'bookmarks:read',
   'bookmarks:write',
@@ -166,7 +168,6 @@ const DEFAULT_BOT_SCOPES = [
   'chat:write',
   'chat:write.customize',
   'commands',
-  'conversations.connect:manage',
   'conversations.connect:read',
   'conversations.connect:write',
   'emoji:read',

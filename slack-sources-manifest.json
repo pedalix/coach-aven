@@ -1,0 +1,28 @@
+{
+    "display_information": {
+        "name": "CoachAven Sources",
+        "description": "Reads the conversations you are in for CoachAven's sources store (a user token, no bot).",
+        "background_color": "#001b6b"
+    },
+    "oauth_config": {
+        "scopes": {
+            "user": [
+                "channels:read",
+                "groups:read",
+                "im:read",
+                "mpim:read",
+                "channels:history",
+                "groups:history",
+                "im:history",
+                "mpim:history",
+                "users:read"
+            ]
+        },
+        "pkce_enabled": false
+    },
+    "settings": {
+        "org_deploy_enabled": false,
+        "socket_mode_enabled": false,
+        "token_rotation_enabled": false
+    }
+}
