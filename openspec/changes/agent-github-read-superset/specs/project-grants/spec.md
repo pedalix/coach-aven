@@ -69,13 +69,14 @@ with no project SHALL be refused with nothing recorded.
 
 A project holding no grant SHALL be minted exactly the agent's standing permissions — contents write, pull requests
 write, checks read, actions read, metadata read, deployments read, environments read, administration read,
-Dependabot alerts read and code scanning alerts read — and nothing SHALL be posted.
+Dependabot alerts read, code scanning alerts read, packages read and Actions variables read — and nothing SHALL be
+posted.
 
 #### Scenario: No grant
 - **WHEN** a turn starts for a project with no grant recorded
 - **THEN** the requested permissions are exactly contents write, pull requests write, checks read, actions read,
-  metadata read, deployments read, environments read, administration read, Dependabot alerts read and code scanning
-  alerts read
+  metadata read, deployments read, environments read, administration read, Dependabot alerts read, code scanning
+  alerts read, packages read and Actions variables read
 
 #### Scenario: Reading why CI failed
 - **WHEN** a check of the project's pull request failed and the agent asks GitHub for that run's job log
@@ -87,7 +88,7 @@ Dependabot alerts read and code scanning alerts read — and nothing SHALL be po
 
 #### Scenario: Installation that has not approved the newer reads
 - **WHEN** the App installation holding the project's repositories approved none of deployments, environments,
-  administration, Dependabot alerts and code scanning alerts
+  administration, Dependabot alerts, code scanning alerts, packages and Actions variables
 - **THEN** the token is minted with the permissions it did approve, exactly as before this change, and the turn runs
 
 #### Scenario: Branch protection in view

@@ -15,8 +15,8 @@
 ### D1 — One deliberate superset, approved once
 
 The App asks for the reads an agent needs to explain a repository's delivery (deployments, environments, branch
-protection via `administration: read`) and its security state (`vulnerability_alerts`, `security_events`), plus
-`actions: write` for the grant. Asking in one round avoids a re-approval per capability; the intersecting mint means
+protection via `administration: read`), its security state (`vulnerability_alerts`, `security_events`), its private
+packages (`packages`) and its CI's variables (`actions_variables` — not secrets), plus `actions: write` for the grant. Asking in one round avoids a re-approval per capability; the intersecting mint means
 the code ships first and each installation gains the reads when its owner approves.
 
 *Why `administration: read` by default:* it is read-only — repository settings, branch protection, rulesets, deploy

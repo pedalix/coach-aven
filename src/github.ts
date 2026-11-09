@@ -81,8 +81,10 @@ async function fetchInstallation(
 // The reads below metadata let the agent answer delivery and security questions itself (OpenSpec
 // `agent-github-read-superset`): which deployment a fix is on, whether an environment allows only `main`, how a branch
 // is protected (`administration: read` — settings and rules, no secret, nothing writable), open Dependabot and
-// code scanning alerts. Two reads stay out on purpose, whatever the App is granted: `secret_scanning_alerts` (an alert
-// carries the detected secret in clear) and `repository_hooks` (hook URLs often embed tokens) — see EXCLUDED below.
+// code scanning alerts; `packages: read` installs private packages from GitHub Packages and `actions_variables: read`
+// shows the CI's variables (not secrets — those are a separate permission). Two reads stay out on purpose, whatever the
+// App is granted: `secret_scanning_alerts` (an alert carries the detected secret in clear) and `repository_hooks` (hook
+// URLs often embed tokens) — see EXCLUDED_PERMISSIONS below.
 const AGENT_PERMISSIONS = {
   contents: 'write',
   pull_requests: 'write',
@@ -94,6 +96,8 @@ const AGENT_PERMISSIONS = {
   administration: 'read',
   vulnerability_alerts: 'read',
   security_events: 'read',
+  packages: 'read',
+  actions_variables: 'read',
 } as const;
 
 /** Permissions a sandbox token never requests, with or without a grant (see the note above AGENT_PERMISSIONS). */
