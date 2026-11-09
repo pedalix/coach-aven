@@ -12,7 +12,8 @@
  *
  * Why "paste a token" instead of an OAuth dance: Slack has no device-code flow, redirect URIs
  * must be HTTPS (no plain loopback), and for an app that is only ever installed in the
- * workspace it was created in, the app settings page runs the OAuth flow itself and shows
+ * workspace it was created in (made from slack-sources-manifest.json, whose user scopes are
+ * USER_SCOPES — src/manifests.test.ts), the app settings page runs the OAuth flow itself and shows
  * the User OAuth Token — no redirect handler needed. We always *verify* the pasted token with
  * auth.test + users.conversations rather than trust it. Without token rotation the xoxp never
  * expires, so there is no refresh token to store:
@@ -36,7 +37,7 @@ interface AuthTest extends SlackResponse {
   user: string;
 }
 
-const USER_SCOPES = ['channels:read', 'groups:read', 'im:read', 'mpim:read', 'channels:history', 'groups:history', 'im:history', 'mpim:history', 'users:read'];
+export const USER_SCOPES = ['channels:read', 'groups:read', 'im:read', 'mpim:read', 'channels:history', 'groups:history', 'im:history', 'mpim:history', 'users:read'];
 
 // ---------------------------------------------------------------------------------------
 // tiny argv parser: `--k v`, `--flag`, positionals

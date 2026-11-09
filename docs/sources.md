@@ -78,7 +78,9 @@ What each source needs from whom is documented per connector in the module heade
 (`src/sources/<kind>/auth.ts`); the short version: Google needs nothing but a Desktop-app
 OAuth client (Internal audience for a Workspace you administer, External *published* for
 anything else — Testing mode kills refresh tokens after 7 days); Slack needs an
-undistributed user-scoped app per workspace (token rotation OFF); Microsoft needs **one
+undistributed user-scoped app per workspace (token rotation OFF) — create it from
+[`slack-sources-manifest.json`](../slack-sources-manifest.json), *Install to Workspace*, paste the
+*User OAuth Token* (the bot's [`slack-app-manifest.json`](../slack-app-manifest.json) has no user scopes); Microsoft needs **one
 tenant-wide admin consent** for Mail.Read, Calendars.Read, Chat.Read, Files.Read.All,
 Sites.Read.All and ChannelMessage.Read.All — expect "Need admin approval" on the first login and
 send the admin the link that `auth msgraph admin-consent-url` prints.
