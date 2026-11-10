@@ -119,8 +119,9 @@ overlay checkout with its two secret files in place is a complete installation d
 ## MCP gateway (per project)
 
 A project can reach all its MCP sources through the gateway (bluefin-infra `engine/`, agentgateway at
-`https://<gateway-host>/gw/<slug>/mcp`) instead of listing each upstream. The entry names the route and how the
-bot asks for its token:
+`https://<gateway-host>/gw/<slug>/mcp`) instead of listing each upstream. A gateway to start from, with a key per
+project instead of an identity provider, is in [`infra/gateway/`](../infra/gateway/README.md). The entry names the
+route and how the bot asks for its token:
 
 ```json
 "mcp": [{

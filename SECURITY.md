@@ -15,7 +15,7 @@ move to the next one when it comes out.
 ## Scope
 
 In scope: the orchestrator (`src/`), the sandbox images (`snapshot/`), the deploy tooling
-(`infra/deploy/`, `infra/teams/`). Out of scope: third-party services the bot talks to (Slack, GitHub, Anthropic)
+(`infra/deploy/`, `infra/teams/`, `infra/gateway/`). Out of scope: third-party services the bot talks to (Slack, GitHub, Anthropic)
 and installations you do not operate.
 
 What goes where, retention and the accepted risks, in one page: [`docs/security.md`](docs/security.md).

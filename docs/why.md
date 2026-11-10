@@ -114,11 +114,12 @@ ticket tracker, a read-only database, through MCP. An installation can put an MC
 of them: one route per project, one policy that says which identity may call which tool, an audit
 line per call that joins the gateway's log to the bot's own, and upstream credentials that never
 leave the gateway host. In the operator's gateway, people reach the same route with their own identities. The gateway
-itself is not in this repository today: you bring one (the operator runs an agentgateway behind
-an OAuth2 client per project). What ships here is the bot's side of the
-contract: the `gateway-m2m` entry, a token minted on the host, the session header that joins the
-two audit logs. A reusable kit is on the roadmap. ([`runtime-config.md`](runtime-config.md),
-*MCP gateway*)
+is a separate piece that you run (the operator runs an agentgateway behind an OAuth2 client per
+project). What ships here is the bot's side of the contract (the `gateway-m2m` entry, a token
+minted on the host, the session header that joins the two audit logs) and an example to start from:
+one agentgateway container with a key per project and an allow-list of tools
+([`infra/gateway/`](../infra/gateway/README.md)). The identity-provider side of a reusable kit is
+still on the roadmap. ([`runtime-config.md`](runtime-config.md), *MCP gateway*)
 
 **It runs on a schedule and on events.** Routines fire on a schedule into the project's channel,
 a morning brief, an evening close, a review, and, behind a flag the canary runs today, skip the

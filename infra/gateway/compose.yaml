@@ -1,0 +1,25 @@
+# The MCP gateway of one installation: agentgateway as one container, its config beside it.
+# README.md says what it does and how to change it.
+name: coach-aven-gateway
+
+services:
+  agentgateway:
+    # Pinned: the config format moves between releases (config/config.yaml is written for this one).
+    image: ghcr.io/agentgateway/agentgateway:v1.7.0
+    restart: unless-stopped
+    command: ["-f", "/config/config.yaml"]
+    # The upstream credentials and the session key; config.yaml names them, nothing else reads them.
+    env_file: .env
+    volumes:
+      # The directory, not the file: a file replaced by scp or by an editor is a new inode, which a
+      # single-file mount never sees. The gateway watches the file and reloads it in place.
+      - ./config:/config:ro
+    ports:
+      # Loopback is enough to try it on this host. The agent's MCP client runs inside the sandbox
+      # container, where 127.0.0.1 is the container itself: for real use publish on the private
+      # address the sandboxes reach, never on 0.0.0.0 (README.md, "Where it listens").
+      - "127.0.0.1:4600:4600"
+    logging:
+      # The log is the audit trail (one JSON line per call): keep more than Docker's default.
+      driver: json-file
+      options: { max-size: "20m", max-file: "5" }

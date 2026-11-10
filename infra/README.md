@@ -5,9 +5,11 @@ deploy/     deploy.sh <slug> <command>, systemd unit templates, nginx example, o
             template for an ops repo)                                              → deploy/README.md
 teams/      Terraform module: a Teams installation's bot identity (Entra app, Azure Bot, Teams
             channel) + the app package; publish.sh for the org catalog               → teams/README.md
+gateway/    An MCP gateway as one container (agentgateway): a route and a key per project, an
+            allow-list of tools, upstream credentials that stay on its host        → gateway/README.md
 <slug>/     YOUR installations — each a private ops repo checked out here (projects, prompts,
             deploy.env, secrets, notes). Gitignored by allow-list: nothing under infra/ is tracked
-            except the two directories above and this file, whatever the slug.
+            except the three directories above and this file, whatever the slug.
 ```
 
 One installation = one ops repo = one `infra/<slug>/`. Every deploy command names the slug

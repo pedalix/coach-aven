@@ -27,6 +27,7 @@ mirrors.json                             repo mirrors (optional; `orch mirror`, 
 .env  github-app-private-key.pem         secrets (ignored; travel by scp)
 docs/                                    your notes and plans
 teams/                                   a Terraform root calling infra/teams (a Teams installation)
+gateway/                                 your copy of infra/gateway (an MCP gateway; its .env is ignored)
 .github/workflows/deploy.yml             your deploy
 ```
 
