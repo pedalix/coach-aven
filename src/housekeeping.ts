@@ -32,6 +32,23 @@ export function pruneThreshold(raw: string | undefined = process.env.HOUSEKEEPIN
 // "containerd is still running", health-checks a dead socket for 15s and exits — so the
 // restart branch below would always fail (bit proj-art on 2026-07-21). Drop each pid file
 // unless its pid really is a dockerd/containerd process.
+//
+// cgroup nesting before the start (the step of the image's own `dind` wrapper, which no
+// entrypoint runs here): on a cgroup-v2 host a `--privileged` container's processes sit in
+// its root cgroup, and a cgroup with processes cannot hand controllers to children — so an
+// inner container that asks for a limit (`docker run -m`, a compose `mem_limit`) fails with
+// `cannot enter cgroupv2 "/sys/fs/cgroup/docker" with domain controllers`. Move the
+// processes into `init` and enable the controllers for the subtree. Skipped on cgroup v1
+// and where the subtree already has every controller (sysbox delegates them itself).
+// Best effort: in a container whose dockerd once started without the step the stale child
+// cgroups refuse the write, and it heals at the container's next start.
+const CGROUP_NESTING =
+  `if [ -f /sys/fs/cgroup/cgroup.controllers ] && [ "$(cat /sys/fs/cgroup/cgroup.controllers)" != "$(cat /sys/fs/cgroup/cgroup.subtree_control)" ]; then ` +
+  `mkdir -p /sys/fs/cgroup/init; ` +
+  `xargs -rn1 < /sys/fs/cgroup/cgroup.procs > /sys/fs/cgroup/init/cgroup.procs 2>/dev/null || :; ` +
+  `sed -e 's/ / +/g' -e 's/^/+/' < /sys/fs/cgroup/cgroup.controllers > /sys/fs/cgroup/cgroup.subtree_control 2>/dev/null || :; ` +
+  `fi`;
+
 export function dockerdGuardCmd(): string {
   return (
     `if docker info >/dev/null 2>&1; then echo "hk:dockerd=ok"; else ` +
@@ -39,6 +56,7 @@ export function dockerdGuardCmd(): string {
     `p=$(cat "$f" 2>/dev/null); if [ -n "$p" ]; then ` +
     `case "$(cat /proc/$p/comm 2>/dev/null)" in dockerd|containerd) ;; *) rm -f "$f";; esac; ` +
     `fi; done; ` +
+    `${CGROUP_NESTING}; ` +
     `(dockerd >>/var/log/dockerd.log 2>&1 &); ` +
     `i=0; while [ $i -lt 20 ]; do sleep 1; docker info >/dev/null 2>&1 && break; i=$((i+1)); done; ` +
     `if docker info >/dev/null 2>&1; then echo "hk:dockerd=restarted"; else echo "hk:dockerd=failed"; fi; ` +

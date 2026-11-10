@@ -95,7 +95,7 @@ export interface ProjectConfig {
   // How this project's container is run (ssh-docker): a plain unprivileged container by default,
   // docker-in-docker with `"dind": true` (Sail), plus read-only host mounts and its own image. See sandboxopts.ts.
   // Applies to NEW containers only — an existing proj-<slug> keeps its flags until recreated
-  // (`docker rm` it on the sandbox host; the next turn creates it with the new options).
+  // (`docker rm -v` it on the sandbox host; the next turn creates it with the new options).
   sandbox?: SandboxOptions;
   // Redact passwords, tokens and connection strings from everything users type before it
   // reaches the Claude process (scrub.ts). Default TRUE for every project — the API boundary

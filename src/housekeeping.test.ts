@@ -34,6 +34,15 @@ test('dockerd guard clears stale pid files, keeps live dockerd/containerd ones',
   assert.ok(cmd.indexOf('rm -f "$f"') < cmd.indexOf('(dockerd >>'));
 });
 
+test('dockerd guard nests cgroups before a start: v2 only, not where the subtree has every controller', () => {
+  const cmd = dockerdGuardCmd();
+  const nest = cmd.indexOf('/sys/fs/cgroup/init/cgroup.procs');
+  assert.ok(nest > 0 && nest < cmd.indexOf('(dockerd >>'), 'the processes move before dockerd starts');
+  assert.ok(cmd.indexOf('hk:dockerd=ok') < nest, 'a running dockerd is left as it is');
+  assert.match(cmd, /\[ -f \/sys\/fs\/cgroup\/cgroup\.controllers \] && \[ "\$\(cat \/sys\/fs\/cgroup\/cgroup\.controllers\)" != "\$\(cat \/sys\/fs\/cgroup\/cgroup\.subtree_control\)" \]/);
+  assert.match(cmd, /> \/sys\/fs\/cgroup\/cgroup\.subtree_control 2>\/dev\/null \|\| :/);
+});
+
 test('housekeeping script: threshold gates the prune, and volumes are NEVER pruned', () => {
   const s = housekeepingScript(85, undefined, true);
   assert.match(s, /"\$usage" -ge 85/);

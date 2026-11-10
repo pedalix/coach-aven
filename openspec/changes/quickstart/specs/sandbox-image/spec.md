@@ -3,7 +3,7 @@
 ## ADDED Requirements
 
 ### Requirement: The plain image is published under the bot's version names
-This repository's CI SHALL build the plain sandbox image from `snapshot/plain` for every `main` commit, for `amd64` and `arm64`. It SHALL publish the image as `ghcr.io/<owner>/coach-aven-sandbox-plain:sha-<commit>`. A release tag SHALL promote it to `vX.Y.Z`, and to `latest` when that tag is the highest release, beside the bot image of the same commit. A commit without a sandbox image SHALL NOT fail the release. Only the plain variant SHALL be published.
+This repository's CI SHALL build the plain sandbox image from `snapshot/plain` for every `main` commit, for `amd64` and `arm64`. It SHALL publish the image as `ghcr.io/<owner>/coach-aven-sandbox-plain:sha-<commit>`. A release tag SHALL promote it to `vX.Y.Z`, and to `latest` when that tag is the highest release, beside the bot image of the same commit. A commit without a sandbox image SHALL NOT fail the release.
 
 #### Scenario: A main commit
 - **WHEN** a commit lands on `main` and verify passes

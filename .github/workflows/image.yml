@@ -1,8 +1,9 @@
 name: Image
 
-# The bot's image (OpenSpec bot-image; container-deploy D6) and the plain sandbox image (OpenSpec sandbox-image,
-# quickstart D3) — the unprivileged sandbox a quickstart runs, published under the same version name as the bot,
-# so one version names both. One build per image and architecture on a native runner
+# The bot's image (OpenSpec bot-image; container-deploy D6) and the two sandbox images (OpenSpec sandbox-image):
+# plain (quickstart D3) — the unprivileged sandbox a quickstart runs — and laravel, the docker-in-docker one with
+# the Sail shims, linux/amd64 only. All are published under the same version name, so one version names the bot
+# and its sandboxes. One build per image and architecture on a native runner
 # (ubuntu-24.04, ubuntu-24.04-arm — free for public repositories; QEMU would emulate `npm ci` for minutes),
 # each pushed by digest, then one manifest list published as sha-<commit>, the full commit id.
 #
@@ -10,11 +11,11 @@ name: Image
 # yet, and by hand (workflow_dispatch) for a branch head. The build context is `git archive <commit>`:
 # tracked files only, never a working tree. Each architecture reads and writes a build cache in the registry
 # (buildcache-<arch>): when the lockfile has not changed, the dependency layer is the very same layer as in
-# the previous image, so a box pulls only the code. The sandbox image's context is the commit's
-# snapshot/plain tree (`git archive <commit>:snapshot/plain`), built with its Dockerfile's own CLI pin, which
-# the CLI gate test keeps on a probed version. The registry is ghcr.io/<owner>/coach-aven(-sandbox-plain), written with
-# this workflow's own GITHUB_TOKEN (packages: write); nothing else gets a credential, and the package is
-# public, so boxes pull anonymously.
+# the previous image, so a box pulls only the code. A sandbox image's context is the commit's
+# snapshot/plain or snapshot tree (`git archive <commit>:snapshot/plain`), built with its Dockerfile's own CLI
+# pin, which the CLI gate test keeps on a probed version. The registry is
+# ghcr.io/<owner>/coach-aven(-sandbox-plain, -sandbox-laravel), written with this workflow's own GITHUB_TOKEN
+# (packages: write); nothing else gets a credential, and the packages are public, so boxes pull anonymously.
 
 on:
   workflow_call:
@@ -52,6 +53,13 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
+          # The laravel sandbox image exists for linux/amd64 only (the hosts that run docker-in-docker): an
+          # include whose image is none of the matrix's adds this one combination, with no arm64 twin.
+          - arch: amd64
+            runner: ubuntu-24.04
+            image:
+              name: coach-aven-sandbox-laravel
+              tree: ':snapshot'
     runs-on: ${{ matrix.runner }}
     env:
       COMMIT: ${{ inputs.commit || github.sha }}
@@ -119,11 +127,12 @@ jobs:
           set -euo pipefail
           OWNER="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
           TAG="sha-$COMMIT"
-          for NAME in coach-aven coach-aven-sandbox-plain; do
+          for NAME in coach-aven coach-aven-sandbox-plain coach-aven-sandbox-laravel; do
             IMAGE="$OWNER/$NAME"
+            want=2; [[ "$NAME" == coach-aven-sandbox-laravel ]] && want=1   # amd64 only
             refs=()
             for d in "$RUNNER_TEMP/digests/$NAME"/*; do refs+=("$IMAGE@sha256:$(basename "$d")"); done
-            [[ ${#refs[@]} -eq 2 ]] || { echo "$NAME: expected two images (amd64, arm64), got ${#refs[@]}"; exit 1; }
+            [[ ${#refs[@]} -eq $want ]] || { echo "$NAME: expected $want image(s), got ${#refs[@]}"; exit 1; }
             docker buildx imagetools create -t "$IMAGE:$TAG" "${refs[@]}"
             docker buildx imagetools inspect "$IMAGE:$TAG"
           done
