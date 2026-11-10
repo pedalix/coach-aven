@@ -1,0 +1,108 @@
+# yaml-language-server: $schema=https://agentgateway.dev/schema/config
+#
+# An MCP gateway for an installation: a route per project, a key per caller, an allow-list of
+# tools per route, the upstream credentials in this host's environment only. README.md walks
+# through it. Written for agentgateway v1.7.0.
+#
+# The gateway replaces a dollar sign followed by a name in braces with that environment variable
+# everywhere in this file, comments included, and refuses the file when the variable is not set:
+# so a comment never writes one.
+
+config:
+  session:
+    key: "${AGW_SESSION_KEY}"
+  logging:
+    format: json
+    level: info
+
+frontendPolicies:
+  accessLog:
+    # A request's line already says route, status, MCP method, target and tool. Added: who called
+    # (a key's subject, or a token's when a route signs people in), the bot's conversation (the
+    # header arrives only from a `gateway-m2m` entry), whether the tool answered with an error.
+    # Removed: the MCP session id, long and of no use in a log.
+    add:
+      caller: "has(apiKey.subject) ? apiKey.subject : (has(jwt.sub) ? jwt.sub : '')"
+      aven_session: 'default(request.headers["x-aven-session"], "")'
+      tool_is_error: "has(mcp.tool.result) && has(mcp.tool.result.isError) && mcp.tool.result.isError"
+    remove: ["mcp.session.id"]
+
+gateways:
+  mcp: { port: 4600 }
+
+# A backend is what one project may reach: its targets, merged into one tool list.
+backends:
+- name: shop
+  mcp:
+    # Every tool is <target>_<tool>: the bot shows a call by its target, and a rule can name one.
+    # A target's name may hold a hyphen, never an underscore: the first one ends the target.
+    prefixMode: always
+    statefulMode: stateful
+    # A target that does not answer is left out of the list; the others keep working.
+    failureMode: failOpen
+    server:
+      name: shop-gateway
+      version: "1"
+      # The agent reads this when its session starts: say which target answers which question.
+      # Each target's own instructions follow it, under [<target>].
+      instructions: |
+        Production tools of the shop project, read-only.
+        `sentry_*`: errors and logs of the API (Sentry project `shop-api`). The default.
+        `sentry-web_*`: errors of the storefront JavaScript (Sentry project `shop-web`), noisy: only for frontend questions.
+    targets:
+    # One target per Sentry project: the project is part of the URL, so a question about the API
+    # never searches the storefront's noise. The token is added here and goes nowhere else.
+    - name: sentry
+      mcp: { host: "https://mcp.sentry.dev/mcp/bluefin/shop-api" }
+      policies: { requestHeaderModifier: { set: { Authorization: "Sentry-Bearer ${SENTRY_AUTH_TOKEN}" } } }
+    - name: sentry-web
+      mcp: { host: "https://mcp.sentry.dev/mcp/bluefin/shop-web" }
+      policies: { requestHeaderModifier: { set: { Authorization: "Sentry-Bearer ${SENTRY_AUTH_TOKEN}" } } }
+
+- name: booking
+  mcp:
+    prefixMode: always
+    statefulMode: stateful
+    failureMode: failOpen
+    # No `server` block: with a single target the gateway hands the agent that server's own name
+    # and instructions, and the block would not be used. It applies from two targets on.
+    targets:
+    - name: sentry
+      mcp: { host: "https://mcp.sentry.dev/mcp/bluefin/booking" }
+      policies: { requestHeaderModifier: { set: { Authorization: "Sentry-Bearer ${SENTRY_AUTH_TOKEN}" } } }
+
+# A route is who may reach a backend, and which of its tools.
+routes:
+- name: shop
+  gateways: [mcp]
+  matches: [{ path: { exact: /gw/shop/mcp } }]
+  policies:
+    apiKey:
+      # Without `strict` a request that carries no key passes.
+      mode: strict
+      keys:
+      # The hash of the key, never the key (README.md, "Start it"). This placeholder is the hash
+      # of nothing anyone holds: the route answers 401 until you replace it.
+      - keyHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        metadata: { subject: "shop:bot", role: "bot" }
+    mcpAuthorization:
+      # A tool is listed and callable when one rule holds for the caller; with no rule it does
+      # not exist. Allow by name: an upstream that gains a tool tomorrow gains nothing here.
+      rules:
+      - 'apiKey.role == "bot" && mcp.tool.name in ["search_issues", "search_errors", "search_logs", "search_issue_events", "get_issue_details", "get_event_stacktrace", "get_issue_breadcrumbs", "get_issue_tag_values", "get_trace_details", "get_sentry_resource"]'
+  backends: [{ backend: /shop }]
+
+- name: booking
+  gateways: [mcp]
+  matches: [{ path: { exact: /gw/booking/mcp } }]
+  policies:
+    apiKey:
+      mode: strict
+      keys:
+      # Its own key: the shop's key gets 401 here.
+      - keyHash: "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        metadata: { subject: "booking:bot", role: "bot" }
+    mcpAuthorization:
+      rules:
+      - 'apiKey.role == "bot" && mcp.tool.name in ["search_issues", "search_errors", "search_logs", "search_issue_events", "get_issue_details", "get_event_stacktrace", "get_issue_breadcrumbs", "get_issue_tag_values", "get_trace_details", "get_sentry_resource"]'
+  backends: [{ backend: /booking }]

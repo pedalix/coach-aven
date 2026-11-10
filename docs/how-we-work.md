@@ -109,8 +109,9 @@ One installation is one bot process with a default chat driver, optional additio
 holds the project registry, the prompts, the deploy target, the secrets, a Terraform root for the
 Teams identity, the operator's notes, and, if the operator keeps them in Terraform, the hosts and
 the gateway, there or in an infrastructure repository of their own. The
-product repository holds the mechanisms those roots call (`infra/deploy/`, `infra/teams/`) and a
-template for a new ops repo (`infra/deploy/ops.example/`). See [`infra/README.md`](../infra/README.md).
+product repository holds the mechanisms those roots call (`infra/deploy/`, `infra/teams/`), a
+gateway to copy and adapt (`infra/gateway/`) and a template for a new ops repo
+(`infra/deploy/ops.example/`). See [`infra/README.md`](../infra/README.md).
 
 | In the product repository | In an ops repo |
 |---|---|

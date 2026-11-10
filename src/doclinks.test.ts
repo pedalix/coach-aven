@@ -46,7 +46,7 @@ function publicDocs(): string[] {
   // infra/ holds the deploy tooling and, in an operator's checkout, private ops repos
   // (infra/<slug>/, gitignored): only the public parts are walked.
   if (existsSync(ROOT + 'infra/README.md')) out.push('infra/README.md');
-  for (const d of ['docs', 'hub', 'snapshot', 'infra/deploy', 'infra/teams']) if (existsSync(ROOT + d)) walk(d);
+  for (const d of ['docs', 'hub', 'snapshot', 'infra/deploy', 'infra/teams', 'infra/gateway']) if (existsSync(ROOT + d)) walk(d);
   return out;
 }
 

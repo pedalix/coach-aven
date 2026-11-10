@@ -29,6 +29,7 @@ infra/*
 !infra/README.md
 !infra/deploy/
 !infra/teams/
+!infra/gateway/
 # Terraform working files anywhere (a module's init cache, a root's state — state holds secrets):
 .terraform/
 .terraform.lock.hcl
