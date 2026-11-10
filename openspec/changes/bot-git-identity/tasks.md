@@ -13,7 +13,7 @@
 - [x] 2.1 `src/prompt.ts` and the goldens: "the bot's own GitHub account".
 - [x] 2.2 `docs/configuration.md`, `docs/pr-review.md`, `.env.example`.
 - [x] 2.3 `docs/rollout.md`: the ledger row.
-- [ ] 2.4 One PR; typecheck, tests, guard.
+- [x] 2.4 One PR (#197); typecheck, tests, guard.
 
 ## 3. After the merge
 
