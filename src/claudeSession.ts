@@ -58,7 +58,7 @@ export function claudeLaunch(o: ClaudeLaunchOpts): ClaudeLaunch {
   // BOTH --dangerously-skip-permissions AND --permission-prompt-tool stdio: verified
   // to coexist — normal tools auto-run (bypass, no round-trip) while AskUserQuestion
   // STILL fires a can_use_tool control_request we answer (→ Slack buttons).
-  // --settings attribution: commits and PRs credit coach-aven[bot] (gitidentity.ts).
+  // --settings attribution: commits and PRs credit CoachAven, under the bot's account (gitidentity.ts).
   const args = [
     '--output-format', 'stream-json', '--input-format', 'stream-json', '--verbose',
     '--dangerously-skip-permissions', '--permission-prompt-tool', 'stdio', '--strict-mcp-config',
@@ -85,8 +85,8 @@ export function claudeLaunch(o: ClaudeLaunchOpts): ClaudeLaunch {
     const model = o.model ? `--model ${sq(o.model)} ` : '';
     return (
       // CLI_PATH_ENV: the pinned per-sandbox Claude Code (cliversion.ts) wins over the image's.
-      // gitIdentityEnv + --settings attribution: commits are authored by and credit
-      // coach-aven[bot], whatever identity the agent tries to pass (gitidentity.ts).
+      // gitIdentityEnv + --settings attribution: commits are authored by the bot's account and
+      // credit CoachAven, whatever identity the agent tries to pass (gitidentity.ts).
       `cd ${sq(cwd)} && ${CLI_PATH_ENV} ${ccCreditEnv(o.credit ?? 'subscription')} ${gitIdentityEnv()} IS_SANDBOX=1 DISABLE_AUTOUPDATER=1 ` +
       (o.avenSession ? `AVEN_SESSION=${sq(o.avenSession)} ` : '') +
       `claude --output-format stream-json --input-format stream-json --verbose ` +

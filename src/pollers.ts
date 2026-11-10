@@ -68,14 +68,14 @@ import { authCheckDue, createSourcesTicker, type SourcesSyncState } from './sour
 import { sourcesViews } from './sources/daemonclient.js';
 import { acquireLock, describeLock } from './sources/lock.js';
 import { replicaDir } from './sources/paths.js';
+// The bot's GitHub login (the PRs it opens), so the auto-review skips its own: read at each use, after
+// the PR listing has resolved a token and with it the identity (gitidentity.ts).
+import { GIT_NAME } from './gitidentity.js';
 
 // Timezone the cron schedules are evaluated in. Set AVEN_TZ (IANA, e.g. Europe/Zurich)
 // in the runtime .env for local times; defaults to UTC.
 export const ROUTINE_TZ = process.env.AVEN_TZ || 'UTC';
 
-// The bot's GitHub login (PRs it opens), so auto-review skips its own PRs. Matches the
-// committer identity seeded in project.ts. NOTE: keep in sync if the App's bot changes.
-const BOT_LOGIN = 'coach-aven[bot]';
 // How often the PR pollers check (Socket Mode → poll, no webhooks).
 const AUTO_REVIEW_POLL_MS = 180_000; // 3 min
 const AUTOFIX_POLL_MS = 120_000; // 2 min
@@ -511,7 +511,7 @@ export function createPollers(
           const prs = await listOpenPRs(cfg, repo);
           const due = prsToReview(
             prs.map((p) => ({ repo, number: p.number, author: p.author, createdAt: p.createdAt, draft: p.draft })),
-            { since: s.autoReviewSince, botLogin: BOT_LOGIN, reviewed },
+            { since: s.autoReviewSince, botLogin: GIT_NAME, reviewed },
           );
           for (const p of due) {
             const k = `${repo}#${p.number}`;
@@ -550,7 +550,7 @@ export function createPollers(
         }
         const ci = await ciStatusForSha(cfg, w.repo, meta.headSha);
         const reviews = await listReviews(cfg, w.repo, w.number);
-        const { notes, next } = autofixEvents(w, { sha: meta.headSha, conclusion: ci }, reviews, BOT_LOGIN);
+        const { notes, next } = autofixEvents(w, { sha: meta.headSha, conclusion: ci }, reviews, GIT_NAME);
         store.patchPrWatch(key, next);
         if (notes.length) {
           await c.post({ conv: w.channel }, { kind: 'autofixNotice', watch: w, notes }).catch(() => {});

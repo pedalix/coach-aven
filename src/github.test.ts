@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { apiHeaders, EXCLUDED_PERMISSIONS, getGitHubToken, isAuthFailure, intersectPermissions, requestedPermissions } from './github.js';
+import { generateKeyPairSync } from 'node:crypto';
+import { apiHeaders, EXCLUDED_PERMISSIONS, getGitHubToken, isAuthFailure, intersectPermissions, lookupGitIdentity, requestedPermissions } from './github.js';
+import { DEFAULT_GIT_IDENTITY } from './gitidentity.js';
 import type { Config } from './config.js';
 
 // Minimal stand-in for the bits of a fetch Response that isAuthFailure reads.
@@ -144,4 +146,48 @@ test('an installation that has not approved workflows drops it; the mint request
   assert.equal(r.permissions.workflows, undefined);
   assert.deepEqual(r.missing, ['workflows']);
   assert.equal(r.permissions.contents, 'write');
+});
+
+// ── who the credential is (the commit identity) ─────────────────────────────────────────
+const answers = (routes: Record<string, unknown>) => {
+  const calls: Array<{ url: string; auth: string }> = [];
+  const fetchImpl = (async (url: string, init?: { headers?: Record<string, string> }) => {
+    calls.push({ url, auth: init?.headers?.Authorization ?? '' });
+    const body = routes[url];
+    return body === undefined ? new Response('nope', { status: 404 }) : new Response(JSON.stringify(body), { status: 200 });
+  }) as unknown as typeof fetch;
+  return { calls, fetchImpl };
+};
+
+test('lookupGitIdentity: a personal token commits as its owner', async () => {
+  const { calls, fetchImpl } = answers({ 'https://api.github.com/user': { login: 'robin-example', id: 4242 } });
+  const i = await lookupGitIdentity({ github: { kind: 'token', token: 'tok' } }, 'tok', fetchImpl);
+  assert.deepEqual(i, { login: 'robin-example', email: '4242+robin-example@users.noreply.github.com' });
+  assert.deepEqual(calls, [{ url: 'https://api.github.com/user', auth: 'Bearer tok' }]);
+});
+
+test('lookupGitIdentity: an App commits as its own bot user', async () => {
+  const privateKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
+  const { calls, fetchImpl } = answers({
+    'https://api.github.com/app': { slug: 'example-helper' },
+    'https://api.github.com/users/example-helper%5Bbot%5D': { login: 'example-helper[bot]', id: 123456789 },
+  });
+  const i = await lookupGitIdentity({ github: { kind: 'app', appId: '1', installationId: undefined, privateKey } }, 'inst-token', fetchImpl);
+  assert.deepEqual(i, { login: 'example-helper[bot]', email: '123456789+example-helper[bot]@users.noreply.github.com' });
+  assert.equal(calls.length, 2);
+  assert.notEqual(calls[0]!.auth, 'Bearer inst-token'); // the App's JWT asks /app
+  assert.equal(calls[1]!.auth, 'Bearer inst-token');
+});
+
+test('lookupGitIdentity: .env wins without a request; no GitHub access keeps the default', async () => {
+  const { calls, fetchImpl } = answers({});
+  const named = { login: 'example-helper[bot]', email: '1+example-helper[bot]@users.noreply.github.com' };
+  assert.deepEqual(await lookupGitIdentity({ github: { kind: 'token', token: 'tok' }, gitIdentity: named }, 'tok', fetchImpl), named);
+  assert.deepEqual(await lookupGitIdentity({ github: { kind: 'none' } }, '', fetchImpl), DEFAULT_GIT_IDENTITY);
+  assert.equal(calls.length, 0);
+});
+
+test('lookupGitIdentity: GitHub does not answer → an error that names the two settings, not a guess', async () => {
+  const { fetchImpl } = answers({});
+  await assert.rejects(lookupGitIdentity({ github: { kind: 'token', token: 'tok' } }, 'tok', fetchImpl), /\/user: 404.*GITHUB_BOT_LOGIN and GITHUB_BOT_USER_ID/);
 });

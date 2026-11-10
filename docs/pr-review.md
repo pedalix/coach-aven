@@ -32,7 +32,7 @@ poller and is tracked below.
   (Full multi-agent depth is what `/code-review ultra` in the cloud is for — not run here.)
 - **Auto-review poller.** Socket Mode has no inbound webhooks, so a poller
   (`startAutoReviewPoller`, every ~3 min) lists open PRs per repo and reviews the ones that
-  are due. "Due" (pure `prsToReview`) = not a draft, not the bot's own PR (`coach-aven[bot]`),
+  are due. "Due" (pure `prsToReview`) = not a draft, not the bot's own PR (the account its GitHub credential acts as, `src/gitidentity.ts`),
   opened **after** auto-review was enabled (the `autoReviewSince` cursor — avoids reviewing
   the whole backlog on enable), and not already reviewed.
 - **State.** Per-project `projectSettings` (toggle + cursor + channel) and the `reviewedPrs`
@@ -62,7 +62,7 @@ non-bot reviews that aren't plain approvals. **Tier 1 = notify + one-click fix �
 pushes autonomously.** The button enqueues a write-turn (`autofixPrompt`) that checks out
 the branch, fixes, pushes, and reports back (asking first if the fix is ambiguous/risky).
 
-> Like auto-review, the **fix turn writes under `coach-aven[bot]`** and can reply to review
+> Like auto-review, the **fix turn writes under the bot's account** and can reply to review
 > threads — mind any repo automation that triggers on PR comments (cf. Claude Tag's warning).
 
 ## Roadmap (same backbone)
