@@ -21,13 +21,13 @@ The laravel sandbox image (`snapshot/Dockerfile`) has no contract in the specs a
 
 ### Modified Capabilities
 - `sandbox-image`: the laravel image's toolchain and its publication, what its four Sail commands do before and after `vendor/` exists, the user Sail runs its commands as; the plain image's Node major.
+- `sandbox-drivers`: the bot's dockerd guard nests the container's cgroups before it starts the inner dockerd.
 
 ## Impact
 
-- **Rollout: bucket 1, an ungated bug fix.** Nothing in the bot changes, and nothing changes for an installation on merge or on a release: the laravel image is built and pinned per installation (`SANDBOX_IMAGE`, read at boot, or a project's `sandbox.image`), and a container keeps the image it was created from. A project gets the fix when its installation rebuilds the image, moves the pin, restarts the bot and removes the project's container (`docker rm proj-<slug>`; everything inside it goes with it).
-- **Code:** `snapshot/Dockerfile`, `snapshot/shims/sail-shim.sh`, `src/sailshim.test.ts` (new), `.github/workflows/ci.yml`, `snapshot/README.md`, `docs/sandbox-drivers.md`, `docs/troubleshooting.md`, `docs/rollout.md`.
+- **Rollout: bucket 1, an ungated bug fix.** One line of bot behaviour changes — the dockerd guard's cgroup nesting, which acts only in a `--privileged` container on a cgroup-v2 host when the guard starts dockerd, and makes inner containers with resource limits start; a sysbox installation sees no difference. Nothing else in the bot changes, and nothing changes for an installation on merge or on a release: the laravel image is built and pinned per installation (`SANDBOX_IMAGE`, read at boot, or a project's `sandbox.image`), and a container keeps the image it was created from. A project gets the fix when its installation rebuilds the image, moves the pin, restarts the bot and removes the project's container (`docker rm proj-<slug>`; everything inside it goes with it).
+- **Code:** `snapshot/Dockerfile`, `snapshot/shims/sail-shim.sh`, `src/sailshim.test.ts` (new), `src/housekeeping.ts` (the guard), `.github/workflows/ci.yml`, `snapshot/README.md`, `docs/sandbox-drivers.md`, `docs/troubleshooting.md`, `docs/rollout.md`.
 - **Out of scope:**
   - the system prompt's toolchain paragraph: it stays true, its fixtures do not move;
   - a project whose compose file leaves Sail's web process to supervisord: that process is uid 1337 whatever `APP_USER` says (`design.md`, Risks);
-  - the inner dockerd's cgroup nesting under `--privileged` on a cgroup-v2 host — the bot's dockerd guard, its own change (`design.md`, Context);
   - the git identity of an installation that runs its own GitHub App.

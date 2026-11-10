@@ -22,7 +22,7 @@
   | `root` (this change) | 0 | yes | yes |
 
   As root: `key:generate`, `composer install` inside Sail (plugins load, no super-user warning, `check-platform-reqs` all green), 95 migrations, `sail npm ci`, `sail npm run build`, and the login page answers 200.
-- **Found on the way, not part of this change.** Under `--privileged` on a cgroup-v2 host the bot's guard starts `dockerd` in the container's root cgroup, and an inner container that asks for a memory limit fails (`cannot enter cgroupv2 "/sys/fs/cgroup/docker" with domain controllers`). `docker run -m 64m alpine true` reproduces it; after the nesting step of the image's own `dind` wrapper it exits 0. Sysbox sandboxes are not affected (checked on one). It is the guard's (`src/housekeeping.ts`), a change of its own.
+- **Found on the way, fixed here (D7).** Under `--privileged` on a cgroup-v2 host the bot's guard starts `dockerd` in the container's root cgroup, and an inner container that asks for a memory limit fails (`cannot enter cgroupv2 "/sys/fs/cgroup/docker" with domain controllers`). `docker run -m 64m alpine true` reproduces it; after the nesting step of the image's own `dind` wrapper it exits 0. Sysbox sandboxes are not affected (checked on one).
 
 ## Decisions
 
@@ -61,6 +61,10 @@ A pull request that touches `snapshot/Dockerfile` or `snapshot/shims/` builds th
 `image.yml` builds it for every `main` commit beside the bot and the plain image and publishes `ghcr.io/<owner>/coach-aven-sandbox-laravel:sha-<commit>`; the release promotes it to `vX.Y.Z` / `latest`. One architecture: a manifest list of one image, so the names and the promotion are the plain image's. The first installation built the image on its sandbox host by hand, and every fix of the image would have meant the same on every host; a published tag makes the fix a pin. An image with more than this toolchain stays an installation's own build (`build-and-push.sh`).
 
 *Why every commit and not only those that touch `snapshot/`?* One version then names the bot and both sandboxes, as for the plain image; with the registry cache an unchanged image costs a minute of one runner.
+
+### D7. The dockerd guard nests cgroups itself, and only where the subtree lacks controllers
+
+The image's `dind` wrapper does the step, but it also mounts a tmpfs over `/tmp`, which would hide files in a running sandbox; and no entrypoint runs it, because the container's command is `sleep`. So the guard carries the wrapper's three cgroup lines, before it starts dockerd. The condition — cgroup v2, and `cgroup.subtree_control` differs from `cgroup.controllers` — keeps sysbox containers untouched (there the two files are equal and the root cgroup holds no process: read in a throwaway sysbox container). It is best effort: where an earlier dockerd left child cgroups, the kernel refuses the write (seen by hand), the guard goes on, and the container is right after its next start.
 
 ## Risks / Trade-offs
 

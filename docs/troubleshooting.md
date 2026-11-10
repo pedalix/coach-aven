@@ -48,7 +48,7 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
 
 - **`php`, `composer` or `artisan` fail, or Sail has no Docker, after an upgrade** — since the release after v0.48.0 a
   project without a `sandbox` block is a plain container. Write `"sandbox": { "dind": true }` on it, then
-  `docker rm proj-<slug>` on the sandbox host so the next turn creates it with docker-in-docker.
+  `docker rm -v proj-<slug>` on the sandbox host so the next turn creates it with docker-in-docker.
 - **`… run privileged on this machine (SANDBOX_HOST=local)`** — make the projects plain, or confirm with
   `SANDBOX_LOCAL_PRIVILEGED=1`.
 - **`Missing required env var: SANDBOX_IMAGE`** or **`SANDBOX_HOST is not set`** after an upgrade — the settings were

@@ -17,6 +17,8 @@
 - [x] 3.2 Docs: `snapshot/README.md`, `docs/sandbox-drivers.md`, `docs/troubleshooting.md`. Verify: doclinks, the public guard.
 - [x] 3.3 `docs/rollout.md`: the ledger row.
 - [x] 3.4 One PR (#196); typecheck, tests, guard, gitleaks.
+- [x] 3.6 The dockerd guard nests cgroups before it starts dockerd (`src/housekeeping.ts`). Verify: `src/housekeeping.test.ts`; by hand in a `--privileged` `docker:29-dind` container on a cgroup-v2 host, `docker run -m 64m alpine true` fails with the old guard and exits 0 with the new one.
+- [x] 3.7 Docs: every `docker rm proj-<slug>` instruction says `-v`.
 - [ ] 3.5 `image.yml` publishes `coach-aven-sandbox-laravel:sha-<commit>` (amd64) beside the bot and the plain image; `release.yml` promotes it. Verify after the merge: the `main` run publishes the tag, the package is public (`docker pull` without a login), and the next release gives it `vX.Y.Z`.
 
 ## 4. Operators

@@ -60,7 +60,7 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
    - `image` → the image this project's container is created from, instead of the installation's
      `SANDBOX_IMAGE`. Pair it with the mode: a laravel image (php/composer/artisan/sail are Sail shims that
      need dockerd) with `"dind": true`; the plain image with `"privileged": false, "dind": false`. Like the
-     flags, it applies when the container is created: after a change, `docker rm proj-<slug>`.
+     flags, it applies when the container is created: after a change, `docker rm -v proj-<slug>`.
    - `"dind": true` alone means privileged: `{ "dind": true }` is the whole docker-in-docker opt-in.
    - The boot warns when a privileged project runs on the bot's own machine (`SANDBOX_HOST=local`)
      without `SANDBOX_LOCAL_PRIVILEGED=1`.
@@ -74,7 +74,7 @@ loop, and a DinD-capable image, so Laravel Sail works inside.
    The installation's image (`SANDBOX_IMAGE`) is every project's unless it names its own
    (`image`), so plain and docker-in-docker projects share an installation (how the variants
    are built and the CLI pinned: `snapshot/README.md`). Options shape CREATION only: an
-   existing `proj-<slug>` keeps the flags it was born with — `docker rm` it on the sandbox
+   existing `proj-<slug>` keeps the flags it was born with — `docker rm -v` it on the sandbox
    host and the next turn recreates it with the new ones.
 
 **Local mode.** `SANDBOX_HOST=local` (the literal word) skips ssh entirely: the driver
