@@ -85,7 +85,7 @@ test('direct: commit on the checkout\'s current branch after a rebase pull — n
 
 test('direct: the git-hygiene sentences survive verbatim in both flows', () => {
   const hygiene = [
-    'never set a git identity (no `-c user.name/user.email`, no `--author`, no `git config user.*`) — the sandbox already commits as coach-aven[bot]; ',
+    'never set a git identity (no `-c user.name/user.email`, no `--author`, no `git config user.*`) — the sandbox already commits as the bot\'s own GitHub account; ',
     'git auth is already configured via a credential helper (and gh) — use the plain https://github.com/<org>/<repo>.git remote and NEVER embed a token in a remote URL (no x-access-token:<token>@github.com): a baked-in token expires within the hour and breaks later pushes',
   ].join('');
   assert.ok(direct.includes(hygiene), 'direct keeps the hygiene text');
@@ -138,7 +138,7 @@ test('matrix: gitFlow × dind — the toolchain follows dind, the worktree flow 
       assert.equal(out.includes('git worktree add'), gitFlow === 'pr', label);
       assert.equal(out.includes('`git pull --rebase --autostash`'), gitFlow === 'direct', label);
       // Shared across all four: identity rules, AskUserQuestion, the project prompt last.
-      assert.ok(out.includes('coach-aven[bot]'), label);
+      assert.ok(out.includes("the bot's own GitHub account"), label);
       assert.ok(out.includes('use the AskUserQuestion tool'), label);
       assert.ok(out.endsWith('--- Project-specific instructions ---\nDomain: ski-pass shop.\n  acme-admin deploys before acme-shop.'), label);
     }
