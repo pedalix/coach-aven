@@ -29,8 +29,8 @@
     "preview": "tsx src/previewcli.ts"
   },
   "dependencies": {
-    "@microsoft/teams.api": "2.1.0",
-    "@microsoft/teams.apps": "2.1.0",
+    "@microsoft/teams.api": "2.2.1",
+    "@microsoft/teams.apps": "2.2.1",
     "@octokit/auth-app": "^7.1.5",
     "@sentry/node": "^10.62.0",
     "@slack/bolt": "^4.7.3",
