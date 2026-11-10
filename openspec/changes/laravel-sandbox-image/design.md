@@ -55,8 +55,12 @@ The 127 message and the system prompt already say `sail up -d`. As `sail` the sh
 ### D5. The plain image's tools, held by a test
 `ripgrep`, `python3`, `py3-pip`, `make`, `unzip`, `rsync` join the `apk add` list. `src/sailshim.test.ts` parses both Dockerfiles and fails when the plain list has a package the laravel list lacks. `node` stays the base distribution's package (22 today, the plain image has 24): it runs Claude Code, and project JavaScript goes through `sail npm`.
 
-### D6. CI builds the image on a pull request
-A pull request that touches `snapshot/Dockerfile` or `snapshot/shims/` builds the image for `linux/amd64` and runs the tool check of the spec, like the plain image's job. Nothing is published: the laravel image stays an installation's own build.
+### D6. CI builds the image on a pull request, and publishes it from `main`
+A pull request that touches `snapshot/Dockerfile` or `snapshot/shims/` builds the image for `linux/amd64` and runs the tool check of the spec, like the plain image's job.
+
+`image.yml` builds it for every `main` commit beside the bot and the plain image and publishes `ghcr.io/<owner>/coach-aven-sandbox-laravel:sha-<commit>`; the release promotes it to `vX.Y.Z` / `latest`. One architecture: a manifest list of one image, so the names and the promotion are the plain image's. The first installation built the image on its sandbox host by hand, and every fix of the image would have meant the same on every host; a published tag makes the fix a pin. An image with more than this toolchain stays an installation's own build (`build-and-push.sh`).
+
+*Why every commit and not only those that touch `snapshot/`?* One version then names the bot and both sandboxes, as for the plain image; with the registry cache an unchanged image costs a minute of one runner.
 
 ## Risks / Trade-offs
 
@@ -66,4 +70,4 @@ A pull request that touches `snapshot/Dockerfile` or `snapshot/shims/` builds th
 - **Every Composer command before `vendor/` exists ignores platform requirements**, `require` and `update` included: they resolve without the project's platform. Rare (a checkout has its lock file), and the stderr line says whose PHP it is.
 - **No `vendor/composer/platform_check.php` until Composer runs inside Sail.** Composer does not write it when platform requirements are ignored; the first `composer install` or `dump-autoload` in Sail does.
 - **Files Sail's commands create are root's**, like the rest of the checkout. Outside a sandbox nothing changes: the variable exists only in the image.
-- **An existing container keeps the image it was created from.** The fix reaches a project when its installation rebuilds the image, moves the pin and removes the container; what was inside (installed dependencies, the inner Docker's images and volumes) is rebuilt on the next turn.
+- **An existing container keeps the image it was created from.** The fix reaches a project when its installation moves the pin to a published tag (or to its own rebuild) and removes the container; what was inside (installed dependencies, the inner Docker's images and volumes) is rebuilt on the next turn.

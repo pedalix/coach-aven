@@ -17,8 +17,9 @@
 - [x] 3.2 Docs: `snapshot/README.md`, `docs/sandbox-drivers.md`, `docs/troubleshooting.md`. Verify: doclinks, the public guard.
 - [x] 3.3 `docs/rollout.md`: the ledger row.
 - [x] 3.4 One PR (#196); typecheck, tests, guard, gitleaks.
+- [ ] 3.5 `image.yml` publishes `coach-aven-sandbox-laravel:sha-<commit>` (amd64) beside the bot and the plain image; `release.yml` promotes it. Verify after the merge: the `main` run publishes the tag, the package is public (`docker pull` without a login), and the next release gives it `vX.Y.Z`.
 
 ## 4. Operators
 
-- [ ] 4.1 Each installation that runs a laravel image: rebuild it from the merged `snapshot/`, move `SANDBOX_IMAGE` (or the project's `sandbox.image`) to the new tag, restart the bot, `docker rm -v` the containers that should get it (`-v`: the inner Docker's store is an anonymous volume, which a plain `docker rm` leaves on the host). Verify in a recreated sandbox: `command -v sail rg python3`, `echo $APP_USER`, and `composer install` in a fresh Laravel checkout.
+- [ ] 4.1 Each installation that runs a laravel image: move `SANDBOX_IMAGE` (or the project's `sandbox.image`) to the published tag (or to its own rebuild from the merged `snapshot/`), restart the bot, `docker rm -v` the containers that should get it (`-v`: the inner Docker's store is an anonymous volume, which a plain `docker rm` leaves on the host). Verify in a recreated sandbox: `command -v sail rg python3`, `echo $APP_USER`, and `composer install` in a fresh Laravel checkout.
 - [ ] 4.2 Archive this change: the delta into `openspec/specs/sandbox-image/`; `openspec validate sandbox-image --type spec --strict` passes.

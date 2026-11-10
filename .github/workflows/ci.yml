@@ -193,7 +193,7 @@ jobs:
           set -euo pipefail
           docker run --rm sandbox-plain:pr sh -c 'for t in bash git gh curl jq ssh rg node npm python3 pip3 make unzip rsync claude; do command -v $t >/dev/null || { echo "missing: $t"; exit 1; }; done; ! command -v docker; claude --version'
 
-  # And for the laravel sandbox image, which is never published (an installation builds its own): a pull request
+  # And for the laravel sandbox image (published by image.yml, like the plain one): a pull request
   # that changes snapshot/Dockerfile or the Sail shim builds it for linux/amd64, its only architecture, and checks
   # what its spec (sandbox-image) promises — the plain image's tools, Docker with its daemon, the four Sail
   # commands as the shim, the user Sail runs its commands as, the pinned CLI.

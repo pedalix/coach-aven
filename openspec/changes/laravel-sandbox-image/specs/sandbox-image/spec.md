@@ -74,3 +74,22 @@ The laravel image SHALL set `APP_USER=root`, so that Sail runs its commands in t
 #### Scenario: A Sail older than 1.41.1
 - **WHEN** the project's `laravel/sail` is older than 1.41.1, which does not read `APP_USER`
 - **THEN** Sail runs its commands as its `sail` user, as before the change; updating `laravel/sail` is the remedy
+
+### Requirement: The laravel image is published under the bot's version names
+This repository's CI SHALL build the laravel sandbox image from `snapshot/` for every `main` commit, for `amd64`, and publish it as `ghcr.io/<owner>/coach-aven-sandbox-laravel:sha-<commit>`. A release tag SHALL promote it to `vX.Y.Z`, and to `latest` when that tag is the highest release, beside the bot image of the same commit. A commit without a laravel image SHALL NOT fail the release.
+
+#### Scenario: A main commit
+- **WHEN** a commit lands on `main` and verify passes
+- **THEN** `ghcr.io/<owner>/coach-aven-sandbox-laravel:sha-<commit>` exists for `linux/amd64`
+
+#### Scenario: A release
+- **WHEN** `vX.Y.Z` is tagged on a commit that has the image
+- **THEN** the image gets `vX.Y.Z` with the same digest as its `sha-<commit>`
+
+#### Scenario: A release of a commit from before the image was published
+- **WHEN** `vX.Y.Z` is tagged on a commit without a laravel image
+- **THEN** the release succeeds and says the image was not promoted
+
+#### Scenario: A pull request changing the image
+- **WHEN** a pull request changes `snapshot/Dockerfile` or a file under `snapshot/shims/`
+- **THEN** CI builds the image for `linux/amd64` without publishing it and runs the tool check

@@ -18,14 +18,16 @@ IMAGE=ghcr.io/<your-org>/coach-aven-sandbox-laravel ./build-and-push.sh        #
 IMAGE=ghcr.io/<your-org>/coach-aven-sandbox-plain   ./build-and-push.sh plain  # plain
 ```
 
-The image repo is the installation's: `IMAGE` is required for a push. One exception: this repository's CI publishes
-the `plain` variant of every `main` commit and release as `ghcr.io/pedalix/coach-aven-sandbox-plain:sha-<commit>` /
-`:vX.Y.Z`, the same version names as the bot image, for the quickstart (`docs/quickstart.md`) and anyone whose projects
-need nothing beyond its toolchain. Anything more (PHP, a database client, Sail) is an image of your own. Point
-`SANDBOX_IMAGE` (the installation's default) or a project's `sandbox.image` at the `:<gitsha>` tag the build prints,
-not `:latest`. The laravel image goes with `"dind": true`; the plain one needs no `sandbox` block.
+You rarely need the script: this repository's CI publishes both variants of every `main` commit and release, under the
+same version names as the bot image — `ghcr.io/pedalix/coach-aven-sandbox-plain:sha-<commit>` / `:vX.Y.Z` (the
+quickstart's sandbox, `docs/quickstart.md`) and `ghcr.io/pedalix/coach-aven-sandbox-laravel:sha-<commit>` / `:vX.Y.Z`.
+Both packages are public, so a sandbox host pulls them without a login. Anything more (another language runtime, a
+database client) is an image of your own, built with the script: the image repo is then the installation's, and `IMAGE`
+is required for a push. Point `SANDBOX_IMAGE` (the installation's default) or a project's `sandbox.image` at a
+`:sha-<commit>` or `:vX.Y.Z` tag (or the `:<gitsha>` tag your own build prints), not `:latest`. The laravel image goes
+with `"dind": true`; the plain one needs no `sandbox` block.
 
-A container keeps the image it was created from. After a rebuild, move the pin, restart the bot (`SANDBOX_IMAGE` is
+A container keeps the image it was created from. To give a project a newer image, move the pin, restart the bot (`SANDBOX_IMAGE` is
 read at boot) and `docker rm -v proj-<slug>` on the sandbox host: the next turn creates the container from the new
 image and clones again; what was inside the old one (installed dependencies, the inner Docker's images and volumes) is
 gone. `-v` matters for the laravel image: its base declares a volume for `/var/lib/docker`, so the inner Docker's

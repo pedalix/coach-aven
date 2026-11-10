@@ -14,13 +14,13 @@ The laravel sandbox image (`snapshot/Dockerfile`) has no contract in the specs a
 - **The image sets `APP_USER=root`**, so Sail runs its commands as the user that owns the checkout. A project whose `.env` names another `APP_USER` keeps it.
 - **`sail` joins `php`, `composer` and `artisan`** as a name of the shim; it forwards its arguments as typed.
 - **The plain image's tools** (`rg`, `python3`, `pip3`, `make`, `unzip`, `rsync`) are added, and a test holds the two images' package lists together.
-- **CI builds the laravel image** on a pull request that touches it and checks the toolchain. It is still not published.
+- **CI builds the laravel image** on a pull request that touches it and checks the toolchain, and **publishes it** for every `main` commit as `ghcr.io/<owner>/coach-aven-sandbox-laravel:sha-<commit>` (amd64), promoted to `vX.Y.Z` / `latest` with the bot — like the plain image. An installation pins a tag instead of building the image on its sandbox host by hand.
 - **The spec gains the laravel image's contract**, and the plain image's Node major is corrected (24 since 2026-10-16; the spec said 22).
 
 ## Capabilities
 
 ### Modified Capabilities
-- `sandbox-image`: the laravel image's toolchain, what its four Sail commands do before and after `vendor/` exists, the user Sail runs its commands as; the plain image's Node major.
+- `sandbox-image`: the laravel image's toolchain and its publication, what its four Sail commands do before and after `vendor/` exists, the user Sail runs its commands as; the plain image's Node major.
 
 ## Impact
 
@@ -28,7 +28,6 @@ The laravel sandbox image (`snapshot/Dockerfile`) has no contract in the specs a
 - **Code:** `snapshot/Dockerfile`, `snapshot/shims/sail-shim.sh`, `src/sailshim.test.ts` (new), `.github/workflows/ci.yml`, `snapshot/README.md`, `docs/sandbox-drivers.md`, `docs/troubleshooting.md`, `docs/rollout.md`.
 - **Out of scope:**
   - the system prompt's toolchain paragraph: it stays true, its fixtures do not move;
-  - publishing the laravel image from CI;
   - a project whose compose file leaves Sail's web process to supervisord: that process is uid 1337 whatever `APP_USER` says (`design.md`, Risks);
   - the inner dockerd's cgroup nesting under `--privileged` on a cgroup-v2 host — the bot's dockerd guard, its own change (`design.md`, Context);
   - the git identity of an installation that runs its own GitHub App.

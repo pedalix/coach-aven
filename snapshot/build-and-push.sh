@@ -18,8 +18,8 @@
 #     (PAT needs write:packages; or a GitHub App token with packages:write)
 #
 # The image repo is the installation's: IMAGE is required for a push (no default — each installation
-# pushes to its own registry and pins its own copy). This repository's CI publishes the plain variant as
-# ghcr.io/<owner>/coach-aven-sandbox-plain for the quickstart (.github/workflows/image.yml); that is not this script.
+# pushes to its own registry and pins its own copy). This repository's CI publishes both variants as
+# ghcr.io/<owner>/coach-aven-sandbox-plain and -sandbox-laravel (.github/workflows/image.yml); that is not this script.
 #
 # Usage:
 #   IMAGE=ghcr.io/<your-org>/coach-aven-sandbox-laravel ./build-and-push.sh        # laravel: builds + pushes :<gitsha> and :latest

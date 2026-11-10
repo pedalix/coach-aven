@@ -120,14 +120,14 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      # The plain sandbox image (quickstart D3) is promoted beside the bot under the same names. A commit built
-      # before it was published has no sandbox image: that is a notice, never a failed release.
+      # The sandbox images (plain: quickstart D3; laravel) are promoted beside the bot under the same names. A
+      # commit built before one was published has no such image: that is a notice, never a failed release.
       - name: Promote sha-<commit> to the release tag (and latest when it is the highest release)
         run: |
           set -euo pipefail
           OWNER="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
           highest="$(git tag -l 'v*' | sort -V | tail -1)"
-          for NAME in coach-aven coach-aven-sandbox-plain; do
+          for NAME in coach-aven coach-aven-sandbox-plain coach-aven-sandbox-laravel; do
             IMAGE="$OWNER/$NAME"
             if [[ "$NAME" != coach-aven ]] && ! docker buildx imagetools inspect "$IMAGE:sha-$COMMIT" >/dev/null 2>&1; then
               echo "::notice::$IMAGE:sha-$COMMIT does not exist (a commit from before it was published); not promoted"

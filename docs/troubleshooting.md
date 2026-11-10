@@ -84,8 +84,8 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
 - **In a Laravel project the first `composer install` fails on platform requirements, or Sail's commands cannot write
   `.env`, `storage/` or `vendor/`.** The container's laravel sandbox image was built from a `snapshot/` older than the
   release after v0.54.0: `docker exec proj-<slug> sh -c 'command -v sail; echo $APP_USER'` prints
-  `/usr/local/bin/sail` and `root` on a current one. Rebuild the image from `snapshot/`, move `SANDBOX_IMAGE` (or the
-  project's `sandbox.image`), restart the bot and `docker rm -v proj-<slug>` on the sandbox host
+  `/usr/local/bin/sail` and `root` on a current one. Move `SANDBOX_IMAGE` (or the project's `sandbox.image`) to a
+  published `ghcr.io/pedalix/coach-aven-sandbox-laravel` tag, or to your own rebuild from `snapshot/`, restart the bot and `docker rm -v proj-<slug>` on the sandbox host
   ([`snapshot/README.md`](../snapshot/README.md)). On a current image the same permission errors mean a `laravel/sail`
   older than 1.41.1 (update the package), or the web process of a stock Sail compose file, which runs as uid 1337: set
   `SUPERVISOR_PHP_USER: root` on the service.
