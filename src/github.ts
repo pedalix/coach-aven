@@ -2,6 +2,7 @@ import { createAppAuth } from '@octokit/auth-app';
 import type { Config } from './config.js';
 import { captureError } from './sentry.js';
 import { log } from './log.js';
+import { checkedIdentity, DEFAULT_GIT_IDENTITY, setGitIdentity, type GitIdentity } from './gitidentity.js';
 
 // ── credential-failure reporting ─────────────────────────────────────────────────
 // A broken GitHub credential (expired/revoked token, misconfigured App key, a repo the App
@@ -196,7 +197,9 @@ export function apiHeaders(token: string): Record<string, string> {
 //    (OpenSpec project-grants); the orchestrator's own reads never do.
 export async function getGitHubToken(cfg: Config, repos: string[], extra?: Record<string, string>): Promise<string> {
   try {
-    return await resolveGitHubToken(cfg, repos, extra);
+    const token = await resolveGitHubToken(cfg, repos, extra);
+    await ensureGitIdentity(cfg, token);
+    return token;
   } catch (err) {
     // Failing to even mint/find a token is unambiguously a credential problem — report it here,
     // the one chokepoint every caller shares, then rethrow so behavior is unchanged (chat turns
@@ -204,6 +207,49 @@ export async function getGitHubToken(cfg: Config, repos: string[], extra?: Recor
     reportGitHubAuthFailure('getGitHubToken', err);
     throw err;
   }
+}
+
+// Who the credential acts as on GitHub — the identity of every commit from a sandbox (gitidentity.ts).
+//  - named in .env: that, no question asked;
+//  - 'none': the default (nothing is pushed);
+//  - 'token': the token's owner (GET /user);
+//  - 'app': the App's bot user — GET /app (JWT) gives the slug, GET /users/<slug>[bot] its user id.
+// A failure throws: a turn that would commit as the wrong account does not start, and the next one asks again.
+type Fetch = typeof fetch;
+export async function lookupGitIdentity(cfg: Pick<Config, 'github' | 'gitIdentity'>, token: string, fetchImpl: Fetch = fetch): Promise<GitIdentity> {
+  if (cfg.gitIdentity) return cfg.gitIdentity;
+  const auth = cfg.github;
+  if (auth.kind === 'none') return DEFAULT_GIT_IDENTITY;
+  const get = async (url: string, bearer: string): Promise<Record<string, unknown>> => {
+    const res = await fetchImpl(url, { headers: apiHeaders(bearer) });
+    if (!res.ok) throw new Error(`Could not ask GitHub who the bot is (${url.replace('https://api.github.com', '')}: ${res.status}). Name the account in .env instead: GITHUB_BOT_LOGIN and GITHUB_BOT_USER_ID.`);
+    return (await res.json()) as Record<string, unknown>;
+  };
+  if (auth.kind === 'token') {
+    const me = await get('https://api.github.com/user', token);
+    return checkedIdentity(me.login, me.id, 'GET /user');
+  }
+  const { token: jwt } = await createAppAuth({ appId: auth.appId, privateKey: auth.privateKey })({ type: 'app' });
+  const app = await get('https://api.github.com/app', jwt);
+  const login = `${String(app.slug)}[bot]`;
+  const bot = await get(`https://api.github.com/users/${encodeURIComponent(login)}`, token);
+  return checkedIdentity(bot.login, bot.id, `GET /users/${login}`);
+}
+
+// Once per process, single-flight; a failed lookup is not kept.
+let identityOnce: Promise<void> | undefined;
+export function ensureGitIdentity(cfg: Pick<Config, 'github' | 'gitIdentity'>, token: string): Promise<void> {
+  identityOnce ??= lookupGitIdentity(cfg, token).then(
+    (i) => {
+      setGitIdentity(i);
+      log.info(`git identity: ${i.login} <${i.email}>`);
+    },
+    (err) => {
+      identityOnce = undefined;
+      throw err;
+    },
+  );
+  return identityOnce;
 }
 
 async function resolveGitHubToken(cfg: Config, repos: string[], extra?: Record<string, string>): Promise<string> {

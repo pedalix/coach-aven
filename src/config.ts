@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { config as loadDotenv } from 'dotenv';
 import { isValidCliVersion } from './cliversion.js';
+import { gitIdentityOverride, type GitIdentity } from './gitidentity.js';
 import { messagingEnv, type MessagingEnv } from './messaging/config.js';
 import type { Credit } from './credit.js';
 import { dotenvPath, installDir, PACKAGE_ROOT, projectsConfigDefault, settingPath } from './paths.js';
@@ -234,6 +235,9 @@ export interface Config {
   // keep whatever their image shipped (and the daily drift check nags). See cliversion.ts.
   claudeCliVersion?: string;
   github: GitHubAuth;
+  // GITHUB_BOT_LOGIN + GITHUB_BOT_USER_ID: the commit identity named by hand. Unset → the bot asks GitHub
+  // who its credential is (github.ts, ensureGitIdentity).
+  gitIdentity?: GitIdentity;
   // Slack is only needed for the `slack` command; undefined otherwise. appToken is always
   // required (Socket Mode); botToken is optional once `oauth` is set — the home workspace's
   // token then comes from the installation store (botToken, when present, seeds it).
@@ -484,6 +488,7 @@ export function loadConfig(): Config {
     repoSkills: repoSkillsEnv(process.env.REPO_SKILLS),
     claudeCliVersion: cliVersionEnv(),
     github: githubAuth(),
+    gitIdentity: gitIdentityOverride(process.env),
     slack: slackConfig(),
     teams: teamsConfig(),
     web: withSessionSecret(webConfigFrom(process.env)),

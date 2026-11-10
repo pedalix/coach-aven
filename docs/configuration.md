@@ -76,6 +76,8 @@ session was opened with, and an existing container keeps the `sandbox` options i
 | `GITHUB_APP_INSTALLATION_ID` | — (discovered from the repo owner) | Skips the installation lookup. |
 | `GITHUB_APP_PRIVATE_KEY_PATH` | — | The App's PEM file (relative = in `AVEN_DIR`). One of the two key settings is required with the App; the path wins. |
 | `GITHUB_APP_PRIVATE_KEY` | — | The PEM inline, `\n`-escaped. |
+| `GITHUB_BOT_LOGIN` | asked from GitHub | The GitHub login the bot acts as: the author of every commit from a sandbox, and the pull-request author the auto-review skips as its own. Unset, the bot asks GitHub who its credential is when it first resolves a token: a GitHub App → its bot user, `<app-slug>[bot]`; a personal token (`GITHUB_TOKEN`) → the token's owner; `GITHUB_AUTH=none` → `coach-aven[bot]` (nothing is pushed). Set it, with `GITHUB_BOT_USER_ID`, only to name the account by hand — when the lookup fails, its error says so. Both or neither. |
+| `GITHUB_BOT_USER_ID` | asked from GitHub | That account's numeric id (`gh api 'users/<app-slug>[bot]' --jq .id`; for a token's owner `gh api user --jq .id`), the first part of the commit e-mail `<id>+<login>@users.noreply.github.com` by which GitHub maps a commit to the account. |
 | `MIRROR_SRC_<OWNER>` | — | Read tokens for repo mirrors, named by each `mirrors.json` entry's `srcTokenEnv`; unset = that mirror is skipped. [Repo mirrors](runtime-config.md#repo-mirrors). |
 
 ### Slack, Teams and the web chat
