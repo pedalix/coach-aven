@@ -53,10 +53,11 @@ later change, and the convention here survives it (the tool would post the same 
 
 ### D2. The read-back is `base64` over the existing `exec`
 
-No new sandbox primitive. `src/outbox.ts` produces three scripts and parses their output: the listing (`find
-<dir> -maxdepth 1 -type f -printf '%s\t%f\n'`, GNU find is in both sandbox images), the read (`base64 -w0 <path>`),
-the removal (`rm -rf <dir>`); `ChatSession.collectOutbox` runs them through `sandbox.exec` and decodes. The listing
-decides admission before any bytes move, so an oversized file never transits.
+No new sandbox primitive. `src/outbox.ts` produces three scripts and parses their output: the listing (a POSIX
+`for f in * .*` loop printing `<bytes>\t<name>` per regular file — the plain sandbox image is Alpine, whose busybox
+`find` has no `-printf`; the first canary turn listed nothing for that reason), the read (`base64 -w0 <path>`, which
+busybox and coreutils both take), the removal (`rm -rf <dir>`); `ChatSession.collectOutbox` runs them through
+`sandbox.exec` and decodes. The listing decides admission before any bytes move, so an oversized file never transits.
 
 Alternative: `downloadFile(path): Promise<Buffer>` on `SandboxHandle` with a bytes mode in ssh-docker's `run`. Cleaner in
 the abstract, but it touches every fake that implements the handle (five test files and `memjournal.ts`) and the SSH
@@ -153,8 +154,8 @@ is the same guarantee with no build step; the renderer is pure and three lines o
   `/root/outbox/*` older than a day can follow if it ever matters.
 - [Slack Connect: an upload into an ext-shared channel is shared with the other organisation like any file] → that is
   the point; the admission is the same as for what the agent says in text.
-- [A busybox-based image would lack `find -printf`] → both sandbox images are Debian-based (GNU findutils); the listing
-  script's test pins the command, and an exit code ≠ 0 posts the notice instead of guessing.
+- [A sandbox image's tools differ (busybox on the plain Alpine image, coreutils on the laravel one)] → the scripts use
+  POSIX shell, `wc -c`, `base64 -w0` and `rm -rf` only, verified in both; the listing script's test pins the command.
 - [Scrub false positives mangle a CSV] → the same trade-off answers accept; the project's `scrubSecrets: false` exists.
 - [Slack's file uploads are ~2 s per file] → ten files add seconds after the answer, visibly; acceptable.
 

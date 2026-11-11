@@ -29,10 +29,11 @@ export function outboxDir(turnId: string): string {
 const sq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 
 // The listing: "<bytes>\t<basename>" per regular file DIRECTLY in the directory (no recursion; a dotfile is a
-// file). GNU find — both sandbox images are Debian. A missing directory prints nothing and exits 0: the common
+// file). POSIX shell only — the plain sandbox image is Alpine, whose busybox `find` has no `-printf` (the first
+// canary turn listed nothing for exactly that reason). A missing directory prints nothing and exits 0: the common
 // case is a turn that saved nothing.
 export function listScript(dir: string): string {
-  return `test -d ${sq(dir)} && find ${sq(dir)} -maxdepth 1 -type f -printf '%s\\t%f\\n' || true`;
+  return `test -d ${sq(dir)} && cd ${sq(dir)} && for f in * .*; do [ -f "$f" ] && printf '%s\\t%s\\n' "$(wc -c < "$f")" "$f"; done; true`;
 }
 // The bytes of one file as one base64 line; the directory's removal once the turn has what it wanted.
 export function readScript(path: string): string {
