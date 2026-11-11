@@ -80,7 +80,12 @@ named in the conversation; it SHALL not turn the turn into an error.
 
 #### Scenario: The platform refuses the upload
 - **WHEN** the chat platform answers the upload with an error
-- **THEN** the answer stays, a notice names the file that could not be posted, and the turn settles as answered
+- **THEN** the answer stays, a notice names the file that could not be posted with the platform's reason, the
+  failure is reported to the operators (an error-tracking issue), and the turn settles as answered
+
+#### Scenario: Refused files are not failures
+- **WHEN** a file is refused by admission (type, size, count)
+- **THEN** the notice names it and nothing is reported to the operators
 
 ### Requirement: Off by default and off where undeliverable
 With outbound files disabled, or on a surface that reports no file delivery, no directory SHALL be named, nothing

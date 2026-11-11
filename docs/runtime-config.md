@@ -462,7 +462,8 @@ Teams: not yet, so the agent is not offered an outbox there — see [the capabil
 Admission is the inbound one: images, PDFs, text, data and office documents, 25 MB per file, 10 files per turn; a
 refused file is named in the thread with the reason. Text-typed files pass the secrets scrub answers pass (the
 project's `scrubSecrets: false` turns it off); binaries go as written. A failed upload is a ⚠️ notice under the
-answer, never an errored turn. With the switch unset the system prompt, the turn's message and the platform calls
+answer with the platform's reason and a Sentry issue (subsystem `outbox`), never an errored turn; a refused file is
+a 📎 notice only. With the switch unset the system prompt, the turn's message and the platform calls
 are byte for byte what they were (`src/prompt.test.ts`, the recorded turn snapshots). Everything is `src/outbox.ts`
 (pure, tested), wired by `src/tasks.ts` and `src/turn.ts`; OpenSpec `outbound-files`. New sessions get the prompt
 paragraph; a running conversation gets the per-turn line from its next message.
