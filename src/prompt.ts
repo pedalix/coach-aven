@@ -157,10 +157,11 @@ export function buildSystemPrompt(inp: SystemPromptInputs): string {
   if (inp.outbox) {
     lines.push(
       `Files FOR the user — a chart, a screenshot, a PDF, a CSV, a document — go into the outbox directory the ` +
-        `message names (/root/outbox/<turn>/): everything saved there is posted into the conversation right after ` +
-        `your answer (images, PDFs, text/data/office documents; up to 10 files of 25 MB each; other types are ` +
-        `refused with a notice). Save the file there and refer to it in the answer; never paste a file's contents ` +
-        `into the answer instead, and never say you cannot send files.`,
+        `message names ("Outbox for this turn: /root/outbox/<turn>/"): everything saved there is posted into the ` +
+        `conversation right after your answer (images, PDFs, text/data/office documents; up to 10 files of 25 MB ` +
+        `each; other types are refused with a notice). Save the file there and refer to it in the answer; never ` +
+        `paste a file's contents into the answer instead, and never say you cannot send files when a message named ` +
+        `an outbox. A message that names none has nowhere to post a file: answer in text.`,
     );
   }
   lines.push(

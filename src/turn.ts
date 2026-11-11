@@ -15,7 +15,7 @@ import { openChat, type ChatSession } from './tasks.js';
 import { createDriver } from './driver.js';
 import { fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
-import { outboxFailedNotice, outboxPreamble, outboxSkippedNotice } from './outbox.js';
+import { outboxFailedNotice, outboxMarkedNotice, outboxPreamble, outboxSkippedNotice } from './outbox.js';
 import { STREAM_HARD_MAX_MS, STREAM_MAX_MS, type AskQuestion, type QuestionAnswers, type OnQuestion } from './claudeSession.js';
 import { monoNow, STALE_HOLD_MARGIN_MS, stopCutWork, type SandboxUse } from './idlestop.js';
 import { MAX_SLACK_TEXT, errText, alertOps } from './chat/slack/blocks.js';
@@ -68,7 +68,9 @@ export interface TurnEngine {
   ): Promise<void>;
   // Run one turn with no live UI (the /aven ephemeral fallback and dreams).
   runAsk(key: string, project: ProjectConfig, question: string): Promise<string>;
-  sessionFor(key: string, project: ProjectConfig, slackUrl?: string): Promise<ChatSession>;
+  // `o.outbox`: the surface delivers files and OUTBOUND_FILES is on — a session opened with it explains the outbox in
+  // its base prompt (a session already open keeps the prompt it has).
+  sessionFor(key: string, project: ProjectConfig, slackUrl?: string, o?: { outbox?: boolean }): Promise<ChatSession>;
   persist(key: string, slug: string, chat: ChatSession): void;
   cancel(turnId: string): void; // "✖ Cancel" button → abort that turn
   hasKey(key: string): boolean; // a turn queued/running under this conversation key?
@@ -490,6 +492,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     key: string,
     project: ProjectConfig,
     slackUrl?: string,
+    o: { outbox?: boolean } = {},
   ): Promise<ChatSession> {
     const existing = live.get(key);
     if (existing) {
@@ -513,6 +516,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       driver: project.driver,
       sandbox: project.sandbox,
       scrubSecrets: project.scrubSecrets,
+      ...(o.outbox ? { outbox: true } : {}),
       sources: project.sources !== undefined,
       ...(project.messaging?.send ? { messagingSend: true } : {}),
       // A card that offers skills needs them scanned (agent-skills); no other project scans.
@@ -795,7 +799,12 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   async function postOutbox(chat: ChatDriver, where: ConvTarget, live: ChatSession, turnId: string): Promise<void> {
     try {
       const { files, skipped } = await live.collectOutbox(turnId);
-      if (files.length) {
+      if (files.length && where.marked) {
+        // A conversation holding another domain's data (agent-messaging D14): every post of the bot carries the
+        // marker the project's own Slack source skips at ingest — and a file upload cannot carry one. The names
+        // in a marked text post are skipped like the rest; the bytes stay in the sandbox.
+        await chat.post(where, { kind: 'text', text: outboxMarkedNotice(files.map((f) => f.name)) });
+      } else if (files.length) {
         try {
           await chat.postFiles(where, files);
         } catch (e) {
@@ -981,7 +990,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     // both active, which resumeQueuedTurns dedupes by statusTs; the reverse order would
     // leave a gap where the turn is in neither and vanishes.
     store.patchChat(key, project.slug, {
-      inflight: { channel, statusTs: ts, msgThreadTs: threadTs, startedAt: new Date().toISOString() },
+      inflight: { channel, statusTs: ts, msgThreadTs: threadTs, startedAt: new Date().toISOString(), turnId },
     });
     journal.done(turnId);
     // Best-effort permalink to this thread so the agent can link a PR back to the Slack
@@ -991,7 +1000,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     let outcome: TurnOutcome = 'ok';
     let failure: string | undefined; // the error's message, for onSettle
     try {
-      const live = await sessionFor(key, project, slackUrl); // prepare (warm sandbox + clone) here
+      const live = await sessionFor(key, project, slackUrl, { outbox: outboxOn(chat) }); // prepare (warm sandbox + clone) here
       session = live; // `live` keeps the non-undefined narrowing inside the closures below
       // With the message ledger the turn's message carries a uuid, kept beside the inflight marker,
       // so a restart's recovery settles this turn only on its own result (agent-messaging D13).
@@ -1252,7 +1261,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
           await driver
             .update(status, { kind: 'text', text: '🔄 Reconnected after a restart — recovering this turn…' })
             .catch(() => {});
-          const cs = await sessionFor(chat.threadTs, project);
+          const cs = await sessionFor(chat.threadTs, project, undefined, { outbox: outboxOn(driver) });
           // Recovered turns get the live path's treatment at the soft deadline: the status
           // message goes static ("in the background") and the result arrives as a new thread
           // message. No buttons here — the recovered turn has no AbortController to cancel
@@ -1281,6 +1290,12 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
               await driver.update(status, { kind: 'text', text: '✅ Done — answer posted below' }).catch(() => {});
             } else {
               await driver.update(status, { kind: 'answer', markdown: capped });
+            }
+            // What the agent saved in the turn's outbox follows the recovered answer as it would the live one
+            // (a record from before this field has no turn id: nothing to look for).
+            if (inf.turnId && outboxOn(driver)) {
+              const marked = Object.keys(store.getMarks(chat.threadTs)).length > 0;
+              await postOutbox(driver, { conv: inf.channel, thread: inf.msgThreadTs, ...(marked ? { marked: true as const } : {}) }, cs, inf.turnId);
             }
             // A recovered turn may have opened the PR — latch so the session panel reflects it.
             if (!chat.prCreated && prUrls(capped).length)

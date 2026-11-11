@@ -53,6 +53,8 @@ export interface ChatRecord {
     // The turn's message uuid in a session with the message ledger (agent-messaging D13): the
     // restart's recovery settles the turn only on the result after its echo.
     uuid?: string;
+    // The turn's id — its outbox directory (outbox.ts): the recovery posts what the agent saved there.
+    turnId?: string;
   };
   // The session was spawned with the message ledger (agent-messaging D13). A reattach follows this,
   // not the current configuration. Absent on every session of a project without `messaging`.

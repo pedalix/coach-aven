@@ -218,19 +218,55 @@ test('turn record: outbox — the platform refuses the upload: the answer stands
   });
 });
 
-test('flag off: the prompt names no outbox and nothing is read or uploaded (today\'s shape)', async () => {
+// A conversation marked as holding another domain's data (agent-messaging D14): no upload (it could not carry the
+// marker the project's sources skip) — a marked text notice names the files.
+test('turn record: outbox — a marked conversation gets a marked notice, no upload', async () => {
+  await record('outbox-marked', async () => {
+    const { engine, client } = harness(
+      { ask: async () => 'The chart is below.', outbox: { files: [{ name: 'chart.png', mime: 'image/png', data: Buffer.from('png-bytes') }], skipped: [] } },
+      (store) => store.setMarks('thread:100.1', { 'acme.example': ['m1'] }),
+      { outboundFiles: true },
+    );
+    await mention(engine, client, 'chart please');
+  });
+});
+
+test('flag off: the prompt names no outbox, the session opens without it, nothing is read or uploaded (today\'s shape)', async () => {
   api.reset();
   let seen = '';
+  const opened: Record<string, unknown>[] = [];
   const { engine, client } = harness({
     ask: async ({ prompt }) => {
       seen = prompt;
       return 'Done.';
     },
+    opened,
     outbox: { files: [{ name: 'chart.png', mime: 'image/png', data: Buffer.from('x') }], skipped: [] },
   });
   await mention(engine, client, 'hi');
   await quiesce();
   assert.doesNotMatch(seen, /Outbox/);
+  assert.equal(opened[0]?.outbox, undefined, 'the session prompt has no outbox paragraph');
+  assert.deepEqual(api.calls.filter((c) => c.method.startsWith('files.') || c.method.startsWith('upload/')), []);
+});
+
+test('flag on: the session opens with the outbox paragraph on Slack; a surface without file delivery gets neither the paragraph nor the line', async () => {
+  api.reset();
+  const seen: string[] = [];
+  const opened: Record<string, unknown>[] = [];
+  const fake = { ask: async ({ prompt }: { prompt: string }) => (seen.push(prompt), 'Done.'), opened, outbox: { files: [{ name: 'chart.png', mime: 'image/png', data: Buffer.from('x') }], skipped: [] } };
+  const { engine, client } = harness(fake, undefined, { outboundFiles: true });
+  await mention(engine, client, 'hi');
+  await quiesce();
+  assert.equal(opened[0]?.outbox, true);
+  assert.match(seen[0], /^Outbox for this turn: /);
+  // The same engine, a driver that declares no file delivery (Teams today): today's prompt and message, no pull.
+  const noFiles: ChatDriver = { ...client, capabilities: { ...client.capabilities, outboundFiles: false } };
+  api.reset();
+  await engine.liveTurn(noFiles, 'C2', '300.1', '300.1', 'thread:300.1', PROJECT, 'hi again');
+  await quiesce();
+  assert.equal(opened[1]?.outbox, undefined);
+  assert.doesNotMatch(seen[1], /Outbox/);
   assert.deepEqual(api.calls.filter((c) => c.method.startsWith('files.') || c.method.startsWith('upload/')), []);
 });
 
@@ -453,8 +489,8 @@ const inflightSeed = (store: Store) => {
   });
 };
 
-async function recover(fake: FakeOpts, seed: (store: Store, journal: QueueJournal) => void): Promise<void> {
-  const { engine, client } = harness(fake, seed);
+async function recover(fake: FakeOpts, seed: (store: Store, journal: QueueJournal) => void, over: Partial<Config> = {}): Promise<void> {
+  const { engine, client } = harness(fake, seed, over);
   const recovering = engine.resumeInflightTurns(() => client);
   await Promise.all(recovering.values());
   engine.resumeQueuedTurns(() => client, recovering);
@@ -462,6 +498,21 @@ async function recover(fake: FakeOpts, seed: (store: Store, journal: QueueJourna
 
 test('turn record: in-flight turn recovered after a restart', async () => {
   await record('recover-ok', () => recover({}, inflightSeed));
+});
+
+// The recovery pulls the outbox too: the inflight record keeps the turn id (outbound-files, design D7).
+test('turn record: a recovered turn posts what the agent saved in its outbox', async () => {
+  await record('recover-outbox', () =>
+    recover(
+      { outbox: { files: [{ name: 'chart.png', mime: 'image/png', data: Buffer.from('png-bytes') }], skipped: [] } },
+      (store) => {
+        inflightSeed(store);
+        const inf = store.getChat('thread:100.1')!.inflight!;
+        store.patchChat('thread:100.1', 'alpha', { inflight: { ...inf, turnId: 't0-9' } });
+      },
+      { outboundFiles: true },
+    ),
+  );
 });
 
 test('turn record: recovered turn goes background, answer as a new message', async () => {

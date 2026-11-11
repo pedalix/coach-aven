@@ -7,6 +7,7 @@ import {
   listScript,
   outboxDir,
   outboxFailedNotice,
+  outboxMarkedNotice,
   outboxPreamble,
   outboxSkippedNotice,
   parseListing,
@@ -148,4 +149,5 @@ test('texts — the per-turn line names the directory; the notices are determini
   assert.match(n, /`x\.txt` — I could not read it back from the sandbox/);
   assert.equal(outboxSkippedNotice([{ name: 'a', reason: 'odd' }]), "📎 Sorry — I couldn't post this file:\n• `a` — odd");
   assert.equal(outboxFailedNotice(['a.png', 'b.csv'], 'not_in_channel'), '⚠️ Couldn\'t post `a.png`, `b.csv` — not_in_channel');
+  assert.match(outboxMarkedNotice(['chart.png']), /^📎 I produced `chart\.png` but can't attach files in this thread — it carries another domain's data/);
 });

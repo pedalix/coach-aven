@@ -24,6 +24,19 @@ conversation after its answer.
 - **WHEN** two conversations of the same project run turns at the same time and each saves a file
 - **THEN** each conversation receives its own file and neither sees the other's
 
+#### Scenario: Restart mid-turn
+- **WHEN** the bot restarts while a turn runs and the agent had saved a file in the turn's directory
+- **THEN** after the recovery the answer is followed by the file (or by the notice naming it), as it would be live
+
+### Requirement: A conversation marked as holding another domain's data takes no file uploads
+In a conversation the bot marks as holding another domain's data, outbound files SHALL not be uploaded; a marked text
+notice SHALL name them instead, and the bytes SHALL stay in the sandbox.
+
+#### Scenario: Marked thread
+- **WHEN** a turn in a marked conversation saves `chart.png`
+- **THEN** no upload happens and a marked notice names `chart.png` (the project's own sources skip it like every
+  marked post)
+
 ### Requirement: Outbound admission matches inbound
 A file in the outbox SHALL be posted only when it is of a type the inbound side accepts (images, PDFs, text, data and
 office documents), at most 25 MB, and within the first 10 regular files of the directory in name order; anything
@@ -80,7 +93,8 @@ SHALL be read from the sandbox, and prompts and posts SHALL be identical to toda
 
 #### Scenario: A surface without delivery
 - **WHEN** the flag is set and the turn runs on a surface whose driver reports no file delivery (Teams today)
-- **THEN** the turn's message names no directory and nothing is pulled after the answer
+- **THEN** the turn's message names no directory, the session's prompt carries no outbox paragraph, and nothing is
+  pulled after the answer
 
 ### Requirement: Slack delivers files into the thread
 On Slack, outbound files SHALL be uploaded into the conversation and thread the turn ran in, so the platform's own

@@ -170,3 +170,12 @@ export function outboxSkippedNotice(skipped: { name: string; reason: string }[])
 export function outboxFailedNotice(names: string[], reason: string): string {
   return `⚠️ Couldn't post ${names.map((n) => `\`${n}\``).join(', ')} — ${reason.slice(0, 300)}`;
 }
+
+// A conversation marked as holding another domain's data takes no file uploads (an upload cannot carry the
+// marker the project's sources skip): the files are named, the bytes stay in the sandbox.
+export function outboxMarkedNotice(names: string[]): string {
+  return (
+    `📎 I produced ${names.map((n) => `\`${n}\``).join(', ')} but can't attach files in this thread — it carries ` +
+    `another domain's data, and file uploads cannot be marked for it. Ask again in a thread without that data.`
+  );
+}

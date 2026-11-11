@@ -51,6 +51,8 @@ in-thread previews on exactly this gap ("a public change for outbound files").
   `src/config.ts`; Home: `src/chat/slack/blocks.ts`, `src/chat/web/webhome.ts`; the twin's `RecordingApi` learns the
   external upload POST; `src/chat/capabilities.ts` (+ test) renders the table in `docs/chat-drivers.md`. No
   sandbox-driver interface change: the read-back is `base64` over the existing `exec`.
+- **Web uploads:** the shared extension→media-type map learned `html`/`htm`, so a `.html` upload on the web chat is
+  accepted now (it was refused with 415) — the same types Slack's inbound side accepts; served as an attachment.
 - **Slack app:** no manifest change — `files:write` and `files:read` are already in the manifest and granted on the
   operated installations (checked against the production token's scopes on 2026-11-11).
 - **Out of scope:** temporary public links for a rendered page (`publish`, a separate change — the only way to hand
