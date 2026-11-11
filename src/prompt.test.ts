@@ -57,8 +57,8 @@ test('golden: the outbox paragraph with the flag on; without it the production p
   assert.equal(buildSystemPrompt({ ...SINGLE, outbox: true }), golden('single-repo-outbox'));
   assert.equal(buildSystemPrompt({ ...SINGLE, outbox: false }), golden('single-repo'));
   const on = buildSystemPrompt({ ...SINGLE, outbox: true });
-  assert.match(on, /Files FOR the user — a chart, a screenshot, a PDF, a CSV, a document — go into the outbox directory the message names \(\/root\/outbox\/<turn>\/\)/);
-  assert.match(on, /never paste a file's contents into the answer instead, and never say you cannot send files\./);
+  assert.match(on, /Files FOR the user — a chart, a screenshot, a PDF, a CSV, a document — go into the outbox directory the message names \("Outbox for this turn: \/root\/outbox\/<turn>\/"\)/);
+  assert.match(on, /never paste a file's contents into the answer instead, and never say you cannot send files when a message named an outbox\. A message that names none has nowhere to post a file: answer in text\./);
 });
 
 test('gitFlow absent and gitFlow "pr" are the same prompt — "pr" is the default', () => {

@@ -92,7 +92,8 @@ no "not delivered" text: an agent that was never told about an outbox writes non
   SDK runs `files.getUploadURLExternal` + a POST of the bytes + `files.completeUploadExternal`; the twin's
   `RecordingApi` gets a canned `upload_url` pointing back at itself and records the byte POST, so the snapshot pins the
   three calls and the `channel_id`/`thread_ts`. A marked conversation (agent-messaging D14) cannot carry message
-  metadata on a file post — see Risks.
+  metadata on a file post, and the project's Slack source skips the bot's posts by that marker alone — so the engine
+  uploads nothing there and posts a marked text notice naming the files instead (`outboxMarkedNotice`).
 - **Web:** `storeUpload(filesRoot, conv, name, data)` into the room's (or the person's private) folder — the existing
   `GET /files/:slug/:id` then serves it with the same session and folder rules as an upload; the history gets a
   `{ t: 'post', files: [{ id, name, size, mime }] }` record and the page renders names with sizes, images as `<img>`
@@ -102,10 +103,13 @@ no "not delivered" text: an agent that was never told about an outbox writes non
 
 ### D6. The agent learns the convention twice, briefly, and only where it works
 
-- Base prompt, flag on, one paragraph after the inbox sentence: files for the person go to the outbox directory named
-  in the message; what is posted (types, 25 MB, 10 per turn), that it lands right after the answer, and *not* to paste
-  file contents into the answer instead. `buildPrompt` gets an `outbox` option; the four existing goldens stay
-  byte-identical (the flag-off proof), one new golden pins the paragraph.
+- Base prompt, one paragraph after the inbox sentence: files for the person go to the outbox directory named in the
+  message; what is posted (types, 25 MB, 10 per turn), that it lands right after the answer, *not* to paste file
+  contents into the answer instead, and that a message naming no directory means "answer in text" (a private
+  `/aven` ask, a routine's dream). The paragraph is per SESSION and per SURFACE: the engine opens a session with
+  `outbox: true` only when the flag is on and the surface the key names delivers files (`sessionFor(…, { outbox })`
+  → `openChat({ outbox })` → `buildPrompt({ outbox })`), so a Teams or shadow session gets today's prompt, byte for
+  byte. The four existing goldens stay byte-identical (the flag-off proof), one new golden pins the paragraph.
 - Per turn, one line in the message preamble: `Outbox for this turn: /root/outbox/<turnId>/ — files saved there are
   posted into this thread after your answer.` Only when the flag is on **and** `chat.capabilities.outboundFiles`. The
   line costs ~30 tokens per turn; the directory cannot be known any other way (the session prompt is static).
@@ -119,6 +123,8 @@ and posts `⚠️ Couldn't post <names>: <reason>` on failure. The answer is alr
 marked ✅; a failed upload must not flip the turn to an error (spec: *Delivery failure never fails the turn*). Files
 follow the answer so an answer saying "the chart is below" is true, and the status message does not show "Working…"
 beside a finished file. A turn that went background posts its answer as a new message; the files follow it the same way.
+A turn recovered after a restart too: the inflight record keeps the turn id (`inflight.turnId`), and the recovery
+runs the same pull after the recovered answer; a record written before the field has no id and posts nothing.
 
 ### D8. Flag and config
 
@@ -143,10 +149,12 @@ is the same guarantee with no build step; the renderer is pure and three lines o
 ## Risks / Trade-offs
 
 - [A marked conversation's file post carries no `aven_marked` metadata — `files.completeUploadExternal` has no
-  metadata parameter — so a project's Slack source could ingest the bot's own file message] → verify at apply how the
-  Slack source treats the bot's own messages; if it keys on the marker alone, the file post in a *marked* conversation
-  is replaced by a text notice naming the files (marked conversations are the cross-domain shadow ones, not the
-  everyday project threads).
+  metadata parameter — and the Slack source keys on the marker alone (`sources/slack/normalise.ts`)] → no upload in
+  a marked conversation: a marked text notice names the files (D5); the bytes stay in the sandbox.
+- [`mimeOf` moved into `attachments.ts` and learned `html`/`htm` for the outbox; the web's upload check uses the same
+  map, so a `.html` upload on the web is now accepted (it answered 415 before)] → declared, not gated: Slack's inbound
+  side accepts `text/html` already, the file is served as an attachment with `nosniff`, and the web surface runs on
+  the canary installations only; noted in the ledger row.
 - [Base64 over `exec` holds up to ~34 MB in a string per file] → the listing refuses over-cap files before reading;
   ten files are read one at a time.
 - [The agent writes to the outbox from a background Task that finishes after the turn] → the directory stays until
@@ -169,5 +177,4 @@ is the same guarantee with no build step; the renderer is pure and three lines o
 
 ## Open Questions
 
-- Whether the Slack source skips the bot's own posts by author (then the marked-conversation caveat is moot) — checked
-  at apply, see Risks; it does not change the spec or the approach.
+None — the Slack source's handling of the bot's own posts was checked at apply (it keys on the marker), see Risks.

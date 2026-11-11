@@ -304,6 +304,9 @@ export async function openChat(
     sandbox?: SandboxOptions;
     // ProjectConfig.scrubSecrets; undefined → on. See claudeSession.ts / scrub.ts.
     scrubSecrets?: boolean;
+    // The session's surface delivers files and OUTBOUND_FILES is on (turn.ts decides per key): the base prompt
+    // explains the outbox. A session opened from a surface without delivery (Teams, shadow) gets today's prompt.
+    outbox?: boolean;
     // ProjectConfig.sources present → the system prompt explains the `sources` tools; the server
     // itself is one of `hostServers` (served by the bot over the control channel, hostrouter.ts).
     sources?: boolean;
@@ -346,7 +349,7 @@ export async function openChat(
     gitFlow: opts.gitFlow,
     ...(cfg.github.kind === 'none' ? { noGitHub: true } : {}),
     ...(cfg.github.kind === 'app' ? { githubApp: true } : {}),
-    ...(cfg.outboundFiles ? { outbox: true } : {}),
+    ...(opts.outbox ? { outbox: true } : {}),
     // Resolved again here (loadProjects already validated it) so the prompt sees the same
     // dind answer as the dockerd guard in prepareChat.
     sandbox: resolveSandboxOptions(opts.sandbox),
