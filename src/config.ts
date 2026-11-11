@@ -230,6 +230,10 @@ export interface Config {
   // default (bucket 3): unset or anything else keeps every spawn line as it was. Single-repo projects are
   // unaffected either way: their session starts in the repo.
   repoSkills: boolean;
+  // OUTBOUND_FILES=1: files the agent saves in a turn's outbox are posted back into the conversation (OpenSpec
+  // outbound-files, bucket 3). Off by default: unset or anything else names no outbox to the agent, reads nothing
+  // from the sandbox after a turn and posts nothing — prompts and platform calls stay as they are.
+  outboundFiles: boolean;
   // Pin for the sandbox Claude Code CLI (x.y.z). Warm sandboxes converge to it in place at
   // chat prep / nightly housekeeping; the image build bakes the same pin. Unset → sandboxes
   // keep whatever their image shipped (and the daily drift check nags). See cliversion.ts.
@@ -486,6 +490,7 @@ export function loadConfig(): Config {
     credit: resolveCredit(process.env, process.env.HOME),
     claudeModel: process.env.CLAUDE_MODEL || undefined,
     repoSkills: repoSkillsEnv(process.env.REPO_SKILLS),
+    outboundFiles: outboundFilesEnv(process.env.OUTBOUND_FILES),
     claudeCliVersion: cliVersionEnv(),
     github: githubAuth(),
     gitIdentity: gitIdentityOverride(process.env),
@@ -551,3 +556,5 @@ export function autoStopMinutesEnv(raw: string | undefined): number {
 
 /** REPO_SKILLS: exactly `1` → on (agent-skills: repo skills load in multi-repo projects); unset or anything else → off. */
 export const repoSkillsEnv = (v: string | undefined): boolean => (v ?? '').trim() === '1';
+/** OUTBOUND_FILES: exactly `1` → on (outbound-files: the agent's outbox is posted into the thread); unset or anything else → off. */
+export const outboundFilesEnv = (v: string | undefined): boolean => (v ?? '').trim() === '1';

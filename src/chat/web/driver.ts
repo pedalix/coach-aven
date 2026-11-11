@@ -13,10 +13,12 @@
 //   private conversations name their project (keys.ts), and a private question is answered where it
 //   was asked, visible to the asker alone (design D6a).
 
-import type { ChatAction, ChatDriver, ConvTarget, DialogRef, Interaction, Mark, MsgRef } from '../driver.js';
+import type { ChatAction, ChatDriver, ConvTarget, DialogRef, DriverCapabilities, Interaction, Mark, MsgRef } from '../driver.js';
 import type { DialogView, HomeView, MessageView, PrivateView } from '../views.js';
 import type { Tally } from '../../feedback.js';
-import { History, toStored } from './history.js';
+import type { OutboundFile } from '../../outbox.js';
+import { History, toStored, type FileMeta } from './history.js';
+import { storeUpload } from './files.js';
 import { newId, pageUrl, parseConv } from './keys.js';
 import { renderDialogView, renderHomeView, type NameOf } from './webviews.js';
 import { log } from '../../log.js';
@@ -37,6 +39,8 @@ export interface WebDriverDeps {
   history: History;
   baseUrl: string;
   nameOf: NameOf;
+  /** Where the conversations' files live (files.ts) — the agent's outbound files are stored there like uploads. */
+  filesRoot?: string;
   /** Fresh message / dialog ids (tests: sequential). */
   ids?: () => string;
 }
@@ -54,6 +58,10 @@ export interface WebChatDriver extends ChatDriver {
 }
 
 const ctxOf = (a: Interaction): WebCtx | undefined => (a.ctx && typeof (a.ctx as WebCtx).user === 'string' ? (a.ctx as WebCtx) : undefined);
+
+// What the web does for people (docs/chat-drivers.md is rendered from these): marks on the post, private messages in
+// place, no mention anywhere, files stored beside the conversation and served with the session.
+export const WEB_CAPABILITIES: DriverCapabilities = { reactions: true, privateReplies: 'native', threadRepliesNeedMention: false, outboundFiles: true };
 
 export function webDriver(deps: WebDriverDeps): WebChatDriver {
   const { history } = deps;
@@ -98,7 +106,7 @@ export function webDriver(deps: WebDriverDeps): WebChatDriver {
   }
 
   return {
-    capabilities: { reactions: true, privateReplies: 'native', threadRepliesNeedMention: false },
+    capabilities: WEB_CAPABILITIES,
 
     onUser(user, fn) {
       const set = listeners.get(user) ?? new Set();
@@ -140,6 +148,18 @@ export function webDriver(deps: WebDriverDeps): WebChatDriver {
 
     async permalink(msg: MsgRef): Promise<string | undefined> {
       return parseConv(msg.conv)?.kind === 'room' ? pageUrl(deps.baseUrl, msg.conv, msg.id) : undefined;
+    },
+
+    // The agent's files, stored like a person's uploads in this conversation's folder (so the download route's
+    // session and folder rules apply unchanged) and posted as one bot message carrying them; the page renders
+    // images inline and the rest as downloads (pages.ts).
+    async postFiles(to: ConvTarget, files: OutboundFile[]): Promise<void> {
+      if (!deps.filesRoot) throw new Error('web: no files root to store outbound files in');
+      const meta: FileMeta[] = files.map((f) => {
+        const s = storeUpload(deps.filesRoot!, to.conv, f.name, f.data);
+        return { id: s.id, name: s.name, size: s.size };
+      });
+      history.conversation(to.conv).append({ t: 'post', id: ids(), ...(to.thread ? { thread: to.thread } : {}), files: meta });
     },
 
     async reply(to: Interaction, view: PrivateView, opts?: { replace?: boolean }): Promise<void> {

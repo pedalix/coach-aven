@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readdirSync, statSync, writeFileSync } from 'nod
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { AttachmentRef } from '../../attachments.js';
-import { sanitizeName } from '../../attachments.js';
+import { mimeOf, sanitizeName } from '../../attachments.js';
 import { newId, parseConv } from './keys.js';
 
 export interface StoredFile {
@@ -19,19 +19,8 @@ export interface StoredFile {
   path: string;
 }
 
-const MIME: Record<string, string> = {
-  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
-  pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', csv: 'text/csv', tsv: 'text/tab-separated-values',
-  json: 'application/json', yaml: 'application/yaml', yml: 'application/yaml', log: 'text/plain', rtf: 'application/rtf',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-};
-/** The media type of a stored file, from its extension (what the sandbox pipeline and the download header use). */
-export function mimeOf(name: string): string {
-  const ext = name.toLowerCase().split('.').pop() ?? '';
-  return MIME[ext] ?? 'application/octet-stream';
-}
+/** The media type of a stored file, from its extension (attachments.ts — the sandbox pipeline, the outbox and the download header share it). */
+export { mimeOf };
 
 /** The folder of a conversation's files, or undefined for a conversation the web does not own. */
 export function filesDir(root: string, conv: string): string | undefined {

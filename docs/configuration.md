@@ -51,6 +51,7 @@ session was opened with, and an existing container keeps the `sandbox` options i
 | `CLAUDE_MODEL` | — (the CLI's default) | `--model` for the sandbox Claude Code processes. New sessions only. |
 | `CLAUDE_CLI_VERSION` | — (the image's CLI) | Pins the sandbox Claude Code CLI (`x.y.z`, anything else stops the boot); warm sandboxes converge at chat prep and housekeeping. A project's `cliVersion` overrides it. [Sandbox images](../snapshot/README.md), [CLI probe](cli-probe.md). |
 | `REPO_SKILLS` | off | `1`: a multi-repo project's sessions load each repo's own skills (`--add-dir` per repo). New sessions only. [Repo skills](runtime-config.md#repo-skills-repo_skills). |
+| `OUTBOUND_FILES` | off | `1`: files the agent saves in a turn's outbox are posted into the thread after its answer (Slack, web; not Teams yet). New sessions get the prompt paragraph, every turn the directory. [Outbound files](runtime-config.md#outbound-files-outbound_files). |
 
 ### Sandboxes
 

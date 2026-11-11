@@ -294,6 +294,6 @@ export function renderHomeView(v: HomeView, rooms: (slug: string) => string | un
     const url = rooms(p.slug);
     return h`<li>${url ? h`<a href="${url}"><strong>${p.slug}</strong></a>` : h`<strong>${p.slug}</strong>`} — ${p.repos.map(shortRepo).join(', ')}</li>`;
   });
-  const bullets = webHomeBullets(v.messaging ? { messaging: true } : {}).map((b) => h`<li>${mrkdwnToHtml(b.replace(/^•\s*/, ''))}</li>`);
+  const bullets = webHomeBullets({ ...(v.messaging ? { messaging: true } : {}), ...(v.outboundFiles ? { outboundFiles: true } : {}) }).map((b) => h`<li>${mrkdwnToHtml(b.replace(/^•\s*/, ''))}</li>`);
   return h`<h2>CoachAven — your coding agent</h2><h3>Projects</h3><ul class="projects">${projects.length ? projects : h`<li><em>none</em></li>`}</ul><h3>How to use me</h3><ul class="cheatsheet">${bullets}</ul><p class="meta"><em>Commands are <code>/verb …</code> in any room, thread or private conversation; their replies are for you alone.</em></p>`;
 }

@@ -55,6 +55,8 @@ export interface WebServerDeps {
   now?: () => number;
   /** Where uploads live (`<data dir>/web`, the history's root); files.ts lays them out per conversation. */
   filesRoot: string;
+  /** OUTBOUND_FILES=1 (config.ts): the Home cheat-sheet says files come back. */
+  outboundFiles?: boolean;
 }
 
 export interface WebServer {
@@ -311,7 +313,9 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   app.get('/', (req: Req, res) => {
     const mine = rooms();
     const home = renderHomeView(
-      mine.length ? { kind: 'home', projects: mine, prefix: '', ...(reg.current.projects.some((p) => p.messaging !== undefined) ? { messaging: true } : {}) } : { kind: 'onboarding' },
+      mine.length
+        ? { kind: 'home', projects: mine, prefix: '', ...(reg.current.projects.some((p) => p.messaging !== undefined) ? { messaging: true } : {}), ...(deps.outboundFiles ? { outboundFiles: true } : {}) }
+        : { kind: 'onboarding' },
       (slug) => `/r/${encodeURIComponent(slug)}`,
     );
     page(req, res, { title: 'Home' }, homePage(home));

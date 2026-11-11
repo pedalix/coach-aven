@@ -23,6 +23,7 @@ import { DraftStore } from '../../drafts.js';
 import type { ProjectConfig, RegistryRef } from '../../projects.js';
 import type { ChatSession, openChat } from '../../tasks.js';
 import type { OnQuestion } from '../../claudeSession.js';
+import type { OutboundFile } from '../../outbox.js';
 import { createTurnEngine, type TurnEngine, type TurnOpts } from '../../turn.js';
 import { RecordingApi } from './twin.js';
 import type { ChatDriver } from '../driver.js';
@@ -54,6 +55,8 @@ interface FakeOpts {
   contextLost?: boolean;
   skipped?: { name: string; reason: string }[];
   idleText?: string; // fire the idle-notify callback with this text right after ask resolves
+  /** What the fake sandbox's outbox holds when the turn ends (outbound-files). */
+  outbox?: { files: OutboundFile[]; skipped: { name: string; reason: string }[] };
 }
 
 function fakeOpenChat(o: FakeOpts): typeof openChat {
@@ -83,6 +86,7 @@ function fakeOpenChat(o: FakeOpts): typeof openChat {
       },
       lastUsage: () => undefined,
       ingest: async () => ({ preamble: '[files: /inbox/a.png]', skipped: o.skipped ?? [] }),
+      collectOutbox: async () => o.outbox ?? { files: [], skipped: [] },
       close: async () => {},
       setIdleNotify: (fn) => {
         idle = fn;
@@ -121,12 +125,12 @@ after(async () => {
   await api.stop();
 });
 
-function harness(fake: FakeOpts, seed?: (store: Store, journal: QueueJournal) => void) {
+function harness(fake: FakeOpts, seed?: (store: Store, journal: QueueJournal) => void, over: Partial<Config> = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'aven-turnrec-'));
   const store = new Store(join(dir, 'state.json'));
   const journal = new QueueJournal(join(dir, 'queue.jsonl'));
   seed?.(store, journal);
-  const engine = createTurnEngine(cfg, store, reg, {
+  const engine = createTurnEngine({ ...cfg, ...over } as Config, store, reg, {
     openChat: fakeOpenChat(fake),
     journal,
     usageLog: new UsageLog(join(dir, 'usage')),
@@ -176,6 +180,58 @@ test('turn record: mention → steps → answer with a PR link', async () => {
     });
     await mention(engine, client, 'fix the bug');
   });
+});
+
+// The outbox (outbound-files): with OUTBOUND_FILES on, the turn's message names the directory, the file the agent
+// saved there is uploaded into the thread AFTER the answer, and a refused file gets the 📎 notice.
+test('turn record: outbox — a chart saved for the person follows the answer; a refused file is named', async () => {
+  await record('outbox', async () => {
+    const { engine, client } = harness(
+      {
+        ask: async ({ prompt }) => {
+          assert.match(prompt, /^Outbox for this turn: \/root\/outbox\/t0-\d+\/ — a file you save there is posted into this conversation right after your answer\.\n\nchart please$/);
+          return 'The chart is below.';
+        },
+        outbox: { files: [{ name: 'chart.png', mime: 'image/png', data: Buffer.from('png-bytes') }], skipped: [{ name: 'clip.mov', reason: 'unsupported type' }] },
+      },
+      undefined,
+      { outboundFiles: true },
+    );
+    await mention(engine, client, 'chart please');
+  });
+});
+
+test('turn record: outbox — the platform refuses the upload: the answer stands, the file is named, the turn is answered', async () => {
+  await record('outbox-upload-fails', async () => {
+    api.failures['files.completeUploadExternal'] = 'not_in_channel';
+    try {
+      const { engine, client, store } = harness(
+        { ask: async () => 'Here you go.', outbox: { files: [{ name: 'chart.png', mime: 'image/png', data: Buffer.from('png-bytes') }], skipped: [] } },
+        undefined,
+        { outboundFiles: true },
+      );
+      await mention(engine, client, 'chart please');
+      assert.equal(store.getChat('thread:100.1')?.inflight, undefined, 'the turn settled');
+    } finally {
+      delete api.failures['files.completeUploadExternal'];
+    }
+  });
+});
+
+test('flag off: the prompt names no outbox and nothing is read or uploaded (today\'s shape)', async () => {
+  api.reset();
+  let seen = '';
+  const { engine, client } = harness({
+    ask: async ({ prompt }) => {
+      seen = prompt;
+      return 'Done.';
+    },
+    outbox: { files: [{ name: 'chart.png', mime: 'image/png', data: Buffer.from('x') }], skipped: [] },
+  });
+  await mention(engine, client, 'hi');
+  await quiesce();
+  assert.doesNotMatch(seen, /Outbox/);
+  assert.deepEqual(api.calls.filter((c) => c.method.startsWith('files.') || c.method.startsWith('upload/')), []);
 });
 
 test('turn record: DM turn (no thread, no permalink)', async () => {
@@ -499,6 +555,7 @@ function ledgerHarness(seed?: (store: Store) => void) {
       contextLost: () => false,
       lastUsage: () => undefined,
       ingest: async () => ({ preamble: '', skipped: [] }),
+      collectOutbox: async () => ({ files: [], skipped: [] }),
       close: async () => {},
       setIdleNotify: () => {},
       hasLedger: () => ledger,

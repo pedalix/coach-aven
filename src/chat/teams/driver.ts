@@ -16,7 +16,7 @@
 // - message edits are rate-limited → `update` coalesces to one per TEAMS_STATUS_MIN_MS per
 //   message and always flushes the last view.
 
-import type { ChatAction, ChatDriver, ConvTarget, DialogRef, Interaction, Mark, MsgRef } from '../driver.js';
+import type { ChatAction, ChatDriver, ConvTarget, DialogRef, DriverCapabilities, Interaction, Mark, MsgRef } from '../driver.js';
 import type { DialogView, HomeView, MessageView, PrivateView } from '../views.js';
 import type { Tally } from '../../feedback.js';
 import { answerCard, renderDialogView, renderHomeView, renderMessageView, renderPrivateView, type AdaptiveCard } from './cards.js';
@@ -104,6 +104,17 @@ export interface TeamsChatDriver extends ChatDriver {
   // `<@id>` as a Teams mention; events.ts feeds it.
   knowPerson(id: string, name: string | undefined): void;
 }
+
+// What Teams does for people (docs/chat-drivers.md is rendered from these): reactions, private replies through the
+// 1:1 chat, thread replies per installation (RSC consent), and NO outbound files yet — a channel file goes through
+// Graph into the team's SharePoint, a 1:1 file through a consent card; neither is built, so the core offers the
+// agent no outbox here.
+export const teamsCapabilities = (opts: Pick<TeamsDriverOpts, 'threadRepliesNeedMention'>): DriverCapabilities => ({
+  reactions: true,
+  privateReplies: 'fallback',
+  threadRepliesNeedMention: opts.threadRepliesNeedMention ?? false,
+  outboundFiles: false,
+});
 
 export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriver {
   const minMs = opts.statusMinMs ?? 2000;
@@ -280,7 +291,7 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
 
   return {
     api,
-    capabilities: { reactions: true, privateReplies: 'fallback', threadRepliesNeedMention: opts.threadRepliesNeedMention ?? false },
+    capabilities: teamsCapabilities(opts),
     remember(msg, thread) {
       msgThread.set(keyOf(msg), thread);
     },
@@ -337,6 +348,9 @@ export function teamsDriver(api: TeamsApi, opts: TeamsDriverOpts): TeamsChatDriv
 
     async permalink(msg: MsgRef): Promise<string | undefined> {
       return deepLink(msg.conv, msg.id, opts.tenantId);
+    },
+    async postFiles(): Promise<void> {
+      throw new Error('teams: outbound files are not delivered yet (capabilities.outboundFiles is false — the core never asks)');
     },
 
     async reply(to: Interaction, view: PrivateView, opts?: { replace?: boolean }): Promise<void> {

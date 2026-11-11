@@ -20,6 +20,7 @@ import {
 } from './project.js';
 import type { HostServerRoute } from './hosttools.js';
 import { buildSystemPrompt } from './prompt.js';
+import { collectOutbox, type OutboundFile } from './outbox.js';
 import type { GitFlow, McpServerSpec } from './projects.js';
 import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import { FactStore } from './facts.js';
@@ -113,6 +114,10 @@ export interface ChatSession {
     bearer: string,
     turnId: string,
   ): Promise<{ preamble: string; skipped: { name: string; reason: string }[] }>;
+  // The mirror of ingest (outbox.ts, OpenSpec outbound-files): read the files the agent saved in this turn's
+  // outbox — admission as inbound, text-typed files through the secrets scrub — and remove the directory. Never
+  // throws; a listing or read failure is a `skipped` entry. The turn engine posts the files and the notice.
+  collectOutbox(turnId: string): Promise<{ files: OutboundFile[]; skipped: { name: string; reason: string }[] }>;
   // Kill the sandbox-side persistent session-command and mark this object dead — an
   // explicit "forget this conversation" (vs. the LRU/prune paths, which only drop the
   // reference and leave the process to the sandbox's idle stop — the bot's, idlestop.ts).
@@ -341,6 +346,7 @@ export async function openChat(
     gitFlow: opts.gitFlow,
     ...(cfg.github.kind === 'none' ? { noGitHub: true } : {}),
     ...(cfg.github.kind === 'app' ? { githubApp: true } : {}),
+    ...(cfg.outboundFiles ? { outbox: true } : {}),
     // Resolved again here (loadProjects already validated it) so the prompt sees the same
     // dind answer as the dockerd guard in prepareChat.
     sandbox: resolveSandboxOptions(opts.sandbox),
@@ -496,6 +502,8 @@ export async function openChat(
       }
       return { preamble: attachmentPreamble(kept, skipped, warnings), skipped };
     },
+    // The sandbox is awake: the turn that filled the outbox has just ended on it.
+    collectOutbox: (turnId: string) => collectOutbox((c) => sandbox.exec(c), turnId, { scrub: opts.scrubSecrets !== false }),
     ask: async (
       prompt: string,
       onStep?: (step: string) => void,

@@ -452,6 +452,25 @@ to try CoachAven, an Anthropic API key for an installation that serves a team or
 process ends (an idle stop, an error reopen), or at once when the project's container is recreated (`docker rm -f` of
 it; the next turn creates it again). Back: the reverse.
 
+## Outbound files (`OUTBOUND_FILES`)
+
+Off by default. `OUTBOUND_FILES=1` in the runtime `.env` (read once at boot) lets the agent hand files back: every
+turn's message names a directory of its own in the sandbox (`/root/outbox/<turn>/`), and whatever the agent saves
+there is posted into the conversation right after its answer — on a surface whose driver delivers files (Slack:
+uploads in the thread, with Slack's own previews; web: downloads beside the conversation, images shown inline;
+Teams: not yet, so the agent is not offered an outbox there — see [the capabilities table](chat-drivers.md)).
+Admission is the inbound one: images, PDFs, text, data and office documents, 25 MB per file, 10 files per turn; a
+refused file is named in the thread with the reason. Text-typed files pass the secrets scrub answers pass (the
+project's `scrubSecrets: false` turns it off); binaries go as written. A failed upload is a ⚠️ notice under the
+answer, never an errored turn. With the switch unset the system prompt, the turn's message and the platform calls
+are byte for byte what they were (`src/prompt.test.ts`, the recorded turn snapshots). Everything is `src/outbox.ts`
+(pure, tested), wired by `src/tasks.ts` and `src/turn.ts`; OpenSpec `outbound-files`. New sessions get the prompt
+paragraph; a running conversation gets the per-turn line from its next message.
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `OUTBOUND_FILES` | unset (off) | `1` names an outbox to the agent on every turn and posts what it saved there |
+
 ## Repo skills (`REPO_SKILLS`)
 
 A multi-repo project's sessions start in the project folder, where no repo's `.claude/skills` is visible. With

@@ -9,12 +9,13 @@ export const WEB_LACKS: Record<string, string> = {
   autofix: 'the autofix watcher posts its Fix button to Slack or Teams only (web-chat-driver 5.1)',
 };
 
-export function webHomeBullets(opts: { messaging?: boolean } = {}): string[] {
+export function webHomeBullets(opts: { messaging?: boolean; outboundFiles?: boolean } = {}): string[] {
   return [
     '• *Start a task* — post in a project\'s room: every top-level post starts a thread, no mention needed. Reply in the thread to continue; I remember the conversation.',
     '• *Ask privately* — each project has a 🔒 private conversation in the sidebar that only you see. Or type `/<your question>` anywhere: I answer where you are, for you alone.',
     '• *Jot a note* — start a post with `!` and I stay out of it.',
-    '• *Share files* — 📎 Attach, drop or paste screenshots, PDFs, text or office documents into a post (up to 10 files); I read them as part of the task. A file I cannot use is named before anything is sent.',
+    '• *Share files* — 📎 Attach, drop or paste screenshots, PDFs, text or office documents into a post (up to 10 files); I read them as part of the task. A file I cannot use is named before anything is sent.' +
+      (opts.outboundFiles ? ' Files come back too: ask for a chart, a screenshot or a CSV and it lands in the thread, images shown right there.' : ''),
     '• *Stop me* — *✖ Cancel* on any working message.',
     '• *See how I got there* — *🧭 Show steps* on a working message (live) or a finished answer opens the tool-by-tool trail.',
     "• *Long and background work* — past ~15 minutes the working message turns into *🌙 Working in the background* and the answer arrives as a new message in the thread; a background subagent that finishes after my answer posts a *🔔 Background update*.",

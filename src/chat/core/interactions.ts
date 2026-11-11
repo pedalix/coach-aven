@@ -508,7 +508,15 @@ export function createInteractions(deps: InteractionDeps): Interactions {
     try {
       await d.publishHome(
         who.user,
-        mine.length ? { kind: 'home', projects: mine, prefix: deps.prefixFor(who.tenant), ...(deps.reg.current.projects.some((p) => p.messaging !== undefined) ? { messaging: true } : {}) } : { kind: 'onboarding' },
+        mine.length
+          ? {
+              kind: 'home',
+              projects: mine,
+              prefix: deps.prefixFor(who.tenant),
+              ...(deps.reg.current.projects.some((p) => p.messaging !== undefined) ? { messaging: true } : {}),
+              ...(cfg.outboundFiles ? { outboundFiles: true } : {}),
+            }
+          : { kind: 'onboarding' },
       );
     } catch (err) {
       log.error(`home publish failed: ${err instanceof Error ? err.message : String(err)}`);

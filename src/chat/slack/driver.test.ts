@@ -45,6 +45,37 @@ const ticket: YouTrackIssue = {
   links: [],
 };
 
+// Outbound files (outbound-files): one uploadV2 — an upload URL per file, the bytes to it, ONE completion into the
+// thread; a refused completion throws (the core names the files, the driver posts nothing itself).
+test('driver: postFiles — upload URL, bytes, one completion in the thread', async () => {
+  api.reset();
+  await d.postFiles({ conv: 'C1', thread: '100.1' }, [{ name: 'chart.png', mime: 'image/png', data: Buffer.from('png-bytes') }]);
+  assert.deepEqual(
+    api.calls.map((c) => [c.method, c.payload]),
+    [
+      ['files.getUploadURLExternal', { filename: 'chart.png', length: '9' }],
+      ['upload/1', { bytes: true }],
+      ['files.completeUploadExternal', { files: JSON.stringify([{ id: 'F1', title: 'chart.png' }]), channel_id: 'C1', thread_ts: '100.1' }],
+    ],
+  );
+  api.reset();
+  await d.postFiles({ conv: 'C1' }, [
+    { name: 'a.png', mime: 'image/png', data: Buffer.from('a') },
+    { name: 'b.csv', mime: 'text/csv', data: Buffer.from('b') },
+  ]);
+  const done = api.of('files.completeUploadExternal');
+  assert.equal(done.length, 1, 'two files, one message');
+  assert.equal(done[0].payload.channel_id, 'C1');
+  assert.equal('thread_ts' in done[0].payload, false, 'a channel post has no thread');
+  assert.deepEqual((JSON.parse(String(done[0].payload.files)) as { title: string }[]).map((f) => f.title).sort(), ['a.png', 'b.csv']);
+  api.failures['files.completeUploadExternal'] = 'not_in_channel';
+  try {
+    await assert.rejects(d.postFiles({ conv: 'C1' }, [{ name: 'c.png', mime: 'image/png', data: Buffer.from('c') }]), /not_in_channel/);
+  } finally {
+    delete api.failures['files.completeUploadExternal'];
+  }
+});
+
 test('driver golden: autofix notice', async () => {
   const notes = ['CI failed (build)', 'new review from bob'];
   assert.deepEqual(

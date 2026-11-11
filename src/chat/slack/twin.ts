@@ -65,6 +65,8 @@ export class RecordingApi {
   readonly responses: Record<string, Record<string, unknown>> = {};
   private server?: Server;
   private posted = 0;
+  private uploads = 0; // files.getUploadURLExternal answers hand out upload/<n> on this very stub
+  private base = '';
   // seqTs: answer every chat.postMessage with a fresh ts (1000.0001, 1000.0002, …) so a
   // recording can tell WHICH message a later chat.update targets. Off by default — the
   // tenant twin tests were written against the constant ts.
@@ -80,6 +82,14 @@ export class RecordingApi {
       req.on('data', (c) => chunks.push(c));
       req.on('end', () => {
         const method = (req.url ?? '/').replace(/^\//, '').split('?')[0];
+        // The byte POST of files.uploadV2: the SDK posts each file to the URL files.getUploadURLExternal handed it
+        // (one of ours, below), recorded as `upload/<n>` with whether bytes came, answered 200 like Slack's host.
+        if (method.startsWith('upload/')) {
+          this.calls.push({ method, token: '', payload: { bytes: chunks.some((c) => c.length > 0) } });
+          res.statusCode = 200;
+          res.end('OK');
+          return;
+        }
         const raw = Buffer.concat(chunks).toString();
         let payload: Record<string, unknown> = {};
         try {
@@ -104,6 +114,11 @@ export class RecordingApi {
         }
         if (method === 'views.open') body.view = { id: 'V1' };
         if (method === 'files.info') body.file = this.files[String(payload.file ?? '')];
+        if (method === 'files.getUploadURLExternal') {
+          this.uploads += 1;
+          body.upload_url = `${this.base}upload/${this.uploads}`;
+          body.file_id = `F${this.uploads}`;
+        }
         Object.assign(body, this.responses[method] ?? {});
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify(body));
@@ -111,7 +126,8 @@ export class RecordingApi {
     });
     await new Promise<void>((resolve) => this.server!.listen(0, '127.0.0.1', resolve));
     const { port } = this.server!.address() as AddressInfo;
-    return `http://127.0.0.1:${port}/`;
+    this.base = `http://127.0.0.1:${port}/`;
+    return this.base;
   }
 
   async stop(): Promise<void> {
@@ -122,6 +138,7 @@ export class RecordingApi {
   reset(): void {
     this.calls.length = 0;
     this.posted = 0;
+    this.uploads = 0;
   }
 
   of(method: string): ApiCall[] {

@@ -50,7 +50,7 @@ export const webSurface: SurfacePlugin = {
     allowLocalFiles(filesRoot); // uploads are the one place a `file:` attachment reference may point (attachments.ts)
     const history = new History(filesRoot);
     const nameOf = webNameOf(store);
-    const driver = webDriver({ history, baseUrl: web.baseUrl, nameOf });
+    const driver = webDriver({ history, baseUrl: web.baseUrl, nameOf, filesRoot });
     const oidc: (Oidc & { warmup(): Promise<void> }) | undefined = web.auth === 'oidc' && web.oidc ? createOidc(web.oidc) : undefined;
     const org = web.org;
 
@@ -78,7 +78,7 @@ export const webSurface: SurfacePlugin = {
         const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: org, isOperator, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
         // `link`: a fresh key per boot, so a link in an old log line is dead (sessions survive: the cookie's secret persists).
         const loginKey = web.auth === 'link' ? randomBytes(32).toString('base64url') : undefined;
-        const server = createWebServer({ cfg: web, store, reg, history, driver, core, messages, commands, filesRoot, ...(oidc ? { oidc } : {}), ...(loginKey ? { loginKey } : {}) });
+        const server = createWebServer({ cfg: web, store, reg, history, driver, core, messages, commands, filesRoot, outboundFiles: cfg.outboundFiles, ...(oidc ? { oidc } : {}), ...(loginKey ? { loginKey } : {}) });
         return {
           async start() {
             if (oidc) await oidc.warmup(); // a wrong issuer or an unreachable one fails the boot here, by name

@@ -52,6 +52,15 @@ test('golden: production prompt, multi-repo with the sources MCP paragraph', () 
   assert.equal(buildSystemPrompt({ ...MULTI, sourcesEnabled: true }), golden('multi-repo-sources'));
 });
 
+// Outbound files (OUTBOUND_FILES=1): one paragraph after the inbox sentence; absent → today's prompt, byte for byte.
+test('golden: the outbox paragraph with the flag on; without it the production prompt is unchanged', () => {
+  assert.equal(buildSystemPrompt({ ...SINGLE, outbox: true }), golden('single-repo-outbox'));
+  assert.equal(buildSystemPrompt({ ...SINGLE, outbox: false }), golden('single-repo'));
+  const on = buildSystemPrompt({ ...SINGLE, outbox: true });
+  assert.match(on, /Files FOR the user — a chart, a screenshot, a PDF, a CSV, a document — go into the outbox directory the message names \(\/root\/outbox\/<turn>\/\)/);
+  assert.match(on, /never paste a file's contents into the answer instead, and never say you cannot send files\./);
+});
+
 test('gitFlow absent and gitFlow "pr" are the same prompt — "pr" is the default', () => {
   assert.equal(buildSystemPrompt({ ...MULTI, gitFlow: 'pr' }), golden('multi-repo'));
   assert.equal(buildSystemPrompt({ ...SINGLE, gitFlow: 'pr' }), golden('single-repo'));

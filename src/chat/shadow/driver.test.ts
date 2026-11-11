@@ -26,7 +26,7 @@ test('nothing in the channel: the shadow driver posts nothing, journals every vi
   const j = d.read('home', T);
   assert.deepEqual(j.map((e) => [e.op, e.view.kind]), [['post', 'status'], ['update', 'answer']]);
   assert.equal(await d.permalink(status), undefined);
-  assert.deepEqual(d.capabilities, { reactions: false, privateReplies: 'fallback', threadRepliesNeedMention: false });
+  assert.deepEqual(d.capabilities, { reactions: false, privateReplies: 'fallback', threadRepliesNeedMention: false, outboundFiles: false });
   assert.deepEqual(d.read('home', 'ffffffffffffffffffffffff'), []);
   utimesSync(join(dir, 'home', `${T}.jsonl`), new Date('2026-09-01'), new Date('2026-09-01'));
   assert.equal(d.prune(30 * 86_400_000, Date.parse('2026-10-17')), 1);

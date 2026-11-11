@@ -51,6 +51,23 @@ export function isSupported(mime: string, name: string): boolean {
   return false;
 }
 
+// Media type from a file's extension — what a source that reports none goes by (a web upload, a file the agent
+// saved in its outbox) and what the browser and Slack read it as. Unknown → octet-stream, and isSupported then
+// judges by the extension.
+const MIME_BY_EXT: Record<string, string> = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', svg: 'image/svg+xml',
+  pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown', markdown: 'text/markdown', csv: 'text/csv', tsv: 'text/tab-separated-values',
+  html: 'text/html', htm: 'text/html',
+  json: 'application/json', yaml: 'application/yaml', yml: 'application/yaml', log: 'text/plain', rtf: 'application/rtf',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+};
+export function mimeOf(name: string): string {
+  const ext = name.toLowerCase().split('.').pop() ?? '';
+  return MIME_BY_EXT[ext] ?? 'application/octet-stream';
+}
+
 // Strip an inbound filename down to a safe *basename*. This is the load-bearing security step:
 // `uploadFile` takes a path, so a name like `../../etc/cron.d/x` must never escape the inbox.
 // We keep only the final path segment, allow just [A-Za-z0-9._-], collapse runs, and cap the

@@ -23,11 +23,12 @@ function fakeDriver() {
       return ret;
     };
   const d: ChatDriver = {
-    capabilities: { reactions: false, privateReplies: 'fallback', threadRepliesNeedMention: true },
+    capabilities: { reactions: false, privateReplies: 'fallback', threadRepliesNeedMention: true, outboundFiles: false },
     post: rec('post', { conv: 'c', id: 'm1' }) as ChatDriver['post'],
     update: rec('update') as ChatDriver['update'],
     mark: rec('mark') as ChatDriver['mark'],
     permalink: rec('permalink') as ChatDriver['permalink'],
+    postFiles: rec('postFiles') as ChatDriver['postFiles'],
     reply: rec('reply') as ChatDriver['reply'],
     postPrivate: rec('postPrivate') as ChatDriver['postPrivate'],
     openDialog: rec('openDialog', { id: 'dlg1' }) as ChatDriver['openDialog'],

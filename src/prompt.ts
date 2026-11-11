@@ -38,6 +38,9 @@ export interface SystemPromptInputs {
   // GITHUB_AUTH=app (config.ts): the sandbox token is an App installation token, so `/aven grant workflows` can widen
   // it (OpenSpec prompt-grant-hint); absent → today's text, byte for byte.
   githubApp?: boolean;
+  // OUTBOUND_FILES=1 (config.ts): the turn's message names an outbox the agent may save files into (OpenSpec
+  // outbound-files); absent → today's text, byte for byte.
+  outbox?: boolean;
   // The project's container options as resolved at boot (sandboxopts.ts) — `dind` gates the
   // toolchain paragraph, exactly as it gates the dockerd guard in prepareChat.
   sandbox: ResolvedSandboxOptions;
@@ -151,6 +154,15 @@ export function buildSystemPrompt(inp: SystemPromptInputs): string {
       `Read ever reports an image exceeds the size limit, run \`magick <in> -resize '1568x1568>' ` +
       `<out>\` and Read <out>; do NOT hand-write an image resizer.`,
   );
+  if (inp.outbox) {
+    lines.push(
+      `Files FOR the user — a chart, a screenshot, a PDF, a CSV, a document — go into the outbox directory the ` +
+        `message names (/root/outbox/<turn>/): everything saved there is posted into the conversation right after ` +
+        `your answer (images, PDFs, text/data/office documents; up to 10 files of 25 MB each; other types are ` +
+        `refused with a notice). Save the file there and refer to it in the answer; never paste a file's contents ` +
+        `into the answer instead, and never say you cannot send files.`,
+    );
+  }
   lines.push(
     `When a reply diagnoses a problem (a bug, an incident, "why is X happening?"), write for a ` +
       `mixed audience: open with a 1–2 sentence plain-language conclusion a non-developer can act ` +

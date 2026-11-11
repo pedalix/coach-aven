@@ -33,6 +33,8 @@ or a person lives in an installation's private ops repo (`infra/<slug>/`).
 - [Sandbox drivers](sandbox-drivers.md): containers on a Docker host you own; the driver seam.
 - [Sandbox images](../snapshot/README.md): the `laravel` and `plain` variants, the build, the Claude Code CLI pin.
 - [Microsoft Teams](teams.md) and [Teams pitfalls](teams-pitfalls.md): the second chat driver.
+- [Chat drivers and their capabilities](chat-drivers.md): what Slack, Teams, the web chat and the shadow driver
+  implement, in one table pinned by a test.
 - [Local dev](local-dev.md): running beside a production bot without colliding with it.
 - [Rollout ledger](rollout.md): `main` → canary → prod, and the flags in flight.
 - [Observability](observability.md) and [Housekeeping](housekeeping.md).
