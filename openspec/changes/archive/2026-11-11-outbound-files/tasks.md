@@ -77,7 +77,7 @@
 ## 7. Integration
 
 - [x] 7.1 `npm run typecheck && npm test` green.
-- [ ] 7.2 `npm run preview` with `OUTBOUND_FILES=1` on the scratch project: "draw a bar chart of 1, 2, 3 and give it to me
+- [x] 7.2 (done on the home canary instead of a preview, 2026-11-11: the web chat showed the PNG inline and the 📎 notice for a `.mov`) `npm run preview` with `OUTBOUND_FILES=1` on the scratch project: "draw a bar chart of 1, 2, 3 and give it to me
       as a PNG" → the image shows inline in the web thread and downloads with the session; "give me the repo's README as
       a .mov" → the notice names the unsupported type; verify by observation in the preview chat.
 
