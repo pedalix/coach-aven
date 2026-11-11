@@ -10,6 +10,7 @@ import { fromStored, type Message, type ThreadSummary } from './history.js';
 import { renderMessageView, renderPrivateView, type NameOf, type Rendered } from './webviews.js';
 import { privateConv, roomConv } from './keys.js';
 import { fmtSize } from './files.js';
+import { isImage, mimeOf } from '../../attachments.js';
 import type { Mark } from '../driver.js';
 
 export interface Viewer {
@@ -46,17 +47,24 @@ function personText(m: Message): Html {
   return markdownToHtml(text);
 }
 
-/** The files a person attached: download links (the session is checked on the way, server.ts). */
-function filesHtml(slug: string, m: Message): Html {
+/** The files on a message: download links (the session is checked on the way, server.ts); with `images`, an image is
+ *  shown inline from the same URL (the agent's files, outbound-files — a person's uploads stay links, as before). */
+function filesHtml(slug: string, m: Message, images = false): Html {
   if (!m.files?.length) return raw('');
-  return h`<ul class="files">${m.files.map((f) => h`<li><a href="/files/${encodeURIComponent(slug)}/${encodeURIComponent(f.id)}">📎 ${f.name}</a> <span class="meta">${fmtSize(f.size)}</span></li>`)}</ul>`;
+  const url = (id: string) => `/files/${encodeURIComponent(slug)}/${encodeURIComponent(id)}`;
+  return h`<ul class="files">${m.files.map((f) =>
+    images && isImage(mimeOf(f.name), f.name)
+      ? h`<li class="file-image"><a href="${url(f.id)}"><img src="${url(f.id)}" alt="${f.name}" loading="lazy"></a> <span class="meta">${f.name} · ${fmtSize(f.size)}</span></li>`
+      : h`<li><a href="${url(f.id)}">📎 ${f.name}</a> <span class="meta">${fmtSize(f.size)}</span></li>`,
+  )}</ul>`;
 }
 
-/** The body of a stored message: a person's post, the bot's view, or a private reply. */
+/** The body of a stored message: a person's post, the bot's view, a private reply, or the bot's files. */
 export function messageBody(m: Message, nameOf: NameOf, slug = ''): Rendered {
   if (m.by) return { html: h`${personText(m)}${filesHtml(slug, m)}`, text: plainText(m.text ?? '') || (m.files?.length ? `📎 ${m.files.map((f) => f.name).join(', ')}` : '') };
   if (m.priv) return renderPrivateView(m.priv, { nameOf });
   if (m.view) return renderMessageView(fromStored(m.view), { nameOf, tally: m.tally });
+  if (m.files?.length) return { html: filesHtml(slug, m, true), text: `📎 ${m.files.map((f) => f.name).join(', ')}` };
   return { html: h`<p class="meta">(empty)</p>`, text: '' };
 }
 

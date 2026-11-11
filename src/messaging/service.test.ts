@@ -71,11 +71,12 @@ function harness(
   const canceled: string[] = [];
   const closed: string[] = [];
   const chat: ChatDriver = {
-    capabilities: { reactions: true, privateReplies: 'native', threadRepliesNeedMention: false },
+    capabilities: { reactions: true, privateReplies: 'native', threadRepliesNeedMention: false, outboundFiles: false },
     post: async (to, view) => (posts.push({ to, view }), { conv: to.conv, id: `p${posts.length}` }),
     update: async () => {},
     mark: async () => {},
     permalink: async () => undefined,
+    postFiles: async () => {},
     reply: async () => {},
     conversationName: async () => undefined,
     openDirect: async () => undefined,

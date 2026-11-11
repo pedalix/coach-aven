@@ -11,6 +11,7 @@
 
 import type { Tally } from '../feedback.js';
 import type { AttachmentRef } from '../attachments.js';
+import type { OutboundFile } from '../outbox.js';
 import type { DialogView, HomeView, MessageView, PrivateView } from './views.js';
 
 // Where to post: a conversation (Slack channel/DM id) and, optionally, the thread in it.
@@ -106,6 +107,9 @@ export interface DriverCapabilities {
   reactions: boolean; // acknowledgements on the user's message are visible
   privateReplies: 'native' | 'fallback'; // ephemeral in place, or via a direct message
   threadRepliesNeedMention: boolean; // replies in a bot thread reach it only with a mention
+  // Files the agent saved for the person can be posted into a conversation (postFiles, OpenSpec outbound-files).
+  // The core names an outbox to the agent only on a surface that says yes; the table in docs/chat-drivers.md says who does.
+  outboundFiles: boolean;
 }
 
 export interface ChatDriver {
@@ -119,6 +123,10 @@ export interface ChatDriver {
   mark(msg: MsgRef, mark: Mark, op: 'add' | 'remove'): Promise<void>;
   // A shareable link to a message (the thread root), when the platform has one. Never throws.
   permalink(msg: MsgRef): Promise<string | undefined>;
+  // Post files into a conversation (and thread), in the order given — the agent's outbox after its answer
+  // (OpenSpec outbound-files). Called only on a driver whose capabilities say `outboundFiles`. Throws on platform
+  // failure: the core names the files in a notice, the driver posts nothing of its own.
+  postFiles(to: ConvTarget, files: OutboundFile[]): Promise<void>;
 
   // ── interaction surface ──
   // Answer a click or a command privately, to the person who acted. `replace` true: in place

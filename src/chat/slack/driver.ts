@@ -6,10 +6,11 @@
 // pins it against snapshots taken before the move.
 
 import type bolt from '@slack/bolt';
-import type { ChatAction, ChatDriver, ConvTarget, DialogRef, Interaction, Mark, MsgRef } from '../driver.js';
+import type { ChatAction, ChatDriver, ConvTarget, DialogRef, DriverCapabilities, Interaction, Mark, MsgRef } from '../driver.js';
 import { MARKED_EVENT } from '../driver.js';
 import type { DialogView, HomeView, MessageView, PrivateView } from '../views.js';
 import type { Tally } from '../../feedback.js';
+import type { OutboundFile } from '../../outbox.js';
 import {
   MAX_SLACK_TEXT,
   accessBlocks,
@@ -153,7 +154,9 @@ export function renderDialogView(v: DialogView): any {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
 export function renderHomeView(v: HomeView): any[] {
-  return v.kind === 'home' ? homeBlocks(v.projects, v.prefix, v.messaging ? { messaging: true } : {}) : onboardingHomeBlocks();
+  return v.kind === 'home'
+    ? homeBlocks(v.projects, v.prefix, { ...(v.messaging ? { messaging: true } : {}), ...(v.outboundFiles ? { outboundFiles: true } : {}) })
+    : onboardingHomeBlocks();
 }
 
 // What a Slack interaction carries that the core never sees: the response_url responder,
@@ -182,10 +185,14 @@ export interface SlackChatDriver extends ChatDriver {
 // unmarked one carries nothing — its calls stay byte-identical (the recorded-call snapshots).
 const marker = (marked: boolean | undefined) => (marked ? { metadata: { event_type: MARKED_EVENT, event_payload: {} } } : {});
 
+// What Slack does for people (docs/chat-drivers.md is rendered from these): reactions, ephemeral replies, no mention
+// needed in a bot thread, files uploaded into the thread.
+export const SLACK_CAPABILITIES: DriverCapabilities = { reactions: true, privateReplies: 'native', threadRepliesNeedMention: false, outboundFiles: true };
+
 export function slackDriver(client: bolt.webApi.WebClient): SlackChatDriver {
   return {
     client,
-    capabilities: { reactions: true, privateReplies: 'native', threadRepliesNeedMention: false },
+    capabilities: SLACK_CAPABILITIES,
     async post(to: ConvTarget, view: MessageView): Promise<MsgRef> {
       const { text, blocks } = renderMessageView(view);
       const posted = await client.chat.postMessage({ channel: to.conv, thread_ts: to.thread, text, blocks, ...marker(to.marked) });
@@ -214,6 +221,16 @@ export function slackDriver(client: bolt.webApi.WebClient): SlackChatDriver {
       } catch {
         return undefined; // DM / missing scope — the traceability line is simply omitted
       }
+    },
+    async postFiles(to: ConvTarget, files: OutboundFile[]): Promise<void> {
+      // One uploadV2 per turn: the SDK asks for an upload URL per file, posts the bytes there, then completes them
+      // all as ONE message in the thread (files.completeUploadExternal), so Slack renders its own previews. That
+      // method takes no message metadata: a marked conversation's file post goes unmarked (design, Risks).
+      await client.files.uploadV2({
+        channel_id: to.conv,
+        ...(to.thread ? { thread_ts: to.thread } : {}),
+        file_uploads: files.map((f) => ({ file: f.data, filename: f.name })),
+      });
     },
     async reply(to: Interaction, view: PrivateView, opts?: { replace?: boolean }): Promise<void> {
       const respond = ctxOf(to).respond;

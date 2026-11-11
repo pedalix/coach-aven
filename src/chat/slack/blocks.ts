@@ -848,7 +848,7 @@ export function packSections(bullets: string[], max = 2900): string[] {
 
 // The "How to use me" cheat-sheet, one bullet per entry (CLAUDE.md: every user-facing change
 // lands here). Exported so the Home-tab packing test can assert nothing is dropped or split.
-export function homeBullets(opts: { messaging?: boolean } = {}): string[] {
+export function homeBullets(opts: { messaging?: boolean; outboundFiles?: boolean } = {}): string[] {
   return [
     ...(opts.messaging
       ? [
@@ -860,7 +860,8 @@ export function homeBullets(opts: { messaging?: boolean } = {}): string[] {
     `• *Quick private answer* — \`${CMD} <question>\` in a project channel. I answer privately in our DM.`,
     "• *DM me directly* — just message me in a DM; if it's not clear which project you mean, I'll show a picker.",
     `• *Schedule a digest* — \`${CMD} schedule weekdays 9:00 | what to report\` posts a recurring read-only summary here; \`${CMD} schedule task weekdays 19:30 | what to do\` runs a job that may edit and commit as the project's instructions say; manage with \`${CMD} routines\` (\`${CMD} routines all\` lists every job across this workspace's projects). Routine results arrive as a thread — reply there to continue with the same context.`,
-    "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task; works in Slack Connect channels too. If I can't use a file, I'll reply saying which one and why. _(Voice/video not supported yet.)_",
+    "• *Share files* — drop screenshots, PDFs, or docs into a thread or DM (with or without a note) and I'll read them as part of the task; works in Slack Connect channels too. If I can't use a file, I'll reply saying which one and why. _(Voice/video not supported yet.)_" +
+      (opts.outboundFiles ? ' Files come back too: ask for a chart, a screenshot or a CSV and it lands in the thread right after my answer.' : ''),
     "• *Jot a note* — start a message with `!` and I'll stay out of it (no agent run).",
     '• *Stop me* — hit *✖ Cancel* on any working message.',
     '• *See how I got there* — hit *🧭 Show steps* on a working message (live) or a finished answer for the tool-by-tool trail in a pop-up; a very long run comes condensed.',
@@ -890,7 +891,7 @@ export function homeBullets(opts: { messaging?: boolean } = {}): string[] {
 // registry — a client workspace must not see the fleet. The empty subset renders
 // onboardingHomeBlocks instead (see events.ts).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-export function homeBlocks(projects: ProjectConfig[], prefix: string, opts: { messaging?: boolean } = {}): any[] {
+export function homeBlocks(projects: ProjectConfig[], prefix: string, opts: { messaging?: boolean; outboundFiles?: boolean } = {}): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blocks: any[] = [
     { type: 'header', text: { type: 'plain_text', text: '🧭 CoachAven' } },
@@ -918,7 +919,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string, opts: { me
   // list grew (and `CMD` can be longer than `/aven` on a dev install: every occurrence
   // widens the text), at which point views.publish rejected the whole view and the Home
   // tab spun forever for everyone — so the layout is computed, not assumed.
-  const bullets = homeBullets(opts.messaging ? { messaging: true } : {});
+  const bullets = homeBullets({ ...(opts.messaging ? { messaging: true } : {}), ...(opts.outboundFiles ? { outboundFiles: true } : {}) });
   blocks.push(
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*How to use me*' } },

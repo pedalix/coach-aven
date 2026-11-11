@@ -46,6 +46,7 @@ function fakeOpenChat(o: FakeOpts): typeof openChat {
       contextLost: () => false,
       lastUsage: () => undefined,
       ingest: async () => ({ preamble: '', skipped: [] }),
+      collectOutbox: async () => ({ files: [], skipped: [] }),
       close: async () => {},
       setIdleNotify: () => {},
       hasLedger: () => false,

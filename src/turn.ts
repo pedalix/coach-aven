@@ -15,6 +15,7 @@ import { openChat, type ChatSession } from './tasks.js';
 import { createDriver } from './driver.js';
 import { fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
+import { outboxFailedNotice, outboxPreamble, outboxSkippedNotice } from './outbox.js';
 import { STREAM_HARD_MAX_MS, STREAM_MAX_MS, type AskQuestion, type QuestionAnswers, type OnQuestion } from './claudeSession.js';
 import { monoNow, STALE_HOLD_MARGIN_MS, stopCutWork, type SandboxUse } from './idlestop.js';
 import { MAX_SLACK_TEXT, errText, alertOps } from './chat/slack/blocks.js';
@@ -785,6 +786,30 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     return mine;
   }
 
+  // The outbox (outbox.ts, OpenSpec outbound-files): on, and on a surface that can deliver files — the agent is
+  // never told about an outbox it could not use.
+  const outboxOn = (chat: ChatDriver): boolean => cfg.outboundFiles === true && chat.capabilities.outboundFiles;
+  // After the answer: read what the agent saved for the person, post it into the thread, name what was refused.
+  // Best-effort end to end — the answer is already delivered and the person's message already marked ✅, so a
+  // failed upload is a notice, never an errored turn.
+  async function postOutbox(chat: ChatDriver, where: ConvTarget, live: ChatSession, turnId: string): Promise<void> {
+    try {
+      const { files, skipped } = await live.collectOutbox(turnId);
+      if (files.length) {
+        try {
+          await chat.postFiles(where, files);
+        } catch (e) {
+          const why = e instanceof Error ? e.message : String(e);
+          log.error(`outbox post ${turnId}: ${why}`);
+          await chat.post(where, { kind: 'text', text: outboxFailedNotice(files.map((f) => f.name), why) });
+        }
+      }
+      if (skipped.length) await chat.post(where, { kind: 'text', text: outboxSkippedNotice(skipped) });
+    } catch (e) {
+      log.error(`outbox ${turnId}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   // The actual work for one turn, run after any earlier turn for the same key. Streams
   // live status into the message `ts` and rewrites it into the answer (or cancel/error).
   async function doTurn(
@@ -1011,6 +1036,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
           log.error(`ingest ${turnId}: ${e instanceof Error ? e.message : String(e)}`);
         }
       }
+      // The one line the session prompt cannot carry: this turn's outbox directory (outbox.ts).
+      if (outboxOn(chat)) prompt = `${outboxPreamble(turnId)}\n\n${prompt}`;
       phase = '🔎 Working…';
       await scheduleFlush(true);
       // Wrap the agent turn in a Sentry span so turn latency shows up in performance (no-op
@@ -1083,6 +1110,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         },
       };
       await deliver(view, '✅ Done — answer posted below');
+      if (outboxOn(chat)) await postOutbox(chat, mark(where), live, turnId);
       if (opts?.onAnswer) await opts.onAnswer(capped, session?.lastUsage()).catch(() => {});
       // Latch the flag the first turn whose answer carries a PR URL — the session panel
       // shows whether this thread has produced a PR.

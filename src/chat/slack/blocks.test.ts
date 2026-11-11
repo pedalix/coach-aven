@@ -428,3 +428,15 @@ test('homeBlocks: with a `messaging` configuration the cheat-sheet explains agen
   for (const b of homeBlocks(projects, 'aven-', { messaging: true })) if (b.text?.text) assert.ok(b.text.text.length <= 3000);
   assert.deepEqual(homeBullets({ messaging: true }).slice(2), homeBullets(), 'the two lines come first; every other bullet is unchanged');
 });
+
+test('homeBlocks: with outbound files on, the *Share files* line says files come back; without, it is unchanged (outbound-files)', () => {
+  const projects = [{ slug: 'alpha', repos: ['Org/alpha'] }] as never;
+  const text = (blocks: { text?: { text?: string } }[]) => blocks.map((b) => b.text?.text ?? '').join('\n');
+  const on = text(homeBlocks(projects, 'aven-', { outboundFiles: true }));
+  assert.match(on, /\*Share files\* — [^\n]*Files come back too: ask for a chart, a screenshot or a CSV and it lands in the thread/);
+  assert.equal(text(homeBlocks(projects, 'aven-')).includes('Files come back'), false);
+  assert.deepEqual(homeBlocks(projects, 'aven-'), homeBlocks(projects, 'aven-', { outboundFiles: false }), 'no option = today');
+  const bullets = homeBullets({ outboundFiles: true });
+  assert.equal(bullets.length, homeBullets().length, 'one line grew, none was added');
+  assert.deepEqual(bullets.filter((b) => !b.startsWith('• *Share files*')), homeBullets().filter((b) => !b.startsWith('• *Share files*')));
+});

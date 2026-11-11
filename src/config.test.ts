@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { autoStopMinutesEnv, githubAuthNone, loadConfig, repoSkillsEnv, resolveCredit, retiredEnvWarnings, sandboxDriverEnv, type Config } from './config.js';
+import { autoStopMinutesEnv, githubAuthNone, loadConfig, outboundFilesEnv, repoSkillsEnv, resolveCredit, retiredEnvWarnings, sandboxDriverEnv, type Config } from './config.js';
 
 test('retired switches: DISPATCH set to 1 or true warns once at boot, and nothing else reads it (retire-agent-dispatch D4)', () => {
   for (const v of ['1', 'true']) assert.deepEqual(retiredEnvWarnings({ DISPATCH: v }), ['config: DISPATCH is retired — agent messaging replaces it']);
@@ -14,6 +14,11 @@ test('retired switches: DISPATCH set to 1 or true warns once at boot, and nothin
 test('REPO_SKILLS — opt-in (agent-skills, bucket 3): exactly 1 turns it on; unset or anything else keeps it off', () => {
   for (const v of ['1', ' 1 ']) assert.equal(repoSkillsEnv(v), true, v);
   for (const v of [undefined, '', '0', 'true', 'on', 'yes', 'false', '2']) assert.equal(repoSkillsEnv(v), false, String(v));
+});
+
+test('OUTBOUND_FILES — opt-in (outbound-files, bucket 3): exactly 1 turns it on; unset or anything else keeps it off', () => {
+  for (const v of ['1', ' 1 ']) assert.equal(outboundFilesEnv(v), true, v);
+  for (const v of [undefined, '', '0', 'true', 'on', 'yes', 'false', '2']) assert.equal(outboundFilesEnv(v), false, String(v));
 });
 
 test('SANDBOX_AUTOSTOP_MINUTES — trimmed; unset, empty or only spaces is the default 30; 0 is never; not a number fails naming the key (sandbox-idle-stop D9)', () => {

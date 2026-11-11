@@ -9,7 +9,7 @@
 // settleShadowTurn (messaging/answer.ts), reached through the turn's options.
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { ChatDriver, MsgRef } from '../driver.js';
+import type { ChatDriver, DriverCapabilities, MsgRef } from '../driver.js';
 import type { MessageView } from '../views.js';
 import { splitTeam } from '../../teamkeys.js';
 import { INSTALLATION_RE } from '../../messaging/protocol.js';
@@ -43,6 +43,9 @@ export interface ShadowDriver extends ChatDriver {
   prune(maxAgeMs: number, now?: number): number;
 }
 
+// A journal, not a surface: nothing a person reacts to, no private channel, no file to hand over.
+export const SHADOW_CAPABILITIES: DriverCapabilities = { reactions: false, privateReplies: 'fallback', threadRepliesNeedMention: false, outboundFiles: false };
+
 export function shadowDriver(o: { dir: string; now?: () => Date }): ShadowDriver {
   let seq = 0;
   const file = (origin: string, taskId: string): string => join(o.dir, origin, `${taskId}.jsonl`);
@@ -55,11 +58,16 @@ export function shadowDriver(o: { dir: string; now?: () => Date }): ShadowDriver
     appendFileSync(file(w.origin, w.taskId), JSON.stringify({ at: (o.now?.() ?? new Date()).toISOString(), ...entry }) + '\n');
   };
   return {
-    capabilities: { reactions: false, privateReplies: 'fallback', threadRepliesNeedMention: false },
+    capabilities: SHADOW_CAPABILITIES,
     async post(to, view) {
       const id = `shadow-${Date.now().toString(36)}-${++seq}`;
       append(to.conv, { op: 'post', id, view });
       return { conv: to.conv, id };
+    },
+    // Never asked (no outbound files here); a journal line with the names would be all a file could become.
+    async postFiles(to, files) {
+      const id = `shadow-${Date.now().toString(36)}-${++seq}`;
+      append(to.conv, { op: 'post', id, view: { kind: 'text', text: `📎 ${files.map((f) => f.name).join(', ')}` } });
     },
     async update(msg: MsgRef, view) {
       append(msg.conv, { op: 'update', id: msg.id, view });
