@@ -18,7 +18,10 @@ import { MAX_BYTES, MAX_FILES } from './attachments.js';
 
 test('scripts — byte-exact, quoted, a missing directory lists nothing and exits 0', () => {
   assert.equal(outboxDir('t0-1'), '/root/outbox/t0-1');
-  assert.equal(listScript('/root/outbox/t0-1'), `test -d '/root/outbox/t0-1' && find '/root/outbox/t0-1' -maxdepth 1 -type f -printf '%s\\t%f\\n' || true`);
+  assert.equal(
+    listScript('/root/outbox/t0-1'),
+    `test -d '/root/outbox/t0-1' && cd '/root/outbox/t0-1' && for f in * .*; do [ -f "$f" ] && printf '%s\\t%s\\n' "$(wc -c < "$f")" "$f"; done; true`,
+  );
   assert.equal(readScript("/root/outbox/t0-1/it's.png"), `base64 -w0 '/root/outbox/t0-1/it'\\''s.png'`);
   assert.equal(removeScript('/root/outbox/t0-1'), `rm -rf '/root/outbox/t0-1'`);
 });

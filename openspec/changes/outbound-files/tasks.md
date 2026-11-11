@@ -4,7 +4,7 @@
 
 - [x] 1.1 Move `mimeOf` (extension → media type) from `src/chat/web/files.ts` into `src/attachments.ts` and import it back
       in the web; verify `npm test -- src/chat/web/files.test.ts src/attachments.test.ts` passes unchanged.
-- [x] 1.2 Create `src/outbox.ts`: `outboxDir(turnId)`, `listScript(dir)` (`find -maxdepth 1 -type f -printf '%s\t%f\n'`),
+- [x] 1.2 Create `src/outbox.ts`: `outboxDir(turnId)`, `listScript(dir)` (a POSIX `for` loop with `wc -c` — busybox has no `find -printf`),
       `parseListing(stdout)`, `planOutbox(entries)` (regular files, name order, `sanitizeName`, `isSupported(mimeOf(name),
       name)`, `MAX_BYTES`, `MAX_FILES`, empty files and over-count ignored/refused per the spec), `readScript(path)`
       (`base64 -w0`), `removeScript(dir)`, `isTextFile(mime)`, `outboxPreamble(turnId)`, `outboxSkippedNotice(skipped)`,
