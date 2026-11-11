@@ -118,9 +118,12 @@ Routines go through the same engine, so a scheduled report can attach its chart;
 
 ### D7. Order and failure handling in the engine
 
-In `liveTurn`, after `deliver(view, …)`: `collectOutbox(turnId)` → `postFiles` → notices, all inside a try that logs
-and posts `⚠️ Couldn't post <names>: <reason>` on failure. The answer is already delivered, the user's message already
-marked ✅; a failed upload must not flip the turn to an error (spec: *Delivery failure never fails the turn*). Files
+In `liveTurn`, after `deliver(view, …)`: `collectOutbox(turnId)` → `postFiles` → notices, all inside a try that logs,
+raises a Sentry issue (`captureError`, subsystem `outbox`) and posts `⚠️ Couldn't post <names>: <reason>` on failure;
+anything else that throws in that block (a notice that could not be posted, a bug) is a Sentry issue and one
+best-effort ⚠️ line too, so the person is never left guessing where the files went. The answer is already delivered,
+the user's message already marked ✅; a failed upload must not flip the turn to an error (spec: *Delivery failure
+never fails the turn*). Refused files are admission decisions, not failures: a notice, no log, no issue. Files
 follow the answer so an answer saying "the chart is below" is true, and the status message does not show "Working…"
 beside a finished file. A turn that went background posts its answer as a new message; the files follow it the same way.
 A turn recovered after a restart too: the inflight record keeps the turn id (`inflight.turnId`), and the recovery

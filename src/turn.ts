@@ -808,14 +808,22 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         try {
           await chat.postFiles(where, files);
         } catch (e) {
+          // The platform refused: a Sentry issue (a failed upload is ops' to see, not a log line to find) and
+          // the notice with the platform's own reason.
           const why = e instanceof Error ? e.message : String(e);
           log.error(`outbox post ${turnId}: ${why}`);
+          captureError(e, { subsystem: 'outbox', turnId });
           await chat.post(where, { kind: 'text', text: outboxFailedNotice(files.map((f) => f.name), why) });
         }
       }
       if (skipped.length) await chat.post(where, { kind: 'text', text: outboxSkippedNotice(skipped) });
     } catch (e) {
-      log.error(`outbox ${turnId}: ${e instanceof Error ? e.message : String(e)}`);
+      // Nothing above throws by design (collectOutbox returns skips), so this is a post that failed or a bug:
+      // a Sentry issue, and one best-effort line so the person is not left guessing where the files went.
+      const why = e instanceof Error ? e.message : String(e);
+      log.error(`outbox ${turnId}: ${why}`);
+      captureError(e, { subsystem: 'outbox', turnId });
+      await chat.post(where, { kind: 'text', text: `⚠️ Couldn't post the files from this turn — ${why.slice(0, 300)}` }).catch(() => {});
     }
   }
 
