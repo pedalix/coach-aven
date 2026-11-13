@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { GraphPage } from './client.js';
+import { GraphError, TokenError, type GraphPage } from './client.js';
 import { accountSlug, type AccountContext, type RawEvent } from './normalise.js';
-import { CALENDAR_CURSOR_VERSION, pullCalendar, Store, type CalendarGraph, type Run } from './pull.js';
+import { CALENDAR_CURSOR_VERSION, pullCalendar, pullKinds, pullMail, Store, type CalendarGraph, type MailGraph, type Run } from './pull.js';
 
 // Pull-level tests for the calendar branch: a fake Graph that records every URL it is asked for
 // and serves one page per route, a real Store on a temp dir, so what is asserted is what lands
@@ -168,4 +168,114 @@ test('pullCalendar: a failing calendar list reads nothing and leaves the cursor 
   assert.equal(st.cursor.calendar.primary, undefined);
   assert.equal(st.cursor.calendar.version, CALENDAR_CURSOR_VERSION, 'a fresh cursor starts at the current version');
   assert.equal(st.counts.calendar, undefined);
+});
+
+// ── one kind's outage, the others go on ────────────────────────────────────
+
+const bad502 = (path: string) => new GraphError(502, 'UnknownError', '', `https://graph.microsoft.com/v1.0${path}`);
+
+function runFor(only: Run['only'], lines: string[]): Run {
+  return { ...makeRun(mkdtempSync(join(tmpdir(), 'msgkinds-')), [], lines), only };
+}
+
+test('pullKinds: a mail outage is recorded and the later kinds still run', async () => {
+  const lines: string[] = [];
+  const run = runFor(new Set(['mail', 'chats', 'files']), lines);
+  const st = new Store(ctx.upn, run);
+  st.cursor.needs_reauth = { at: '2026-11-01T00:00:00Z', error: 'invalid_grant' };
+  const ran: string[] = [];
+  const reauth = await pullKinds(run, st, [
+    ['mail', async () => { ran.push('mail'); throw bad502('/me/mailFolders'); }],
+    ['calendar', async () => { ran.push('calendar'); }],
+    ['chats', async () => { ran.push('chats'); }],
+    ['files', async () => { ran.push('files'); }],
+  ]);
+  assert.equal(reauth, false);
+  assert.deepEqual(ran, ['mail', 'chats', 'files'], 'calendar is not selected; chats and files run past the mail failure');
+  assert.deepEqual(st.errors, ['mail: Graph 502 UnknownError:  (https://graph.microsoft.com/v1.0/me/mailFolders)']);
+  assert.ok(st.cursor.needs_reauth, 'a run where something threw does not clear needs_reauth (as before)');
+});
+
+test('pullKinds: a dead grant is recorded once and stops the run; a clean run clears it', async () => {
+  const run = runFor(new Set(['mail', 'chats']), []);
+  const st = new Store(ctx.upn, run);
+  const ran: string[] = [];
+  const dead = new TokenError('invalid_grant', 'AADSTS50078: MFA expired', [50078], 400);
+  assert.equal(await pullKinds(run, st, [
+    ['mail', async () => { ran.push('mail'); throw dead; }],
+    ['chats', async () => { ran.push('chats'); }],
+  ]), true);
+  assert.deepEqual(ran, ['mail'], 'the same token would fail chats too');
+  assert.equal(st.errors.length, 1);
+  assert.match(st.errors[0]!, /^NEEDS RE-BOOTSTRAP/);
+  assert.match(st.cursor.needs_reauth?.error ?? '', /^invalid_grant 50078: AADSTS50078/);
+
+  assert.equal(await pullKinds(run, st, [['mail', async () => undefined], ['chats', async () => undefined]]), false);
+  assert.equal(st.cursor.needs_reauth, undefined);
+});
+
+// ── the weekly well-known folder refresh ───────────────────────────────────
+
+/** Well-known folder lookups answer `wellKnown`; the folder list is one empty Inbox, so nothing is paged. */
+function mailGraph(wellKnown: (name: string) => Promise<{ id: string }>): { g: MailGraph; urls: string[] } {
+  const urls: string[] = [];
+  const g: MailGraph = {
+    async get<T>(path: string) {
+      urls.push(path);
+      const name = /^\/me\/mailFolders\/([a-z]+)\?/.exec(path)?.[1];
+      if (!name) throw new Error(`unexpected get ${path}`);
+      return { body: (await wellKnown(name)) as T, headers: new Headers() };
+    },
+    // eslint-disable-next-line require-yield
+    async *pages<T>(url: string): AsyncGenerator<GraphPage<T>, string | undefined, void> {
+      throw new Error(`must not page an empty folder: ${url}`);
+    },
+    async all<T>(url: string): Promise<T[]> {
+      urls.push(url);
+      if (url.startsWith('/me/mailFolders?')) return [{ id: 'AQMkInbox', displayName: 'Inbox', totalItemCount: 0, childFolderCount: 0 }] as T[];
+      throw new Error(`unexpected list ${url}`);
+    },
+  };
+  return { g, urls };
+}
+
+test('pullMail: a Graph error on the weekly refresh keeps the cached skip ids and the mail sync goes on', async () => {
+  const lines: string[] = [];
+  const run = runFor(new Set(['mail']), lines);
+  const st = new Store(ctx.upn, run);
+  st.cursor.mail.skip_ids = ['AQMkJunk', 'AQMkDeleted'];
+  st.cursor.mail.skip_resolved_at = '2026-11-01T00:00:00.000Z'; // older than a week
+  const { g, urls } = mailGraph(async (name) => {
+    if (name === 'junkemail') throw bad502(`/me/mailFolders/${name}`);
+    return { id: `id-${name}` };
+  });
+  await pullMail(run, g, st, ctx);
+  assert.deepEqual(st.cursor.mail.skip_ids, ['AQMkJunk', 'AQMkDeleted']);
+  assert.equal(st.cursor.mail.skip_resolved_at, '2026-11-01T00:00:00.000Z', 'not marked fresh: the next pass tries again');
+  assert.ok(urls.some((u) => u.startsWith('/me/mailFolders?')), 'the folders were still listed');
+  assert.deepEqual(st.errors, []);
+  assert.ok(lines.some((l) => /not re-resolved \(Graph 502.*keeping the 2 cached id\(s\)/.test(l)), lines.join('\n'));
+});
+
+test('pullMail: without cached skip ids a failed resolution still fails the mail pass', async () => {
+  const run = runFor(new Set(['mail']), []);
+  const st = new Store(ctx.upn, run);
+  const { g, urls } = mailGraph(async (name) => {
+    throw bad502(`/me/mailFolders/${name}`);
+  });
+  await assert.rejects(pullMail(run, g, st, ctx), /Graph 502/);
+  assert.equal(st.cursor.mail.skip_ids, undefined);
+  assert.ok(!urls.some((u) => u.startsWith('/me/mailFolders?')), 'nothing is synced without knowing what to skip');
+});
+
+test('pullMail: a 404 on a well-known folder is a mailbox without it, not a failure', async () => {
+  const run = runFor(new Set(['mail']), []);
+  const st = new Store(ctx.upn, run);
+  const { g } = mailGraph(async (name) => {
+    if (name !== 'junkemail') throw new GraphError(404, 'ErrorFolderNotFound', '', `https://graph.microsoft.com/v1.0/me/mailFolders/${name}`);
+    return { id: 'AQMkJunk' };
+  });
+  await pullMail(run, g, st, ctx);
+  assert.deepEqual(st.cursor.mail.skip_ids, ['AQMkJunk']);
+  assert.ok(st.cursor.mail.skip_resolved_at);
 });
