@@ -236,6 +236,9 @@ every minute and runs `pull → store build → replica` for every project whose
   the parked one is probed once every two hours, and the operator gets ONE alert
   (`alertOps`) per distinct situation — not a nag every two hours. It is released the moment
   a probe reports ok again, i.e. after `orch sources auth <slug> <kind> …` on the bot host.
+- **One surface down.** Within `msgraph`, mail, calendar, chats, channels and files are tried on their own: a
+  mailbox answering 5xx for hours does not stop the same account's Teams chats. The pass still counts as failed (the
+  backoff above grows), and only a dead grant stops the account's remaining kinds — they share its token.
 - **No sandbox involvement.** Pulls run on the bot host with tokens the sandbox never sees;
   the replica swap is an atomic rename, so an in-flight turn keeps reading the old file.
 - **Daily credential check.** At 06:00 (`AVEN_TZ`) every configured kind's `check` runs

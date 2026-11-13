@@ -181,7 +181,10 @@ const MAIL_SELECT = 'id,subject,from,sender,toRecipients,ccRecipients,bccRecipie
 const MAIL_PREFER = { prefer: 'odata.maxpagesize=100, outlook.body-content-type="text"' };
 const SKIP_WELL_KNOWN = ['junkemail', 'deleteditems', 'drafts', 'outbox', 'syncissues', 'conflicts', 'localfailures', 'serverfailures'];
 
-async function listAllFolders(g: GraphClient): Promise<RawMailFolder[]> {
+/** The slice of GraphClient the mail pull uses — structural, so pull.test.ts can fake it. */
+export type MailGraph = Pick<GraphClient, 'get' | 'pages' | 'all'>;
+
+async function listAllFolders(g: MailGraph): Promise<RawMailFolder[]> {
   const out: RawMailFolder[] = [];
   const walk = async (path: string) => {
     const page = await g.all<RawMailFolder>(`${path}?includeHiddenFolders=true&$top=200&$select=id,displayName,parentFolderId,childFolderCount,totalItemCount,isHidden`);
@@ -194,20 +197,28 @@ async function listAllFolders(g: GraphClient): Promise<RawMailFolder[]> {
   return out;
 }
 
-async function pullMail(run: Run, g: GraphClient, st: Store, ctx: AccountContext): Promise<void> {
+export async function pullMail(run: Run, g: MailGraph, st: Store, ctx: AccountContext): Promise<void> {
   const c = st.cursor.mail;
   // Well-known folder ids resolve via their names; cache a week (they never change, but a fresh mailbox may lack some).
   if (!c.skip_resolved_at || Date.now() - Date.parse(c.skip_resolved_at) > 7 * DAY) {
-    const ids: string[] = [];
-    for (const wk of SKIP_WELL_KNOWN) {
-      try {
-        ids.push((await g.get<{ id: string }>(`/me/mailFolders/${wk}?$select=id`)).body.id);
-      } catch (e) {
-        if (!(e instanceof GraphError && e.status === 404)) throw e;
+    try {
+      const ids: string[] = [];
+      for (const wk of SKIP_WELL_KNOWN) {
+        try {
+          ids.push((await g.get<{ id: string }>(`/me/mailFolders/${wk}?$select=id`)).body.id);
+        } catch (e) {
+          if (!(e instanceof GraphError && e.status === 404)) throw e;
+        }
       }
+      c.skip_ids = ids;
+      c.skip_resolved_at = new Date().toISOString();
+    } catch (e) {
+      // The weekly refresh is a formality (the ids never change): a Graph error on it (a 502 on junkemail, seen
+      // for hours) must not stop the mail sync while the cached ids still apply. Kept, tried again next pass.
+      // Without a cache there is nothing safe to skip by, so the first resolution still fails the pass.
+      if (!(e instanceof GraphError) || c.skip_ids === undefined) throw e;
+      run.log(`mail: well-known folders not re-resolved (${e.message}); keeping the ${c.skip_ids.length} cached id(s)`);
     }
-    c.skip_ids = ids;
-    c.skip_resolved_at = new Date().toISOString();
   }
   const folders = await listAllFolders(g);
   const paths = buildFolderPaths(folders);
@@ -615,6 +626,42 @@ export interface MsgraphPullOptions {
   verbose?: boolean;
 }
 
+/** Every kind in pull order. */
+const PULLERS: Array<[MsgraphKind, (run: Run, g: GraphClient, st: Store, ctx: AccountContext) => Promise<void>]> = [
+  ['mail', pullMail],
+  ['calendar', pullCalendar],
+  ['chats', pullChats],
+  ['channels', pullChannels],
+  ['files', pullFiles],
+];
+
+/**
+ * Runs each selected kind on its own: an outage of one Graph surface (the mailbox answering 502 for hours) must not
+ * starve the others — before, a mail failure skipped calendar, chats, channels and files for as long as it lasted.
+ * A dead grant is the exception: every kind uses the same token, so it is recorded once and the rest are skipped.
+ * `needs_reauth` clears only on a run where nothing threw, as before. True when a re-auth stopped the run.
+ */
+export async function pullKinds(run: Run, st: Store, pullers: ReadonlyArray<readonly [MsgraphKind, () => Promise<void>]>): Promise<boolean> {
+  let failed = false;
+  for (const [kind, pull] of pullers) {
+    if (!run.only.has(kind)) continue;
+    try {
+      await pull();
+    } catch (e) {
+      failed = true;
+      if (e instanceof TokenError && e.needsReauth) {
+        // The one failure an unattended run cannot fix: record it where the operator will see it.
+        st.cursor.needs_reauth = { at: new Date().toISOString(), error: `${e.error} ${e.codes.join(',')}: ${e.description.split('\n')[0]}` };
+        st.fail(`NEEDS RE-BOOTSTRAP (run: orch sources auth <slug> msgraph login)`, e);
+        return true;
+      }
+      st.fail(kind, e);
+    }
+  }
+  if (!failed) delete st.cursor.needs_reauth;
+  return false;
+}
+
 async function pullAccount(run: Run, store: MsTokenStore, key: string, summary: PullSummary): Promise<void> {
   const acct = store.getAccount(key);
   const st = new Store(acct.upn, run);
@@ -622,21 +669,7 @@ async function pullAccount(run: Run, store: MsTokenStore, key: string, summary: 
   const ctx: AccountContext = { tenant_id: acct.tenant_id, upn: acct.upn, user_id: acct.user_id, display_name: acct.display_name };
   const g = new GraphClient(store, acct.key, { minIntervalMs: 150, log: run.vlog });
   run.log(`== ${acct.key} → ${st.dir}`);
-  try {
-    if (run.only.has('mail')) await pullMail(run, g, st, ctx);
-    if (run.only.has('calendar')) await pullCalendar(run, g, st, ctx);
-    if (run.only.has('chats')) await pullChats(run, g, st, ctx);
-    if (run.only.has('channels')) await pullChannels(run, g, st, ctx);
-    if (run.only.has('files')) await pullFiles(run, g, st, ctx);
-    delete st.cursor.needs_reauth;
-  } catch (e) {
-    if (e instanceof TokenError && e.needsReauth) {
-      // The one failure an unattended run cannot fix: record it where the operator will see it.
-      st.cursor.needs_reauth = { at: new Date().toISOString(), error: `${e.error} ${e.codes.join(',')}: ${e.description.split('\n')[0]}` };
-      st.fail(`NEEDS RE-BOOTSTRAP (run: orch sources auth <slug> msgraph login)`, e);
-      summary.reauth = true;
-    } else st.fail('run', e);
-  }
+  if (await pullKinds(run, st, PULLERS.map(([kind, pull]) => [kind, () => pull(run, g, st, ctx)] as const))) summary.reauth = true;
   st.cursor.runs = [...st.cursor.runs.slice(-9), { started_at: started, finished_at: new Date().toISOString(), counts: st.counts, errors: st.errors }];
   st.save();
   for (const [k, v] of Object.entries(st.counts)) summary.counts[`${acct.upn}/${k}`] = v;
