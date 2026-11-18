@@ -12,6 +12,8 @@ import { log } from './log.js';
 import { withGitRetry, type GitRetryOpts } from './gitretry.js';
 import { routineGuard } from './routineguard.js';
 import { GIT_EMAIL, GIT_NAME } from './gitidentity.js';
+import { parseRepo } from './repohost.js';
+import { composerAuthCopyScript } from './composerauth.js';
 
 // The sandbox image (snapshot/Dockerfile → SANDBOX_IMAGE, or a project's sandbox.image) bakes in the sandbox tooling
 // (git, gh, node, Claude Code, sail shims), so per-boot provisioning is gone. This ensures
@@ -67,8 +69,10 @@ export async function ensureDockerd(sandbox: SandboxHandle, slug?: string): Prom
 export function projectDir(cfg: Config, slug: string) {
   return `${cfg.sandbox.workDir}/${slug}`;
 }
+// The checkout's directory: the entry's last path segment — `name` for `owner/name` (as always) and for
+// `bitbucket.org/<workspace>/name` (bitbucket-repos); the load refuses two entries with the same one.
 export function repoName(repo: string): string {
-  return repo.split('/')[1] ?? repo;
+  return repo.split('/').pop() || repo;
 }
 // Multi-repo chat layout: each repo cloned at <workDir>/<slug>/<repoName>, so a
 // project (one sandbox) can hold several repos side by side (e.g. cms-general).
@@ -158,6 +162,21 @@ export async function seedGitHubAuth(
     log.warn(`gh auth login failed (${headLine(err)}) — continuing without gh auth; a gh command in this turn will report it`);
   }
 }
+// Bitbucket Cloud (OpenSpec bitbucket-repos D3): the token goes in as a file (never on a command line), and git gets
+// a helper scoped to bitbucket.org. The empty first value resets the helper list for that host, so the generic
+// GitHub helper (seedGitHubAuth) never answers bitbucket.org, whichever comes first in the file; github.com still
+// gets only the GitHub helper. Re-run every turn: --replace-all + --add leaves exactly these two values.
+export const BITBUCKET_TOKEN_PATH = '/root/.bb-token';
+export const BITBUCKET_HELPER =
+  `!f() { echo username=x-token-auth; echo "password=$(cat ${BITBUCKET_TOKEN_PATH})"; }; f`;
+
+export async function seedBitbucketAuth(sandbox: SandboxHandle, token: string) {
+  await sandbox.uploadFile(Buffer.from(token), BITBUCKET_TOKEN_PATH);
+  await sandbox.exec(`chmod 600 ${BITBUCKET_TOKEN_PATH}`, { check: true });
+  await sandbox.exec(`git config --global --replace-all credential.https://bitbucket.org.helper ''`, { check: true });
+  await sandbox.exec(`git config --global --add credential.https://bitbucket.org.helper '${BITBUCKET_HELPER}'`, { check: true });
+}
+
 const headLine = (err: unknown): string => (err instanceof Error ? err.message : String(err)).split('\n')[0]!.slice(0, 200);
 
 // Write the model credit into the sandbox (via fs, not echoed) — a subscription token or an API key, one
@@ -295,8 +314,21 @@ export async function seedComposerAuth(sandbox: SandboxHandle, checkoutDirs: str
   await sandbox.exec(composerAuthScript(checkoutDirs), { check: true });
 }
 
+// A project with Bitbucket repos or its own registries (bitbucket-repos D8): the whole auth.json is built on the bot's
+// side (composerauth.ts) and uploaded once, then copied into each checkout — the values never pass a command line. A
+// GitHub-only project without `composerAuth` keeps seedComposerAuth above, byte for byte.
+export const COMPOSER_AUTH_PATH = '/root/.composer-auth.json';
+
+export async function seedComposerAuthFile(sandbox: SandboxHandle, authJson: string, checkoutDirs: string[]) {
+  if (checkoutDirs.length === 0) return;
+  await sandbox.uploadFile(Buffer.from(authJson), COMPOSER_AUTH_PATH);
+  await sandbox.exec(`chmod 600 ${COMPOSER_AUTH_PATH}`, { check: true });
+  await sandbox.exec(composerAuthCopyScript(COMPOSER_AUTH_PATH, checkoutDirs), { check: true });
+}
+
 // Clone (or fetch) a single repo into its own <slug>/<repoName> dir. Used by the chat
-// path so a project can hold N repos. Idempotent.
+// path so a project can hold N repos. Idempotent. The URL comes from the entry's host (repohost.ts): for a
+// GitHub repo exactly the string it always was.
 export async function cloneRepo(sandbox: SandboxHandle, cfg: Config, slug: string, repo: string) {
   const dir = repoCheckout(cfg, slug, repo);
   const exists = await sandbox.exec(`test -d ${dir}/.git && echo yes || echo no`);
@@ -308,7 +340,7 @@ export async function cloneRepo(sandbox: SandboxHandle, cfg: Config, slug: strin
     // fetch/push fails once it expires (the helper's fresh token never gets a look-in). Force
     // the canonical tokenless URL so auth always flows through the fresh-token helper. Shared
     // .git config means this also heals every worktree of the repo.
-    await sandbox.exec(`git -C ${dir} remote set-url origin https://github.com/${repo}.git`, {
+    await sandbox.exec(`git -C ${dir} remote set-url origin ${parseRepo(repo).url}`, {
       check: true,
     });
     // The token this fetch uses was minted seconds ago; a not-yet-propagated token makes
@@ -318,7 +350,7 @@ export async function cloneRepo(sandbox: SandboxHandle, cfg: Config, slug: strin
     log.step(`cloning ${repo} → ${dir}`);
     await sandbox.exec(`mkdir -p ${projectDir(cfg, slug)}`, { check: true });
     await withGitRetry(
-      () => sandbox.exec(`git clone https://github.com/${repo}.git ${dir}`, { check: true, timeout: 900 }),
+      () => sandbox.exec(`git clone ${parseRepo(repo).url} ${dir}`, { check: true, timeout: 900 }),
       retryLog(repo),
     );
   }

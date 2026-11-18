@@ -7,6 +7,8 @@ import {
   seedGitHubAuth,
   seedClaudeAuth,
   seedComposerAuth,
+  seedComposerAuthFile,
+  seedBitbucketAuth,
   seedMcpConfig,
   seedGatewayAuth,
   provisionTooling,
@@ -22,6 +24,8 @@ import type { HostServerRoute } from './hosttools.js';
 import { buildSystemPrompt } from './prompt.js';
 import { collectOutbox, type OutboundFile } from './outbox.js';
 import type { GitFlow, McpServerSpec } from './projects.js';
+import { bitbucketRepos, githubRepos } from './repohost.js';
+import { composerAuthJson, resolveComposerAuth, type ComposerAuthConfig } from './composerauth.js';
 import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import { FactStore } from './facts.js';
 import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './deps.js';
@@ -37,7 +41,45 @@ const facts = new FactStore();
 // The GitHub token for a project covers its repos PLUS the same-org dependency repos on
 // record (private composer packages) — see deps.ts. Before the first scan the fact is
 // empty and the scope is just the project's repos, which is all cloning needs.
-const scopedRepos = (slug: string, repos: string[]) => tokenRepos(repos, facts.dependsOnRepos(slug));
+// Only the GitHub repos (bitbucket-repos D4): a Bitbucket entry in a mint would make GitHub reject the whole token.
+const scopedRepos = (slug: string, repos: string[]) => tokenRepos(githubRepos(repos), facts.dependsOnRepos(slug));
+
+// The turn's GitHub token (bitbucket-repos D4): the App mints for the project's GitHub repos only, and a project with
+// none gets '' — seedGitHubAuth's GITHUB_AUTH=none treatment, for this project alone, with no GitHub call. A static
+// GITHUB_TOKEN (or none) needs no repo to mint for and is returned as before.
+export function githubToken(cfg: Config, store: Store, slug: string, repos: string[], scope: string[]): Promise<string> {
+  if (cfg.github.kind === 'app' && githubRepos(repos).length === 0) return Promise.resolve('');
+  return getGitHubToken(cfg, scope, grantExtras(store, slug));
+}
+
+// composer's auth.json in every checkout (bitbucket-repos D8). A project without Bitbucket repos and without
+// `composerAuth` gets today's GitHub-only script, byte for byte; any other is written whole from the bot's side.
+export async function seedComposer(
+  sandbox: SandboxHandle,
+  cfg: Config,
+  repos: string[],
+  dirs: string[],
+  composerAuth: ComposerAuthConfig | undefined,
+  ghToken: string,
+): Promise<void> {
+  const bb = cfg.bitbucket && bitbucketRepos(repos).length ? cfg.bitbucket : undefined;
+  if (!bb && !composerAuth) {
+    // No GitHub access (GITHUB_AUTH=none): no token to mirror into composer's auth.json.
+    if (cfg.github.kind !== 'none') await seedComposerAuth(sandbox, dirs);
+    return;
+  }
+  const json = composerAuthJson({
+    ...(ghToken ? { githubToken: ghToken } : {}),
+    ...(bb ? { bitbucket: { username: bb.email ?? 'x-token-auth', token: bb.token } } : {}),
+    ...(composerAuth ? { extra: resolveComposerAuth(composerAuth, process.env) } : {}),
+  });
+  await seedComposerAuthFile(sandbox, json, dirs);
+}
+
+// The Bitbucket credential, for a project that has a Bitbucket repo (loadProjects guarantees the token then).
+export async function seedBitbucket(sandbox: SandboxHandle, cfg: Config, repos: string[]): Promise<void> {
+  if (cfg.bitbucket && bitbucketRepos(repos).length) await seedBitbucketAuth(sandbox, cfg.bitbucket.token);
+}
 import {
   planIngest,
   downloadAttachment,
@@ -163,6 +205,7 @@ async function prepareChat(
   upgradeCli?: boolean,
   sandboxOpts?: SandboxOptions,
   scanSkills = false,
+  composerAuth?: ComposerAuthConfig,
 ) {
   if (repos.length === 0) throw new Error(`project ${slug} has no repos`);
   const driver = createDriver(cfg, driverKind);
@@ -177,7 +220,9 @@ async function prepareChat(
   if (resolveSandboxOptions(sandboxOpts).dind) await ensureDockerd(sandbox, slug);
 
   const scopeBefore = scopedRepos(slug, repos);
-  await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeBefore, grantExtras(store, slug)));
+  let ghToken = await githubToken(cfg, store, slug, repos, scopeBefore);
+  await seedGitHubAuth(sandbox, ghToken);
+  await seedBitbucket(sandbox, cfg, repos);
   await seedClaudeAuth(sandbox, cfg.credit);
 
   for (const repo of repos) await cloneRepo(sandbox, cfg, slug, repo);
@@ -192,10 +237,10 @@ async function prepareChat(
   if (scanSkills) await scanProjectSkills(sandbox, facts, slug, skillOrigins(cfg, slug, repos));
   const scopeAfter = scopedRepos(slug, repos);
   if (scopeAfter.join() !== scopeBefore.join()) {
-    await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopeAfter, grantExtras(store, slug)));
+    ghToken = await githubToken(cfg, store, slug, repos, scopeAfter);
+    await seedGitHubAuth(sandbox, ghToken);
   }
-  // No GitHub access (GITHUB_AUTH=none): no token to mirror into composer's auth.json.
-  if (cfg.github.kind !== 'none') await seedComposerAuth(sandbox, checkouts.map((c) => c.dir));
+  await seedComposer(sandbox, cfg, repos, checkouts.map((c) => c.dir), composerAuth, ghToken);
   // Agents on the `pr` flow work in per-task worktrees (prompt.ts); reap finished/orphaned
   // ones — a no-op for a `direct` project, which never creates any.
   for (const repo of repos) await reapWorktrees(sandbox, repoCheckout(cfg, slug, repo));
@@ -317,13 +362,15 @@ export async function openChat(
     messagingSend?: boolean;
     // ProjectConfig.messaging.skills set: prepare scans the project's skills for its card (agent-skills).
     scanSkills?: boolean;
+    // ProjectConfig.composerAuth: the project's composer registries (bitbucket-repos D8).
+    composerAuth?: ComposerAuthConfig;
   },
 ): Promise<ChatSession> {
   const sourcesEnabled = opts.sources === true;
   // The sandbox's own MCP list is exactly the project's: bot-served servers never appear in it.
   const mcp = opts.mcp;
   const prep = await withSandboxLock(opts.slug, () =>
-    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox, opts.scanSkills === true),
+    prepareChat(cfg, store, opts.slug, opts.repos, opts.driver, opts.cliVersion, opts.upgradeCli, opts.sandbox, opts.scanSkills === true, opts.composerAuth),
   );
   const { driver, proj, cwd } = prep;
   // What every session below shares for agent skills: --add-dir per repo, the init recorder (sessionWiring).
@@ -347,6 +394,7 @@ export async function openChat(
     sourcesEnabled,
     ...(opts.messagingSend ? { messagingSend: true } : {}),
     gitFlow: opts.gitFlow,
+    ...(bitbucketRepos(opts.repos).length ? { bitbucketRepos: bitbucketRepos(opts.repos) } : {}),
     ...(cfg.github.kind === 'none' ? { noGitHub: true } : {}),
     ...(cfg.github.kind === 'app' ? { githubApp: true } : {}),
     ...(opts.outbox ? { outbox: true } : {}),
@@ -366,13 +414,20 @@ export async function openChat(
   // so a warm sandbox that handled the first message would otherwise hit "Bad credentials"
   // on a later `git push`/`gh pr create` (e.g. topping up commits on an open PR an hour on).
   // Sandbox-scoped lock: don't let siblings re-prepare the box concurrently.
+  // The repo credentials of a turn: the GitHub token, the Bitbucket one (Bitbucket projects), composer's auth.json.
+  async function seedRepoAuth(): Promise<void> {
+    const gh = await githubToken(cfg, store, opts.slug, opts.repos, scopedRepos(opts.slug, opts.repos));
+    await seedGitHubAuth(sandbox, gh);
+    await seedBitbucket(sandbox, cfg, opts.repos);
+    await seedComposer(sandbox, cfg, opts.repos, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)), opts.composerAuth, gh);
+  }
+
   async function ensureSession(): Promise<ClaudeSession> {
     if (session && !session.isDead()) {
       await withSandboxLock(opts.slug, async () => {
         sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug, opts.sandbox);
         await seedClaudeAuth(sandbox, cfg.credit);
-        await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos), grantExtras(store, opts.slug)));
-        if (cfg.github.kind !== 'none') await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
+        await seedRepoAuth();
         await seedMcpConfig(sandbox, mcp);
         await seedGatewayAuth(sandbox, opts.slug, mcp);
       });
@@ -385,8 +440,7 @@ export async function openChat(
       if (session && !session.isDead()) return session;
       sandbox = await driver.ensureSandbox(proj.sandboxName, opts.slug, opts.sandbox);
       await seedClaudeAuth(sandbox, cfg.credit);
-      await seedGitHubAuth(sandbox, await getGitHubToken(cfg, scopedRepos(opts.slug, opts.repos), grantExtras(store, opts.slug)));
-      if (cfg.github.kind !== 'none') await seedComposerAuth(sandbox, opts.repos.map((r) => repoCheckout(cfg, opts.slug, r)));
+      await seedRepoAuth();
       const mcpConfigPath = await seedMcpConfig(sandbox, mcp);
       await seedGatewayAuth(sandbox, opts.slug, mcp);
       // Bot restarted while a command was still running? Reattach to it once, rather than

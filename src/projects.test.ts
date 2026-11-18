@@ -393,3 +393,53 @@ test('registryPrivilegeWarnings reads the real variable names', () => {
   assert.deepEqual(registryPrivilegeWarnings(reg, { SANDBOX_HOST: 'local', SANDBOX_LOCAL_PRIVILEGED: '1' }), []);
   assert.deepEqual(registryPrivilegeWarnings(reg, { SANDBOX_HOST: 'aven@sandboxes.example.com' }), []);
 });
+
+// --- bitbucket-repos ---------------------------------------------------------------------------------------------
+const BB = { projects: [{ slug: 'atlas', repos: ['northwind/web', 'bitbucket.org/northwind/booking-api'] }] };
+
+test('bitbucket-repos: a mixed project loads when BITBUCKET_TOKEN is set', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify(BB));
+    const reg = loadProjects(cfg, { BITBUCKET_TOKEN: 'bb' });
+    assert.deepEqual(reg.projects[0]!.repos, ['northwind/web', 'bitbucket.org/northwind/booking-api']);
+  });
+});
+
+test('bitbucket-repos: without BITBUCKET_TOKEN the load fails naming the project and the variable', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify(BB));
+    assert.throws(() => loadProjects(cfg, {}), /"atlas".*BITBUCKET_TOKEN/);
+  });
+});
+
+test('bitbucket-repos: a GitHub-only installation needs no BITBUCKET_TOKEN', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify(BASE));
+    assert.doesNotThrow(() => loadProjects(cfg, {}));
+  });
+});
+
+test('bitbucket-repos: another host fails the load naming the project and the entry', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'atlas', repos: ['gitlab.com/northwind/web'] }] }));
+    assert.throws(() => loadProjects(cfg, {}), /project "atlas" repo "gitlab\.com\/northwind\/web"/);
+  });
+});
+
+test('bitbucket-repos: two repos with the same checkout name fail the load, naming both', () => {
+  withConfigDir((_dir, cfg) => {
+    writeFileSync(cfg, JSON.stringify({ projects: [{ slug: 'atlas', repos: ['northwind/booking-api', 'bitbucket.org/northwind/booking-api'] }] }));
+    assert.throws(() => loadProjects(cfg, { BITBUCKET_TOKEN: 'bb' }), /"northwind\/booking-api" and "bitbucket\.org\/northwind\/booking-api"/);
+  });
+});
+
+test('bitbucket-repos: composerAuth with an unknown ref fails the load naming project and variable, never a value', () => {
+  withConfigDir((_dir, cfg) => {
+    const p = { slug: 'atlas', repos: ['northwind/web'], composerAuth: { 'repo.registry.example': { username: 'token', password: '${REGISTRY_TOKEN}' } } };
+    writeFileSync(cfg, JSON.stringify({ projects: [p] }));
+    assert.throws(() => loadProjects(cfg, {}), /"atlas".*REGISTRY_TOKEN/);
+    const reg = loadProjects(cfg, { REGISTRY_TOKEN: 'reg-secret' });
+    // Resolved only when auth.json is written: the loaded registry keeps the ref.
+    assert.equal(reg.projects[0]!.composerAuth!['repo.registry.example']!.password, '${REGISTRY_TOKEN}');
+  });
+});

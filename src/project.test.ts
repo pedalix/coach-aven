@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CC_TOKEN_ENV, ccCreditEnv, composerAuthScript, repoSkillDirs, seedClaudeAuth, seedGatewayAuth, seedGitHubAuth, skillOrigins } from './project.js';
+import { CC_TOKEN_ENV, ccCreditEnv, cloneRepo, composerAuthScript, repoName, repoSkillDirs, seedBitbucketAuth, seedClaudeAuth, seedComposerAuthFile, seedGatewayAuth, seedGitHubAuth, skillOrigins } from './project.js';
 import type { Config } from './config.js';
 import type { SandboxHandle } from './driver.js';
 
@@ -177,4 +177,59 @@ test('seedGitHubAuth without a token (GITHUB_AUTH=none): nothing uploaded, an ea
   assert.deepEqual(s.execs.map((e) => e.cmd.split(' ').slice(0, 4).join(' ')), ['rm -f /root/.gh-token; git', 'git config --global user.name', 'git config --global user.email']);
   assert.match(s.execs[0]!.cmd, /--unset-all credential\.helper; gh auth logout --hostname github\.com$/);
   assert.equal(s.execs[0]!.check, false, 'a fresh sandbox has nothing to take out');
+});
+
+// --- bitbucket-repos ---------------------------------------------------------------------------------------------
+test('bitbucket-repos: repoName is the last segment — today\'s name for owner/name', () => {
+  assert.equal(repoName('Org/caldora'), 'caldora');
+  assert.equal(repoName('bitbucket.org/northwind/booking-api'), 'booking-api');
+});
+
+const recSandbox = (present: boolean) => {
+  const execs: string[] = [];
+  const uploads: Record<string, string> = {};
+  const sandbox = {
+    uploadFile: async (b: Buffer, p: string) => void (uploads[p] = b.toString()),
+    exec: async (c: string) => (execs.push(c), { exitCode: 0, result: c.startsWith('test -d') ? (present ? 'yes' : 'no') : '' }),
+  } as unknown as SandboxHandle;
+  return { sandbox, execs, uploads };
+};
+const workCfg = { sandbox: { workDir: '/root/work' } } as unknown as Config;
+
+test('bitbucket-repos: cloneRepo — a GitHub repo clones and heals with exactly today\'s URL', async () => {
+  const fresh = recSandbox(false);
+  await cloneRepo(fresh.sandbox, workCfg, 'atlas', 'northwind/web');
+  assert.ok(fresh.execs.includes('git clone https://github.com/northwind/web.git /root/work/atlas/web'));
+  const warm = recSandbox(true);
+  await cloneRepo(warm.sandbox, workCfg, 'atlas', 'northwind/web');
+  assert.ok(warm.execs.includes('git -C /root/work/atlas/web remote set-url origin https://github.com/northwind/web.git'));
+});
+
+test('bitbucket-repos: cloneRepo — a Bitbucket repo clones and heals with its tokenless bitbucket.org URL', async () => {
+  const fresh = recSandbox(false);
+  await cloneRepo(fresh.sandbox, workCfg, 'atlas', 'bitbucket.org/northwind/booking-api');
+  assert.ok(fresh.execs.includes('git clone https://bitbucket.org/northwind/booking-api.git /root/work/atlas/booking-api'));
+  const warm = recSandbox(true);
+  await cloneRepo(warm.sandbox, workCfg, 'atlas', 'bitbucket.org/northwind/booking-api');
+  assert.ok(warm.execs.includes('git -C /root/work/atlas/booking-api remote set-url origin https://bitbucket.org/northwind/booking-api.git'));
+});
+
+test('bitbucket-repos: seedBitbucketAuth — the token as a 600 file, a helper scoped to bitbucket.org behind an empty reset', async () => {
+  const r = recSandbox(false);
+  await seedBitbucketAuth(r.sandbox, 'BB-TOKEN');
+  assert.equal(r.uploads['/root/.bb-token'], 'BB-TOKEN');
+  assert.deepEqual(r.execs, [
+    'chmod 600 /root/.bb-token',
+    `git config --global --replace-all credential.https://bitbucket.org.helper ''`,
+    `git config --global --add credential.https://bitbucket.org.helper '!f() { echo username=x-token-auth; echo "password=$(cat /root/.bb-token)"; }; f'`,
+  ]);
+  assert.ok(!r.execs.some((c) => c.includes('BB-TOKEN')), 'the token never passes a command line');
+});
+
+test('bitbucket-repos: seedComposerAuthFile — uploads the file once, then copies it into the checkouts', async () => {
+  const r = recSandbox(false);
+  await seedComposerAuthFile(r.sandbox, '{"http-basic":{}}\n', ['/root/work/atlas/booking-api']);
+  assert.equal(r.uploads['/root/.composer-auth.json'], '{"http-basic":{}}\n');
+  assert.equal(r.execs[0], 'chmod 600 /root/.composer-auth.json');
+  assert.ok(r.execs[1]!.startsWith('if [ -f /root/work/atlas/booking-api/composer.json ]; then cp /root/.composer-auth.json'));
 });

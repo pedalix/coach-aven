@@ -53,8 +53,9 @@ Git applies a URL-specific `credential.<url>.helper` on top of the generic one, 
 so for `bitbucket.org` the Bitbucket helper answers whichever section comes first in the file. Checked on 2026-11-18
 with `git credential fill` (git 2.55) in both orders and after re-setting the generic helper in place: `bitbucket.org`
 got `x-token-auth` + the Bitbucket token, `github.com` got `x-access-token` + the GitHub token, every time. The generic GitHub
-helper stays exactly as it is, which keeps GitHub-only projects byte-identical. A project without Bitbucket repos gets
-no Bitbucket token and no `bitbucket.org` section (a section left by an earlier config is removed).
+helper stays exactly as it is, which keeps GitHub-only projects byte-identical. A project without Bitbucket repos is not
+seeded at all, so its exec calls stay exactly today's; a section an earlier config left behind stays and answers
+`bitbucket.org` only, with a token file that no longer changes.
 
 *Rejected:* scoping the GitHub helper to `github.com`: correct too, but it changes the seeding of every existing
 sandbox for nothing those projects need.
@@ -73,7 +74,10 @@ Bitbucket project's public GitHub dependencies under GitHub's authenticated rate
 sandbox's git config, so a file is the one thing composer sees everywhere). It now merges, in this order:
 
 - `github.com` from `/root/.gh-token`, as today, when there is a GitHub token;
-- `bitbucket.org` → `x-token-auth` + `/root/.bb-token`, when the project has a Bitbucket repo — a Bitbucket client's
+- `bitbucket.org` → `BITBUCKET_EMAIL` (else `x-token-auth`) + the Bitbucket token, when the project has a Bitbucket
+  repo. Found during the canary preparation (2026-11-18): Bitbucket's download URLs (`/<ws>/<repo>/get/<ref>.zip`)
+  take an API token only with the account e-mail as the user name (`x-token-auth` → 401), while git takes only
+  `x-token-auth` (the e-mail → authentication failed). So the installation names the e-mail beside the token — a Bitbucket client's
   lock file typically downloads its private packages' `dist` zips from `bitbucket.org` (seen: 65 of 331 packages),
   while its source URLs are SSH, which the sandbox has no key for;
 - the project's `composerAuth`, each `{ username, password }` resolved at load like an MCP header's `${VAR}`, except

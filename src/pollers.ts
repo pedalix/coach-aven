@@ -71,6 +71,7 @@ import { replicaDir } from './sources/paths.js';
 // The bot's GitHub login (the PRs it opens), so the auto-review skips its own: read at each use, after
 // the PR listing has resolved a token and with it the identity (gitidentity.ts).
 import { GIT_NAME } from './gitidentity.js';
+import { githubRepos } from './repohost.js';
 
 // Timezone the cron schedules are evaluated in. Set AVEN_TZ (IANA, e.g. Europe/Zurich)
 // in the runtime .env for local times; defaults to UTC.
@@ -507,7 +508,8 @@ export function createPollers(
         const c = driverOrSkip({ ...(asSurface(s.autoReviewSurface) ? { surface: asSurface(s.autoReviewSurface) } : {}), ...(s.autoReviewTeam ? { tenantId: s.autoReviewTeam } : {}) }, `auto-review ${project.slug}`);
         if (!c) continue;
         const reviewed = store.reviewedPrKeys();
-        for (const repo of project.repos) {
+        // GitHub repos only (bitbucket-repos): a Bitbucket repo has no pull requests the bot can see.
+        for (const repo of githubRepos(project.repos)) {
           const prs = await listOpenPRs(cfg, repo);
           const due = prsToReview(
             prs.map((p) => ({ repo, number: p.number, author: p.author, createdAt: p.createdAt, draft: p.draft })),

@@ -64,9 +64,12 @@ test('openChat — processEnded hands its notice to endStoppedSession with this 
 // orchestrator's own reads (pollers, sources) never do.
 test('grants — every sandbox token mint in tasks.ts passes the project\'s grant extras', () => {
   const src = readFileSync(new URL('./tasks.ts', import.meta.url), 'utf8');
-  const mints = src.match(/getGitHubToken\([^;]*\)\)/g) ?? [];
-  assert.equal(mints.length, 4, 'project preparation (before + after the dependency scan) and the two ensureSession seeds');
-  for (const m of mints) assert.match(m, /grantExtras\(store, (opts\.)?slug\)\)\)$/, m);
+  // One mint, in githubToken (bitbucket-repos D4), with the project's grants; every seed goes through it.
+  const mints = src.match(/getGitHubToken\([^;]*\);/g) ?? [];
+  assert.deepEqual(mints, ['getGitHubToken(cfg, scope, grantExtras(store, slug));']);
+  const seeds = src.match(/await githubToken\(cfg, store, (opts\.)?slug, (opts\.)?repos, /g) ?? [];
+  assert.equal(seeds.length, 3, 'project preparation (before + after the dependency scan) and seedRepoAuth (both ensureSession paths)');
+  assert.equal(src.match(/await seedRepoAuth\(\);/g)?.length, 2, 'the two ensureSession seeds');
 });
 
 test('grants — grantExtras: none without a grant or after its end, workflows write while it is active', () => {
@@ -83,4 +86,59 @@ test('grants — the orchestrator\'s own mints pass no extras', () => {
     const src = readFileSync(new URL(f, import.meta.url), 'utf8');
     for (const m of src.match(/getGitHubToken\([^)]*\)/g) ?? []) assert.doesNotMatch(m, /grant/i, `${f}: ${m}`);
   }
+});
+
+// --- bitbucket-repos ---------------------------------------------------------------------------------------------
+import type { SandboxHandle } from './driver.js';
+import type { Store } from './state.js';
+import { githubToken, seedBitbucket, seedComposer } from './tasks.js';
+import { composerAuthScript } from './project.js';
+
+const rec = () => {
+  const execs: string[] = [];
+  const uploads: Record<string, string> = {};
+  const sandbox = {
+    uploadFile: async (b: Buffer, p: string) => void (uploads[p] = b.toString()),
+    exec: async (c: string) => (execs.push(c), { exitCode: 0, result: '' }),
+  } as unknown as SandboxHandle;
+  return { sandbox, execs, uploads };
+};
+const appCfg = { github: { kind: 'app', appId: '1', privateKey: 'k' }, bitbucket: { token: 'BB', email: 'reader@example.com' } } as unknown as Config;
+const tokenCfg = { github: { kind: 'token', token: 'ghp_static' }, gitIdentity: { login: 'reader', email: 'reader@users.noreply.example' }, bitbucket: { token: 'BB' } } as unknown as Config;
+const noStore = { listGrants: () => [] } as unknown as Store;
+
+test('bitbucket-repos: the App mints nothing for a Bitbucket-only project (no GitHub call)', async () => {
+  assert.equal(await githubToken(appCfg, noStore, 'atlas', ['bitbucket.org/northwind/booking-api'], []), '');
+});
+
+test('bitbucket-repos: a static GITHUB_TOKEN is still handed to a Bitbucket-only project', async () => {
+  assert.equal(await githubToken(tokenCfg, noStore, 'atlas', ['bitbucket.org/northwind/booking-api'], []), 'ghp_static');
+});
+
+test('bitbucket-repos: a GitHub-only project without composerAuth gets today\'s composer script, byte for byte, and no Bitbucket seeding', async () => {
+  const r = rec();
+  await seedBitbucket(r.sandbox, tokenCfg, ['northwind/web']);
+  await seedComposer(r.sandbox, tokenCfg, ['northwind/web'], ['/root/work/atlas/web'], undefined, 'ghp_static');
+  assert.deepEqual(r.execs, [composerAuthScript(['/root/work/atlas/web'])]);
+  assert.deepEqual(r.uploads, {});
+});
+
+test('bitbucket-repos: a Bitbucket project gets the helper and one auth.json with GitHub, Bitbucket (account e-mail) and its registries', async () => {
+  const r = rec();
+  const prev = process.env.REGISTRY_TOKEN;
+  process.env.REGISTRY_TOKEN = 'reg-secret';
+  try {
+    const repos = ['northwind/web', 'bitbucket.org/northwind/booking-api'];
+    await seedBitbucket(r.sandbox, appCfg, repos);
+    await seedComposer(r.sandbox, appCfg, repos, ['/w/web', '/w/booking-api'], { 'repo.registry.example': { username: 'token', password: '${REGISTRY_TOKEN}' } }, 'ghs_minted');
+  } finally {
+    if (prev === undefined) delete process.env.REGISTRY_TOKEN;
+    else process.env.REGISTRY_TOKEN = prev;
+  }
+  assert.equal(r.uploads['/root/.bb-token'], 'BB');
+  const auth = JSON.parse(r.uploads['/root/.composer-auth.json']!)['http-basic'];
+  assert.deepEqual(auth['github.com'], { username: 'x-access-token', password: 'ghs_minted' });
+  assert.deepEqual(auth['bitbucket.org'], { username: 'reader@example.com', password: 'BB' });
+  assert.deepEqual(auth['repo.registry.example'], { username: 'token', password: 'reg-secret' });
+  assert.ok(!r.execs.some((c) => /BB|ghs_minted|reg-secret/.test(c.replace(/\/root\/\.bb-token/g, ''))), 'no value on a command line');
 });

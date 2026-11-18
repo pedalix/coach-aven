@@ -510,6 +510,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       hostServers: deps.hostRoutes?.routesFor(caller, project) ?? [],
       systemPrompt: project.systemPrompt,
       gitFlow: project.gitFlow,
+      ...(project.composerAuth ? { composerAuth: project.composerAuth } : {}),
       slackUrl,
       mcp: project.mcp,
       avenSession: avenSessionValue(key),

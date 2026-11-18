@@ -35,6 +35,8 @@ export interface SystemPromptInputs {
   gitFlow?: GitFlow;
   // GITHUB_AUTH=none (config.ts): no GitHub access at all; absent → today's text, byte for byte.
   noGitHub?: boolean;
+  // The project's Bitbucket entries (bitbucket-repos): read-only for the agent; absent or empty → today's text.
+  bitbucketRepos?: string[];
   // GITHUB_AUTH=app (config.ts): the sandbox token is an App installation token, so `/aven grant workflows` can widen
   // it (OpenSpec prompt-grant-hint); absent → today's text, byte for byte.
   githubApp?: boolean;
@@ -64,6 +66,15 @@ const NO_GITHUB =
   `for a change, make it in a worktree as described, show the diff in your reply, and say that a GitHub ` +
   `token in the installation's .env (\`GITHUB_TOKEN\`, with Contents and Pull requests read and write) lets you ` +
   `open the pull request yourself. Never ask the user to paste a token into the chat.`;
+
+// A project with Bitbucket Cloud repos (OpenSpec bitbucket-repos D2): they were cloned with a read-only token, so the
+// push and the pull request of the flow above do not exist for them. Like NO_GITHUB, it overrides the flow's last step.
+const bitbucketReadOnly = (repos: string[]) =>
+  `The repositories on Bitbucket (${repos.join(', ')}) are READ-ONLY for you: they were cloned with a read-only ` +
+  `token, nothing can be pushed there, and no pull request can be opened. Read, build and test them as usual. When ` +
+  `asked for a change in one of them, make it in a worktree as described, show the diff in your reply, and say that ` +
+  `a person applies it. Their remote is https://bitbucket.org/<workspace>/<repo>.git and git auth for it is already ` +
+  `configured — keep the remote as it is and NEVER put a token in its URL.`;
 
 // GITHUB_AUTH=app: the sandbox token leaves out `workflows` on purpose (github.ts AGENT_PERMISSIONS), and an operator
 // can lend it to the project for a while (grants.ts). Without this the agent misreads the refusal as a permission the
@@ -184,6 +195,7 @@ export function buildSystemPrompt(inp: SystemPromptInputs): string {
     lines.push('', TOOLCHAIN);
   }
   if (inp.noGitHub) lines.push('', NO_GITHUB);
+  if (inp.bitbucketRepos?.length) lines.push('', bitbucketReadOnly(inp.bitbucketRepos));
   if (inp.githubApp) lines.push('', WORKFLOW_GRANT);
   if (packageRepos.length) {
     lines.push(
