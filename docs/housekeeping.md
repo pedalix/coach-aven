@@ -40,7 +40,7 @@ distinct inhabitants of the same scheduler.
 ## Already exists
 
 - **`reapWorktrees`** (`src/project.ts`) — reaps finished/orphaned task worktrees, ~12h
-  idle, lazily on session prep. Housekeeping makes this proactive and consolidates it with
+  idle (since the worktree's own last git activity, not its commit's date), lazily on session prep. Housekeeping makes this proactive and consolidates it with
   the rest below.
 
 ## Tasks (inside `proj-<slug>`)

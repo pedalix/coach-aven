@@ -28,6 +28,7 @@ import { bitbucketRepos, githubRepos } from './repohost.js';
 import { composerAuthJson, resolveComposerAuth, type ComposerAuthConfig } from './composerauth.js';
 import { resolveSandboxOptions, type SandboxOptions } from './sandboxopts.js';
 import { FactStore } from './facts.js';
+import { eachLimit } from './pool.js';
 import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './deps.js';
 import { recordSessionCommands, scanProjectSkills } from './skills.js';
 import { restoreMemoryIfEmpty } from './memjournal.js';
@@ -182,6 +183,9 @@ export interface ChatSession {
 
 // Serialize per-sandbox preparation so two conversations sharing one project sandbox
 // don't race on clone / auth-file writes / tooling install (a project = one sandbox).
+// How many repos of a project prepareChat fetches (and reaps) at the same time.
+const REPO_PREP_CONCURRENCY = 4;
+
 const sandboxLocks = new Map<string, Promise<unknown>>();
 function withSandboxLock<T>(name: string, fn: () => Promise<T>): Promise<T> {
   const prev = sandboxLocks.get(name) ?? Promise.resolve();
@@ -225,7 +229,9 @@ async function prepareChat(
   await seedBitbucket(sandbox, cfg, repos);
   await seedClaudeAuth(sandbox, cfg.credit);
 
-  for (const repo of repos) await cloneRepo(sandbox, cfg, slug, repo);
+  // Several repos at once (pool.ts says why at most REPO_PREP_CONCURRENCY): one after another, a project with 15 repos
+  // spent ~30 s here before every new conversation, ~2 s of SSH round trips and fetch per repo.
+  await eachLimit(repos, REPO_PREP_CONCURRENCY, (repo) => cloneRepo(sandbox, cfg, slug, repo));
   // Writer: scan the fresh checkouts' manifests → `depends_on_repos` fact. Readers: if the
   // token scope changed (first session, or a repo gained/lost a private package), re-mint
   // so this session's token already covers the packages; then mirror it into composer's
@@ -243,7 +249,7 @@ async function prepareChat(
   await seedComposer(sandbox, cfg, repos, checkouts.map((c) => c.dir), composerAuth, ghToken);
   // Agents on the `pr` flow work in per-task worktrees (prompt.ts); reap finished/orphaned
   // ones — a no-op for a `direct` project, which never creates any.
-  for (const repo of repos) await reapWorktrees(sandbox, repoCheckout(cfg, slug, repo));
+  await eachLimit(repos, REPO_PREP_CONCURRENCY, (repo) => reapWorktrees(sandbox, repoCheckout(cfg, slug, repo)));
   const cwd = projectCwd(cfg, slug, repos);
   // Seed memory from the host journal only when this sandbox has none yet (a fresh rebuild) —
   // a warm sandbox is the newer source of truth and is left untouched.

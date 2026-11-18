@@ -255,6 +255,13 @@ const REAP_HOURS = Math.floor(Number(process.env.WORKTREE_REAP_HOURS)) || 12;
 // loss), and idle longer than WORKTREE_REAP_HOURS (so an active conversation's worktree is
 // left alone). Run at prepareChat (lazy) and by the nightly housekeeping routine
 // (proactive); returns how many were reaped for the housekeeping digest.
+//
+// Idle = since the worktree's own last git activity: the newest of its HEAD commit and the files git keeps for it
+// (`HEAD`, `index`, `logs/HEAD` in its admin dir — written by `worktree add`, checkout, commit, and the index refresh
+// of `status`/`diff`). The commit alone is not enough: a worktree made a minute ago on a commit from last week (a
+// review of `origin/develop`) looked idle for a week and was removed under the agent using it. The reaper's own
+// `status` must not count as activity, so it takes no optional locks (it never rewrites the index), and a `status`
+// that fails keeps the worktree, as an unreadable one is not known to be clean.
 export async function reapWorktrees(sandbox: SandboxHandle, repoDir: string): Promise<number> {
   const script =
     `cd ${repoDir} 2>/dev/null || exit 0\n` +
@@ -264,10 +271,13 @@ export async function reapWorktrees(sandbox: SandboxHandle, repoDir: string): Pr
     `git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print $2}' | while read wt; do\n` +
     `  [ "$wt" = "$main" ] && continue\n` +
     `  [ -d "$wt" ] || continue\n` +
-    `  [ -n "$(git -C "$wt" status --porcelain 2>/dev/null)" ] && continue\n` +
+    `  gd=$(git -C "$wt" rev-parse --absolute-git-dir 2>/dev/null) || continue\n` +
+    `  last=$( { git -C "$wt" log -1 --format=%ct 2>/dev/null; stat -c %Y "$gd/HEAD" "$gd/index" "$gd/logs/HEAD" 2>/dev/null; } | sort -n | tail -n 1)\n` +
+    `  [ -n "$last" ] || continue\n` +
+    `  [ $(( now - last )) -lt $(( ${REAP_HOURS} * 3600 )) ] && continue\n` +
+    `  st=$(git --no-optional-locks -C "$wt" status --porcelain 2>/dev/null) || continue\n` +
+    `  [ -n "$st" ] && continue\n` +
     `  [ -n "$(git -C "$wt" rev-list HEAD --not --remotes 2>/dev/null)" ] && continue\n` +
-    `  ct=$(git -C "$wt" log -1 --format=%ct 2>/dev/null || echo $now)\n` +
-    `  [ $(( now - ct )) -lt $(( ${REAP_HOURS} * 3600 )) ] && continue\n` +
     `  git worktree remove "$wt" --force 2>/dev/null && echo "reaped $wt"\n` +
     `done`;
   const r = await sandbox.exec(script);

@@ -135,7 +135,7 @@ optionally more beside it. [Chat surfaces](runtime-config.md#chat-surfaces-chat_
 | `TURN_MAX_CONCURRENT` | `4` | Agent turns running at once across all conversations; the rest wait for a slot. [Multi-tenancy → capacity](multitenancy.md). |
 | `STREAM_MAX_MINUTES` | `15` | Soft turn deadline: past it the user is told the turn is still working. |
 | `STREAM_HARD_MAX_MINUTES` | `60` | Hard turn deadline: the turn is killed and the session retired; also how long lingering work keeps an idle sandbox up. |
-| `WORKTREE_REAP_HOURS` | `12` | Idle hours before a clean, fully pushed git worktree in a sandbox is reaped. |
+| `WORKTREE_REAP_HOURS` | `12` | Idle hours before a clean, fully pushed git worktree in a sandbox is reaped. Idle counts from the worktree's own last git activity (made, checked out, committed, status), not from its commit's date. |
 
 ### Routines and housekeeping
 
