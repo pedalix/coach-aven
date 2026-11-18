@@ -15,6 +15,8 @@ import {
   type GatewayOAuth,
 } from './gwtoken.js';
 import { log } from './log.js';
+import { bitbucketRepos, repoProblems } from './repohost.js';
+import { validateComposerAuth, type ComposerAuthConfig } from './composerauth.js';
 
 // Registry of the projects the bot serves. ONE bot, MANY channels: each Slack channel
 // is bound to a project, and each project gets its OWN isolated sandbox (proj-<slug>).
@@ -55,7 +57,9 @@ export type GitFlow = (typeof GIT_FLOWS)[number];
 
 export interface ProjectConfig {
   slug: string; // short id + sandbox suffix (proj-<slug>); channel = aven-<slug>
-  repos: string[]; // ["Org/name", ...]; repos[0] is primary (v1 clones/uses it)
+  // ["Org/name", ...] on GitHub, or "bitbucket.org/<workspace>/<repo>" on Bitbucket Cloud, read-only (repohost.ts);
+  // repos[0] is primary.
+  repos: string[];
   slackChannel?: string; // optional explicit channel-id override (else bound by name)
   // A Teams installation binds by id only (channels have no name wildcard there): the channel's
   // `19:…@thread.tacv2` id, exactly as Teams delivers it (OpenSpec teams-chat-driver).
@@ -78,6 +82,9 @@ export interface ProjectConfig {
   // current branch, push — a repo with no review flow (an ops ledger the agent itself keeps).
   // Explicit on purpose: never inferred from repo names or `sources`. Applies to new sessions.
   gitFlow?: GitFlow;
+  // Composer registries beyond GitHub and Bitbucket (OpenSpec bitbucket-repos D8): host → { username, password },
+  // either may hold `${VAR}` refs to the bot's environment (checked at load, resolved when auth.json is written).
+  composerAuth?: ComposerAuthConfig;
   env?: Record<string, string>; // per-project env/secrets seeded into the sandbox (reserved)
   mcp?: McpServerSpec[]; // per-project MCP servers → materialized into --mcp-config in the sandbox
   // Which sandbox driver hosts this project's sandbox (see driver.ts). Optional: omitted → the
@@ -166,7 +173,7 @@ export interface RegistryRef {
   current: ProjectsRegistry;
 }
 
-// `env` is read for one check only (the installation gateway client, below); tests inject it.
+// `env` is read for checks only (the installation gateway client, BITBUCKET_TOKEN, composerAuth refs); tests inject it.
 export function loadProjects(path: string, env: Record<string, string | undefined> = process.env): ProjectsRegistry {
   if (!existsSync(path)) {
     throw new Error(
@@ -181,6 +188,16 @@ export function loadProjects(path: string, env: Record<string, string | undefine
   for (const p of reg.projects) {
     if (!p.slug || !Array.isArray(p.repos) || p.repos.length === 0) {
       throw new Error(`${path}: each project needs a "slug" and at least one repo in "repos"`);
+    }
+    // An unsupported host, or two repos that would share one checkout directory (bitbucket-repos).
+    const repoErrors = repoProblems(p.repos);
+    if (repoErrors.length) throw new Error(`${path}: project "${p.slug}" ${repoErrors.join('; ')}`);
+    if (p.composerAuth !== undefined) {
+      try {
+        p.composerAuth = validateComposerAuth(p.composerAuth, `project "${p.slug}" composerAuth`, env);
+      } catch (e) {
+        throw new Error(`${path}: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
     // A typo here would silently fall back to the PR flow — fail the boot (and `/aven reload`).
     if (p.gitFlow !== undefined && !(GIT_FLOWS as readonly string[]).includes(p.gitFlow)) {
@@ -258,6 +275,14 @@ export function loadProjects(path: string, env: Record<string, string | undefine
         }
       }
     }
+  }
+  // Bitbucket repos need the installation's read credential (bitbucket-repos D6): name every project that has one.
+  const needBitbucket = reg.projects.filter((p) => bitbucketRepos(p.repos).length > 0).map((p) => p.slug);
+  if (needBitbucket.length && !env.BITBUCKET_TOKEN?.trim()) {
+    throw new Error(
+      `${path}: projects ${quoted(needBitbucket)} list Bitbucket repos, and BITBUCKET_TOKEN is not set — an API token with ` +
+        `read:repository:bitbucket (plus BITBUCKET_EMAIL, its account's e-mail) or a workspace access token; see docs/configuration.md`,
+    );
   }
   // Gateway entries (OpenSpec gateway-auth). One without `oauth` used to select an Auth0-specific
   // request that is gone (retire-auth0-gateway-path), so it fails the load naming the fix. Two

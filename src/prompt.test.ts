@@ -173,3 +173,18 @@ test('golden: an App-auth installation adds the workflow-grant paragraph after t
   // agent-github-read-superset: the same paragraph names the actions grant for a refused dispatch / re-run / cancel.
   assert.match(added[0]!, /dispatching, re-running or cancelling a workflow run.*`\/aven grant actions`/);
 });
+
+// OpenSpec bitbucket-repos: a project with Bitbucket repos gets one read-only paragraph after the flow; without them the
+// prompt is the golden one, byte for byte (every golden above passes no bitbucketRepos).
+test('bitbucket-repos: the read-only paragraph names the Bitbucket repos and is the only addition', () => {
+  const repos = ['AcmeOrg/acme-admin', 'bitbucket.org/acme/booking-api'];
+  const base = buildSystemPrompt({ ...MULTI, repos });
+  const withBb = buildSystemPrompt({ ...MULTI, repos, bitbucketRepos: ['bitbucket.org/acme/booking-api'] });
+  const added = withBb.split('\n').filter((l) => !base.split('\n').includes(l));
+  assert.equal(added.length, 1);
+  assert.match(added[0]!, /^The repositories on Bitbucket \(bitbucket\.org\/acme\/booking-api\) are READ-ONLY for you/);
+  assert.match(added[0]!, /show the diff in your reply/);
+  assert.match(added[0]!, /NEVER put a token in its URL/);
+  assert.ok(base.includes('  - booking-api/   (bitbucket.org/acme/booking-api)'), 'the repo list names the checkout and the entry');
+  assert.equal(buildSystemPrompt({ ...MULTI, bitbucketRepos: [] }), golden('multi-repo'));
+});

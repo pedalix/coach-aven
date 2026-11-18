@@ -140,6 +140,22 @@ function githubAuth(): GitHubAuth {
   };
 }
 
+// Bitbucket Cloud (OpenSpec bitbucket-repos): one read-only credential per installation, for the projects that list a
+// `bitbucket.org/<workspace>/<repo>` entry (projects.ts refuses such a project without it). BITBUCKET_TOKEN is an API
+// token with `read:repository:bitbucket` or a workspace access token; git sends it as `x-token-auth`. BITBUCKET_EMAIL
+// is the API token's account e-mail: Bitbucket's download URLs (composer's dist zips) take an API token only with it.
+export interface BitbucketAuth {
+  token: string;
+  email?: string;
+}
+
+export function bitbucketAuth(env: Record<string, string | undefined>): BitbucketAuth | undefined {
+  const token = env.BITBUCKET_TOKEN?.trim();
+  if (!token) return undefined;
+  const email = env.BITBUCKET_EMAIL?.trim();
+  return { token, ...(email ? { email } : {}) };
+}
+
 // Multi-workspace OAuth install flow (Public Distribution). Active only when the client
 // credentials are set — a plain SLACK_BOT_TOKEN dev run stays single-workspace with zero
 // OAuth moving parts. `homeTeamId` names OUR workspace (pollers/alerts/recovery run there;
@@ -239,6 +255,8 @@ export interface Config {
   // keep whatever their image shipped (and the daily drift check nags). See cliversion.ts.
   claudeCliVersion?: string;
   github: GitHubAuth;
+  // BITBUCKET_TOKEN (+ BITBUCKET_EMAIL): absent unless set; only Bitbucket projects use it.
+  bitbucket?: BitbucketAuth;
   // GITHUB_BOT_LOGIN + GITHUB_BOT_USER_ID: the commit identity named by hand. Unset → the bot asks GitHub
   // who its credential is (github.ts, ensureGitIdentity).
   gitIdentity?: GitIdentity;
@@ -493,6 +511,7 @@ export function loadConfig(): Config {
     outboundFiles: outboundFilesEnv(process.env.OUTBOUND_FILES),
     claudeCliVersion: cliVersionEnv(),
     github: githubAuth(),
+    ...(bitbucketAuth(process.env) ? { bitbucket: bitbucketAuth(process.env) } : {}),
     gitIdentity: gitIdentityOverride(process.env),
     slack: slackConfig(),
     teams: teamsConfig(),

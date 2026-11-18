@@ -29,6 +29,7 @@ import { memoryFilePath } from '../../memory.js';
 import { snapshotLog, memoryRepoDir, readSnapshotFile } from '../../memjournal.js';
 import { HOUSEKEEPING_DEFAULT_CRON, HOUSEKEEPING_DEFAULT_SPEC, pruneThreshold } from '../../housekeeping.js';
 import { countOpenPRs, getPrMeta, ciStatusForSha, listReviews, installationPermissions } from '../../github.js';
+import { githubRepos } from '../../repohost.js';
 import { activeGrants, effectNote, grantListText, grantNotice, isActive, parseGrantCmd, type GrantRecord } from '../../grants.js';
 import { CMD, MAX_SLACK_TEXT, info, errText, shortRepo, notConfiguredText } from '../slack/blocks.js';
 import type { Actor, ChatCommand, ChatDriver } from '../driver.js';
@@ -158,7 +159,8 @@ export function createCommands(deps: CommandDeps) {
     }
 
     const prCounts = await Promise.all(
-      myProjects.map((p) => countOpenPRs(cfg, p.repos).catch(() => undefined)),
+      // GitHub repos only (bitbucket-repos): a Bitbucket-only project has no PR count, and asks GitHub nothing.
+      myProjects.map((p) => (githubRepos(p.repos).length ? countOpenPRs(cfg, githubRepos(p.repos)).catch(() => undefined) : Promise.resolve(undefined))),
     );
     const githubOk = prCounts.some((n) => n !== undefined);
 
@@ -463,7 +465,7 @@ export function createCommands(deps: CommandDeps) {
     store.setGrant(rec);
     log.info(`grant: ${project.slug} ${parsed.capability} until ${rec.until} by ${cmd.actor.user}`);
     const failed = await announce(grantNotice(rec, ROUTINE_TZ));
-    const repo = project.repos[0];
+    const repo = githubRepos(project.repos)[0];
     const note = effectNote(cfg.github?.kind, parsed.capability, repo ? await installationPermissions(cfg, repo) : undefined);
     return { kind: 'text', text: `:white_check_mark: Granted — it applies from the next message on.${failed}${note ? `\n:warning: ${note}` : ''}` };
   }
