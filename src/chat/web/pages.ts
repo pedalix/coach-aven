@@ -9,6 +9,7 @@ import { Html, h, markdownToHtml, plainText, raw } from './webformat.js';
 import { fromStored, type Message, type ThreadSummary } from './history.js';
 import { renderMessageView, renderPrivateView, type NameOf, type Rendered } from './webviews.js';
 import { privateConv, roomConv } from './keys.js';
+import { cardNews, threadSeenKey } from './unread.js';
 import { fmtSize } from './files.js';
 import { isImage, mimeOf } from '../../attachments.js';
 import type { Mark } from '../driver.js';
@@ -26,8 +27,12 @@ export interface Shell {
   active?: { slug: string; kind: 'room' | 'private' };
   /** The stream this page listens to, when it shows a live conversation. */
   stream?: { conv: string; thread?: string };
-  /** The last activity (ISO) per conversation the sidebar lists — the client marks the ones it has not seen. */
+  /** The last activity (ISO) per private conversation the sidebar lists — the client marks the ones it has not seen. */
   activity?: Record<string, string>;
+  /** Per room conversation, its threads' newest news for this viewer (unread.ts `sidebarThreads`): the client counts the unseen ones. */
+  threadNews?: Record<string, string>;
+  /** The server's clock at render (ISO): what the client records as seen, so a skewed browser clock marks nothing wrong. */
+  now?: string;
   /** The command verbs the composer suggests after `/`. */
   verbs?: string[];
   /** The per-file upload limit, for the client's check before an upload. */
@@ -76,13 +81,16 @@ export function messageHtml(m: Message, nameOf: NameOf, slug = ''): Html {
   return h`<article class="${cls}" id="msg-${m.id}" data-id="${m.id}"${m.thread ? h` data-thread="${m.thread}"` : ''}><header><span class="who">${who}</span> ${time(m.at)}${m.visibleTo ? h` <span class="tag">only you</span>` : ''}${m.marks.length ? h` <span class="marks">${m.marks.map((k) => h`<span class="mark mark-${k}">${MARK_LABEL[k]}</span>`)}</span>` : ''}</header><div class="body">${body.html}</div></article>`;
 }
 
-/** A thread in the room list: the root post, who, when, how many replies, the latest line. */
-export function threadCardHtml(slug: string, t: ThreadSummary, last: Message | undefined, nameOf: NameOf): Html {
+/**
+ * A thread in the room list: the root post, who, when, how many replies, the latest line. `news`: when its messages
+ * became news for this viewer (unread.ts) — the client counts the ones after the viewer last opened the thread.
+ */
+export function threadCardHtml(slug: string, t: ThreadSummary, last: Message | undefined, nameOf: NameOf, news?: string[]): Html {
   const root = t.root;
   const who = root.by ? (nameOf(root.by.id) ?? root.by.name ?? root.by.id) : 'CoachAven';
   const title = root.by ? plainText(root.text ?? '', 140) || messageBody(root, nameOf, slug).text : messageBody(root, nameOf, slug).text || 'CoachAven';
   const latest = last && last.id !== root.id ? messageBody(last, nameOf, slug).text : '';
-  return h`<a class="thread-card${root.visibleTo ? ' private' : ''}" id="thread-${root.id}" href="/r/${encodeURIComponent(slug)}/t/${encodeURIComponent(root.id)}"><div class="title">${title || '(empty)'}${root.visibleTo ? h` <span class="tag">only you</span>` : ''}</div><div class="meta"><span class="who">${who}</span> · ${time(root.at)} · ${t.replies} ${t.replies === 1 ? 'reply' : 'replies'}${latest ? h` · <span class="latest">${latest.slice(0, 120)}</span>` : ''}</div></a>`;
+  return h`<a class="thread-card${root.visibleTo ? ' private' : ''}" id="thread-${root.id}" data-seen-key="${threadSeenKey(roomConv(slug), root.id)}" data-news="${cardNews(news)}" href="/r/${encodeURIComponent(slug)}/t/${encodeURIComponent(root.id)}"><div class="title">${title || '(empty)'}${root.visibleTo ? h` <span class="tag">only you</span>` : ''}</div><div class="meta"><span class="who">${who}</span> · ${time(root.at)} · ${t.replies} ${t.replies === 1 ? 'reply' : 'replies'}${latest ? h` · <span class="latest">${latest.slice(0, 120)}</span>` : ''}</div></a>`;
 }
 
 // The composer: the text, the files picked (or dropped / pasted — app.js), the send button; `/` opens the verb
@@ -90,8 +98,8 @@ export function threadCardHtml(slug: string, t: ThreadSummary, last: Message | u
 const composer = (placeholder: string, hint: Html): Html =>
   h`<form class="composer" id="composer" autocomplete="off"><textarea name="text" rows="2" maxlength="20000" placeholder="${placeholder}"></textarea><ul class="suggest" id="suggest" hidden></ul><ul class="pending-files" id="pending" hidden></ul><div class="composer-row"><span class="hint">${hint}</span><span class="composer-tools"><label class="btn small">📎 Attach<input type="file" id="file-input" multiple hidden></label><button type="submit" class="btn primary">Send</button></span></div></form>`;
 
-export function roomPage(project: ProjectConfig, threads: { summary: ThreadSummary; last?: Message }[], nameOf: NameOf): Html {
-  return h`<section class="room" data-conv="${roomConv(project.slug)}"><header class="page-head"><h1>${project.slug}</h1><p class="meta">${project.repos.join(', ')}</p></header>${composer('Start a new thread — a task for the agent, or a note beginning with !', h`A top-level post starts a thread; <code>!</code> for a note; <code>/help</code> for commands.`)}<div class="threads" id="threads">${threads.length ? threads.map((t) => threadCardHtml(project.slug, t.summary, t.last, nameOf)) : h`<p class="meta empty">No threads yet.</p>`}</div></section>`;
+export function roomPage(project: ProjectConfig, threads: { summary: ThreadSummary; last?: Message; news?: string[] }[], nameOf: NameOf): Html {
+  return h`<section class="room" data-conv="${roomConv(project.slug)}"><header class="page-head"><h1>${project.slug}</h1><p class="meta">${project.repos.join(', ')}</p></header>${composer('Start a new thread — a task for the agent, or a note beginning with !', h`A top-level post starts a thread; <code>!</code> for a note; <code>/help</code> for commands.`)}<div class="threads" id="threads">${threads.length ? threads.map((t) => threadCardHtml(project.slug, t.summary, t.last, nameOf, t.news)) : h`<p class="meta empty">No threads yet.</p>`}</div></section>`;
 }
 
 export function threadPage(project: ProjectConfig, rootId: string, messages: Message[], nameOf: NameOf): Html {
@@ -133,7 +141,7 @@ export function deniedPage(email: string | undefined): Html {
 export function layout(shell: Shell, content: Html): string {
   const v = shell.viewer;
   const nav = v
-    ? h`<nav class="side"><a class="brand" href="/">CoachAven</a><h2>Rooms</h2><ul>${shell.projects.map((p) => h`<li><a href="/r/${encodeURIComponent(p.slug)}" data-conv="${roomConv(p.slug)}" data-last="${shell.activity?.[roomConv(p.slug)] ?? ''}"${shell.active?.slug === p.slug && shell.active.kind === 'room' ? ' class="active"' : ''}>#${p.slug}</a></li>`)}</ul><h2>Private</h2><ul>${shell.projects.map((p) => h`<li><a href="/p/${encodeURIComponent(p.slug)}" data-conv="${privateConv(v.user, p.slug)}" data-last="${shell.activity?.[privateConv(v.user, p.slug)] ?? ''}"${shell.active?.slug === p.slug && shell.active.kind === 'private' ? ' class="active"' : ''}>🔒 ${p.slug}</a></li>`)}</ul></nav>`
+    ? h`<nav class="side"><a class="brand" href="/">CoachAven</a><h2>Rooms</h2><ul>${shell.projects.map((p) => h`<li><a href="/r/${encodeURIComponent(p.slug)}" data-conv="${roomConv(p.slug)}" data-threads="${shell.threadNews?.[roomConv(p.slug)] ?? ''}"${shell.active?.slug === p.slug && shell.active.kind === 'room' ? ' class="active"' : ''}>#${p.slug}</a></li>`)}</ul><h2>Private</h2><ul>${shell.projects.map((p) => h`<li><a href="/p/${encodeURIComponent(p.slug)}" data-conv="${privateConv(v.user, p.slug)}" data-last="${shell.activity?.[privateConv(v.user, p.slug)] ?? ''}"${shell.active?.slug === p.slug && shell.active.kind === 'private' ? ' class="active"' : ''}>🔒 ${p.slug}</a></li>`)}</ul></nav>`
     : raw('');
   const head = v
     ? h`<header class="top"><button type="button" class="btn small" id="notify" title="Browser notifications for answers while this tab is in the background">🔔 Notify</button><span class="viewer">${v.name ?? v.user}</span><form method="post" action="/logout" class="inline"><input type="hidden" name="csrf" value="${v.csrf}"><button type="submit" class="btn small">Sign out</button></form></header>`
@@ -149,6 +157,7 @@ ${v ? h`<meta name="csrf" content="${v.csrf}">`.html : ''}
 ${streamUrl ? h`<meta name="stream" content="${streamUrl}">`.html : ''}
 ${shell.verbs?.length ? h`<meta name="verbs" content="${shell.verbs.join(' ')}">`.html : ''}
 ${shell.maxFileMb ? h`<meta name="max-file-mb" content="${shell.maxFileMb}">`.html : ''}
+${shell.now ? h`<meta name="now" content="${shell.now}">`.html : ''}
 ${shell.refresh ? h`<meta http-equiv="refresh" content="0;url=${shell.refresh}">`.html : ''}
 <link rel="stylesheet" href="/assets/app.css">
 </head>

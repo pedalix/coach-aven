@@ -16,20 +16,69 @@
   var verbs = (meta('verbs') || '').split(' ').filter(Boolean);
   var maxFileMb = Number(meta('max-file-mb') || '20');
 
-  // ── seen / unread (per browser, localStorage): the sidebar marks conversations with activity this browser has not opened ──
+  // ── seen / unread (per browser, localStorage; OpenSpec web-chat-driver "Unread counts") ──
+  // The server says when each message became news for this viewer (unread.ts) and stamps the page with its clock
+  // (meta "now"); this browser keeps, per thread and per private conversation, the server time it last saw it at.
+  // A room's sidebar link counts its threads with news after that, a thread card its messages, a private
+  // conversation gets a dot. Opening a thread (or the private page) marks it seen; opening the room marks nothing.
+  // "aven.since": the first page this browser loaded with counts — older news is not unread, so a new browser (or
+  // the first load after this shipped) starts clean.
   var SEEN_KEY = 'aven.seen';
+  var SINCE_KEY = 'aven.since';
+  var SEEN_MAX = 1000; // entries kept; the oldest go first
+  var CARD_NEWS = 20; // the server's cap per card (unread.ts): all of them unread shows "20+"
+  var serverNow = meta('now') || '';
+  var latestAt = serverNow; // the newest server time this page has shown
+  var seenKey = thread && conv ? conv + '#' + thread : (section && section.classList.contains('private') ? conv : null);
   function seenMap() { try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}'); } catch (e) { return {}; } }
-  function markSeen(c) { if (!c) return; try { var m = seenMap(); m[c] = new Date().toISOString(); localStorage.setItem(SEEN_KEY, JSON.stringify(m)); } catch (e) {} paintUnread(); }
+  var since = (function () { try { var s = localStorage.getItem(SINCE_KEY); if (!s && serverNow) { localStorage.setItem(SINCE_KEY, serverNow); s = serverNow; } return s || ''; } catch (e) { return ''; } })();
+  function seenOf(m, key) { var s = m[key] || ''; return s > since ? s : since; }
+  function markSeen(key, at) {
+    if (!key || !at) return;
+    try {
+      var m = seenMap();
+      if ((m[key] || '') >= at) return;
+      m[key] = at;
+      var keys = Object.keys(m);
+      if (keys.length > SEEN_MAX) keys.sort(function (a, b) { return m[a] < m[b] ? -1 : 1; }).slice(0, keys.length - SEEN_MAX).forEach(function (k) { delete m[k]; });
+      localStorage.setItem(SEEN_KEY, JSON.stringify(m));
+    } catch (e) {}
+    paintUnread();
+  }
+  function setBadge(el, text) {
+    var b = el.querySelector(':scope > .badge');
+    if (!text) { if (b) b.remove(); return; }
+    if (!b) { b = document.createElement('span'); b.className = 'badge'; el.appendChild(b); }
+    b.textContent = text;
+  }
+  function words(s) { return (s || '').split(' ').filter(Boolean); }
   function paintUnread() {
     var m = seenMap();
-    document.querySelectorAll('nav.side a[data-conv]').forEach(function (a) {
+    document.querySelectorAll('nav.side a[data-threads]').forEach(function (a) {
+      var c = a.getAttribute('data-conv');
+      var n = words(a.getAttribute('data-threads')).filter(function (p) {
+        var i = p.indexOf('@'); var key = c + '#' + p.slice(0, i);
+        return key !== seenKey && p.slice(i + 1) > seenOf(m, key);
+      }).length;
+      setBadge(a, n ? String(n) : '');
+      a.title = n ? n + (n === 1 ? ' thread' : ' threads') + ' with new messages' : '';
+    });
+    document.querySelectorAll('nav.side a[data-last]').forEach(function (a) {
       var last = a.getAttribute('data-last') || '';
-      var seen = m[a.getAttribute('data-conv')] || '';
-      a.classList.toggle('unread', !!last && last > seen && a.getAttribute('data-conv') !== conv);
+      var c = a.getAttribute('data-conv');
+      a.classList.toggle('unread', !!last && last > seenOf(m, c) && c !== seenKey);
+    });
+    document.querySelectorAll('.thread-card[data-seen-key]').forEach(function (card) {
+      var news = words(card.getAttribute('data-news'));
+      var seen = seenOf(m, card.getAttribute('data-seen-key'));
+      var n = news.filter(function (t) { return t > seen; }).length;
+      var title = card.querySelector('.title');
+      card.classList.toggle('unread', n > 0);
+      if (title) setBadge(title, n ? (n === news.length && n >= CARD_NEWS ? CARD_NEWS + '+' : n) + ' new' : '');
     });
   }
   paintUnread();
-  if (conv) markSeen(conv);
+  markSeen(seenKey, latestAt);
 
   // ── browser notifications while the tab is hidden (opt-in: the 🔔 button asks for the permission) ──
   var notifyBtn = document.getElementById('notify');
@@ -81,7 +130,7 @@
   // ── the stream ──
   var unread = 0;
   var baseTitle = document.title;
-  function onVisible() { if (!document.hidden) { unread = 0; document.title = baseTitle; markSeen(conv); } }
+  function onVisible() { if (!document.hidden) { unread = 0; document.title = baseTitle; markSeen(seenKey, latestAt); } }
   document.addEventListener('visibilitychange', onVisible);
   function noteActivity() { if (document.hidden) { unread++; document.title = '(' + unread + ') ' + baseTitle; } }
 
@@ -94,7 +143,8 @@
       if (stick) scrollBottom();
       noteActivity();
       if (!d.own) notify(d.text);
-      if (!document.hidden) markSeen(conv);
+      if (d.at && d.at > latestAt) latestAt = d.at;
+      if (!document.hidden) markSeen(seenKey, latestAt);
     });
     es.addEventListener('thread', function (e) {
       var d = JSON.parse(e.data);
@@ -102,6 +152,7 @@
       // Fresh activity moves the thread to the top, as the server orders them.
       var box = document.getElementById('threads');
       if (el && box && box.firstElementChild !== el) box.prepend(el);
+      paintUnread();
       noteActivity();
     });
     es.addEventListener('dialog', function (e) { showDialog(JSON.parse(e.data)); });
