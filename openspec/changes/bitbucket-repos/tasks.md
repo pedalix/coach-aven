@@ -16,7 +16,8 @@
 ## 3. Turn wiring
 
 - [ ] 3.1 `src/tasks.ts`: `scopedRepos` over GitHub repos only; no GitHub repo → `seedGitHubAuth(sandbox, '')` and no composer `auth.json`; `seedBitbucketAuth` in `prepareChat` and both `ensureSession` paths; tests that a GitHub-only project's calls are unchanged
-- [ ] 3.2 `src/github.ts`: the installation lookup and the identity lookup run only when there is a GitHub repo; test a Bitbucket-only project makes no GitHub request
+- [ ] 3.2 `src/github.ts`: the installation lookup and the identity lookup run only when there is a GitHub repo (App); a static `GITHUB_TOKEN` is seeded for any project; tests for both
+- [ ] 3.3 Composer (D8): `src/projects.ts` validates and resolves `composerAuth` (unknown `${VAR}` fails the load, naming project and variable); `composerAuthScript` merges `github.com`, `bitbucket.org` and `composerAuth` entries, reading values from files; a project with neither gets byte-identical output; tests
 
 ## 4. Prompt and PR work
 
@@ -25,6 +26,6 @@
 
 ## 5. Docs and checks
 
-- [ ] 5.1 `docs/runtime-config.md` (the `repos` field: the `bitbucket.org/` form, read-only), `docs/configuration.md` (`BITBUCKET_TOKEN`: kinds of token, scope, rotation), `docs/security.md` (what reaches a sandbox), `projects.config.example.json` (one Bitbucket entry)
+- [ ] 5.1 `docs/runtime-config.md` (the `repos` field: the `bitbucket.org/` form, read-only), `docs/configuration.md` (`BITBUCKET_TOKEN`: kinds of token, scope, rotation), `docs/security.md` (what reaches a sandbox), `projects.config.example.json` (one Bitbucket entry, one `composerAuth`)
 - [ ] 5.2 `npm run typecheck && npm test`; `scripts/public-guard.sh`; `openspec validate bitbucket-repos --strict`
-- [ ] 5.3 Canary on the installation that needs it: one Bitbucket-only project, a conversation that clones, fetches on the next turn, and answers from the code; a push attempt refused by Bitbucket
+- [ ] 5.3 Canary on the installation that needs it: one Bitbucket-only project, a conversation that clones, fetches on the next turn, and answers from the code; `composer install` in a checkout succeeds; a push attempt refused by Bitbucket

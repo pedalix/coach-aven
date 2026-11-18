@@ -50,12 +50,36 @@ the GitHub token to `bitbucket.org`, nor the Bitbucket token to `github.com`.
 
 ### Requirement: The GitHub token covers GitHub repos only
 
-A turn's GitHub token SHALL be minted for the project's GitHub repos (and their dependency repos) only. A project with
-no GitHub repo SHALL mint no GitHub token; its sandbox SHALL be seeded as under `GITHUB_AUTH=none`.
+A turn's GitHub App token SHALL be minted for the project's GitHub repos (and their dependency repos) only. With the
+App, a project with no GitHub repo SHALL mint none and be seeded as under `GITHUB_AUTH=none`; a static `GITHUB_TOKEN`
+SHALL be seeded as before.
 
-#### Scenario: A Bitbucket-only project
+#### Scenario: A Bitbucket-only project on the App
 - **WHEN** every repo of `atlas` is on Bitbucket and the installation uses the GitHub App
 - **THEN** the turn makes no GitHub call, and the sandbox has no GitHub token and no `gh` login
+
+#### Scenario: A Bitbucket-only project with a static token
+- **WHEN** every repo of `atlas` is on Bitbucket and the installation has `GITHUB_TOKEN`
+- **THEN** the sandbox gets that token as today, so composer's GitHub downloads are authenticated
+
+### Requirement: Composer reaches Bitbucket and the project's registries
+
+In a project with a Bitbucket repo, each checkout's composer `auth.json` SHALL carry `http-basic` for `bitbucket.org`
+with the Bitbucket token. A project's `composerAuth` (host → username, password) SHALL be added to the same file, its
+`${VAR}` refs resolved from the bot's environment at load; an unknown ref SHALL fail the load, naming project and
+variable.
+
+#### Scenario: A private package downloaded from Bitbucket
+- **WHEN** `booking-api`'s lock file downloads `northwind/payments` from `bitbucket.org` and the agent runs `composer install`
+- **THEN** composer authenticates to `bitbucket.org` with the Bitbucket token from `auth.json`
+
+#### Scenario: A private registry
+- **WHEN** `atlas` has `composerAuth: { "repo.registry.example": { "username": "token", "password": "${REGISTRY_TOKEN}" } }`
+- **THEN** every checkout's `auth.json` has that entry with the value from the bot's environment, and never the literal `${…}`
+
+#### Scenario: A missing variable
+- **WHEN** `REGISTRY_TOKEN` is not set
+- **THEN** the config load fails naming `atlas` and `REGISTRY_TOKEN`, not a value
 
 ### Requirement: Bitbucket repos are read-only for the agent
 

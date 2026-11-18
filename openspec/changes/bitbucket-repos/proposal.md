@@ -19,14 +19,20 @@ token that no longer assumes every repo is on GitHub.
 - Bitbucket repos are **read-only** for the agent: the system prompt says so (no push, no pull request; a proposed
   change goes into the reply as a diff), and the PR pollers and PR commands skip them. The token's own scope is the
   boundary; the prompt is the guidance.
-- The GitHub token of a turn covers the project's GitHub repos only. A project with no GitHub repo mints no GitHub
-  token (the sandbox gets the `GITHUB_AUTH=none` treatment, for that project only).
+- The GitHub token of a turn covers the project's GitHub repos only. With the GitHub App, a project with no GitHub
+  repo mints no token (the sandbox gets the `GITHUB_AUTH=none` treatment, for that project only); a static
+  `GITHUB_TOKEN` is seeded as today.
 - A checkout is named after the repo's last path segment; two repos of one project with the same name fail the
   config load (they would share a directory).
+- **Composer can install such a project's dependencies.** A Bitbucket client's private packages are often downloaded
+  from `bitbucket.org` itself (the lock file's `dist` URLs), listed by a private registry, and mixed with hundreds of
+  public packages from GitHub. So: each checkout's `auth.json` also carries `http-basic` for `bitbucket.org` (the same
+  token); a project may name further registries in `composerAuth` (host → username and password, `${VAR}` refs
+  resolved from the bot's environment at load); and a static `GITHUB_TOKEN` is still seeded for a project without
+  GitHub repos (anonymous GitHub downloads stop at 60 requests an hour). Only the App mint needs a GitHub repo.
 
 Out of scope: pull requests, pipelines or reviews on Bitbucket; pushing; Bitbucket Data Center/Server, GitLab or any
-other host; SSH remotes; composer credentials for packages hosted on Bitbucket (a private Composer registry needs its
-own token, a separate concern).
+other host; SSH remotes; npm or other non-Composer registries.
 
 ## Capabilities
 
@@ -45,7 +51,7 @@ None.
   with its test; `src/projects.ts` (entry and duplicate validation), `src/config.ts` (`BITBUCKET_TOKEN`),
   `src/project.ts` (`repoName`, `cloneRepo`, a `seedBitbucketAuth` beside `seedGitHubAuth`), `src/tasks.ts` (mint
   over GitHub repos only; seed the Bitbucket credential), `src/prompt.ts` (the read-only paragraph and the repo
-  list), `src/pollers.ts` and `src/chat/core/commands.ts` (PR work over GitHub repos only).
+  list), `composerAuthScript` (the `bitbucket.org` entry and `composerAuth`), `src/pollers.ts` and `src/chat/core/commands.ts` (PR work over GitHub repos only).
 - **Rollout: default-preserving.** A project without a `bitbucket.org/` entry is seeded, prompted and polled exactly as
   today: the prompt golden fixtures stay byte-identical, the credential helper and the mint request are unchanged
   (tests pin both). The new behaviour is opt-in by config, so no flag and no ledger row.

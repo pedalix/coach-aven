@@ -61,9 +61,29 @@ sandbox for nothing those projects need.
 
 ### D4 — The mint sees GitHub repos only
 
-`scopedRepos` filters by host before `tokenRepos`; the installation lookup uses the first GitHub repo. With none, the
-turn calls `seedGitHubAuth(sandbox, '')` (the existing `none` path: no token file, no helper, `gh` logged out) and
-skips composer's `auth.json`. The bot's GitHub identity lookup runs only when a token is minted.
+`scopedRepos` filters by host before `tokenRepos`; the installation lookup uses the first GitHub repo. With the App and
+no GitHub repo, the turn calls `seedGitHubAuth(sandbox, '')` (the existing `none` path: no token file, no helper, `gh`
+logged out). A static `GITHUB_TOKEN` needs no repo to mint for, so it is seeded as today: it is what keeps a
+Bitbucket project's public GitHub dependencies under GitHub's authenticated rate limit (a lock file with 263 GitHub
+`dist` URLs would hit the anonymous 60 requests an hour). The bot's GitHub identity lookup runs only with a token.
+
+### D8 — Composer: one `auth.json`, three kinds of entry
+
+`composerAuthScript` already writes `auth.json` per checkout (Sail's containers mount the checkout but not the
+sandbox's git config, so a file is the one thing composer sees everywhere). It now merges, in this order:
+
+- `github.com` from `/root/.gh-token`, as today, when there is a GitHub token;
+- `bitbucket.org` → `x-token-auth` + `/root/.bb-token`, when the project has a Bitbucket repo — a Bitbucket client's
+  lock file typically downloads its private packages' `dist` zips from `bitbucket.org` (seen: 65 of 331 packages),
+  while its source URLs are SSH, which the sandbox has no key for;
+- the project's `composerAuth`, each `{ username, password }` resolved at load like an MCP header's `${VAR}`, except
+  that an unknown ref fails the load (an empty password would only fail later, inside `composer install`).
+
+The values are read from files or written by the file API, never on a command line; the file stays excluded from git
+as today. A project without Bitbucket repos and without `composerAuth` gets exactly today's file.
+
+*Rejected:* an installation-wide extra-registry setting. One installation can host several clients' projects, and a
+registry token of one must not reach another's sandbox.
 
 ### D5 — Clone URL by host; the healing reset keeps its purpose
 
@@ -90,5 +110,5 @@ and work, so this is a bug fix, not a behaviour change for a working config.
   the turn reports. Rotation: one value in `.env`, then a restart.
 - **Whose token.** A personal API token reads what its owner can read. A workspace access token is the better fit for
   an installation (not tied to a person), but needs a workspace admin to create it.
-- **Composer and other package registries** are not covered: a Bitbucket project whose dependencies come from a
-  private registry needs that registry's token in the sandbox by other means.
+- **Registry tokens in the sandbox.** A `composerAuth` token is readable by the agent (it is in a file it can open);
+  give a read-only one, as for `BITBUCKET_TOKEN`. npm and other registries are not covered.
