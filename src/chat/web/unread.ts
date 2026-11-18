@@ -8,8 +8,12 @@
 // when it lands, and a thread does not light up at every tick of the clock. A routine's headline (`line`) counts
 // when it is posted, not at each rewrite: the answer under it carries the news. A message only one person sees (a
 // typed command, a private reply) answers that person's own action, so it is never news.
+//
+// The sidebar is rendered with the page and kept live by the page's stream: every room's and the viewer's private
+// conversations' news, one `side` event per message as it becomes news (`sideNews`).
 
 import type { Message } from './history.js';
+import { parseConv } from './keys.js';
 
 /** View kinds that only show a turn in progress. */
 const PROGRESS = new Set(['status', 'background', 'backgroundDone']);
@@ -49,6 +53,39 @@ export function roomNews(messages: Message[], viewer: string): Map<string, strin
   }
   for (const list of out.values()) list.sort();
   return out;
+}
+
+/** The newest news of a conversation for `viewer` (a private conversation's sidebar dot), or undefined. */
+export function lastNews(messages: Message[], viewer: string): string | undefined {
+  let last: string | undefined;
+  for (const m of messages) {
+    const at = newsAt(m, viewer);
+    if (at && (!last || at > last)) last = at;
+  }
+  return last;
+}
+
+/** What the sidebar learns from one event: a room's thread and when it got news, or a private conversation's news. */
+export interface SideNews {
+  conv: string;
+  root?: string; // a room's thread; a private conversation is one dot
+  at: string;
+}
+
+/**
+ * The sidebar's live update for `viewer` from one event of a conversation, or undefined when that event made no news:
+ * a status tick, a mark or a tally, a headline's rewrite, the viewer's own post, a thread someone else holds privately.
+ * Only the event that MAKES a message news counts (a post, or the update that turned a status into an answer), so a
+ * thread is announced once per message, as `roomNews` would count it.
+ */
+export function sideNews(c: { conv: string; message(id: string): Message | undefined }, ev: { id: string; at: string }, viewer: string): SideNews | undefined {
+  const m = c.message(ev.id);
+  const at = m && newsAt(m, viewer);
+  if (!m || !at || at !== ev.at) return undefined;
+  if (parseConv(c.conv)?.kind !== 'room') return { conv: c.conv, at };
+  const root = m.thread ? c.message(m.thread) : m;
+  if (!root || (root.visibleTo && root.visibleTo !== viewer)) return undefined;
+  return { conv: c.conv, root: root.id, at };
 }
 
 /** A thread card's `data-news`: its newest news times, space-separated. */

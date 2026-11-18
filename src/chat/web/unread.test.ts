@@ -4,11 +4,12 @@ import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { History } from './history.js';
-import { CARD_NEWS, SIDEBAR_THREADS, cardNews, newsAt, roomNews, sidebarThreads, threadSeenKey } from './unread.js';
+import { CARD_NEWS, SIDEBAR_THREADS, cardNews, lastNews, newsAt, roomNews, sideNews, sidebarThreads, threadSeenKey } from './unread.js';
 
 let tick = 0;
 const clock = () => new Date(Date.UTC(2026, 9, 26, 10, 0, tick++));
-const room = () => new History(mkdtempSync(join(tmpdir(), 'aven-web-unread-')), clock).conversation('room:alpha');
+const history = () => new History(mkdtempSync(join(tmpdir(), 'aven-web-unread-')), clock);
+const room = () => history().conversation('room:alpha');
 const status = { kind: 'status' as const, line: 'Working…', turnId: 't1', notify: 'Working…' };
 
 test('newsAt: a person\'s post is news for others, never for its author', () => {
@@ -80,4 +81,35 @@ test('cardNews keeps the newest CARD_NEWS times; sidebarThreads lists the SIDEBA
   assert.equal(pairs[0], 'old@2026-11-30T00:00:00.000Z', 'a thread counts by its newest news');
   assert.equal(sidebarThreads(new Map()), '');
   assert.equal(threadSeenKey('room:alpha', 'a'), 'room:alpha#a');
+});
+
+test('sideNews: one sidebar update per message, from the event that made it news; nothing from ticks, marks, rewrites or own posts', () => {
+  const r = room();
+  const side = (ev: { id: string; at: string }, viewer = 'u1') => sideNews(r, ev, viewer);
+  const post = r.append({ t: 'post', id: 'a', by: { id: 'u2' }, text: 'look' });
+  assert.deepEqual(side(post), { conv: 'room:alpha', root: 'a', at: post.at });
+  assert.equal(side(post, 'u2'), undefined, 'the author\'s own post');
+  assert.equal(side(r.append({ t: 'post', id: 'a1', thread: 'a', view: status })), undefined, 'a status');
+  assert.equal(side(r.append({ t: 'update', id: 'a1', view: { ...status, line: 'Working… 4s' } })), undefined, 'a tick');
+  const answer = r.append({ t: 'update', id: 'a1', view: { kind: 'answer', markdown: 'Done.' } });
+  assert.deepEqual(side(answer), { conv: 'room:alpha', root: 'a', at: answer.at });
+  assert.equal(side(r.append({ t: 'mark', id: 'a', mark: 'done', op: 'add' })), undefined, 'a mark');
+  assert.equal(side(r.append({ t: 'tally', id: 'a1', good: 1, bad: 0 })), undefined, 'a tally');
+  const line = r.append({ t: 'post', id: 'b', view: { kind: 'line', text: '🛠 Weekly report · running…' } });
+  assert.deepEqual(side(line), { conv: 'room:alpha', root: 'b', at: line.at });
+  assert.equal(side(r.append({ t: 'update', id: 'b', view: { kind: 'line', text: '🛠 Weekly report — all green' } })), undefined, 'a headline rewrite');
+  r.append({ t: 'post', id: 'p', by: { id: 'u3' }, text: '/help', cmd: true, visibleTo: 'u3' });
+  const help = r.append({ t: 'post', id: 'p1', thread: 'p', view: { kind: 'text', text: 'help text' } });
+  assert.equal(side(help), undefined, 'a thread someone else holds privately');
+  assert.deepEqual(side(help, 'u3'), { conv: 'room:alpha', root: 'p', at: help.at });
+});
+
+test('a private conversation: its sidebar news names no thread; lastNews is its newest news, not its last tick', () => {
+  const pc = history().conversation('pc:u1:alpha');
+  pc.append({ t: 'post', id: 'q', by: { id: 'u1' }, text: 'how?' });
+  const reply = pc.append({ t: 'post', id: 'r', view: { kind: 'text', text: 'like this' } });
+  assert.deepEqual(sideNews(pc, reply, 'u1'), { conv: 'pc:u1:alpha', at: reply.at });
+  pc.append({ t: 'post', id: 's', view: status });
+  assert.equal(lastNews(pc.all(), 'u1'), reply.at);
+  assert.equal(lastNews([], 'u1'), undefined);
 });

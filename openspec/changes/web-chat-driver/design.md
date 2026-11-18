@@ -144,7 +144,14 @@ it: a reader could not tell which thread the answer landed in (feedback from the
 - **Shape on the page.** A thread card carries `data-news` (its newest 20 news times; all 20 unread shows "20+"), a
   room's sidebar link `data-threads` (`root@newest` for the 50 threads with the newest news). The browser counts what
   is newer than the thread's seen time; the room's number is the threads with news, cleared one by one as they are
-  opened. A private conversation keeps its dot.
+  opened. A private conversation keeps its dot, lit by its newest news (the same rule: not a tick, not one's own post).
+- **The sidebar is live.** The first cut painted the sidebar with the page only: a room's number moved when the reader
+  clicked somewhere, not when the answer landed. Now every page's stream also listens to every room and to the
+  viewer's private conversations, and sends a `side` event (`{conv, root, at}`; a private conversation has no `root`)
+  for each message at the event that makes it news (`sideNews`): the browser updates that link's data and repaints. No
+  event id, so a reconnect replays only the page's own conversation; the next page renders the sidebar whole.
+  Rejected: polling the sidebar every 20–30 s, as much code, numbers late by up to half a minute, and every open tab
+  asking the server all the time while a stream is already open.
 - **A clean start.** `aven.since` records the server time of the first page a browser loaded with counts; older news
   is never unread, so a new browser, or the first load after this shipped, shows no backlog. The seen map keeps its
   newest 1000 entries.
