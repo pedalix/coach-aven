@@ -294,6 +294,7 @@ test('the stream: two viewers see the public message, only one the private reply
   const again = await get(`/stream?conv=room:alpha&thread=root1`, { cookie: c2.split(';')[0], 'last-event-id': String(start) });
   const replay = await frames(again, 2, 1500);
   assert.deepEqual(replay.map((f) => [f.event, f.id]), [['msg', String(start + 1)], ['noop', String(start + 2)]]);
+  assert.match((replay[0].data as { at?: string }).at ?? '', /^20\d\d-/, 'a message carries its server time: what the client records as seen');
 
   // The room page's stream carries thread cards, re-rendered on activity in the thread.
   const room = await get(`/stream?conv=room:alpha`, { cookie: c2.split(';')[0], 'last-event-id': String(start) });
@@ -310,6 +311,9 @@ test('pages: a room lists its threads newest first with the latest line; a threa
   assert.equal(room.status, 200);
   const html = await room.text();
   assert.match(html, /id="thread-root1"/);
+  // Unread counts: Ann's root is news for Bo (her status line is not); the sidebar lists the thread for him to count.
+  assert.match(html, /id="thread-root1" data-seen-key="room:alpha#root1" data-news="20[^" ]+"/);
+  assert.match(html, /data-conv="room:alpha" data-threads="[^"]*\broot1@20/);
   assert.match(html, /<meta name="stream" content="\/stream\?conv=room%3Aalpha">/);
   const thread = await get('/r/alpha/t/root1', { cookie });
   assert.equal(thread.status, 200);
@@ -399,7 +403,8 @@ test('/help shows the Home cheat-sheet to the caller; the composer gets the verb
   const html = await (await get('/r/alpha', { cookie })).text();
   assert.match(html, /<meta name="verbs" content="help home status [a-z ]+">/);
   assert.match(html, /<meta name="max-file-mb" content="20">/);
-  assert.match(html, /data-conv="room:alpha" data-last="20/);
+  assert.match(html, /data-conv="room:alpha" data-threads="/);
+  assert.match(html, /<meta name="now" content="20\d\d-\d\d-\d\dT[^"]+Z">/);
   assert.match(html, /id="file-input" multiple/);
 });
 

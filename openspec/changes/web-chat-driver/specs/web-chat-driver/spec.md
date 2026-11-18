@@ -176,3 +176,26 @@ Under `WEB_AUTH=none` and `link` the server SHALL answer only to a loopback host
 - **WHEN** a person opens an eleventh live stream
 - **THEN** it is refused until one of the open ones closes
 
+
+### Requirement: Unread counts
+The web chat SHALL show, per browser, how many threads of each room and how many messages of each thread are new since the viewer last opened that thread. News SHALL be another person's post or a bot message holding something to read, never a running status. Opening a thread SHALL mark it seen; opening the room SHALL NOT.
+
+#### Scenario: An answer lands while the viewer is elsewhere
+- **WHEN** the bot answers in a thread the viewer opened earlier, and the viewer is on another page
+- **THEN** the room's sidebar link counts that thread, and the thread's card in the room shows "1 new"
+
+#### Scenario: Status ticks are quiet
+- **WHEN** a turn's status line keeps updating and no answer has landed yet
+- **THEN** no count changes, and the answer that replaces the status counts once when it lands
+
+#### Scenario: Own posts and private replies
+- **WHEN** the viewer posts in a thread, types a command, or gets a reply only they can see
+- **THEN** none of these count as new for them
+
+#### Scenario: Entering the room is not reading
+- **WHEN** the viewer opens the room and leaves without opening the thread with news
+- **THEN** the thread still shows its count, and the sidebar still counts it
+
+#### Scenario: A new browser starts clean
+- **WHEN** a browser loads the web chat for the first time
+- **THEN** news older than that load is not counted

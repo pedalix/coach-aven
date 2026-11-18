@@ -26,6 +26,7 @@ import { CMD, errText } from '../slack/blocks.js';
 import { captureError } from '../../sentry.js';
 import { log } from '../../log.js';
 import { History, visibleFor, type FileMeta, type Message, type Stored } from './history.js';
+import { roomNews, sidebarThreads } from './unread.js';
 import { newId, parseConv, privateConv, roomConv, userIdOf } from './keys.js';
 import { attachmentDisposition, findUpload, mimeOf, storeUpload, toRef } from './files.js';
 import { MAX_FILES, isSupported } from '../../attachments.js';
@@ -281,20 +282,23 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     const name = nameOf(s.user) ?? s.name;
     return { user: s.user, ...(name ? { name } : {}), csrf: csrfToken(cfg.sessionSecret, s) };
   };
-  // The sidebar's conversations and their last activity (the client marks what the viewer has not seen).
-  const activityFor = (user: string): Record<string, string> => {
-    const out: Record<string, string> = {};
+  // The sidebar's conversations and what the client marks as unseen: a private conversation's last activity, a room's
+  // threads with their newest news for this viewer (unread.ts). A conversation never opened has no file and no activity.
+  const opened = (conv: string) => !(history.fileOf(conv) && !existsSync(history.fileOf(conv)!));
+  const sidebarFor = (user: string): Pick<Shell, 'activity' | 'threadNews'> => {
+    const activity: Record<string, string> = {};
+    const threadNews: Record<string, string> = {};
     for (const p of rooms()) {
-      for (const conv of [roomConv(p.slug), privateConv(user, p.slug)]) {
-        if (history.fileOf(conv) && !existsSync(history.fileOf(conv)!)) continue; // never opened: no file, no activity
-        const last = history.conversation(conv).all().at(-1)?.updatedAt;
-        if (last) out[conv] = last;
-      }
+      const room = roomConv(p.slug);
+      if (opened(room)) threadNews[room] = sidebarThreads(roomNews(history.conversation(room).all(), user));
+      const pc = privateConv(user, p.slug);
+      const last = opened(pc) ? history.conversation(pc).all().at(-1)?.updatedAt : undefined;
+      if (last) activity[pc] = last;
     }
-    return out;
+    return { activity, threadNews };
   };
   const page = (req: Req, res: Response, shell: Omit<Shell, 'viewer' | 'projects'>, content: ReturnType<typeof homePage>, status = 200) =>
-    res.status(status).type('html').send(signButtons(cfg.sessionSecret, layout({ ...shell, viewer: viewerOf(req.session!), projects: rooms(), activity: activityFor(req.session!.user), verbs: VERBS, maxFileMb: cfg.maxFileMb }, content)));
+    res.status(status).type('html').send(signButtons(cfg.sessionSecret, layout({ ...shell, viewer: viewerOf(req.session!), projects: rooms(), ...sidebarFor(req.session!.user), now: new Date(now()).toISOString(), verbs: VERBS, maxFileMb: cfg.maxFileMb }, content)));
   const notFound = (req: Req, res: Response, what: string) => page(req, res, { title: 'Not found' }, homePage(h404(what)), 404);
 
   // Sign out: our cookie goes, and so does the identity provider's session when it offers an end-session
@@ -326,10 +330,11 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     if (!project) return notFound(req, res, 'room');
     const conv = history.conversation(roomConv(project.slug));
     const viewer = req.session!.user;
+    const news = roomNews(conv.all(), viewer);
     const threads = conv
       .threads()
       .filter((t) => visibleFor(viewer, t.root.visibleTo))
-      .map((summary) => ({ summary, last: lastVisible(conv.thread(summary.root.id), viewer) }));
+      .map((summary) => ({ summary, last: lastVisible(conv.thread(summary.root.id), viewer), news: news.get(summary.root.id) }));
     page(req, res, { title: `#${project.slug}`, active: { slug: project.slug, kind: 'room' }, stream: { conv: conv.conv } }, roomPage(project, threads, nameOf));
   });
 
@@ -385,12 +390,14 @@ export function createWebServer(deps: WebServerDeps): WebServer {
         if (!rootMsg || !visibleFor(viewer, rootMsg.visibleTo)) return send('noop', ev.seq, {});
         const summary = c.threads().find((t) => t.root.id === root);
         if (!summary) return send('noop', ev.seq, {});
-        return send('thread', ev.seq, { id: root, html: threadCardHtml(parsed.slug, summary, lastVisible(c.thread(root), viewer), nameOf).html });
+        const msgs = c.thread(root);
+        return send('thread', ev.seq, { id: root, html: threadCardHtml(parsed.slug, summary, lastVisible(msgs, viewer), nameOf, roomNews(msgs, viewer).get(root)).html });
       }
       if (thread && root !== thread) return send('noop', ev.seq, {}); // another thread of the room
       if (!visibleFor(viewer, m.visibleTo)) return send('noop', ev.seq, {}); // someone else's private reply (the id still advances)
       // `text` and `own`: for the client's notification while the tab is hidden (a person's own post never notifies).
-      send('msg', ev.seq, { id: m.id, thread: m.thread, html: messageHtml(m, nameOf, parsed.slug).html, text: messageBody(m, nameOf, parsed.slug).text, own: m.by?.id === viewer });
+      // `at`: the message's last change on the server's clock — what the client records as seen while the page is in view.
+      send('msg', ev.seq, { id: m.id, thread: m.thread, at: m.updatedAt, html: messageHtml(m, nameOf, parsed.slug).html, text: messageBody(m, nameOf, parsed.slug).text, own: m.by?.id === viewer });
     };
     const last = Number(req.get('last-event-id') ?? req.query.since ?? NaN);
     if (Number.isFinite(last)) for (const ev of c.since(last)) frame(ev);

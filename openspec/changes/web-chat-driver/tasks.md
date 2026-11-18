@@ -41,6 +41,13 @@
 - [x] 6.6 `safeNext` without backslashes; `email_verified: false` ignored; the upload parser after the gate; the Host check in the local modes; ten streams per person. Verify: `server.test.ts`, `auth.test.ts`.
 - [x] 6.7 Whether Teams card submissions can be forged against the same core handlers (the review could not check it). Verify: a finding or a note in `docs/teams.md`. — Done: yes in principle (the client builds the invoke from the card's `data`); fixed the same way: signed card controls (`src/chat/teams/cardsig.ts`), dialog forms bound to their person; `cardsig.test.ts`.
 
+## 7. Unread counts per thread (2026-11-18)
+
+- [x] 7.1 `src/chat/web/unread.ts`: `newsAt`, `roomNews`, `cardNews`, `sidebarThreads`, `threadSeenKey`. Verify: `src/chat/web/unread.test.ts`.
+- [x] 7.2 `pages.ts` (card `data-news`/`data-seen-key`, sidebar `data-threads`, `<meta name="now">`), `server.ts` (the room page, the stream's cards, `at` on messages). Verify: `src/chat/web/server.test.ts`.
+- [x] 7.3 `static/app.js` + `app.css`: badges on the cards and the room links, seen per thread, `aven.since`. Verify: by hand in a browser on the canary (two threads, an answer while away, the room opened without the thread).
+- [x] 7.4 `docs/web.md`; the ledger row of PR 2 names the counts. No Home tab change (no command or button). Verify: `scripts/public-guard.sh`.
+
 ## 5. PR 3 — the rest of parity (when a client needs it)
 
 - [ ] 5.1 The remaining `/aven` verbs, autofix Fix, `/users` editing the allow-list, `allowlist` mode and groups → rooms. Verify: the remaining verb and poller scenarios against the web driver; ledger row. (YouTrack on the web dropped 2026-10-30: not needed on this surface.)

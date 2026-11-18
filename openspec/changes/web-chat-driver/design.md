@@ -125,6 +125,30 @@ A second reviewer, not the author, went over `src/chat/web/` with throwaway proo
 - **Sound on inspection**: rendering under ~20 hostile inputs, templates and the client's insertion, CSP and headers, file names, ids and downloads, PKCE/state/nonce and the login cookie, cookie flags and CSRF, the `none`/`link` guards, proxy trust, error pages and logs.
 - **Not checked**: the identity provider's own settings (self-signup, editable e-mails) — they decide how much the allow-list is worth; whether Teams card submissions can be forged against the same core handlers.
 
+## Unread counts per thread (2026-11-18)
+
+Until now the sidebar put one dot on a room with activity this browser had not seen, and opening the room cleared
+it: a reader could not tell which thread the answer landed in (feedback from the first client installation). Task
+3.6 had promised unread counts; only the dot shipped.
+
+- **Who keeps "seen".** The browser, as before (localStorage, `aven.seen`), now per thread (`<room conv>#<root>`)
+  and per private conversation. The server keeps no read state; it says when each message became news for this
+  viewer (`src/chat/web/unread.ts`) and stamps every page with its clock (`<meta name="now">`), and the stream's
+  messages carry their server time. The browser records server times only, so a skewed browser clock marks nothing
+  wrong. Rejected for now: read state on the server per person (phone and laptop would agree), which needs a
+  per-person store written at every thread opened.
+- **What is news.** Another person's post; a bot message once it holds something to read (answer, question, report,
+  notice), at its last change. Not news: a running status, the background card and its epitaph (the answer that
+  replaces a status in place counts once, when it lands), the rewrites of a routine's headline (it counts when
+  posted), anything only one person sees (a typed command, a private reply).
+- **Shape on the page.** A thread card carries `data-news` (its newest 20 news times; all 20 unread shows "20+"), a
+  room's sidebar link `data-threads` (`root@newest` for the 50 threads with the newest news). The browser counts what
+  is newer than the thread's seen time; the room's number is the threads with news, cleared one by one as they are
+  opened. A private conversation keeps its dot.
+- **A clean start.** `aven.since` records the server time of the first page a browser loaded with counts; older news
+  is never unread, so a new browser, or the first load after this shipped, shows no backlog. The seen map keeps its
+  newest 1000 entries.
+
 ## Risks / Trade-offs
 
 - [XSS through agent output] → D4: no raw HTML, link allow-list, CSP, escaping templates, hostile-input tests; a security review (`/security-review`) before the first shared deployment.

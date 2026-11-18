@@ -105,5 +105,7 @@ dialog#dlg::backdrop { background: rgba(0, 0, 0, 0.35); }
 /* An image the agent handed back (outbound files): shown in place, bounded, the name and size beneath. */
 .files .file-image img { display: block; max-width: 100%; max-height: 480px; border-radius: 6px; margin: 0.25rem 0; }
 nav.side li a.unread::after { content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-left: 0.4rem; vertical-align: middle; }
+.badge { display: inline-block; min-width: 1.4em; padding: 0 0.45em; margin-left: 0.4rem; border-radius: 999px; background: var(--accent); color: var(--accent-ink); font-size: 0.75em; font-weight: 600; line-height: 1.5; text-align: center; vertical-align: middle; }
+.thread-card.unread { border-left: 3px solid var(--accent); }
 #notify.on { border-color: var(--ok); }
 .thread-card.private { background: var(--private); }
