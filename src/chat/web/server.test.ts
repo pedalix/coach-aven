@@ -305,6 +305,24 @@ test('the stream: two viewers see the public message, only one the private reply
   assert.equal((await get(`/stream?conv=pc:u1:alpha`, { cookie: c2.split(';')[0] })).status, 404, 'another person\'s private conversation is not streamed');
 });
 
+test('every page\'s stream carries the sidebar\'s news as it lands: a room\'s thread, the person\'s private conversation; never a tick or their own post', async () => {
+  const cookie = sessionCookie('u2', 'Bo').split(';')[0];
+  const room = h.history.conversation('room:alpha');
+  const page = await get('/stream?conv=pc:u2:alpha', { cookie });
+  const got = frames(page, 5, 1500);
+  await new Promise((r) => setTimeout(r, 50));
+  const ann = room.append({ t: 'post', id: 'side1', by: { id: 'u1', name: 'Ann' }, text: 'look at this' });
+  await h.driver.post({ conv: 'room:alpha', thread: 'side1' }, { kind: 'status', line: 'Working…', turnId: 't9', notify: 'Working…' });
+  await h.driver.post({ conv: 'pc:u2:alpha' }, { kind: 'text', text: 'for Bo' });
+  room.append({ t: 'post', id: 'side2', by: { id: 'u2', name: 'Bo' }, text: 'my own' });
+  const f = await got;
+  assert.deepEqual(f.map((x) => x.event), ['ready', 'side', 'msg', 'side'], 'the room\'s news, the page\'s own message, the private news — no fifth');
+  assert.deepEqual(f[1].data, { conv: 'room:alpha', root: 'side1', at: ann.at });
+  assert.equal(f[1].id, undefined, 'no event id: a reconnect replays only the page\'s own conversation');
+  assert.equal((f[3].data as { conv: string; root?: string }).conv, 'pc:u2:alpha');
+  assert.equal((f[3].data as { root?: string }).root, undefined);
+});
+
 test('pages: a room lists its threads newest first with the latest line; a thread shows its messages; a missing room is a 404 page', async () => {
   const cookie = sessionCookie('u2', 'Bo').split(';')[0];
   const room = await get('/r/alpha', { cookie });

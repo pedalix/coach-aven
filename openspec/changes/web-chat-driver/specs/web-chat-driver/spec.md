@@ -182,7 +182,7 @@ The web chat SHALL show, per browser, how many threads of each room and how many
 
 #### Scenario: An answer lands while the viewer is elsewhere
 - **WHEN** the bot answers in a thread the viewer opened earlier, and the viewer is on another page
-- **THEN** the room's sidebar link counts that thread, and the thread's card in the room shows "1 new"
+- **THEN** the room's sidebar link counts that thread at once, on whatever page the viewer has open, without a reload, and the thread's card in the room shows "1 new"
 
 #### Scenario: Status ticks are quiet
 - **WHEN** a turn's status line keeps updating and no answer has landed yet

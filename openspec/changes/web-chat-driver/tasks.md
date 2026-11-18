@@ -47,6 +47,7 @@
 - [x] 7.2 `pages.ts` (card `data-news`/`data-seen-key`, sidebar `data-threads`, `<meta name="now">`), `server.ts` (the room page, the stream's cards, `at` on messages). Verify: `src/chat/web/server.test.ts`.
 - [x] 7.3 `static/app.js` + `app.css`: badges on the cards and the room links, seen per thread, `aven.since`. Verify: by hand in a browser on the canary (two threads, an answer while away, the room opened without the thread).
 - [x] 7.4 `docs/web.md`; the ledger row of PR 2 names the counts. No Home tab change (no command or button). Verify: `scripts/public-guard.sh`.
+- [x] 7.5 The sidebar live (a bug of 7.3: its numbers moved only on a click): `sideNews`/`lastNews` in `unread.ts`, the stream's `side` events in `server.ts`, the handler in `app.js`. Verify: `unread.test.ts`, `server.test.ts`; by hand on the canary, an answer landing while another page is open.
 
 ## 5. PR 3 — the rest of parity (when a client needs it)
 

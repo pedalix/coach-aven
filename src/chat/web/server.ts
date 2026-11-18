@@ -26,7 +26,7 @@ import { CMD, errText } from '../slack/blocks.js';
 import { captureError } from '../../sentry.js';
 import { log } from '../../log.js';
 import { History, visibleFor, type FileMeta, type Message, type Stored } from './history.js';
-import { roomNews, sidebarThreads } from './unread.js';
+import { lastNews, roomNews, sideNews, sidebarThreads } from './unread.js';
 import { newId, parseConv, privateConv, roomConv, userIdOf } from './keys.js';
 import { attachmentDisposition, findUpload, mimeOf, storeUpload, toRef } from './files.js';
 import { MAX_FILES, isSupported } from '../../attachments.js';
@@ -282,8 +282,9 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     const name = nameOf(s.user) ?? s.name;
     return { user: s.user, ...(name ? { name } : {}), csrf: csrfToken(cfg.sessionSecret, s) };
   };
-  // The sidebar's conversations and what the client marks as unseen: a private conversation's last activity, a room's
-  // threads with their newest news for this viewer (unread.ts). A conversation never opened has no file and no activity.
+  // The sidebar's conversations and what the client marks as unseen: a private conversation's newest news, a room's
+  // threads with their newest news, for this viewer (unread.ts). A conversation never opened has no file and no news.
+  // The page's stream keeps both live (`side` events, below).
   const opened = (conv: string) => !(history.fileOf(conv) && !existsSync(history.fileOf(conv)!));
   const sidebarFor = (user: string): Pick<Shell, 'activity' | 'threadNews'> => {
     const activity: Record<string, string> = {};
@@ -292,7 +293,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
       const room = roomConv(p.slug);
       if (opened(room)) threadNews[room] = sidebarThreads(roomNews(history.conversation(room).all(), user));
       const pc = privateConv(user, p.slug);
-      const last = opened(pc) ? history.conversation(pc).all().at(-1)?.updatedAt : undefined;
+      const last = opened(pc) ? lastNews(history.conversation(pc).all(), user) : undefined;
       if (last) activity[pc] = last;
     }
     return { activity, threadNews };
@@ -361,7 +362,7 @@ export function createWebServer(deps: WebServerDeps): WebServer {
   // One Server-Sent Events connection per open page: the conversation's events after `Last-Event-ID`
   // (replayed on a reconnect), re-rendered for THIS viewer (a private reply reaches its person only),
   // and the person's own pushes (dialogs). A room page gets thread cards, a thread or private page
-  // gets message elements.
+  // gets message elements. Every page also gets the sidebar's news as it lands (`side`).
   const streams = new Map<string, number>(); // person → open streams
   app.get('/stream', (req: Req, res) => {
     const conv = typeof req.query.conv === 'string' ? req.query.conv : '';
@@ -403,11 +404,25 @@ export function createWebServer(deps: WebServerDeps): WebServer {
     if (Number.isFinite(last)) for (const ev of c.since(last)) frame(ev);
     else send('ready', c.seq, {});
     const offConv = c.subscribe(frame);
+    // The sidebar, live: news in any room or in this person's private conversations (unread.ts sideNews). No event
+    // id — these are not the page's conversation, and a reconnect does not replay them: the next page renders the
+    // sidebar whole.
+    const offSide = rooms()
+      .flatMap((p) => [roomConv(p.slug), privateConv(viewer, p.slug)])
+      .filter((id) => history.fileOf(id))
+      .map((id) => {
+        const other = history.conversation(id);
+        return other.subscribe((ev) => {
+          const d = sideNews(other, ev, viewer);
+          if (d) send('side', undefined, d);
+        });
+      });
     const offUser = driver.onUser(viewer, (p) => send(p.kind, undefined, p));
     const ping = setInterval(() => res.write(': ping\n\n'), 25_000);
     req.on('close', () => {
       clearInterval(ping);
       offConv();
+      for (const off of offSide) off();
       offUser();
       const n = (streams.get(viewer) ?? 1) - 1;
       if (n > 0) streams.set(viewer, n);

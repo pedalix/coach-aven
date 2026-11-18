@@ -27,6 +27,7 @@
   var SINCE_KEY = 'aven.since';
   var SEEN_MAX = 1000; // entries kept; the oldest go first
   var CARD_NEWS = 20; // the server's cap per card (unread.ts): all of them unread shows "20+"
+  var SIDEBAR_THREADS = 50; // the server's cap per room link (unread.ts)
   var serverNow = meta('now') || '';
   var latestAt = serverNow; // the newest server time this page has shown
   var seenKey = thread && conv ? conv + '#' + thread : (section && section.classList.contains('private') ? conv : null);
@@ -154,6 +155,26 @@
       if (el && box && box.firstElementChild !== el) box.prepend(el);
       paintUnread();
       noteActivity();
+    });
+    // The sidebar, live: a room's thread or a private conversation got news somewhere (unread.ts sideNews).
+    es.addEventListener('side', function (e) {
+      var d = JSON.parse(e.data);
+      var a = Array.prototype.find.call(document.querySelectorAll('nav.side a[data-conv]'), function (x) { return x.getAttribute('data-conv') === d.conv; });
+      if (!a || !d.at) return;
+      if (d.root && a.hasAttribute('data-threads')) {
+        var prev = '';
+        var rest = words(a.getAttribute('data-threads')).filter(function (p) {
+          var i = p.indexOf('@');
+          if (p.slice(0, i) !== d.root) return true;
+          prev = p.slice(i + 1);
+          return false;
+        });
+        rest.unshift(d.root + '@' + (prev > d.at ? prev : d.at));
+        a.setAttribute('data-threads', rest.slice(0, SIDEBAR_THREADS).join(' '));
+      } else if (!d.root && a.hasAttribute('data-last') && d.at > (a.getAttribute('data-last') || '')) {
+        a.setAttribute('data-last', d.at);
+      }
+      paintUnread();
     });
     es.addEventListener('dialog', function (e) { showDialog(JSON.parse(e.data)); });
     es.onerror = function () { toast('Connection lost — reconnecting…', 2500); };
