@@ -309,3 +309,27 @@ test('answer posted in a thread is not ingested: the bot’s marked post (metada
   assert.ok(normaliseMessage({ ...post, metadata: undefined }, channel, ctx));
   assert.ok(normaliseMessage({ ...post, metadata: { event_type: 'something_else' } }, channel, ctx));
 });
+
+// The shape Slack returned for an upload made with a marker block (probed 2026-11-20, OpenSpec marked-file-posts
+// D1): `files` and `upload`, the block's line as `text`, no subtype, no metadata — the block id is the only carrier.
+test('file posted in a marked thread is not ingested: the block id aven_marked skips the message and its file records, the same post without it yields both', () => {
+  const filePost: RawMessage = {
+    type: 'message',
+    user: 'U0AVENBOT1',
+    bot_id: 'B0AVEN0001',
+    text: ':lock: Built on another domain’s data',
+    ts: '1759700200.000100',
+    thread_ts: '1759700000.000100',
+    files: [{ id: 'F0REPORT01', name: 'orders-2025-10.tsv', title: 'orders-2025-10.tsv', mimetype: 'text/tab-separated-values', size: 512, timestamp: 1759700200 }],
+    blocks: [{ block_id: 'aven_marked' }],
+  };
+  assert.equal(normaliseMessage(filePost, channel, ctx), null);
+  assert.deepEqual(normaliseFiles(filePost, channel, ctx), []);
+
+  // Today's shape, unchanged: no marker (or some other block id) → the message and one file record.
+  for (const blocks of [undefined, [{ block_id: 'something_else' }], [{}]]) {
+    const plain = { ...filePost, blocks };
+    assert.ok(normaliseMessage(plain, channel, ctx));
+    assert.deepEqual(normaliseFiles(plain, channel, ctx).map((f) => f.name), ['orders-2025-10.tsv']);
+  }
+});

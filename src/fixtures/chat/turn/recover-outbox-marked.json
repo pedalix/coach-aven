@@ -1,0 +1,42 @@
+[
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "100.5",
+      "text": "🔄 Reconnected after a restart — recovering this turn…",
+      "blocks": "[]"
+    }
+  },
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "100.5",
+      "text": "Recovered.",
+      "blocks": "[{\"type\":\"markdown\",\"text\":\"Recovered.\"}]"
+    }
+  },
+  {
+    "method": "files.getUploadURLExternal",
+    "payload": {
+      "filename": "chart.png",
+      "length": "9"
+    }
+  },
+  {
+    "method": "upload/1",
+    "payload": {
+      "bytes": true
+    }
+  },
+  {
+    "method": "files.completeUploadExternal",
+    "payload": {
+      "files": "[{\"id\":\"F1\",\"title\":\"chart.png\"}]",
+      "channel_id": "C1",
+      "blocks": "[{\"type\":\"context\",\"block_id\":\"aven_marked\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"🔒 Built on another domain's data — kept out of this project's sources.\"}]}]",
+      "thread_ts": "100.1"
+    }
+  }
+]

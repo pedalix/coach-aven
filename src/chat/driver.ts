@@ -18,8 +18,10 @@ import type { DialogView, HomeView, MessageView, PrivateView } from './views.js'
 export interface ConvTarget {
   conv: string;
   thread?: string;
-  // The conversation holds another domain's data (agent-messaging D14): the driver marks the post
-  // so the project's own chat sources skip it at ingest (Slack: message metadata `aven_marked`).
+  // The conversation holds another domain's data (agent-messaging D14): the driver marks the post —
+  // a file post (postFiles) too — so the project's own chat sources skip it at ingest (Slack: message
+  // metadata `aven_marked`, on an upload the same name as a block id). A driver whose chat no source
+  // reads (the web) has nothing to mark.
   marked?: true;
 }
 
@@ -35,7 +37,7 @@ export interface MsgRef {
   thread?: string;
 }
 
-/** The Slack message-metadata event type of a marked post (agent-messaging D14); the Slack source skips it. */
+/** The marker of a marked post on Slack (agent-messaging D14) — the metadata event type of a text post, a block id on a file post; the Slack source skips both. */
 export const MARKED_EVENT = 'aven_marked';
 
 // Who acted, in which tenant (undefined = home or unknown — the gates decide).

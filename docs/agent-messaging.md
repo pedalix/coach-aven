@@ -195,6 +195,7 @@ Until then the answer is kept as a progress note (`get_task` shows it), and the 
   - In a chat thread the message waits for a person's Send; in a shadow session it is refused.
   - A fresh session starts clean; compaction does not clear it.
   - The bot's own posts in such a conversation are not ingested into the project's sources, so the data cannot come back through the store.
+    That holds for the files it hands back there too: on Slack a text post carries the marker `aven_marked` as message metadata, a file post as a block id, shown as one 🔒 line under the file.
 - **Questions and requests alike.** A task may ask for an answer or for work. What the answering agent may do is decided by its own project's rules and its sandbox's permissions, and who may send to it by its accept list.
   - **Grant `accept` only to senders you trust with work.** A grant made when messaging only asked now also allows requests for work.
   - **Nobody approves for you in a shadow session (accepted risk).** A question the answering agent would put to a person (AskUserQuestion) goes to the asking agent, so an accepted peer can approve a risky step itself.
