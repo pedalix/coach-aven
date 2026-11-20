@@ -38,7 +38,7 @@
 
 ## 5. Docs and the ledger
 
-- [ ] 5.1 `docs/rollout.md`: in the `outbound-files` row replace "a marked (cross-domain) conversation gets a marked
+- [x] 5.1 `docs/rollout.md`: in the `outbound-files` row replace "a marked (cross-domain) conversation gets a marked
       notice instead of an upload" with the new behaviour, add this change's PR, and add the watch item: a file
       asked for in a thread that holds another domain's answer arrives with the 🔒 line, and `search` in the
       project's sources does not find its name afterwards. Verify the row renders as one table row.
