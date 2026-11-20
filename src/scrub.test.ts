@@ -46,12 +46,18 @@ test('kv: prose with a bare keyword and a plain word is NOT redacted', () => {
   }
 });
 
+// GitHub push protection blocks a literal Stripe key (sk_live_/whsec_) even in a scrubber test,
+// so the Stripe-shaped fixtures are built from fragments — the detector still sees the whole value
+// at runtime. Square (sq0atp-) is not push-protected and stays inline.
+const SK_LIVE = 'sk_live_' + 'FAKEabcdefghijklmnop123456';
+const WHSEC = 'whsec_' + 'FAKEabcdefghijklmnop1234567890';
+
 test('token prefixes, bearer and JWT', () => {
-  const s = 'use xoxp-1234567890-abcdefghij and Bearer abcdefghijklmnopqrstuv.wxyz plus eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.abc123def456ghi789 and ghp_abcdefghijklmnopqrstuvwxyz0123 and AKIAIOSFODNN7EXAMPLE';
+  const s = 'use xoxp-1234567890-abcdefghij and Bearer abcdefghijklmnopqrstuv.wxyz plus eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.abc123def456ghi789 and ghp_abcdefghijklmnopqrstuvwxyz0123 and AKIAIOSFODNN7EXAMPLE' + ` and ${SK_LIVE} and sq0atp-FAKEabcdefghijklmnop1234`;
   const { text, findings } = scrubText(s);
-  assert.deepEqual(findings.map((f) => f.kind).sort(), ['aws', 'bearer', 'github', 'jwt', 'slack']);
-  assert.equal(/xoxp-|ghp_|AKIA|eyJ/.test(text), false);
-  assert.deepEqual(scrubSummary(findings), { kinds: ['aws', 'bearer', 'github', 'jwt', 'slack'], count: 5 });
+  assert.deepEqual(findings.map((f) => f.kind).sort(), ['aws', 'bearer', 'github', 'jwt', 'slack', 'square', 'stripe']);
+  assert.equal(/xoxp-|ghp_|AKIA|eyJ|sk_live_|sq0atp-/.test(text), false);
+  assert.deepEqual(scrubSummary(findings), { kinds: ['aws', 'bearer', 'github', 'jwt', 'slack', 'square', 'stripe'], count: 7 });
 });
 
 test('PEM block is replaced wholesale', () => {
@@ -122,6 +128,9 @@ const CANARY: Array<{ id: string; text: string; secrets: string[] }> = [
   { id: 'russian-kv', text: 'пароль от стейджинга: Stag1ng-009, логин admin', secrets: ['Stag1ng-009'] },
   { id: 'iban', text: 'Rechnung bitte an DE89 3704 0044 0532 0130 00', secrets: ['DE89370400440532013000'] },
   { id: 'pem', text: 'key:\n-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ\n-----END OPENSSH PRIVATE KEY-----', secrets: ['b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ'] },
+  { id: 'stripe-secret', text: `live key: ${SK_LIVE} do not commit`, secrets: [SK_LIVE] },
+  { id: 'stripe-webhook', text: `STRIPE_WEBHOOK_SECRET=${WHSEC}`, secrets: [WHSEC] },
+  { id: 'square-token', text: 'use sq0atp-FAKEabcdefghijklmnop1234 for prod', secrets: ['sq0atp-FAKEabcdefghijklmnop1234'] },
 ];
 
 test('canary: planted secrets never reach the output', () => {

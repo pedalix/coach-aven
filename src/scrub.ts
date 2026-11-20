@@ -228,6 +228,10 @@ const TOKEN_PREFIXES: Array<[string, RegExp]> = [
   ['gitlab', /\bglpat-[A-Za-z0-9_-]{20,}\b/g],
   ['npm', /\bnpm_[A-Za-z0-9]{30,}\b/g],
   ['sendgrid', /\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}\b/g],
+  // Payment / commerce processors — distinct secret-key prefixes, same shape as the tokens above.
+  ['stripe', /\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b/g],
+  ['stripe', /\bwhsec_[A-Za-z0-9]{16,}\b/g],
+  ['square', /\bsq0(?:atp|csp)-[A-Za-z0-9_-]{16,}\b/g],
 ];
 const detectTokens: Detector = (text, out) => {
   for (const [kind, re] of TOKEN_PREFIXES) {
@@ -436,7 +440,7 @@ const CARRIER_SUBJECT = new RegExp(
  * they ARE the payload. `kv`, `card`, `iban`, `entropy` alone are inline-redacted instead: one
  * "password: changed" or one Luhn-valid order number must not cost the whole body.
  */
-const STRONG_KINDS = new Set(['dsn', 'pem', 'env', 'jwt', 'bearer', 'aws', 'github', 'slack', 'granola', 'openai', 'google', 'gitlab', 'npm', 'sendgrid']);
+const STRONG_KINDS = new Set(['dsn', 'pem', 'env', 'jwt', 'bearer', 'aws', 'github', 'slack', 'granola', 'openai', 'google', 'gitlab', 'npm', 'sendgrid', 'stripe', 'square']);
 /** A `Password: …` line next to a login/username line is a credential bundle (the Contoso-account mail shape). */
 const PASSWORD_KEY = /(?:pass(?:word|wort|wd)?|pwd|kennwort|пароль)\s*(?::=|->|:|=|\bis\b|\bist\b)\s*$/iu;
 const LOGIN_WORD = /(?<![\p{L}\p{N}])(?:login|log-in|username|user\s?name|benutzer(?:name)?|anmeldename|логин|пользователь|user)(?![\p{L}\p{N}])\s*[:=]/iu;
