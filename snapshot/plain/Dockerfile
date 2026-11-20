@@ -14,7 +14,7 @@
 # bits) so build-and-push.sh bakes one CLAUDE_CLI_VERSION into both variants and
 # provisionTooling() finds the same layout. No ENTRYPOINT: the driver starts the
 # container with its own `sleep` command and execs into it.
-FROM node:24-alpine@sha256:8a32c8cf649a49915a66e81e7a609223c708d0adabf288ee3f4077d765542f85
+FROM node:24-alpine@sha256:116b800c3754b440ee0aa3ed2f20f5bf3d99a554bfd9adeea09ea8017f6e85f5
 
 RUN apk add --no-cache \
       bash \
