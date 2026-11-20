@@ -42,6 +42,7 @@ import {
   withRatingTally,
   heldAskBlocks,
   heldAskText,
+  markedFileBlocks,
 } from './blocks.js';
 import { fallbackText, mdToMrkdwn } from '../../format.js';
 import { log } from '../../log.js';
@@ -225,11 +226,13 @@ export function slackDriver(client: bolt.webApi.WebClient): SlackChatDriver {
     async postFiles(to: ConvTarget, files: OutboundFile[]): Promise<void> {
       // One uploadV2 per turn: the SDK asks for an upload URL per file, posts the bytes there, then completes them
       // all as ONE message in the thread (files.completeUploadExternal), so Slack renders its own previews. That
-      // method takes no message metadata: a marked conversation's file post goes unmarked (design, Risks).
+      // method takes blocks but no message metadata, so a marked conversation's file post carries the marker as a
+      // block id (OpenSpec marked-file-posts D1) — the same name, the other carrier of `marker()` above.
       await client.files.uploadV2({
         channel_id: to.conv,
         ...(to.thread ? { thread_ts: to.thread } : {}),
         file_uploads: files.map((f) => ({ file: f.data, filename: f.name })),
+        ...(to.marked ? { blocks: markedFileBlocks() } : {}),
       });
     },
     async reply(to: Interaction, view: PrivateView, opts?: { replace?: boolean }): Promise<void> {

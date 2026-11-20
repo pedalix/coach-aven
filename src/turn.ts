@@ -15,7 +15,7 @@ import { openChat, type ChatSession } from './tasks.js';
 import { createDriver } from './driver.js';
 import { fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
-import { outboxFailedNotice, outboxMarkedNotice, outboxPreamble, outboxSkippedNotice } from './outbox.js';
+import { outboxFailedNotice, outboxPreamble, outboxSkippedNotice } from './outbox.js';
 import { STREAM_HARD_MAX_MS, STREAM_MAX_MS, type AskQuestion, type QuestionAnswers, type OnQuestion } from './claudeSession.js';
 import { monoNow, STALE_HOLD_MARGIN_MS, stopCutWork, type SandboxUse } from './idlestop.js';
 import { MAX_SLACK_TEXT, errText, alertOps } from './chat/slack/blocks.js';
@@ -800,12 +800,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   async function postOutbox(chat: ChatDriver, where: ConvTarget, live: ChatSession, turnId: string): Promise<void> {
     try {
       const { files, skipped } = await live.collectOutbox(turnId);
-      if (files.length && where.marked) {
-        // A conversation holding another domain's data (agent-messaging D14): every post of the bot carries the
-        // marker the project's own Slack source skips at ingest — and a file upload cannot carry one. The names
-        // in a marked text post are skipped like the rest; the bytes stay in the sandbox.
-        await chat.post(where, { kind: 'text', text: outboxMarkedNotice(files.map((f) => f.name)) });
-      } else if (files.length) {
+      if (files.length) {
+        // `where` carries `marked` for a conversation that holds another domain's data (agent-messaging D14): the
+        // driver marks the file post like every other post, so the project's own chat sources skip it (OpenSpec
+        // marked-file-posts). The outbox is drained by now, so from here it is a post or a notice naming the files.
         try {
           await chat.postFiles(where, files);
         } catch (e) {

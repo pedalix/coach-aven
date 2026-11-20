@@ -218,9 +218,10 @@ test('turn record: outbox — the platform refuses the upload: the answer stands
   });
 });
 
-// A conversation marked as holding another domain's data (agent-messaging D14): no upload (it could not carry the
-// marker the project's sources skip) — a marked text notice names the files.
-test('turn record: outbox — a marked conversation gets a marked notice, no upload', async () => {
+// A conversation marked as holding another domain's data (agent-messaging D14): the file is uploaded like anywhere
+// else, and the completing call carries the marker block the project's Slack source skips by (OpenSpec
+// marked-file-posts) — an upload takes no message metadata, the carrier of every other marked post here.
+test('turn record: outbox — a marked conversation gets the upload with the marker block, no notice', async () => {
   await record('outbox-marked', async () => {
     const { engine, client } = harness(
       { ask: async () => 'The chart is below.', outbox: { files: [{ name: 'chart.png', mime: 'image/png', data: Buffer.from('png-bytes') }], skipped: [] } },
@@ -509,6 +510,23 @@ test('turn record: a recovered turn posts what the agent saved in its outbox', a
         inflightSeed(store);
         const inf = store.getChat('thread:100.1')!.inflight!;
         store.patchChat('thread:100.1', 'alpha', { inflight: { ...inf, turnId: 't0-9' } });
+      },
+      { outboundFiles: true },
+    ),
+  );
+});
+
+// The same after a restart in a conversation that holds another domain's data: the recovery reads the marks and
+// the recovered file post carries the marker block, as the live one does.
+test('turn record: a recovered turn of a marked conversation posts its outbox with the marker block', async () => {
+  await record('recover-outbox-marked', () =>
+    recover(
+      { outbox: { files: [{ name: 'chart.png', mime: 'image/png', data: Buffer.from('png-bytes') }], skipped: [] } },
+      (store) => {
+        inflightSeed(store);
+        const inf = store.getChat('thread:100.1')!.inflight!;
+        store.patchChat('thread:100.1', 'alpha', { inflight: { ...inf, turnId: 't0-9' } });
+        store.setMarks('thread:100.1', { 'acme.example': ['m1'] });
       },
       { outboundFiles: true },
     ),

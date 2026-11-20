@@ -21,6 +21,7 @@ import {
   packSections,
   onboardingHomeBlocks,
   sessionPanelBlocks,
+  markedFileBlocks,
   YT_SEND_CALLBACK,
   YT_SEND_INPUT,
   YT_PROMPT_CALLBACK,
@@ -42,6 +43,20 @@ function actionIds(blocks: any[]): string[] {
 
 const followUp: FollowUp = { key: 'thread:123', channel: 'C1', threadTs: '123' };
 const PR = 'See https://github.com/Org/repo/pull/7 for the change.';
+
+// The marker of a file post in a conversation that holds another domain's data: the block id is what the Slack
+// source skips by, so it is pinned byte-exact together with the one line people see under the file.
+test('markedFileBlocks: one context block whose id is the marker the Slack source skips', async () => {
+  const { MARKED_EVENT } = await import('../../sources/slack/normalise.js');
+  assert.deepEqual(markedFileBlocks(), [
+    {
+      type: 'context',
+      block_id: 'aven_marked',
+      elements: [{ type: 'mrkdwn', text: "🔒 Built on another domain's data — kept out of this project's sources." }],
+    },
+  ]);
+  assert.equal(markedFileBlocks()[0].block_id, MARKED_EVENT, 'the driver marks with exactly what the source skips');
+});
 
 test('answerBlocks: no PR URL → no PR button of any kind (Open a PR is gone by design)', () => {
   // The "⚙️ Session" button stays — it's tied to followUp (a thread conversation exists).

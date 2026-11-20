@@ -44,12 +44,25 @@
     }
   },
   {
-    "method": "chat.postMessage",
+    "method": "files.getUploadURLExternal",
     "payload": {
-      "channel": "C1",
-      "thread_ts": "100.1",
-      "text": "📎 I produced `chart.png` but can't attach files in this thread — it carries another domain's data, and file uploads cannot be marked for it. Ask again in a thread without that data.",
-      "metadata": "{\"event_type\":\"aven_marked\",\"event_payload\":{}}"
+      "filename": "chart.png",
+      "length": "9"
+    }
+  },
+  {
+    "method": "upload/1",
+    "payload": {
+      "bytes": true
+    }
+  },
+  {
+    "method": "files.completeUploadExternal",
+    "payload": {
+      "files": "[{\"id\":\"F1\",\"title\":\"chart.png\"}]",
+      "channel_id": "C1",
+      "blocks": "[{\"type\":\"context\",\"block_id\":\"aven_marked\",\"elements\":[{\"type\":\"mrkdwn\",\"text\":\"🔒 Built on another domain's data — kept out of this project's sources.\"}]}]",
+      "thread_ts": "100.1"
     }
   },
   {

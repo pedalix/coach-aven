@@ -5,6 +5,7 @@
 
 import type { RoutineRecord, PrWatch } from '../../state.js';
 import type { AnswerOpts, FollowUp, ProjectStatus, RateMeta, SessionPanelInfo, StatusReport, TrailMeta } from '../views.js';
+import { MARKED_EVENT } from '../driver.js';
 import type { ProjectConfig, ProjectsRegistry } from '../../projects.js';
 import type { AskQuestion } from '../../claudeSession.js';
 import type { YouTrackIssue, YouTrackComment } from '../../youtrack.js';
@@ -423,6 +424,16 @@ function liveTurnActions(turnId: string): any {
       },
     ],
   };
+}
+
+// The marker of a FILE post in a conversation that holds another domain's data (agent-messaging D14). An upload
+// takes blocks, not message metadata, so the marker is this block's id — the Slack source skips a message that
+// carries it (sources/slack/normalise.ts isMarked). A block has to render something: one line that says why the
+// file will not turn up in the project's sources later.
+export const MARKED_FILE_LINE = "🔒 Built on another domain's data — kept out of this project's sources.";
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function markedFileBlocks(): any[] {
+  return [{ type: 'context', block_id: MARKED_EVENT, elements: [{ type: 'mrkdwn', text: MARKED_FILE_LINE }] }];
 }
 
 // Live status as a section + a "✖ Cancel" button carrying the turnId. Used while a turn

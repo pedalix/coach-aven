@@ -121,15 +121,20 @@ export interface RawMessage {
   attachments?: Array<{ title?: string; text?: string; fallback?: string }>;
   /** Message metadata (pulled with include_all_metadata): a marked post of the bot carries MARKED_EVENT. */
   metadata?: { event_type?: string };
+  /** Only the ids matter here: a marked FILE post of the bot carries MARKED_EVENT as a block id. */
+  blocks?: Array<{ block_id?: string }>;
 }
 
 /**
- * The metadata event type of the bot's posts in a conversation that holds another domain's data
- * (agent-messaging D14; chat/driver.ts MARKED_EVENT). Such a post is never ingested: the store would
- * otherwise carry that data to the project's unmarked conversations.
+ * The marker of the bot's posts in a conversation that holds another domain's data (agent-messaging D14;
+ * chat/driver.ts MARKED_EVENT). Such a post is never ingested: the store would otherwise carry that data to
+ * the project's unmarked conversations. Two carriers, one name: a text post has it as the metadata event
+ * type; a file post as a block id — an upload takes blocks, not metadata (OpenSpec marked-file-posts D1),
+ * and comes back with no metadata and no subtype, so the block is all there is to tell it by.
  */
 export const MARKED_EVENT = 'aven_marked';
-export const isMarked = (msg: RawMessage): boolean => msg.metadata?.event_type === MARKED_EVENT;
+export const isMarked = (msg: RawMessage): boolean =>
+  msg.metadata?.event_type === MARKED_EVENT || (msg.blocks ?? []).some((b) => b.block_id === MARKED_EVENT);
 
 /** What the mapper needs to know about the workspace it is mapping for. */
 export interface WorkspaceContext {
@@ -386,8 +391,12 @@ function truncate(s: string, n: number): string {
   return one.length > n ? `${one.slice(0, n - 1)}…` : one;
 }
 
-/** Every file attached to a message → FileRecord. Stubs of deleted/external files (`mode: 'tombstone'|'hidden_by_limit'`) are skipped. */
+/**
+ * Every file attached to a message → FileRecord. Stubs of deleted/external files (`mode: 'tombstone'|'hidden_by_limit'`)
+ * are skipped, and so is a marked post whole: a file's name is the agent's to choose, so it is content like the text.
+ */
 export function normaliseFiles(msg: RawMessage, conv: RawConversation, ctx: WorkspaceContext): FileRecord[] {
+  if (isMarked(msg)) return [];
   const out: FileRecord[] = [];
   for (const f of msg.files ?? []) {
     if (f.mode === 'tombstone' || f.mode === 'hidden_by_limit') continue;
