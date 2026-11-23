@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   accepts,
+  acceptsPerson,
+  parsePersonPattern,
+  personSender,
+  senderPerson,
   challengeText,
   domainClaimOk,
   headerAad,
@@ -57,6 +61,34 @@ test('accepts — a named agent, a bare own agent, `*` for the own domain only; 
   assert.equal(accepts(['*'], homeOps, { ...own, senderDomain: 'home' }), false, '`*` never crosses a domain');
   assert.equal(accepts(['*'], { installation: 'bluefin', agent: 'nora' }, { ...own, senderDomain: 'bluefin~1a2b3c4d' }), false, 'nor a tenant boundary');
   assert.equal(accepts(['*'], { installation: 'bluefin', agent: 'nora' }, { ...own, senderDomain: 'bluefin' }), true);
+});
+
+test('acceptsPerson — by `user:` or `group:`, case-insensitive; `*` and agent entries never admit a person', () => {
+  const nora = { email: 'Nora@Bluefin.example', groups: ['Support', 'finance'] };
+  assert.equal(acceptsPerson(undefined, nora), false);
+  assert.equal(acceptsPerson([], nora), false);
+  assert.equal(acceptsPerson(['user:nora@bluefin.example'], nora), true);
+  assert.equal(acceptsPerson(['user:NORA@bluefin.example'], nora), true, 'the entry is compared case-insensitively too');
+  assert.equal(acceptsPerson(['group:support'], nora), true);
+  assert.equal(acceptsPerson(['group:Finance'], nora), true);
+  assert.equal(acceptsPerson(['group:ops', 'user:owen@bluefin.example'], nora), false);
+  assert.equal(acceptsPerson(['*'], nora), false, 'a star is every AGENT of the own domain');
+  assert.equal(acceptsPerson(['nora', 'bluefin/nora', 'home/owen-ops'], nora), false, 'an agent entry is not a person');
+  assert.equal(acceptsPerson(['group:support'], { email: 'not an address', groups: ['support'] }), false, 'no usable e-mail: nobody');
+  assert.equal(acceptsPerson(['group:support'], { email: 'owen@bluefin.example', groups: [] }), false);
+});
+
+test('a person entry never admits an agent, and a person sender is not an address', () => {
+  const own = { ownInstallation: 'bluefin', ownDomain: 'bluefin', senderDomain: 'bluefin' };
+  assert.equal(accepts(['user:nora@bluefin.example', 'group:support'], { installation: 'bluefin', agent: 'nora' }, own), false);
+  assert.deepEqual(parsePersonPattern('user:Nora@Bluefin.example'), { user: 'nora@bluefin.example' });
+  assert.deepEqual(parsePersonPattern('group:Support Team'), { group: 'support team' });
+  for (const bad of ['user:', 'group:', 'user:nora', 'user:a@b@c', 'group:a,b', 'group:a/b', 'nora', '*', 'USER:nora@bluefin.example']) assert.equal(parsePersonPattern(bad), undefined, bad);
+  const from = personSender('nora@bluefin.example');
+  assert.equal(from, 'user:nora@bluefin.example');
+  assert.equal(parseAddress(from), undefined);
+  assert.equal(senderPerson(from), 'nora@bluefin.example');
+  assert.equal(senderPerson('bluefin/nora'), undefined);
 });
 
 test('domain claims — a sender’s domain must name its authenticated installation', () => {

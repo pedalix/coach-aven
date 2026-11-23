@@ -73,3 +73,44 @@ test('Peer pinned on reload: `/aven reload` re-reads hub.peers.json and the hub 
     rt.stop();
   }
 });
+
+// ── the agents' MCP endpoint for people (OpenSpec `agent-mcp-endpoint`): off unless configured ────────
+function runtimeWith(messaging: Record<string, unknown>) {
+  const dir = mkdtempSync(join(tmpdir(), 'aven-runtime-'));
+  const rt = messagingRuntime({
+    cfg: { projectsConfigPath: join(dir, 'projects.config.json'), messaging: { installation: 'bluefin', ...messaging } } as unknown as Config,
+    store: new Store(join(dir, 'state.json')),
+    reg: { current: { projects: [] } } as unknown as RegistryRef,
+    home: () => undefined,
+    platform: 'slack',
+    shadowDir: join(dir, 'shadow'),
+  });
+  rt.start({ engine: {} as unknown as TurnEngine, driverFor: () => undefined as never });
+  return rt;
+}
+const settle = async (): Promise<void> => {
+  for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 5));
+};
+
+test('the MCP endpoint: without its settings no listener opens; half-configured opens none either', async () => {
+  for (const m of [{}, { endpointProblem: 'AGENT_MCP_LISTEN is set without AGENT_MCP_TOKEN' }]) {
+    const rt = runtimeWith(m);
+    await settle();
+    assert.equal(rt.endpoint(), undefined);
+    rt.stop();
+  }
+});
+
+test('the MCP endpoint: with both settings it listens, refuses a call without the bearer, and stop() closes it', async () => {
+  const rt = runtimeWith({ endpoint: { listen: '127.0.0.1:0', token: 'gateway-bearer' } });
+  await settle();
+  const server = rt.endpoint();
+  assert.ok(server, 'the listener is up');
+  const port = (server.address() as { port: number }).port;
+  assert.equal((await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST', body: '{}' })).status, 401);
+  const listed = await fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST', headers: { authorization: 'Bearer gateway-bearer' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) });
+  assert.equal(listed.status, 200);
+  rt.stop();
+  await settle();
+  await assert.rejects(fetch(`http://127.0.0.1:${port}/mcp`, { method: 'POST', body: '{}' }));
+});

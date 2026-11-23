@@ -106,6 +106,61 @@ export function accepts(
   return false;
 }
 
+// ── people who may ask (OpenSpec `agent-mcp-endpoint`, design D2, D3) ────────────────────────────
+// A person reaches an agent through the installation's MCP endpoint, named by its gateway: an e-mail
+// address and the groups the identity provider put them in. An accept list admits a person only by
+// `user:<e-mail>` or `group:<name>` — never by `*` or an agent entry, so a project that accepts "every
+// agent of my domain" is not opened to people by an upgrade. Compared case-insensitively.
+export interface Person {
+  email: string;
+  groups: readonly string[];
+}
+export const USER_PREFIX = 'user:';
+export const GROUP_PREFIX = 'group:';
+const EMAIL_RE = /^[^\s@,:/]{1,64}@[^\s@,:/]{1,255}$/;
+const GROUP_RE = /^[^\s,/:][^,/:]{0,126}$/;
+/** An e-mail address as the gateway sends it, lower-cased; undefined when it is not one. */
+export function parseEmail(s: unknown): string | undefined {
+  if (!str(s)) return undefined;
+  const e = s.trim().toLowerCase();
+  return EMAIL_RE.test(e) ? e : undefined;
+}
+/** A group name as written in a header or an entry, lower-cased; undefined when it is empty or carries a separator. */
+export function parseGroup(s: unknown): string | undefined {
+  if (!str(s)) return undefined;
+  const g = s.trim();
+  return GROUP_RE.test(g) ? g.toLowerCase() : undefined;
+}
+/** `user:<e-mail>` / `group:<name>` as an accept entry; undefined for every other entry (agents, `*`, malformed). */
+export function parsePersonPattern(p: unknown): { user: string } | { group: string } | undefined {
+  if (!str(p)) return undefined;
+  if (p.startsWith(USER_PREFIX)) {
+    const user = parseEmail(p.slice(USER_PREFIX.length));
+    return user ? { user } : undefined;
+  }
+  if (p.startsWith(GROUP_PREFIX)) {
+    const group = parseGroup(p.slice(GROUP_PREFIX.length));
+    return group ? { group } : undefined;
+  }
+  return undefined;
+}
+/** A person as a task's sender: `user:<e-mail>`. It never parses as an address, so nothing can post to it. */
+export const personSender = (email: string): string => `${USER_PREFIX}${email}`;
+/** The e-mail of a sender that is a person; undefined for an agent's address. */
+export const senderPerson = (from: string): string | undefined => (from.startsWith(USER_PREFIX) ? parseEmail(from.slice(USER_PREFIX.length)) : undefined);
+/** Whether an agent's accept list admits a person: by their address or by one of their groups. */
+export function acceptsPerson(patterns: readonly string[] | undefined, person: Person): boolean {
+  const email = parseEmail(person.email);
+  if (!email) return false;
+  const groups = new Set(person.groups.map((g) => parseGroup(g)).filter((g): g is string => !!g));
+  for (const p of patterns ?? []) {
+    const e = parsePersonPattern(p);
+    if (!e) continue;
+    if ('user' in e ? e.user === email : groups.has(e.group)) return true;
+  }
+  return false;
+}
+
 // ── the message, the wire envelope and what it seals (D5, N5) ────────────────────────────────────
 export interface EnvelopeHeader {
   v: number;

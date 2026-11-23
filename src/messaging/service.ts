@@ -21,7 +21,7 @@ import type { ChatDriver } from '../chat/driver.js';
 import type { ShadowDriver } from '../chat/shadow/driver.js';
 import { parseShadowKey, shadowKey } from '../chat/shadow/driver.js';
 import { STREAM_MAX_MS, type InjectOutcome } from '../claudeSession.js';
-import { turnUsd, type UsageLog } from '../metering.js';
+import { originUser, turnUsd, type UsageLog } from '../metering.js';
 import { projectOwnerTeam, resolveBySlug, type ProjectConfig, type RegistryRef } from '../projects.js';
 import { localDate } from '../routineguard.js';
 import type { Store } from '../state.js';
@@ -33,7 +33,7 @@ import { isSkillId, isTerminal, parseCard, parseMessage, parseStatus, textMessag
 import { messagingLimits, type MessagingConfig } from './config.js';
 import { emit, type EventName, type EventSink } from './events.js';
 import { domainOf, heldWhy, markArrival, markSent, mayGo } from './marks.js';
-import { accepts, isOtherHub, parseAddress, parseTarget, PROTOCOL_VERSION, type Address, type Envelope, type EnvelopeHeader, type Method, type Payload } from './protocol.js';
+import { accepts, acceptsPerson, isOtherHub, parseAddress, parseEmail, parseGroup, parseTarget, personSender, PROTOCOL_VERSION, senderPerson, type Address, type Envelope, type EnvelopeHeader, type Method, type Payload, type Person } from './protocol.js';
 import { acceptCountKey, isOpen, sendCountKey, type DeliveryRecord, type HeldMessage, type InTask, type OutTask, type ReplyTarget } from './records.js';
 import type { Delivery, PeerTransport } from './transport.js';
 import { exposedSkills, invokeSkill, notOursOf, type ProjectSkill } from './skills.js';
@@ -80,6 +80,10 @@ export const AGENTS_TIMEOUT_MS = 10_000;
 const OTHER_HUB = 'addresses on other hubs (`<installation>@<host>`) are not supported — targets are "<installation>/<agent>" or "<agent>" on this hub';
 /** How far back the metered turns of a task are looked up: past the task records' 30-day retention. */
 export const TASK_COST_WINDOW_MS = 31 * 86_400_000;
+/** The longest a call of the MCP endpoint is held for a task's answer (agent-mcp-endpoint D6): common clients give a tool call about a minute. */
+export const MAX_WAIT_MS = 50_000;
+/** Held calls one person may have at a time; the next returns at once. */
+export const MAX_WAITS_PER_PERSON = 4;
 export const NUDGE_TEXT = 'Nothing is outstanding any more on the task from another agent: give your final answer to the task now.';
 
 export type ToolReply = { ok: true; data: Record<string, unknown> } | { ok: false; error: string };
@@ -121,6 +125,13 @@ export function createMessaging(d: MessagingDeps) {
   }
   /** A status of a task to its asker (the answering side), under the marks of its shadow conversation. */
   function sendStatus(task: InTask, state: TaskState, o: { text?: string; reason?: string; cost?: number } = {}): boolean {
+    // A person's task (agent-mcp-endpoint D1): there is no asking agent to tell. What would be sent is
+    // kept on the record, where the person's get_task reads it, and whoever waits on the task is woken.
+    if (senderPerson(task.from)) {
+      if (o.text !== undefined) d.store.patchInTask(task.origin, task.id, { last: { at: iso(), role: 'agent', state, text: o.text }, ...(o.cost !== undefined ? { cost: o.cost } : {}) });
+      wake(task.id);
+      return true;
+    }
     const content = o.text !== undefined;
     const marks = d.store.getMarks(task.key);
     if (content) {
@@ -276,7 +287,7 @@ export function createMessaging(d: MessagingDeps) {
       status,
       elapsedMs: Date.now() - Date.parse(rec.at),
       usage: usage as never,
-      ...(t ? { originSlug: rec.task.dir === 'out' ? (t as OutTask).target : (t as InTask).from, taskId: t.id } : {}),
+      ...(t ? { originSlug: rec.task.dir === 'out' ? (t as OutTask).target : (t as InTask).from, taskId: t.id, ...(rec.task.dir === 'in' ? originUser((t as InTask).from) : {}) } : {}),
     } as never);
   }
 
@@ -323,6 +334,7 @@ export function createMessaging(d: MessagingDeps) {
     const next = d.store.patchInTask(origin, id, { state, ...(reason ? { reason } : {}), updatedAt: iso() });
     if (state !== 'completed') cascade(t, 'parent ended');
     void d.engine.closeSession(t.key).catch(() => {});
+    wake(id);
     return next;
   }
   /** A task that ends without completing cancels the open tasks its conversation started (D10, D15). */
@@ -847,7 +859,9 @@ export function createMessaging(d: MessagingDeps) {
     }
     const busy = outstanding(t);
     if (busy) {
-      d.store.patchInTask(t.origin, t.id, { last: { at: iso(), role: 'agent', state: t.state, text: o.text } });
+      // A question asked back stays the task's last message until it is replied to: it is what the reply
+      // frame quotes, and what a person reads with get_task (agent-mcp-endpoint).
+      if (!t.awaitingInput) d.store.patchInTask(t.origin, t.id, { last: { at: iso(), role: 'agent', state: t.state, text: o.text } });
       return;
     }
     const cost = taskCost(t.id, o.turnUsd);
@@ -887,6 +901,162 @@ export function createMessaging(d: MessagingDeps) {
       ev('ask.shadow.nudge', { task: t.id, slug: t.slug });
       deliver({ key: t.key, slug: t.slug, reply: { key: t.key, driver: 'shadow' }, label: '↩ nudge', task: { dir: 'in', id: t.id, origin: t.origin }, text: NUDGE_TEXT }, { ownTurn: true });
     }
+  }
+
+  // ════════════════════════════════════════════════════════════════════════════════════════════
+  // People (OpenSpec `agent-mcp-endpoint`): a person in an outside MCP client asks an agent of this
+  // installation. The caller is the person the gateway named, never a session; the task enters at the
+  // answering side with no transport (D1) and under the same checks as onAsk — accept, the skill, the
+  // per-sender daily cap — and its answer stays on the record, read with personGetTask.
+  // ════════════════════════════════════════════════════════════════════════════════════════════
+  const NO_IDENTITY = 'the gateway sent no identity for this call (no usable e-mail address): nothing was done';
+  const whoIs = (p: Person): { email: string; groups: string[]; from: string } | undefined => {
+    const email = parseEmail(p.email);
+    return email ? { email, groups: [...new Set(p.groups.map((g) => parseGroup(g)).filter((g): g is string => !!g))], from: personSender(email) } : undefined;
+  };
+  const acceptsWho = (p: ProjectConfig | undefined, who: Person): boolean => !!p?.messaging && acceptsPerson(p.messaging.accept, who);
+  function personCards(who: { email: string; groups: string[]; from: string }): AgentCard[] {
+    const today = localDate(tz, now());
+    return d.reg.current.projects
+      .filter((p) => acceptsWho(p, who))
+      .map((p) => ({
+        name: self(p.slug),
+        description: p.messaging!.description ?? '',
+        accepting: d.store.askCount(acceptCountKey(p.slug, who.from, today)) < messagingLimits(p.messaging!).acceptPerDay,
+        domain: domainOfProject(p.slug),
+        skills: offered(p),
+      }));
+  }
+  function personAgents(p: Person): ToolReply {
+    const who = whoIs(p);
+    if (!who) return { ok: false, error: NO_IDENTITY };
+    return { ok: true, data: { installation: d.installation, agents: personCards(who) } };
+  }
+  /** A person's own task: an unknown id and someone else's task are the same miss. */
+  function personTask(who: { from: string }, taskId: unknown): InTask | undefined {
+    const t = typeof taskId === 'string' ? d.store.getInTask(d.installation, taskId) : undefined;
+    return t && t.from === who.from ? t : undefined;
+  }
+  const taskView = (t: InTask): Record<string, unknown> => ({
+    taskId: t.id,
+    target: self(t.slug),
+    state: t.state,
+    ...(t.reason ? { reason: t.reason } : {}),
+    createdAt: t.createdAt,
+    updatedAt: t.updatedAt,
+    ...(t.last ? { last: t.last } : {}),
+  });
+  function personSend(p: Person, args: { target?: unknown; text?: unknown; taskId?: unknown; skill?: unknown }): ToolReply {
+    const who = whoIs(p);
+    if (!who) return { ok: false, error: NO_IDENTITY };
+    const text = typeof args.text === 'string' ? args.text.trim() : '';
+    if (!text) return { ok: false, error: '`text` is required' };
+    if (text.length > 64 * 1024) return { ok: false, error: '`text` is longer than 64 KiB' };
+    if (typeof args.taskId === 'string' && args.taskId) return personReply(who, args.taskId, text);
+    const target = parseTarget(args.target, d.installation);
+    if (!target) return { ok: false, error: `\`target\` must be an agent of this installation (${d.installation}), as \`agents\` lists it` };
+    if (target.installation !== d.installation) return { ok: false, error: `targets are agents of this installation (${d.installation}); \`agents\` lists the ones that accept you` };
+    const slug = target.agent;
+    const tp = project(slug);
+    // No such agent, or one that does not accept the person: the same error (it does not say which).
+    if (!acceptsWho(tp, who)) {
+      const ok = personCards(who).map((x) => x.name);
+      return { ok: false, error: `no agent "${slug}" here accepts tasks from you; agents that do: ${ok.length ? ok.join(', ') : 'none'}` };
+    }
+    if (args.skill !== undefined && args.skill !== '') {
+      const offers = offered(tp!);
+      if (!isSkillId(args.skill) || !offers.some((x) => x.id === args.skill)) return { ok: false, error: unknownSkill(self(slug), String(args.skill), offers) };
+    }
+    const skill = typeof args.skill === 'string' && args.skill ? args.skill : undefined;
+    const limits = messagingLimits(messaging(tp)!);
+    const today = localDate(tz, now());
+    const countKey = acceptCountKey(slug, who.from, today);
+    if (d.store.askCount(countKey) >= limits.acceptPerDay) {
+      ev('ask.rejected', { from: who.from, to: self(slug), reason: 'budget' });
+      return { ok: false, error: `${self(slug)} takes at most ${limits.acceptPerDay} new tasks a day from one sender, and you reached that today` };
+    }
+    const id = newId();
+    const key = shadowKey({ tenantId: tenantOfProject(slug), origin: d.installation, taskId: id, slug });
+    // A person the project lists is of the project's own domain (D3): nothing arrives marked.
+    const task: InTask = { id, origin: d.installation, from: who.from, fromDomain: domainOfProject(slug), groups: who.groups, slug, key, question: text, ...(skill ? { skill } : {}), state: 'submitted', depth: 0, rounds: 0, seen: [], createdAt: iso(), updatedAt: iso() };
+    d.store.putInTask(task);
+    d.store.bumpAskCount(countKey, localDate(tz, new Date(now().getTime() - 86_400_000)));
+    deliver({ key, slug, reply: { key, driver: 'shadow' }, label: `↩ task ${id} from ${who.from}`, task: { dir: 'in', id, origin: d.installation }, text: invokeSkill(skill, wrapTask({ from: who.from, taskId: id, text, maySend: !!messaging(tp)!.send, maxRounds: limits.maxRounds })) }, { ownTurn: true });
+    return { ok: true, data: { taskId: id, target: self(slug), state: 'submitted' } };
+  }
+  function personReply(who: { email: string; groups: string[]; from: string }, taskId: string, text: string): ToolReply {
+    const t = personTask(who, taskId);
+    if (!t) return { ok: false, error: `no task ${taskId} of yours here` };
+    if (!isOpen(t)) return { ok: false, error: `task ${taskId} ended (${t.state})` };
+    if (t.state !== 'input-required') return { ok: false, error: `task ${taskId} is ${t.state}: a reply answers a question asked back (input-required)` };
+    // Acceptance is checked for every message of a task (D2), with the groups of this call.
+    if (!acceptsWho(project(t.slug), who)) {
+      d.engine.cancelKey(t.key);
+      endIn(t.origin, t.id, 'failed', 'not accepted');
+      return { ok: false, error: `task ${taskId} ended: ${self(t.slug)} does not accept you any more` };
+    }
+    const asked = t.last?.state === 'input-required' ? t.last.text : '';
+    d.store.patchInTask(t.origin, t.id, { awaitingInput: false, state: 'working', groups: who.groups, updatedAt: iso(), last: { at: iso(), role: 'user', state: 'working', text } });
+    deliver({ key: t.key, slug: t.slug, reply: { key: t.key, driver: 'shadow' }, label: `↩ reply from ${who.from} (task ${t.id}) folded in`, task: { dir: 'in', id: t.id, origin: t.origin }, text: wrapReply({ from: who.from, taskId: t.id, asked, text }) });
+    return { ok: true, data: { taskId: t.id, target: self(t.slug), state: 'working' } };
+  }
+  function personGetTask(p: Person, taskId: unknown): ToolReply {
+    const who = whoIs(p);
+    if (!who) return { ok: false, error: NO_IDENTITY };
+    const t = personTask(who, taskId);
+    return t ? { ok: true, data: taskView(t) } : { ok: false, error: `no task ${String(taskId)} of yours here` };
+  }
+  function personCancel(p: Person, taskId: unknown): ToolReply {
+    const who = whoIs(p);
+    if (!who) return { ok: false, error: NO_IDENTITY };
+    const t = personTask(who, taskId);
+    if (!t) return { ok: false, error: `no task ${String(taskId)} of yours here` };
+    if (isOpen(t)) {
+      d.engine.cancelKey(t.key);
+      endIn(t.origin, t.id, 'canceled', 'by the asker');
+      ev('ask.canceled', { task: t.id, from: t.from, to: self(t.slug) });
+    }
+    return { ok: true, data: taskView(d.store.getInTask(t.origin, t.id)!) };
+  }
+
+  // ── waiting (D6): a call held until its task has something to read ──────────────────────────
+  // A task "has news" for its asker when it ended, or holds an answer or a question back. Waiters are in
+  // memory only: a restart drops the held call, and the person's client reads the task with get_task.
+  const waiters = new Map<string, Set<() => void>>();
+  const waiting = new Map<string, number>(); // held calls per person
+  const hasNews = (t: InTask | undefined): boolean => !t || !isOpen(t) || t.state === 'input-required';
+  function wake(taskId: string): void {
+    for (const w of [...(waiters.get(taskId) ?? [])]) w();
+  }
+  /** The task as get_task shows it, after waiting up to `waitSeconds` (cut to the limit) for news on it. */
+  async function personWait(p: Person, taskId: unknown, waitSeconds: unknown): Promise<ToolReply> {
+    const first = personGetTask(p, taskId);
+    const who = whoIs(p);
+    if (!first.ok || !who) return first;
+    const id = String(taskId);
+    const ms = Math.min(MAX_WAIT_MS, typeof waitSeconds === 'number' && waitSeconds > 0 ? Math.floor(waitSeconds * 1000) : 0);
+    if (!ms || hasNews(personTask(who, id)) || (waiting.get(who.from) ?? 0) >= MAX_WAITS_PER_PERSON) return first;
+    waiting.set(who.from, (waiting.get(who.from) ?? 0) + 1);
+    await new Promise<void>((resolve) => {
+      const set = waiters.get(id) ?? new Set<() => void>();
+      waiters.set(id, set);
+      const done = (): void => {
+        clearTimeout(timer);
+        set.delete(check);
+        if (!set.size) waiters.delete(id);
+        resolve();
+      };
+      const check = (): void => {
+        if (hasNews(personTask(who, id))) done();
+      };
+      const timer = setTimeout(done, ms);
+      timer.unref?.();
+      set.add(check);
+    });
+    const left = (waiting.get(who.from) ?? 1) - 1;
+    if (left > 0) waiting.set(who.from, left);
+    else waiting.delete(who.from);
+    return personGetTask(p, id);
   }
 
   // ── held messages (D9, task 4.7): a card in the conversation; a person releases or dismisses ─
@@ -962,7 +1132,9 @@ export function createMessaging(d: MessagingDeps) {
   function reload(): string[] {
     const notes: string[] = [];
     for (const t of d.store.messagingTasks().in) {
-      if (!isOpen(t) || accepted(t.slug, parseAddress(t.from)!, t.fromDomain)) continue;
+      if (!isOpen(t)) continue;
+      const email = senderPerson(t.from);
+      if (email ? acceptsPerson(messaging(project(t.slug))?.accept, { email, groups: t.groups ?? [] }) : accepted(t.slug, parseAddress(t.from)!, t.fromDomain)) continue;
       d.engine.cancelKey(t.key);
       endIn(t.origin, t.id, 'canceled', 'not accepted');
       sendStatus(t, 'canceled', { reason: 'not accepted' });
@@ -993,6 +1165,12 @@ export function createMessaging(d: MessagingDeps) {
     ended,
     reload,
     cancelByOperator,
+    // people (the MCP endpoint)
+    personAgents,
+    personSend,
+    personGetTask,
+    personCancel,
+    personWait,
     // for tests and the audit
     domainOfProject,
     domainOfKey,

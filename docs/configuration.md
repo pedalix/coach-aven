@@ -188,6 +188,8 @@ The support-ticket investigation poller: on only when both `YOUTRACK_URL` and `Y
 | `INSTALLATION_ID` | `local` | This installation's name in every agent address (`[a-z0-9-]{1,32}`, invalid stops the boot); must be explicit for the hub. [Agent messaging](runtime-config.md#agent-messaging-messaging-installation_id-hub_url-hub_key_path). |
 | `HUB_URL` | — (no hub connection) | `wss://` URL of the messaging hub. Without an explicit `INSTALLATION_ID` and `HUB_KEY_PATH`: one error, messaging inside the installation only. [Joining a hub](hub.md#joining-a-hub). |
 | `HUB_KEY_PATH` | — | The installation's key file (`orch hub keygen`; relative = in `AVEN_DIR`). |
+| `AGENT_MCP_LISTEN` | off | `host:port` (a bare port binds loopback) of the agents' MCP endpoint for people; needs `AGENT_MCP_TOKEN`. [Agents' MCP endpoint](runtime-config.md#agents-mcp-endpoint-for-people-agent_mcp_listen-agent_mcp_token). |
+| `AGENT_MCP_TOKEN` | required with `AGENT_MCP_LISTEN` | The bearer the installation's gateway sends to that endpoint. |
 
 ### Observability
 

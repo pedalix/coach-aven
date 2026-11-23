@@ -4,7 +4,7 @@
 // both are read again at call time — a reload changes what the next call may do.
 import { collapseStars, isSkillPattern } from './skills.js';
 import { settingPath } from '../paths.js';
-import { INSTALLATION_RE, parseTarget } from './protocol.js';
+import { INSTALLATION_RE, parsePersonPattern, parseTarget } from './protocol.js';
 
 export interface MessagingConfig {
   /** The sending tools (D9): send_message, get_task, cancel_task, agents. */
@@ -12,7 +12,8 @@ export interface MessagingConfig {
   /**
    * Who may ask this agent: `<installation>/<agent>`, a bare `<agent>` of the own installation, or `*`
    * for every agent of this agent's own domain (D14). Absent or empty: nobody. No entry covers a whole
-   * other domain.
+   * other domain. People who ask through the installation's MCP endpoint (agent-mcp-endpoint) are admitted
+   * only by `user:<e-mail>` or `group:<name>` — `*` and agent entries never match a person.
    */
   accept?: string[];
   /** The agent card's one line (D7). */
@@ -46,8 +47,9 @@ export const messagingLimits = (c: MessagingConfig): { sendPerDay: number; accep
   costWarnUsd: c.costWarnUsd ?? MESSAGING_DEFAULTS.costWarnUsd,
 });
 
-/** An accept entry as written: `*`, `<installation>/<agent>` or a bare `<agent>`. */
-export const isAcceptPattern = (p: unknown): p is string => p === '*' || (typeof p === 'string' && p.trim() === p && parseTarget(p, 'local') !== undefined);
+/** An accept entry as written: `*`, `<installation>/<agent>`, a bare `<agent>`, `user:<e-mail>` or `group:<name>`. */
+export const isAcceptPattern = (p: unknown): p is string =>
+  p === '*' || (typeof p === 'string' && p.trim() === p && (parseTarget(p, 'local') !== undefined || parsePersonPattern(p) !== undefined));
 
 /**
  * Validate a project's `messaging` block. Throws naming the field — like every other projects.config
@@ -65,7 +67,7 @@ export function validateMessagingConfig(x: unknown, where: string): MessagingCon
   if (a.accept !== undefined) {
     if (!Array.isArray(a.accept)) throw new Error(`${where}.accept must be an array`);
     const bad = a.accept.filter((p) => !isAcceptPattern(p));
-    if (bad.length) throw new Error(`${where}.accept: ${bad.map((b) => JSON.stringify(b)).join(', ')} is not "*", "<installation>/<agent>" or "<agent>"`);
+    if (bad.length) throw new Error(`${where}.accept: ${bad.map((b) => JSON.stringify(b)).join(', ')} is not "*", "<installation>/<agent>", "<agent>", "user:<e-mail>" or "group:<name>"`);
     out.accept = [...(a.accept as string[])];
   }
   if (a.description !== undefined) {
@@ -107,6 +109,24 @@ export interface MessagingEnv {
   hub?: { url: string; keyPath: string };
   /** HUB_URL is set but the client cannot start: why (the composition root logs it; local messaging keeps working). */
   hubProblem?: string;
+  /** The agents' MCP endpoint for people (agent-mcp-endpoint): both AGENT_MCP_LISTEN and AGENT_MCP_TOKEN are set. */
+  endpoint?: { listen: string; token: string };
+  /** Only one of the two is set, or the address is not one: why no listener opens. */
+  endpointProblem?: string;
+}
+
+/**
+ * AGENT_MCP_LISTEN (`host:port`, a bare port binds loopback) and AGENT_MCP_TOKEN (the bearer the gateway
+ * sends). Neither: no endpoint, nothing to say. One without the other opens nothing and names what is missing.
+ */
+export function endpointEnv(env: Record<string, string | undefined>): Pick<MessagingEnv, 'endpoint' | 'endpointProblem'> {
+  const listen = env.AGENT_MCP_LISTEN?.trim() || undefined;
+  const token = env.AGENT_MCP_TOKEN?.trim() || undefined;
+  if (!listen && !token) return {};
+  if (!listen) return { endpointProblem: 'AGENT_MCP_TOKEN is set without AGENT_MCP_LISTEN' };
+  if (!token) return { endpointProblem: 'AGENT_MCP_LISTEN is set without AGENT_MCP_TOKEN' };
+  if (!/^(?:(\[[^\]]+\]|[^:]+):)?\d{1,5}$/.test(listen)) return { endpointProblem: `AGENT_MCP_LISTEN must be host:port or port, got ${JSON.stringify(listen)}` };
+  return { endpoint: { listen, token } };
 }
 
 /** Read INSTALLATION_ID / HUB_URL / HUB_KEY_PATH. An invalid INSTALLATION_ID throws (it would go into every address). */
@@ -115,18 +135,19 @@ export function messagingEnv(env: Record<string, string | undefined>): Messaging
   if (explicit !== undefined && !INSTALLATION_RE.test(explicit)) {
     throw new Error(`INSTALLATION_ID must match [a-z0-9-]{1,32}, got ${JSON.stringify(explicit)}`);
   }
-  const installation = explicit ?? DEFAULT_INSTALLATION;
+  const base = { installation: explicit ?? DEFAULT_INSTALLATION, ...endpointEnv(env) };
+  const installation = base.installation;
   const url = env.HUB_URL?.trim() || undefined;
-  if (!url) return { installation };
+  if (!url) return base;
   let parsed: URL | undefined;
   try {
     parsed = new URL(url);
   } catch {
     parsed = undefined;
   }
-  if (!parsed || (parsed.protocol !== 'wss:' && parsed.protocol !== 'ws:')) return { installation, hubProblem: `HUB_URL must be a wss:// URL, got ${JSON.stringify(url)}` };
-  if (!explicit || explicit === DEFAULT_INSTALLATION) return { installation, hubProblem: 'HUB_URL needs an explicit INSTALLATION_ID (not "local")' };
+  if (!parsed || (parsed.protocol !== 'wss:' && parsed.protocol !== 'ws:')) return { ...base, hubProblem: `HUB_URL must be a wss:// URL, got ${JSON.stringify(url)}` };
+  if (!explicit || explicit === DEFAULT_INSTALLATION) return { ...base, hubProblem: 'HUB_URL needs an explicit INSTALLATION_ID (not "local")' };
   const keyPath = settingPath(env.HUB_KEY_PATH, env); // relative → the installation directory (installation-directory)
-  if (!keyPath) return { installation, hubProblem: 'HUB_URL needs HUB_KEY_PATH (run `orch hub keygen`)' };
-  return { installation, hub: { url, keyPath } };
+  if (!keyPath) return { ...base, hubProblem: 'HUB_URL needs HUB_KEY_PATH (run `orch hub keygen`)' };
+  return { ...base, hub: { url, keyPath } };
 }

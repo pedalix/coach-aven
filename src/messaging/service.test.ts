@@ -813,3 +813,166 @@ test('skills — a project skill named like a CLI command (`schedule`) is neithe
   assert.equal(h.turns.length, 0);
   assert.match(JSON.stringify(sent[0][1].message), /unknown skill \\"schedule\\"/);
 });
+
+// ── people (OpenSpec `agent-mcp-endpoint`): a person asks through the MCP endpoint ─────────────────────
+const NORA = { email: 'Nora@Bluefin.example', groups: ['Support'] };
+const OWEN_P = { email: 'owen@bluefin.example', groups: ['support'] };
+const err = (r: { ok: boolean }): string => (r as Any).error;
+
+test('a person: accepted by e-mail, the task runs in a shadow conversation and the answer stays on the task — no envelope, no post', async () => {
+  const h = harness([caldora({ accept: ['user:nora@bluefin.example'] }), billing()], { scripts: { caldora: () => '12 orders failed yesterday.' } });
+  const r = h.svc.personSend(NORA, { target: 'caldora', text: 'How many orders failed yesterday?' });
+  assert.equal(r.ok, true);
+  assert.equal(data(r).state, 'submitted');
+  assert.equal(data(r).target, 'home/caldora');
+  await flush(20);
+  const turn = h.turns[0]!;
+  assert.match(turn.key, /^a2a:home:[0-9a-f]{24}:caldora$/);
+  assert.match(turn.question, /^\[Request from a person\]\nFrom: nora@bluefin\.example, a person asking from their own MCP client · Task: /);
+  assert.deepEqual(turn.opts?.origin, { slug: 'user:nora@bluefin.example', taskId: data(r).taskId });
+  const got = h.svc.personGetTask(NORA, data(r).taskId);
+  assert.equal(data(got).state, 'completed');
+  assert.equal(data(got).last.text, '12 orders failed yesterday.');
+  assert.equal(data(got).last.role, 'agent');
+  assert.equal(h.turns.length, 1, 'no answer turn anywhere: there is no asking conversation');
+  assert.equal(h.posts.length, 0);
+  assert.equal(h.store.messagingTasks().out.length, 0, 'no outgoing task record');
+  assert.equal(h.events.some((e) => /hub\.rejected|ask\.unexpected/.test(e)), false, 'nothing was posted to a transport');
+  assert.deepEqual(h.closed, [turn.key]);
+});
+
+test('a person: accepted by group, case-insensitively; `*` and agent entries are not people; unknown and unaccepted agents give the same error', () => {
+  const h = harness([caldora({ accept: ['group:support'] }), { slug: 'bluefin-ops', repos: ['Org/ops'], messaging: { accept: ['*', 'nora', 'home/nora'] } } as Any, billing()]);
+  assert.deepEqual(data(h.svc.personAgents(NORA)).agents.map((c: Any) => c.name), ['home/caldora'], 'only the agents that accept the person');
+  assert.equal(h.svc.personSend(NORA, { target: 'caldora', text: 'q' }).ok, true);
+  const a = h.svc.personSend(NORA, { target: 'bluefin-ops', text: 'q' });
+  const b = h.svc.personSend(NORA, { target: 'no-such-agent', text: 'q' });
+  assert.equal(err(a), 'no agent "bluefin-ops" here accepts tasks from you; agents that do: home/caldora');
+  assert.equal(err(b).replace('no-such-agent', 'bluefin-ops'), err(a));
+  assert.match(err(h.svc.personSend(NORA, { target: 'bluefin/caldora', text: 'q' })), /targets are agents of this installation \(home\)/);
+  assert.match(err(h.svc.personSend({ email: '', groups: ['support'] }, { target: 'caldora', text: 'q' })), /gateway sent no identity/);
+  assert.match(err(h.svc.personAgents({ email: 'nobody', groups: [] })), /gateway sent no identity/);
+  assert.deepEqual(data(h.svc.personAgents({ email: 'guest@bluefin.example', groups: ['sales'] })).agents, []);
+});
+
+test('a person: the per-sender daily cap refuses with the limit named and starts nothing; a skill the card does not offer is refused with the offered ids', async () => {
+  const h = harness([caldora({ accept: ['group:support'], acceptPerDay: 2, skills: ['weekly-report'] })], {
+    scripts: { caldora: () => 'ok' },
+    skills: { caldora: [{ name: 'weekly-report', description: 'The weekly report', source: 'repo' } as Any] },
+  });
+  assert.match(err(h.svc.personSend(NORA, { target: 'caldora', text: 'q', skill: 'schedule' })), /unknown skill "schedule" — home\/caldora offers weekly-report/);
+  assert.equal(h.svc.personSend(NORA, { target: 'caldora', text: 'report', skill: 'weekly-report' }).ok, true);
+  assert.equal(h.svc.personSend(NORA, { target: 'caldora', text: 'q2' }).ok, true);
+  await flush(20);
+  assert.match(h.turns[0]!.question, /^\/weekly-report /, 'the shadow conversation starts with the skill');
+  const third = h.svc.personSend(NORA, { target: 'caldora', text: 'q3' });
+  assert.match(err(third), /at most 2 new tasks a day from one sender/);
+  assert.equal(h.svc.personSend(OWEN_P, { target: 'caldora', text: 'mine' }).ok, true, 'the cap is per person');
+  await flush(20);
+  assert.equal(h.turns.length, 3);
+  assert.equal(data(h.svc.personAgents(NORA)).agents[0].accepting, false);
+});
+
+test('a person: only the asker reads, cancels or replies on a task — for anyone else it is an unknown task', async () => {
+  const h = harness([caldora({ accept: ['group:support'] })], { scripts: { caldora: () => undefined } });
+  const id = data(h.svc.personSend(NORA, { target: 'caldora', text: 'q' })).taskId;
+  await flush(20);
+  const unknown = err(h.svc.personGetTask(NORA, 'ffffffffffffffffffffffff')).replace('ffffffffffffffffffffffff', id);
+  assert.equal(err(h.svc.personGetTask(OWEN_P, id)), unknown);
+  assert.equal(err(h.svc.personCancel(OWEN_P, id)), unknown);
+  assert.equal(err(h.svc.personSend(OWEN_P, { taskId: id, text: 'mine now' })), unknown);
+  assert.equal(data(h.svc.personGetTask(NORA, id)).state, 'working');
+  const c = h.svc.personCancel(NORA, id);
+  assert.equal(data(c).state, 'canceled');
+  assert.equal(data(c).reason, 'by the asker');
+  assert.deepEqual(h.canceled, [h.turns[0]!.key], 'the shadow turn is canceled');
+  assert.equal(data(h.svc.personCancel(NORA, id)).state, 'canceled', 'canceling an ended task reports its state');
+});
+
+test('a person: the agent asks back, the task reads input-required, the asker’s reply reaches the same shadow conversation and the task completes', async () => {
+  let round = 0;
+  const h = harness([caldora({ accept: ['user:nora@bluefin.example'] })], {
+    scripts: {
+      caldora: (t, hh) => {
+        if (round++ === 0) {
+          assert.equal(hh.svc.requestInput(hh.tool(t.key, 'caldora'), 'Which shop?').ok, true);
+          return 'Waiting for the shop.';
+        }
+        return 'The main shop had 12 failed orders.';
+      },
+    },
+  });
+  const id = data(h.svc.personSend(NORA, { target: 'caldora', text: 'How many orders failed?' })).taskId;
+  await flush(20);
+  const asked = data(h.svc.personGetTask(NORA, id));
+  assert.equal(asked.state, 'input-required');
+  assert.equal(asked.last.text, 'Which shop?');
+  assert.match(err(h.svc.personSend(OWEN_P, { taskId: id, text: 'the other one' })), /no task/);
+  const r = h.svc.personSend(NORA, { taskId: id, text: 'the main one' });
+  assert.equal(data(r).state, 'working');
+  await flush(20);
+  assert.equal(h.turns.length, 2);
+  assert.equal(h.turns[1]!.key, h.turns[0]!.key, 'the same shadow conversation');
+  assert.match(h.turns[1]!.question, /^\[Reply from the asker\]\nFrom: nora@bluefin\.example, a person/);
+  assert.match(h.turns[1]!.question, /> Which shop\?[\s\S]*> the main one/);
+  const done = data(h.svc.personGetTask(NORA, id));
+  assert.equal(done.state, 'completed');
+  assert.equal(done.last.text, 'The main shop had 12 failed orders.');
+  assert.match(err(h.svc.personSend(NORA, { taskId: id, text: 'thanks' })), /ended \(completed\)/);
+});
+
+test('a person: a failed turn ends the task failed on the record; an operator’s cancel and a reload that drops the entry end it canceled', async () => {
+  const h = harness([caldora({ accept: ['group:support'] })], { scripts: { caldora: () => undefined } });
+  const a = data(h.svc.personSend(NORA, { target: 'caldora', text: 'a' })).taskId;
+  const b = data(h.svc.personSend(NORA, { target: 'caldora', text: 'b' })).taskId;
+  await flush(20);
+  await h.svc.settleShadowTurn(h.turns[0]!.key, { ok: false, reason: 'the sandbox is gone' });
+  const failed = data(h.svc.personGetTask(NORA, a));
+  assert.equal(failed.state, 'failed');
+  assert.match(failed.reason, /error on the answering side: the sandbox is gone/);
+  assert.match(h.svc.cancelByOperator(b, 'U0OPERATOR'), /from user:nora@bluefin\.example: canceled/);
+  assert.equal(data(h.svc.personGetTask(NORA, b)).state, 'canceled');
+  const c = data(h.svc.personSend(NORA, { target: 'caldora', text: 'c' })).taskId;
+  await flush(20);
+  assert.deepEqual(h.svc.reload(), [], 'still accepted: nothing ends');
+  h.reg.current = { projects: [caldora({ accept: ['group:finance', '*', 'nora'] })] } as Any;
+  assert.deepEqual(h.svc.reload(), [`task ${c} from user:nora@bluefin.example canceled (not accepted any more)`]);
+  const gone = data(h.svc.personGetTask(NORA, c));
+  assert.equal(gone.state, 'canceled');
+  assert.equal(gone.reason, 'not accepted');
+  assert.ok(h.canceled.includes(h.turns[2]!.key));
+  assert.equal(h.events.some((e) => /hub\.rejected/.test(e)), false, 'no status was posted to a person as if to an address');
+});
+
+test('a person waits: the call returns as soon as the task has an answer, at the limit otherwise, and at once beyond four held calls', async (t) => {
+  let release!: (s: string) => void;
+  const h = harness([caldora({ accept: ['group:support'] })], { scripts: { caldora: () => new Promise<string>((r) => (release = r)) } });
+  const id = data(h.svc.personSend(NORA, { target: 'caldora', text: 'slow one' })).taskId;
+  await flush(20);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const got: { early?: Any; late?: Any } = {};
+  const p = h.svc.personWait(NORA, id, 40).then((r) => (got.early = r));
+  await flush(4);
+  assert.equal(got.early, undefined, 'held while the agent works');
+  // Four held calls of one person; the fifth returns at once with the state as it is.
+  const held = [1, 2, 3].map(() => h.svc.personWait(NORA, id, 40));
+  assert.equal(data(await h.svc.personWait(NORA, id, 40)).state, 'working');
+  release('Done.');
+  await flush(20);
+  await p;
+  assert.equal(data(got.early as Any).state, 'completed');
+  assert.equal(data(got.early as Any).last.text, 'Done.');
+  for (const x of await Promise.all(held)) assert.equal(data(x).state, 'completed');
+  // Nothing happens on the task: the wait ends at the limit, however long was asked for.
+  const id2 = data(h.svc.personSend(NORA, { target: 'caldora', text: 'never answered' })).taskId;
+  void h.svc.personWait(NORA, id2, 600).then((r) => (got.late = r));
+  await flush(4);
+  t.mock.timers.tick(49_999);
+  await flush(4);
+  assert.equal(got.late, undefined);
+  t.mock.timers.tick(1);
+  await flush(4);
+  assert.match(String(data(got.late as Any).state), /submitted|working/);
+  assert.equal(data(await h.svc.personWait(NORA, id, 40)).state, 'completed', 'an ended task is returned without waiting');
+  assert.equal(data(await h.svc.personWait(NORA, id2, 0)).taskId, id2, 'no waitSeconds: at once');
+});

@@ -37,11 +37,14 @@ const ICON: Record<string, string> = { held: '✋', submitted: '⏳', working: '
 
 // `credit`: the installation's credit kind. On an API key the footer says what the dollars are (USD billed to
 // the key at list prices); on a subscription — or unset — the list reads as it always has (api-key-credit D4).
+/** The other side of a task, as shown: an agent's address as it is, a person (agent-mcp-endpoint) by their e-mail. */
+const who = (peer: string): string => (peer.startsWith('user:') ? `${peer.slice('user:'.length)} (a person)` : peer);
+
 export function asksList(rows: readonly AskRow[], o: { credit?: CreditKind } = {}): string {
   if (!rows.length) return 'No tasks between agents yet.';
   const sorted = [...rows].sort((a, b) => (a.state === 'held') !== (b.state === 'held') ? (a.state === 'held' ? -1 : 1) : b.updatedAt.localeCompare(a.updatedAt)).slice(0, ASKS_LIMIT);
   const lines = sorted.map((r) => {
-    const arrow = r.dir === 'out' ? `${r.slug} → ${r.peer}` : `${r.slug} ← ${r.peer}`;
+    const arrow = r.dir === 'out' ? `${r.slug} → ${r.peer}` : `${r.slug} ← ${who(r.peer)}`;
     const state = `${r.state}${r.reason ? ` (${r.reason})` : ''}`;
     const span = r.createdAt === r.updatedAt ? when(r.createdAt) : `${when(r.createdAt)} → ${when(r.updatedAt).slice(6)}`;
     const cost = r.cost !== undefined ? ` · $${r.cost.toFixed(2)}` : '';
@@ -58,7 +61,7 @@ export function asksList(rows: readonly AskRow[], o: { credit?: CreditKind } = {
 /** A task's transcript: its record, and for a task answered here the shadow conversation's journal. */
 export function asksTranscript(row: AskRow, journal: readonly JournalEntry[]): string {
   const head = [
-    `*Task \`${row.id}\`* — ${row.dir === 'out' ? `${row.slug} → ${row.peer}` : `${row.slug} ← ${row.peer}`} · ${row.state}${row.reason ? ` (${row.reason})` : ''}${row.skill ? ` · skill ${row.skill}` : ''}`,
+    `*Task \`${row.id}\`* — ${row.dir === 'out' ? `${row.slug} → ${row.peer}` : `${row.slug} ← ${who(row.peer)}`} · ${row.state}${row.reason ? ` (${row.reason})` : ''}${row.skill ? ` · skill ${row.skill}` : ''}`,
     `Question:\n${quote(row.question)}`,
     ...(row.answer ? [`Last message:\n${quote(row.answer)}`] : []),
   ];

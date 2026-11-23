@@ -72,6 +72,11 @@ Back up `state.json` and the directories above together; delete a project's dire
   and single-operator installations.
 - **Only what people type is scrubbed** (and sources at ingest), unless a project sets `scrubSecrets: false`. Attachments,
   MCP results, files the agent reads, build output and the agent's answers are not.
+- **The agents' MCP endpoint trusts its gateway for identity** (`AGENT_MCP_LISTEN`, off by default). Whoever can
+  reach that port with the bearer can name any person; the listener binds loopback unless told otherwise, and the
+  gateway must overwrite the identity headers. A person a project lists in `messaging.accept` gets what its agent
+  answers, in a client outside the installation, and their address is written to `state.json`, the event log and
+  the usage records.
 - **The web chat's sign-in link** (`WEB_AUTH=link`, the quickstart) is in the bot's log until the next restart; anyone
   who can read that log can sign in. A shared host uses OIDC.
 

@@ -755,6 +755,7 @@ test('shadow — restart mid-answer: the in-flight shadow turn is recovered into
   assert.equal(h.store.getChat(SHADOW_KEY)?.inflight, undefined);
   const u = h.usage.read(86_400_000) as { key: string; taskId?: string; originSlug?: string }[];
   assert.deepEqual(u.map((x) => [x.key, x.originSlug, x.taskId]), [[SHADOW_KEY, 'home/owen-ops', 'a'.repeat(24)]]);
+  assert.equal('user' in u[0]!, false, 'a task from an agent names no person (agent-mcp-endpoint)');
 });
 
 test('shadow — recovery fails: the task hears it (the service ends it `failed`)', async () => {

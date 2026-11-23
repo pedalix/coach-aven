@@ -61,15 +61,18 @@ export interface TaskFrame {
   maxRounds: number;
 }
 
-/** `<installation>/<agent>` → who sent it, in words. */
+/** A sender that is a person (agent-mcp-endpoint): `user:<e-mail>`. */
+const isPerson = (from: string): boolean => from.startsWith('user:');
+/** `<installation>/<agent>` → who sent it, in words; a person by their address. */
 const sender = (from: string): string => {
+  if (isPerson(from)) return `${from.slice('user:'.length)}, a person asking from their own MCP client`;
   const i = from.indexOf('/');
   return i < 0 ? from : `agent ${from.slice(i + 1)} of installation ${from.slice(0, i)}`;
 };
 
 export function wrapTask(t: TaskFrame): string {
   return [
-    `[Request from another agent]`,
+    isPerson(t.from) ? '[Request from a person]' : '[Request from another agent]',
     `From: ${sender(t.from)} · Task: ${t.taskId}`,
     quote(t.text),
     '',
