@@ -161,19 +161,38 @@ Implementation is not the constraint in this project; knowing what is worth buil
 roadmap sets directions, each with a "done when", and the "now" column holds only work with a
 named consumer. Everything else waits for someone to ask, on purpose.
 
-- **Reach.** Every team in its own chat, Slack or Teams, and agents that ask each other across
-  installations. Done when a client installation is stood up from the templates without anyone
-  having to rediscover a step.
+One rule sits above every direction: **authority is earned, not switched on.** The project does not
+count output — pull requests, tasks per person; the measure is the cost of a result someone
+trusted. An automatic operation (a review, a fix, one day a merge) starts in shadow and decides
+live once its precision has been measured on that installation, and whatever runs in the
+background leaves a receipt: what it checked, what it changed, how to undo it.
+
+- **Reach.** The operations a team runs on its own installation, reachable from where the team
+  already works. Our own surfaces are Slack and the web chat (Teams where a tenant lives there);
+  another one only when a consumer cannot be served otherwise. MCP and A2A make the same
+  operations answer from Claude, another MCP client or another installation's agent. Done when a
+  client installation is stood up from the templates without anyone having to rediscover a step,
+  and one of its agents answers a question asked from a client this project did not build.
 - **Context.** The agent reads what the team reads, with exact readouts instead of guesses,
   wherever the data is allowed to live. Done when a tenant's store runs on the tenant's own
   infrastructure with the bot only forwarding calls.
-- **Judgement.** Decisions with receipts: attribution that learns from people, audits itself and
-  stays in shadow until it has earned a decision. Done when the loop decides live for one tenant
-  with measured precision.
+- **Understanding.** The team still knows what its system does while it changes faster than
+  anyone reads. Every change leaves a plain-language record of what is different for the people
+  who use and support the product, and why; the agent answers from it. A record to ask, not a
+  digest to read. Done when someone in support answers "what changed last month, and why"
+  without asking a developer.
+- **Judgement.** Decisions with receipts. A figure comes with its source, period and definition,
+  and an estimate says so in its first line. A change is approved as an intent — a short spec a
+  person reads — before it is a diff. Attribution learns from people, audits itself and stays in
+  shadow until it has earned a decision. Done when the loop decides live for one tenant with
+  measured precision, and one project's changes are approved as specs.
 - **Trust.** Keys, data and decisions where a client's security reviewer expects them: tokens
   minted per turn, a gateway policy in one place, audit by identity, nothing in the sandbox that
-  should not be there. Done when the gateway kit is public and canaried on a client-shaped
-  installation.
+  should not be there (not true yet: [`security.md`](security.md#accepted-risks)). Its visible
+  half is the operator's: what an agent may do is seen and changed in one place — settings on a
+  project and on a thread, requests approved in an ops channel — not typed as commands. Done when
+  the gateway kit is public and canaried on a client-shaped installation, and a risky action is
+  a named call a person approved.
 
 Proactive work is the work that lowers the cost of the first consumer: the install path, the
 documentation, a demo, the probe of a new CLI version. It never presumes which feature that
