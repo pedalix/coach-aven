@@ -30,20 +30,22 @@ All of it behind `BRAIN=1`; with the flag unset nothing below exists.
 - **An answer log.** For a turn that read or wrote an investigation record, the bot logs what was answered, where
   and to whom — from the turn it already ran, not from what the agent chose to write down. A host tool
   (`brain_history`) gives the agent a ticket's earlier answers and what followed in those threads.
-- **Confirmation by a person.** An answer whose turn created or changed records carries a *Confirm* control; a
-  confirmation marks those records confirmed by that person at that version. A later edit makes the mark stale.
-  The agent sees the mark and is told to say when an answer rests on an unconfirmed record.
+- **Provenance the host derives.** Nobody is asked to mark anything: people will not. The bot keeps a use log
+  (which turn read or changed which record, no text) and derives per record how many answers used it, when last,
+  and whether it was revised after a person replied in the same conversation. The agent reads this through the
+  host tool and is told to say when a figure or a rule rests on a record no person has corrected. Silence is
+  never counted as a check.
 - **A dream that tidies from the lint.** The nightly dream gets the lint report: records without a kind or status,
-  investigations open for too long, records about the same ticket, personal data patterns. It reconciles, retires
-  and redacts; it still never touches code.
-- **Reading it as a person.** `/aven memory open` and `/aven memory unconfirmed` list from the host index without
+  investigations open for too long or open while the tracker has resolved the ticket, records about the same
+  ticket, personal data patterns. It reconciles, retires and redacts; it still never touches code.
+- **Reading it as a person.** `/aven memory open` and `/aven memory unchecked` list from the host index without
   waking the sandbox; the Home lists name them.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `company-brain`: typed memory records with status and human confirmation, the host-side mirror, index and lint,
+- `company-brain`: typed memory records with status and host-derived provenance, the host-side mirror, index and lint,
   the answer log with its host tool, and the dream's tidy pass.
 
 ### Modified Capabilities
@@ -61,12 +63,16 @@ and leaves `host-tools` and `routine-delivery` as they are.
   - A store of our own, embeddings or a vector index. The files stay Claude Code's.
   - "Why did this logic change" and "state of the project" as stored records: both are derived on demand from
     git and the tracker.
-  - Confirmation by anyone but a person in the chat; no automatic confirmation.
+  - A *Confirm* control or any other marking a person must do. It was in the first draft and was dropped on
+    2026-11-23: nobody presses such a button. It can return if the canary shows someone wants it.
+  - Checking a `method` record against a reference report. That is the real verification of a counting method
+    and a change of its own.
   - A web page for browsing records.
   - Cleaning the production project's existing records — an operator's task in that installation's ops repo.
 - **Code**: a new `src/brain/` (record parsing, index, lint, answer log — pure, tested), `src/memjournal.ts`
-  (mirror at turn end), `src/turn.ts` (the hook and the control), `src/prompt.ts` and `src/dream.ts` (flagged
-  text), `src/hostrouter.ts` (one more host tool), `src/chat/core/` (the two list forms, the control), the three
+  (mirror at turn end), `src/turn.ts` (the hook), `src/prompt.ts` and `src/dream.ts` (flagged
+  text), `src/hostrouter.ts` (one more host tool), `src/chat/core/` (the two list forms), the three
   Home lists, `docs/memory.md`, `docs/rollout.md`.
-- **Data**: `brain/<slug>/` beside `memory/<slug>/` in the installation directory — index, lint, the answer log
+- **Data**: `brain/<slug>/` beside `memory/<slug>/` in the installation directory — index, lint, the use log
+  (record names only), the answer log
   (answer text as posted, already past the scrubber's inbound side; see design D6 for what that does not cover).

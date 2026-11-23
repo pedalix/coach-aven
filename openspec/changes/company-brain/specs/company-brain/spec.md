@@ -3,13 +3,13 @@
 ## Purpose
 
 The company brain turns a project's agent-written memory into records a team can rely on: each record has a kind,
-an investigation has a status and a log of what was answered, a person can confirm a record, and a nightly pass
-keeps the set consistent. Everything here exists only on an installation that sets `BRAIN=1`.
+an investigation has a status and a log of what was answered, the host derives how each record was used and
+whether a person ever corrected it, and a nightly pass keeps the set consistent. Everything here exists only on an installation that sets `BRAIN=1`.
 
 ## ADDED Requirements
 
 ### Requirement: The flag gates every behaviour
-The system SHALL add no prompt text, control, command form, host tool, file or dream instruction of this capability
+The system SHALL add no prompt text, command form, host tool, file or dream instruction of this capability
 unless the installation sets `BRAIN=1`.
 
 #### Scenario: Flag unset
@@ -60,13 +60,21 @@ copied.
 
 ### Requirement: The host keeps an index and a lint report
 The system SHALL derive, from the mirrored records alone and without a model, an index of every record (name,
-kind, status, ticket, confirmation, last change) and a lint report.
+kind, status, ticket, provenance, last change) and a lint report.
 
 #### Scenario: What the lint reports
 - **WHEN** the index is rebuilt
 - **THEN** the lint lists records without a kind, investigations without a status, investigations `open` for more
   than 30 days, several records for one ticket, index lines without a file and files without an index line, and
   records in which a personal-data pattern (an e-mail address, a phone number) is found
+
+#### Scenario: The tracker has resolved the ticket
+- **WHEN** the nightly check finds an `open` investigation whose ticket the project's tracker reports resolved
+- **THEN** the lint lists it, and the host does not change the record itself
+
+#### Scenario: No tracker
+- **WHEN** the project has no tracker the host reads
+- **THEN** no tracker call is made and the other findings are unaffected
 
 ### Requirement: The host logs what was answered
 The system SHALL append one entry to the project's answer log for every turn that read or changed an
@@ -86,8 +94,9 @@ as posted, and the records involved.
 - **THEN** nothing is logged
 
 ### Requirement: The agent can ask for a ticket's history
-The system SHALL serve the agent a host tool that, for a ticket or a record name, returns the logged answers
-oldest first, each with its date, its thread link, its text and the number of later turns in that conversation.
+The system SHALL serve the agent a host tool that, for a ticket or a record name, returns the record's provenance
+and the logged answers oldest first, each with its date, its thread link, its text and the number of later turns
+in that conversation.
 
 #### Scenario: A ticket answered before
 - **WHEN** the agent asks for the history of a ticket with two logged answers
@@ -97,40 +106,48 @@ oldest first, each with its date, its thread link, its text and the number of la
 - **WHEN** the agent asks for a ticket whose answers were logged for a different project
 - **THEN** nothing is returned
 
-### Requirement: A person can confirm the records a turn changed
-The system SHALL show a *Confirm* control on the answer of a turn that created or changed memory records, and on
-its use by a person who may drive the agent SHALL mark exactly those records confirmed at their current content.
+### Requirement: The host logs which records a turn used
+The system SHALL append one entry to the project's use log for every turn that read or changed a memory record:
+the time, the conversation, what started the turn (a person, a routine, a poller) and the record names, without
+any message or answer text.
 
-#### Scenario: Confirming
-- **WHEN** a turn changed two records and a person uses *Confirm*
-- **THEN** both records show a confirmation date, and the host keeps who confirmed which version
+#### Scenario: A turn read a method record
+- **WHEN** a turn started by a person reads a `method` record and changes none
+- **THEN** the use log gains an entry naming that record as read
 
-#### Scenario: No record changed
-- **WHEN** a turn changed no record
-- **THEN** its answer carries no *Confirm* control
+#### Scenario: A turn touched no record
+- **WHEN** a turn neither reads nor changes a record
+- **THEN** nothing is logged
 
-#### Scenario: A viewer
-- **WHEN** a person who may not drive the agent uses the control
-- **THEN** nothing is marked and they get the usual denial
+### Requirement: The host derives a record's provenance
+The system SHALL derive for each record, from the use log and the mirror alone, how many turns started by a
+person used it, the date of the last one, and the date it was last revised after a person's reply.
 
-### Requirement: A confirmation holds for one version
-The system SHALL treat a record as confirmed only while its content equals the content that was confirmed.
+#### Scenario: Revised after a reply
+- **WHEN** a turn started by a person's message changes a record that an earlier turn of the same conversation
+  read or changed
+- **THEN** the record's provenance carries that date as revised after a person's reply
 
-#### Scenario: The agent edits a confirmed record
-- **WHEN** a confirmed record's content changes
-- **THEN** the mark is removed at the next mirror and the lint lists the record as changed since confirmation
+#### Scenario: Used without objection
+- **WHEN** a record was read in twelve turns and never changed in a conversation that had used it
+- **THEN** its provenance says twelve uses and no revision after a reply — it is not reported as checked
 
-#### Scenario: A mark nobody gave
-- **WHEN** a record carries a confirmation mark the host has no entry for
-- **THEN** the mark is removed at the next mirror
+#### Scenario: A routine's turn
+- **WHEN** a dream or another routine changes a record
+- **THEN** the use count and the revision date stay as they were
 
-### Requirement: The agent says when an answer rests on an unconfirmed record
+#### Scenario: The agent cannot set it
+- **WHEN** a record's frontmatter claims a check or a revision
+- **THEN** the provenance the host reports is unaffected
+
+### Requirement: The agent says when an answer rests on an unchecked record
 The system SHALL tell the agent, in the system prompt, to say so in its answer when a figure or a rule it states
-comes from a record without a confirmation mark.
+comes from a record that no person's reply has revised.
 
-#### Scenario: An unconfirmed counting method
-- **WHEN** the agent answers with a figure it derived by an unconfirmed `method` record
-- **THEN** the prompt has asked it to name the record as unconfirmed in the first lines of the answer
+#### Scenario: An unchecked counting method
+- **WHEN** the agent answers with a figure it derived by a `method` record with no revision after a reply
+- **THEN** the prompt has asked it to say in the first lines of the answer that the method is its own note,
+  checked by nobody
 
 ### Requirement: The dream tidies from the lint
 The system SHALL give the dream turn the current lint report and ask it to resolve the listed findings in memory
@@ -148,13 +165,18 @@ only, at most 15 records per dream.
 - **WHEN** a dream runs with the flag
 - **THEN** its prompt still forbids changing code, branches and pull requests
 
-### Requirement: People can list open and unconfirmed records
-The system SHALL answer `memory open` and `memory unconfirmed` from the host index, without starting the project's
+### Requirement: People can list open and unchecked records
+The system SHALL answer `memory open` and `memory unchecked` from the host index, without starting the project's
 sandbox.
 
 #### Scenario: Open investigations
 - **WHEN** a person runs the `memory open` form in a project channel
 - **THEN** they get the project's investigations with status `open`, oldest first, each with its ticket and age
+
+#### Scenario: Unchecked records
+- **WHEN** a person runs the `memory unchecked` form in a project channel
+- **THEN** they get the `method` and `domain` records never revised after a reply, most used first, each with
+  its use count
 
 #### Scenario: The sandbox is stopped
 - **WHEN** the project's sandbox is stopped by the idle stop
