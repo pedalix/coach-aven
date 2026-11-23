@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { commitSnapshot, readSnapshotFile, snapshotLog, safeSlug, safeName } from './memjournal.js';
+import { createHash } from 'node:crypto';
+import { commitSnapshot, hashListScript, mirrorMemory, parseHashListing, readSnapshotFile, snapshotLog, safeSlug, safeName, type MirrorExec } from './memjournal.js';
 
 test('safeSlug accepts conventional slugs, rejects path-y ones', () => {
   assert.equal(safeSlug('caldora'), 'caldora');
@@ -71,5 +72,104 @@ test('snapshotLog is empty for a non-repo dir', async () => {
     assert.deepEqual(await snapshotLog(dir), []);
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// ── the mirror after a turn (company-brain) ─────────────────────────────────────────────────────────────────────
+// A fake sandbox: a directory of files answered through the two scripts the mirror sends.
+function fakeSandbox(files: Record<string, string>, o: { failList?: boolean; failRead?: string } = {}) {
+  const calls: string[] = [];
+  const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
+  const exec: MirrorExec = async (command) => {
+    calls.push(command);
+    if (command.startsWith('base64 ')) {
+      const name = /\/([^/']+)'$/.exec(command)![1];
+      if (o.failRead === name) return { exitCode: 1, result: '' };
+      return { exitCode: 0, result: Buffer.from(files[name]).toString('base64') };
+    }
+    if (o.failList) return { exitCode: 1, result: '' };
+    return { exitCode: 0, result: Object.entries(files).map(([n, c]) => `${sha(c)}  ${n}`).join('\n') };
+  };
+  return { exec, calls, reads: () => calls.filter((c) => c.startsWith('base64 ')).length };
+}
+
+test('hashListScript / parseHashListing — one line per file; unsafe names and noise are dropped', () => {
+  assert.match(hashListScript("/root/.claude/projects/-root-work-x/memory"), /^\[ -d '\/root\/.claude\/projects\/-root-work-x\/memory' \] \|\| exit 0; cd /);
+  const h = 'a'.repeat(64);
+  assert.deepEqual(parseHashListing(`${h}  MEMORY.md\n${h} *glacier-12.md\n${h}  a b.md\n${h}  ../x\nsha256sum: x: Is a directory\n`), {
+    'MEMORY.md': h,
+    'glacier-12.md': h,
+  });
+});
+
+test('mirrorMemory — a changed record is read back and committed; the earlier version stays in the history', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
+  try {
+    const files: Record<string, string> = { 'MEMORY.md': '- [a](glacier-12.md)\n', 'glacier-12.md': 'status: open\n', 'pricing.md': 'Day pass.\n' };
+    const first = fakeSandbox(files);
+    const m1 = await mirrorMemory(first.exec, repo, '/mem', 'turn t1');
+    assert.deepEqual(m1.changed, ['MEMORY.md', 'glacier-12.md', 'pricing.md']);
+    assert.deepEqual(m1.files, files);
+
+    files['glacier-12.md'] = 'status: fixed\n';
+    delete files['pricing.md'];
+    const second = fakeSandbox(files);
+    const m2 = await mirrorMemory(second.exec, repo, '/mem', 'turn t2');
+    assert.deepEqual([m2.changed, m2.removed], [['glacier-12.md'], ['pricing.md']]);
+    assert.equal(second.reads(), 1, 'only the changed file is read back');
+    assert.equal(await readSnapshotFile(repo, 'glacier-12.md'), 'status: fixed\n');
+    assert.equal(await readSnapshotFile(repo, 'pricing.md'), null);
+    assert.deepEqual((await snapshotLog(repo)).map((l) => l.replace(/^\S+ \S+ /, '')), ['turn t2', 'turn t1']);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test('mirrorMemory — nothing changed: the listing is the only exec and no commit is made', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
+  try {
+    const files = { 'MEMORY.md': '# idx\n', 'a.md': 'A\n' };
+    await mirrorMemory(fakeSandbox(files).exec, repo, '/mem', 'turn t1');
+    const again = fakeSandbox(files);
+    const m = await mirrorMemory(again.exec, repo, '/mem', 'turn t2');
+    assert.deepEqual([m.changed, m.removed, again.calls.length], [[], [], 1]);
+    assert.equal((await snapshotLog(repo)).length, 1);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test('mirrorMemory — a failed listing or read-back throws and leaves the journal as it was', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
+  try {
+    await mirrorMemory(fakeSandbox({ 'a.md': 'A\n' }).exec, repo, '/mem', 'turn t1');
+    await assert.rejects(mirrorMemory(fakeSandbox({ 'a.md': 'B\n' }, { failList: true }).exec, repo, '/mem', 'turn t2'), /listing failed/);
+    await assert.rejects(mirrorMemory(fakeSandbox({ 'a.md': 'B\n' }, { failRead: 'a.md' }).exec, repo, '/mem', 'turn t3'), /read-back failed for a\.md/);
+    assert.equal(await readSnapshotFile(repo, 'a.md'), 'A\n');
+    assert.equal((await snapshotLog(repo)).length, 1);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test('mirrorMemory — an empty listing (a rebuilt sandbox, not re-seeded yet) removes nothing from the journal', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
+  try {
+    await mirrorMemory(fakeSandbox({ 'a.md': 'A\n' }).exec, repo, '/mem', 'turn t1');
+    const m = await mirrorMemory(fakeSandbox({}).exec, repo, '/mem', 'turn t2');
+    assert.deepEqual([m.files, m.changed, m.removed], [{ 'a.md': 'A\n' }, [], []]);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test('mirrorMemory — two turns ending together do not collide in one journal', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
+  try {
+    const files = { 'a.md': 'A\n', 'b.md': 'B\n' };
+    const [x, y] = await Promise.all([mirrorMemory(fakeSandbox(files).exec, repo, '/mem', 'turn t1'), mirrorMemory(fakeSandbox(files).exec, repo, '/mem', 'turn t2')]);
+    assert.deepEqual([x.changed, y.changed], [['a.md', 'b.md'], []]);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
   }
 });

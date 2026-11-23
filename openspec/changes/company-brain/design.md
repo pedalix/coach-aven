@@ -106,8 +106,8 @@ the index carries per record:
 ### D6. Lint is code; tidying is the dream's
 
 `src/brain/lint.ts` is pure. Its findings: no kind; investigation without status; `open` longer than 30 days;
-several records with one ticket; index and files out of step; a personal-data pattern (the e-mail and phone
-detectors of `src/scrub.ts`); `open` while the tracker has resolved the ticket.
+several records with one ticket; index and files out of step; a personal-data pattern (an e-mail address, a phone
+number in international form — `src/scrub.ts` detects secrets, not these, so the two patterns live with the index); `open` while the tracker has resolved the ticket.
 
 - The tracker finding is the one input from outside the mirror. It is gathered once a night, before the dream,
   for a project whose tracker the host already reads (`src/youtrack.ts` returns `resolved`), and handed to the

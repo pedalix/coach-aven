@@ -16,6 +16,7 @@ import { createDriver } from './driver.js';
 import { fmtElapsed, prUrls } from './format.js';
 import { skippedNotice, type AttachmentRef } from './attachments.js';
 import { outboxFailedNotice, outboxPreamble, outboxSkippedNotice } from './outbox.js';
+import { brainAfterTurn } from './brain/store.js';
 import { STREAM_HARD_MAX_MS, STREAM_MAX_MS, type AskQuestion, type QuestionAnswers, type OnQuestion } from './claudeSession.js';
 import { monoNow, STALE_HOLD_MARGIN_MS, stopCutWork, type SandboxUse } from './idlestop.js';
 import { MAX_SLACK_TEXT, errText, alertOps } from './chat/slack/blocks.js';
@@ -1127,6 +1128,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       };
       await deliver(view, '✅ Done — answer posted below');
       if (outboxOn(chat)) await postOutbox(chat, mark(where), live, turnId);
+      // Company brain (BRAIN=1, src/brain/): the answer is out — mirror the memory records this turn changed and
+      // rebuild the project's index and lint. Never throws; with the flag off the sandbox is not touched.
+      if (cfg.brain) await brainAfterTurn(live, project.slug, turnId);
       if (opts?.onAnswer) await opts.onAnswer(capped, session?.lastUsage()).catch(() => {});
       // Latch the flag the first turn whose answer carries a PR URL — the session panel
       // shows whether this thread has produced a PR.
