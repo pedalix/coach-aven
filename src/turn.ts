@@ -24,7 +24,7 @@ import { QueueJournal } from './queuejournal.js';
 import { isThreadKey, threadRoot, slugOfBase, splitTeam } from './teamkeys.js';
 import type { HostCaller, HostServerRoute } from './hosttools.js';
 import { DraftStore } from './drafts.js';
-import { UsageLog, aggregateUsage, usageSummaryText, type TurnUsage } from './metering.js';
+import { UsageLog, aggregateUsage, originUser, usageSummaryText, type TurnUsage } from './metering.js';
 import { RateLimitTracker, type RateLimitInfo } from './ratelimit.js';
 import { FeedbackLog, joinUsage, feedbackSummaryText, tallyFor, type FeedbackRecord, type Tally } from './feedback.js';
 import { log } from './log.js';
@@ -1188,7 +1188,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         elapsedMs: Date.now() - start,
         usage: session?.lastUsage(),
         ...(opts?.routine ? { routineId: opts.routine.id, routineLabel: opts.routine.label } : {}),
-        ...(opts?.origin ? { originSlug: opts.origin.slug, taskId: opts.origin.taskId } : {}),
+        ...(opts?.origin ? { originSlug: opts.origin.slug, taskId: opts.origin.taskId, ...originUser(opts.origin.slug) } : {}),
       });
       // Settled either way (answer/cancel/error) — freeze the trail's clock and stop the
       // modal saying "still running". The steps stay: the answer rewrite would otherwise
@@ -1377,7 +1377,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       status: r.ok ? 'ok' : r.status === 'canceled' ? 'canceled' : 'error',
       elapsedMs: Date.now() - start,
       usage: cs?.lastUsage(),
-      ...(origin ? { originSlug: origin.slug, taskId: origin.taskId } : {}),
+      ...(origin ? { originSlug: origin.slug, taskId: origin.taskId, ...originUser(origin.slug) } : {}),
     });
     await shadow.recovered(key, r).catch((e) => log.error(`resume ${key}: ${e instanceof Error ? e.message : String(e)}`));
   }

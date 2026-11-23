@@ -404,6 +404,44 @@ Agents asking agents — `docs/agent-messaging.md` (what it does, the `messaging
 Sessions are spawned with the message ledger (`--replay-user-messages`) only for projects with a
 `messaging` block; a session opened before a reload keeps the mode it was spawned with.
 
+## Agents' MCP endpoint for people (`AGENT_MCP_LISTEN`, `AGENT_MCP_TOKEN`)
+
+People ask the installation's agents from an MCP client of their own — `docs/agent-messaging.md` →
+*People in an MCP client* (OpenSpec `agent-mcp-endpoint`). Off unless both settings are set:
+
+| Setting | Where | What |
+|---|---|---|
+| `AGENT_MCP_LISTEN` | `.env` | `host:port` the bot listens on; a bare port binds loopback. The path is `/mcp` (`GET /health` answers without a token). A non-loopback host is allowed and logged as a warning. |
+| `AGENT_MCP_TOKEN` | `.env` | The bearer the gateway sends. Every other request gets 401 with no body. |
+| `user:<e-mail>`, `group:<name>` | a project's `messaging.accept` | Who of the people may ask this agent. Nobody by default; `*` does not cover people. |
+
+One set without the other opens no listener and logs which one is missing. With neither, nothing changes.
+
+**The gateway's part.** The bot authenticates nobody: it trusts its one caller. The gateway (yours —
+[`infra/gateway/`](../infra/gateway/README.md) is one to start from) must, on a route for people:
+
+1. verify the person's token at your identity provider (the route's `mcpAuthentication`);
+2. send the bot's bearer, and **set** — not append — the two identity headers from the verified token:
+   `x-mcp-user` (the e-mail address) and `x-mcp-groups` (group names, comma-separated). A copy of either
+   header sent by the client must not reach the bot.
+
+A target in the shape of the gateway kit's examples (the claim names are your identity provider's):
+
+```yaml
+    - name: agents
+      mcp: { host: "http://<bot-host>:<port>/mcp" }
+      policies:
+        requestHeaderModifier: { set: { Authorization: "Bearer ${AGENT_MCP_TOKEN}" } }
+        transformations: { request: { set: { x-mcp-user: "jwt.email", x-mcp-groups: "jwt.groups.join(',')" } } }
+```
+
+Through such a gateway the tools appear as `agents_agents`, `agents_send_message`, `agents_get_task` and
+`agents_cancel_task` (the gateway prefixes the target's name). The bot's port must be reachable from the
+gateway and from nothing else; in a container deployment publish it to the gateway's network only.
+
+A call may be held up to 50 seconds (`waitSeconds`); a proxy in front of the bot needs a read timeout above
+that.
+
 ## Chat surfaces (`CHAT_SURFACES`)
 
 An installation runs one *default* chat driver — its run mode, `orch slack` or `orch teams` — and, with

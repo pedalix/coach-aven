@@ -1,4 +1,5 @@
 import { appendFileSync, mkdirSync, readdirSync, readFileSync } from 'node:fs';
+import { senderPerson } from './messaging/protocol.js';
 import { join } from 'node:path';
 import { splitTeam } from './teamkeys.js';
 import { log } from './log.js';
@@ -40,6 +41,16 @@ export interface UsageRecord {
   usage?: TurnUsage;
   routineId?: string; // the scheduled routine this turn ran for (pollers.ts) — cuts usage/feedback per routine
   routineLabel?: string; // its human label at the time ("📋 Morning brief")
+  // The person a turn answered through the agents' MCP endpoint (agent-mcp-endpoint): their e-mail
+  // address, on the turns of their task only. Ordinary chat turns carry no user yet.
+  user?: string;
+}
+
+// A task's origin as the turn engine records it (`originSlug`) → the `user` field: a person's task
+// comes from `user:<e-mail>`, an agent's from `<installation>/<agent>` (no user).
+export function originUser(originSlug: string | undefined): { user: string } | Record<string, never> {
+  const user = originSlug ? senderPerson(originSlug) : undefined;
+  return user ? { user } : {};
 }
 
 // Tenant id from a tenant-scoped conversation key, e.g. "T0ABCDEF:thread:123.45" →

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { teamOf, aggregateUsage, costOf, parseUsageLines, usageSummaryText, UsageLog, type UsageRecord } from './metering.js';
+import { originUser, teamOf, aggregateUsage, costOf, parseUsageLines, usageSummaryText, UsageLog, type UsageRecord } from './metering.js';
 
 // A record as written since the per-turn cost fix: costUsd is the turn's own cost and
 // costUsdCumulative the CLI's running total it was derived from. A record without the
@@ -286,4 +286,18 @@ test('usageSummaryText — a mixed period (the month of a switch): subscription 
   assert.match(cutText, /• \*T0AAAAAA\* — 1 turns · .* ~\$0\.00 \(\+ ~\$0\.40 API key\) · /);
   assert.match(cutText, /• \*Brief \(r1\)\* — 1 turns · .* ~\$0\.00 \(\+ ~\$0\.40 API key\) · /);
   assert.ok(!text.includes('4.05'), 'never the sum of both');
+});
+
+test('originUser — the turns of a person\'s task name the person; an agent\'s task and an ordinary turn name nobody (agent-mcp-endpoint)', () => {
+  assert.deepEqual(originUser('user:nora@bluefin.example'), { user: 'nora@bluefin.example' });
+  assert.deepEqual(originUser('home/owen-ops'), {});
+  assert.deepEqual(originUser(undefined), {});
+  assert.deepEqual(originUser('user:not-an-address'), {});
+  const log = new UsageLog(mkdtempSync(join(tmpdir(), 'usage-user-')));
+  const at = new Date().toISOString();
+  log.record({ at, key: 'a2a:bluefin:abc:caldora', slug: 'caldora', kind: 'turn', status: 'ok', elapsedMs: 1, ...originUser('user:nora@bluefin.example') });
+  log.record({ at, key: 'thread:1', slug: 'caldora', kind: 'turn', status: 'ok', elapsedMs: 1, ...originUser(undefined) });
+  const read = log.read(86_400_000);
+  assert.equal(read[0]!.user, 'nora@bluefin.example');
+  assert.equal('user' in read[1]!, false, 'every other record is what it was');
 });

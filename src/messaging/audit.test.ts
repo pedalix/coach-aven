@@ -47,3 +47,14 @@ test('task costs on an API-key installation: the list says the dollars are USD b
   assert.match(key, /^_\$ = USD billed to this installation’s API key at list prices for turns run here; an answer from another installation shows the cost it reported\._$/m);
   assert.equal(asksList([row({})], { credit: 'api-key' }), asksList([row({})]), 'no costs, no note');
 });
+
+test('a person\'s task (agent-mcp-endpoint): listed beside agents\' tasks with the person as its origin, and its transcript opens', () => {
+  const person = row({ dir: 'in', id: 'd'.repeat(24), slug: 'caldora', peer: 'user:nora@bluefin.example', cost: 0.12, answer: '12 orders failed.', updatedAt: '2026-10-17T10:00:00.000Z' });
+  const agent = row({ dir: 'in', id: 'b'.repeat(24), slug: 'caldora', peer: 'home/owen-ops', state: 'working' });
+  const lines = asksList([agent, person]).split('\n');
+  assert.match(lines[1]!, /^✅ caldora ← nora@bluefin\.example \(a person\) · completed · 10-17 08:00 → 10:00 · \$0\.12 · `d{24}`$/);
+  assert.match(lines[3]!, /^⏳ caldora ← home\/owen-ops · working · /);
+  const t = asksTranscript(person, [{ at: '2026-10-17T10:00:00.000Z', op: 'post', id: 's1', view: { kind: 'answer', markdown: '12 orders failed.' } }]);
+  assert.match(t, /\*Task `d{24}`\* — caldora ← nora@bluefin\.example \(a person\) · completed/);
+  assert.match(t, /\*The shadow conversation\*/);
+});

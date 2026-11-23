@@ -9,6 +9,7 @@
 // An installation without any `messaging` configuration and without HUB_URL registers no tool, opens
 // no connection and has nothing to recover: the service exists but nothing reaches it.
 import type { ChatDriverName } from '../chat/drivers.js';
+import type { Server } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { shadowDriver, type ShadowDriver } from '../chat/shadow/driver.js';
 import type { DriverFor, DriverRef } from '../chat/surfaces.js';
@@ -23,6 +24,7 @@ import { LocalTransport } from './local.js';
 import { droppedPeers, endTasksWithPeer, loadPeers, peersPath, type Peers } from './peers.js';
 import type { KeyFile } from './seal.js';
 import { createMessaging, type Messaging } from './service.js';
+import { startEndpoint } from './endpoint.js';
 import { asksList, asksTranscript, type AskRow } from './audit.js';
 import { UsageLog } from '../metering.js';
 import { FactStore } from '../facts.js';
@@ -47,6 +49,8 @@ export interface MessagingRuntime {
   asks: { enabled(): boolean; list(): string; transcript(taskId: string): string; cancel(taskId: string, by: string): string };
   /** Whether any project has a `messaging` block (the Home tab's messaging lines, the verb). */
   configured(): boolean;
+  /** The agents' MCP endpoint once it listens (agent-mcp-endpoint); undefined without its two settings. Tests read its port. */
+  endpoint(): Server | undefined;
   stop(): void;
 }
 
@@ -66,6 +70,8 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
   const peers = { current: readPeers() };
   let hub: HubClient | undefined;
   let timer: ReturnType<typeof setInterval> | undefined;
+  let endpoint: Server | undefined;
+  let stopped = false;
   const localRef: { current?: LocalTransport } = {};
   return {
     shadow,
@@ -109,6 +115,19 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
       }
       timer = setInterval(() => svc.tick(), TICK_MS);
       timer.unref?.();
+      // The MCP endpoint for people (agent-mcp-endpoint): only with both of its settings; a half-set pair
+      // opens nothing and says which one is missing. A port that cannot be bound is an error, not a crash:
+      // the chat keeps working.
+      if (env.endpointProblem) log.error(`agents MCP endpoint: ${env.endpointProblem} — no listener opens`);
+      if (env.endpoint) {
+        void startEndpoint(env.endpoint, { messaging: () => ref.current }, log).then(
+          (server) => {
+            if (stopped) server.close();
+            else endpoint = server;
+          },
+          (e) => log.error(`agents MCP endpoint: cannot listen on ${env.endpoint!.listen} (${e instanceof Error ? e.message : String(e)}) — no listener`),
+        );
+      }
     },
     recover(recovering) {
       // Unacked local envelopes are handed over again (de-duplicated by envelope id), then every
@@ -131,9 +150,13 @@ export function messagingRuntime(o: { cfg: Config; store: Store; reg: RegistryRe
       }
       return [...notes, ...(ref.current?.reload() ?? [])];
     },
+    endpoint: () => endpoint,
     stop() {
+      stopped = true;
       hub?.stop();
       if (timer) clearInterval(timer);
+      endpoint?.close();
+      endpoint?.closeAllConnections();
     },
     configured: () => o.reg.current.projects.some((p) => p.messaging !== undefined),
     asks: {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { messagingEnv, messagingLimits, validateMessagingConfig } from './config.js';
+import { endpointEnv, messagingEnv, messagingLimits, validateMessagingConfig } from './config.js';
 
 const W = 'project "caldora" messaging';
 
@@ -24,6 +24,8 @@ test('validateMessagingConfig — a typo fails loudly, naming the field', () => 
   assert.throws(() => validateMessagingConfig({ send: 'yes' }, W), /\.send must be true or false/);
   assert.throws(() => validateMessagingConfig({ accept: 'home/owen-ops' }, W), /\.accept must be an array/);
   assert.throws(() => validateMessagingConfig({ accept: ['home/owen-ops', 'Home/Owen', 'bluefin/*', ' nora'] }, W), /"Home\/Owen", "bluefin\/\*", " nora" is not/);
+  assert.throws(() => validateMessagingConfig({ accept: ['user:', 'group:', 'user:nora', 'group:a,b'] }, W), /"user:", "group:", "user:nora", "group:a,b" is not "\*", "<installation>\/<agent>", "<agent>", "user:<e-mail>" or "group:<name>"/);
+  assert.deepEqual(validateMessagingConfig({ accept: ['nora', 'user:nora@bluefin.example', 'group:Support'] }, W).accept, ['nora', 'user:nora@bluefin.example', 'group:Support'], 'person entries are kept as written');
   assert.throws(() => validateMessagingConfig({ description: 'two\nlines' }, W), /one line/);
   assert.throws(() => validateMessagingConfig({ maxRounds: 2.5 }, W), /maxRounds must be an integer/);
   assert.throws(() => validateMessagingConfig({ acceptPerDay: -1 }, W), /acceptPerDay must be an integer/);
@@ -70,4 +72,16 @@ test('validateMessagingConfig — a bad skill entry fails the load, naming the p
 
 test('validateMessagingConfig — a run of `*` is collapsed at load', () => {
   assert.deepEqual(validateMessagingConfig({ skills: ['news***-*', '!**open'] }, 'p').skills, ['news*-*', '!*open']);
+});
+
+test('endpointEnv — both settings or nothing: one without the other opens no listener and names what is missing', () => {
+  assert.deepEqual(endpointEnv({}), {});
+  assert.deepEqual(endpointEnv({ AGENT_MCP_LISTEN: ' ', AGENT_MCP_TOKEN: '' }), {});
+  assert.deepEqual(endpointEnv({ AGENT_MCP_LISTEN: '3420', AGENT_MCP_TOKEN: ' t0ken ' }), { endpoint: { listen: '3420', token: 't0ken' } });
+  assert.deepEqual(endpointEnv({ AGENT_MCP_LISTEN: '0.0.0.0:3420', AGENT_MCP_TOKEN: 'x' }).endpoint, { listen: '0.0.0.0:3420', token: 'x' });
+  assert.match(endpointEnv({ AGENT_MCP_LISTEN: '3420' }).endpointProblem!, /AGENT_MCP_LISTEN is set without AGENT_MCP_TOKEN/);
+  assert.match(endpointEnv({ AGENT_MCP_TOKEN: 'x' }).endpointProblem!, /AGENT_MCP_TOKEN is set without AGENT_MCP_LISTEN/);
+  assert.match(endpointEnv({ AGENT_MCP_LISTEN: 'http://bot:3420', AGENT_MCP_TOKEN: 'x' }).endpointProblem!, /must be host:port or port/);
+  assert.equal(messagingEnv({}).endpoint, undefined, 'an installation that sets nothing has no endpoint');
+  assert.deepEqual(messagingEnv({ AGENT_MCP_LISTEN: '3420', AGENT_MCP_TOKEN: 'x' }).endpoint, { listen: '3420', token: 'x' });
 });

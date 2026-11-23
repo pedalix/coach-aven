@@ -76,9 +76,15 @@ export interface InTask {
   id: string;
   /** The asking installation: two senders' task ids never meet. */
   origin: string;
-  /** The asking agent, `<installation>/<agent>`, and its domain (checked against the installation, D14). */
+  /**
+   * The asking agent, `<installation>/<agent>`, and its domain (checked against the installation, D14).
+   * A person who asked through the MCP endpoint (agent-mcp-endpoint) is `user:<e-mail>` — never an
+   * address — with `origin` the own installation and the answering project's own domain.
+   */
   from: string;
   fromDomain: string;
+  /** A person's groups as the gateway named them when the task was started: what a reload checks the accept list against. */
+  groups?: string[];
   /** The answering agent (project slug) and its tenant (stamped from `key`). */
   slug: string;
   teamId?: string;

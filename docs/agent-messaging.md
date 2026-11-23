@@ -37,6 +37,10 @@ Per project, in `projects.config.json`:
 - **`accept`** lists who may ask this agent: `<installation>/<agent>`, a bare `<agent>` of the own
   installation, or `*` for every agent of this agent's own **domain**. Absent or empty: nobody. No entry
   covers another domain wholesale — another client's agents are always named.
+- **People** who ask from an MCP client ([below](#people-in-an-mcp-client)) are admitted by two more entry
+  forms: `user:<e-mail>` and `group:<name>` (a group of the installation's identity provider), compared
+  case-insensitively. `*` and agent entries never admit a person. Add such an entry only once the
+  installation runs a release that knows the forms: an older bot refuses the configuration at load.
 - **Accepting is granting.** Accepting an asker gives that agent — and whoever may drive it — what this
   agent answers. Decide it like any access grant.
 - **`description`** is the one line other agents see in `agents` (the agent card).
@@ -248,6 +252,50 @@ sequenceDiagram
   O->>A: answer for T (completed)
   A-->>N: reply
 ```
+
+## People in an MCP client
+
+A person who works in an MCP client this project did not build — Claude, Claude Code, Langdock — can ask
+an agent of the installation from there (OpenSpec `agent-mcp-endpoint`). It is the same task, with a
+person where the asking agent would be:
+
+```mermaid
+sequenceDiagram
+  actor N as Person (their MCP client)
+  participant G as Gateway (the installation's)
+  participant B as Bot (MCP endpoint)
+  participant C as caldora (shadow)
+  N->>G: send_message(caldora, "how many orders failed?", waitSeconds)
+  Note over G: verifies the person's token, sets x-mcp-user / x-mcp-groups
+  G->>B: the call, with the bot's bearer
+  Note over B: caldora accepts user:… or group:… ? cap? skill?
+  B->>C: task T (a new shadow session)
+  C->>B: final answer — kept on T
+  B-->>N: {state: completed, last.text: the answer}
+```
+
+- **Turning it on.** Two settings on the installation (`AGENT_MCP_LISTEN`, `AGENT_MCP_TOKEN`), a route on
+  its gateway, and a `user:` or `group:` entry in the `accept` of each project that should answer people —
+  `docs/runtime-config.md` → *Agents' MCP endpoint for people*. Nothing is open by default.
+- **The tools** are the agents' own four: `agents` (the agents of this installation that accept you),
+  `send_message`, `get_task`, `cancel_task`. Targets are agents of this installation only.
+- **One question, one task.** Every task starts a fresh session of the agent: it sees nothing of the
+  person's conversation and nothing of their earlier tasks, so the text must stand on its own. The
+  person's client holds the conversation.
+- **Waiting.** `send_message` and `get_task` take `waitSeconds` (at most 50): the call returns as soon as
+  the task has an answer, a question back or an end. Still `working` after that — call `get_task` again.
+  Without it, `send_message` returns the task id at once. Calling `send_message` twice makes two tasks.
+- **A question back.** The task reads `input-required` with the agent's question as its last message;
+  `send_message` with that `taskId` is the reply.
+- **Only the asker** reads, cancels or replies on a task. Anyone else gets the answer given for a task
+  that does not exist; so does a person asking an agent that does not accept them, whether or not it exists.
+- **Limits and audit** are those of any sender: `acceptPerDay` counts per person, `/aven asks` lists the
+  task with the person's address as its origin (transcript, cancel), and the usage records of its turns
+  carry that address (`user`). Removing the entry and `/aven reload` ends the person's open tasks
+  `canceled: not accepted`.
+- **What a person is given.** Listing a person or a group gives them what this agent answers — and it
+  leaves the installation, to the client they asked from. The agent works with its usual permissions, and
+  nobody approves on its behalf (*Guard rails* below applies as for any accepted sender).
 
 ## Clarification
 
