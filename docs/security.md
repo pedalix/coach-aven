@@ -45,6 +45,7 @@ Nothing goes to this project: an installation has **no telemetry**.
 | Queued turns, report drafts, agent-messaging journals | `queue.jsonl`, `drafts/<slug>/`, `shadow/` | until the turn runs / you delete them |
 | Session transcripts | inside the sandbox (`/root/.claude/projects/`) | until the container is recreated |
 | Project memory | `memory/<slug>/` (a git repository) | until you delete it |
+| Company brain (`BRAIN=1`) | `brain/<slug>/` — an index and a lint report derived from project memory; no record text | until you delete it; rebuilt at the next turn |
 | Sources | `<data dir>/<slug>/` | until you delete them |
 
 Back up `state.json` and the directories above together; delete a project's directories to forget it.

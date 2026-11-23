@@ -31,7 +31,8 @@ import { FactStore } from './facts.js';
 import { eachLimit } from './pool.js';
 import { reachableDependencyRepos, scanDependencyRepos, tokenRepos } from './deps.js';
 import { recordSessionCommands, scanProjectSkills } from './skills.js';
-import { restoreMemoryIfEmpty } from './memjournal.js';
+import { memoryRepoDir, mirrorMemory, restoreMemoryIfEmpty, type MirrorResult } from './memjournal.js';
+import { memoryDir } from './memory.js';
 import { log } from './log.js';
 import { ClaudeSession, type InjectOutcome, type OnQuestion, type SessionIdleState, type TurnUsage } from './claudeSession.js';
 
@@ -161,6 +162,9 @@ export interface ChatSession {
   // outbox — admission as inbound, text-typed files through the secrets scrub — and remove the directory. Never
   // throws; a listing or read failure is a `skipped` entry. The turn engine posts the files and the notice.
   collectOutbox(turnId: string): Promise<{ files: OutboundFile[]; skipped: { name: string; reason: string }[] }>;
+  // Company brain (memjournal.ts, OpenSpec company-brain): copy the memory records that differ from the host's
+  // journal and commit them. Throws on a failed listing or read-back; the turn engine calls it only under BRAIN=1.
+  mirrorMemory?(message: string): Promise<MirrorResult>;
   // Kill the sandbox-side persistent session-command and mark this object dead — an
   // explicit "forget this conversation" (vs. the LRU/prune paths, which only drop the
   // reference and leave the process to the sandbox's idle stop — the bot's, idlestop.ts).
@@ -567,6 +571,8 @@ export async function openChat(
     },
     // The sandbox is awake: the turn that filled the outbox has just ended on it.
     collectOutbox: (turnId: string) => collectOutbox((c) => sandbox.exec(c), turnId, { scrub: opts.scrubSecrets !== false }),
+    mirrorMemory: (message: string) =>
+      mirrorMemory((c) => sandbox.exec(c), memoryRepoDir(opts.slug), memoryDir(projectCwd(cfg, opts.slug, opts.repos)), message),
     ask: async (
       prompt: string,
       onStep?: (step: string) => void,

@@ -50,6 +50,7 @@ export const draftsDir = (env?: Env): string => installPath('drafts', env);
 export const factsDir = (env?: Env): string => installPath('facts', env);
 export const feedbackDir = (env?: Env): string => installPath('feedback', env);
 export const memoryDir = (env?: Env): string => installPath('memory', env);
+export const brainDir = (env?: Env): string => installPath('brain', env);
 export const eventsDir = (env?: Env): string => installPath('events', env);
 export const shadowDir = (env?: Env): string => installPath('shadow', env);
 export const mirrorsCacheDir = (env?: Env): string => installPath('mirrors', env);

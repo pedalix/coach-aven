@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { promisify } from 'node:util';
 import { mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
@@ -113,6 +114,88 @@ export async function snapshotMemory(
   } catch (e) {
     log.error(`memory snapshot ${slug}: ${e instanceof Error ? e.message : String(e)}`);
   }
+}
+
+// ── The mirror after a turn (OpenSpec company-brain, BRAIN=1; design D2) ────────────────────────────────────────
+// The same journal, fed when a turn ends instead of only after a dream: ONE exec lists a hash per memory file,
+// only the files whose hash differs from the host's copy are read back (base64, as the outbox reads files — `cat`
+// through exec does not promise the exact bytes, and the hash must match), and the change is committed. A turn
+// that changed nothing costs that one exec.
+
+const sq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex');
+
+// "<sha256>  <name>" per regular file directly in the directory. A missing directory lists nothing and succeeds
+// (a project that has no memory yet); a hash that fails makes the whole listing fail — a partial listing would
+// read as "the other files were deleted". POSIX shell: the plain sandbox image is Alpine.
+export function hashListScript(dir: string): string {
+  return `[ -d ${sq(dir)} ] || exit 0; cd ${sq(dir)} || exit 1; for f in *; do [ -f "$f" ] || continue; sha256sum -- "$f" || exit 1; done`;
+}
+
+export function parseHashListing(stdout: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of stdout.split('\n')) {
+    const m = /^([0-9a-f]{64}) [ *](.+)$/.exec(line.trimEnd());
+    if (m && safeName(m[2])) out[m[2]] = m[1];
+  }
+  return out;
+}
+
+export type MirrorExec = (command: string) => Promise<{ exitCode: number; result: string }>;
+export interface MirrorResult {
+  files: Record<string, string>; // the host's copy after the mirror, by file name
+  changed: string[]; // created or changed by what the sandbox holds now
+  removed: string[];
+}
+
+// One mirror at a time per journal: turns of one project end concurrently, and two gits in one repo collide.
+const queues = new Map<string, Promise<unknown>>();
+function serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const next = (queues.get(key) ?? Promise.resolve()).then(fn, fn);
+  queues.set(key, next.catch(() => {}));
+  return next;
+}
+
+// Throws on a failed listing or read-back — the caller logs it and the turn's answer stands. An EMPTY listing
+// changes nothing: a rebuilt sandbox has no memory until it is re-seeded from this very journal.
+export function mirrorMemory(exec: MirrorExec, repoDir: string, dir: string, message: string): Promise<MirrorResult> {
+  return serial(repoDir, async () => {
+    const ls = await exec(hashListScript(dir));
+    if (ls.exitCode !== 0) throw new Error(`memory listing failed (exit ${ls.exitCode})`);
+    const listed = parseHashListing(ls.result ?? '');
+    const host = new Map<string, Buffer>();
+    if (existsSync(repoDir)) {
+      for (const name of await readdir(repoDir)) if (name !== '.git' && safeName(name)) host.set(name, await readFile(join(repoDir, name)));
+    }
+    const text = (): Record<string, string> => Object.fromEntries([...host].sort(([a], [b]) => (a < b ? -1 : 1)).map(([n, b]) => [n, b.toString('utf8')]));
+    if (!Object.keys(listed).length) return { files: text(), changed: [], removed: [] };
+
+    const changed: string[] = [];
+    for (const [name, hash] of Object.entries(listed)) {
+      const have = host.get(name);
+      if (have && sha256(have) === hash) continue;
+      const r = await exec(`base64 -w0 ${sq(`${dir}/${name}`)}`);
+      if (r.exitCode !== 0) throw new Error(`memory read-back failed for ${name} (exit ${r.exitCode})`);
+      const data = Buffer.from((r.result ?? '').replace(/\s+/g, ''), 'base64');
+      // Written between the listing and the read: keep the host's version, the next turn's mirror takes it.
+      if (sha256(data) !== hash) continue;
+      host.set(name, data);
+      changed.push(name);
+    }
+    const removed = [...host.keys()].filter((n) => !(n in listed));
+    for (const name of removed) host.delete(name);
+    if (!changed.length && !removed.length) return { files: text(), changed, removed };
+
+    await mkdir(repoDir, { recursive: true });
+    if (!existsSync(join(repoDir, '.git'))) await git(repoDir, ['init', '-q']);
+    for (const name of changed) await writeFile(join(repoDir, name), host.get(name)!);
+    for (const name of removed) await rm(join(repoDir, name), { force: true });
+    await git(repoDir, ['add', '-A']);
+    if ((await git(repoDir, ['status', '--porcelain'])).trim()) {
+      await git(repoDir, [...BOT, 'commit', '-q', '-m', message.trim() || 'memory mirror']);
+    }
+    return { files: text(), changed: changed.sort(), removed: removed.sort() };
+  });
 }
 
 // Seed a freshly-rebuilt sandbox from the journal: only when the sandbox has NO memory yet

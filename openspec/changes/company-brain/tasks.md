@@ -1,15 +1,15 @@
 ## 1. Records, index, lint (pure)
 
-- [ ] 1.1 `src/brain/record.ts`: parse a record's frontmatter (`kind`, `status`, `ticket`) — `src/brain/record.test.ts`
-- [ ] 1.2 `src/brain/index.ts`: the index from a directory of records and `MEMORY.md` — `src/brain/index.test.ts` over a fixture set with invented tickets and names
-- [ ] 1.3 `src/brain/lint.ts`: the findings of design D6, the 15-finding cap and its order — `src/brain/lint.test.ts`
-- [ ] 1.4 `BRAIN` in `src/config.ts` and `docs/configuration.md` — `src/config.test.ts`, `src/configdocs.test.ts`
+- [x] 1.1 `src/brain/record.ts`: parse a record's frontmatter (`kind`, `status`, `ticket`) — `src/brain/record.test.ts`
+- [x] 1.2 `src/brain/index.ts`: the index from a directory of records and `MEMORY.md` — `src/brain/index.test.ts` over a fixture set with invented tickets and names
+- [x] 1.3 `src/brain/lint.ts`: the findings of design D6, the 15-finding cap and its order — `src/brain/lint.test.ts`
+- [x] 1.4 `BRAIN` in `src/config.ts` and `docs/configuration.md` — `src/config.test.ts`, `src/configdocs.test.ts`
 
 ## 2. Mirror after a turn
 
-- [ ] 2.1 Listing and read-back scripts and their parsing, beside the snapshot code in `src/memjournal.ts` — `src/memjournal.test.ts` (changed, unchanged, failed listing)
-- [ ] 2.2 Call the mirror after the answer is posted, flag on only; rebuild `brain/<slug>/index.json` and `lint.json`; a failure is logged and never fails the turn — `src/turn.brain.test.ts`
-- [ ] 2.3 Flag off: no exec, no `brain/` directory — the recorded turn snapshots stay byte-identical (`src/chat/slack/turn.record.test.ts`)
+- [x] 2.1 Listing and read-back scripts and their parsing, beside the snapshot code in `src/memjournal.ts` — `src/memjournal.test.ts` (changed, unchanged, failed listing)
+- [x] 2.2 Call the mirror after the answer is posted, flag on only; rebuild `brain/<slug>/index.json` and `lint.json`; a failure is logged and never fails the turn — `src/turn.brain.test.ts`
+- [x] 2.3 Flag off: no exec, no `brain/` directory — the recorded turn snapshots stay byte-identical (`src/chat/slack/turn.record.test.ts`)
 
 ## 3. Answer log and its host tool
 

@@ -226,6 +226,26 @@ deploy-excluded). One repo per project → no cross-project collision.
 The sandbox stays the working source of truth; the journal is the durable, restructurable
 log. Implemented in `src/memjournal.ts` (host git + sandbox file IO; pure helpers tested).
 
+## Company brain
+
+Off by default; `BRAIN=1` turns it on for an installation (OpenSpec `company-brain`, canary flag — see
+[rollout](rollout.md)). It lands in slices; this section describes what an installation with the flag does today.
+
+- **The mirror after a turn.** The journal above is fed when a turn ends, not only after a dream: one exec lists
+  a hash per memory file, the files that differ from the host's copy are read back and committed (`turn <id>`).
+  A turn that changed nothing costs that one exec; a failure is logged and the answer stands.
+- **The index.** `brain/<slug>/index.json` in the installation directory lists every record: its file, title,
+  `kind` (`investigation`, `domain`, `method`, `decision`), `status` and `ticket` when its frontmatter carries
+  them, when the host first saw it and when its content last changed. No record text.
+- **The lint.** `brain/<slug>/lint.json` lists what code can find: a record without a kind, an investigation
+  without a status or `open` for more than 30 days, several records for one ticket, a file `MEMORY.md` does not
+  link and a link without a file, an e-mail address or an international phone number (the pattern and a count,
+  never the text).
+
+Both files are derived: delete `brain/<slug>/` and the next turn rebuilds them from the mirror. Not there yet:
+the prompt text that asks the agent for `kind` and `status`, the use and answer logs, the dream's tidy pass and
+the `/aven memory open` / `unchecked` forms. Implemented in `src/brain/` (pure, tested) and `src/memjournal.ts`.
+
 ## Deferred / future
 
 - **Editing the prompt from Slack** → [runtime config](runtime-config.md). The read-only

@@ -57,6 +57,8 @@ interface FakeOpts {
   idleText?: string; // fire the idle-notify callback with this text right after ask resolves
   /** What the fake sandbox's outbox holds when the turn ends (outbound-files). */
   outbox?: { files: OutboundFile[]; skipped: { name: string; reason: string }[] };
+  /** Each memory mirror the engine asked for, by its commit message (company-brain). */
+  mirrors?: string[];
 }
 
 function fakeOpenChat(o: FakeOpts): typeof openChat {
@@ -87,6 +89,7 @@ function fakeOpenChat(o: FakeOpts): typeof openChat {
       lastUsage: () => undefined,
       ingest: async () => ({ preamble: '[files: /inbox/a.png]', skipped: o.skipped ?? [] }),
       collectOutbox: async () => o.outbox ?? { files: [], skipped: [] },
+      mirrorMemory: async (message) => (o.mirrors?.push(message), { files: {}, changed: [], removed: [] }),
       close: async () => {},
       setIdleNotify: (fn) => {
         idle = fn;
@@ -249,6 +252,20 @@ test('flag off: the prompt names no outbox, the session opens without it, nothin
   assert.doesNotMatch(seen, /Outbox/);
   assert.equal(opened[0]?.outbox, undefined, 'the session prompt has no outbox paragraph');
   assert.deepEqual(api.calls.filter((c) => c.method.startsWith('files.') || c.method.startsWith('upload/')), []);
+});
+
+// Company brain (BRAIN=1): the sandbox is read for memory only with the flag. Off — today's shape — no exec is
+// made after a turn; on, one mirror follows the answer.
+test('BRAIN off: a turn never asks for the memory mirror; on: once, after the answer', async () => {
+  for (const [over, expected] of [[{}, []], [{ brain: true }, [/^turn t0-\d+$/]]] as const) {
+    api.reset();
+    const mirrors: string[] = [];
+    const { engine, client } = harness({ ask: async () => 'Done.', mirrors }, undefined, over);
+    await mention(engine, client, 'hi');
+    await quiesce();
+    assert.equal(mirrors.length, expected.length);
+    expected.forEach((re, i) => assert.match(mirrors[i], re));
+  }
 });
 
 test('flag on: the session opens with the outbox paragraph on Slack; a surface without file delivery gets neither the paragraph nor the line', async () => {

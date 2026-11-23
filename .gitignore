@@ -14,6 +14,8 @@ projects.config.json
 /projects.d/
 # per-project memory journals (server-owned git repos; like state.json, never committed):
 memory/
+# per-project company-brain files derived from the memory journal (index, lint, logs; BRAIN=1):
+/brain/
 # per-project derived facts (facts/<slug>.json — machine-written, re-derivable; see docs/project-facts.md):
 facts/
 *.log
