@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, mkdtempSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -137,4 +137,48 @@ test('a host tool call needs no transport: send_message is answered in-process, 
   const reply = (await host.handle({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'send_message', arguments: { target: 'caldora', text: 'q' } } }, { requestId: 'req-uuid-1' })) as { result: { content: { text: string }[] } };
   assert.deepEqual(JSON.parse(reply.result.content[0]!.text), { taskId: 't', state: 'submitted' });
   assert.deepEqual(seen, [[{ slug: 'owen-ops', conversationKey: 'thread:1' }, { target: 'caldora', text: 'q' }, 'req-uuid-1']]);
+});
+
+// Company brain (BRAIN=1): `brain_history` rides the `host` server for every project, messaging or not; without
+// the flag nothing changes. The project is the caller's — the tool takes no project argument.
+test('brain: with the flag a project gets brain_history on `host`; without it, nothing; a shadow conversation and a project with its own `host` get none', async () => {
+  const plain = { slug: 'skishop', repos: ['o/r'] } as unknown as ProjectConfig;
+  const caller = { slug: 'skishop', conversationKey: 'thread:1' };
+  const names = async (r: ReturnType<typeof createHostRouter>, c = caller, p = plain): Promise<string[]> => {
+    const host = r.routesFor(c, p).find((x) => x.name === 'host');
+    if (!host) return [];
+    const list = (await host.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' })) as { result: { tools: { name: string }[] } };
+    return list.result.tools.map((t) => t.name);
+  };
+  const later = () => ({ count: 0 });
+  assert.deepEqual(await names(createHostRouter({ replicaPath: () => '/nope', sources: async () => undefined })), []);
+  const on = createHostRouter({ replicaPath: () => '/nope', sources: async () => undefined, brain: true, laterTurns: later });
+  assert.deepEqual(await names(on), ['brain_history']);
+  assert.deepEqual(await names(on, { slug: 'skishop', conversationKey: `a2a:home:${'a'.repeat(24)}:skishop` }), []);
+  assert.deepEqual(await names(on, caller, { ...plain, mcp: [{ name: 'host' }] } as unknown as ProjectConfig), []);
+});
+
+test('brain_history: the caller\'s own project is answered from its log; the same ticket asked from another project finds nothing', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aven-brainhist-'));
+  const prev = process.env.AVEN_DIR;
+  process.env.AVEN_DIR = dir;
+  t.after(() => {
+    if (prev === undefined) delete process.env.AVEN_DIR;
+    else process.env.AVEN_DIR = prev;
+    rmSync(dir, { recursive: true, force: true });
+  });
+  mkdirSync(join(dir, 'brain', 'skishop'), { recursive: true });
+  const entry = (at: string, key: string, answer: string) => JSON.stringify({ at, key, turnId: `t-${at}`, question: 'Why twice?', answer, records: ['glacier-12.md'], tickets: ['GLACIER-12'], link: 'https://chat.example/t/1' });
+  writeFileSync(join(dir, 'brain', 'skishop', 'answers.jsonl'), `${entry('2026-05-02T08:00:00.000Z', 'thread:1', 'The export joins twice.')}\n${entry('2026-05-09T08:00:00.000Z', 'thread:2', 'Fixed in the March release.')}\n`);
+  const r = createHostRouter({ replicaPath: () => '/nope', sources: async () => undefined, brain: true, laterTurns: (key) => (key === 'thread:2' ? { count: 2, last: '2026-05-10T08:00:00.000Z' } : { count: 0 }) });
+  const ask = async (slug: string): Promise<string> => {
+    const host = r.routesFor({ slug, conversationKey: 'thread:9' }, { slug, repos: ['o/r'] } as unknown as ProjectConfig).find((x) => x.name === 'host')!;
+    const res = (await host.handle({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'brain_history', arguments: { query: 'GLACIER-12' } } })) as { result: { content: { text: string }[] } };
+    return res.result.content[0].text;
+  };
+  const mine = await ask('skishop');
+  assert.match(mine, /2 logged answers for "GLACIER-12", oldest first:/);
+  assert.match(mine, /── 1\. 2026-05-02 — https:\/\/chat\.example\/t\/1 — no later turn in that conversation/);
+  assert.match(mine, /── 2\. 2026-05-09 — https:\/\/chat\.example\/t\/1 — 2 later turns in that conversation \(last 2026-05-10\)/);
+  assert.equal(await ask('otherproject'), 'No logged answer for "GLACIER-12" in this project.');
 });

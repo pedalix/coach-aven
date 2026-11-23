@@ -113,7 +113,7 @@ export async function runChat(cfg: Config, defaultName: ChatDriverName, options:
   // Agent messaging (OpenSpec agent-messaging): the shadow conversations' hooks go into the engine,
   // the service is started once the engine exists. Nothing reaches it without a `messaging` block.
   const messaging = messagingRuntime({ cfg, store, reg, home: () => def.homeTenantId(), platform: defaultName });
-  const hostRoutes = createHostRouter({ tz: ROUTINE_TZ, messaging: messaging.messaging });
+  const hostRoutes = createHostRouter({ tz: ROUTINE_TZ, messaging: messaging.messaging, brain: cfg.brain });
   const engine = createTurnEngine(cfg, store, reg, { hostRoutes, shadow: messaging.turnDeps });
   // One channel directory per surface: each reads its own driver's binding of a project.
   const channelsOf = new Map<ChatDriverName, Channels>();
