@@ -242,9 +242,27 @@ Off by default; `BRAIN=1` turns it on for an installation (OpenSpec `company-bra
   link and a link without a file, an e-mail address or an international phone number (the pattern and a count,
   never the text).
 
-Both files are derived: delete `brain/<slug>/` and the next turn rebuilds them from the mirror. Not there yet:
-the prompt text that asks the agent for `kind` and `status`, the use and answer logs, the dream's tidy pass and
-the `/aven memory open` / `unchecked` forms. Implemented in `src/brain/` (pure, tested) and `src/memjournal.ts`.
+- **The record contract.** New sessions get two prompt paragraphs: a record carries a top-level `kind`, an
+  investigation a `status` and a `ticket`, and an answer that rests on a record nobody corrected says so.
+- **The use log.** `brain/<slug>/uses.jsonl`: one line per turn that read or changed a record — the time, the
+  conversation, what started the turn (a person, a routine, a poller, another agent) and the record names. No
+  text. "Read" is a heuristic (a memory file named in a tool input); "changed" is the mirror's diff.
+- **Provenance.** From the use log the index carries per record how many turns started by a person used it,
+  when last, and when it was last *revised after a person's reply* — changed by a person's turn in a
+  conversation that had already used it. Nobody marks anything and the agent cannot write it. It is evidence
+  of attention, not verification: a record used fifty times and never revised is still unchecked.
+- **The answer log.** `brain/<slug>/answers.jsonl`: for a turn that read or changed an `investigation` record,
+  the question as the sandbox received it, the answer as posted, who asked, the records, their tickets and the
+  thread link. Not written for a marked (cross-domain) or shadow conversation. A dream is not a turn of this
+  kind and logs nothing.
+- **`brain_history`.** A host tool on the session's own channel: for a ticket id or a record's file name it
+  returns the record's provenance and the logged answers oldest first, each with how many turns followed in
+  that conversation (from the usage log). The project is the caller's; another project's ticket finds nothing.
+
+The index and the lint are derived: delete them and the next turn rebuilds them from the mirror and the use
+log. The two logs are not: deleting `brain/<slug>/` forgets what was answered. Not there yet: the dream's tidy
+pass, the tracker check and the `/aven memory open` / `unchecked` forms. Implemented in `src/brain/` (pure
+parts tested apart), `src/memjournal.ts` and `src/hostrouter.ts`.
 
 ## Deferred / future
 

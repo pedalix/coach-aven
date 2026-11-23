@@ -165,6 +165,8 @@ export interface ChatSession {
   // Company brain (memjournal.ts, OpenSpec company-brain): copy the memory records that differ from the host's
   // journal and commit them. Throws on a failed listing or read-back; the turn engine calls it only under BRAIN=1.
   mirrorMemory?(message: string): Promise<MirrorResult>;
+  // The memory record files the last turn's tool inputs named (a heuristic; company-brain's use log).
+  memoryReads?(): string[];
   // Kill the sandbox-side persistent session-command and mark this object dead — an
   // explicit "forget this conversation" (vs. the LRU/prune paths, which only drop the
   // reference and leave the process to the sandbox's idle stop — the bot's, idlestop.ts).
@@ -406,6 +408,7 @@ export async function openChat(
     gitFlow: opts.gitFlow,
     ...(bitbucketRepos(opts.repos).length ? { bitbucketRepos: bitbucketRepos(opts.repos) } : {}),
     ...(cfg.github.kind === 'none' ? { noGitHub: true } : {}),
+    ...(cfg.brain ? { brain: true } : {}),
     ...(cfg.github.kind === 'app' ? { githubApp: true } : {}),
     ...(opts.outbox ? { outbox: true } : {}),
     // Resolved again here (loadProjects already validated it) so the prompt sees the same
@@ -573,6 +576,7 @@ export async function openChat(
     collectOutbox: (turnId: string) => collectOutbox((c) => sandbox.exec(c), turnId, { scrub: opts.scrubSecrets !== false }),
     mirrorMemory: (message: string) =>
       mirrorMemory((c) => sandbox.exec(c), memoryRepoDir(opts.slug), memoryDir(projectCwd(cfg, opts.slug, opts.repos)), message),
+    memoryReads: () => session?.memoryReads() ?? [],
     ask: async (
       prompt: string,
       onStep?: (step: string) => void,

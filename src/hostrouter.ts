@@ -29,6 +29,9 @@ import { log } from './log.js';
 import type { Messaging } from './messaging/service.js';
 import { messagingTools } from './messaging/tools.js';
 import { parseShadowKey } from './chat/shadow/driver.js';
+import { brainTools, type LaterTurns } from './brain/tools.js';
+import { UsageLog } from './metering.js';
+import { usageDir } from './paths.js';
 
 export const HOST_SERVER_NAME = 'host';
 /** tools/call limits the CLI enforces per server: host tools are small; a sources call can be a second or more. */
@@ -52,6 +55,21 @@ export interface HostRouterDeps {
   tz?: string; // default: AVEN_TZ (the zone bare dates are read in)
   /** Agent messaging (late-bound: the service is built after the engine); absent → no messaging tools. */
   messaging?: () => Messaging | undefined;
+  /** BRAIN=1 (company-brain): every project's sessions get `brain_history` on the `host` server. Unset → none. */
+  brain?: boolean;
+  /** How many turns a conversation had after a moment (default: the installation's usage log). */
+  laterTurns?: LaterTurns;
+}
+
+// "What followed": the turns the usage log holds for that conversation after the answer. One read per call.
+function laterFromUsage(): LaterTurns {
+  const usage = new UsageLog(usageDir());
+  return (key, afterIso, turnId) => {
+    const after = Date.parse(afterIso);
+    // The answering turn's own usage record is written when it settles, a moment after its log entry: not "later".
+    const later = usage.read(Date.now() - after).filter((r) => r.key === key && r.turnId !== turnId && Date.parse(r.at) > after);
+    return { count: later.length, ...(later.length ? { last: later.map((r) => r.at).sort().at(-1) } : {}) };
+  };
 }
 
 /** Pure: does the project declare its own server under this name? Then the bot registers none (it keeps its own). */
@@ -63,13 +81,18 @@ export function createHostRouter(d: HostRouterDeps): HostRouter {
   const replicaPath = d.replicaPath ?? ((slug: string) => join(replicaDir(slug), REPLICA_FILE));
   const sources = d.sources ?? sourcesWorker(d.tz ?? sourcesTimezone());
   const forward = d.forward ?? ((cfg: DaemonConfig, slug: string, m: JsonRpc) => forwardToDaemon(cfg, slug, m));
+  let later: LaterTurns | undefined; // built on first use: flag off never opens the usage log
   return {
     routesFor(caller, project) {
       const routes: HostServerRoute[] = [];
       const shadow = parseShadowKey(caller.conversationKey) !== undefined;
       const m = project.messaging !== undefined ? d.messaging?.() : undefined;
-      if (m && !declares(project, HOST_SERVER_NAME)) {
-        const tools = messagingTools(caller, m, { send: project.messaging!.send === true, shadow });
+      if ((m || d.brain) && !declares(project, HOST_SERVER_NAME)) {
+        const tools = [
+          ...(m ? messagingTools(caller, m, { send: project.messaging!.send === true, shadow }) : []),
+          // Not in a shadow conversation: its asker is another domain's agent, and the history is this project's.
+          ...(d.brain && !shadow ? brainTools(caller, (later ??= d.laterTurns ?? laterFromUsage())) : []),
+        ];
         if (tools.length) routes.push({ name: HOST_SERVER_NAME, timeoutMs: HOST_TIMEOUT_MS, handle: mcpServer(HOST_SERVER_NAME, tools) });
       }
       if (project.sources !== undefined && !declares(project, SOURCES_SERVER_NAME)) {

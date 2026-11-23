@@ -30,6 +30,8 @@ export interface MessageDeps {
 }
 
 const FILES_ONLY = 'Please take a look at the attached file(s).';
+// Who asked, for the turn's options (company-brain's answer log); no options at all for an unknown user.
+const asker = (user: string | undefined): { asker: string } | undefined => (user ? { asker: user } : undefined);
 
 export function createMessages(deps: MessageDeps) {
   const { store, reg, engine, channels, homeTeamId, actor, surface } = deps;
@@ -65,7 +67,7 @@ export function createMessages(deps: MessageDeps) {
     if (!m.claim('mention')) return;
     const attachments = m.hasFiles ? await m.files() : undefined;
     const key = keyFor(surface, tenant, homeTeamId, `thread:${threadTs}`);
-    await engine.liveTurn(d, m.conv, m.id, threadTs, key, project!, question || FILES_ONLY, attachments);
+    await engine.liveTurn(d, m.conv, m.id, threadTs, key, project!, question || FILES_ONLY, attachments, asker(m.actor.user));
   }
 
   // A plain message: a DM is a private conversation; in a channel, only a reply in a thread
@@ -100,7 +102,7 @@ export function createMessages(deps: MessageDeps) {
         return;
       }
       const dmKey = keyFor(surface, tenant, homeTeamId, `dm:${m.conv}:${project!.slug}`);
-      await engine.liveTurn(d, m.conv, m.id, undefined, dmKey, project!, question || FILES_ONLY, await m.files());
+      await engine.liveTurn(d, m.conv, m.id, undefined, dmKey, project!, question || FILES_ONLY, await m.files(), asker(m.actor.user));
       return;
     }
 
@@ -120,7 +122,7 @@ export function createMessages(deps: MessageDeps) {
       await d.post({ conv: m.conv, thread: m.thread }, { kind: 'text', text: info("I didn't catch a question — what would you like me to do?") });
       return;
     }
-    await engine.liveTurn(d, m.conv, m.id, m.thread, key, project, question || FILES_ONLY, await m.files());
+    await engine.liveTurn(d, m.conv, m.id, m.thread, key, project, question || FILES_ONLY, await m.files(), asker(m.actor.user));
   }
 
   return { onMention, onMessage };

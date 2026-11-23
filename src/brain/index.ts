@@ -5,6 +5,7 @@
 
 import { createHash } from 'node:crypto';
 import { parseRecord, type Kind, type Status } from './record.js';
+import type { Provenance } from './uses.js';
 
 export const INDEX_FILE = 'MEMORY.md';
 
@@ -19,6 +20,8 @@ export interface IndexedRecord {
   lastChange: string; // ISO; when the host last saw the content differ
   // Personal-data patterns found in the text — counts only: the index must not become a second copy of them.
   personal?: { email?: number; phone?: number };
+  // Derived from the use log (uses.ts), when the caller has one; absent = no use logged yet.
+  provenance?: Provenance;
 }
 
 export interface BrainIndex {
@@ -48,7 +51,7 @@ export function linkedFiles(indexText: string): string[] {
   return [...out].sort();
 }
 
-export function buildIndex(files: Record<string, string>, now: Date, prev?: BrainIndex): BrainIndex {
+export function buildIndex(files: Record<string, string>, now: Date, prev?: BrainIndex, prov?: ReadonlyMap<string, Provenance>): BrainIndex {
   const before = new Map((prev?.records ?? []).map((r) => [r.name, r]));
   const at = now.toISOString();
   const records: IndexedRecord[] = [];
@@ -70,6 +73,7 @@ export function buildIndex(files: Record<string, string>, now: Date, prev?: Brai
       firstSeen: old?.firstSeen ?? (stamp < now.getTime() ? new Date(stamp).toISOString() : at),
       lastChange: old ? (old.hash === hash ? old.lastChange : at) : at,
       ...(personal ? { personal } : {}),
+      ...(prov?.get(name) ? { provenance: prov.get(name) } : {}),
     });
   }
   return { builtAt: at, records, linked: linkedFiles(files[INDEX_FILE] ?? '') };

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { memoryNames } from './brain/uses.js';
 import type { SandboxHandle } from './driver.js';
 import { ccCreditEnv } from './project.js';
 import { creditFromApiKeySource, type CreditKind } from './credit.js';
@@ -398,6 +399,12 @@ export class ClaudeSession {
   // Their stream events carry that id as parent_tool_use_id, so their steps get an ↳N
   // prefix and stay attributable when several subagents run in parallel. Reset per turn.
   private subagents = new Map<string, number>();
+  // Memory record files this turn's tool inputs named (company-brain's use log, src/brain/uses.ts) — reset with
+  // the turn, read by the turn engine once the answer is out.
+  private turnMemory = new Set<string>();
+  memoryReads(): string[] {
+    return [...this.turnMemory].sort();
+  }
   // On reattach: the last turn's result if the conversation was already idle in the
   // snapshot (the turn completed during the bot's downtime). Consumed once by adoptInflight.
   private snapshotResult?: TurnResult;
@@ -672,6 +679,7 @@ export class ClaudeSession {
       return { status: 'busy', resultText: 'session busy', isError: true, started: false };
     this.turnStarted = false;
     this.subagents.clear(); // ↳N numbering restarts each turn
+    this.turnMemory.clear();
 
     return await new Promise<TurnResult>((resolve) => {
       const p: PendingTurn = {
@@ -1011,6 +1019,7 @@ export class ClaudeSession {
       const pfx = parent ? `↳${this.subagents.get(parent) ?? ''} ` : '';
       for (const b of ev.message.content) {
         if (b?.type === 'tool_use') {
+          for (const n of memoryNames(b.input)) this.turnMemory.add(n);
           let label: string;
           if (!parent && (b.name === 'Task' || b.name === 'Agent') && typeof b.id === 'string') {
             const seq = this.subagents.size + 1;

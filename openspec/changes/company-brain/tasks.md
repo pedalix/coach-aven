@@ -13,19 +13,19 @@
 
 ## 3. Answer log and its host tool
 
-- [ ] 3.1 `src/brain/answers.ts`: which records a turn read (tool inputs) and changed (mirror diff), the log entry, the history query — `src/brain/answers.test.ts`
-- [ ] 3.2 Append the entry at turn end for an investigation turn; skip marked and shadow conversations — `src/turn.brain.test.ts`
-- [ ] 3.3 `brain_history` host tool in `src/hostrouter.ts`, project taken from the caller — `src/hostrouter.test.ts` (own project answered, another project empty)
+- [x] 3.1 `src/brain/answers.ts`: which records a turn read (tool inputs) and changed (mirror diff), the log entry, the history query — `src/brain/answers.test.ts`
+- [x] 3.2 Append the entry at turn end for an investigation turn; skip marked and shadow conversations — `src/turn.brain.test.ts`
+- [x] 3.3 `brain_history` host tool in `src/hostrouter.ts`, project taken from the caller — `src/hostrouter.test.ts` (own project answered, another project empty)
 
 ## 4. Use log and provenance
 
-- [ ] 4.1 `src/brain/uses.ts`: the use-log entry (names only, what started the turn), provenance per record (uses by people, last use, revised after a reply) — `src/brain/uses.test.ts` (a routine's turn does not count; a frontmatter claim changes nothing)
-- [ ] 4.2 Append the entry at turn end; provenance into `index.json` and into `brain_history`'s answer — `src/turn.brain.test.ts`, `src/hostrouter.test.ts`
+- [x] 4.1 `src/brain/uses.ts`: the use-log entry (names only, what started the turn), provenance per record (uses by people, last use, revised after a reply) — `src/brain/uses.test.ts` (a routine's turn does not count; a frontmatter claim changes nothing)
+- [x] 4.2 Append the entry at turn end; provenance into `index.json` and into `brain_history`'s answer — `src/turn.brain.test.ts`, `src/hostrouter.test.ts`
 - [ ] 4.3 Nightly tracker check in `src/pollers.ts` before the dream: `open` investigations whose ticket `src/youtrack.ts` reports resolved go into the lint; a project without a tracker makes no call — `src/routinerun.test.ts`
 
 ## 5. Prompt and dream
 
-- [ ] 5.1 Two flagged paragraphs in `src/prompt.ts` (the record contract; unchecked records) — goldens for both flag states in `src/fixtures/prompt/`, `src/prompt.test.ts`
+- [x] 5.1 Two flagged paragraphs in `src/prompt.ts` (the record contract; unchecked records) — goldens for both flag states in `src/fixtures/prompt/`, `src/prompt.test.ts`
 - [ ] 5.2 The flagged lint section in `dreamPrompt` (`src/dream.ts`), the "no code" guardrail unchanged — `src/dream.test.ts`
 - [ ] 5.3 Pass the lint to the dream in `src/pollers.ts` (`fireDream`) — `src/routinerun.test.ts`
 

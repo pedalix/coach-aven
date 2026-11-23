@@ -142,6 +142,9 @@ export interface TurnEngine {
 export type TurnOutcome = 'ok' | 'error' | 'canceled';
 
 export interface TurnOpts {
+  // The person whose message started the turn (the platform's user id) — company-brain's answer log names who
+  // asked. Informational: nothing else reads it, and a turn replayed after a restart has none.
+  asker?: string;
   ytDraftFor?: string;
   autoPost?: (text: string) => Promise<{ url: string; group: string }>;
   // Called with the final answer after it is delivered (routine runs rewrite their top-level
@@ -1130,7 +1133,17 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       if (outboxOn(chat)) await postOutbox(chat, mark(where), live, turnId);
       // Company brain (BRAIN=1, src/brain/): the answer is out — mirror the memory records this turn changed and
       // rebuild the project's index and lint. Never throws; with the flag off the sandbox is not touched.
-      if (cfg.brain) await brainAfterTurn(live, project.slug, turnId);
+      if (cfg.brain)
+        await brainAfterTurn(live, project.slug, {
+          turnId,
+          key,
+          by: opts?.routine ? 'routine' : opts?.origin ? 'agent' : opts?.automatic ? 'poller' : 'person',
+          ...(opts?.asker ? { asker: opts.asker } : {}),
+          question: prompt,
+          answer: capped,
+          ...(slackUrl ? { link: slackUrl } : {}),
+          logAnswer: !isShadowKey(key) && !Object.keys(store.getMarks(key)).length,
+        });
       if (opts?.onAnswer) await opts.onAnswer(capped, session?.lastUsage()).catch(() => {});
       // Latch the flag the first turn whose answer carries a PR URL — the session panel
       // shows whether this thread has produced a PR.
