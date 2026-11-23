@@ -20,7 +20,8 @@ status, a trace of what was answered, a way to tell checked from unchecked, and 
 
 **Goals:**
 
-- A person can tell a confirmed record from an agent's own note, and so can the agent.
+- A person can tell a record somebody corrected from an agent's own note, and so can the agent — without
+  anyone being asked to mark anything.
 - "What did we answer on this ticket, and did anything follow" is answered from a log the host wrote.
 - Stale and contradicting records are found by code and resolved by the dream.
 - Flag off is byte-identical.
@@ -29,7 +30,8 @@ status, a trace of what was answered, a way to tell checked from unchecked, and 
 
 - A second memory store, a schema beyond four kinds, embeddings.
 - Cross-project or tenant-wide reading.
-- Proving a record true. Confirmation records that a person vouched for a version; it is not verification.
+- Proving a record true. Provenance says how a record was used and whether a person ever corrected it; it is
+  not verification, and silence is never read as agreement.
 
 ## Decisions
 
@@ -48,18 +50,18 @@ no store of ours.
 `memory/<slug>/` stays the copy; with the flag the bot also updates it when a turn ends: one exec lists
 `sha256sum` of the memory files, changed files are read back the way the outbox reads files, and the change is
 committed. Derived files live apart in `brain/<slug>/` (`index.json`, `lint.json`, `answers.jsonl`,
-`confirmations.jsonl`).
+`uses.jsonl`).
 
-- Why the end of the turn: it is the moment the bot reads the sandbox anyway, and the confirm control needs the
-  set of records the turn changed.
-- Why git: versions come for free, and "confirmed at this version" needs one.
+- Why the end of the turn: it is the moment the bot reads the sandbox anyway, and provenance needs the set of
+  records each turn changed.
+- Why git: versions come for free, and a rebuilt sandbox is re-seeded from it already.
 - Cost: one exec per turn; reads only for changed files. A failure never blocks the answer.
 
 ### D3. Which records a turn read
 
 Read: a record's file name appearing in a tool input of the turn's stream (a `Read` path, a shell command).
-Changed: the mirror's diff. Reads are a heuristic and used only to decide whether to log an answer (D4); changed
-is exact and is what *Confirm* acts on.
+Changed: the mirror's diff. Reads are a heuristic: they decide whether to log an answer (D4) and feed the use
+count (D5). Changed is exact and is what "revised after a reply" rests on.
 
 ### D4. The answer log is written by the host
 
@@ -74,28 +76,42 @@ the thread link when the driver has one.
   in the same conversation and the date of the last one — the bot does not keep people's thread messages.
 - Marked and shadow conversations are not logged: their text belongs to another domain.
 
-### D5. Confirmation is a host ledger with a mark the bot writes
+### D5. Provenance is derived, nobody marks anything
 
-`confirmations.jsonl` holds `{record, contentHash, by, at, turnId}`. After a confirmation the bot writes a
-`confirmed: <date>` line into the record's frontmatter (no name — no personal data in memory). At every mirror the
-bot recomputes the hash of the record without that line and without `modified`; a mark with no matching ledger
-entry is removed.
+The first draft had a *Confirm* control on the answer. It was dropped on 2026-11-23 on the maintainer's word:
+people do not press such a button, and a trust signal that depends on it would stay empty.
 
-- Why a mark in the file: the agent must see it without a tool call, and `/aven memory <topic>` shows it to people.
-- Why the ledger is the truth: the agent can write any frontmatter; a mark it invents does not survive a mirror.
-- Why only the records the turn changed: a person confirms what they just read in the answer. Extending the mark
-  to every record the answer merely read would confirm things they never saw.
-- Who may confirm: anyone who may drive the agent in that workspace (the actor gate), decided by the maintainer on
-  2026-11-23. A named list per project was rejected as a config key nobody asked for; a workspace that needs a
-  narrower circle already has the allowlist.
+`uses.jsonl` gets one entry per turn that read or changed a record: time, conversation key, turn id, what started
+the turn (a person, a routine, a poller), the names read and the names changed. No text. From it and the mirror
+the index carries per record:
+
+- `uses` and `lastUsed`: turns started by a person that read or changed it;
+- `revisedAfterReply`: the last time a turn started by a person's message changed the record in a conversation
+  where an earlier turn had already read or changed it. This is what a correction looks like from the host: the
+  agent answered from the record, a person replied, the record changed.
+
+- Why this and not a mark: it costs people nothing and the agent cannot write it — the host reads the stream and
+  the mirror, never the record's own claims.
+- What it is not: a person may reply "thanks" and the agent may edit the record for its own reasons, so
+  "revised after a reply" is evidence of attention, not proof. And a record used fifty times without a reply is
+  still unchecked: a wrong figure was accepted in production for weeks until someone compared it with a report.
+  The use count is shown as context ("most used, never corrected" is the list worth a person's hour).
+- The bot writes nothing into the sandbox's memory. The agent gets provenance from `brain_history` (D4), and the
+  prompt asks it to look before it states a figure or a rule from a `method` or `domain` record.
 - Rejected: reusing 👍 *Helped*. An answer can help and still be wrong, and the feedback metric must not change
   meaning.
+- Rejected for this change: checking a `method` against a reference report. It is the real verification and
+  needs a source of truth per method.
 
 ### D6. Lint is code; tidying is the dream's
 
 `src/brain/lint.ts` is pure. Its findings: no kind; investigation without status; `open` longer than 30 days;
 several records with one ticket; index and files out of step; a personal-data pattern (the e-mail and phone
-detectors of `src/scrub.ts`); changed since confirmation.
+detectors of `src/scrub.ts`); `open` while the tracker has resolved the ticket.
+
+- The tracker finding is the one input from outside the mirror. It is gathered once a night, before the dream,
+  for a project whose tracker the host already reads (`src/youtrack.ts` returns `resolved`), and handed to the
+  pure lint as data. The host does not edit the status; the dream does. A turn's own lint makes no network call.
 
 - What code cannot find: a contradiction between two records, a surname. The lint narrows the dream's attention
   (same ticket, same title words); the dream's prompt names contradictions and names of people as things to
@@ -108,24 +124,25 @@ detectors of `src/scrub.ts`); changed since confirmation.
 
 ### D7. Surfaces
 
-- The control is one more answer control in the view model (`src/chat/views.ts`), rendered by each driver that
-  declares it; a driver without it shows nothing and people use `/aven memory confirm <record>` — not in this
-  change unless a canary driver needs it.
-- `memory open` and `memory unconfirmed` are viewer forms of the existing verb, answered from `index.json`.
-- The Home lists of the three surfaces name the control and the two forms.
+- No new control on an answer; the three chat drivers render nothing new.
+- `memory open` and `memory unchecked` are viewer forms of the existing verb, answered from `index.json`.
+  `unchecked` lists `method` and `domain` records never revised after a reply, most used first.
+- The Home lists of the three surfaces name the two forms.
 
 ### D8. Prompt text
 
 Two flagged paragraphs in the base layer (`src/prompt.ts`): the record contract, and "say when an answer rests on
-an unconfirmed record". Goldens for both flag states.
+a record nobody corrected" (ask `brain_history`; name the record as your own note in the first lines). Goldens for
+both flag states.
 
 ## Risks / Trade-offs
 
 - [The agent ignores the contract and keeps writing untyped records] → the lint counts them and the dream
   migrates up to 15 a night; the canary metric is the share of typed records after two weeks.
-- [People confirm without reading] → the control appears only when the turn changed records, the mark is dated
-  and versioned, and a changed record loses it. Confirmation is a signal, not a guarantee; the prompt says
-  "confirmed by a person", never "verified".
+- [Almost every record stays "unchecked" and the agent's caveat becomes noise] → the prompt asks for it only on
+  figures and rules from `method` and `domain` records, in one line; the canary reads real answers for it.
+- ["Revised after a reply" fires on an edit the reply did not ask for] → it is worded as attention, never as
+  "verified"; the canary counts how many such marks were real corrections.
 - [The mirror adds latency to every turn] → it runs after the answer is posted, and a turn that changed nothing
   costs one exec.
 - [The dream gets more expensive] → 15 findings a night; the dream's cost per run is already in `/aven usage`
@@ -146,5 +163,5 @@ an unconfirmed record". Goldens for both flag states.
 
 ## Open Questions
 
-- Should a confirmation expire with age (a domain record confirmed a year ago)?
-- Does the canary need `/aven memory confirm <record>` for a surface without the control?
+- Does anyone want an explicit way to say "this record is right" once the lists exist? If so, as a text form.
+- What is the reference for a `method` record, and can the host compare against it?
