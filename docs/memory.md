@@ -253,7 +253,8 @@ Off by default; `BRAIN=1` turns it on for an installation (OpenSpec `company-bra
   of attention, not verification: a record used fifty times and never revised is still unchecked.
 - **The answer log.** `brain/<slug>/answers.jsonl`: for a turn that read or changed an `investigation` record,
   the question as the sandbox received it, the answer as posted, who asked, the records, their tickets and the
-  thread link. Not written for a marked (cross-domain) or shadow conversation. A dream is not a turn of this
+  thread link. Not written for a marked (cross-domain) or shadow conversation, nor for a direct message or a
+  command's own conversation — the log is read by the whole project. A dream is not a turn of this
   kind and logs nothing.
 - **`brain_history`.** A host tool on the session's own channel: for a ticket id or a record's file name it
   returns the record's provenance and the logged answers oldest first, each with how many turns followed in

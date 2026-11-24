@@ -98,6 +98,9 @@ import {
 // opens a PR only if asked). Each ask() is a turn on the same long-lived conversation.
 import type { RateLimitInfo } from './ratelimit.js';
 
+// A memory mirror runs after the answer is out; a sandbox that stopped answering must not hold the turn's end.
+const MIRROR_EXEC_TIMEOUT_S = 60;
+
 export interface ChatSession {
   // onStep receives a human-readable line per agent tool call (for live UI progress).
   // signal aborts the in-flight turn cleanly (→ throws 'canceled'). onQuestion is
@@ -575,7 +578,7 @@ export async function openChat(
     // The sandbox is awake: the turn that filled the outbox has just ended on it.
     collectOutbox: (turnId: string) => collectOutbox((c) => sandbox.exec(c), turnId, { scrub: opts.scrubSecrets !== false }),
     mirrorMemory: (message: string) =>
-      mirrorMemory((c) => sandbox.exec(c), memoryRepoDir(opts.slug), memoryDir(projectCwd(cfg, opts.slug, opts.repos)), message),
+      mirrorMemory((c) => sandbox.exec(c, { timeout: MIRROR_EXEC_TIMEOUT_S }), memoryRepoDir(opts.slug), memoryDir(projectCwd(cfg, opts.slug, opts.repos)), message),
     memoryReads: () => session?.memoryReads() ?? [],
     ask: async (
       prompt: string,
