@@ -55,13 +55,18 @@ committed. Derived files live apart in `brain/<slug>/` (`index.json`, `lint.json
 - Why the end of the turn: it is the moment the bot reads the sandbox anyway, and provenance needs the set of
   records each turn changed.
 - Why git: versions come for free, and a rebuilt sandbox is re-seeded from it already.
-- Cost: one exec per turn; reads only for changed files. A failure never blocks the answer.
+- Cost: one exec per turn, a second one (per 40 files) only when files changed; each has a 60-second limit. It
+  runs after the answer is posted and the message is marked done. A failure never blocks the answer.
+- A dream's snapshot and a turn's mirror go through one queue per journal.
 
 ### D3. Which records a turn read
 
 Read: a record's file name appearing in a tool input of the turn's stream (a `Read` path, a shell command).
-Changed: the mirror's diff. Reads are a heuristic: they decide whether to log an answer (D4) and feed the use
-count (D5). Changed is exact and is what "revised after a reply" rests on.
+Changed: a record in the mirror's diff that a tool input of the same turn named. The diff alone is the whole
+project's — a first mirror holds every record, and another conversation's turn or a dream may have written since
+the last one — so a change no input of this turn named is mirrored and credited to nobody. Both are heuristics
+(a record written through `cd memory && …` is missed); a miss costs a use or a revision that is not counted,
+never one that is invented.
 
 ### D4. The answer log is written by the host
 

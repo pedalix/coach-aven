@@ -93,6 +93,10 @@ as posted, and the records involved.
 - **WHEN** the turn belongs to a marked (cross-domain) or shadow conversation
 - **THEN** nothing is logged
 
+#### Scenario: A private conversation
+- **WHEN** the turn belongs to a direct message or to a command's own conversation
+- **THEN** nothing is logged, so another person's `brain_history` never returns it
+
 ### Requirement: The agent can ask for a ticket's history
 The system SHALL serve the agent a host tool that, for a ticket or a record name, returns the record's provenance
 and the logged answers oldest first, each with its date, its thread link, its text and the number of later turns
@@ -118,6 +122,14 @@ any message or answer text.
 #### Scenario: A turn touched no record
 - **WHEN** a turn neither reads nor changes a record
 - **THEN** nothing is logged
+
+#### Scenario: Another conversation changed a record
+- **WHEN** a turn ends and the mirror finds a changed record that no tool input of that turn named
+- **THEN** the record is mirrored and the turn's entry does not name it as changed
+
+#### Scenario: The first mirror of a project
+- **WHEN** the flag is new and a turn's mirror copies every existing record
+- **THEN** only the records that turn named are logged as used
 
 ### Requirement: The host derives a record's provenance
 The system SHALL derive for each record, from the use log and the mirror alone, how many turns started by a

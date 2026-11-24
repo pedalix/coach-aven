@@ -181,6 +181,8 @@ export interface TurnOpts {
 export type TurnOrigin = { slug: string; taskId: string };
 
 /** A shadow conversation's key (agent-messaging D10): `[<tenant>:]a2a:<origin>:<taskId>:<slug>`. */
+// A conversation only its one person sees: a direct message, a command's own conversation.
+export const isPrivateKey = (key: string): boolean => /^(dm|cmd):/.test(splitTeam(key).base);
 export const isShadowKey = (key: string): boolean => splitTeam(key).base.startsWith('a2a:');
 
 // What the "🧭 Show steps" click renders: every step line the turn streamed (growing while
@@ -1131,7 +1133,16 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       };
       await deliver(view, '✅ Done — answer posted below');
       if (outboxOn(chat)) await postOutbox(chat, mark(where), live, turnId);
-      // Company brain (BRAIN=1, src/brain/): the answer is out — mirror the memory records this turn changed and
+      if (opts?.onAnswer) await opts.onAnswer(capped, session?.lastUsage()).catch(() => {});
+      // Latch the flag the first turn whose answer carries a PR URL — the session panel
+      // shows whether this thread has produced a PR.
+      if (!store.getChat(key)?.prCreated && prUrls(capped).length)
+        store.patchChat(key, project.slug, { prCreated: true });
+      if (userMsg) {
+        await chat.mark(userMsg, 'working', 'remove');
+        await chat.mark(userMsg, 'done', 'add');
+      }
+      // Company brain (BRAIN=1, src/brain/): the answer is out and the message marked done — mirror the memory records this turn changed and
       // rebuild the project's index and lint. Never throws; with the flag off the sandbox is not touched.
       if (cfg.brain)
         await brainAfterTurn(live, project.slug, {
@@ -1142,17 +1153,8 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
           question: prompt,
           answer: capped,
           ...(slackUrl ? { link: slackUrl } : {}),
-          logAnswer: !isShadowKey(key) && !Object.keys(store.getMarks(key)).length,
+          logAnswer: !isShadowKey(key) && !isPrivateKey(key) && !Object.keys(store.getMarks(key)).length,
         });
-      if (opts?.onAnswer) await opts.onAnswer(capped, session?.lastUsage()).catch(() => {});
-      // Latch the flag the first turn whose answer carries a PR URL — the session panel
-      // shows whether this thread has produced a PR.
-      if (!store.getChat(key)?.prCreated && prUrls(capped).length)
-        store.patchChat(key, project.slug, { prCreated: true });
-      if (userMsg) {
-        await chat.mark(userMsg, 'working', 'remove');
-        await chat.mark(userMsg, 'done', 'add');
-      }
     } catch (err) {
       clearInterval(heartbeat);
       await pendingFlush; // let any in-flight status tick land before the final canceled/error update

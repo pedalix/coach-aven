@@ -24,7 +24,10 @@ const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
 function session(slug: string, files: Record<string, string>, fail = false, reads: string[] = []) {
   const exec: MirrorExec = async (command) => {
     if (fail) return { exitCode: 1, result: '' };
-    if (command.startsWith('base64 ')) return { exitCode: 0, result: Buffer.from(files[/\/([^/']+)'$/.exec(command)![1]]).toString('base64') };
+    if (command.includes('base64 -w0')) {
+      const names = [.../'([^']+)'/g[Symbol.matchAll](/for f in (.*?); do/.exec(command)![1])].map((m) => m[1]);
+      return { exitCode: 0, result: names.map((n) => `${n} ${Buffer.from(files[n]).toString('base64')}\n`).join('') };
+    }
     return { exitCode: 0, result: Object.entries(files).map(([n, c]) => `${sha(c)}  ${n}`).join('\n') };
   };
   return { mirrorMemory: (message: string) => mirrorMemory(exec, memoryRepoDir(slug), '/mem', message), memoryReads: () => reads };
@@ -75,7 +78,7 @@ const SHOP: Record<string, string> = {
 
 test('a person\'s turn about a ticket: a use entry with names only, an answer entry with the text, the asker and the link', async () => {
   const files = { ...SHOP };
-  await brainAfterTurn(session('logs', files), 'logs', turn('t0', { by: 'routine', key: 'routine:r1' }), new Date('2026-05-01T08:00:00.000Z'));
+  await brainAfterTurn(session('logs', files, false, ['counting.md', 'glacier-12.md']), 'logs', turn('t0', { by: 'routine', key: 'routine:r1' }), new Date('2026-05-01T08:00:00.000Z'));
   await brainAfterTurn(
     session('logs', files, false, ['glacier-12.md', 'counting.md']),
     'logs',
@@ -96,7 +99,7 @@ test('a person\'s turn about a ticket: a use entry with names only, an answer en
 
 test('the person replies and the method record changes: the index says revised after a reply; the routine\'s write did not count', async () => {
   const files = { ...SHOP, 'counting.md': '---\nkind: method\n---\nCount paid lines, without annual passes.\n' };
-  await brainAfterTurn(session('logs', files), 'logs', turn('t2', { asker: 'U1' }), new Date('2026-05-03T08:00:00.000Z'));
+  await brainAfterTurn(session('logs', files, false, ['counting.md']), 'logs', turn('t2', { asker: 'U1' }), new Date('2026-05-03T08:00:00.000Z'));
   const by = Object.fromEntries((await readIndex('logs'))!.records.map((r) => [r.name, r.provenance]));
   assert.deepEqual(by['counting.md'], { uses: 2, lastUsed: '2026-05-03T08:00:00.000Z', revisedAfterReply: '2026-05-03T08:00:00.000Z' });
   assert.deepEqual(by['glacier-12.md'], { uses: 1, lastUsed: '2026-05-02T08:00:00.000Z' });
@@ -110,8 +113,19 @@ test('a marked or shadow conversation: the use is logged (names only), the answe
   assert.deepEqual(await readAnswers('marked'), []);
 });
 
-test('a turn that touched no record: nothing is logged', async () => {
+test('a turn that named no record: nothing is logged — not even at the first mirror, which holds every record', async () => {
   await brainAfterTurn(session('quiet', { ...SHOP }), 'quiet', turn('t1'));
   await brainAfterTurn(session('quiet', { ...SHOP }), 'quiet', turn('t2'));
-  assert.deepEqual((await readUses('quiet')).map((u) => u.turnId), ['t1']);
+  assert.deepEqual(await readUses('quiet'), []);
+  assert.equal((await readIndex('quiet'))!.records.length, 2, 'the index is built all the same');
+});
+
+test('another conversation changed a record meanwhile: the turn that ends first is not credited with it', async () => {
+  const files = { ...SHOP };
+  await brainAfterTurn(session('race', files), 'race', turn('t0'));
+  // Thread 2 rewrote the method record; thread 1's turn, which only read the ticket's record, ends first.
+  files['counting.md'] = '---\nkind: method\n---\nCount paid lines only.\n';
+  const m = await brainAfterTurn(session('race', files, false, ['glacier-12.md']), 'race', turn('t1'));
+  assert.deepEqual(m!.changed, ['counting.md'], 'the mirror took the change');
+  assert.deepEqual((await readUses('race')).map((u) => [u.turnId, u.read, u.changed]), [['t1', ['glacier-12.md'], []]]);
 });

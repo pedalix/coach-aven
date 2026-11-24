@@ -61,8 +61,8 @@ export interface BrainTurn {
   question: string; // as the sandbox received it
   answer: string; // as posted
   link?: string;
-  // false for a marked (cross-domain) or shadow conversation: its text belongs to another domain, so the
-  // answer is not logged. The use log holds names only and is written either way.
+  // false for a marked (cross-domain) or shadow conversation — its text belongs to another domain — and for a
+  // private one (a direct message, a command's own conversation): the log is read by the whole project. The use log holds names only and is written either way.
   logAnswer: boolean;
 }
 
@@ -82,7 +82,12 @@ export async function brainAfterTurn(
     const dir = brainProjectDir(slug);
     await mkdir(dir, { recursive: true });
     const at = now.toISOString();
-    const use = useEntry({ at, key: turn.key, turnId: turn.turnId, by: turn.by, read: session.memoryReads?.() ?? [], changed: m.changed, known: Object.keys(m.files) });
+    // The mirror's diff is the whole project's: a first mirror holds every record, and a turn of another
+    // conversation (or a dream) may have written since the last one. This turn changed only what its own tool
+    // inputs named.
+    const named = session.memoryReads?.() ?? [];
+    const changed = m.changed.filter((n) => named.includes(n));
+    const use = useEntry({ at, key: turn.key, turnId: turn.turnId, by: turn.by, read: named, changed, known: Object.keys(m.files) });
     if (use) await appendFile(join(dir, 'uses.jsonl'), JSON.stringify(use) + '\n');
     const { index } = await rebuildBrain(slug, m.files, now);
     if (use && turn.logAnswer) {
