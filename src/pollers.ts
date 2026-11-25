@@ -52,7 +52,7 @@ import { STREAM_HARD_MAX_MS, STREAM_MAX_MS } from './claudeSession.js';
 import { resolveSandboxOptions } from './sandboxopts.js';
 import { candidateList, createIdleSweep, housekeepingSandboxStep, idleStopPlan, monoNow, sandboxActivity, SWEEP_EVERY_MS } from './idlestop.js';
 import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
-import { housekeepingScript, lastTurnBySlug, parseHousekeepingReport, passDue, pruneThreshold } from './housekeeping.js';
+import { housekeepingScript, lastTurnBySlug, parseHousekeepingReport, passDue, pruneThreshold, serialRounds } from './housekeeping.js';
 import { cliUpgradeNotice, cliPinDrift, fetchCliDistTags } from './cliversion.js';
 import { nightlyTidy } from './brain/night.js';
 import { tidyDay } from './brain/tidy.js';
@@ -347,12 +347,18 @@ export function createPollers(
   const usage = new UsageLog();
   const TURN_LOOKBACK_MS = 62 * 24 * 60 * 60 * 1000; // two month files: a project quiet for longer has no pass anyway
   function startNightlyTidy(): void {
+    // One project at a time (housekeeping.ts serialRounds): a round reads the usage log once and walks the
+    // projects in order; the next minute's tick starts a new round only when this one is over.
+    let round: { day: string; lastTurn: Map<string, string> } | undefined;
+    const startRound = serialRounds<ProjectConfig>((project) => nightPass(project, round!.day, round!.lastTurn.get(project.slug)), pollFail('night'));
     const tick = (): void => {
       const now = new Date();
       const day = tidyDay(nowParts(ROUTINE_TZ, now));
       if (!day) return;
-      const lastTurn = lastTurnBySlug(usage.read(TURN_LOOKBACK_MS, now.getTime()));
-      for (const project of reg.current.projects) void nightPass(project, day, lastTurn.get(project.slug)).catch(pollFail('night'));
+      const next = { day, lastTurn: lastTurnBySlug(usage.read(TURN_LOOKBACK_MS, now.getTime())) };
+      const before = round;
+      round = next;
+      if (!startRound(reg.current.projects)) round = before;
     };
     tick();
     setInterval(tick, 60_000);

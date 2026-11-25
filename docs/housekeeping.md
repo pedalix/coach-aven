@@ -72,7 +72,8 @@ distinct inhabitants of the same scheduler.
 
 - **One nightly pass per project**, started by the bot during the 03:00 hour: housekeeping, then the memory
   tidy in the same awake sandbox. A failed janitor is logged, kept as the last pass's summary, and does not
-  stop the tidy.
+  stop the tidy. Projects are taken one at a time — the sandboxes share one host — and the tidy's own turn does
+  not count as the project working.
 - **Only a project that worked.** A pass runs when the usage log holds a turn of the project newer than its
   last pass (`passDue` in `src/housekeeping.ts`). No turn since: nothing runs and a stopped sandbox is not
   started. The last pass — time and one-line summary — is kept per project in `state.json`

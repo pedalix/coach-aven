@@ -17,11 +17,34 @@ export function passDue(o: { lastPassAt?: string; lastTurnAt?: string }): boolea
   return !o.lastPassAt || Date.parse(o.lastTurnAt) > Date.parse(o.lastPassAt);
 }
 
-/** The newest usage record per project — every turn of every kind is one (metering.ts). */
-export function lastTurnBySlug(records: readonly { slug: string; at: string }[]): Map<string, string> {
+// The newest usage record per project — every turn of every kind is one (metering.ts), except the nightly
+// tidy's own (key `cron:tidy:<slug>`): it touches memory only and ends AFTER the night's pass, so counting it
+// made the janitor run a second time a minute later.
+export function lastTurnBySlug(records: readonly { slug: string; at: string; key?: string }[]): Map<string, string> {
   const out = new Map<string, string>();
-  for (const r of records) if (!out.has(r.slug) || r.at > out.get(r.slug)!) out.set(r.slug, r.at);
+  for (const r of records) {
+    if (r.key?.includes('cron:tidy:')) continue;
+    if (!out.has(r.slug) || r.at > out.get(r.slug)!) out.set(r.slug, r.at);
+  }
   return out;
+}
+
+// The night's round over the projects, ONE at a time: every sandbox shares one host's CPU, memory and (under
+// sysbox) one container runtime, and on the first night after a deploy every project with a turn on record is
+// due at once. Returns a starter that does nothing (false) while the previous round is still going — the
+// minute tick calls it again, and a project that was busy gets its pass in a later round of the same hour.
+export function serialRounds<T>(pass: (item: T) => Promise<unknown>, fail: (e: unknown) => void): (items: readonly T[]) => boolean {
+  let running = false;
+  return (items) => {
+    if (running) return false;
+    running = true;
+    void (async () => {
+      for (const item of items) await pass(item).catch(fail);
+    })().finally(() => {
+      running = false;
+    });
+    return true;
+  };
 }
 
 /** What `/aven housekeeping` (bare) says: the last pass, or that none has run yet. */

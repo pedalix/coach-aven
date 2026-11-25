@@ -6,6 +6,7 @@ import {
   housekeepingScript,
   lastPassText,
   lastTurnBySlug,
+  serialRounds,
   passDue,
   parseHousekeepingReport,
 } from './housekeeping.js';
@@ -121,6 +122,47 @@ test('lastTurnBySlug — the newest usage record per project, whatever the order
     { slug: 'skishop', at: '2026-03-02T09:00:00.000Z' },
   ]);
   assert.deepEqual([...m], [['skishop', '2026-03-02T14:00:00.000Z'], ['glacier', '2026-03-01T09:00:00.000Z']]);
+});
+
+test('lastTurnBySlug — the nightly tidy is not the project working', () => {
+  const m = lastTurnBySlug([
+    { slug: 'skishop', at: '2026-03-02T14:00:00.000Z', key: 'T0ABCDEF:thread:1.2' },
+    { slug: 'skishop', at: '2026-03-03T03:07:00.000Z', key: 'cron:tidy:skishop' },
+    { slug: 'glacier', at: '2026-03-03T03:09:00.000Z', key: 'T0ABCDEF:cron:tidy:glacier' },
+  ]);
+  assert.deepEqual([...m], [['skishop', '2026-03-02T14:00:00.000Z']]);
+});
+
+test('serialRounds — one project at a time, no second round over a running one, a failure does not stop the round', async () => {
+  const log: string[] = [];
+  const failed: unknown[] = [];
+  const gates = new Map<string, () => void>();
+  const start = serialRounds<string>(
+    (slug) =>
+      new Promise<void>((resolve, reject) => {
+        log.push(`start ${slug}`);
+        gates.set(slug, () => {
+          log.push(`end ${slug}`);
+          if (slug === 'glacier') reject(new Error('boom'));
+          else resolve();
+        });
+      }),
+    (e) => failed.push(e),
+  );
+  const settle = (): Promise<void> => new Promise((r) => setImmediate(r));
+  assert.equal(start(['skishop', 'glacier', 'lodge']), true);
+  await settle();
+  assert.deepEqual(log, ['start skishop'], 'the second project waits for the first');
+  assert.equal(start(['skishop']), false, 'the next tick starts nothing while the round runs');
+  gates.get('skishop')!();
+  await settle();
+  gates.get('glacier')!();
+  await settle();
+  gates.get('lodge')!();
+  await settle();
+  assert.deepEqual(log, ['start skishop', 'end skishop', 'start glacier', 'end glacier', 'start lodge', 'end lodge']);
+  assert.equal(failed.length, 1);
+  assert.equal(start([]), true, 'a finished round frees the next one');
 });
 
 test('lastPassText — the last pass, or that none ran yet; always that it runs by itself', () => {
