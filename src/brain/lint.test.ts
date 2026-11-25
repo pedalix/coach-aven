@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildIndex } from './index.js';
-import { DREAM_FINDINGS, dreamShare, lint, type Finding } from './lint.js';
+import { TIDY_FINDINGS, tidyShare, lint, type Finding } from './lint.js';
 
 const SEEN = new Date('2026-05-01T08:00:00.000Z');
 const NOW = new Date('2026-06-15T08:00:00.000Z'); // 45 days later
@@ -45,12 +45,12 @@ test('lint — a clean set has no findings', () => {
   assert.deepEqual(lint(buildIndex(clean, SEEN), { now: NOW }), []);
 });
 
-test('dreamShare — at most 15 findings, oldest first, stable', () => {
+test('tidyShare — at most 15 findings, oldest first, stable', () => {
   const f = (i: number, since: string): Finding => ({ code: 'no-kind', records: [`r${i}.md`], text: `r${String(i).padStart(2, '0')}.md: no kind`, since });
   const many = Array.from({ length: 20 }, (_, i) => f(i, i < 10 ? '2026-03-01T00:00:00.000Z' : '2026-01-01T00:00:00.000Z'));
-  const share = dreamShare(many);
-  assert.equal(share.length, DREAM_FINDINGS);
+  const share = tidyShare(many);
+  assert.equal(share.length, TIDY_FINDINGS);
   assert.deepEqual(share.slice(0, 10).map((x) => x.records[0]), Array.from({ length: 10 }, (_, i) => `r${i + 10}.md`));
   assert.deepEqual(share.slice(10).map((x) => x.records[0]), ['r0.md', 'r1.md', 'r2.md', 'r3.md', 'r4.md']);
-  assert.deepEqual(dreamShare([...many].reverse()), share);
+  assert.deepEqual(tidyShare([...many].reverse()), share);
 });

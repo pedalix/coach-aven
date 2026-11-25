@@ -71,7 +71,7 @@ export interface SandboxDriver {
   // that already exists keeps the flags it was created with.
   ensureSandbox(name: string, projectSlug: string, opts?: SandboxOptions): Promise<SandboxHandle>;
   // Peek at a sandbox WITHOUT creating or waking it — undefined if it doesn't exist.
-  // Used by paths that must not wake an idle sandbox (/aven memory, the dream journal; and
+  // Used by paths that must not wake an idle sandbox (/aven memory; and
   // housekeeping on a provider that stops its sandboxes itself).
   getSandbox(name: string): Promise<SandboxHandle | undefined>;
   // name → provider state string (e.g. 'started'/'stopped'), for /aven status. A listing

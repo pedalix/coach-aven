@@ -33,7 +33,7 @@ export interface UsageRecord {
   // field existed simply carry no id and join to nothing.
   turnId?: string;
   slug: string; // project
-  // live turn vs no-UI ask (dreams, /aven Q&A) vs a turn the CLI ran on its own when a
+  // live turn vs no-UI ask (the nightly tidy, /aven Q&A) vs a turn the CLI ran on its own when a
   // background Task/Agent finished after its owning turn settled (no message in).
   kind: 'turn' | 'ask' | 'background';
   status: 'ok' | 'error' | 'canceled';

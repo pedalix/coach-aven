@@ -98,7 +98,7 @@ export const slackSurface: SurfacePlugin = {
         });
 
     // ── the home-team client ────────────────────────────────────────────────
-    // The singleton concerns — alert sink, dream/housekeeping, restart recovery of home
+    // The singleton concerns — alert sink, the tidy and housekeeping, restart recovery of home
     // records — run on the home workspace's client. Under OAuth, app.client has no token,
     // so it's minted from the installation store: the seeded env token, an explicit
     // SLACK_HOME_TEAM_ID's record, or — on a first-ever OAuth boot with an empty store —

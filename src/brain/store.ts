@@ -1,8 +1,8 @@
 // Company brain: the files derived from a project's mirrored memory — `brain/<slug>/index.json` and `lint.json`
 // — and the two logs the host writes there, `uses.jsonl` (record names per turn) and `answers.jsonl` (what was
 // answered on an investigation), in the installation directory beside `memory/<slug>/` (the mirror itself). The one impure part of src/brain/:
-// it reads the previous index, calls the pure builders and writes the two files. Everything here runs only when
-// the installation sets BRAIN=1; with it off no caller reaches this module and no `brain/` directory exists.
+// it reads the previous index, calls the pure builders and writes the two files. `tidy.json` is the nightly tidy's
+// state (tidy.ts). A project that never wrote a record has no `brain/` directory.
 
 import { appendFile, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -13,6 +13,7 @@ import { buildIndex, type BrainIndex } from './index.js';
 import { lint, type Finding } from './lint.js';
 import { parseJsonl, provenance, useEntry, type Starter, type UseEntry } from './uses.js';
 import { answerEntry, type AnswerEntry } from './answers.js';
+import { emptyTidyState, instructionsChanged, type TidyState } from './tidy.js';
 
 export const brainProjectDir = (slug: string): string => join(brainDir(), safeSlug(slug));
 
@@ -23,7 +24,7 @@ async function readJson<T>(path: string): Promise<T | undefined> {
     return undefined; // absent or torn: rebuilt from the mirror, which is the truth
   }
 }
-// Write-then-rename: a reader (a command, the dream) never sees half a file.
+// Write-then-rename: a reader (a command, the nightly check) never sees half a file.
 async function writeJson(path: string, value: unknown): Promise<void> {
   await writeFile(`${path}.tmp`, JSON.stringify(value, null, 1) + '\n');
   await rename(`${path}.tmp`, path);
@@ -42,11 +43,28 @@ async function readJsonl<T>(path: string): Promise<T[]> {
 export const readUses = (slug: string): Promise<UseEntry[]> => readJsonl<UseEntry>(join(brainProjectDir(slug), 'uses.jsonl'));
 export const readAnswers = (slug: string): Promise<AnswerEntry[]> => readJsonl<AnswerEntry>(join(brainProjectDir(slug), 'answers.jsonl'));
 
-export async function rebuildBrain(slug: string, files: Record<string, string>, now: Date): Promise<{ index: BrainIndex; findings: Finding[] }> {
+export const readTidy = async (slug: string): Promise<TidyState> => ({ ...emptyTidyState(), ...(await readJson<TidyState>(join(brainProjectDir(slug), 'tidy.json'))) });
+export const writeTidy = (slug: string, state: TidyState): Promise<void> => writeJson(join(brainProjectDir(slug), 'tidy.json'), state);
+
+// `instructions`: the CLAUDE.md digests the mirror just read (absent: the caller did not ask). A file noted for
+// the first time becomes the baseline in tidy.json; one that differs from what the last tidy saw is a finding.
+export async function rebuildBrain(
+  slug: string,
+  files: Record<string, string>,
+  now: Date,
+  instructions?: Readonly<Record<string, string>>,
+): Promise<{ index: BrainIndex; findings: Finding[] }> {
   const dir = brainProjectDir(slug);
   await mkdir(dir, { recursive: true });
   const index = buildIndex(files, now, await readIndex(slug), provenance(await readUses(slug)));
-  const findings = lint(index, { now });
+  let changed: string[] = [];
+  if (instructions) {
+    const tidy = await readTidy(slug);
+    const noted = instructionsChanged(tidy, instructions);
+    changed = noted.changed;
+    if (JSON.stringify(noted.state.instructions) !== JSON.stringify(tidy.instructions)) await writeTidy(slug, noted.state);
+  }
+  const findings = lint(index, { now, instructionsChanged: changed });
   await writeJson(join(dir, 'index.json'), index);
   await writeJson(join(dir, 'lint.json'), findings);
   return { index, findings };
@@ -89,7 +107,7 @@ export async function brainAfterTurn(
     const changed = m.changed.filter((n) => named.includes(n));
     const use = useEntry({ at, key: turn.key, turnId: turn.turnId, by: turn.by, read: named, changed, known: Object.keys(m.files) });
     if (use) await appendFile(join(dir, 'uses.jsonl'), JSON.stringify(use) + '\n');
-    const { index } = await rebuildBrain(slug, m.files, now);
+    const { index } = await rebuildBrain(slug, m.files, now, m.instructions);
     if (use && turn.logAnswer) {
       const entry = answerEntry({ at, key: turn.key, turnId: turn.turnId, asker: turn.asker, question: turn.question, answer: turn.answer, link: turn.link, used: [...use.read, ...use.changed], index });
       if (entry) await appendFile(join(dir, 'answers.jsonl'), JSON.stringify(entry) + '\n');

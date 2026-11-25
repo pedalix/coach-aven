@@ -163,7 +163,7 @@ test('holds — an agent question nobody answers holds; a one-off ask holds; a r
   const askRun = gate();
   const h2 = harness({ ask: async () => (await askRun.wait, 'answer') });
   const ask = h2.engine.runAsk('cmd:U1:beta', BETA, 'q');
-  assert.deepEqual(h2.engine.sandboxUse('beta'), { held: true }, 'a one-off ask (or a dream)');
+  assert.deepEqual(h2.engine.sandboxUse('beta'), { held: true }, 'a one-off ask (or a tidy)');
   askRun.open();
   await ask;
   assert.deepEqual(h2.engine.sandboxUse('beta'), { held: false });

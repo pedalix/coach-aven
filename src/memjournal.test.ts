@@ -4,7 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { commitSnapshot, hashListScript, mirrorMemory, parseHashListing, parseReadBack, readBackScript, readSnapshotFile, snapshotLog, safeSlug, safeName, type MirrorExec } from './memjournal.js';
+import { hashListScript, mirrorMemory, parseHashListing, parseInstructionDigests, parseReadBack, readBackScript, readSnapshotFile, snapshotLog, safeSlug, safeName, type MirrorExec } from './memjournal.js';
 
 test('safeSlug accepts conventional slugs, rejects path-y ones', () => {
   assert.equal(safeSlug('caldora'), 'caldora');
@@ -18,60 +18,6 @@ test('safeName accepts memory filenames, rejects path-y / shell-y ones', () => {
   }
   for (const bad of ['../etc/passwd', 'a/b', 'a b.md', 'foo;rm', '$(x)', '']) {
     assert.equal(safeName(bad), false, `should reject: ${bad}`);
-  }
-});
-
-test('commitSnapshot preserves an empty file (emptied topic is real state, not a drop)', async () => {
-  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
-  try {
-    assert.equal(await commitSnapshot(repo, { 'MEMORY.md': '# idx\n', 'empty.md': '' }, 'init'), true);
-    assert.equal(await readSnapshotFile(repo, 'empty.md'), ''); // present, empty — not missing
-  } finally {
-    await rm(repo, { recursive: true, force: true });
-  }
-});
-
-test('commitSnapshot commits, dedups no-ops, mirrors deletions; readback + log work', async () => {
-  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
-  try {
-    assert.equal(await commitSnapshot(repo, { 'MEMORY.md': '# idx\n', 'a.md': 'A' }, 'first'), true);
-    assert.equal(await readSnapshotFile(repo, 'MEMORY.md'), '# idx\n');
-    assert.equal(await readSnapshotFile(repo, 'a.md'), 'A');
-
-    // identical content → no commit
-    assert.equal(await commitSnapshot(repo, { 'MEMORY.md': '# idx\n', 'a.md': 'A' }, 'noop'), false);
-
-    // change MEMORY.md and drop a.md → commit, and a.md is gone (mirror)
-    assert.equal(await commitSnapshot(repo, { 'MEMORY.md': '# idx2\n' }, 'second'), true);
-    assert.equal(await readSnapshotFile(repo, 'a.md'), null);
-    assert.equal(await readSnapshotFile(repo, 'MEMORY.md'), '# idx2\n');
-
-    const lines = await snapshotLog(repo);
-    assert.equal(lines.length, 2);
-    assert.match(lines[0], /second/); // newest first
-    assert.match(lines[1], /first/);
-  } finally {
-    await rm(repo, { recursive: true, force: true });
-  }
-});
-
-test('readSnapshotFile rejects unsafe names and missing files', async () => {
-  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
-  try {
-    await commitSnapshot(repo, { 'MEMORY.md': 'x' }, 'init');
-    assert.equal(await readSnapshotFile(repo, '../etc/passwd'), null);
-    assert.equal(await readSnapshotFile(repo, 'nope.md'), null);
-  } finally {
-    await rm(repo, { recursive: true, force: true });
-  }
-});
-
-test('snapshotLog is empty for a non-repo dir', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'memj-'));
-  try {
-    assert.deepEqual(await snapshotLog(dir), []);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
   }
 });
 
@@ -92,6 +38,60 @@ function fakeSandbox(files: Record<string, string>, o: { failList?: boolean; fai
   };
   return { exec, calls, reads: () => calls.filter((c) => c.includes('base64 -w0')) };
 }
+
+test('the journal keeps an empty file (an emptied topic is real state, not a drop)', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
+  try {
+    await mirrorMemory(fakeSandbox({ 'MEMORY.md': '# idx\n', 'empty.md': '' }).exec, repo, '/mem', 'init');
+    assert.equal(await readSnapshotFile(repo, 'empty.md'), ''); // present, empty — not missing
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test('the journal commits, skips a no-op, mirrors deletions; readback + log work', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
+  try {
+    await mirrorMemory(fakeSandbox({ 'MEMORY.md': '# idx\n', 'a.md': 'A' }).exec, repo, '/mem', 'first');
+    assert.equal(await readSnapshotFile(repo, 'MEMORY.md'), '# idx\n');
+    assert.equal(await readSnapshotFile(repo, 'a.md'), 'A');
+
+    // identical content → no commit
+    await mirrorMemory(fakeSandbox({ 'MEMORY.md': '# idx\n', 'a.md': 'A' }).exec, repo, '/mem', 'noop');
+
+    // change MEMORY.md and drop a.md → commit, and a.md is gone
+    await mirrorMemory(fakeSandbox({ 'MEMORY.md': '# idx2\n' }).exec, repo, '/mem', 'second');
+    assert.equal(await readSnapshotFile(repo, 'a.md'), null);
+    assert.equal(await readSnapshotFile(repo, 'MEMORY.md'), '# idx2\n');
+
+    const lines = await snapshotLog(repo);
+    assert.equal(lines.length, 2);
+    assert.match(lines[0], /second/); // newest first
+    assert.match(lines[1], /first/);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test('readSnapshotFile rejects unsafe names and missing files', async () => {
+  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
+  try {
+    await mirrorMemory(fakeSandbox({ 'MEMORY.md': 'x' }).exec, repo, '/mem', 'init');
+    assert.equal(await readSnapshotFile(repo, '../etc/passwd'), null);
+    assert.equal(await readSnapshotFile(repo, 'nope.md'), null);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test('snapshotLog is empty for a non-repo dir', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'memj-'));
+  try {
+    assert.deepEqual(await snapshotLog(dir), []);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test('hashListScript / parseHashListing — one line per file; unsafe names and noise are dropped', () => {
   assert.match(hashListScript("/root/.claude/projects/-root-work-x/memory"), /^\[ -d '\/root\/.claude\/projects\/-root-work-x\/memory' \] \|\| exit 0; cd /);
@@ -123,13 +123,33 @@ test('mirrorMemory — a hundred new records are read back in three execs, not a
   }
 });
 
-test('commitSnapshot and mirrorMemory share the journal: a dream ending with a turn does not collide', async () => {
+test('two mirrors share the journal: a tidy ending with a turn does not collide', async () => {
   const repo = await mkdtemp(join(tmpdir(), 'memj-'));
   try {
     const files = { 'a.md': 'A\n', 'b.md': 'B\n' };
-    const [, m] = await Promise.all([commitSnapshot(repo, files, 'dream'), mirrorMemory(fakeSandbox(files).exec, repo, '/mem', 'turn t1')]);
-    assert.deepEqual([m.changed, m.removed], [[], []], 'the mirror saw the finished snapshot, not an emptied tree');
+    const [first, m] = await Promise.all([mirrorMemory(fakeSandbox(files).exec, repo, '/mem', 'tidy'), mirrorMemory(fakeSandbox(files).exec, repo, '/mem', 'turn t1')]);
+    assert.equal(first.changed.length, 2);
+    assert.deepEqual([m.changed, m.removed], [[], []], 'the second mirror saw the finished first one');
     assert.equal((await snapshotLog(repo)).length, 1);
+  } finally {
+    await rm(repo, { recursive: true, force: true });
+  }
+});
+
+test('the listing also carries the CLAUDE.md digests it was asked for; a file the sandbox lacks is absent', async () => {
+  const script = hashListScript('/mem', ['/work/shop/CLAUDE.md', '/work/api/CLAUDE.md']);
+  assert.match(script, /^if \[ -d '\/mem' \]; then cd '\/mem' \|\| exit 1; for f in \*/);
+  assert.match(script, /for p in '\/work\/shop\/CLAUDE.md' '\/work\/api\/CLAUDE.md'; do \[ -f "\$p" \] \|\| continue; printf 'instructions '; sha256sum -- "\$p" \|\| exit 1; done$/);
+  const h = 'b'.repeat(64);
+  assert.deepEqual(parseInstructionDigests(`${'a'.repeat(64)}  MEMORY.md\ninstructions ${h}  /work/shop/CLAUDE.md\n`), { '/work/shop/CLAUDE.md': h });
+  assert.deepEqual(parseHashListing(`instructions ${h}  /work/shop/CLAUDE.md\n`), {}, 'never read as a memory file');
+
+  const repo = await mkdtemp(join(tmpdir(), 'memj-'));
+  try {
+    const exec: MirrorExec = async () => ({ exitCode: 0, result: `instructions ${h}  /work/shop/CLAUDE.md\n` });
+    const m = await mirrorMemory(exec, repo, '/mem', 'turn t1', { 'shop/CLAUDE.md': '/work/shop/CLAUDE.md', 'api/CLAUDE.md': '/work/api/CLAUDE.md' });
+    assert.deepEqual(m.instructions, { 'shop/CLAUDE.md': h });
+    assert.equal((await mirrorMemory(exec, repo, '/mem', 'turn t2')).instructions, undefined, 'not asked, not reported');
   } finally {
     await rm(repo, { recursive: true, force: true });
   }

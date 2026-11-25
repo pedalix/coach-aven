@@ -250,9 +250,6 @@ export interface Config {
   // outbound-files, bucket 3). Off by default: unset or anything else names no outbox to the agent, reads nothing
   // from the sandbox after a turn and posts nothing — prompts and platform calls stay as they are.
   outboundFiles: boolean;
-  // BRAIN=1: the company brain (OpenSpec company-brain, bucket 3). Off by default: unset or anything else reads
-  // nothing from the sandbox after a turn, creates no `brain/` directory and leaves every prompt as it is.
-  brain: boolean;
   // Pin for the sandbox Claude Code CLI (x.y.z). Warm sandboxes converge to it in place at
   // chat prep / nightly housekeeping; the image build bakes the same pin. Unset → sandboxes
   // keep whatever their image shipped (and the daily drift check nags). See cliversion.ts.
@@ -512,7 +509,6 @@ export function loadConfig(): Config {
     claudeModel: process.env.CLAUDE_MODEL || undefined,
     repoSkills: repoSkillsEnv(process.env.REPO_SKILLS),
     outboundFiles: outboundFilesEnv(process.env.OUTBOUND_FILES),
-    brain: brainEnv(process.env.BRAIN),
     claudeCliVersion: cliVersionEnv(),
     github: githubAuth(),
     ...(bitbucketAuth(process.env) ? { bitbucket: bitbucketAuth(process.env) } : {}),
@@ -581,5 +577,3 @@ export function autoStopMinutesEnv(raw: string | undefined): number {
 export const repoSkillsEnv = (v: string | undefined): boolean => (v ?? '').trim() === '1';
 /** OUTBOUND_FILES: exactly `1` → on (outbound-files: the agent's outbox is posted into the thread); unset or anything else → off. */
 export const outboundFilesEnv = (v: string | undefined): boolean => (v ?? '').trim() === '1';
-/** BRAIN: exactly `1` → on (company-brain: memory records are mirrored, indexed and linted after a turn); unset or anything else → off. */
-export const brainEnv = (v: string | undefined): boolean => (v ?? '').trim() === '1';

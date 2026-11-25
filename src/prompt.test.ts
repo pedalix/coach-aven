@@ -53,13 +53,13 @@ test('golden: production prompt, multi-repo with the sources MCP paragraph', () 
 });
 
 // Outbound files (OUTBOUND_FILES=1): one paragraph after the inbox sentence; absent → today's prompt, byte for byte.
-test('golden: the company-brain paragraphs with the flag on; without it the production prompt is unchanged', () => {
-  assert.equal(buildSystemPrompt({ ...SINGLE, brain: true }), golden('single-repo-brain'));
-  assert.equal(buildSystemPrompt({ ...SINGLE, brain: false }), golden('single-repo'));
-  const on = buildSystemPrompt({ ...SINGLE, brain: true });
-  assert.match(on, /carries a `kind` at the top level of its frontmatter \(beside `name`, not under `metadata`\) — `investigation` for one ticket or incident, `domain` for how a business concept or flow works, `method` for how to count, query or check something, `decision` for why something was built or changed\./);
-  assert.match(on, /An `investigation` also carries `status` \(`open`, `answered`, `fixed` or `closed`\)/);
-  assert.match(on, /say so in the first lines of the answer — one sentence naming the method as your own note, checked by nobody/);
+test('the company-brain paragraphs reach every project: the record contract, and "say when a record is unchecked"', () => {
+  for (const p of [buildSystemPrompt(SINGLE), buildSystemPrompt(MULTI)]) {
+    assert.match(p, /carries a `kind` in its frontmatter — `investigation` for one ticket or incident, `domain` for how a business concept or flow works, `method` for how to count, query or check something, `decision` for why something was built or changed\./);
+    assert.doesNotMatch(p, /not under `metadata`/, 'the CLI moves the keys there (design D1): the prompt does not fight it');
+    assert.match(p, /An `investigation` also carries `status` \(`open`, `answered`, `fixed` or `closed`\)/);
+    assert.match(p, /say so in the first lines of the answer — one sentence naming the method as your own note, checked by nobody/);
+  }
 });
 
 test('golden: the outbox paragraph with the flag on; without it the production prompt is unchanged', () => {

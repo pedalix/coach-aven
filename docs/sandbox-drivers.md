@@ -110,7 +110,7 @@ the next turn wakes it and continues the same conversation.
   caller passes. `/aven status`, `docker ps`, a peek that finds it asleep and an operator's own
   `docker exec` are not activity. The idle clock never starts before the bot did.
 - **Never stopped** while a turn of the project is being accepted, queued, running (also waiting
-  for an answer to an agent question) or recovered after a restart, or a one-off ask or dream runs
+  for an answer to an agent question) or recovered after a restart, or a one-off ask or the nightly tidy runs
   on it — however long the turn is silent. A wakeup the agent scheduled (`ScheduleWakeup`) is waited
   for until two minutes after it is due.
 - **Postponed, up to the turn hard cap** (`STREAM_HARD_MAX_MINUTES`, 60, of container silence):

@@ -1,7 +1,7 @@
 // Central home for the orchestrator's turn-framing prompts (PR review, autofix, scheduled
 // report, follow-up PR). Keep prompt copy here so it's easy to find and tune in one place.
-// (The 3-layer system prompt lives in prompt.ts/buildSystemPrompt; the dream/memory prompt
-// in dream.ts — they belong to those subsystems and can join here by coordination.)
+// (The 3-layer system prompt lives in prompt.ts/buildSystemPrompt; the memory tidy's prompt
+// in brain/tidy.ts — they belong to those subsystems and can join here by coordination.)
 //
 // The review prompt borrows Claude Code's /code-review methodology (find → verify with a
 // quote-to-refute burden of proof, a concrete failure scenario per finding, touched-function
@@ -65,7 +65,7 @@ export const TASK_FRAMING =
   'PRs against other repositories, never post more than one summary message plus any escalation messages ' +
   'the instructions call for. If nothing needed doing, say so in one line.\n\n';
 
-// Framing for a fired report/task routine (dream/housekeeping never reach a turn).
+// Framing for a fired report/task routine (housekeeping never reaches a turn).
 export function routineFraming(kind: string | undefined): string {
   return kind === 'task' ? TASK_FRAMING : REPORT_FRAMING;
 }

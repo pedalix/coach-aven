@@ -260,7 +260,7 @@ home bot. Everything is `src/routineguard.ts` (pure decisions, tested) wired by 
 | `ROUTINE_GUARD_RETRY_MINUTES` | `15` | minimum delay before the one automatic retry of a failed run |
 | `ROUTINE_SKIP_EMPTY` | unset (off) | `1` (with the guard on) adds the **empty-slot skip** below |
 
-What it does (report/task routines only — dreams and housekeeping keep their silent paths):
+What it does (report/task routines only — housekeeping keeps its silent path):
 
 1. **Missed-fire catch-up.** The scheduler used to match the live wall-clock minute only, so a
    slot the process did not observe (laptop asleep, restart or deploy across the minute, a fire
@@ -321,7 +321,7 @@ youtrack 12 min)` — stamps the routine `lastRunAt` + `lastOutcome: skipped` (t
 no minute re-fire, no catch-up), keeps the last *delivered* run's fields, and runs no turn: no
 sandbox call, no usage record. Everything else fires as before and the log says why (`not skipped —
 7 new raw record(s) …` / `due: 1 open escalation(s) …` / `stale source(s): slack 31 min`). A manual
-`/aven routines run`, a retry, dreams and housekeeping never skip; a routine opts out with
+`/aven routines run`, a retry and housekeeping never skip; a routine opts out with
 `skipEmpty: false` on its record (`state.json`). `/aven routines` shows `⏭ skipped (nothing new)`
 and the next real run's preamble reads `skipped at … (last delivered: …)`. Nothing is judged by
 content — "nothing interesting" stays the agent's call.

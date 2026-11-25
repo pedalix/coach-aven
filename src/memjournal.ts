@@ -11,9 +11,9 @@ import { memoryDir } from './memory.js';
 import { log } from './log.js';
 import { memoryDir as memoryBase } from './paths.js';
 
-// Host-side, per-project git journal of the agent's auto memory (see docs/memory.md#dreaming).
+// Host-side, per-project git journal of the agent's auto memory (see docs/memory.md).
 // One repo per project under ./memory/<slug>/ (next to state.json; server-owned, gitignored,
-// deploy-excluded) so projects never collide. After each dream we commit a snapshot, so the
+// deploy-excluded) so projects never collide. After each turn the mirror below commits what changed, so the
 // memory state is reconstructable at any point (git log / checkout) and survives the rare
 // sandbox rebuild. The sandbox stays the working source of truth; this is the durable log.
 
@@ -46,35 +46,13 @@ async function git(repoDir: string, args: string[]): Promise<string> {
   return stdout;
 }
 
-// One writer at a time per journal: turns of one project end concurrently, a dream snapshots the same repo, and
+// One writer at a time per journal: turns of one project end concurrently (a tidy among them), and
 // two gits in one repo collide.
 const queues = new Map<string, Promise<unknown>>();
 function serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const next = (queues.get(key) ?? Promise.resolve()).then(fn, fn);
   queues.set(key, next.catch(() => {}));
   return next;
-}
-
-// Mirror `files` into the repo (a snapshot replaces the working tree, so pruned topics
-// disappear) and commit if anything changed. Returns true when a commit was made.
-export function commitSnapshot(repoDir: string, files: Record<string, string>, message: string): Promise<boolean> {
-  // Through the journal's queue: a dream's snapshot empties and refills the tree, and a turn's mirror must not
-  // read it half-way (or meet its git lock).
-  return serial(repoDir, () => commitSnapshotNow(repoDir, files, message));
-}
-async function commitSnapshotNow(repoDir: string, files: Record<string, string>, message: string): Promise<boolean> {
-  await mkdir(repoDir, { recursive: true });
-  if (!existsSync(join(repoDir, '.git'))) await git(repoDir, ['init', '-q']);
-  for (const name of await readdir(repoDir)) {
-    if (name !== '.git') await rm(join(repoDir, name), { recursive: true, force: true });
-  }
-  for (const [name, content] of Object.entries(files)) {
-    if (safeName(name)) await writeFile(join(repoDir, name), content);
-  }
-  await git(repoDir, ['add', '-A']);
-  if (!(await git(repoDir, ['status', '--porcelain'])).trim()) return false; // unchanged
-  await git(repoDir, [...BOT, 'commit', '-q', '-m', message.trim() || 'memory snapshot']);
-  return true;
 }
 
 // Read one file from the journal's current tree (offline — no sandbox). null if absent/unsafe.
@@ -96,42 +74,8 @@ export async function snapshotLog(repoDir: string, n = 10): Promise<string[]> {
   }
 }
 
-// Read the memory files out of a (started) sandbox. Flat dir of small text files; cat each.
-async function collectMemoryFiles(sandbox: SandboxHandle, dir: string): Promise<Record<string, string>> {
-  const ls = await sandbox.exec(`ls -1 ${dir} 2>/dev/null || true`);
-  const names = (ls.result ?? '').split('\n').map((s) => s.trim()).filter(safeName);
-  const files: Record<string, string> = {};
-  for (const name of names) {
-    // The name came from `ls`, so the file exists — record it even if empty (an emptied topic
-    // is real state; dropping it would silently un-prune it on the mirror snapshot).
-    const r = await sandbox.exec(`cat ${dir}/${name} 2>/dev/null || true`);
-    files[name] = r.result ?? '';
-  }
-  return files;
-}
-
-// Snapshot a project's sandbox memory into its journal and commit. Best-effort: a journal
-// failure must never break the dream that triggered it.
-export async function snapshotMemory(
-  sandbox: SandboxHandle,
-  cfg: Config,
-  slug: string,
-  repos: string[],
-  message: string,
-): Promise<void> {
-  try {
-    const files = await collectMemoryFiles(sandbox, memoryDir(projectCwd(cfg, slug, repos)));
-    if (!Object.keys(files).length) return; // nothing to snapshot
-    if (await commitSnapshot(memoryRepoDir(slug), files, message)) {
-      log.info(`memory snapshot ${slug}: ${message}`);
-    }
-  } catch (e) {
-    log.error(`memory snapshot ${slug}: ${e instanceof Error ? e.message : String(e)}`);
-  }
-}
-
-// ── The mirror after a turn (OpenSpec company-brain, BRAIN=1; design D2) ────────────────────────────────────────
-// The same journal, fed when a turn ends instead of only after a dream: ONE exec lists a hash per memory file,
+// ── The mirror after a turn (OpenSpec company-brain; design D2) ────────────────────────────────────────
+// The journal is fed when a turn ends: ONE exec lists a hash per memory file,
 // only the files whose hash differs from the host's copy are read back in a second one (base64, as the outbox reads files — `cat`
 // through exec does not promise the exact bytes, and the hash must match), and the change is committed. A turn
 // that changed nothing costs that one exec.
@@ -142,8 +86,25 @@ const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex
 // "<sha256>  <name>" per regular file directly in the directory. A missing directory lists nothing and succeeds
 // (a project that has no memory yet); a hash that fails makes the whole listing fail — a partial listing would
 // read as "the other files were deleted". POSIX shell: the plain sandbox image is Alpine.
-export function hashListScript(dir: string): string {
-  return `[ -d ${sq(dir)} ] || exit 0; cd ${sq(dir)} || exit 1; for f in *; do [ -f "$f" ] || continue; sha256sum -- "$f" || exit 1; done`;
+// With `instructions` (the repositories' CLAUDE.md paths — the nightly tidy's "changed instructions" finding,
+// company-brain D9) the same exec also prints "instructions <sha256>  <path>" per file that exists.
+export function hashListScript(dir: string, instructions: readonly string[] = []): string {
+  const list = `for f in *; do [ -f "$f" ] || continue; sha256sum -- "$f" || exit 1; done`;
+  if (!instructions.length) return `[ -d ${sq(dir)} ] || exit 0; cd ${sq(dir)} || exit 1; ${list}`;
+  return (
+    `if [ -d ${sq(dir)} ]; then cd ${sq(dir)} || exit 1; ${list}; fi; ` +
+    `for p in ${instructions.map(sq).join(' ')}; do [ -f "$p" ] || continue; printf 'instructions '; sha256sum -- "$p" || exit 1; done`
+  );
+}
+
+/** path → sha256 for the "instructions …" lines of a listing. */
+export function parseInstructionDigests(stdout: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of stdout.split('\n')) {
+    const m = /^instructions ([0-9a-f]{64}) [ *](.+)$/.exec(line.trimEnd());
+    if (m) out[m[2]] = m[1];
+  }
+  return out;
 }
 
 export function parseHashListing(stdout: string): Record<string, string> {
@@ -177,21 +138,33 @@ export interface MirrorResult {
   files: Record<string, string>; // the host's copy after the mirror, by file name
   changed: string[]; // created or changed by what the sandbox holds now
   removed: string[];
+  // label → sha256 of each instruction file the caller asked about and the sandbox has (absent: not asked).
+  instructions?: Record<string, string>;
 }
 
 // Throws on a failed listing or read-back — the caller logs it and the turn's answer stands. An EMPTY listing
 // changes nothing: a rebuilt sandbox has no memory until it is re-seeded from this very journal.
-export function mirrorMemory(exec: MirrorExec, repoDir: string, dir: string, message: string): Promise<MirrorResult> {
+export function mirrorMemory(
+  exec: MirrorExec,
+  repoDir: string,
+  dir: string,
+  message: string,
+  instructionFiles?: Readonly<Record<string, string>>, // label → path in the sandbox
+): Promise<MirrorResult> {
   return serial(repoDir, async () => {
-    const ls = await exec(hashListScript(dir));
+    const ls = await exec(hashListScript(dir, Object.values(instructionFiles ?? {})));
     if (ls.exitCode !== 0) throw new Error(`memory listing failed (exit ${ls.exitCode})`);
     const listed = parseHashListing(ls.result ?? '');
+    const digests = parseInstructionDigests(ls.result ?? '');
+    const instructions = instructionFiles
+      ? { instructions: Object.fromEntries(Object.entries(instructionFiles).flatMap(([label, path]) => (digests[path] ? [[label, digests[path]]] : []))) }
+      : {};
     const host = new Map<string, Buffer>();
     if (existsSync(repoDir)) {
       for (const name of await readdir(repoDir)) if (name !== '.git' && safeName(name)) host.set(name, await readFile(join(repoDir, name)));
     }
     const text = (): Record<string, string> => Object.fromEntries([...host].sort(([a], [b]) => (a < b ? -1 : 1)).map(([n, b]) => [n, b.toString('utf8')]));
-    if (!Object.keys(listed).length) return { files: text(), changed: [], removed: [] };
+    if (!Object.keys(listed).length) return { files: text(), changed: [], removed: [], ...instructions };
 
     const differ = Object.entries(listed).filter(([name, hash]) => {
       const have = host.get(name);
@@ -213,7 +186,7 @@ export function mirrorMemory(exec: MirrorExec, repoDir: string, dir: string, mes
     }
     const removed = [...host.keys()].filter((n) => !(n in listed));
     for (const name of removed) host.delete(name);
-    if (!changed.length && !removed.length) return { files: text(), changed, removed };
+    if (!changed.length && !removed.length) return { files: text(), changed, removed, ...instructions };
 
     await mkdir(repoDir, { recursive: true });
     if (!existsSync(join(repoDir, '.git'))) await git(repoDir, ['init', '-q']);
@@ -223,7 +196,7 @@ export function mirrorMemory(exec: MirrorExec, repoDir: string, dir: string, mes
     if ((await git(repoDir, ['status', '--porcelain'])).trim()) {
       await git(repoDir, [...BOT, 'commit', '-q', '-m', message.trim() || 'memory mirror']);
     }
-    return { files: text(), changed: changed.sort(), removed: removed.sort() };
+    return { files: text(), changed: changed.sort(), removed: removed.sort(), ...instructions };
   });
 }
 

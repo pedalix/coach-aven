@@ -53,7 +53,7 @@ const privates: Record<string, PrivateView> = {
   statusReport: {
     kind: 'statusReport',
     report: {
-      projects: [{ slug: 'alpha', repos: 1, state: 'started', sessions: 2, active: 1, openPRs: 3, jobs: 1, dreams: 0, hk: 1 }],
+      projects: [{ slug: 'alpha', repos: 1, state: 'started', sessions: 2, active: 1, openPRs: 3, jobs: 1, hk: 1 }],
       turnsInFlight: 1,
       sandboxesOk: true,
       githubOk: false,
@@ -67,7 +67,7 @@ const privates: Record<string, PrivateView> = {
     routines: [
       { id: 'r1', spec: 'weekdays 9:00', tz: 'Europe/Zurich', enabled: true, prompt: 'brief me', lastRunAt: '2026-03-02T09:00:12.000Z' },
       { id: 'r2', kind: 'task', spec: 'daily 19:30', tz: 'Europe/Zurich', enabled: false, prompt: 'x'.repeat(100), lastOutcome: 'skipped' },
-      { id: 'r3', kind: 'dream', spec: 'daily 3:00', tz: 'UTC', enabled: true, prompt: '', lastSummary: 'merged 4 notes' },
+      { id: 'r3', kind: 'housekeeping', spec: 'daily 3:00', tz: 'UTC', enabled: true, prompt: '', lastSummary: 'pruned 2 images' },
     ] as never,
   },
   routinesEmpty: { kind: 'routines', routines: [] },

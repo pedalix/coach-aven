@@ -67,8 +67,9 @@ export interface TurnEngine {
     attachments?: { refs: AttachmentRef[]; bearer: string },
     opts?: TurnOpts,
   ): Promise<void>;
-  // Run one turn with no live UI (the /aven ephemeral fallback and dreams).
-  runAsk(key: string, project: ProjectConfig, question: string): Promise<string>;
+  // Run one turn with no live UI (the /aven ephemeral fallback and the nightly tidy).
+  // `after` runs once the answer is in, while the sandbox is still held up (the nightly tidy mirrors there).
+  runAsk(key: string, project: ProjectConfig, question: string, after?: (chat: ChatSession) => Promise<void>): Promise<string>;
   // `o.outbox`: the surface delivers files and OUTBOUND_FILES is on — a session opened with it explains the outbox in
   // its base prompt (a session already open keeps the prompt it has).
   sessionFor(key: string, project: ProjectConfig, slackUrl?: string, o?: { outbox?: boolean }): Promise<ChatSession>;
@@ -94,7 +95,7 @@ export interface TurnEngine {
   turnOn(key: string): { turnId: string; startedAt: number; automatic: boolean; injected: number } | undefined;
   noteInjection(key: string): void;
   liveSession(key: string): ChatSession | undefined;
-  // A `runAsk` turn (a one-off /aven answer, a dream) runs on the key: it has no place for answers.
+  // A `runAsk` turn (a one-off /aven answer, a tidy) runs on the key: it has no place for answers.
   isAsk(key: string): boolean;
   // Cancel every turn queued or running on a key (a canceled task's shadow turn).
   cancelKey(key: string): void;
@@ -262,9 +263,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // finishes — on a stuck turn, up to the full 15-minute STREAM_MAX_MS. doTurn deletes its
   // own turnId the moment it starts, handing ownership of any future cancel back to itself.
   const queued = new Set<string>();
-  // Keys with a `runAsk` turn in flight (the /aven Q&A path and dreams). These bypass the
-  // `queues` chain, so projectBusy() must consult this too — otherwise a dream wouldn't see a
-  // live Q&A turn (or another dream) writing the same project's memory.
+  // Keys with a `runAsk` turn in flight (the /aven Q&A path and the nightly tidy). These bypass the
+  // `queues` chain, so projectBusy() must consult this too — otherwise a tidy wouldn't see a
+  // live Q&A turn (or another tidy) writing the same project's memory.
   const asking = new Set<string>();
   // The idle stop's holds (OpenSpec sandbox-idle-stop, design D4): every turn this engine accepted
   // and has not settled, every one-off ask, every restart recovery — with its project, so the first
@@ -581,10 +582,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
 
   // Run one turn (no live UI); persists the session id under `key`. Used by /aven's
   // ephemeral fallback where we can't stream progress.
-  async function runAsk(key: string, project: ProjectConfig, question: string): Promise<string> {
-    asking.add(key); // mark in flight so projectBusy() sees it (dreams + /aven Q&A)
+  async function runAsk(key: string, project: ProjectConfig, question: string, after?: (chat: ChatSession) => Promise<void>): Promise<string> {
+    asking.add(key); // mark in flight so projectBusy() sees it (the nightly tidy + /aven Q&A)
     const held = hold(key, project.slug); // the sandbox stays up while it runs (sandboxUse)
-    await acquireSlot(); // asks and dreams count against the same global cap
+    await acquireSlot(); // asks and tidies count against the same global cap
     held.restart();
     const start = Date.now();
     let chat: ChatSession | undefined;
@@ -594,6 +595,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
       const answer = await chat.ask(question);
       persist(key, project.slug, chat);
       status = 'ok';
+      if (after) await after(chat);
       return answer.slice(0, MAX_SLACK_TEXT) || '(no output)';
     } finally {
       releaseSlot();
@@ -622,10 +624,10 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   }
 
   // True if any conversation for this project has a turn in flight right now — used to skip
-  // a dream rather than race a live user turn on the project's memory files.
+  // a tidy rather than race a live user turn on the project's memory files.
   function projectBusy(slug: string): boolean {
     for (const key of queues.keys()) if (slugForKey(key) === slug) return true;
-    for (const key of asking) if (slugForKey(key) === slug) return true; // runAsk turns (Q&A, dreams)
+    for (const key of asking) if (slugForKey(key) === slug) return true; // runAsk turns (Q&A, tidies)
     return false;
   }
   // projectBusy minus one conversation — "is anyone ELSE working on this project?", for a
@@ -1142,10 +1144,9 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         await chat.mark(userMsg, 'working', 'remove');
         await chat.mark(userMsg, 'done', 'add');
       }
-      // Company brain (BRAIN=1, src/brain/): the answer is out and the message marked done — mirror the memory records this turn changed and
-      // rebuild the project's index and lint. Never throws; with the flag off the sandbox is not touched.
-      if (cfg.brain)
-        await brainAfterTurn(live, project.slug, {
+      // Company brain (src/brain/): the answer is out and the message marked done — mirror the memory records this turn changed and
+      // rebuild the project's index and lint. Never throws.
+      await brainAfterTurn(live, project.slug, {
           turnId,
           key,
           by: opts?.routine ? 'routine' : opts?.origin ? 'agent' : opts?.automatic ? 'poller' : 'person',
@@ -1571,7 +1572,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
         days,
         aggregateUsage(records, 'routine'), // empty until the scheduler stamps routine turns
       );
-      // Only live turns can be rated (dreams and /aven asks post no message), so they are
+      // Only live turns can be rated (tidies and /aven asks post no message), so they are
       // the honest denominator for coverage.
       const rateable = records.filter((r) => r.kind === 'turn').length;
       const value = feedbackSummaryText(joinUsage(feedbackLog.read(window), records), rateable, days);

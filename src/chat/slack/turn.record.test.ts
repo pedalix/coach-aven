@@ -254,18 +254,15 @@ test('flag off: the prompt names no outbox, the session opens without it, nothin
   assert.deepEqual(api.calls.filter((c) => c.method.startsWith('files.') || c.method.startsWith('upload/')), []);
 });
 
-// Company brain (BRAIN=1): the sandbox is read for memory only with the flag. Off — today's shape — no exec is
-// made after a turn; on, one mirror follows the answer.
-test('BRAIN off: a turn never asks for the memory mirror; on: once, after the answer', async () => {
-  for (const [over, expected] of [[{}, []], [{ brain: true }, [/^turn t0-\d+$/]]] as const) {
-    api.reset();
-    const mirrors: string[] = [];
-    const { engine, client } = harness({ ask: async () => 'Done.', mirrors }, undefined, over);
-    await mention(engine, client, 'hi');
-    await quiesce();
-    assert.equal(mirrors.length, expected.length);
-    expected.forEach((re, i) => assert.match(mirrors[i], re));
-  }
+// Company brain: one memory mirror follows every answer.
+test('a turn asks for the memory mirror once, after the answer', async () => {
+  api.reset();
+  const mirrors: string[] = [];
+  const { engine, client } = harness({ ask: async () => 'Done.', mirrors });
+  await mention(engine, client, 'hi');
+  await quiesce();
+  assert.equal(mirrors.length, 1);
+  assert.match(mirrors[0], /^turn t0-\d+$/);
 });
 
 test('flag on: the session opens with the outbox paragraph on Slack; a surface without file delivery gets neither the paragraph nor the line', async () => {

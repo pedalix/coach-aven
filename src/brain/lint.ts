@@ -1,12 +1,13 @@
 // Company brain: the lint — what code can find wrong in a project's records (design D6). Pure, from the index
 // alone; the one input from outside the mirror is the list of tickets a tracker reports resolved, gathered by the
 // caller once a night and passed in as data. What code cannot find (two records that contradict each other, a
-// surname) is the dream's; the lint narrows where it looks.
+// surname) is the nightly tidy's (tidy.ts); the lint narrows where it looks. One more input from outside the
+// mirror: the repositories whose `CLAUDE.md` changed since the last tidy (design D9), also passed in as data.
 
 import type { BrainIndex, IndexedRecord } from './index.js';
 
 export const OPEN_STALE_DAYS = 30;
-export const DREAM_FINDINGS = 15;
+export const TIDY_FINDINGS = 15;
 
 export type FindingCode =
   | 'no-kind'
@@ -16,19 +17,20 @@ export type FindingCode =
   | 'not-linked' // a file MEMORY.md does not link
   | 'no-file' // a MEMORY.md link without a file
   | 'personal-data'
-  | 'ticket-resolved';
+  | 'ticket-resolved'
+  | 'instructions-changed'; // a repository's CLAUDE.md differs from the one the last tidy saw
 
 export interface Finding {
   code: FindingCode;
   records: string[]; // file names; for `no-file`, the missing one
-  text: string; // one line for a person and for the dream
-  since: string; // ISO — the oldest record involved was first seen then; orders the dream's share
+  text: string; // one line for a person and for the tidy
+  since: string; // ISO — the oldest record involved was first seen then; orders the tidy's share
 }
 
 const DAY = 24 * 60 * 60 * 1000;
 const ticketKey = (t: string): string => t.trim().toUpperCase();
 
-export function lint(index: BrainIndex, o: { now: Date; resolvedTickets?: readonly string[] }): Finding[] {
+export function lint(index: BrainIndex, o: { now: Date; resolvedTickets?: readonly string[]; instructionsChanged?: readonly string[] }): Finding[] {
   const out: Finding[] = [];
   const one = (code: FindingCode, r: IndexedRecord, text: string): void => {
     out.push({ code, records: [r.name], text: `${r.name}: ${text}`, since: r.firstSeen });
@@ -65,11 +67,19 @@ export function lint(index: BrainIndex, o: { now: Date; resolvedTickets?: readon
   for (const r of index.records) if (!linked.has(r.name)) one('not-linked', r, 'not linked from MEMORY.md');
   for (const name of index.linked)
     if (!have.has(name)) out.push({ code: 'no-file', records: [name], text: `${name}: linked from MEMORY.md, no such file`, since: index.builtAt });
+  const changed = [...(o.instructionsChanged ?? [])].sort();
+  if (changed.length)
+    out.push({
+      code: 'instructions-changed',
+      records: [],
+      text: `${changed.join(', ')}: changed since the last tidy — records that contradict it are stale`,
+      since: index.builtAt,
+    });
   return out;
 }
 
-// The dream's share: at most DREAM_FINDINGS, oldest first (ties by text, so the order is stable), so an existing
+// One night's share: at most TIDY_FINDINGS, oldest first (ties by text, so the order is stable), so an existing
 // project's backlog drains over nights instead of in one expensive run.
-export function dreamShare(findings: readonly Finding[], cap = DREAM_FINDINGS): Finding[] {
+export function tidyShare(findings: readonly Finding[], cap = TIDY_FINDINGS): Finding[] {
   return [...findings].sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : a.text < b.text ? -1 : a.text > b.text ? 1 : 0)).slice(0, cap);
 }

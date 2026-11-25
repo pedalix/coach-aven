@@ -463,7 +463,7 @@ export class ClaudeSession {
   // Fires on EVERY such unsolicited `result` — including empty or is_error ones, which
   // onIdleResult skips — with what that self-started turn cost. Kept separate from
   // onIdleResult on purpose: that one is a per-turn Slack hook (re-pointed each live turn,
-  // never set on no-UI asks/dreams), while metering must hold for every session from the
+  // never set on no-UI asks/tidies), while metering must hold for every session from the
   // moment it opens, or background work burns tokens no usage record ever sees.
   onIdleUsage?: (info: { usage?: TurnUsage; isError: boolean; durationMs: number }) => void;
   // A `result` that follows echoes of messages nobody here wrote (no uuid of ours, no CLI origin) while a

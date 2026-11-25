@@ -724,7 +724,6 @@ export function statusReportBlocks(r: StatusReport): any[] {
     const bits = [stateLabel(p.state), plural(p.repos, 'repo'), plural(p.sessions, 'session'), `${p.active} active`];
     if (p.openPRs !== undefined) bits.push(plural(p.openPRs, 'open PR'));
     if (p.jobs) bits.push(plural(p.jobs, 'job'));
-    if (p.dreams) bits.push(`${p.dreams} 🌙`);
     if (p.hk) bits.push(`${p.hk} 🧹`);
     const line = `• *${p.slug}* — ${bits.join(' · ')}`;
     return p.sources ? `${line}\n    ↳ ${p.sources}` : line;
@@ -883,7 +882,7 @@ export function homeBullets(opts: { messaging?: boolean; outboundFiles?: boolean
     '• *Auto-investigate support tickets* — tag a YouTrack ticket with the agreed label and I open a thread in the matching project channel: the ticket card (description, priority, links, files — *🔍 Full ticket* pops up the whole thing, comments included) followed by a read-only investigation, then I ping the owners. Reply in that thread to dig deeper (I keep the context) or ask me there to implement the fix and open a pull request, or hit *📝 Report to YouTrack* to post an internal comment back to the ticket — a pop-up takes your instructions (a one-liner is fine; fixed delivery rules are always appended), then the draft comes back for review/edit before posting (or tick _post immediately_ to send the answer word-for-word) (pilot; only for projects with a YouTrack mapping above). The card shows *who* flagged the ticket, and the writeup follows the ticket\'s own language so support can relay it — except when one of the team\'s own accounts applies the tag, which gets you the answer in English.',
     `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.`,
     `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.`,
-    `• *Memory upkeep* — \`${CMD} dream on\`/\`off\` schedules (or pauses) nightly memory consolidation, \`${CMD} dream on weekly sun 3:00\` a weekly one; \`${CMD} dream\` for status, \`${CMD} dream now\` to run it once.`,
+    `• *Memory upkeep* — automatic, nothing to switch on: at night I tidy a project's memory when my own check finds problems in it (records without a kind or status, duplicates for one ticket, personal data).`,
     `• *Sandbox upkeep* — \`${CMD} housekeeping on\`/\`off\` schedules (or pauses) the nightly janitor (stale-worktree reap; on docker-in-docker projects also the dockerd guard and a docker prune when disk runs high); \`${CMD} housekeeping\` for the last run, \`${CMD} housekeeping now\` to run it once.`,
     `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, open PRs — and (operators) the Claude subscription quota, on an installation that runs on a subscription token.`,
     '• *Check or restart a thread* — hit *⚙️ Session* on any finished answer for a private status card (session, repos/tools, running turn, PR) and a *🔄 Restart session* control if you want the next message to start a brand-new conversation.',
@@ -1022,8 +1021,8 @@ export function routineListBlocks(rs: RoutineRecord[]): any[] {
   const lines = rs.map((r) => {
     const dot = r.enabled ? '🟢' : '⚪️';
     const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
-    if (r.kind === 'dream' || r.kind === 'housekeeping') {
-      const label = r.kind === 'dream' ? '🌙 dream' : '🧹 housekeeping';
+    if (r.kind === 'housekeeping') {
+      const label = '🧹 housekeeping';
       const s = r.lastSummary ? `\n   _${r.lastSummary}_` : '';
       return `${dot} *${r.id}* ${label} — \`${r.spec}\` (${r.tz})${last}${s}`;
     }
@@ -1062,7 +1061,7 @@ export function allRoutinesBlocks(groups: { slug: string; routines: RoutineRecor
   for (const { slug, routines } of groups) {
     const lines = routines.map((r) => {
       const dot = r.enabled ? '🟢' : '⚪️';
-      const kind = r.kind === 'dream' ? '🌙 dream' : r.kind === 'housekeeping' ? '🧹 housekeeping' : r.kind === 'task' ? '🛠 task' : 'digest';
+      const kind = r.kind === 'housekeeping' ? '🧹 housekeeping' : r.kind === 'task' ? '🛠 task' : 'digest';
       const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
       return `   ${dot} *${r.id}* ${kind} — \`${r.spec}\` in <#${r.channel}>${last}`;
     });
