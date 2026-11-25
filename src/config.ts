@@ -1,3 +1,4 @@
+import { sandboxLimitsFromEnv, type SandboxLimits } from './sandboxlimits.js';
 import { parseSurfaces } from './chat/surfaces.js';
 import type { ChatDriverName } from './chat/drivers.js';
 import { chmodSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -224,7 +225,9 @@ export interface Config {
   // `sh -c` with no sshd at all (single-box self-hosted instance — see
   // docs/sandbox-drivers.md "Local mode"). `runtime` picks how containers get DinD for
   // Laravel Sail; it applies only to projects that resolve to privileged (`"dind": true`).
-  sshDocker?: { host: string; runtime: 'sysbox-runc' | 'privileged' };
+  // `limits`: SANDBOX_LIMIT_MEMORY / SANDBOX_LIMIT_CPUS — what one project's container may use (sandboxlimits.ts);
+  // absent when neither is set, and the driver then sets and changes no limit.
+  sshDocker?: { host: string; runtime: 'sysbox-runc' | 'privileged'; limits?: SandboxLimits };
   sandboxDriver: SandboxDriverKind;
   // SANDBOX_IMAGE: the image a project container is created from unless
   // the project names its own (`sandbox.image`).
@@ -494,10 +497,11 @@ export function loadConfig(): Config {
     throw new Error(`SANDBOX_DIND_RUNTIME must be 'sysbox-runc' or 'privileged', got: ${sshRuntime}`);
   }
   const sandboxHost = process.env.SANDBOX_HOST;
+  const limits = sandboxLimitsFromEnv(); // a bad value stops the boot, host or no host
   const image = process.env.SANDBOX_IMAGE;
   if (!image) throw new Error('Missing required env var: SANDBOX_IMAGE (the image project containers are created from)');
   return {
-    sshDocker: sandboxHost ? { host: sandboxHost, runtime: sshRuntime } : undefined,
+    sshDocker: sandboxHost ? { host: sandboxHost, runtime: sshRuntime, ...(limits ? { limits } : {}) } : undefined,
     sandboxDriver,
     snapshot: { image },
     sandbox: {

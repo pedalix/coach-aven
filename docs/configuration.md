@@ -61,6 +61,8 @@ session was opened with, and an existing container keeps the `sandbox` options i
 | `SANDBOX_DRIVER` | `ssh-docker` | The only sandbox driver; any other value (`daytona` above all) stops the boot. [Selecting the driver](sandbox-drivers.md#selecting-the-driver). |
 | `SANDBOX_HOST` | — (required at a project's first sandbox use) | The Docker host: `local` (this machine's daemon, no sshd) or an ssh target (`user@host`, an `~/.ssh/config` alias). [Sandbox drivers](sandbox-drivers.md). |
 | `SANDBOX_DIND_RUNTIME` | `privileged` | How a docker-in-docker project (`"dind": true`) runs: `privileged` or `sysbox-runc` (preferred, needs sysbox on the host); anything else stops the boot. Irrelevant for plain projects. |
+| `SANDBOX_LIMIT_MEMORY` | — (no limit) | The memory one project's container may use, as a docker size (`6g`, `512m`), with no swap beyond it. The bot sets it when it creates a container and brings an existing one to it in place at its next warm-up; unset, it sets and changes no limit. A value it cannot read stops the boot. [Limits](sandbox-drivers.md#memory-and-cpu-limits). |
+| `SANDBOX_LIMIT_CPUS` | — (no limit) | The CPUs one project's container may use (`4`, `0.5`); same rules. |
 | `SANDBOX_LOCAL_PRIVILEGED` | — | `1` confirms a privileged project on the bot's own machine (`SANDBOX_HOST=local`); without it the boot warns. |
 | `SANDBOX_AUTOSTOP_MINUTES` | `30` | Idle minutes before the bot stops a project's container (floor 10; `0` or negative = never). [Sandbox idle stop](runtime-config.md#sandbox-idle-stop-sandbox_autostop_minutes). |
 | `SANDBOX_NAME_PREFIX` | `proj-` | Container names are `<prefix><slug>`. Two installations on one Docker host need distinct prefixes. [Local dev → The settings](local-dev.md#the-settings). |

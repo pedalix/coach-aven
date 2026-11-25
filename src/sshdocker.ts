@@ -6,6 +6,7 @@ import { sandboxActivity, type StopOutcome, type StopRequest } from './idlestop.
 import { log } from './log.js';
 import { utf8Chunks } from './utf8.js';
 import { assertDeletable, resolveSandboxOptions, sandboxManagedBy, type Mount, type SandboxOptions } from './sandboxopts.js';
+import { limitConvergeLines, limitRunFlags, type SandboxLimits } from './sandboxlimits.js';
 
 // SshDockerDriver: sandboxes as Docker containers on a host we own, driven over SSH.
 // The one sandbox driver (see driver.ts): one fixed-cost box runs every project as a
@@ -231,10 +232,11 @@ export function ensureSandboxScript(
   runtimeFlag: string,
   mounts: Mount[],
   dind: boolean,
+  limits?: SandboxLimits,
 ): string {
   const n = sq(safeToken(name));
   const volumeArgs = mounts.map((m) => `-v ${sq(`${safeToken(m.source)}:${safeToken(m.target)}:${m.mode}`)}`).join(' ');
-  const runFlags = [runtimeFlag, volumeArgs].filter(Boolean).join(' ');
+  const runFlags = [runtimeFlag, limitRunFlags(limits), volumeArgs].filter(Boolean).join(' ');
   const probe = dind
     ? [
         `if ! docker exec ${n} true >/dev/null 2>&1; then`,
@@ -283,6 +285,9 @@ export function ensureSandboxScript(
     // Migration for containers created with the old `--restart unless-stopped`: the
     // policy lives on the container, so strip it in place (idempotent, no-op on new ones).
     `docker update --restart=no ${n} >/dev/null 2>&1 || true`,
+    // The installation's memory/CPU limits (sandbox-limits): a container created before the setting, or by
+    // hand, is brought to them in place. No lines at all when nothing is set.
+    ...limitConvergeLines(n, limits),
     ...probe,
     ...mountProbe,
     // After the probes: the container answers exec, and a recycle above already changed its boot.
@@ -684,6 +689,7 @@ export class SshDockerDriver implements SandboxDriver {
       o.privileged ? this.runtimeFlag : '',
       o.mounts,
       o.dind,
+      this.cfg.sshDocker?.limits,
     );
     // Room for the create/pull path plus a stop(-t 10)+start recycle.
     const r = await this.onHost(script, { timeoutMs: 180_000 });
@@ -697,6 +703,10 @@ export class SshDockerDriver implements SandboxDriver {
     // state after the guard (a new boot, or an idle stop's mark). A dockerd that would not start is
     // worth a warning, not a failed warm-up: turns that need no Sail still work, and chat prep's
     // guard reports it to Sentry.
+    // The limits step (sandboxlimits.ts): a refused update is a warning, never a failed warm-up.
+    const limits = r.stderr.match(/^limits=(set|failed.*)$/m)?.[1];
+    if (limits === 'set') log.info(`sandbox '${name}': memory/CPU limits set to the installation's (${projectSlug})`);
+    else if (limits) log.warn(`sandbox '${name}': the installation's memory/CPU limits were not applied (${projectSlug}) — ${limits.slice(7) || 'no reason given'}; retried at the next warm-up`);
     const fresh = /^aven:fresh-boot$/m.test(r.stderr);
     const dockerd = r.stderr.match(/^hk:dockerd=(\w+)$/m)?.[1];
     const notes = [...(fresh ? ['new boot: session files reset'] : []), ...(dockerd ? [`dockerd ${dockerd}`] : [])];
