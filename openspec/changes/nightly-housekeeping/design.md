@@ -40,8 +40,9 @@ The tidy's tick (`startNightlyTidy`) becomes the nightly pass: per project, hous
 ### D2. A pass needs a turn since the last one
 
 The host decides from its own files whether a project worked: the newest record of the project in the usage log
-(`usage/<month>.jsonl`, every turn of every kind) against the time of the last pass. The tidy's own turn is a
-turn, so the night after a tidy the janitor runs once more and then the project is quiet.
+(`usage/<month>.jsonl`, every turn of every kind) against the time of the last pass. The tidy's own turn is not
+counted: it touches memory only and ends after the night's pass, so counting it would run the janitor again a
+minute later.
 
 - The first night after the deploy no project has a last pass, so every project with a turn in the usage log's
   last two months gets one; from the second night on, only those that worked since.
@@ -76,6 +77,9 @@ should not become a question to the agent.
 
 Housekeeping is awaited before the tidy starts. A failed janitor is logged, stored as the summary and does not
 stop the tidy. Both give up at the end of the hour; neither is retried that night after it ran.
+
+The projects are taken one at a time: the sandboxes share one host and one container runtime, and on the first
+night every project with a turn on record is due at once. A round that started within the hour is finished.
 
 ## Risks / Trade-offs
 
