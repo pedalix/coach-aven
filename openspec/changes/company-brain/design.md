@@ -40,9 +40,11 @@ status, a trace of what was answered, a way to tell checked from unchecked, and 
 The contract is frontmatter keys (`kind`, `status`, `ticket`) taught in the system prompt. No `autoMemoryDirectory`,
 no store of ours.
 
-- Where the keys sit: the prompt asks for the top level, beside `name`. On the first production day one of two
-  typed records carried them under `metadata:`, where the CLI keeps its own fields, so the host reads each key
-  from the top level first and from `metadata` otherwise. `metadata.type` stays the CLI's and is never the kind.
+- Where the keys sit: the prompt asks for the top level, beside `name`, but the CLI (2.1.314) rewrites the
+  frontmatter of a record the agent wrote and moves a key it does not know under `metadata:`. The format is not
+  documented, so the host reads each key from the top level first and from `metadata` otherwise, and the probe
+  scenario `memory-keys-survive-edit` records where the key ends up on every probed version. `metadata.type`
+  stays the CLI's and is never the kind.
 
 - Why: the agent reads these files in 59 % of turns today without being told to; a store it must be taught to
   query would be read less. Claude Code loads `MEMORY.md` itself.

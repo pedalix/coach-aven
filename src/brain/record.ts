@@ -1,8 +1,9 @@
 // Company brain (OpenSpec company-brain): one memory record as the host reads it. The records stay Claude Code's
 // own auto-memory files (design D1) — `name`/`description` and a nested `metadata:` block the CLI writes — and the
 // contract adds three frontmatter keys the agent is asked for: `kind`, `status`, `ticket`. The prompt asks for
-// them at the top level; the agent also writes them under `metadata:`, where the CLI keeps its own fields (seen
-// on the first production day), so each is read from the top level first and from `metadata` otherwise. Pure: a
+// them at the top level, but the CLI rewrites a record's frontmatter and moves a key it does not know under
+// `metadata:`, beside its own fields (seen on the first production day; the probe's `memory-keys-survive-edit`
+// records it per CLI version), so each is read from the top level first and from `metadata` otherwise. Pure: a
 // record is parsed from its text alone, and a value outside the contract reads as absent (the lint lists it)
 // rather than failing — these files are written by a model.
 
