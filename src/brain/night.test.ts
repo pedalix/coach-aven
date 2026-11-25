@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { memoryRepoDir, mirrorMemory, type MirrorExec } from '../memjournal.js';
-import { brainAfterTurn, brainProjectDir, readLint, readTidy, readUses } from './store.js';
+import { brainAfterTurn, brainProjectDir, readLint, readTidy, readUses, updateTidy } from './store.js';
 import { nightlyTidy, type NightDeps } from './night.js';
 
 const DIR = mkdtempSync(join(tmpdir(), 'aven-night-'));
@@ -130,4 +130,44 @@ test('a changed CLAUDE.md alone starts a tidy, which clears the finding; the fir
   assert.match(prompts[0], /\[instructions-changed\] shop\/CLAUDE\.md: changed since the last tidy/);
   assert.deepEqual(await readLint('rules'), []);
   assert.equal(await nightlyTidy(d, 'rules', '05-12'), 'nothing-due');
+});
+
+test('a project whose mirror fails is not tidied for a changed CLAUDE.md every night', async () => {
+  const files: Record<string, string> = { 'MEMORY.md': '- [Lifts](lifts.md)\n', 'lifts.md': '---\nname: Lift passes\nkind: domain\n---\nPriced per day.\n' };
+  const box = { claudeMd: 'Deploy with make ship.\n' };
+  await brainAfterTurn(sandbox('broken', files, box), 'broken', turn);
+  box.claudeMd = 'Deploy with npm run ship.\n';
+  await brainAfterTurn(sandbox('broken', files, box), 'broken', { ...turn, turnId: 't2' });
+  // From now on the listing fails: lint.json keeps the finding it had.
+  const prompts: string[] = [];
+  const d: NightDeps = {
+    projectBusy: () => false,
+    fresh: async () => {},
+    runAsk: async (_key, prompt, afterAsk) => {
+      prompts.push(prompt);
+      await afterAsk({ mirrorMemory: async () => Promise.reject(new Error('memory listing failed (exit 1)')), memoryReads: () => [] });
+      return 'Checked.';
+    },
+    key: 'cron:tidy:broken',
+    memoryDir: '/mem',
+    tidying: new Set(),
+  };
+  assert.equal(await nightlyTidy(d, 'broken', '05-10'), 'tidied');
+  assert.equal((await readLint('broken'))?.[0]?.code, 'instructions-changed', 'the lint is stale');
+  assert.equal(await nightlyTidy(d, 'broken', '05-11'), 'nothing-due');
+  assert.equal(prompts.length, 1);
+});
+
+test('tidy.json — a mirror noting digests and a tidy settling its night do not overwrite each other', async () => {
+  const files: Record<string, string> = { 'MEMORY.md': '- [A](a.md)\n', 'a.md': '---\nname: A\nkind: domain\n---\nText.\n' };
+  await brainAfterTurn(sandbox('both', files, { claudeMd: 'one\n' }), 'both', turn);
+  await Promise.all([
+    updateTidy('both', (s) => ({ ...s, lastDay: '05-10' })),
+    updateTidy('both', (s) => ({ ...s, seen: { ...s.seen, 'api/CLAUDE.md': 'e1' } })),
+    updateTidy('both', (s) => ({ ...s, given: { ...s.given, 'no-kind:x.md': { n: 1, hash: 'h' } } })),
+  ]);
+  const s = await readTidy('both');
+  assert.equal(s.lastDay, '05-10');
+  assert.equal(s.seen?.['api/CLAUDE.md'], 'e1');
+  assert.equal(s.given['no-kind:x.md']?.n, 1);
 });

@@ -209,7 +209,8 @@ session transcripts every night): there is no command, no routine and no schedul
   later is due again.
 - **`CLAUDE.md`.** The mirror also notes a digest of each repository's `CLAUDE.md`. The first one is a
   baseline; a change is one finding, and the tidy that was given it brings contradicting records into
-  agreement with the file.
+  agreement with the file. The finding is judged from the digests in `tidy.json`, so a project whose mirror
+  keeps failing is not tidied for it night after night.
 - **What it leaves.** Nothing in chat. The journal commit (`turn tidy-<day>`), a log line and a usage record
   under the key `cron:tidy:<slug>` (`/aven usage`); the counts live in `brain/<slug>/tidy.json`.
 - **No races.** A project with a live turn is left for the next minute of the hour; a failed tidy is not
