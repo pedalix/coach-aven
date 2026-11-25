@@ -43,6 +43,8 @@ The host decides from its own files whether a project worked: the newest record 
 (`usage/<month>.jsonl`, every turn of every kind) against the time of the last pass. The tidy's own turn is a
 turn, so the night after a tidy the janitor runs once more and then the project is quiet.
 
+- The first night after the deploy no project has a last pass, so every project with a turn in the usage log's
+  last two months gets one; from the second night on, only those that worked since.
 - Why not "every night": a project nobody touched for a month would be started every night to find nothing.
   The idle stop exists to prevent exactly that.
 - Why not "only if the sandbox is awake at that hour": a sandbox used in the afternoon is asleep by night, and
@@ -55,7 +57,8 @@ turn, so the night after a tidy the janitor runs once more and then the project 
 
 ### D3. Where the last pass lives
 
-`ProjectRecord` in `state.json` gains `housekeeping: { at, summary }` — what the routine record carried. The
+The project's settings record in `state.json` (`projectSettings.<slug>`, which exists for every project whether or
+not it has a sandbox yet) gains `housekeeping: { at, summary }` — what the routine record carried. The
 bare verb reads it; the nightly rule compares `at` with the usage log.
 
 - A stored housekeeping routine is dropped on load, in memory, as the dream routine is; its `lastRunAt` and

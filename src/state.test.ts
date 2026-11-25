@@ -435,3 +435,17 @@ test('routines — a stored dream routine is dropped on load; the others stay', 
   reloaded.patchRoutine(report.id, { enabled: false });
   assert.doesNotMatch(readFileSync(path, 'utf8'), /"kind": "dream"/);
 });
+
+test('routines — a stored housekeeping routine is dropped on load too (nightly-housekeeping)', () => {
+  const { store, path } = freshStore();
+  const report = store.addRoutine(routine());
+  store.addRoutine(routine({ kind: 'housekeeping' as never, prompt: '' }));
+  assert.deepEqual(new Store(path).listRoutines().map((r) => r.id), [report.id]);
+});
+
+test('project settings — the last housekeeping pass is kept beside the others', () => {
+  const { store, path } = freshStore();
+  store.patchProjectSettings('caldora', { autoReview: true });
+  store.patchProjectSettings('caldora', { housekeeping: { at: '2026-03-02T03:04:05.000Z', summary: 'disk 41%' } });
+  assert.deepEqual(new Store(path).getProjectSettings('caldora'), { autoReview: true, housekeeping: { at: '2026-03-02T03:04:05.000Z', summary: 'disk 41%' } });
+});

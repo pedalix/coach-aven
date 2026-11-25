@@ -140,6 +140,7 @@ test('two mirrors share the journal: a tidy ending with a turn does not collide'
 test('the listing also carries CLAUDE.md of each asked repository\'s default branch — from git, not from the files on disk', async () => {
   const h = 'b'.repeat(40);
   assert.deepEqual(parseInstructionDigests(`${'a'.repeat(64)}  MEMORY.md\ninstructions ${h}  /work/shop\ninstructions ${'c'.repeat(64)}  /work/api\n`), { '/work/shop': h, '/work/api': 'c'.repeat(64) });
+  assert.deepEqual(parseInstructionDigests('instructions none  /work/api\n'), { '/work/api': null });
   assert.deepEqual(parseHashListing(`instructions ${h}  /work/shop\n`), {}, 'never read as a memory file');
 
   // The real script against real repositories: a clone whose default branch has the file, edited on disk and
@@ -157,7 +158,7 @@ test('the listing also carries CLAUDE.md of each asked repository\'s default bra
     const dirs = ['shop', 'api', 'plain', 'missing'].map((d) => join(root, d));
     const script = hashListScript(join(root, 'mem'), dirs);
     const out = sh(root, script);
-    assert.deepEqual(parseInstructionDigests(out), { [join(root, 'shop')]: blob }, 'the default branch as fetched; no file, no repository, no directory: absent, and the listing still succeeds');
+    assert.deepEqual(parseInstructionDigests(out), { [join(root, 'shop')]: blob, [join(root, 'api')]: null }, 'the default branch as fetched; a repository without the file says so; no repository and no directory say nothing, and the listing still succeeds');
     assert.deepEqual(Object.keys(parseHashListing(out)), ['MEMORY.md']);
     assert.equal(sh(join(root, 'shop'), 'cat CLAUDE.md').trim(), 'local edit, never merged', 'nothing was pulled or checked out');
     // The default branch moves on the remote; after a fetch (the bot fetches at every chat prep) the digest follows.
@@ -166,9 +167,9 @@ test('the listing also carries CLAUDE.md of each asked repository\'s default bra
     assert.notEqual(parseInstructionDigests(sh(root, script))[join(root, 'shop')], blob);
     // A checkout without origin/HEAD falls back to origin/main.
     sh(join(root, 'shop'), 'git remote set-head origin -d');
-    assert.equal(Object.keys(parseInstructionDigests(sh(root, script))).length, 1);
+    assert.notEqual(parseInstructionDigests(sh(root, script))[join(root, 'shop')], null);
     // A missing memory directory still lists the instructions.
-    assert.equal(Object.keys(parseInstructionDigests(sh(root, hashListScript(join(root, 'nomem'), dirs)))).length, 1);
+    assert.equal(Object.keys(parseInstructionDigests(sh(root, hashListScript(join(root, 'nomem'), dirs)))).length, 2);
 
     const exec: MirrorExec = async () => ({ exitCode: 0, result: `instructions ${h}  /work/shop\n` });
     const m = await mirrorMemory(exec, repo, '/mem', 'turn t1', { 'shop/CLAUDE.md': '/work/shop', 'api/CLAUDE.md': '/work/api' });

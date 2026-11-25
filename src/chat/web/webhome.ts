@@ -23,7 +23,7 @@ export function webHomeBullets(opts: { messaging?: boolean; outboundFiles?: bool
     '• *Schedule* — `/schedule weekdays 9:00 | what to report` posts a recurring read-only summary in the room; `/schedule task weekdays 19:30 | what to do` runs a job that may edit and commit as the project\'s instructions say; `/routines` lists and manages them. A routine\'s result is a thread — reply there to continue with its context.',
     '• *What\'s here* — `/access` shows the project\'s repos and tools; `/status` the sandboxes, sessions and open PRs.',
     '• *Inspect my context* — `/memory` shows what I have learned (`/memory <topic>`, `/memory live`, `/memory log`); `/prompt` shows my system prompt.',
-    '• *Upkeep* — memory is tidied at night by itself when my own check finds problems in it; `/housekeeping on|off|now` for the nightly sandbox janitor (without an argument, the last run).',
+    '• *Upkeep* — memory is tidied at night by itself when my own check finds problems in it; the sandbox of a project that worked is cleaned at night too — `/housekeeping` for the last pass, `/housekeeping now` to run one.',
     '• *Check or restart a thread* — *⚙️ Session* on a finished answer shows the session, repos, tools and PR, with *🔄 Restart session* to start the next message fresh.',
     '• *Tell me if it landed* — *👍 Helped* / *👎 Missed* on every answer; a thumbs-down asks what went wrong.',
     '• *Notifications* — *🔔 Notify* (once your browser allows it) shows a notification for an answer while the tab is hidden; the tab title counts new activity.',

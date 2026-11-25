@@ -13,7 +13,7 @@
       "token": "",
       "payload": {
         "response_type": "ephemeral",
-        "text": ":information_source: No housekeeping here yet — `/aven housekeeping on` first."
+        "text": ":information_source: Housekeeping needs no switch: it runs by itself at night for every project that had a turn since its last pass. `/aven housekeeping` shows the last pass, `/aven housekeeping now` runs one."
       }
     }
   ],

@@ -77,7 +77,7 @@ export function startTidy(
 export function endTidy(
   state: TidyState,
   run: { share: readonly Finding[]; prior: Readonly<Record<string, number>>; seen?: Readonly<Record<string, string>> },
-  after: { index: BrainIndex; findings: readonly Finding[]; instructions?: Readonly<Record<string, string>> },
+  after: { index: BrainIndex; findings: readonly Finding[]; instructions?: Digests },
   day: string,
 ): TidyState {
   const listed = new Map(after.findings.map((f) => [findingKey(f), f]));
@@ -97,31 +97,49 @@ export function endTidy(
   // the tidy ran: that later change was never given to a tidy), so a project whose mirror keeps failing is not
   // tidied every night.
   const sawInstructions = run.share.some((f) => f.code === 'instructions-changed');
-  const baseline = after.instructions ?? run.seen;
-  const seen = after.instructions ? { ...after.instructions } : state.seen;
+  const seen = after.instructions ? applyDigests(state.seen ?? {}, after.instructions) : state.seen;
+  const baseline = after.instructions ? applyDigests(state.instructions, after.instructions) : (run.seen ?? state.instructions);
   return {
     given,
-    instructions: sawInstructions && baseline ? { ...baseline } : state.instructions,
+    instructions: sawInstructions ? { ...baseline } : state.instructions,
     ...(seen ? { seen } : {}),
     lastDay: day,
   };
+}
+
+/** What one mirror learned about each repository's `CLAUDE.md`: its digest, or null — the branch has no such file. */
+export type Digests = Readonly<Record<string, string | null>>;
+
+// A repository the mirror could not ask (no git in the sandbox, a broken checkout) is simply not in `current`:
+// what was known about it stays, so an outage of git neither reports a change nor forgets a baseline.
+function applyDigests(known: Readonly<Record<string, string>>, current: Digests): Record<string, string> {
+  const out = { ...known };
+  for (const [path, digest] of Object.entries(current)) {
+    if (digest === null) delete out[path];
+    else out[path] = digest;
+  }
+  return out;
 }
 
 /**
  * The repositories whose `CLAUDE.md` differs from the one the last tidy saw, and the state with a baseline for
  * every file noted for the first time (a first digest is never a finding). A file that is gone is dropped.
  */
-export function instructionsChanged(state: TidyState, current: Readonly<Record<string, string>>): { changed: string[]; state: TidyState } {
-  const instructions: Record<string, string> = {};
+export function instructionsChanged(state: TidyState, current: Digests): { changed: string[]; state: TidyState } {
+  const instructions = { ...state.instructions };
   const changed: string[] = [];
   for (const [path, digest] of Object.entries(current)) {
+    if (digest === null) {
+      delete instructions[path];
+      continue;
+    }
     // A baseline of another shape (an earlier version hashed the file on disk, sha256; this is git's blob id)
     // cannot be compared: it is replaced like a first digest, never reported as a change.
-    const seen = state.instructions[path]?.length === digest.length ? state.instructions[path] : undefined;
+    const seen = instructions[path]?.length === digest.length ? instructions[path] : undefined;
     instructions[path] = seen ?? digest;
     if (seen !== undefined && seen !== digest) changed.push(path);
   }
-  return { changed: changed.sort(), state: { ...state, instructions, seen: { ...current } } };
+  return { changed: changed.sort(), state: { ...state, instructions, seen: applyDigests(state.seen ?? {}, current) } };
 }
 
 // The tidy turn's prompt. Memory only, with the same hard "no code" guardrail the dream had (tools are not

@@ -4,8 +4,10 @@ Scheduled **mechanical** hygiene of a project's sandbox — reaping stale git st
 the DinD disk from filling, clearing wedged processes. The janitor, as opposed to
 the [nightly memory tidy](memory.md#the-nightly-tidy) (a model's pass over the agent's memory).
 
-> **Status: v1 shipped.** A `housekeeping` routine kind (`/aven housekeeping on|off|now`)
-> runs the janitor nightly: on a docker-in-docker project (`"dind": true`) the dockerd guard and a threshold-gated
+> **Status: shipped, for every project.** There is no switch and no routine (OpenSpec `nightly-housekeeping`): during the
+> 03:00 hour (`AVEN_TZ`) the bot runs the janitor for each project that had a turn since its last pass, then the
+> [memory tidy](memory.md#the-nightly-tidy) of the same night. `/aven housekeeping` shows the last pass,
+> `/aven housekeeping now` runs one. The janitor: on a docker-in-docker project (`"dind": true`) the dockerd guard and a threshold-gated
 > docker prune (never volumes); on every project a proactive worktree reap, and (with `CLAUDE_CLI_VERSION` set) converging the sandbox's
 > Claude Code CLI to the pin (`src/cliversion.ts`; the bump/canary procedure, which starts with a
 > probe of the new version, is in `docs/cli-probe.md`). Pure script/report logic in `src/housekeeping.ts` (tested);
@@ -19,8 +21,7 @@ the [nightly memory tidy](memory.md#the-nightly-tidy) (a model's pass over the a
 - **Mostly deterministic, no LLM.** Housekeeping is shell/API on a schedule
   (`git worktree prune`, `docker image prune`, disk checks). Reserve the LLM only for the
   rare task that genuinely needs judgment.
-- **Shares the scheduler, not a new one.** A `housekeeping` [routine kind](#shape) on the
-  existing routines mechanism (`src/schedule.ts`), alongside scheduled reports.
+- **No switch.** Every project is cleaned without a command; a quiet project costs nothing — see [Shape](#shape).
 - **Safe by construction:** idempotent, never touches active state, report-before-delete
   for anything destructive.
 
@@ -69,9 +70,13 @@ distinct inhabitants of the same scheduler.
 
 ## Shape
 
-- A **`housekeeping` routine kind** on `src/schedule.ts`, gated like the others (skip
-  projects with no recent activity; run at low-traffic hours; let the sandbox auto-stop
-  again afterward).
+- **One nightly pass per project**, started by the bot during the 03:00 hour: housekeeping, then the memory
+  tidy in the same awake sandbox. A failed janitor is logged, kept as the last pass's summary, and does not
+  stop the tidy.
+- **Only a project that worked.** A pass runs when the usage log holds a turn of the project newer than its
+  last pass (`passDue` in `src/housekeeping.ts`). No turn since: nothing runs and a stopped sandbox is not
+  started. The last pass — time and one-line summary — is kept per project in `state.json`
+  (`projectSettings.<slug>.housekeeping`).
 - **An asleep sandbox**: where the bot owns the idle stop (ssh-docker) and it is on, the pass
   wakes the container, and its summary starts with `woke ·`; containers never slept before
   the idle stop, so the janitor keeps running as it did, and the idle stop puts the container

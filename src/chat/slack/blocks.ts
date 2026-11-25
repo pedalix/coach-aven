@@ -724,7 +724,6 @@ export function statusReportBlocks(r: StatusReport): any[] {
     const bits = [stateLabel(p.state), plural(p.repos, 'repo'), plural(p.sessions, 'session'), `${p.active} active`];
     if (p.openPRs !== undefined) bits.push(plural(p.openPRs, 'open PR'));
     if (p.jobs) bits.push(plural(p.jobs, 'job'));
-    if (p.hk) bits.push(`${p.hk} 🧹`);
     const line = `• *${p.slug}* — ${bits.join(' · ')}`;
     return p.sources ? `${line}\n    ↳ ${p.sources}` : line;
   });
@@ -883,7 +882,7 @@ export function homeBullets(opts: { messaging?: boolean; outboundFiles?: boolean
     `• *What's here* — \`${CMD} access\` shows this channel's repos + tools.`,
     `• *Inspect my context* — \`${CMD} memory\` shows what I've learned, with a button per topic to drill in (\`${CMD} memory <topic>\` also works, \`${CMD} memory live\` reads the sandbox now, \`${CMD} memory log\` shows snapshot history); \`${CMD} prompt\` shows my system prompt.`,
     `• *Memory upkeep* — automatic, nothing to switch on: at night I tidy a project's memory when my own check finds problems in it (records without a kind or status, duplicates for one ticket, personal data).`,
-    `• *Sandbox upkeep* — \`${CMD} housekeeping on\`/\`off\` schedules (or pauses) the nightly janitor (stale-worktree reap; on docker-in-docker projects also the dockerd guard and a docker prune when disk runs high); \`${CMD} housekeeping\` for the last run, \`${CMD} housekeeping now\` to run it once.`,
+    `• *Sandbox upkeep* — automatic, nothing to switch on: at night I clean the sandbox of a project that had a turn since the last pass (stale-worktree reap; on docker-in-docker projects also the dockerd guard and a docker prune when disk runs high); \`${CMD} housekeeping\` for the last pass, \`${CMD} housekeeping now\` to run one.`,
     `• *Status* — \`${CMD} status\` for a live view of sandboxes, sessions, open PRs — and (operators) the Claude subscription quota, on an installation that runs on a subscription token.`,
     '• *Check or restart a thread* — hit *⚙️ Session* on any finished answer for a private status card (session, repos/tools, running turn, PR) and a *🔄 Restart session* control if you want the next message to start a brand-new conversation.',
     '• *Tell me if it landed* — every answer carries *👍 Helped* / *👎 Missed*. One click is enough; the count on the button updates so you see it registered, and a thumbs-down asks what went wrong in a short pop-up. Nothing is posted in the thread; click the other button to change your mind.',
@@ -1021,11 +1020,6 @@ export function routineListBlocks(rs: RoutineRecord[]): any[] {
   const lines = rs.map((r) => {
     const dot = r.enabled ? '🟢' : '⚪️';
     const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
-    if (r.kind === 'housekeeping') {
-      const label = '🧹 housekeeping';
-      const s = r.lastSummary ? `\n   _${r.lastSummary}_` : '';
-      return `${dot} *${r.id}* ${label} — \`${r.spec}\` (${r.tz})${last}${s}`;
-    }
     const p = r.prompt.length > 90 ? `${r.prompt.slice(0, 87)}…` : r.prompt;
     const tag = r.kind === 'task' ? ' 🛠 task' : '';
     // Empty-slot skip (ROUTINE_SKIP_EMPTY): the last slot posted one line instead of a run.
@@ -1061,7 +1055,7 @@ export function allRoutinesBlocks(groups: { slug: string; routines: RoutineRecor
   for (const { slug, routines } of groups) {
     const lines = routines.map((r) => {
       const dot = r.enabled ? '🟢' : '⚪️';
-      const kind = r.kind === 'housekeeping' ? '🧹 housekeeping' : r.kind === 'task' ? '🛠 task' : 'digest';
+      const kind = r.kind === 'task' ? '🛠 task' : 'digest';
       const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
       return `   ${dot} *${r.id}* ${kind} — \`${r.spec}\` in <#${r.channel}>${last}`;
     });

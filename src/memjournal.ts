@@ -91,23 +91,26 @@ const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex
 // BRANCH, as last fetched, has a CLAUDE.md. Git's blob id, not a hash of the file on disk: conversations work
 // in worktrees and the bot only fetches the main checkout, so its working tree says nothing about the branch
 // people merge into. Nothing is pulled or checked out. `origin/HEAD` is what a clone records; a checkout
-// without it falls back to `origin/main`, then `origin/master`.
+// without it falls back to `origin/main`, then `origin/master`. A repository git can read but whose default
+// branch has no CLAUDE.md prints "instructions none  <checkout>"; one git cannot read (no git, a broken
+// checkout) prints nothing — "unknown", which must not be mistaken for "the file is gone".
 export function hashListScript(dir: string, instructions: readonly string[] = []): string {
   const list = `for f in *; do [ -f "$f" ] || continue; sha256sum -- "$f" || exit 1; done`;
   if (!instructions.length) return `[ -d ${sq(dir)} ] || exit 0; cd ${sq(dir)} || exit 1; ${list}`;
   return (
     `if [ -d ${sq(dir)} ]; then cd ${sq(dir)} || exit 1; ${list}; fi; ` +
-    `for d in ${instructions.map(sq).join(' ')}; do for r in origin/HEAD origin/main origin/master; do ` +
-    `h=$(git -C "$d" rev-parse -q --verify "$r:CLAUDE.md" 2>/dev/null) && { printf 'instructions %s  %s\\n' "$h" "$d"; break; }; done; done; true`
+    `for d in ${instructions.map(sq).join(' ')}; do git -C "$d" rev-parse --git-dir >/dev/null 2>&1 || continue; h=; ` +
+    `for r in origin/HEAD origin/main origin/master; do h=$(git -C "$d" rev-parse -q --verify "$r:CLAUDE.md" 2>/dev/null) && break; h=; done; ` +
+    `printf 'instructions %s  %s\\n' "\${h:-none}" "$d"; done; true`
   );
 }
 
-/** checkout → blob id (40 or 64 hex) for the "instructions …" lines of a listing. */
-export function parseInstructionDigests(stdout: string): Record<string, string> {
-  const out: Record<string, string> = {};
+/** checkout → blob id (40 or 64 hex), or null for "no such file on the default branch", per "instructions …" line. */
+export function parseInstructionDigests(stdout: string): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
   for (const line of stdout.split('\n')) {
-    const m = /^instructions ([0-9a-f]{40}|[0-9a-f]{64})  (.+)$/.exec(line.trimEnd());
-    if (m) out[m[2]] = m[1];
+    const m = /^instructions ([0-9a-f]{40}|[0-9a-f]{64}|none)  (.+)$/.exec(line.trimEnd());
+    if (m) out[m[2]] = m[1] === 'none' ? null : m[1];
   }
   return out;
 }
@@ -143,8 +146,9 @@ export interface MirrorResult {
   files: Record<string, string>; // the host's copy after the mirror, by file name
   changed: string[]; // created or changed by what the sandbox holds now
   removed: string[];
-  // label → git blob id of CLAUDE.md on each asked repository's default branch (absent: not asked).
-  instructions?: Record<string, string>;
+  // label → git blob id of CLAUDE.md on each asked repository's default branch; null: git read the repository
+  // and the branch has no such file; a label missing here: git could not say (absent altogether: not asked).
+  instructions?: Record<string, string | null>;
 }
 
 // Throws on a failed listing or read-back — the caller logs it and the turn's answer stands. An EMPTY listing
@@ -162,7 +166,7 @@ export function mirrorMemory(
     const listed = parseHashListing(ls.result ?? '');
     const digests = parseInstructionDigests(ls.result ?? '');
     const instructions = instructionFiles
-      ? { instructions: Object.fromEntries(Object.entries(instructionFiles).flatMap(([label, path]) => (digests[path] ? [[label, digests[path]]] : []))) }
+      ? { instructions: Object.fromEntries(Object.entries(instructionFiles).flatMap(([label, path]) => (path in digests ? [[label, digests[path]]] : []))) }
       : {};
     const host = new Map<string, Buffer>();
     if (existsSync(repoDir)) {

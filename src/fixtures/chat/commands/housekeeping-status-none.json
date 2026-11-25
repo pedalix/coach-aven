@@ -13,7 +13,7 @@
       "token": "",
       "payload": {
         "response_type": "ephemeral",
-        "text": ":broom: No housekeeping for *alpha*. Enable the nightly sandbox janitor: `/aven housekeeping on`."
+        "text": ":broom: *Housekeeping — alpha*: no pass yet. It runs by itself at night for a project that had a turn since its last pass; `/aven housekeeping now` runs one."
       }
     }
   ],

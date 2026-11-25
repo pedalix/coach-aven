@@ -1,6 +1,7 @@
 // Housekeeping: scheduled MECHANICAL hygiene of a project sandbox (see
 // docs/housekeeping.md) — the janitor, as opposed to the nightly memory tidy (src/brain/tidy.ts).
-// Deterministic shell on the routines scheduler, no LLM. This module is the PURE part:
+// Deterministic shell, no LLM, for every project with no switch (OpenSpec nightly-housekeeping): the night
+// pass in pollers.ts runs it before the memory tidy. This module is the PURE part:
 // building the in-sandbox script and parsing its report — so the guardrails (no volume
 // pruning, threshold-gated deletion, marker format) are pinned by tests. The fire logic
 // (skip-if-busy; an asleep sandbox is woken where the bot owns the idle stop and it is on, and
@@ -8,10 +9,27 @@
 // is also run at every chat prep (project.ts ensureDockerd) so a dead daemon can't linger for days.
 import { cliUpgradeCmd, cliVersionCmd, parseCliMarkers, type CliMarkers } from './cliversion.js';
 
-// Defaults for the `/aven housekeeping on` routine (in ROUTINE_TZ). 04:30: after the
-// 03:00 tidy hour, still low-traffic.
-export const HOUSEKEEPING_DEFAULT_CRON = '30 4 * * *';
-export const HOUSEKEEPING_DEFAULT_SPEC = 'daily 4:30';
+// A project has a pass tonight only when it had a turn since its last one (OpenSpec nightly-housekeeping D2):
+// a project nobody touched gathered nothing, and its stopped sandbox is not started to find that out. Both are
+// ISO times; no turn on record → no pass.
+export function passDue(o: { lastPassAt?: string; lastTurnAt?: string }): boolean {
+  if (!o.lastTurnAt) return false;
+  return !o.lastPassAt || Date.parse(o.lastTurnAt) > Date.parse(o.lastPassAt);
+}
+
+/** The newest usage record per project — every turn of every kind is one (metering.ts). */
+export function lastTurnBySlug(records: readonly { slug: string; at: string }[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of records) if (!out.has(r.slug) || r.at > out.get(r.slug)!) out.set(r.slug, r.at);
+  return out;
+}
+
+/** What `/aven housekeeping` (bare) says: the last pass, or that none has run yet. */
+export function lastPassText(slug: string, last: { at: string; summary: string } | undefined, cmd: string): string {
+  const how = `It runs by itself at night for a project that had a turn since its last pass; \`${cmd} housekeeping now\` runs one.`;
+  if (!last) return `:broom: *Housekeeping — ${slug}*: no pass yet. ${how}`;
+  return `:broom: *Housekeeping — ${slug}*\nLast pass: ${last.at.slice(0, 16).replace('T', ' ')} UTC — _${last.summary}_\n${how}`;
+}
 
 // Disk-usage % at which docker pruning kicks in. Below it, housekeeping only reports.
 export function pruneThreshold(raw: string | undefined = process.env.HOUSEKEEPING_DISK_PCT): number {

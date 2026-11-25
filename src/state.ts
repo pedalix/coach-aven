@@ -83,10 +83,8 @@ export interface RoutineRecord {
   createdAt: string;
   lastRunAt?: string; // last fire (dedupes within a minute + across restarts)
   // undefined/'report' = scheduled digest;
-  // 'housekeeping' = the deterministic sandbox janitor (docs/housekeeping.md);
   // 'task' = a scheduled turn that MAY edit/commit per the project's instructions (TASK_FRAMING)
-  kind?: 'report' | 'housekeeping' | 'task';
-  // housekeeping: one-line digest of the last run (visibility without channel noise);
+  kind?: 'report' | 'task';
   // report/task under the delivery guard: the delivered answer's headline.
   lastSummary?: string;
   // ── routine delivery guard (ROUTINE_GUARD=1 — docs/runtime-config.md) ──────────────────
@@ -120,6 +118,9 @@ export interface ProjectSettings {
   autoReviewTeam?: string;
   autoReviewSurface?: string; // the surface `review auto on` was typed on (absent = the default driver)
   autoReviewEffort?: 'low' | 'med' | 'high'; // effort for auto-reviews (default med)
+  // The last housekeeping pass (OpenSpec nightly-housekeeping D3): when, and its one-line summary. The nightly
+  // rule compares `at` with the project's newest turn; `/aven housekeeping` shows both.
+  housekeeping?: { at: string; summary: string };
 }
 
 // An autofix subscription on one PR: the poller watches its CI + reviews and posts a Slack
@@ -216,12 +217,13 @@ export class Store {
       delete legacy.dispatches;
       log.info(`state: dropping the retired dispatch records — ${proposals} proposal(s), ${dispatches} daily count(s) — on the next save`);
     }
-    // The dream is removed (OpenSpec `company-brain` D9: the nightly tidy needs no routine): a stored dream
-    // routine is dropped the same way — in memory on load, persisted by the next normal save.
-    const dreams = Object.entries(this.data.routines ?? {}).filter(([, r]) => (r.kind as string | undefined) === 'dream');
-    if (dreams.length) {
-      for (const [id] of dreams) delete this.data.routines![id];
-      log.info(`state: dropping ${dreams.length} dream routine(s) (${dreams.map(([id, r]) => `${id}:${r.slug}`).join(', ')}) — memory is tidied at night without one — on the next save`);
+    // The dream and the housekeeping routine are removed (OpenSpec `company-brain` D9, `nightly-housekeeping`: the
+    // night pass needs no routine): a stored one is dropped the same way — in memory on load, persisted by the
+    // next normal save.
+    const gone = Object.entries(this.data.routines ?? {}).filter(([, r]) => ['dream', 'housekeeping'].includes(r.kind as string));
+    if (gone.length) {
+      for (const [id] of gone) delete this.data.routines![id];
+      log.info(`state: dropping ${gone.length} dream/housekeeping routine(s) (${gone.map(([id, r]) => `${id}:${r.slug}`).join(', ')}) — memory and sandboxes are kept clean at night without one — on the next save`);
     }
   }
 

@@ -13,7 +13,7 @@ import { buildIndex, type BrainIndex } from './index.js';
 import { lint, type Finding } from './lint.js';
 import { parseJsonl, provenance, useEntry, type Starter, type UseEntry } from './uses.js';
 import { answerEntry, type AnswerEntry } from './answers.js';
-import { changedInstructions, emptyTidyState, instructionsChanged, type TidyState } from './tidy.js';
+import { changedInstructions, emptyTidyState, instructionsChanged, type Digests, type TidyState } from './tidy.js';
 
 export const brainProjectDir = (slug: string): string => join(brainDir(), safeSlug(slug));
 
@@ -67,7 +67,7 @@ export async function rebuildBrain(
   slug: string,
   files: Record<string, string>,
   now: Date,
-  instructions?: Readonly<Record<string, string>>,
+  instructions?: Digests,
 ): Promise<{ index: BrainIndex; findings: Finding[] }> {
   const dir = brainProjectDir(slug);
   await mkdir(dir, { recursive: true });

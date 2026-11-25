@@ -80,6 +80,7 @@ async function twin(o: { asks?: CommandDeps['asks'] } = {}) {
   const pollerLog: unknown[] = [];
   const pollers = {
     fireRoutine: (d: SlackChatDriver, r: { id: string }) => (pollerLog.push({ fireRoutine: { token: (d.client as { token?: string }).token, id: r.id } }), true),
+    runHousekeeping: (p: { slug: string }) => (pollerLog.push({ runHousekeeping: { slug: p.slug } }), true),
     fireReview: (d: SlackChatDriver, project: { slug: string }, repo: string, number: number, channel: string, effort: string, tid?: string) =>
       (pollerLog.push({ fireReview: { token: (d.client as { token?: string }).token, slug: project.slug, repo, number, channel, effort, tid } }), true),
     // The real one posts the end notice where the grant was made (pollers.record.test.ts); here, the call and its effect.
@@ -255,23 +256,17 @@ C('routines-not-here', async (t) => {
   const r = seedRoutine(t);
   await t.receiver.send(cmd(`routines off ${r.id}`, { channel: 'C_BETA' }));
 });
-for (const verb of ['housekeeping']) {
-  C(`${verb}-status-none`, (t) => t.receiver.send(cmd(verb)));
-  C(`${verb}-on`, (t) => t.receiver.send(cmd(`${verb} on`)));
-  C(`${verb}-on-off-status`, async (t) => {
-    await t.receiver.send(cmd(`${verb} on`));
-    await t.receiver.send(cmd(`${verb} off`));
-    await t.receiver.send(cmd(verb));
-    await t.receiver.send(cmd(`${verb} on`));
-  });
-  C(`${verb}-off-none`, (t) => t.receiver.send(cmd(`${verb} off`)));
-  C(`${verb}-now-none`, (t) => t.receiver.send(cmd(`${verb} now`)));
-  C(`${verb}-now`, async (t) => {
-    await t.receiver.send(cmd(`${verb} on`));
-    await t.receiver.send(cmd(`${verb} now`));
-  });
-  C(`${verb}-unbound`, (t) => t.receiver.send(cmd(verb, { channel: 'C_RANDOM' })));
-}
+// Housekeeping runs by itself at night (OpenSpec nightly-housekeeping): the bare verb shows the last pass, `now`
+// runs one through the pollers, and the former switch gets one line and creates nothing.
+C('housekeeping-status-none', (t) => t.receiver.send(cmd('housekeeping')));
+C('housekeeping-status-last', async (t) => {
+  t.store.patchProjectSettings('alpha', { housekeeping: { at: '2026-03-02T03:04:05.000Z', summary: 'woke · reaped 2 worktrees · disk 41%' } });
+  await t.receiver.send(cmd('housekeeping'));
+});
+C('housekeeping-on', (t) => t.receiver.send(cmd('housekeeping on')));
+C('housekeeping-off', (t) => t.receiver.send(cmd('housekeeping off')));
+C('housekeeping-now', (t) => t.receiver.send(cmd('housekeeping now')));
+C('housekeeping-unbound', (t) => t.receiver.send(cmd('housekeeping', { channel: 'C_RANDOM' })));
 // The dream verb is gone (OpenSpec company-brain D9): it is answered like any unknown verb.
 C('dream-removed', (t) => t.receiver.send(cmd('dream on')));
 // `grant` (OpenSpec project-grants): listing for anyone, granting and ending for operators; the start and an early end

@@ -130,7 +130,6 @@ export interface ProjectStatus {
   active: number; // conversations with a turn in flight right now
   openPRs?: number; // undefined = couldn't be determined
   jobs: number; // scheduled report routines
-  hk: number; // scheduled housekeeping routines
   sources?: string; // sources/sync.ts statusLine for projects with a `sources` block
 }
 export interface StatusReport {
