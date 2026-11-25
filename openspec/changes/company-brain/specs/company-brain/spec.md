@@ -4,19 +4,18 @@
 
 The company brain turns a project's agent-written memory into records a team can rely on: each record has a kind,
 an investigation has a status and a log of what was answered, the host derives how each record was used and
-whether a person ever corrected it, and a nightly pass keeps the set consistent. Everything here exists only on an installation that sets `BRAIN=1`.
+whether a person ever corrected it, and a nightly tidy the host starts by itself keeps the set consistent. It is part of every project: no flag, no
+switch, and no separate dream.
 
 ## ADDED Requirements
 
-### Requirement: The flag gates every behaviour
-The system SHALL add no prompt text, command form, host tool, file or dream instruction of this capability
-unless the installation sets `BRAIN=1`.
+### Requirement: Every project has it
+The system SHALL apply this capability to every project of every installation, with no flag and no per-project
+switch.
 
-#### Scenario: Flag unset
-- **WHEN** an installation runs without `BRAIN=1`
-- **THEN** the system prompt, the dream prompt, the Home text and every recorded turn are byte-identical to the
-  ones before this capability
-- **AND** no `brain/` directory is created
+#### Scenario: A project that never wrote a record
+- **WHEN** a turn ends in a project whose memory holds no record
+- **THEN** no `brain/` directory is created for it and no tidy ever starts
 
 ### Requirement: A record names its kind
 The system SHALL tell the agent, in the system prompt, that a memory record carries a `kind` of `investigation`,
@@ -29,7 +28,7 @@ The system SHALL tell the agent, in the system prompt, that a memory record carr
   something `method`, and for why something was built or changed `decision`
 
 #### Scenario: A record without a kind stays readable
-- **WHEN** a record written before the flag has no `kind`
+- **WHEN** a record written before this capability has no `kind`
 - **THEN** the agent can still read it, and the lint report lists it
 
 ### Requirement: An investigation carries a ticket and a status
@@ -128,7 +127,7 @@ any message or answer text.
 - **THEN** the record is mirrored and the turn's entry does not name it as changed
 
 #### Scenario: The first mirror of a project
-- **WHEN** the flag is new and a turn's mirror copies every existing record
+- **WHEN** a project's first mirror copies every existing record
 - **THEN** only the records that turn named are logged as used
 
 ### Requirement: The host derives a record's provenance
@@ -145,7 +144,7 @@ person used it, the date of the last one, and the date it was last revised after
 - **THEN** its provenance says twelve uses and no revision after a reply — it is not reported as checked
 
 #### Scenario: A routine's turn
-- **WHEN** a dream or another routine changes a record
+- **WHEN** a tidy or a routine changes a record
 - **THEN** the use count and the revision date stay as they were
 
 #### Scenario: The agent cannot set it
@@ -161,21 +160,72 @@ comes from a record that no person's reply has revised.
 - **THEN** the prompt has asked it to say in the first lines of the answer that the method is its own note,
   checked by nobody
 
-### Requirement: The dream tidies from the lint
-The system SHALL give the dream turn the current lint report and ask it to resolve the listed findings in memory
-only, at most 15 records per dream.
+### Requirement: The host tidies memory at night from the lint
+The system SHALL start, once a night per project and only when that project's lint holds a finding still due,
+one tidy turn that is given at most 15 findings, oldest first, and asked to resolve them in memory only.
+
+#### Scenario: Nothing to tidy
+- **WHEN** the night's check finds a project's lint empty
+- **THEN** no turn starts and a stopped sandbox stays stopped
 
 #### Scenario: Two records for one ticket
 - **WHEN** the lint lists two records for one ticket
-- **THEN** the dream is asked to merge them or to state in each what the other covers
+- **THEN** the tidy is asked to merge them or to state in each what the other covers
 
 #### Scenario: Personal data
 - **WHEN** the lint lists a record with a personal-data pattern
-- **THEN** the dream is asked to remove the personal data and keep the finding
+- **THEN** the tidy is asked to remove the personal data and keep the finding
 
-#### Scenario: Still memory-only
-- **WHEN** a dream runs with the flag
-- **THEN** its prompt still forbids changing code, branches and pull requests
+#### Scenario: Memory only
+- **WHEN** a tidy runs
+- **THEN** its prompt forbids changing code, branches, pull requests and the repositories' instruction files
+- **AND** it does not read session transcripts
+
+#### Scenario: Nobody is told
+- **WHEN** a tidy ends
+- **THEN** nothing is posted to a chat; the journal holds what changed and the usage record holds its cost
+
+### Requirement: A finding that survives three tidies stops starting them
+The system SHALL count, per finding, the tidy turns it was given to, and SHALL NOT start a tidy for findings
+given three times and still present; they stay in the lint report.
+
+#### Scenario: A false positive
+- **WHEN** a personal-data finding is still listed after three tidies were given it
+- **THEN** it no longer starts a tidy, and `memory open` and the lint still show it
+
+#### Scenario: The record changes
+- **WHEN** a record with such a finding is changed by a later turn
+- **THEN** the finding is due again
+
+### Requirement: Changed project instructions are a finding
+The system SHALL note, at each mirror, a digest of each repository's `CLAUDE.md`, and SHALL list one finding per
+project when a digest differs from the one the last tidy saw.
+
+#### Scenario: The instructions changed
+- **WHEN** a repository's `CLAUDE.md` changed since the last tidy
+- **THEN** the next tidy is asked to bring records that contradict it into agreement with it, never to edit it
+- **AND** after that tidy the finding is gone
+
+#### Scenario: Nothing changed
+- **WHEN** no `CLAUDE.md` differs
+- **THEN** there is no such finding
+
+#### Scenario: The first digest
+- **WHEN** the host notes a repository's digest for the first time
+- **THEN** it is the baseline and no finding is listed
+
+### Requirement: There is no separate dream
+The system SHALL NOT offer a dream command, a dream routine or a dream schedule; a dream routine found in the
+stored state SHALL be removed at boot.
+
+#### Scenario: An installation that had a nightly dream
+- **WHEN** the bot starts with a stored dream routine
+- **THEN** the routine is removed, its project is tidied by the nightly check like any other, and the removal is
+  logged once
+
+#### Scenario: The old command
+- **WHEN** a person sends the former `dream` verb
+- **THEN** it is answered like any unknown verb
 
 ### Requirement: People can list open and unchecked records
 The system SHALL answer `memory open` and `memory unchecked` from the host index, without starting the project's

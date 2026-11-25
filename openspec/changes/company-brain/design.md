@@ -24,7 +24,7 @@ status, a trace of what was answered, a way to tell checked from unchecked, and 
   anyone being asked to mark anything.
 - "What did we answer on this ticket, and did anything follow" is answered from a log the host wrote.
 - Stale and contradicting records are found by code and resolved by the dream.
-- Flag off is byte-identical.
+- One road: no flag, no per-project switch, no second upkeep feature beside this one (D9).
 
 **Non-Goals:**
 
@@ -114,20 +114,20 @@ the index carries per record:
 - Rejected for this change: checking a `method` against a reference report. It is the real verification and
   needs a source of truth per method.
 
-### D6. Lint is code; tidying is the dream's
+### D6. Lint is code; tidying is a model's, at night (D9 says when)
 
 `src/brain/lint.ts` is pure. Its findings: no kind; investigation without status; `open` longer than 30 days;
 several records with one ticket; index and files out of step; a personal-data pattern (an e-mail address, a phone
 number in international form — `src/scrub.ts` detects secrets, not these, so the two patterns live with the index); `open` while the tracker has resolved the ticket.
 
-- The tracker finding is the one input from outside the mirror. It is gathered once a night, before the dream,
+- The tracker finding is the one input from outside the mirror. It is gathered once a night, before the tidy,
   for a project whose tracker the host already reads (`src/youtrack.ts` returns `resolved`), and handed to the
-  pure lint as data. The host does not edit the status; the dream does. A turn's own lint makes no network call.
+  pure lint as data. The host does not edit the status; the tidy does. A turn's own lint makes no network call.
 
-- What code cannot find: a contradiction between two records, a surname. The lint narrows the dream's attention
-  (same ticket, same title words); the dream's prompt names contradictions and names of people as things to
+- What code cannot find: a contradiction between two records, a surname. The lint narrows the tidy's attention
+  (same ticket, same title words); the tidy's prompt names contradictions and names of people as things to
   resolve in the records it opens.
-- The dream prompt gains one flagged section with the lint text, capped at 15 findings, oldest first, so the
+- The tidy's prompt carries the lint text, capped at 15 findings, oldest first, so the
   backlog of an existing project drains over nights instead of in one expensive run.
 - The answer log holds answer text as posted. Answers are not scrubbed today (`docs/security.md`), so the log can
   hold what an answer held. It lives in the installation directory beside `usage/` and `feedback/` with the same
@@ -142,13 +142,39 @@ number in international form — `src/scrub.ts` detects secrets, not these, so t
 
 ### D8. Prompt text
 
-Two flagged paragraphs in the base layer (`src/prompt.ts`): the record contract, and "say when an answer rests on
+Two paragraphs in the base layer (`src/prompt.ts`): the record contract, and "say when an answer rests on
 a record nobody corrected" (ask `brain_history`; name the record as your own note in the first lines). Goldens for
-both flag states.
+the base text.
+
+### D9. One road: default for every project, and the tidy replaces the dream
+
+Decided by the maintainer on 2026-11-25, one day into production: the flag goes and the dream goes.
+
+- Why no flag: two upkeep features, one of them behind a switch people forget (`dream on`/`off`/`now`), is two
+  roads. The dream was not used on purpose by anyone, cost 249 of 404 USD of the production installation's October
+  spend, and rewrote records from transcripts with nothing telling it what was wrong.
+- What starts a tidy: the host, once a night (03:00 in the installation's timezone, where dreams ran), per project,
+  from `lint.json` alone. An empty lint starts nothing, so a quiet project costs nothing and its sandbox stays
+  stopped. No command starts one; an operator has `routines run` for a debugging run.
+- What the tidy does not do: read transcripts. Records are written during turns; harvesting transcripts at night
+  was the expensive and error-prone part.
+- The stop rule: a finding given to three tidies and still present no longer starts one — a false positive of the
+  personal-data pattern would otherwise buy a turn every night for ever. The count lives in `brain/<slug>/tidy.json`
+  per finding (code + record + the record's hash), so a changed record is due again.
+- `CLAUDE.md`: the dream reconciled memory against it every night. Now the mirror's listing exec also prints the
+  digest of each repository's `CLAUDE.md`; a digest that differs from the one the last tidy saw is one finding,
+  cleared by that tidy. The first digest is a baseline.
+- Silent: a tidy posts nothing; its trace is the journal commit and the usage line (kind `tidy`).
+- Rejected: keeping the dream routine and handing it the lint (the earlier plan of tasks 5.2/5.3) — the switch,
+  the schedule forms and the transcript sweep would all stay.
+- Rejected: retiring the flag as a later step. It keeps the old dream alive on installations without the flag and
+  doubles the code to maintain; the maintainer chose one step.
+- Cost of the first weeks: a project with 105 untyped records needs seven nights. The price of one tidy turn is
+  not known yet; the first night on production measures it (the usage line), before the second.
 
 ## Risks / Trade-offs
 
-- [The agent ignores the contract and keeps writing untyped records] → the lint counts them and the dream
+- [The agent ignores the contract and keeps writing untyped records] → the lint counts them and the tidy
   migrates up to 15 a night; the canary metric is the share of typed records after two weeks.
 - [Almost every record stays "unchecked" and the agent's caveat becomes noise] → the prompt asks for it only on
   figures and rules from `method` and `domain` records, in one line; the canary reads real answers for it.
@@ -156,7 +182,7 @@ both flag states.
   "verified"; the canary counts how many such marks were real corrections.
 - [The mirror adds latency to every turn] → it runs after the answer is posted, and a turn that changed nothing
   costs one exec.
-- [The dream gets more expensive] → 15 findings a night; the dream's cost per run is already in `/aven usage`
+- [The tidy costs more than expected] → 15 findings a night; the tidy's cost per run is already in `/aven usage`
   per routine, and the canary watches it.
 - [The answer log is a new copy of customer-facing text] → one directory, named in `docs/security.md`, never
   sent anywhere; deleting `brain/<slug>/` forgets it.
@@ -165,12 +191,17 @@ both flag states.
 
 ## Migration Plan
 
-1. Merge with the flag off (byte-identical).
-2. Home bot: flag on for its own project; watch the share of typed records, the lint count, the dream's cost.
-3. Production: flag on as its own step, after the operator has removed personal data from the existing records
-   by hand (the dream would do it over weeks; a person does it in an hour).
-4. Rollback: unset the flag. Records keep their extra frontmatter keys, which nothing reads; `brain/<slug>/` can
-   be deleted.
+Slices 1–3 shipped behind `BRAIN=1` (home since 2026-11-23, production since 2026-11-24). The rest ships
+without the flag (D9), in this order:
+
+1. The spec (this text), merged first.
+2. One code PR: the flag and its ledger row go, the nightly tidy and the `CLAUDE.md` finding come, the dream —
+   command, routine kind, schedule forms, prompt, Home and doc lines — is deleted, and a stored dream routine is
+   removed at boot. Prompt goldens and Home snapshots are re-recorded on purpose.
+3. `ship` by stage as usual. An installation that never set the flag gets the prompt paragraphs, the mirror and
+   the tidy at that deploy; the PR and the release summary say so.
+4. Rollback: ship the earlier version. Records keep their extra frontmatter keys, which nothing reads;
+   `brain/<slug>/` can be deleted. A removed dream routine is not restored — the earlier version runs without one.
 
 ## Open Questions
 
