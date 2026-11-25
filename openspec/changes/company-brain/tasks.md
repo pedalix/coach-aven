@@ -21,28 +21,37 @@
 
 - [x] 4.1 `src/brain/uses.ts`: the use-log entry (names only, what started the turn), provenance per record (uses by people, last use, revised after a reply) — `src/brain/uses.test.ts` (a routine's turn does not count; a frontmatter claim changes nothing)
 - [x] 4.2 Append the entry at turn end; provenance into `index.json` and into `brain_history`'s answer — `src/turn.brain.test.ts`, `src/hostrouter.test.ts`
-- [ ] 4.3 Nightly tracker check in `src/pollers.ts` before the dream: `open` investigations whose ticket `src/youtrack.ts` reports resolved go into the lint; a project without a tracker makes no call — `src/routinerun.test.ts`
+- [ ] 4.3 Nightly tracker check in `src/pollers.ts` before the tidy: `open` investigations whose ticket `src/youtrack.ts` reports resolved go into the lint; a project without a tracker makes no call — `src/routinerun.test.ts`
 
-## 5. Prompt and dream
+## 5. Prompt
 
 - [x] 5.1 Two flagged paragraphs in `src/prompt.ts` (the record contract; unchecked records) — goldens for both flag states in `src/fixtures/prompt/`, `src/prompt.test.ts`
-- [ ] 5.2 The flagged lint section in `dreamPrompt` (`src/dream.ts`), the "no code" guardrail unchanged — `src/dream.test.ts`
-- [ ] 5.3 Pass the lint to the dream in `src/pollers.ts` (`fireDream`) — `src/routinerun.test.ts`
+- [ ] 5.2 The contract paragraph no longer says "not under `metadata`" (the CLI moves the keys there); both paragraphs unflagged — one golden set, re-recorded on purpose
 
-## 6. Commands and Home
+## 6. Default for every project (design D9)
 
-- [ ] 6.1 `memory open` and `memory unchecked` from the host index, viewer forms — `src/chat/core/commands` recorded snapshots, `docs/commands.md` (`src/commandsdoc.test.ts`)
-- [ ] 6.2 Home tab (`homeBlocks` in `src/chat/slack/blocks.ts`) names the two forms, flag on only — Slack Home snapshot
-- [ ] 6.3 Teams and web Home lists (`src/chat/teams/teamshome.ts`, `src/chat/web/webhome.ts`) — their own tests
+- [ ] 6.1 Remove `BRAIN` from `src/config.ts`, `docs/configuration.md`, `.env.example` and every `cfg.brain` branch; tests that pinned the flag-off shape go or assert the one shape
+- [ ] 6.2 `docs/rollout.md`: the `BRAIN=1` and `dream-schedule` rows move to *Retired*
 
-## 7. Docs and rollout
+## 7. Nightly tidy
 
-- [ ] 7.1 `docs/memory.md`: a "Company brain" section (kinds, status, provenance, the use and answer logs, what the dream tidies) — `src/doclinks.test.ts`
-- [ ] 7.2 `docs/security.md`: the `brain/<slug>/` row in *Retention* and what the answer log can hold, and that the use log holds names only
-- [ ] 7.3 `docs/rollout.md`: the ledger row for `BRAIN=1` (bucket 3, canary on the home bot, what to watch: share of typed records, lint count, records revised after a reply, dream cost per run)
-- [ ] 7.4 `npm run typecheck` and `npm test` pass; `openspec validate company-brain --strict` passes
+- [ ] 7.1 `src/brain/tidy.ts` (pure): which findings are due (the three-run rule over `tidy.json`, keyed by code + record + hash), the 15 oldest, the prompt (memory only, no transcripts, never edit `CLAUDE.md`) — `src/brain/tidy.test.ts`
+- [ ] 7.2 The `CLAUDE.md` digests in the mirror's listing exec (`src/memjournal.ts`) and the `instructions-changed` finding in `src/brain/lint.ts`; the first digest is a baseline — `src/memjournal.test.ts`, `src/brain/lint.test.ts`
+- [ ] 7.3 The nightly check in `src/pollers.ts`: per project, 03:00 installation time, start a tidy turn only when a finding is due; mirror, index and counts after it; usage kind `tidy`; nothing posted — `src/routinerun.test.ts` (empty lint starts nothing and no sandbox)
+- [ ] 7.4 The idle stop treats a tidy like any routine turn — `src/turn.idle.test.ts`
 
-## 8. Canary (after merge, on the operator's word)
+## 8. Remove the dream
 
-- [ ] 8.1 Home bot: flag on; after two weeks record the share of typed records, the lint count and the dream's cost per run in the ledger row
-- [ ] 8.2 Answer the design's open questions (does anyone want an explicit confirm; the reference check for methods) from the canary before production
+- [ ] 8.1 Delete `src/dream.ts`, `fireDream`, the routine kind `dream` (`src/state.ts`), the after-dream snapshot path in `src/memjournal.ts` that the mirror replaces, and the dream branches in `src/routineguard.ts`, `src/metering.ts`, `src/housekeeping.ts`, `src/messaging/service.ts`
+- [ ] 8.2 Remove a stored dream routine at boot, logged once — `src/state.test.ts`
+- [ ] 8.3 Delete the `dream` verb (`src/chat/core/commands.ts`), its views and cards (`src/chat/views.ts`, Slack blocks, Teams cards, web views); re-record the command and Home snapshots
+- [ ] 8.4 Home lists of the three surfaces: no dream line; `memory open` and `memory unchecked` named (8.5)
+- [ ] 8.5 `memory open` and `memory unchecked` from the host index, viewer forms — recorded snapshots, `docs/commands.md` (`src/commandsdoc.test.ts`)
+- [ ] 8.6 Docs: `docs/memory.md` (a "Company brain" section: kinds, status, provenance, the logs, the tidy; the dream section goes), `docs/commands.md`, `docs/housekeeping.md`, `docs/runtime-config.md`, `docs/teams.md`, `docs/web.md`, `docs/security.md` (the `brain/<slug>/` row) — `src/doclinks.test.ts`
+- [ ] 8.7 Specs of record that name dreams (`agent-messaging`, `sandbox-idle-stop`, `teams-chat-driver`): reword to "tidy" where the requirement still holds, in this change's deltas
+- [ ] 8.8 `npm run typecheck` and `npm test` pass; `openspec validate company-brain --strict` passes
+
+## 9. After the deploy (on the operator's word)
+
+- [ ] 9.1 First night on production: the cost of one tidy turn and the lint count before and after, into `docs/memory.md`
+- [ ] 9.2 After two weeks: the share of typed records, findings stopped by the three-run rule, records revised after a reply

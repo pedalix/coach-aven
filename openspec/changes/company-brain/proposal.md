@@ -19,7 +19,8 @@ The home bot canaries it on its own project first.
 
 ## What Changes
 
-All of it behind `BRAIN=1`; with the flag unset nothing below exists.
+The first slices shipped behind `BRAIN=1`. Since 2026-11-25 (design D9) the capability is part of every project,
+with no flag, and it replaces the dream.
 
 - **A record contract.** A memory record names its `kind` (`investigation`, `domain`, `method`, `decision`) and,
   for an investigation, its `ticket` and `status`. The agent is told the contract in the system prompt; the files
@@ -35,9 +36,10 @@ All of it behind `BRAIN=1`; with the flag unset nothing below exists.
   and whether it was revised after a person replied in the same conversation. The agent reads this through the
   host tool and is told to say when a figure or a rule rests on a record no person has corrected. Silence is
   never counted as a check.
-- **A dream that tidies from the lint.** The nightly dream gets the lint report: records without a kind or status,
-  investigations open for too long or open while the tracker has resolved the ticket, records about the same
-  ticket, personal data patterns. It reconciles, retires and redacts; it still never touches code.
+- **A nightly tidy instead of the dream.** Once a night the host starts one memory-only turn for a project whose
+  lint has findings — records without a kind or status, investigations open for too long, records about the same
+  ticket, personal data patterns, changed `CLAUDE.md` — at most 15 a night; an empty lint starts nothing. The
+  dream (command, routine, schedule, transcript sweep) is removed.
 - **Reading it as a person.** `/aven memory open` and `/aven memory unchecked` list from the host index without
   waking the sandbox; the Home lists name them.
 
@@ -46,7 +48,7 @@ All of it behind `BRAIN=1`; with the flag unset nothing below exists.
 ### New Capabilities
 
 - `company-brain`: typed memory records with status and host-derived provenance, the host-side mirror, index and lint,
-  the answer log with its host tool, and the dream's tidy pass.
+  the answer log with its host tool, and the nightly tidy that replaces the dream.
 
 ### Modified Capabilities
 
@@ -55,8 +57,9 @@ and leaves `host-tools` and `routine-delivery` as they are.
 
 ## Impact
 
-- **Rollout bucket 3**: flag `BRAIN=1`, off by default, canaried on the home bot. With it unset the prompt
-  goldens, the recorded turns, the Home text and the dream prompt are byte-identical (tests pin each).
+- **Rollout**: slices 1–3 were bucket 3 (`BRAIN=1`). The remaining PR retires the flag on the maintainer's word
+  (2026-11-25): a behaviour change that reaches each installation when it is shipped, named in the PR and the
+  release summary; the ledger row moves to *Retired*, and the `dream-schedule` row with it.
 - **Out of scope**
   - Sharing records between projects. Memory stays per project, as `docs/memory.md` promises; a tenant-wide
     search is a follow-up change once one project's records are worth sharing.
