@@ -242,8 +242,9 @@ Off by default; `BRAIN=1` turns it on for an installation (OpenSpec `company-bra
   link and a link without a file, an e-mail address or an international phone number (the pattern and a count,
   never the text).
 
-- **The record contract.** New sessions get two prompt paragraphs: a record carries a top-level `kind`, an
-  investigation a `status` and a `ticket`, and an answer that rests on a record nobody corrected says so.
+- **The record contract.** New sessions get two prompt paragraphs: a record carries a `kind`, an
+  investigation a `status` and a `ticket` (asked for at the top level of the frontmatter, read under `metadata:`
+  too), and an answer that rests on a record nobody corrected says so.
 - **The use log.** `brain/<slug>/uses.jsonl`: one line per turn that read or changed a record — the time, the
   conversation, what started the turn (a person, a routine, a poller, another agent) and the record names. No
   text. "Read" is a heuristic (a memory file named in a tool input); "changed" is the mirror's diff.

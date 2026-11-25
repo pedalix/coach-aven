@@ -1,6 +1,9 @@
 // Company brain (OpenSpec company-brain): one memory record as the host reads it. The records stay Claude Code's
 // own auto-memory files (design D1) — `name`/`description` and a nested `metadata:` block the CLI writes — and the
-// contract adds three TOP-LEVEL frontmatter keys the agent is asked for: `kind`, `status`, `ticket`. Pure: a
+// contract adds three frontmatter keys the agent is asked for: `kind`, `status`, `ticket`. The prompt asks for
+// them at the top level, but the CLI rewrites a record's frontmatter and moves a key it does not know under
+// `metadata:`, beside its own fields (seen on the first production day; the probe's `memory-keys-survive-edit`
+// records it per CLI version), so each is read from the top level first and from `metadata` otherwise. Pure: a
 // record is parsed from its text alone, and a value outside the contract reads as absent (the lint lists it)
 // rather than failing — these files are written by a model.
 
@@ -36,9 +39,11 @@ export function parseRecord(content: string): ParsedRecord {
       if (kv[3] !== '') top.set(kv[2], unquote(kv[3]));
     } else if (block === 'metadata') meta.set(kv[2], unquote(kv[3]));
   }
-  const kind = top.get('kind')?.toLowerCase();
-  const status = top.get('status')?.toLowerCase();
-  const ticket = top.get('ticket');
+  // `metadata.type` stays Claude Code's own field (user/feedback/project/reference) — never the kind.
+  const key = (k: string): string | undefined => top.get(k) || meta.get(k);
+  const kind = key('kind')?.toLowerCase();
+  const status = key('status')?.toLowerCase();
+  const ticket = key('ticket');
   return {
     ...(top.get('name') ? { title: top.get('name') } : {}),
     ...(kind && (KINDS as readonly string[]).includes(kind) ? { kind: kind as Kind } : {}),

@@ -3,7 +3,7 @@
 import { LEDGER_ARGS } from '../../claudeSession.js';
 import type { ProbeCtx } from '../ctx.js';
 import type { Scenario } from '../types.js';
-import { answeredIn, CHAIN, SIDE, toolResults } from './lib.js';
+import { answeredIn, CHAIN, SIDE, toolResults, toolUses } from './lib.js';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Any = any;
@@ -134,4 +134,52 @@ const apiKeyTurn: Scenario<ProbeCtx> = {
   },
 };
 
-export const CANDIDATES: Scenario<ProbeCtx>[] = [interruptReceipt, cancelAsyncMessage, originPeer, compaction, apiKeyTurn];
+// What a memory record's frontmatter looks like after the agent edits it (OpenSpec company-brain D1): the host
+// reads `kind`, `status` and `ticket` from records the CLI's own memory writes, and Anthropic documents no format
+// for them. The record is written with a top-level `kind`, edited in a second turn, then printed: the report shows
+// whether the key survived and where it sits, so a pin bump that starts dropping or moving it is seen here first.
+export function frontmatterKeys(text: string): { top: string[]; metadata: string[] } | null {
+  const m = /(?:^|\n)---\r?\n([\s\S]*?)\r?\n---/.exec(text);
+  if (!m) return null;
+  const top: string[] = [];
+  const metadata: string[] = [];
+  let block = '';
+  for (const line of m[1]!.split(/\r?\n/)) {
+    const kv = /^(\s*)([A-Za-z_][\w-]*):\s*(.*)$/.exec(line);
+    if (!kv) continue;
+    if (kv[1] === '') {
+      top.push(kv[2]!);
+      block = kv[3] === '' ? kv[2]! : '';
+    } else if (block === 'metadata') metadata.push(kv[2]!);
+  }
+  return { top, metadata };
+}
+const memoryKeysSurviveEdit: Scenario<ProbeCtx> = {
+  meta: {
+    id: 'memory-keys-survive-edit',
+    contract: false,
+    runs: 1,
+    hypothesis:
+      'A memory record saved with an extra frontmatter key (`kind: domain`) still carries that key after the agent edits the record in a later turn; where the key sits (top level or under `metadata`) and the other keys the CLI writes are recorded.',
+  },
+  async run(ctx) {
+    await ctx.send(
+      'Save this to your memory now, as one new memory record file: "The probe shop refunds a lift pass within 14 days." In that file\'s frontmatter also put the line `kind: domain`. Then reply with only: saved.',
+    );
+    await ctx.precondition(ctx.is.result, 180 * S, 'the first turn ends');
+    const wrote = ctx.frames.flatMap(toolUses).some((u) => /\/memory\//.test(String(u.input?.file_path ?? '')) && /kind:\s*domain/.test(String(u.input?.content ?? '')));
+    ctx.require(wrote, 'the model wrote a memory record with `kind: domain`');
+    await ctx.send(
+      'Correction: the refund window is 21 days, not 14. Update that memory record. After the update, use the Bash tool once to `cat` that record\'s file, then reply with only: updated.',
+    );
+    await ctx.precondition(ctx.is.result, 180 * S, 'the second turn ends');
+    const printed = toolResults(ctx.frames).map((r) => r.text).filter((t) => /21 days/.test(t) && /---/.test(t)).pop();
+    ctx.require(printed, 'the model printed the edited record');
+    const keys = frontmatterKeys(printed!);
+    const at = keys?.top.includes('kind') ? 'top' : keys?.metadata.includes('kind') ? 'metadata' : 'absent';
+    ctx.check(at !== 'absent' && /kind:\s*domain/.test(printed!), `the edited record still carries \`kind: domain\` (keys ${JSON.stringify(keys)})`);
+    return { kindAt: at, topKeys: keys?.top ?? [], metadataKeys: keys?.metadata ?? [] };
+  },
+};
+
+export const CANDIDATES: Scenario<ProbeCtx>[] = [interruptReceipt, cancelAsyncMessage, originPeer, compaction, apiKeyTurn, memoryKeysSurviveEdit];

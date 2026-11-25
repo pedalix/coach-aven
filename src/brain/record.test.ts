@@ -45,9 +45,21 @@ test('parseRecord — a value outside the contract reads as absent; case and quo
 });
 
 test('parseRecord — metadata.type is Claude Code\'s own field, never the kind', () => {
-  const p = parseRecord(rec('name: x\nmetadata:\n  type: project\n  kind: domain\n  status: open'));
+  const p = parseRecord(rec('name: x\nmetadata:\n  type: decision\n  node_type: memory'));
   assert.equal(p.kind, undefined);
-  assert.equal(p.status, undefined);
+});
+
+test('parseRecord — the contract keys under metadata, where the agent also writes them, are read', () => {
+  const p = parseRecord(rec('name: x\nmetadata:\n  node_type: memory\n  kind: investigation\n  status: open\n  ticket: SHOP-682\n  type: project'));
+  assert.equal(p.kind, 'investigation');
+  assert.equal(p.status, 'open');
+  assert.equal(p.ticket, 'SHOP-682');
+});
+
+test('parseRecord — a top-level key wins over the one under metadata', () => {
+  const p = parseRecord(rec('kind: method\nmetadata:\n  kind: domain\n  status: fixed'));
+  assert.equal(p.kind, 'method');
+  assert.equal(p.status, 'fixed');
 });
 
 test('parseRecord — no frontmatter: the whole text is the body', () => {
