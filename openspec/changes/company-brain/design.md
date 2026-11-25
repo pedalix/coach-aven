@@ -23,7 +23,7 @@ status, a trace of what was answered, a way to tell checked from unchecked, and 
 - A person can tell a record somebody corrected from an agent's own note, and so can the agent — without
   anyone being asked to mark anything.
 - "What did we answer on this ticket, and did anything follow" is answered from a log the host wrote.
-- Stale and contradicting records are found by code and resolved by the dream.
+- Stale and contradicting records are found by code and resolved by a nightly tidy.
 - One road: no flag, no per-project switch, no second upkeep feature beside this one (D9).
 
 **Non-Goals:**
@@ -63,13 +63,13 @@ committed. Derived files live apart in `brain/<slug>/` (`index.json`, `lint.json
 - Why git: versions come for free, and a rebuilt sandbox is re-seeded from it already.
 - Cost: one exec per turn, a second one (per 40 files) only when files changed; each has a 60-second limit. It
   runs after the answer is posted and the message is marked done. A failure never blocks the answer.
-- A dream's snapshot and a turn's mirror go through one queue per journal.
+- A tidy's writes and a turn's mirror go through one queue per journal.
 
 ### D3. Which records a turn read
 
 Read: a record's file name appearing in a tool input of the turn's stream (a `Read` path, a shell command).
 Changed: a record in the mirror's diff that a tool input of the same turn named. The diff alone is the whole
-project's — a first mirror holds every record, and another conversation's turn or a dream may have written since
+project's — a first mirror holds every record, and another conversation's turn or a tidy may have written since
 the last one — so a change no input of this turn named is mirrored and credited to nobody. Both are heuristics
 (a record written through `cd memory && …` is missed); a miss costs a use or a revision that is not counted,
 never one that is invented.
