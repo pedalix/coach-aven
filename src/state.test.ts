@@ -422,3 +422,16 @@ test('web users — the identity provider\'s people by user id, persisted, idemp
   assert.equal(store.getWebUser('nope'), undefined);
   assert.deepEqual(new Store(path).listWebUsers().map((u) => u.id), ['sub-1', 'sub-2']);
 });
+
+// The dream is removed (OpenSpec company-brain D9): a stored dream routine is dropped on load — in memory, so a
+// read-only CLI never rewrites state.json — and the bot's next save persists that.
+test('routines — a stored dream routine is dropped on load; the others stay', () => {
+  const { store, path } = freshStore();
+  const report = store.addRoutine(routine());
+  const dream = store.addRoutine(routine({ kind: 'dream' as never, prompt: '' }));
+  const reloaded = new Store(path);
+  assert.deepEqual(reloaded.listRoutines().map((r) => r.id), [report.id]);
+  assert.match(readFileSync(path, 'utf8'), new RegExp(`"${dream.id}"`), 'not rewritten by the load itself');
+  reloaded.patchRoutine(report.id, { enabled: false });
+  assert.doesNotMatch(readFileSync(path, 'utf8'), /"kind": "dream"/);
+});

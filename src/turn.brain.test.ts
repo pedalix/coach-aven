@@ -1,6 +1,6 @@
-// Company brain at the end of a turn (OpenSpec company-brain, tasks 2.2): the hook the turn engine calls under
-// BRAIN=1 — mirror, then the index and the lint in brain/<slug>/ — over the real mirror and a fake sandbox. That
-// the engine calls it only with the flag is pinned where the engine is driven (src/chat/slack/turn.record.test.ts).
+// Company brain at the end of a turn (OpenSpec company-brain, tasks 2.2): the hook the turn engine calls after
+// every answer — mirror, then the index and the lint in brain/<slug>/ — over the real mirror and a fake sandbox.
+// That the engine calls it is pinned where the engine is driven (src/chat/slack/turn.record.test.ts).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -91,7 +91,7 @@ test('a person\'s turn about a ticket: a use entry with names only, an answer en
     ['t1', 'person', ['counting.md', 'glacier-12.md'], []],
   ]);
   assert.ok(!JSON.stringify(uses).includes('export'), 'the use log holds no text');
-  // The routine's report that wrote the record is an answer too (a dream never comes this way: pollers.ts).
+  // The routine's report that wrote the record is an answer too (the nightly tidy's own answer is never logged: pollers.ts).
   assert.deepEqual((await readAnswers('logs')).slice(1), [
     { at: '2026-05-02T08:00:00.000Z', key: 'thread:1', turnId: 't1', asker: 'U1', question: 'Why twice?', answer: 'The export joins twice.', records: ['glacier-12.md'], tickets: ['GLACIER-12'], link: 'https://chat.example/t/1' },
   ]);

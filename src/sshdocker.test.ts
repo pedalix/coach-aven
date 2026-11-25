@@ -545,7 +545,7 @@ test('SshDockerDriver.getSandbox — a peek the host never answers ends at its o
     }
     return {};
   });
-  const peek = driver.getSandbox('proj-hung'); // nightly housekeeping, /aven memory, the dream journal
+  const peek = driver.getSandbox('proj-hung'); // nightly housekeeping, /aven memory
   const wake = driver.ensureSandbox('proj-hung', 'hung'); // the next turn of the project
   for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
   assert.deepEqual(order, [], 'the warm-up waits behind the peek');

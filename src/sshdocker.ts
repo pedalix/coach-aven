@@ -516,7 +516,7 @@ class SshDockerHandle implements SandboxHandle {
 
   // Every call into the container is activity for the idle stop (idlestop.ts): in flight while it
   // runs, a touch at its start and end. Done here, where every caller passes — turns, housekeeping,
-  // the dream journal, /aven memory, Restart session — so no caller can forget it.
+  // /aven memory, Restart session — so no caller can forget it.
   private tracked<T>(op: () => Promise<T>): Promise<T> {
     return sandboxActivity.track(this.name, op);
   }
@@ -716,7 +716,7 @@ export class SshDockerDriver implements SandboxDriver {
   // A peek: never starts anything, records nothing — but waits for a stop of the container that
   // is under way, and reports the state after it. It runs under the container's lock, so it has a
   // timeout of its own: on a Docker daemon that stopped answering, a peek without one (nightly
-  // housekeeping, /aven memory, the dream journal) would hold the lock for good, and every warm-up of
+  // housekeeping, /aven memory) would hold the lock for good, and every warm-up of
   // the container would wait behind it — the project's turns sitting at "Preparing…" with no error
   // instead of failing at the warm-up's own timeout. No answer reads as no sandbox, as an unreachable
   // host always did, and is logged.

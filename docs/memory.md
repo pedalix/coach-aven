@@ -20,8 +20,8 @@ so it stops re-learning "edits go to repo X, never Y" every conversation.
 - Reading is exposed via `/aven memory` (the learned layer) and read-only `/aven prompt`
   (the deliberate layer); writing memory happens through normal conversation. Editing the
   prompt is deferred to [runtime config](runtime-config.md).
-- A scheduled [**Dreaming**](#dreaming) pass keeps memory sharp and writes a host-side
-  backup copy into `state.json` (disaster recovery only — sandboxes are the source of truth).
+- The host mirrors memory after every turn and tidies it at night when its own check finds
+  problems — the [company brain](#company-brain); sandboxes stay the source of truth.
 
 ## Background: the two Claude Code memory systems
 
@@ -141,82 +141,17 @@ prompt layer 2.5. Not needed today.
 - **No cross-project sharing.** Each `proj-<slug>` sandbox is isolated, so memory is too —
   by construction.
 
-## Dreaming
-
-A scheduled, low-priority, **memory-only** reflection turn per project — the natural
-marriage of the existing scheduler (`src/schedule.ts`) with project memory. A "dream" does
-**not** touch code; it tidies and consolidates what the agent has learned.
-
-### Mental model (source of truth = the sandbox)
-
-Our sandboxes are warm, and nothing in the bot deletes one — a container keeps its disk
-through every stop/start, the idle stop's included — so **the live in-sandbox auto memory is
-the working source of truth and is effectively durable** in day-to-day operation. A
-from-scratch rebuild (a container removed to take a new image or new flags, a lost sandbox
-host, a critical bug) is the **rare exception**, not a routine event.
-
-So dreaming is framed around *quality*, with persistence as a secondary safety net:
-
-- **Source of truth:** the native auto memory inside `proj-<slug>`. It lives there and
-  survives stop/start.
-- **Primary goal — memory quality.** Consolidate and prune in place: drop obsolete entries
-  (dead repos/conventions), merge duplicates, synthesize durable learnings from recent
-  sessions, and keep `MEMORY.md` a sharp index **within the 200-line / 25 KB load budget**
-  (only that prefix is loaded into every session).
-- **Side effect — a host-side duplicate.** Each dream writes a copy of the consolidated
-  memory into **`state.json`** (server-owned, survives `export`/`import`). Not
-  `projects.config.json` — that's deploy-managed and would be clobbered by the next `export`.
-- **The duplicate is a disaster-recovery backup**, restored (re-seeded into a fresh
-  sandbox) **only on the rare rebuild**. No per-turn or per-rebuild snapshotting in the hot
-  path.
-- **Bonus:** the host copy is readable **without waking the sandbox** (offline inspection,
-  versioning) — `/aven memory` could serve the last consolidated copy from `state.json` and
-  reserve a live `exec` read for "show me right now".
-
-### Guardrails
-
-- **Memory-only.** A dream must never `git push` or open a PR — hard rule, enforced in its
-  prompt and ideally a guardrail. It reads recent work + memory and rewrites memory, nothing
-  else.
-- **Cost gating.** Only dream projects with **activity since the last dream**; run at low
-  frequency (e.g. nightly), and let the sandbox auto-stop again afterward.
-- **No races.** A dream is its own session/process on the project sandbox. **Skip if a turn
-  is in flight** for that project (visible via `queues`) so it doesn't fight a live user
-  turn over the memory files; prefer low-traffic hours.
-- **Conservative curation.** Additive/consolidating, not aggressive deletion; keep a
-  pre-dream copy (the `state.json` backup doubles as this) so a bad dream is recoverable.
-  Memory is read by humans via `/aven memory`, so drift is catchable.
-
-### Shape (v1, implemented)
-
-A new **routine kind** (`kind: 'dream'`) on the existing routines mechanism — not a second
-scheduler. Managed with `/aven dream [on|off|now]` (bare = status); enabling creates one
-nightly dream routine per project channel (default `0 3 * * *`, in `AVEN_TZ`). The scheduler
-fires it like any routine; `fireRoutine` dispatches dreams to `fireDream`, which:
-
-- runs **silently** via the no-UI turn runner (`runAsk` + `DREAM_FRAMING`) — no channel post;
-- **skips if the project has a live turn** (`projectBusy`), to avoid racing a user on memory;
-- **logs a one-line digest** (`dreamDigest`) to the journal and stores it on the routine
-  (`lastSummary`), surfaced by `/aven dream` and `/aven routines` — visibility without noise.
-
-### Decided / deferred within Dreaming
-
-- **Silent + logged digest** (chosen): curate quietly, log a one-line digest; no channel spam.
-- **Activity gate** (deferred): v1 dreams on schedule whenever enabled and the project isn't
-  busy; "only if there was activity since the last dream" needs a per-project last-activity
-  signal and is left for later.
-
 ## Memory journal (durability + history)
 
-Persistence rides on **Dreaming**, not per-turn snapshotting. After each dream (the sandbox
-is already awake), the orchestrator snapshots the project's memory dir into a **per-project
-git repo** at `./memory/<slug>/` (next to `state.json`: server-owned, gitignored,
-deploy-excluded). One repo per project → no cross-project collision.
+After every turn the bot mirrors the project's memory dir into a **per-project git repo** at
+`./memory/<slug>/` (next to `state.json`: server-owned, gitignored, deploy-excluded): one exec lists a hash per
+memory file, the files that differ from the host's copy are read back and committed (`turn <id>`). A turn that
+changed nothing costs that one exec; a failure is logged and the answer stands. One repo per project → no
+cross-project collision.
 
-- **History / reconstruct:** each snapshot is a commit (message = the dream's one-line
-  digest), so `git log` reads as a changelog of dreams and any past state is recoverable by
-  checkout. `/aven memory log` shows the history.
-- **Restructurable:** the journal is plain git — compact, branch, or roll back a bad dream.
+- **History / reconstruct:** each change is a commit, so `git log` reads as a changelog and any past state is
+  recoverable by checkout. `/aven memory log` shows the history.
+- **Restructurable:** the journal is plain git — compact, branch, or roll back a bad edit.
 - **Durability:** on the rare rebuild (image swap, a lost sandbox host), `restoreMemoryIfEmpty`
   seeds a fresh sandbox from the journal HEAD — but only when the sandbox has no memory yet,
   so a warm sandbox (the newer source of truth) is never overwritten.
@@ -228,23 +163,21 @@ log. Implemented in `src/memjournal.ts` (host git + sandbox file IO; pure helper
 
 ## Company brain
 
-Off by default; `BRAIN=1` turns it on for an installation (OpenSpec `company-brain`, canary flag — see
-[rollout](rollout.md)). It lands in slices; this section describes what an installation with the flag does today.
+Part of every project, with no flag and no switch (OpenSpec `company-brain`). The host turns the agent's own
+memory files into records a team can rely on, without a model on the host.
 
-- **The mirror after a turn.** The journal above is fed when a turn ends, not only after a dream: one exec lists
-  a hash per memory file, the files that differ from the host's copy are read back and committed (`turn <id>`).
-  A turn that changed nothing costs that one exec; a failure is logged and the answer stands.
+- **The record contract.** Every session's prompt has two paragraphs: a record carries a `kind`
+  (`investigation`, `domain`, `method`, `decision`), an investigation a `status` and a `ticket`, and an answer
+  that rests on a record nobody corrected says so. Claude Code documents no format for these files and rewrites
+  their frontmatter — it moves a key it does not know under `metadata:` — so the host reads each key from the
+  top level first and from `metadata` otherwise (the probe's `memory-keys-survive-edit`, `docs/cli-probe.md`).
 - **The index.** `brain/<slug>/index.json` in the installation directory lists every record: its file, title,
-  `kind` (`investigation`, `domain`, `method`, `decision`), `status` and `ticket` when its frontmatter carries
-  them, when the host first saw it and when its content last changed. No record text.
+  `kind`, `status` and `ticket` when its frontmatter carries them, when the host first saw it and when its
+  content last changed. No record text.
 - **The lint.** `brain/<slug>/lint.json` lists what code can find: a record without a kind, an investigation
   without a status or `open` for more than 30 days, several records for one ticket, a file `MEMORY.md` does not
   link and a link without a file, an e-mail address or an international phone number (the pattern and a count,
-  never the text).
-
-- **The record contract.** New sessions get two prompt paragraphs: a record carries a `kind`, an
-  investigation a `status` and a `ticket` (asked for at the top level of the frontmatter, read under `metadata:`
-  too), and an answer that rests on a record nobody corrected says so.
+  never the text), and a repository's `CLAUDE.md` that changed since the last tidy.
 - **The use log.** `brain/<slug>/uses.jsonl`: one line per turn that read or changed a record — the time, the
   conversation, what started the turn (a person, a routine, a poller, another agent) and the record names. No
   text. "Read" is a heuristic (a memory file named in a tool input); "changed" is the mirror's diff.
@@ -255,16 +188,37 @@ Off by default; `BRAIN=1` turns it on for an installation (OpenSpec `company-bra
 - **The answer log.** `brain/<slug>/answers.jsonl`: for a turn that read or changed an `investigation` record,
   the question as the sandbox received it, the answer as posted, who asked, the records, their tickets and the
   thread link. Not written for a marked (cross-domain) or shadow conversation, nor for a direct message or a
-  command's own conversation — the log is read by the whole project. A dream is not a turn of this
-  kind and logs nothing.
+  command's own conversation — the log is read by the whole project. The nightly tidy logs no answer.
 - **`brain_history`.** A host tool on the session's own channel: for a ticket id or a record's file name it
   returns the record's provenance and the logged answers oldest first, each with how many turns followed in
   that conversation (from the usage log). The project is the caller's; another project's ticket finds nothing.
 
+### The nightly tidy
+
+The one upkeep pass. It replaces the dream (a scheduled consolidation turn people had to switch on, which swept
+session transcripts every night): there is no command, no routine and no schedule to set.
+
+- **What starts it.** During the 03:00 hour (`AVEN_TZ`) the host reads each project's `lint.json`. Nothing due →
+  no turn, and a stopped sandbox stays stopped. Otherwise one turn gets at most 15 findings, oldest first, so
+  an existing project's backlog drains over nights.
+- **What it may do.** Memory only: the prompt forbids code, branches, pull requests and edits to any
+  `CLAUDE.md`, and it does not read transcripts. It resolves the findings it was given and touches no other
+  record.
+- **When it stops.** A finding given to three tidies and still listed no longer starts one — a false positive
+  of the personal-data pattern must not buy a turn every night. It stays in the lint. A record someone changes
+  later is due again.
+- **`CLAUDE.md`.** The mirror also notes a digest of each repository's `CLAUDE.md`. The first one is a
+  baseline; a change is one finding, and the tidy that was given it brings contradicting records into
+  agreement with the file.
+- **What it leaves.** Nothing in chat. The journal commit (`turn tidy-<day>`), a log line and a usage record
+  under the key `cron:tidy:<slug>` (`/aven usage`); the counts live in `brain/<slug>/tidy.json`.
+- **No races.** A project with a live turn is left for the next minute of the hour; a failed tidy is not
+  retried that night.
+
 The index and the lint are derived: delete them and the next turn rebuilds them from the mirror and the use
-log. The two logs are not: deleting `brain/<slug>/` forgets what was answered. Not there yet: the dream's tidy
-pass, the tracker check and the `/aven memory open` / `unchecked` forms. Implemented in `src/brain/` (pure
-parts tested apart), `src/memjournal.ts` and `src/hostrouter.ts`.
+log. The two logs are not: deleting `brain/<slug>/` forgets what was answered. Not there yet: the tracker
+check and the `/aven memory open` / `unchecked` forms. Implemented in `src/brain/` (pure parts tested apart;
+`night.ts` runs one project's tidy), `src/memjournal.ts`, `src/pollers.ts` and `src/hostrouter.ts`.
 
 ## Deferred / future
 

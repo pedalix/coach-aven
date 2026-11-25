@@ -255,7 +255,7 @@ C('routines-not-here', async (t) => {
   const r = seedRoutine(t);
   await t.receiver.send(cmd(`routines off ${r.id}`, { channel: 'C_BETA' }));
 });
-for (const verb of ['dream', 'housekeeping']) {
+for (const verb of ['housekeeping']) {
   C(`${verb}-status-none`, (t) => t.receiver.send(cmd(verb)));
   C(`${verb}-on`, (t) => t.receiver.send(cmd(`${verb} on`)));
   C(`${verb}-on-off-status`, async (t) => {
@@ -272,18 +272,8 @@ for (const verb of ['dream', 'housekeeping']) {
   });
   C(`${verb}-unbound`, (t) => t.receiver.send(cmd(verb, { channel: 'C_RANDOM' })));
 }
-// `dream on <when>`: a weekly dream from the start; a nightly one moved to weekly (status shows the new schedule); a
-// schedule it cannot read is refused with the forms, and nothing is created.
-C('dream-on-weekly', (t) => t.receiver.send(cmd('dream on weekly sun 3:00')));
-C('dream-nightly-to-weekly', async (t) => {
-  await t.receiver.send(cmd('dream on'));
-  await t.receiver.send(cmd('dream on weekly sun 3:00'));
-  await t.receiver.send(cmd('dream'));
-});
-C('dream-on-bad-when', async (t) => {
-  await t.receiver.send(cmd('dream on fortnightly'));
-  await t.receiver.send(cmd('dream'));
-});
+// The dream verb is gone (OpenSpec company-brain D9): it is answered like any unknown verb.
+C('dream-removed', (t) => t.receiver.send(cmd('dream on')));
 // `grant` (OpenSpec project-grants): listing for anyone, granting and ending for operators; the start and an early end
 // are posted to the channel. The twin has no GitHub App auth, so the grant's reply says it changes nothing here.
 C('grant-list-none', (t) => t.receiver.send(cmd('grant')));

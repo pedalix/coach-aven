@@ -153,7 +153,7 @@ export function createMessaging(d: MessagingDeps) {
   // ── where answers go (D9 step 3) ────────────────────────────────────────────────────────────
   function replyTargetOf(key: string, slug: string): ReplyTarget | { refused: string } {
     if (parseShadowKey(key)) return { key, driver: 'shadow' };
-    if (d.engine.isAsk(key)) return { refused: 'this conversation is a one-off answer (an /aven question or a dream): answers would have nowhere to go — ask from a thread' };
+    if (d.engine.isAsk(key)) return { refused: 'this conversation is a one-off answer (an /aven question or the nightly tidy): answers would have nowhere to go — ask from a thread' };
     const chat = d.store.getChat(key);
     const inf = chat?.inflight;
     if (inf) return { key, driver: d.platform, channel: inf.channel, ...(inf.msgThreadTs ? { thread: inf.msgThreadTs } : {}) };

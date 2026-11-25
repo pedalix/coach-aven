@@ -1,5 +1,5 @@
 // The /aven command router and its subcommand handlers (status, access, schedule, routines,
-// dream, memory, prompt, review, autofix, and the default private-answer path) —
+// memory, prompt, review, autofix, and the default private-answer path) —
 // platform-neutral: a chat driver normalizes the typed command (ChatCommand) and every reply
 // goes back through it. Moved verbatim from the Slack command handler (OpenSpec
 // chat-driver-interface, PR 3); the heavy lifting lives in the turn engine, the pollers'
@@ -88,8 +88,8 @@ export async function readMemory(
     if (!wake) {
       throw new Error(
         `💤 The *${project.slug}* sandbox is asleep, so I can't read its live memory right now. ` +
-          `Use \`${CMD} memory live\` to wake it, or just @-mention me — and once a dream runs, ` +
-          `\`${CMD} memory\` serves the snapshot without waking it.`,
+          `Use \`${CMD} memory live\` to wake it, or just @-mention me — after the next turn ` +
+          `\`${CMD} memory\` serves the host's copy without waking it.`,
       );
     }
     try {
@@ -164,13 +164,12 @@ export function createCommands(deps: CommandDeps) {
     );
     const githubOk = prCounts.some((n) => n !== undefined);
 
-    // Routine counts per project (reports vs dreams vs housekeeping) for the status line.
-    const jobsBySlug = new Map<string, { jobs: number; dreams: number; hk: number }>();
+    // Routine counts per project (reports vs housekeeping) for the status line.
+    const jobsBySlug = new Map<string, { jobs: number; hk: number }>();
     for (const r of store.listRoutines()) {
       if (r.teamId !== tid) continue;
-      const c = jobsBySlug.get(r.slug) ?? { jobs: 0, dreams: 0, hk: 0 };
-      if (r.kind === 'dream') c.dreams++;
-      else if (r.kind === 'housekeeping') c.hk++;
+      const c = jobsBySlug.get(r.slug) ?? { jobs: 0, hk: 0 };
+      if (r.kind === 'housekeeping') c.hk++;
       else c.jobs++;
       jobsBySlug.set(r.slug, c);
     }
@@ -183,7 +182,6 @@ export function createCommands(deps: CommandDeps) {
       active: activeBySlug.get(p.slug) ?? 0,
       openPRs: prCounts[i],
       jobs: jobsBySlug.get(p.slug)?.jobs ?? 0,
-      dreams: jobsBySlug.get(p.slug)?.dreams ?? 0,
       hk: jobsBySlug.get(p.slug)?.hk ?? 0,
       ...(p.sources
         ? { sources: sourcesStatus(p, p.sources.intervalMinutes ?? DEFAULT_INTERVAL_MIN) }
@@ -307,64 +305,8 @@ export function createCommands(deps: CommandDeps) {
     return { kind: 'text', text: `:information_source: Usage: \`${CMD} routines all | run|on|off|rm <id>\`` };
   }
 
-  // ── /aven dream [on [<when>]|off] → enable/disable memory consolidation for this project ──
-  // 'now' is handled in the command handler (it fires through the pollers). Bare = status.
-  // One dream routine per project channel (kind: 'dream'); reuses the routine scheduler. `on <when>` takes the
-  // /aven schedule forms (`weekly sun 3:00`, `daily 3:00`, `cron …`) — a quiet project need not dream every night,
-  // and a dream reads a lot (prod, Oct 2026: up to ~$5.7 a run). Bare `on` keeps a routine's schedule, or starts nightly.
-  const DREAM_DEFAULT_CRON = '0 3 * * *'; // 03:00 daily, in ROUTINE_TZ
-  function handleDream(channelId: string, userId: string, slug: string | undefined, cmdText: string, tid?: string): PrivateView {
-    if (!slug) return { kind: 'text', text: `:x: Use \`${CMD} dream\` from a project channel.` };
-    const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
-    const existing = store.listRoutines({ channel: channelId }).find((r) => r.kind === 'dream' && r.teamId === tid);
-    if (sub === 'off') {
-      if (!existing) return { kind: 'text', text: ':information_source: No dreaming scheduled here.' };
-      store.patchRoutine(existing.id, { enabled: false });
-      return { kind: 'text', text: `:white_check_mark: Dreaming paused for *${slug}*.` };
-    }
-    if (sub === 'on') {
-      const when = cmdText.split(/\s+/).slice(2).join(' ').trim();
-      const parsed = when ? parseSchedule(when) : undefined;
-      if (parsed && 'error' in parsed) {
-        return { kind: 'text', text: `:x: ${parsed.error} — e.g. \`${CMD} dream on weekly sun 3:00\` or \`${CMD} dream on daily 3:00\`.` };
-      }
-      if (existing) {
-        const rec = store.patchRoutine(existing.id, { enabled: true, ...(parsed ? { cron: parsed.cron, spec: parsed.spec, tz: ROUTINE_TZ } : {}) }) ?? existing;
-        return { kind: 'text', text: `:crescent_moon: Dreaming on for *${slug}* — \`${rec.spec}\` (${rec.tz}).` };
-      }
-      const rec = store.addRoutine({
-        slug,
-        teamId: tid,
-        ...(surface ? { surface } : {}),
-        channel: channelId,
-        cron: parsed?.cron ?? DREAM_DEFAULT_CRON,
-        tz: ROUTINE_TZ,
-        spec: parsed?.spec ?? 'daily 3:00',
-        prompt: '',
-        enabled: true,
-        createdBy: userId,
-        kind: 'dream',
-      });
-      return {
-        kind: 'text',
-        text: `:crescent_moon: Dreaming on for *${slug}* — \`${rec.spec}\` (${ROUTINE_TZ}). I'll quietly consolidate memory; \`${CMD} dream\` shows the last digest.`,
-      };
-    }
-    // bare / status
-    if (!existing) {
-      return { kind: 'text', text: `:crescent_moon: No dreaming for *${slug}*. Enable nightly memory consolidation: \`${CMD} dream on\`.` };
-    }
-    const state = existing.enabled ? '🟢 on' : '⚪️ off';
-    const last = existing.lastRunAt ? `\nLast run: ${existing.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
-    const digest = existing.lastSummary ? `\nLast: _${existing.lastSummary}_` : '';
-    return {
-      kind: 'text',
-      text: `:crescent_moon: *Dreaming — ${slug}* ${state} · \`${existing.spec}\` (${existing.tz})${last}${digest}\n_Manage:_ \`${CMD} dream on [when]|off|now\``,
-    };
-  }
-
   // ── /aven housekeeping [on|off] → nightly sandbox janitor for this project ──
-  // Mirrors handleDream ('now' fires in the command handler, through the pollers). One
+  // 'now' fires in the command handler, through the pollers. One
   // housekeeping routine per project channel (kind: 'housekeeping'), on the same scheduler.
   function handleHousekeeping(channelId: string, userId: string, slug: string | undefined, cmdText: string, tid?: string): PrivateView {
     if (!slug) return { kind: 'text', text: `:x: Use \`${CMD} housekeeping\` from a project channel.` };
@@ -673,25 +615,6 @@ export function createCommands(deps: CommandDeps) {
       await say(handleRoutines(cmd.conv, cmdText, tid));
       return;
     }
-    // `/aven dream [on|off|now]` → nightly memory consolidation (Dreaming) for this project.
-    if (verb === 'dream') {
-      const { project } = await channels.pickProject(d, cmd.conv, '', tenant);
-      const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
-      if (sub === 'now') {
-        const r = store.listRoutines({ channel: cmd.conv }).find((x) => x.kind === 'dream' && x.teamId === tid);
-        if (!r) {
-          await say(`:information_source: No dream here yet — \`${CMD} dream on\` first.`);
-          return;
-        }
-        const ok = pollers.fireRoutine(d, r);
-        await say(ok
-            ? ':crescent_moon: Dreaming now… (silent — check `' + CMD + ' dream` for the digest)'
-            : ':hourglass_flowing_sand: A turn is in flight for this project — try again shortly.');
-        return;
-      }
-      await say(handleDream(cmd.conv, cmd.actor.user, project?.slug, cmdText, tid));
-      return;
-    }
     // `/aven housekeeping [on|off|now]` → the nightly sandbox janitor (docs/housekeeping.md).
     if (verb === 'housekeeping' || verb === 'hk') {
       const { project } = await channels.pickProject(d, cmd.conv, '', tenant);
@@ -729,7 +652,7 @@ export function createCommands(deps: CommandDeps) {
           const lines = await snapshotLog(memoryRepoDir(project.slug));
           const body = lines.length
             ? lines.map((l) => `• ${l}`).join('\n')
-            : '_No snapshots yet — memory is journaled after each dream (`' + CMD + ' dream`)._';
+            : '_No snapshots yet — memory is journaled after each turn that changes it._';
           await say(`*Memory journal — ${project.slug}*\n${body}`.slice(0, MAX_SLACK_TEXT));
         } catch (err) {
           await say(errText(err));
@@ -759,7 +682,7 @@ export function createCommands(deps: CommandDeps) {
         try {
           const snap = await readSnapshotFile(memoryRepoDir(project.slug), fileName);
           if (snap) {
-            await deliver(snap, `\n\n_(last dream snapshot — \`${CMD} memory live\` for the sandbox's current state)_`);
+            await deliver(snap, `\n\n_(the host's copy from the last turn — \`${CMD} memory live\` for the sandbox's current state)_`);
             return;
           }
         } catch {

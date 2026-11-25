@@ -43,9 +43,6 @@ export interface SystemPromptInputs {
   // OUTBOUND_FILES=1 (config.ts): the turn's message names an outbox the agent may save files into (OpenSpec
   // outbound-files); absent → today's text, byte for byte.
   outbox?: boolean;
-  // BRAIN=1 (config.ts): the memory record contract and the "say when a record is unchecked" rule (OpenSpec
-  // company-brain); absent → today's text, byte for byte.
-  brain?: boolean;
   // The project's container options as resolved at boot (sandboxopts.ts) — `dind` gates the
   // toolchain paragraph, exactly as it gates the dockerd guard in prepareChat.
   sandbox: ResolvedSandboxOptions;
@@ -178,25 +175,26 @@ export function buildSystemPrompt(inp: SystemPromptInputs): string {
         `an outbox. A message that names none has nowhere to post a file: answer in text.`,
     );
   }
-  if (inp.brain) {
-    lines.push(
-      `Your memory records are this project's shared brain: people rely on them, so every record you write or ` +
-        `change carries a \`kind\` at the top level of its frontmatter (beside \`name\`, not under \`metadata\`) — ` +
-        `\`investigation\` for one ticket or incident, \`domain\` for how a business concept or flow works, ` +
-        `\`method\` for how to count, query or check something, \`decision\` for why something was built or changed. ` +
-        `An \`investigation\` also carries \`status\` (\`open\`, \`answered\`, \`fixed\` or \`closed\`) and, when it ` +
-        `belongs to a ticket, \`ticket: <id>\`; keep one record per ticket. When an outcome changes, change the ` +
-        `\`status\` value and rewrite the sentence that is no longer true — never append a paragraph that contradicts ` +
-        `the record's opening. No names of customers or guests, no e-mail addresses or phone numbers in a record.`,
-      `A record is your own note until a person has corrected it; how often it was used proves nothing. Before you ` +
-        `answer about a ticket that has a record, and before you state a figure or a rule taken from a \`method\` or ` +
-        `\`domain\` record, call \`mcp__host__brain_history\` (when you have it) with the ticket id or the record's ` +
-        `file name: it returns what this project already answered there, what followed, and whether the record was ` +
-        `ever revised after a person's reply. When the figure or rule rests on a record no person's reply has revised, say so in ` +
-        `the first lines of the answer — one sentence naming the method as your own note, checked by nobody — and ` +
-        `say what a person could compare it with.`,
-    );
-  }
+  // Company brain (OpenSpec company-brain): the memory record contract and the "say when a record is unchecked"
+  // rule, for every project. The contract does not say where in the frontmatter the keys sit: the CLI rewrites a
+  // record's frontmatter and moves them under `metadata` (design D1), and the host reads both places.
+  lines.push(
+    `Your memory records are this project's shared brain: people rely on them, so every record you write or ` +
+      `change carries a \`kind\` in its frontmatter — ` +
+      `\`investigation\` for one ticket or incident, \`domain\` for how a business concept or flow works, ` +
+      `\`method\` for how to count, query or check something, \`decision\` for why something was built or changed. ` +
+      `An \`investigation\` also carries \`status\` (\`open\`, \`answered\`, \`fixed\` or \`closed\`) and, when it ` +
+      `belongs to a ticket, \`ticket: <id>\`; keep one record per ticket. When an outcome changes, change the ` +
+      `\`status\` value and rewrite the sentence that is no longer true — never append a paragraph that contradicts ` +
+      `the record's opening. No names of customers or guests, no e-mail addresses or phone numbers in a record.`,
+    `A record is your own note until a person has corrected it; how often it was used proves nothing. Before you ` +
+      `answer about a ticket that has a record, and before you state a figure or a rule taken from a \`method\` or ` +
+      `\`domain\` record, call \`mcp__host__brain_history\` (when you have it) with the ticket id or the record's ` +
+      `file name: it returns what this project already answered there, what followed, and whether the record was ` +
+      `ever revised after a person's reply. When the figure or rule rests on a record no person's reply has revised, say so in ` +
+      `the first lines of the answer — one sentence naming the method as your own note, checked by nobody — and ` +
+      `say what a person could compare it with.`,
+  );
   lines.push(
     `When a reply diagnoses a problem (a bug, an incident, "why is X happening?"), write for a ` +
       `mixed audience: open with a 1–2 sentence plain-language conclusion a non-developer can act ` +

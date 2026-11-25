@@ -82,11 +82,11 @@ export interface RoutineRecord {
   createdBy: string; // Slack user id
   createdAt: string;
   lastRunAt?: string; // last fire (dedupes within a minute + across restarts)
-  // undefined/'report' = scheduled digest; 'dream' = memory consolidation;
+  // undefined/'report' = scheduled digest;
   // 'housekeeping' = the deterministic sandbox janitor (docs/housekeeping.md);
   // 'task' = a scheduled turn that MAY edit/commit per the project's instructions (TASK_FRAMING)
-  kind?: 'report' | 'dream' | 'housekeeping' | 'task';
-  // dream/housekeeping: one-line digest of the last run (visibility without channel noise);
+  kind?: 'report' | 'housekeeping' | 'task';
+  // housekeeping: one-line digest of the last run (visibility without channel noise);
   // report/task under the delivery guard: the delivered answer's headline.
   lastSummary?: string;
   // ── routine delivery guard (ROUTINE_GUARD=1 — docs/runtime-config.md) ──────────────────
@@ -215,6 +215,13 @@ export class Store {
       delete legacy.proposals;
       delete legacy.dispatches;
       log.info(`state: dropping the retired dispatch records — ${proposals} proposal(s), ${dispatches} daily count(s) — on the next save`);
+    }
+    // The dream is removed (OpenSpec `company-brain` D9: the nightly tidy needs no routine): a stored dream
+    // routine is dropped the same way — in memory on load, persisted by the next normal save.
+    const dreams = Object.entries(this.data.routines ?? {}).filter(([, r]) => (r.kind as string | undefined) === 'dream');
+    if (dreams.length) {
+      for (const [id] of dreams) delete this.data.routines![id];
+      log.info(`state: dropping ${dreams.length} dream routine(s) (${dreams.map(([id, r]) => `${id}:${r.slug}`).join(', ')}) — memory is tidied at night without one — on the next save`);
     }
   }
 

@@ -13,7 +13,7 @@
       "token": "",
       "payload": {
         "response_type": "ephemeral",
-        "text": "*Memory journal — cmdrec-mem*\n_No snapshots yet — memory is journaled after each dream (`/aven dream`)._"
+        "text": "*Memory journal — cmdrec-mem*\n_No snapshots yet — memory is journaled after each turn that changes it._"
       }
     }
   ],

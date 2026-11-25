@@ -9,11 +9,11 @@
       }
     },
     {
-      "method": "respond",
-      "token": "",
+      "method": "conversations.open",
+      "token": "xoxb-THOME1111",
       "payload": {
-        "response_type": "ephemeral",
-        "text": ":crescent_moon: Dreaming on for *alpha* — `daily 3:00` (UTC). I'll quietly consolidate memory; `/aven dream` shows the last digest."
+        "team_id": "THOME1111",
+        "users": "U_HUMAN"
       }
     },
     {
@@ -21,17 +21,27 @@
       "token": "",
       "payload": {
         "response_type": "ephemeral",
-        "text": ":crescent_moon: Dreaming now… (silent — check `/aven dream` for the digest)"
+        "text": ":hourglass_flowing_sand: thinking…"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "replace_original": true,
+        "text": "The answer is *42*."
       }
     }
   ],
-  "engine": [],
-  "pollers": [
+  "engine": [
     {
-      "fireRoutine": {
-        "token": "xoxb-THOME1111",
-        "id": "r1"
+      "runAsk": {
+        "key": "cmd:U_HUMAN:alpha",
+        "slug": "alpha",
+        "question": "dream on"
       }
     }
-  ]
+  ],
+  "pollers": []
 }

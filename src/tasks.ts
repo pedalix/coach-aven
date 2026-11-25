@@ -16,6 +16,7 @@ import {
   cloneRepo,
   reapWorktrees,
   repoCheckout,
+  repoName,
   projectCwd,
   repoSkillDirs,
   skillOrigins,
@@ -166,7 +167,7 @@ export interface ChatSession {
   // throws; a listing or read failure is a `skipped` entry. The turn engine posts the files and the notice.
   collectOutbox(turnId: string): Promise<{ files: OutboundFile[]; skipped: { name: string; reason: string }[] }>;
   // Company brain (memjournal.ts, OpenSpec company-brain): copy the memory records that differ from the host's
-  // journal and commit them. Throws on a failed listing or read-back; the turn engine calls it only under BRAIN=1.
+  // journal and commit them. Throws on a failed listing or read-back; the turn engine calls it after every turn.
   mirrorMemory?(message: string): Promise<MirrorResult>;
   // The memory record files the last turn's tool inputs named (a heuristic; company-brain's use log).
   memoryReads?(): string[];
@@ -354,7 +355,7 @@ export async function openChat(
     onRateLimit?: (info: RateLimitInfo) => void;
     // Cost of a turn the CLI ran on its own (a background Task/Agent finishing after its
     // owning turn settled) — see ClaudeSession.onIdleUsage. Set once at open, like
-    // onRateLimit, so it covers no-UI asks and dreams too.
+    // onRateLimit, so it covers no-UI asks and tidies too.
     onIdleUsage?: ClaudeSession['onIdleUsage'];
     // Claude Code CLI pin for this sandbox and whether prep may install it now (false while
     // another turn runs on the project) — see provisionTooling / cliversion.ts.
@@ -411,7 +412,6 @@ export async function openChat(
     gitFlow: opts.gitFlow,
     ...(bitbucketRepos(opts.repos).length ? { bitbucketRepos: bitbucketRepos(opts.repos) } : {}),
     ...(cfg.github.kind === 'none' ? { noGitHub: true } : {}),
-    ...(cfg.brain ? { brain: true } : {}),
     ...(cfg.github.kind === 'app' ? { githubApp: true } : {}),
     ...(opts.outbox ? { outbox: true } : {}),
     // Resolved again here (loadProjects already validated it) so the prompt sees the same
@@ -578,7 +578,14 @@ export async function openChat(
     // The sandbox is awake: the turn that filled the outbox has just ended on it.
     collectOutbox: (turnId: string) => collectOutbox((c) => sandbox.exec(c), turnId, { scrub: opts.scrubSecrets !== false }),
     mirrorMemory: (message: string) =>
-      mirrorMemory((c) => sandbox.exec(c, { timeout: MIRROR_EXEC_TIMEOUT_S }), memoryRepoDir(opts.slug), memoryDir(projectCwd(cfg, opts.slug, opts.repos)), message),
+      mirrorMemory(
+        (c) => sandbox.exec(c, { timeout: MIRROR_EXEC_TIMEOUT_S }),
+        memoryRepoDir(opts.slug),
+        memoryDir(projectCwd(cfg, opts.slug, opts.repos)),
+        message,
+        // Each repository's CLAUDE.md, for the tidy's "changed instructions" finding (company-brain D9).
+        Object.fromEntries(opts.repos.map((r) => [`${repoName(r)}/CLAUDE.md`, `${repoCheckout(cfg, opts.slug, r)}/CLAUDE.md`])),
+      ),
     memoryReads: () => session?.memoryReads() ?? [],
     ask: async (
       prompt: string,

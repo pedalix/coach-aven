@@ -274,7 +274,7 @@ here and deliberately wait for slice 2 to merge.
 ### 7.1 Usage metering — SHIPPED
 
 Every settled agent turn appends a JSONL record to `./usage/<YYYY-MM>.jsonl`
-(`src/metering.ts`; hooked in `turn.ts` for both live turns and no-UI asks/dreams):
+(`src/metering.ts`; hooked in `turn.ts` for both live turns and no-UI asks and the nightly tidy):
 timestamp, conversation key, project, kind, status, wall-clock, and the token/cost
 figures from the claude CLI's `result` event (`usage` + `total_cost_usd`). `/aven usage
 [days]` renders per-project (and, once several teams exist, per-workspace) totals.
@@ -311,7 +311,7 @@ figures from the claude CLI's `result` event (`usage` + `total_cost_usd`). `/ave
 `TURN_MAX_CONCURRENT` (default 4) caps concurrently *running* agent turns across all
 conversations, pollers, and (soon) tenants — per-key queues serialize within a
 conversation; this caps across them. Waiting turns show "⏳ waiting for a free agent
-slot" on their status message. Dreams and `/aven` asks count against the same cap.
+slot" on their status message. The nightly tidy and `/aven` asks count against the same cap.
 Per-TEAM quotas (fairness between tenants, not just a global ceiling) belong after the
 re-keying, when a turn knows its team.
 

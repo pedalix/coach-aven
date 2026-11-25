@@ -1,4 +1,4 @@
-// The bot's background work: the routine scheduler (reports + dreams), the auto-review
+// The bot's background work: the routine scheduler (reports, tasks), the nightly memory tidy, the auto-review
 // and autofix PR pollers, the YouTrack investigation poller and the sources poller (per-project
 // mail/chat/calendar pulls, docs/sources.md) — plus the fire*
 // helpers they share with the /aven command router (run a routine/review on demand).
@@ -54,8 +54,10 @@ import { candidateList, createIdleSweep, housekeepingSandboxStep, idleStopPlan, 
 import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
 import { housekeepingScript, parseHousekeepingReport, pruneThreshold } from './housekeeping.js';
 import { cliUpgradeNotice, cliPinDrift, fetchCliDistTags } from './cliversion.js';
-import { dreamPrompt, dreamDigest } from './dream.js';
-import { snapshotMemory } from './memjournal.js';
+import { nightlyTidy } from './brain/night.js';
+import { tidyDay } from './brain/tidy.js';
+import { memoryDir } from './memory.js';
+import { nowParts } from './schedule.js';
 import { routineLabel, startRoutineTurn } from './routinerun.js';
 import { endNotice, expiredGrants, type GrantRecord } from './grants.js';
 import { shortRepo, alertOps } from './chat/slack/blocks.js';
@@ -187,7 +189,7 @@ export function createPollers(
 
   // Fire one routine now. A report posts a read-only digest turn (a task: a turn that may
   // commit, per the project's instructions) via the normal turn
-  // machinery; a dream runs a silent memory-only pass (see fireDream). Shared by the
+  // machinery. Shared by the
   // scheduler and the manual run triggers. Returns false if it can't run right now — every
   // skip is logged with its reason (the "no driver" one by driverOrSkip at the call sites).
   //
@@ -207,7 +209,6 @@ export function createPollers(
       log.warn(`routine ${r.id}: tenant ${r.teamId ?? 'home'} no longer has ${r.slug} — skipped`);
       return false;
     }
-    if (r.kind === 'dream') return fireDream(project, r);
     if (r.kind === 'housekeeping') return fireHousekeeping(project, r);
     const legacyKey = keyFor(asSurface(r.surface), r.teamId, home(), `cron:${r.id}:${r.slug}`);
     if (routinesInFlight.has(r.id)) {
@@ -312,35 +313,39 @@ export function createPollers(
     });
   }
 
-  // A dream runs silently (no channel post): consolidate the project's auto memory, then log
-  // a one-line digest and stash it on the routine for visibility. Skipped while the project
-  // has a live turn so the two don't race on memory files. Source of truth = the sandbox
-  // (warm, survives stop/start); durability of the consolidated copy is future work.
-  function fireDream(project: ProjectConfig, r: RoutineRecord): boolean {
-    if (engine.projectBusy(project.slug)) return false; // don't dream over a live user turn
-    const key = keyFor(asSurface(r.surface), r.teamId, home(), `cron:${r.id}:${r.slug}`); // tenant-keyed → correct usage attribution
-    store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
-    void (async () => {
-      try {
-        const digest = dreamDigest(
-          await engine.runAsk(key, project, dreamPrompt(projectCwd(cfg, project.slug, project.repos))),
-        );
-        store.patchRoutine(r.id, { lastSummary: digest });
-        log.info(`dream ${r.id} (${project.slug}): ${digest}`);
-        // Journal the consolidated memory (the sandbox is awake from the dream just now).
-        const sandbox = await createDriver(cfg, project.driver).getSandbox(`${cfg.sandbox.namePrefix}${project.slug}`);
-        if (!sandbox) throw new Error('sandbox not found after dream');
-        await snapshotMemory(sandbox, cfg, project.slug, project.repos, digest);
-      } catch (e) {
-        log.error(`dream ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    })();
-    return true;
+  // The nightly memory tidy (OpenSpec company-brain, design D9; src/brain/tidy.ts) — the one upkeep pass, for
+  // every project, with no routine and no switch. During the tidy hour the host reads each project's lint (no
+  // sandbox): nothing due → nothing starts and a stopped sandbox stays stopped; otherwise ONE memory-only turn
+  // gets the night's share, the mirror runs while the sandbox is still up, and the counts for the three-run rule
+  // are written (brain/night.ts). Silent: the trace is the journal commit, the log line and the usage record
+  // (key `cron:tidy:<slug>`).
+  const tidying = new Set<string>();
+  const tidyProject = (project: ProjectConfig, day: string): Promise<unknown> =>
+    nightlyTidy(
+      {
+        projectBusy: (slug) => engine.projectBusy(slug),
+        fresh: (key) => engine.restartSession(key, project),
+        runAsk: (key, prompt, after) => engine.runAsk(key, project, prompt, after),
+        key: keyFor(undefined, undefined, home(), `cron:tidy:${project.slug}`),
+        memoryDir: memoryDir(projectCwd(cfg, project.slug, project.repos)),
+        tidying,
+      },
+      project.slug,
+      day,
+    );
+  function startNightlyTidy(): void {
+    const tick = (): void => {
+      const day = tidyDay(nowParts(ROUTINE_TZ, new Date()));
+      if (!day) return;
+      for (const project of reg.current.projects) void tidyProject(project, day).catch(pollFail('tidy'));
+    };
+    tick();
+    setInterval(tick, 60_000);
   }
 
   // Housekeeping: the deterministic sandbox janitor (docs/housekeeping.md) — dockerd
   // guard, threshold-gated docker prune, proactive worktree reap. No LLM, silent (log +
-  // the routine's lastSummary, like dreams). Skipped while the project has a live turn
+  // the routine's lastSummary). Skipped while the project has a live turn
   // (never reap state out from under one). An asleep sandbox (housekeepingSandboxStep): where the
   // bot owns the idle stop (the driver has stopSandbox — ssh-docker; OpenSpec sandbox-idle-stop
   // D13) and it is on, it is woken for the pass: the janitor keeps running as it did before the
@@ -875,6 +880,7 @@ export function createPollers(
   return {
     startAll: () => {
       startScheduler();
+      startNightlyTidy();
       startGrantSweep();
       startControlWatcher();
       startAutoReviewPoller();

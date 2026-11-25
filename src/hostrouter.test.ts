@@ -17,11 +17,11 @@ const missing = join(mkdtempSync(join(tmpdir(), 'hostrouter-')), 'nope.sqlite');
 const noSources: SourcesCall = async () => assert.fail('no sources call expected');
 const fakeMessaging = { sendMessage: () => ({ ok: true, data: {} }) } as unknown as import('./messaging/service.js').Messaging;
 
-test('routesFor — host only for a messaging project, sources only for a sources project, and a project\'s own server of either name wins', () => {
+test('routesFor — host for every project (brain_history; messaging adds its tools), sources only for a sources project, and a project\'s own server of either name wins', () => {
   const off = createHostRouter({ replicaPath: () => missing, sources: noSources });
-  assert.deepEqual(off.routesFor(caller('plain'), plain).map((r) => r.name), [], 'prod shape: no messaging, no sources → nothing registered');
-  assert.deepEqual(off.routesFor(caller('bluefin-ops'), bluefin).map((r) => r.name), ['sources'], 'sources needs no flag — only the project block');
-  assert.deepEqual(off.routesFor(caller('owen-ops'), own).map((r) => r.name), [], 'a declared `sources` server is the project\'s own; the bot registers none');
+  assert.deepEqual(off.routesFor(caller('plain'), plain).map((r) => r.name), ['host'], 'no messaging, no sources → `host` with brain_history alone');
+  assert.deepEqual(off.routesFor(caller('bluefin-ops'), bluefin).map((r) => r.name), ['host', 'sources'], 'sources needs no flag — only the project block');
+  assert.deepEqual(off.routesFor(caller('owen-ops'), own).map((r) => r.name), ['host'], 'a declared `sources` server is the project\'s own; the bot registers none');
   const on = createHostRouter({ replicaPath: () => missing, sources: noSources, messaging: () => fakeMessaging });
   const both = project('bluefin-ops', { sources: { youtrack: { url: 'https://yt', projects: ['CG'] } }, messaging: { send: true } });
   assert.deepEqual(on.routesFor(caller('bluefin-ops'), both).map((r) => [r.name, r.timeoutMs]), [['host', 30_000], ['sources', 90_000]]);
@@ -78,7 +78,7 @@ test('daemonRoute — tools/call goes to the daemon; initialize and tools/list s
   // the router picks the daemon route for a project with `sources.daemon`
   const viaDaemon = project('acme', { sources: { youtrack: { url: 'https://yt', projects: ['AC'] }, daemon: cfg } });
   const router = createHostRouter({ replicaPath: () => missing, sources: local, forward: up });
-  const [route] = router.routesFor(caller('acme'), viaDaemon);
+  const route = router.routesFor(caller('acme'), viaDaemon).find((x) => x.name === 'sources');
   assert.deepEqual(await route!.handle({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'stats', arguments: {} } }), { jsonrpc: '2.0', id: 5, result: { daemon: 'acme' } });
 });
 
@@ -91,22 +91,22 @@ const toolNames = async (r: ReturnType<typeof createHostRouter>, c: HostCaller, 
   const list = (await host.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' })) as { result: { tools: { name: string }[] } };
   return list.result.tools.map((t) => t.name);
 };
-test('installation without configuration / project not configured: no `host`, exactly as before — with or without the service', async () => {
+test('a project without messaging: `host` carries brain_history alone — with or without the service', async () => {
   for (const messaging of [undefined, () => fakeMessaging]) {
     const r = createHostRouter({ replicaPath: () => missing, sources: noSources, ...(messaging ? { messaging } : {}) });
-    assert.equal(await toolNames(r, caller('plain'), plain), undefined);
+    assert.deepEqual(await toolNames(r, caller('plain'), plain), ['brain_history']);
   }
 });
 
-test('nothing is registered without the gate: a messaging project without the service started gets nothing either', async () => {
+test('no messaging tool without the gate: a messaging project without the service started gets brain_history alone', async () => {
   const r = createHostRouter({ replicaPath: () => missing, sources: noSources, messaging: () => undefined });
-  assert.equal(await toolNames(r, caller('owen-ops'), sender), undefined);
+  assert.deepEqual(await toolNames(r, caller('owen-ops'), sender), ['brain_history']);
 });
 
 test('messaging without dispatch: a sending project gets the messaging tools — no propose or registry exists; an answer-only project outside a task gets none', async () => {
   const r = createHostRouter({ replicaPath: () => missing, sources: noSources, messaging: () => fakeMessaging });
-  assert.deepEqual(await toolNames(r, caller('owen-ops'), sender), ['send_message', 'get_task', 'cancel_task', 'agents']);
-  assert.equal(await toolNames(r, caller('caldora'), answerOnly), undefined);
+  assert.deepEqual(await toolNames(r, caller('owen-ops'), sender), ['send_message', 'get_task', 'cancel_task', 'agents', 'brain_history']);
+  assert.deepEqual(await toolNames(r, caller('caldora'), answerOnly), ['brain_history']);
 });
 
 test('retired flag: DISPATCH=1 in the environment changes no session\'s tools (retire-agent-dispatch)', async (t) => {
@@ -139,9 +139,9 @@ test('a host tool call needs no transport: send_message is answered in-process, 
   assert.deepEqual(seen, [[{ slug: 'owen-ops', conversationKey: 'thread:1' }, { target: 'caldora', text: 'q' }, 'req-uuid-1']]);
 });
 
-// Company brain (BRAIN=1): `brain_history` rides the `host` server for every project, messaging or not; without
-// the flag nothing changes. The project is the caller's — the tool takes no project argument.
-test('brain: with the flag a project gets brain_history on `host`; without it, nothing; a shadow conversation and a project with its own `host` get none', async () => {
+// Company brain: `brain_history` rides the `host` server for every project, messaging or not. The project is the
+// caller's — the tool takes no project argument.
+test('brain: every project gets brain_history on `host`; a shadow conversation and a project with its own `host` get none', async () => {
   const plain = { slug: 'skishop', repos: ['o/r'] } as unknown as ProjectConfig;
   const caller = { slug: 'skishop', conversationKey: 'thread:1' };
   const names = async (r: ReturnType<typeof createHostRouter>, c = caller, p = plain): Promise<string[]> => {
@@ -151,8 +151,7 @@ test('brain: with the flag a project gets brain_history on `host`; without it, n
     return list.result.tools.map((t) => t.name);
   };
   const later = () => ({ count: 0 });
-  assert.deepEqual(await names(createHostRouter({ replicaPath: () => '/nope', sources: async () => undefined })), []);
-  const on = createHostRouter({ replicaPath: () => '/nope', sources: async () => undefined, brain: true, laterTurns: later });
+  const on = createHostRouter({ replicaPath: () => '/nope', sources: async () => undefined, laterTurns: later });
   assert.deepEqual(await names(on), ['brain_history']);
   assert.deepEqual(await names(on, { slug: 'skishop', conversationKey: `a2a:home:${'a'.repeat(24)}:skishop` }), []);
   assert.deepEqual(await names(on, caller, { ...plain, mcp: [{ name: 'host' }] } as unknown as ProjectConfig), []);
@@ -170,7 +169,7 @@ test('brain_history: the caller\'s own project is answered from its log; the sam
   mkdirSync(join(dir, 'brain', 'skishop'), { recursive: true });
   const entry = (at: string, key: string, answer: string) => JSON.stringify({ at, key, turnId: `t-${at}`, question: 'Why twice?', answer, records: ['glacier-12.md'], tickets: ['GLACIER-12'], link: 'https://chat.example/t/1' });
   writeFileSync(join(dir, 'brain', 'skishop', 'answers.jsonl'), `${entry('2026-05-02T08:00:00.000Z', 'thread:1', 'The export joins twice.')}\n${entry('2026-05-09T08:00:00.000Z', 'thread:2', 'Fixed in the March release.')}\n`);
-  const r = createHostRouter({ replicaPath: () => '/nope', sources: async () => undefined, brain: true, laterTurns: (key) => (key === 'thread:2' ? { count: 2, last: '2026-05-10T08:00:00.000Z' } : { count: 0 }) });
+  const r = createHostRouter({ replicaPath: () => '/nope', sources: async () => undefined, laterTurns: (key) => (key === 'thread:2' ? { count: 2, last: '2026-05-10T08:00:00.000Z' } : { count: 0 }) });
   const ask = async (slug: string): Promise<string> => {
     const host = r.routesFor({ slug, conversationKey: 'thread:9' }, { slug, repos: ['o/r'] } as unknown as ProjectConfig).find((x) => x.name === 'host')!;
     const res = (await host.handle({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'brain_history', arguments: { query: 'GLACIER-12' } } })) as { result: { content: { text: string }[] } };

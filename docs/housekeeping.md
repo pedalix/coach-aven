@@ -2,7 +2,7 @@
 
 Scheduled **mechanical** hygiene of a project's sandbox — reaping stale git state, keeping
 the DinD disk from filling, clearing wedged processes. The janitor, as opposed to
-[Dreaming](memory.md#dreaming) (the agent's memory consolidation).
+the [nightly memory tidy](memory.md#the-nightly-tidy) (a model's pass over the agent's memory).
 
 > **Status: v1 shipped.** A `housekeeping` routine kind (`/aven housekeeping on|off|now`)
 > runs the janitor nightly: on a docker-in-docker project (`"dind": true`) the dockerd guard and a threshold-gated
@@ -15,18 +15,18 @@ the DinD disk from filling, clearing wedged processes. The janitor, as opposed t
 
 ## Decision (TL;DR)
 
-- **Separate from Dreaming.** Different nature, cost, and risk — see below.
+- **Separate from the memory tidy.** Different nature, cost, and risk — see below.
 - **Mostly deterministic, no LLM.** Housekeeping is shell/API on a schedule
   (`git worktree prune`, `docker image prune`, disk checks). Reserve the LLM only for the
   rare task that genuinely needs judgment.
 - **Shares the scheduler, not a new one.** A `housekeeping` [routine kind](#shape) on the
-  existing routines mechanism (`src/schedule.ts`), alongside scheduled reports and dreaming.
+  existing routines mechanism (`src/schedule.ts`), alongside scheduled reports.
 - **Safe by construction:** idempotent, never touches active state, report-before-delete
   for anything destructive.
 
-## Why separate from Dreaming
+## Why separate from the memory tidy
 
-| | Dreaming | Housekeeping |
+| | Memory tidy | Housekeeping |
 | --- | --- | --- |
 | Nature | cognitive (consolidate/synthesize memory) | mechanical (reap/prune/restart) |
 | Needs an LLM | yes — judgment | mostly no — deterministic |
@@ -61,7 +61,7 @@ distinct inhabitants of the same scheduler.
 
 ## Boundaries — what does NOT belong here
 
-- **Memory** → [Dreaming](memory.md#dreaming). Dreaming may *observe* operational state and
+- **Memory** → the [nightly tidy](memory.md#the-nightly-tidy). The agent may *observe* operational state and
   note it ("3 stale worktrees"), but housekeeping is what *acts*. Observation vs. action.
 - **"PR needs attention / CI failed"** → proactivity (auto-fix / PR subscription). That's
   **event-triggered** (PR webhooks/polling), not scheduled cleanup. Different trigger,
@@ -98,10 +98,10 @@ distinct inhabitants of the same scheduler.
 ## Open decisions
 
 - **Silent vs. digest** — log-only, or post a periodic housekeeping summary to the channel?
-- **Cadence** — same nightly window as dreaming, or its own (e.g. more frequent, lighter)?
+- **Cadence** — same nightly hour as the memory tidy, or its own (e.g. more frequent, lighter)?
 - **Fleet-wide pass** — needed now, or per-project is enough for v1?
 
 ## Related
 
-- [Project memory](memory.md) and [Dreaming](memory.md#dreaming) — the cognitive counterpart.
+- [Project memory](memory.md) and its [nightly tidy](memory.md#the-nightly-tidy) — the cognitive counterpart.
 - Scheduler / routines: `src/schedule.ts`. Existing reaping: `reapWorktrees` in `src/project.ts`.

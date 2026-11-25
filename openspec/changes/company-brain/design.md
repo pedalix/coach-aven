@@ -155,7 +155,7 @@ Decided by the maintainer on 2026-11-25, one day into production: the flag goes 
   spend, and rewrote records from transcripts with nothing telling it what was wrong.
 - What starts a tidy: the host, once a night (03:00 in the installation's timezone, where dreams ran), per project,
   from `lint.json` alone. An empty lint starts nothing, so a quiet project costs nothing and its sandbox stays
-  stopped. No command starts one; an operator has `routines run` for a debugging run.
+  stopped. No command starts one.
 - What the tidy does not do: read transcripts. Records are written during turns; harvesting transcripts at night
   was the expensive and error-prone part.
 - The stop rule: a finding given to three tidies and still present no longer starts one — a false positive of the
@@ -164,7 +164,12 @@ Decided by the maintainer on 2026-11-25, one day into production: the flag goes 
 - `CLAUDE.md`: the dream reconciled memory against it every night. Now the mirror's listing exec also prints the
   digest of each repository's `CLAUDE.md`; a digest that differs from the one the last tidy saw is one finding,
   cleared by that tidy. The first digest is a baseline.
-- Silent: a tidy posts nothing; its trace is the journal commit and the usage line (kind `tidy`).
+- Silent: a tidy posts nothing; its trace is the journal commit, a log line and the usage record under the key
+  `cron:tidy:<slug>`. It runs as a one-off ask on the home workspace's key, whichever workspaces use the project.
+- Every night starts a fresh Claude session: a tidy needs nothing from the last one, and a resumed session would
+  carry (and pay for) every earlier night's context.
+- A project with a live turn is left for the next minute of the hour; a failed tidy is not retried that night and
+  does not count towards the three runs.
 - Rejected: keeping the dream routine and handing it the lint (the earlier plan of tasks 5.2/5.3) — the switch,
   the schedule forms and the transcript sweep would all stay.
 - Rejected: retiring the flag as a later step. It keeps the old dream alive on installations without the flag and

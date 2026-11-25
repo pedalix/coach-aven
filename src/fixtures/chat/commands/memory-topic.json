@@ -14,7 +14,7 @@
       "payload": {
         "response_type": "ephemeral",
         "replace_original": true,
-        "text": "*Deploys*\n\nUse *make ship*.\n\n\n_(last dream snapshot — `/aven memory live` for the sandbox's current state)_"
+        "text": "*Deploys*\n\nUse *make ship*.\n\n\n_(the host's copy from the last turn — `/aven memory live` for the sandbox's current state)_"
       }
     }
   ],

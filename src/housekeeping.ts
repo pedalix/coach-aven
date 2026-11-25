@@ -1,5 +1,5 @@
 // Housekeeping: scheduled MECHANICAL hygiene of a project sandbox (see
-// docs/housekeeping.md) — the janitor, as opposed to Dreaming (memory consolidation).
+// docs/housekeeping.md) — the janitor, as opposed to the nightly memory tidy (src/brain/tidy.ts).
 // Deterministic shell on the routines scheduler, no LLM. This module is the PURE part:
 // building the in-sandbox script and parsing its report — so the guardrails (no volume
 // pruning, threshold-gated deletion, marker format) are pinned by tests. The fire logic
@@ -9,7 +9,7 @@
 import { cliUpgradeCmd, cliVersionCmd, parseCliMarkers, type CliMarkers } from './cliversion.js';
 
 // Defaults for the `/aven housekeeping on` routine (in ROUTINE_TZ). 04:30: after the
-// 03:00 dream window, still low-traffic.
+// 03:00 tidy hour, still low-traffic.
 export const HOUSEKEEPING_DEFAULT_CRON = '30 4 * * *';
 export const HOUSEKEEPING_DEFAULT_SPEC = 'daily 4:30';
 

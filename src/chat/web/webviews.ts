@@ -138,12 +138,12 @@ function renderQuestion(v: Extract<MessageView, { kind: 'question' }>): Rendered
 
 type RoutineLike = Extract<PrivateView, { kind: 'routines' }>['routines'][number];
 // One row per scheduled job, in the Slack list's vocabulary (`routineListBlocks`): the dot is the enabled
-// state, dream/housekeeping show their label (and last digest) instead of a prompt, a task is tagged.
+// state, housekeeping shows its label (and last digest) instead of a prompt, a task is tagged.
 function routineRow(r: RoutineLike): Html {
   const dot = r.enabled ? '🟢' : '⚪️';
   const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
-  if (r.kind === 'dream' || r.kind === 'housekeeping') {
-    const label = r.kind === 'dream' ? '🌙 dream' : '🧹 housekeeping';
+  if (r.kind === 'housekeeping') {
+    const label = '🧹 housekeeping';
     return h`<li>${dot} <strong>${r.id}</strong> ${label} — <code>${r.spec}</code> (${r.tz})${last}${r.lastSummary ? h` — <em>${r.lastSummary}</em>` : ''}</li>`;
   }
   const p = r.prompt.length > 90 ? `${r.prompt.slice(0, 87)}…` : r.prompt;
@@ -163,7 +163,7 @@ export function renderPrivateView(v: PrivateView, c: RenderCtx = {}): Rendered {
       const r = v.report;
       const rows = r.projects.map(
         (p) =>
-          h`<li><strong>${p.slug}</strong> — ${p.state ?? 'not created'} · ${plural(p.repos, 'repo')} · ${plural(p.sessions, 'session')} (${p.active} active)${p.openPRs === undefined ? '' : ` · ${plural(p.openPRs, 'open PR')}`}${p.jobs || p.dreams || p.hk ? ` · routines: ${p.jobs} jobs, ${p.dreams} dreams, ${p.hk} housekeeping` : ''}${p.sources ? h`<br><span class="meta">sources: ${p.sources}</span>` : ''}</li>`,
+          h`<li><strong>${p.slug}</strong> — ${p.state ?? 'not created'} · ${plural(p.repos, 'repo')} · ${plural(p.sessions, 'session')} (${p.active} active)${p.openPRs === undefined ? '' : ` · ${plural(p.openPRs, 'open PR')}`}${p.jobs || p.hk ? ` · routines: ${p.jobs} jobs, ${p.hk} housekeeping` : ''}${p.sources ? h`<br><span class="meta">sources: ${p.sources}</span>` : ''}</li>`,
       );
       const flags = [`sandboxes ${r.sandboxesOk ? '✅' : '⚠️'}`, `GitHub ${r.githubOk ? '✅' : '⚠️'}`, `${plural(r.turnsInFlight, 'turn')} in flight`];
       return { html: h`<p><strong>CoachAven status</strong></p><ul>${rows}</ul><p class="meta">${flags.join(' · ')}</p>${r.claudeQuota ? h`<div class="meta">${mk(r.claudeQuota, c)}</div>` : ''}`, text: 'CoachAven status' };
