@@ -202,10 +202,35 @@ containers keep the image they were created from; the pinned Claude Code (`CLAUD
 place inside them, so a pin bump never needs a recreation. Do not recreate a container to "pick up" a new
 image: that is its history gone.
 
+### Memory and CPU limits
+
+Every project container of an installation lives on one Docker host and shares its memory and CPUs. Two
+settings cap what ONE container may use (OpenSpec `sandbox-limits`):
+
+```
+SANDBOX_LIMIT_MEMORY=6g
+SANDBOX_LIMIT_CPUS=4
+```
+
+- The bot passes them to `docker run` for a new container and, at every warm-up, brings an existing container
+  whose limits differ to them with `docker update` — in place, never by recreating it. A container already at
+  the limits is not written to.
+- Memory comes with no swap beyond it (`--memory-swap` equal to `--memory`).
+- Unset (the default) the bot sets no limit and leaves one set by hand alone; removing a setting later does
+  not lift a limit already applied (`docker update` by hand does).
+- Docker refuses a memory limit below what a running container already uses. The turn goes on, the bot logs
+  `the installation's memory/CPU limits were not applied`, and the next warm-up tries again — after an idle
+  stop it always applies.
+- Inside a container at its memory limit the kernel ends the largest process, which can be the agent's own
+  `claude`: the turn then ends the way any lost process does.
+
+Limits cap, they do not reserve: ten containers limited to 6 GB fit a 16 GB host only while most of them idle
+(an awake idle container holds a few hundred MB). Size the limit so that the number of projects you expect to
+work at the same moment, times the limit, stays under the host's memory — and remember a host without swap
+has no slack.
+
 **Not yet done**
 
-- Per-container CPU and memory limits: the driver sets none, so the processes of a project
-  share the host's memory with every other project.
 - Ending idle conversations' processes inside a container that never goes idle (a busy project
   with many threads keeps one `claude` per conversation touched since its last start).
 - Where the agent's state should live once long-lived containers are not enough: the working

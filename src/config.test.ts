@@ -49,7 +49,7 @@ test('SANDBOX_DRIVER — unset, empty or ssh-docker is ssh-docker; any other val
 // The keys loadConfig's sandbox part reads, and those only the removed driver read: a developer shell that
 // exports one must not change a result (tests never load .env).
 const SANDBOX_KEYS = [
-  'SANDBOX_DRIVER', 'SANDBOX_HOST', 'SANDBOX_DIND_RUNTIME', 'SANDBOX_NAME_PREFIX', 'SANDBOX_WORK_DIR', 'SANDBOX_IMAGE',
+  'SANDBOX_DRIVER', 'SANDBOX_HOST', 'SANDBOX_DIND_RUNTIME', 'SANDBOX_LIMIT_MEMORY', 'SANDBOX_LIMIT_CPUS', 'SANDBOX_NAME_PREFIX', 'SANDBOX_WORK_DIR', 'SANDBOX_IMAGE',
   'SSHDOCKER_HOST', 'SSHDOCKER_RUNTIME', 'SNAPSHOT_IMAGE',
   'SANDBOX_AUTOSTOP_MINUTES', 'SNAPSHOT_NAME', 'SANDBOX_CPU', 'SANDBOX_MEMORY', 'SANDBOX_DISK', 'CLAUDE_CODE_OAUTH_TOKEN', 'ANTHROPIC_API_KEY', 'GITHUB_TOKEN',
 ];
@@ -171,6 +171,15 @@ test('the SANDBOX_ names are the only ones: the retired names load nothing, a mi
   assert.throws(() => withEnv({ ...base, SNAPSHOT_IMAGE: 'old:1' }, () => loadConfig()), /SANDBOX_IMAGE/);
   assert.equal(withEnv({ ...base, SANDBOX_IMAGE: 'i', SSHDOCKER_HOST: 'aven@old.example', SSHDOCKER_RUNTIME: 'runc' }, () => loadConfig()).sshDocker, undefined);
   assert.throws(() => withEnv({ ...base, SANDBOX_IMAGE: 'i', SANDBOX_DIND_RUNTIME: 'runc' }, () => loadConfig()), /SANDBOX_DIND_RUNTIME must be/);
+});
+
+test('SANDBOX_LIMIT_MEMORY / SANDBOX_LIMIT_CPUS: on the driver config when set, absent when not; a bad value stops the boot, host or no host', () => {
+  const base = { CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-test', GITHUB_TOKEN: 'ghp_x', SANDBOX_IMAGE: 'registry.example/acme/sandbox:1' };
+  const set = withEnv({ ...base, SANDBOX_HOST: 'aven@sandboxes.example', SANDBOX_LIMIT_MEMORY: '6g', SANDBOX_LIMIT_CPUS: '4' }, () => loadConfig());
+  assert.deepEqual(set.sshDocker?.limits, { memoryBytes: 6442450944, nanoCpus: 4_000_000_000 });
+  assert.equal('limits' in withEnv({ ...base, SANDBOX_HOST: 'aven@sandboxes.example' }, () => loadConfig()).sshDocker!, false);
+  assert.throws(() => withEnv({ ...base, SANDBOX_LIMIT_MEMORY: 'plenty' }, () => loadConfig()), /SANDBOX_LIMIT_MEMORY must be a size.*got: plenty/);
+  assert.throws(() => withEnv({ ...base, SANDBOX_HOST: 'local', SANDBOX_LIMIT_CPUS: '0' }, () => loadConfig()), /SANDBOX_LIMIT_CPUS must be a positive number/);
 });
 
 test('GITHUB_AUTH: unset keeps the token or the App; `none` alone means no GitHub access; anything else, or none beside a credential, stops the boot', () => {
