@@ -100,6 +100,8 @@ test('tidyPrompt — memory only: no code, no CLAUDE.md edits, no transcripts; i
   assert.match(p, /Do not read session transcripts/);
   assert.match(p, /- \[no-kind\] refunds\.md: no `kind`/);
   assert.match(p, /touch no other record/);
+  assert.match(p, /git show origin\/HEAD:CLAUDE\.md/);
+  assert.match(p, /never pull, check out or switch a branch/);
   assert.doesNotMatch(p, /\.jsonl/);
 });
 
@@ -119,4 +121,23 @@ test('a tidy whose own mirror failed still settles the CLAUDE.md finding, and a 
   s = endTidy(s, run, { index: i, findings: stale }, '05-10'); // no digests: the tidy's mirror failed
   assert.deepEqual(s.instructions, { 'shop/CLAUDE.md': 'd2' }, 'the last digests a mirror noted become the baseline');
   assert.ok(!dueFindings(stale, i, s).some((f) => f.code === 'instructions-changed'), 'not due again, although the stale lint lists it');
+});
+
+test('a baseline of another shape (the file hash of an earlier version) is replaced, never reported as a change', () => {
+  const old: TidyState = { given: {}, instructions: { 'shop/CLAUDE.md': 'a'.repeat(64) } };
+  const noted = instructionsChanged(old, { 'shop/CLAUDE.md': 'b'.repeat(40) });
+  assert.deepEqual(noted.changed, []);
+  assert.deepEqual(noted.state.instructions, { 'shop/CLAUDE.md': 'b'.repeat(40) });
+  assert.deepEqual(instructionsChanged(noted.state, { 'shop/CLAUDE.md': 'c'.repeat(40) }).changed, ['shop/CLAUDE.md']);
+});
+
+test('a change another turn noted while the tidy ran is not swallowed when the tidy\'s mirror fails', () => {
+  const i = index({ 'lifts.md': 'h1' });
+  let s = instructionsChanged(emptyTidyState(), { 'shop/CLAUDE.md': 'd1' }).state;
+  s = instructionsChanged(s, { 'shop/CLAUDE.md': 'd2' }).state;
+  const run = startTidy(findings(i, ['shop/CLAUDE.md']), i, s);
+  s = instructionsChanged(s, { 'shop/CLAUDE.md': 'd3' }).state; // another conversation's mirror, mid-tidy
+  s = endTidy(s, run, { index: i, findings: findings(i, ['shop/CLAUDE.md']) }, '05-10');
+  assert.equal(s.instructions['shop/CLAUDE.md'], 'd2', 'the baseline is what this tidy was given');
+  assert.equal(dueFindings(findings(i, ['shop/CLAUDE.md']), i, s).some((f) => f.code === 'instructions-changed'), true, 'd3 is still due');
 });

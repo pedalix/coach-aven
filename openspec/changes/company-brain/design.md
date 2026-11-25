@@ -161,8 +161,11 @@ Decided by the maintainer on 2026-11-25, one day into production: the flag goes 
 - The stop rule: a finding given to three tidies and still present no longer starts one — a false positive of the
   personal-data pattern would otherwise buy a turn every night for ever. The count lives in `brain/<slug>/tidy.json`
   per finding (code + record + the record's hash), so a changed record is due again.
-- `CLAUDE.md`: the dream reconciled memory against it every night. Now the mirror's listing exec also prints the
-  digest of each repository's `CLAUDE.md`; a digest that differs from the one the last tidy saw is one finding,
+- `CLAUDE.md`: the dream reconciled memory against it every night. Now the mirror's listing exec also prints git's
+  blob id of `CLAUDE.md` on each repository's default branch as last fetched (`origin/HEAD`, else `origin/main`,
+  `origin/master`). Not the file on disk: conversations work in worktrees and the bot only fetches the main
+  checkout, so its working tree does not follow the branch people merge into; and not a pull, which can fail on
+  a dirty checkout and is not memory work. The tidy reads the file with `git show`; a digest that differs from the one the last tidy saw is one finding,
   cleared by that tidy. The first digest is a baseline.
 - Silent: a tidy posts nothing; its trace is the journal commit, a log line and the usage record under the key
   `cron:tidy:<slug>`. It runs as a one-off ask on the home workspace's key, whichever workspaces use the project.

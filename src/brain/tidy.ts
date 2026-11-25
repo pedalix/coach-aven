@@ -59,9 +59,14 @@ export function changedInstructions(state: TidyState): string[] {
 }
 
 /** Tonight's share and what each finding had been given before — endTidy needs the counts from before the run. */
-export function startTidy(findings: readonly Finding[], index: BrainIndex, state: TidyState): { share: Finding[]; prior: Record<string, number> } {
+export function startTidy(
+  findings: readonly Finding[],
+  index: BrainIndex,
+  state: TidyState,
+): { share: Finding[]; prior: Record<string, number>; seen?: Record<string, string> } {
   const share = tidyShare(dueFindings(findings, index, state));
-  return { share, prior: Object.fromEntries(share.map((f) => [findingKey(f), timesGiven(f, index, state)])) };
+  // `seen`: the digests the finding was raised for — what the tidy is about to read.
+  return { share, prior: Object.fromEntries(share.map((f) => [findingKey(f), timesGiven(f, index, state)])), ...(state.seen ? { seen: state.seen } : {}) };
 }
 
 /**
@@ -71,7 +76,7 @@ export function startTidy(findings: readonly Finding[], index: BrainIndex, state
  */
 export function endTidy(
   state: TidyState,
-  run: { share: readonly Finding[]; prior: Readonly<Record<string, number>> },
+  run: { share: readonly Finding[]; prior: Readonly<Record<string, number>>; seen?: Readonly<Record<string, string>> },
   after: { index: BrainIndex; findings: readonly Finding[]; instructions?: Readonly<Record<string, string>> },
   day: string,
 ): TidyState {
@@ -88,12 +93,15 @@ export function endTidy(
     given[key] = { n: (run.prior[key] ?? 0) + 1, hash: recordsHash(still, after.index) };
   }
   // The tidy that was given the finding has seen the file: its mirror's digests become the baseline — or, when
-  // that mirror failed, the last ones noted, so a project whose mirror keeps failing is not tidied every night.
+  // that mirror failed, the ones the finding was raised for (the run's, not whatever another turn noted while
+  // the tidy ran: that later change was never given to a tidy), so a project whose mirror keeps failing is not
+  // tidied every night.
   const sawInstructions = run.share.some((f) => f.code === 'instructions-changed');
+  const baseline = after.instructions ?? run.seen;
   const seen = after.instructions ? { ...after.instructions } : state.seen;
   return {
     given,
-    instructions: sawInstructions && seen ? { ...seen } : state.instructions,
+    instructions: sawInstructions && baseline ? { ...baseline } : state.instructions,
     ...(seen ? { seen } : {}),
     lastDay: day,
   };
@@ -107,7 +115,9 @@ export function instructionsChanged(state: TidyState, current: Readonly<Record<s
   const instructions: Record<string, string> = {};
   const changed: string[] = [];
   for (const [path, digest] of Object.entries(current)) {
-    const seen = state.instructions[path];
+    // A baseline of another shape (an earlier version hashed the file on disk, sha256; this is git's blob id)
+    // cannot be compared: it is replaced like a first digest, never reported as a change.
+    const seen = state.instructions[path]?.length === digest.length ? state.instructions[path] : undefined;
     instructions[path] = seen ?? digest;
     if (seen !== undefined && seen !== digest) changed.push(path);
   }
@@ -136,8 +146,10 @@ export function tidyPrompt(memoryDir: string, share: readonly Finding[]): string
     `- same-ticket: merge the records into one, or state in each what the other covers; fix MEMORY.md.\n` +
     `- not-linked, no-file: make MEMORY.md and the files agree — one line per record, no line without a file.\n` +
     `- personal-data: remove names of customers or guests, e-mail addresses and phone numbers; keep the finding.\n` +
-    `- instructions-changed: read that CLAUDE.md and the records about the same subject; where a record ` +
-    `contradicts it, the record is stale — rewrite it to agree or delete it.\n\n` +
+    `- instructions-changed: read that repository's CLAUDE.md as it is on its default branch ` +
+    `(\`git show origin/HEAD:CLAUDE.md\` in the repository — read only: never pull, check out or switch a ` +
+    `branch) and the records about the same subject; where a record contradicts it, the record is stale — ` +
+    `rewrite it to agree or delete it.\n\n` +
     `While you have a record open, also fix a sentence in it that contradicts its own opening. Be conservative: ` +
     `never delete what you are unsure about. End with one line saying what you changed.`
   );

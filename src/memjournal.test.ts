@@ -4,6 +4,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { hashListScript, mirrorMemory, parseHashListing, parseInstructionDigests, parseReadBack, readBackScript, readSnapshotFile, snapshotLog, safeSlug, safeName, type MirrorExec } from './memjournal.js';
 
 test('safeSlug accepts conventional slugs, rejects path-y ones', () => {
@@ -136,21 +137,45 @@ test('two mirrors share the journal: a tidy ending with a turn does not collide'
   }
 });
 
-test('the listing also carries the CLAUDE.md digests it was asked for; a file the sandbox lacks is absent', async () => {
-  const script = hashListScript('/mem', ['/work/shop/CLAUDE.md', '/work/api/CLAUDE.md']);
-  assert.match(script, /^if \[ -d '\/mem' \]; then cd '\/mem' \|\| exit 1; for f in \*/);
-  assert.match(script, /for p in '\/work\/shop\/CLAUDE.md' '\/work\/api\/CLAUDE.md'; do \[ -f "\$p" \] \|\| continue; printf 'instructions '; sha256sum -- "\$p" \|\| exit 1; done$/);
-  const h = 'b'.repeat(64);
-  assert.deepEqual(parseInstructionDigests(`${'a'.repeat(64)}  MEMORY.md\ninstructions ${h}  /work/shop/CLAUDE.md\n`), { '/work/shop/CLAUDE.md': h });
-  assert.deepEqual(parseHashListing(`instructions ${h}  /work/shop/CLAUDE.md\n`), {}, 'never read as a memory file');
+test('the listing also carries CLAUDE.md of each asked repository\'s default branch — from git, not from the files on disk', async () => {
+  const h = 'b'.repeat(40);
+  assert.deepEqual(parseInstructionDigests(`${'a'.repeat(64)}  MEMORY.md\ninstructions ${h}  /work/shop\ninstructions ${'c'.repeat(64)}  /work/api\n`), { '/work/shop': h, '/work/api': 'c'.repeat(64) });
+  assert.deepEqual(parseHashListing(`instructions ${h}  /work/shop\n`), {}, 'never read as a memory file');
 
+  // The real script against real repositories: a clone whose default branch has the file, edited on disk and
+  // on a worktree branch since; a clone without the file; a directory that is no repository.
+  const root = await mkdtemp(join(tmpdir(), 'memj-git-'));
   const repo = await mkdtemp(join(tmpdir(), 'memj-'));
+  const sh = (cwd: string, cmd: string): string => execFileSync('sh', ['-c', cmd], { cwd, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' } });
+  const ID = '-c user.name=t -c user.email=t@skishop.example';
   try {
-    const exec: MirrorExec = async () => ({ exitCode: 0, result: `instructions ${h}  /work/shop/CLAUDE.md\n` });
-    const m = await mirrorMemory(exec, repo, '/mem', 'turn t1', { 'shop/CLAUDE.md': '/work/shop/CLAUDE.md', 'api/CLAUDE.md': '/work/api/CLAUDE.md' });
+    sh(root, `git init -q -b main origin-shop && cd origin-shop && echo 'Deploy with make ship.' > CLAUDE.md && git add . && git ${ID} commit -q -m one`);
+    sh(root, `git init -q -b main origin-api && cd origin-api && echo x > README.md && git add . && git ${ID} commit -q -m one`);
+    sh(root, 'git clone -q origin-shop shop && git clone -q origin-api api && mkdir plain mem && echo "# idx" > mem/MEMORY.md');
+    const blob = sh(join(root, 'shop'), 'git rev-parse origin/HEAD:CLAUDE.md').trim();
+    sh(join(root, 'shop'), `echo 'local edit, never merged' > CLAUDE.md && git ${ID} worktree add -q ../wt -b feature && echo 'branch edit' > ../wt/CLAUDE.md`);
+    const dirs = ['shop', 'api', 'plain', 'missing'].map((d) => join(root, d));
+    const script = hashListScript(join(root, 'mem'), dirs);
+    const out = sh(root, script);
+    assert.deepEqual(parseInstructionDigests(out), { [join(root, 'shop')]: blob }, 'the default branch as fetched; no file, no repository, no directory: absent, and the listing still succeeds');
+    assert.deepEqual(Object.keys(parseHashListing(out)), ['MEMORY.md']);
+    assert.equal(sh(join(root, 'shop'), 'cat CLAUDE.md').trim(), 'local edit, never merged', 'nothing was pulled or checked out');
+    // The default branch moves on the remote; after a fetch (the bot fetches at every chat prep) the digest follows.
+    sh(join(root, 'origin-shop'), `echo 'Deploy with npm run ship.' > CLAUDE.md && git ${ID} commit -q -am two`);
+    sh(join(root, 'shop'), 'git fetch -q --all --prune');
+    assert.notEqual(parseInstructionDigests(sh(root, script))[join(root, 'shop')], blob);
+    // A checkout without origin/HEAD falls back to origin/main.
+    sh(join(root, 'shop'), 'git remote set-head origin -d');
+    assert.equal(Object.keys(parseInstructionDigests(sh(root, script))).length, 1);
+    // A missing memory directory still lists the instructions.
+    assert.equal(Object.keys(parseInstructionDigests(sh(root, hashListScript(join(root, 'nomem'), dirs)))).length, 1);
+
+    const exec: MirrorExec = async () => ({ exitCode: 0, result: `instructions ${h}  /work/shop\n` });
+    const m = await mirrorMemory(exec, repo, '/mem', 'turn t1', { 'shop/CLAUDE.md': '/work/shop', 'api/CLAUDE.md': '/work/api' });
     assert.deepEqual(m.instructions, { 'shop/CLAUDE.md': h });
     assert.equal((await mirrorMemory(exec, repo, '/mem', 'turn t2')).instructions, undefined, 'not asked, not reported');
   } finally {
+    await rm(root, { recursive: true, force: true });
     await rm(repo, { recursive: true, force: true });
   }
 });

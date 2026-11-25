@@ -86,22 +86,27 @@ const sha256 = (b: Buffer): string => createHash('sha256').update(b).digest('hex
 // "<sha256>  <name>" per regular file directly in the directory. A missing directory lists nothing and succeeds
 // (a project that has no memory yet); a hash that fails makes the whole listing fail — a partial listing would
 // read as "the other files were deleted". POSIX shell: the plain sandbox image is Alpine.
-// With `instructions` (the repositories' CLAUDE.md paths — the nightly tidy's "changed instructions" finding,
-// company-brain D9) the same exec also prints "instructions <sha256>  <path>" per file that exists.
+// With `instructions` (the repositories' checkouts — the nightly tidy's "changed instructions" finding,
+// company-brain D9) the same exec also prints "instructions <blob>  <checkout>" per repository whose DEFAULT
+// BRANCH, as last fetched, has a CLAUDE.md. Git's blob id, not a hash of the file on disk: conversations work
+// in worktrees and the bot only fetches the main checkout, so its working tree says nothing about the branch
+// people merge into. Nothing is pulled or checked out. `origin/HEAD` is what a clone records; a checkout
+// without it falls back to `origin/main`, then `origin/master`.
 export function hashListScript(dir: string, instructions: readonly string[] = []): string {
   const list = `for f in *; do [ -f "$f" ] || continue; sha256sum -- "$f" || exit 1; done`;
   if (!instructions.length) return `[ -d ${sq(dir)} ] || exit 0; cd ${sq(dir)} || exit 1; ${list}`;
   return (
     `if [ -d ${sq(dir)} ]; then cd ${sq(dir)} || exit 1; ${list}; fi; ` +
-    `for p in ${instructions.map(sq).join(' ')}; do [ -f "$p" ] || continue; printf 'instructions '; sha256sum -- "$p" || exit 1; done`
+    `for d in ${instructions.map(sq).join(' ')}; do for r in origin/HEAD origin/main origin/master; do ` +
+    `h=$(git -C "$d" rev-parse -q --verify "$r:CLAUDE.md" 2>/dev/null) && { printf 'instructions %s  %s\\n' "$h" "$d"; break; }; done; done; true`
   );
 }
 
-/** path → sha256 for the "instructions …" lines of a listing. */
+/** checkout → blob id (40 or 64 hex) for the "instructions …" lines of a listing. */
 export function parseInstructionDigests(stdout: string): Record<string, string> {
   const out: Record<string, string> = {};
   for (const line of stdout.split('\n')) {
-    const m = /^instructions ([0-9a-f]{64}) [ *](.+)$/.exec(line.trimEnd());
+    const m = /^instructions ([0-9a-f]{40}|[0-9a-f]{64})  (.+)$/.exec(line.trimEnd());
     if (m) out[m[2]] = m[1];
   }
   return out;
@@ -138,7 +143,7 @@ export interface MirrorResult {
   files: Record<string, string>; // the host's copy after the mirror, by file name
   changed: string[]; // created or changed by what the sandbox holds now
   removed: string[];
-  // label → sha256 of each instruction file the caller asked about and the sandbox has (absent: not asked).
+  // label → git blob id of CLAUDE.md on each asked repository's default branch (absent: not asked).
   instructions?: Record<string, string>;
 }
 
@@ -149,7 +154,7 @@ export function mirrorMemory(
   repoDir: string,
   dir: string,
   message: string,
-  instructionFiles?: Readonly<Record<string, string>>, // label → path in the sandbox
+  instructionFiles?: Readonly<Record<string, string>>, // label → the repository's checkout in the sandbox
 ): Promise<MirrorResult> {
   return serial(repoDir, async () => {
     const ls = await exec(hashListScript(dir, Object.values(instructionFiles ?? {})));

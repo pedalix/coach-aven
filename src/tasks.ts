@@ -583,8 +583,8 @@ export async function openChat(
         memoryRepoDir(opts.slug),
         memoryDir(projectCwd(cfg, opts.slug, opts.repos)),
         message,
-        // Each repository's CLAUDE.md, for the tidy's "changed instructions" finding (company-brain D9).
-        Object.fromEntries(opts.repos.map((r) => [`${repoName(r)}/CLAUDE.md`, `${repoCheckout(cfg, opts.slug, r)}/CLAUDE.md`])),
+        // Each repository's CLAUDE.md on its default branch, for the tidy's "changed instructions" finding (company-brain D9).
+        Object.fromEntries(opts.repos.map((r) => [`${repoName(r)}/CLAUDE.md`, repoCheckout(cfg, opts.slug, r)])),
       ),
     memoryReads: () => session?.memoryReads() ?? [],
     ask: async (
