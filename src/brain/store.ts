@@ -13,7 +13,7 @@ import { buildIndex, type BrainIndex } from './index.js';
 import { lint, type Finding } from './lint.js';
 import { parseJsonl, provenance, useEntry, type Starter, type UseEntry } from './uses.js';
 import { answerEntry, type AnswerEntry } from './answers.js';
-import { emptyTidyState, instructionsChanged, type TidyState } from './tidy.js';
+import { changedInstructions, emptyTidyState, instructionsChanged, type TidyState } from './tidy.js';
 
 export const brainProjectDir = (slug: string): string => join(brainDir(), safeSlug(slug));
 
@@ -44,7 +44,22 @@ export const readUses = (slug: string): Promise<UseEntry[]> => readJsonl<UseEntr
 export const readAnswers = (slug: string): Promise<AnswerEntry[]> => readJsonl<AnswerEntry>(join(brainProjectDir(slug), 'answers.jsonl'));
 
 export const readTidy = async (slug: string): Promise<TidyState> => ({ ...emptyTidyState(), ...(await readJson<TidyState>(join(brainProjectDir(slug), 'tidy.json'))) });
-export const writeTidy = (slug: string, state: TidyState): Promise<void> => writeJson(join(brainProjectDir(slug), 'tidy.json'), state);
+
+// tidy.json has two writers — a turn's mirror noting CLAUDE.md digests and the nightly tidy settling its counts —
+// and both read, change and write it: every update goes through one queue per project, so neither writes back a
+// copy the other has already replaced. Written only when the update changed something.
+const tidyQueues = new Map<string, Promise<unknown>>();
+export function updateTidy(slug: string, change: (state: TidyState) => TidyState): Promise<TidyState> {
+  const run = async (): Promise<TidyState> => {
+    const before = await readTidy(slug);
+    const next = change(before);
+    if (JSON.stringify(next) !== JSON.stringify(before)) await writeJson(join(brainProjectDir(slug), 'tidy.json'), next);
+    return next;
+  };
+  const queued = (tidyQueues.get(slug) ?? Promise.resolve()).then(run, run);
+  tidyQueues.set(slug, queued.catch(() => {}));
+  return queued;
+}
 
 // `instructions`: the CLAUDE.md digests the mirror just read (absent: the caller did not ask). A file noted for
 // the first time becomes the baseline in tidy.json; one that differs from what the last tidy saw is a finding.
@@ -58,12 +73,7 @@ export async function rebuildBrain(
   await mkdir(dir, { recursive: true });
   const index = buildIndex(files, now, await readIndex(slug), provenance(await readUses(slug)));
   let changed: string[] = [];
-  if (instructions) {
-    const tidy = await readTidy(slug);
-    const noted = instructionsChanged(tidy, instructions);
-    changed = noted.changed;
-    if (JSON.stringify(noted.state.instructions) !== JSON.stringify(tidy.instructions)) await writeTidy(slug, noted.state);
-  }
+  if (instructions) changed = changedInstructions(await updateTidy(slug, (tidy) => instructionsChanged(tidy, instructions).state));
   const findings = lint(index, { now, instructionsChanged: changed });
   await writeJson(join(dir, 'index.json'), index);
   await writeJson(join(dir, 'lint.json'), findings);

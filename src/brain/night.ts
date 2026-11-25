@@ -4,7 +4,7 @@
 
 import { log } from '../log.js';
 import type { MirrorResult } from '../memjournal.js';
-import { brainAfterTurn, readIndex, readLint, readTidy, rebuildBrain, writeTidy } from './store.js';
+import { brainAfterTurn, readIndex, readLint, readTidy, rebuildBrain, updateTidy } from './store.js';
 import { endTidy, startTidy, tidyDigest, tidyPrompt } from './tidy.js';
 
 type TidySession = { mirrorMemory?: (message: string) => Promise<MirrorResult>; memoryReads?: () => string[] };
@@ -33,7 +33,7 @@ export async function nightlyTidy(d: NightDeps, slug: string, day: string): Prom
   if (state.lastDay === day) return 'done-today';
   const run = startTidy((await readLint(slug)) ?? [], index, state);
   if (!run.share.length) {
-    await writeTidy(slug, { ...state, lastDay: day });
+    await updateTidy(slug, (s) => ({ ...s, lastDay: day }));
     return 'nothing-due';
   }
   if (d.projectBusy(slug)) return 'busy';
@@ -47,7 +47,7 @@ export async function nightlyTidy(d: NightDeps, slug: string, day: string): Prom
       mirrored = m;
     });
     const after = { index: (await readIndex(slug)) ?? index, findings: (await readLint(slug)) ?? [], instructions: mirrored?.instructions };
-    await writeTidy(slug, endTidy(await readTidy(slug), run, after, day));
+    await updateTidy(slug, (s) => endTidy(s, run, after, day));
     // The lint of that mirror was built against the digests from before the tidy: build it once more, so a
     // changed CLAUDE.md the tidy has now seen is no longer listed (and does not start tomorrow's).
     if (mirrored?.instructions && run.share.some((f) => f.code === 'instructions-changed')) {
@@ -57,7 +57,7 @@ export async function nightlyTidy(d: NightDeps, slug: string, day: string): Prom
     return 'tidied';
   } catch (e) {
     log.error(`tidy ${slug}: ${e instanceof Error ? e.message : String(e)}`);
-    await writeTidy(slug, { ...(await readTidy(slug)), lastDay: day }).catch(() => {});
+    await updateTidy(slug, (s) => ({ ...s, lastDay: day })).catch(() => {});
     return 'failed';
   } finally {
     d.tidying.delete(slug);

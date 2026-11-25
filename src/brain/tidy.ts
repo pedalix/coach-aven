@@ -15,6 +15,9 @@ export interface TidyState {
   given: Record<string, { n: number; hash: string }>;
   // Each repository's `CLAUDE.md` digest as the last tidy saw it (the first one noted is the baseline).
   instructions: Record<string, string>;
+  // The digests the last mirror read. The "changed" finding is judged from these two maps, never from a lint
+  // file a failed mirror left stale — and a tidy whose own mirror failed still settles the finding with them.
+  seen?: Record<string, string>;
   lastDay?: string; // the local day the nightly check last settled this project (ran a tidy, or found none due)
 }
 
@@ -42,8 +45,17 @@ export function timesGiven(f: Finding, index: BrainIndex, state: TidyState): num
 
 /** The findings that may start a tidy: every one not yet given to TIDY_RUNS tidies on its present content. */
 export function dueFindings(findings: readonly Finding[], index: BrainIndex, state: TidyState): Finding[] {
-  // A changed CLAUDE.md is cleared by the tidy that was given it (endTidy), so it is never counted.
-  return findings.filter((f) => f.code === 'instructions-changed' || timesGiven(f, index, state) < TIDY_RUNS);
+  // A changed CLAUDE.md is cleared by the tidy that was given it (endTidy), so it is never counted — and it is
+  // due only while the state itself says a file differs, whatever a stale lint still lists.
+  return findings.filter((f) => (f.code === 'instructions-changed' ? changedInstructions(state).length > 0 : timesGiven(f, index, state) < TIDY_RUNS));
+}
+
+/** The repositories whose `CLAUDE.md`, as the last mirror read it, differs from the one the last tidy saw. */
+export function changedInstructions(state: TidyState): string[] {
+  return Object.entries(state.seen ?? {})
+    .filter(([path, digest]) => state.instructions[path] !== undefined && state.instructions[path] !== digest)
+    .map(([path]) => path)
+    .sort();
 }
 
 /** Tonight's share and what each finding had been given before — endTidy needs the counts from before the run. */
@@ -75,10 +87,14 @@ export function endTidy(
     }
     given[key] = { n: (run.prior[key] ?? 0) + 1, hash: recordsHash(still, after.index) };
   }
+  // The tidy that was given the finding has seen the file: its mirror's digests become the baseline — or, when
+  // that mirror failed, the last ones noted, so a project whose mirror keeps failing is not tidied every night.
   const sawInstructions = run.share.some((f) => f.code === 'instructions-changed');
+  const seen = after.instructions ? { ...after.instructions } : state.seen;
   return {
     given,
-    instructions: sawInstructions && after.instructions ? { ...after.instructions } : state.instructions,
+    instructions: sawInstructions && seen ? { ...seen } : state.instructions,
+    ...(seen ? { seen } : {}),
     lastDay: day,
   };
 }
@@ -95,7 +111,7 @@ export function instructionsChanged(state: TidyState, current: Readonly<Record<s
     instructions[path] = seen ?? digest;
     if (seen !== undefined && seen !== digest) changed.push(path);
   }
-  return { changed: changed.sort(), state: { ...state, instructions } };
+  return { changed: changed.sort(), state: { ...state, instructions, seen: { ...current } } };
 }
 
 // The tidy turn's prompt. Memory only, with the same hard "no code" guardrail the dream had (tools are not

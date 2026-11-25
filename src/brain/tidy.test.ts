@@ -108,3 +108,15 @@ test('tidyDigest — one stripped line, capped', () => {
   assert.equal(tidyDigest(''), 'no changes');
   assert.equal(tidyDigest('x'.repeat(300)).length, 200);
 });
+
+test('a tidy whose own mirror failed still settles the CLAUDE.md finding, and a stale lint does not make it due again', () => {
+  const i = index({ 'lifts.md': 'h1' });
+  let s = instructionsChanged(emptyTidyState(), { 'shop/CLAUDE.md': 'd1' }).state;
+  s = instructionsChanged(s, { 'shop/CLAUDE.md': 'd2' }).state;
+  const stale = findings(i, ['shop/CLAUDE.md']); // what lint.json keeps listing while the mirror fails
+  const run = startTidy(stale, i, s);
+  assert.ok(run.share.some((f) => f.code === 'instructions-changed'));
+  s = endTidy(s, run, { index: i, findings: stale }, '05-10'); // no digests: the tidy's mirror failed
+  assert.deepEqual(s.instructions, { 'shop/CLAUDE.md': 'd2' }, 'the last digests a mirror noted become the baseline');
+  assert.ok(!dueFindings(stale, i, s).some((f) => f.code === 'instructions-changed'), 'not due again, although the stale lint lists it');
+});
