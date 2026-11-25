@@ -4,6 +4,9 @@ import {
   pruneThreshold,
   dockerdGuardCmd,
   housekeepingScript,
+  lastPassText,
+  lastTurnBySlug,
+  passDue,
   parseHousekeepingReport,
 } from './housekeeping.js';
 
@@ -100,4 +103,29 @@ test('parse: cli markers ride along in the report and digest', () => {
   const failed = parseHousekeepingReport(out.replace('installed', 'failed').replace('version=2.1.260', 'version=2.1.183'), 0);
   assert.match(failed.digest, /cli 2\.1\.183 \(upgrade FAILED\)$/);
   assert.match(parseHousekeepingReport(out.replace('installed', 'current'), 0).digest, /cli 2\.1\.260$/);
+});
+
+// ── when a project has a pass (OpenSpec nightly-housekeeping D2) ────────────────────────────────────
+test('passDue — only a project that had a turn since its last pass', () => {
+  assert.equal(passDue({}), false, 'no turn on record: nothing to clean, nothing is woken');
+  assert.equal(passDue({ lastPassAt: '2026-03-02T03:00:00.000Z' }), false);
+  assert.equal(passDue({ lastTurnAt: '2026-03-02T14:00:00.000Z' }), true, 'never had a pass');
+  assert.equal(passDue({ lastPassAt: '2026-03-02T03:00:00.000Z', lastTurnAt: '2026-03-02T14:00:00.000Z' }), true);
+  assert.equal(passDue({ lastPassAt: '2026-03-03T03:00:00.000Z', lastTurnAt: '2026-03-02T14:00:00.000Z' }), false, 'quiet since the pass');
+});
+
+test('lastTurnBySlug — the newest usage record per project, whatever the order', () => {
+  const m = lastTurnBySlug([
+    { slug: 'skishop', at: '2026-03-02T14:00:00.000Z' },
+    { slug: 'glacier', at: '2026-03-01T09:00:00.000Z' },
+    { slug: 'skishop', at: '2026-03-02T09:00:00.000Z' },
+  ]);
+  assert.deepEqual([...m], [['skishop', '2026-03-02T14:00:00.000Z'], ['glacier', '2026-03-01T09:00:00.000Z']]);
+});
+
+test('lastPassText — the last pass, or that none ran yet; always that it runs by itself', () => {
+  assert.match(lastPassText('skishop', undefined, '/aven'), /no pass yet\. It runs by itself at night/);
+  const t = lastPassText('skishop', { at: '2026-03-02T03:04:05.000Z', summary: 'woke · disk 41%' }, '/aven');
+  assert.match(t, /Last pass: 2026-03-02 03:04 UTC — _woke · disk 41%_/);
+  assert.match(t, /`\/aven housekeeping now` runs one/);
 });

@@ -129,10 +129,10 @@ test('plannedFires — a pending retry fires at its time, inside the grace windo
   assert.match(dropped[1]!.skips[0]!.reason, /grace window of the 08:30 slot has passed/);
 });
 
-test('plannedFires — housekeeping is never caught up or retried', () => {
+test('plannedFires — a stored routine of a kind that runs no turn is never caught up or retried', () => {
   const now = d('2026-10-13T02:00:00Z'); // 05:00 MSK; the 03:00 MSK slot is two hours old
-  const hk = brief({ id: 'r8', kind: 'housekeeping', cron: '0 3 * * *', lastRunAt: '2026-10-11T00:00:03.000Z', lastOutcome: 'error', retry: { at: '2026-10-13T00:15:00.000Z', slot: '2026-10-13T00:00:00.000Z' } });
-  assert.deepEqual(plannedFires([hk], now, new Map(), ON).fires, []);
+  const old = brief({ id: 'r8', kind: 'housekeeping' as never, cron: '0 3 * * *', lastRunAt: '2026-10-11T00:00:03.000Z', lastOutcome: 'error', retry: { at: '2026-10-13T00:15:00.000Z', slot: '2026-10-13T00:00:00.000Z' } });
+  assert.deepEqual(plannedFires([old], now, new Map(), ON).fires, []);
 });
 
 test('slotClock / fireLabel / fireNote — local clock, weekday when not today, late and retry markers', () => {
@@ -258,7 +258,7 @@ test('emptySkipDecision — skips only a scheduled/late slot with the guard+flag
   assert.match(no({}, { ...ON_SKIP, enabled: false }).reason, /empty-skip off/, 'flag without the guard is off');
   assert.match(no({ fire: { mode: 'manual' } }).reason, /manual/);
   assert.match(no({ fire: { mode: 'retry', slot: d('2026-10-14T15:30:00Z') } }).reason, /retry/);
-  assert.match(no({ routine: delivered({ kind: 'housekeeping' }) }).reason, /not a turn routine/);
+  assert.match(no({ routine: delivered({ kind: 'housekeeping' as never }) }).reason, /not a turn routine/);
   assert.match(no({ routine: delivered({ skipEmpty: false }) }).reason, /opted out/);
   assert.match(no({ hasSources: false }).reason, /no sources/);
   assert.match(no({ routine: delivered({ lastDeliveredRawCount: undefined }) }).reason, /no delivered run/);

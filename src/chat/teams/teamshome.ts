@@ -29,7 +29,7 @@ export function teamsHomeBullets(opts: { messaging?: boolean } = {}): string[] {
     '• *What\'s here* — `/access` shows this channel\'s repos and tools.',
     '• *Inspect my context* — `/memory` shows what I have learned (`/memory <topic>`, `/memory live`, `/memory log`); `/prompt` shows my system prompt.',
     '• *Memory upkeep* — automatic, nothing to switch on: at night I tidy a project\'s memory when my own check finds problems in it (records without a kind or status, duplicates for one ticket, personal data).',
-    '• *Sandbox upkeep* — `/housekeeping on|off` schedules (or pauses) the nightly janitor; `/housekeeping` for the last run, `/housekeeping now` to run it once.',
+    '• *Sandbox upkeep* — automatic, nothing to switch on: at night I clean the sandbox of a project that had a turn since the last pass; `/housekeeping` for the last pass, `/housekeeping now` to run one.',
     '• *Status* — `/status` for a live view of sandboxes, sessions and open PRs — and (operators) the Claude subscription quota, on an installation that runs on a subscription token.',
     '• *Check or restart a conversation* — *⚙️ Session* on a finished answer shows the session, repos, tools and PR, with *🔄 Restart session* to start the next message fresh.',
     '• *Tell me if it landed* — *👍 Helped* / *👎 Missed* on every answer; a thumbs-down asks what went wrong in a dialog.',

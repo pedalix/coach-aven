@@ -13,7 +13,7 @@
       "token": "",
       "payload": {
         "response_type": "ephemeral",
-        "text": ":broom: Housekeeping on for *alpha* — `daily 4:30` (UTC). Nightly janitor: stale-worktree reap; on a docker-in-docker project also the dockerd guard and a docker prune past 80% disk. `/aven housekeeping` shows the last run."
+        "text": ":information_source: Housekeeping needs no switch: it runs by itself at night for every project that had a turn since its last pass. `/aven housekeeping` shows the last pass, `/aven housekeeping now` runs one."
       }
     }
   ],

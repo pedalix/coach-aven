@@ -158,17 +158,12 @@ function renderQuestion(v: Extract<MessageView, { kind: 'question' }>): TeamsMes
 // Replies only the acting person sees — Teams has no ephemeral messages, so these go to the
 // person's 1:1 chat (driver.ts); here they are just text.
 // One line per scheduled job, in the Slack list's vocabulary (`routineListBlocks`): the dot is
-// the enabled state, housekeeping shows its label (and last digest) instead of a prompt,
+// the enabled state,
 // a task is tagged, a report has no kind at all — so the kind is never printed raw.
 type RoutineLike = Extract<PrivateView, { kind: 'routines' }>['routines'][number];
 function routineLine(r: RoutineLike): string {
   const dot = r.enabled ? '🟢' : '⚪️';
   const last = r.lastRunAt ? ` · last ${r.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
-  if (r.kind === 'housekeeping') {
-    const label = '🧹 housekeeping';
-    const s = r.lastSummary ? ` — _${r.lastSummary}_` : '';
-    return `- ${dot} **${r.id}** ${label} — \`${r.spec}\` (${r.tz})${last}${s}`;
-  }
   const p = r.prompt.length > 90 ? `${r.prompt.slice(0, 87)}…` : r.prompt;
   const tag = r.kind === 'task' ? ' 🛠 task' : '';
   // Empty-slot skip (ROUTINE_SKIP_EMPTY): the last slot posted one line instead of a run.
@@ -189,7 +184,7 @@ export function renderPrivateView(v: PrivateView): TeamsMessage {
         (p) =>
           `- **${p.slug}** — ${p.state ?? 'not created'} · ${plural(p.repos, 'repo')} · ${plural(p.sessions, 'session')} (${p.active} active)` +
           `${p.openPRs === undefined ? '' : ` · ${plural(p.openPRs, 'open PR')}`}` +
-          `${p.jobs || p.hk ? ` · routines: ${p.jobs} jobs, ${p.hk} housekeeping` : ''}` +
+          `${p.jobs ? ` · routines: ${p.jobs} jobs` : ''}` +
           `${p.sources ? `\n  sources: ${p.sources}` : ''}`,
       );
       const flags = [`sandboxes ${r.sandboxesOk ? '✅' : '⚠️'}`, `GitHub ${r.githubOk ? '✅' : '⚠️'}`, `${plural(r.turnsInFlight, 'turn')} in flight`];

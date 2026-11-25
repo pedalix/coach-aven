@@ -146,8 +146,8 @@ the next turn wakes it and continues the same conversation.
   `sandbox '<name>' started (ssh-docker) — new boot: session files reset, dockerd restarted`. At the
   bot's start: `idle stop: sandboxes without an idle stop of their own (ssh-docker) stop after <m> min
   without activity`, or `idle stop: off (SANDBOX_AUTOSTOP_MINUTES ≤ 0)`.
-- **Housekeeping**, where enabled and while the idle stop is on, wakes an asleep container for its
-  nightly pass (`docs/housekeeping.md`); the idle stop puts it back to sleep.
+- **Housekeeping**, while the idle stop is on, wakes an asleep container for the nightly pass of a
+  project that had a turn since its last one (`docs/housekeeping.md`); the idle stop puts it back to sleep.
 - **Off switch**: `SANDBOX_AUTOSTOP_MINUTES=0` turns off the stops and housekeeping's wake (values
   between 0 and 10 are raised to 10, with a warning). It does not turn off what every warm-up and
   reattach now does on ssh-docker, stop or no stop: the boot step (old sessions' directories

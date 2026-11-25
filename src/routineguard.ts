@@ -84,8 +84,7 @@ export interface PlannedSkip<T> {
   clearRetry?: boolean; // a stale retry record the tick should drop
 }
 
-// Only report/task routines run a Slack turn; housekeeping has its own silent
-// paths, and a nightly job caught up at noon is noise, not delivery.
+// Only report/task routines run a turn (any other stored kind is ignored).
 const turnKind = (kind: string | undefined): boolean => kind === undefined || kind === 'report' || kind === 'task';
 
 // The scheduler tick's whole decision. Guard off: exactly dueRoutines (the current minute, once

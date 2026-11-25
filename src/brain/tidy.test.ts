@@ -141,3 +141,18 @@ test('a change another turn noted while the tidy ran is not swallowed when the t
   assert.equal(s.instructions['shop/CLAUDE.md'], 'd2', 'the baseline is what this tidy was given');
   assert.equal(dueFindings(findings(i, ['shop/CLAUDE.md']), i, s).some((f) => f.code === 'instructions-changed'), true, 'd3 is still due');
 });
+
+test('a repository git could not read keeps its baseline; a branch without the file drops it', () => {
+  let s = instructionsChanged(emptyTidyState(), { 'shop/CLAUDE.md': 'd1', 'api/CLAUDE.md': 'e1' }).state;
+  // The sandbox has no working git for one mirror: nothing is known, nothing changes.
+  let noted = instructionsChanged(s, {});
+  assert.deepEqual(noted.changed, []);
+  assert.deepEqual(noted.state.instructions, { 'shop/CLAUDE.md': 'd1', 'api/CLAUDE.md': 'e1' });
+  // Git is back and the file changed meanwhile: reported, not taken for a first digest.
+  noted = instructionsChanged(noted.state, { 'shop/CLAUDE.md': 'd2', 'api/CLAUDE.md': 'e1' });
+  assert.deepEqual(noted.changed, ['shop/CLAUDE.md']);
+  // The file is removed from the default branch: its baseline goes, and nothing is due for it.
+  noted = instructionsChanged(noted.state, { 'shop/CLAUDE.md': null, 'api/CLAUDE.md': 'e1' });
+  assert.deepEqual(noted.state.instructions, { 'api/CLAUDE.md': 'e1' });
+  assert.deepEqual(noted.state.seen, { 'api/CLAUDE.md': 'e1' });
+});

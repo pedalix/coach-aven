@@ -198,7 +198,8 @@ memory files into records a team can rely on, without a model on the host.
 The one upkeep pass. It replaces the dream (a scheduled consolidation turn people had to switch on, which swept
 session transcripts every night): there is no command, no routine and no schedule to set.
 
-- **What starts it.** During the 03:00 hour (`AVEN_TZ`) the host reads each project's `lint.json`. Nothing due →
+- **What starts it.** During the 03:00 hour (`AVEN_TZ`), after the project's [housekeeping](housekeeping.md)
+  when that is due, the host reads each project's `lint.json`. Nothing due →
   no turn, and a stopped sandbox stays stopped. Otherwise one turn gets at most 15 findings, oldest first, so
   an existing project's backlog drains over nights.
 - **What it may do.** Memory only: the prompt forbids code, branches, pull requests and edits to any
@@ -209,7 +210,7 @@ session transcripts every night): there is no command, no routine and no schedul
   later is due again.
 - **`CLAUDE.md`.** The mirror also notes, per repository, git's id of `CLAUDE.md` on the default branch as last
   fetched (`origin/HEAD`) — not the file in the checkout, which conversations in worktrees never update, and
-  nothing is pulled. The first one is a
+  nothing is pulled. A repository git cannot read just then keeps what was known about it. The first one is a
   baseline; a change is one finding, and the tidy that was given it brings contradicting records into
   agreement with the file. The finding is judged from the digests in `tidy.json`, so a project whose mirror
   keeps failing is not tidied for it night after night.

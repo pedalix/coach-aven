@@ -27,7 +27,7 @@ import { createDriver } from '../../driver.js';
 import { projectCwd } from '../../project.js';
 import { memoryFilePath } from '../../memory.js';
 import { snapshotLog, memoryRepoDir, readSnapshotFile } from '../../memjournal.js';
-import { HOUSEKEEPING_DEFAULT_CRON, HOUSEKEEPING_DEFAULT_SPEC, pruneThreshold } from '../../housekeeping.js';
+import { lastPassText } from '../../housekeeping.js';
 import { countOpenPRs, getPrMeta, ciStatusForSha, listReviews, installationPermissions } from '../../github.js';
 import { githubRepos } from '../../repohost.js';
 import { activeGrants, effectNote, grantListText, grantNotice, isActive, parseGrantCmd, type GrantRecord } from '../../grants.js';
@@ -44,7 +44,7 @@ export interface CommandDeps {
   reg: RegistryRef;
   engine: TurnEngine;
   channels: Channels;
-  pollers: Pick<Pollers, 'fireRoutine' | 'fireReview' | 'endGrant'>;
+  pollers: Pick<Pollers, 'fireRoutine' | 'runHousekeeping' | 'fireReview' | 'endGrant'>;
   // The home tenant id (resolved at boot). Every subcommand scopes to the CALLING
   // workspace's project subset; operator commands (reload, usage) are home-only.
   homeTeamId?: string;
@@ -164,13 +164,12 @@ export function createCommands(deps: CommandDeps) {
     );
     const githubOk = prCounts.some((n) => n !== undefined);
 
-    // Routine counts per project (reports vs housekeeping) for the status line.
-    const jobsBySlug = new Map<string, { jobs: number; hk: number }>();
+    // Routine counts per project for the status line.
+    const jobsBySlug = new Map<string, { jobs: number }>();
     for (const r of store.listRoutines()) {
       if (r.teamId !== tid) continue;
-      const c = jobsBySlug.get(r.slug) ?? { jobs: 0, hk: 0 };
-      if (r.kind === 'housekeeping') c.hk++;
-      else c.jobs++;
+      const c = jobsBySlug.get(r.slug) ?? { jobs: 0 };
+      c.jobs++;
       jobsBySlug.set(r.slug, c);
     }
 
@@ -182,7 +181,6 @@ export function createCommands(deps: CommandDeps) {
       active: activeBySlug.get(p.slug) ?? 0,
       openPRs: prCounts[i],
       jobs: jobsBySlug.get(p.slug)?.jobs ?? 0,
-      hk: jobsBySlug.get(p.slug)?.hk ?? 0,
       ...(p.sources
         ? { sources: sourcesStatus(p, p.sources.intervalMinutes ?? DEFAULT_INTERVAL_MIN) }
         : {}),
@@ -305,52 +303,16 @@ export function createCommands(deps: CommandDeps) {
     return { kind: 'text', text: `:information_source: Usage: \`${CMD} routines all | run|on|off|rm <id>\`` };
   }
 
-  // ── /aven housekeeping [on|off] → nightly sandbox janitor for this project ──
-  // 'now' fires in the command handler, through the pollers. One
-  // housekeeping routine per project channel (kind: 'housekeeping'), on the same scheduler.
-  function handleHousekeeping(channelId: string, userId: string, slug: string | undefined, cmdText: string, tid?: string): PrivateView {
+  // ── /aven housekeeping [now] → the sandbox janitor (OpenSpec nightly-housekeeping) ──
+  // It runs by itself at night for every project, so there is nothing to switch: the bare verb shows the last
+  // pass, `now` (in the command handler, through the pollers) runs one, and the former `on`/`off` get one line.
+  function handleHousekeeping(slug: string | undefined, cmdText: string): PrivateView {
     if (!slug) return { kind: 'text', text: `:x: Use \`${CMD} housekeeping\` from a project channel.` };
     const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
-    const existing = store.listRoutines({ channel: channelId }).find((r) => r.kind === 'housekeeping' && r.teamId === tid);
-    if (sub === 'off') {
-      if (!existing) return { kind: 'text', text: ':information_source: No housekeeping scheduled here.' };
-      store.patchRoutine(existing.id, { enabled: false });
-      return { kind: 'text', text: `:white_check_mark: Housekeeping paused for *${slug}*.` };
+    if (sub === 'on' || sub === 'off') {
+      return { kind: 'text', text: `:information_source: Housekeeping needs no switch: it runs by itself at night for every project that had a turn since its last pass. \`${CMD} housekeeping\` shows the last pass, \`${CMD} housekeeping now\` runs one.` };
     }
-    if (sub === 'on') {
-      if (existing) {
-        store.patchRoutine(existing.id, { enabled: true });
-        return { kind: 'text', text: `:broom: Housekeeping on for *${slug}* — \`${existing.spec}\` (${existing.tz}).` };
-      }
-      const rec = store.addRoutine({
-        slug,
-        teamId: tid,
-        ...(surface ? { surface } : {}),
-        channel: channelId,
-        cron: HOUSEKEEPING_DEFAULT_CRON,
-        tz: ROUTINE_TZ,
-        spec: HOUSEKEEPING_DEFAULT_SPEC,
-        prompt: '',
-        enabled: true,
-        createdBy: userId,
-        kind: 'housekeeping',
-      });
-      return {
-        kind: 'text',
-        text: `:broom: Housekeeping on for *${slug}* — \`${rec.spec}\` (${ROUTINE_TZ}). Nightly janitor: stale-worktree reap; on a docker-in-docker project also the dockerd guard and a docker prune past ${pruneThreshold()}% disk. \`${CMD} housekeeping\` shows the last run.`,
-      };
-    }
-    // bare / status
-    if (!existing) {
-      return { kind: 'text', text: `:broom: No housekeeping for *${slug}*. Enable the nightly sandbox janitor: \`${CMD} housekeeping on\`.` };
-    }
-    const state = existing.enabled ? '🟢 on' : '⚪️ off';
-    const last = existing.lastRunAt ? `\nLast run: ${existing.lastRunAt.slice(0, 16).replace('T', ' ')}` : '';
-    const digest = existing.lastSummary ? `\nLast: _${existing.lastSummary}_` : '';
-    return {
-      kind: 'text',
-      text: `:broom: *Housekeeping — ${slug}* ${state} · \`${existing.spec}\` (${existing.tz})${last}${digest}\n_Manage:_ \`${CMD} housekeeping on|off|now\``,
-    };
+    return { kind: 'text', text: lastPassText(slug, store.getProjectSettings(slug).housekeeping, CMD) };
   }
 
   // ── /aven grant [<capability> [<duration>|off]] → temporary project grants (OpenSpec project-grants) ──
@@ -615,23 +577,18 @@ export function createCommands(deps: CommandDeps) {
       await say(handleRoutines(cmd.conv, cmdText, tid));
       return;
     }
-    // `/aven housekeeping [on|off|now]` → the nightly sandbox janitor (docs/housekeeping.md).
+    // `/aven housekeeping [now]` → the sandbox janitor (docs/housekeeping.md): the last pass, or run one.
     if (verb === 'housekeeping' || verb === 'hk') {
       const { project } = await channels.pickProject(d, cmd.conv, '', tenant);
       const sub = cmdText.split(/\s+/)[1]?.toLowerCase();
-      if (sub === 'now') {
-        const r = store.listRoutines({ channel: cmd.conv }).find((x) => x.kind === 'housekeeping' && x.teamId === tid);
-        if (!r) {
-          await say(`:information_source: No housekeeping here yet — \`${CMD} housekeeping on\` first.`);
-          return;
-        }
-        const ok = pollers.fireRoutine(d, r);
+      if (sub === 'now' && project) {
+        const ok = pollers.runHousekeeping(project);
         await say(ok
-            ? ':broom: Housekeeping running… (silent — check `' + CMD + ' housekeeping` for the digest)'
+            ? ':broom: Housekeeping running… (silent — check `' + CMD + ' housekeeping` for the summary)'
             : ':hourglass_flowing_sand: A turn is in flight for this project — try again shortly.');
         return;
       }
-      await say(handleHousekeeping(cmd.conv, cmd.actor.user, project?.slug, cmdText, tid));
+      await say(handleHousekeeping(project?.slug, cmdText));
       return;
     }
 

@@ -13,7 +13,7 @@
       "token": "",
       "payload": {
         "response_type": "ephemeral",
-        "text": ":information_source: No housekeeping scheduled here."
+        "text": ":broom: *Housekeeping — alpha*\nLast pass: 2026-03-02 03:04 UTC — _woke · reaped 2 worktrees · disk 41%_\nIt runs by itself at night for a project that had a turn since its last pass; `/aven housekeeping now` runs one."
       }
     }
   ],

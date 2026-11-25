@@ -52,12 +52,13 @@ import { STREAM_HARD_MAX_MS, STREAM_MAX_MS } from './claudeSession.js';
 import { resolveSandboxOptions } from './sandboxopts.js';
 import { candidateList, createIdleSweep, housekeepingSandboxStep, idleStopPlan, monoNow, sandboxActivity, SWEEP_EVERY_MS } from './idlestop.js';
 import { projectCwd, reapWorktrees, repoCheckout } from './project.js';
-import { housekeepingScript, parseHousekeepingReport, pruneThreshold } from './housekeeping.js';
+import { housekeepingScript, lastTurnBySlug, parseHousekeepingReport, passDue, pruneThreshold } from './housekeeping.js';
 import { cliUpgradeNotice, cliPinDrift, fetchCliDistTags } from './cliversion.js';
 import { nightlyTidy } from './brain/night.js';
 import { tidyDay } from './brain/tidy.js';
 import { memoryDir } from './memory.js';
 import { nowParts } from './schedule.js';
+import { UsageLog } from './metering.js';
 import { routineLabel, startRoutineTurn } from './routinerun.js';
 import { endNotice, expiredGrants, type GrantRecord } from './grants.js';
 import { shortRepo, alertOps } from './chat/slack/blocks.js';
@@ -100,6 +101,8 @@ export interface Pollers {
   // `fire` says why this fire happens (scheduled/late/retry — the scheduler's business); the
   // command and CLI paths leave it out and get a manual run.
   fireRoutine(chat: ChatDriver, r: RoutineRecord, fire?: Fire): boolean;
+  // `/aven housekeeping now` (OpenSpec nightly-housekeeping): start one pass; false while a turn or a pass runs.
+  runHousekeeping(project: ProjectConfig): boolean;
   fireReview(
     chat: ChatDriver,
     project: ProjectConfig,
@@ -209,7 +212,6 @@ export function createPollers(
       log.warn(`routine ${r.id}: tenant ${r.teamId ?? 'home'} no longer has ${r.slug} — skipped`);
       return false;
     }
-    if (r.kind === 'housekeeping') return fireHousekeeping(project, r);
     const legacyKey = keyFor(asSurface(r.surface), r.teamId, home(), `cron:${r.id}:${r.slug}`);
     if (routinesInFlight.has(r.id)) {
       log.info(`routine ${r.id} (${r.slug}): skipped — the previous run is still in flight`);
@@ -333,67 +335,93 @@ export function createPollers(
       project.slug,
       day,
     );
+  // One nightly pass per project (OpenSpec nightly-housekeeping D1, D5): housekeeping when the project had a turn
+  // since its last pass, then the memory tidy in the same awake sandbox. A busy project is left for the next
+  // minute of the hour; a failed janitor does not stop the tidy.
+  async function nightPass(project: ProjectConfig, day: string, lastTurnAt: string | undefined): Promise<void> {
+    if (passDue({ lastPassAt: store.getProjectSettings(project.slug).housekeeping?.at, lastTurnAt })) {
+      if ((await housekeepProject(project)) === 'busy') return;
+    }
+    await tidyProject(project, day);
+  }
+  const usage = new UsageLog();
+  const TURN_LOOKBACK_MS = 62 * 24 * 60 * 60 * 1000; // two month files: a project quiet for longer has no pass anyway
   function startNightlyTidy(): void {
     const tick = (): void => {
-      const day = tidyDay(nowParts(ROUTINE_TZ, new Date()));
+      const now = new Date();
+      const day = tidyDay(nowParts(ROUTINE_TZ, now));
       if (!day) return;
-      for (const project of reg.current.projects) void tidyProject(project, day).catch(pollFail('tidy'));
+      const lastTurn = lastTurnBySlug(usage.read(TURN_LOOKBACK_MS, now.getTime()));
+      for (const project of reg.current.projects) void nightPass(project, day, lastTurn.get(project.slug)).catch(pollFail('night'));
     };
     tick();
     setInterval(tick, 60_000);
   }
 
   // Housekeeping: the deterministic sandbox janitor (docs/housekeeping.md) — dockerd
-  // guard, threshold-gated docker prune, proactive worktree reap. No LLM, silent (log +
-  // the routine's lastSummary). Skipped while the project has a live turn
-  // (never reap state out from under one). An asleep sandbox (housekeepingSandboxStep): where the
+  // guard, threshold-gated docker prune, proactive worktree reap, the CLI pin. No LLM, silent (log +
+  // the project's last-pass record). For every project, with no routine and no switch (OpenSpec
+  // nightly-housekeeping): the night pass below runs it for a project that had a turn since its last
+  // pass, and `/aven housekeeping now` runs one. Never over a live turn (never reap state out from
+  // under one). An asleep sandbox (housekeepingSandboxStep): where the
   // bot owns the idle stop (the driver has stopSandbox — ssh-docker; OpenSpec sandbox-idle-stop
-  // D13) and it is on, it is woken for the pass: the janitor keeps running as it did before the
-  // idle stop — the prune matters more where every container shares the host's disk — and the
-  // idle sweep stops it again. With the stop off (SANDBOX_AUTOSTOP_MINUTES=0) nothing would stop
-  // it again, so it is skipped — as it is on a driver whose provider stops its sandboxes itself: a
-  // stopped sandbox accumulates no new garbage, and waking the fleet nightly would defeat that
-  // stop. A missing sandbox is never created here.
-  function fireHousekeeping(project: ProjectConfig, r: RoutineRecord): boolean {
-    if (engine.projectBusy(project.slug)) return false;
-    store.patchRoutine(r.id, { lastRunAt: new Date().toISOString() });
-    void (async () => {
-      try {
-        const driver = createDriver(cfg, project.driver);
-        const name = `${cfg.sandbox.namePrefix}${project.slug}`;
-        let sandbox = await driver.getSandbox(name);
-        const step = housekeepingSandboxStep({
-          exists: !!sandbox,
-          started: !!sandbox?.started,
-          driverStops: !!driver.stopSandbox,
-          idleStopOn: idleStop.minutes > 0,
-        });
-        const woke = step === 'wake';
-        if (woke) sandbox = await driver.ensureSandbox(name, project.slug, project.sandbox);
-        if (!sandbox?.started) {
-          store.patchRoutine(r.id, { lastSummary: 'sandbox asleep — skipped' });
-          return;
-        }
-        let reaped = 0;
-        for (const repo of project.repos) {
-          reaped += await reapWorktrees(sandbox, repoCheckout(cfg, project.slug, repo));
-        }
-        const pin = project.cliVersion ?? cfg.claudeCliVersion;
-        const res = await sandbox.exec(housekeepingScript(pruneThreshold(), pin, resolveSandboxOptions(project.sandbox).dind), {
-          timeout: 900,
-        });
-        const report = parseHousekeepingReport(res.result ?? '', reaped);
-        const digest = woke ? `woke · ${report.digest}` : report.digest;
-        store.patchRoutine(r.id, { lastSummary: digest });
-        log.info(`housekeeping ${r.id} (${project.slug}): ${digest}`);
-        // A CLI upgrade (or its failure) is fleet news, not just a digest line.
-        const notice = cliUpgradeNotice(report.cli, `${cfg.sandbox.namePrefix}${project.slug}`);
-        if (notice) alertOps(notice.text, notice.level);
-        if (notice?.level === 'warning') captureError(new Error(notice.text), { subsystem: 'cli-upgrade', slug: project.slug });
-      } catch (e) {
-        log.error(`housekeeping ${r.id}: ${e instanceof Error ? e.message : String(e)}`);
+  // D13) and it is on, it is woken for the pass — the prune matters more where every container
+  // shares the host's disk — and the idle sweep stops it again. With the stop off
+  // (SANDBOX_AUTOSTOP_MINUTES=0) nothing would stop it again, so it is skipped — as it is on a
+  // driver whose provider stops its sandboxes itself. A missing sandbox is never created here.
+  // A skipped or failed pass is recorded like a finished one: it is not tried again that night.
+  const housekeepingNow = new Set<string>();
+  async function housekeepProject(project: ProjectConfig): Promise<'busy' | 'ran' | 'asleep' | 'failed'> {
+    const slug = project.slug;
+    if (housekeepingNow.has(slug) || engine.projectBusy(slug)) return 'busy';
+    housekeepingNow.add(slug);
+    const done = (summary: string): void => void store.patchProjectSettings(slug, { housekeeping: { at: new Date().toISOString(), summary } });
+    try {
+      const driver = createDriver(cfg, project.driver);
+      const name = `${cfg.sandbox.namePrefix}${slug}`;
+      let sandbox = await driver.getSandbox(name);
+      const step = housekeepingSandboxStep({
+        exists: !!sandbox,
+        started: !!sandbox?.started,
+        driverStops: !!driver.stopSandbox,
+        idleStopOn: idleStop.minutes > 0,
+      });
+      const woke = step === 'wake';
+      if (woke) sandbox = await driver.ensureSandbox(name, slug, project.sandbox);
+      if (!sandbox?.started) {
+        done(sandbox ? 'sandbox asleep — skipped' : 'no sandbox yet — skipped');
+        return 'asleep';
       }
-    })();
+      let reaped = 0;
+      for (const repo of project.repos) {
+        reaped += await reapWorktrees(sandbox, repoCheckout(cfg, slug, repo));
+      }
+      const pin = project.cliVersion ?? cfg.claudeCliVersion;
+      const res = await sandbox.exec(housekeepingScript(pruneThreshold(), pin, resolveSandboxOptions(project.sandbox).dind), {
+        timeout: 900,
+      });
+      const report = parseHousekeepingReport(res.result ?? '', reaped);
+      const digest = woke ? `woke · ${report.digest}` : report.digest;
+      done(digest);
+      log.info(`housekeeping ${slug}: ${digest}`);
+      // A CLI upgrade (or its failure) is fleet news, not just a digest line.
+      const notice = cliUpgradeNotice(report.cli, name);
+      if (notice) alertOps(notice.text, notice.level);
+      if (notice?.level === 'warning') captureError(new Error(notice.text), { subsystem: 'cli-upgrade', slug });
+      return 'ran';
+    } catch (e) {
+      const why = e instanceof Error ? e.message : String(e);
+      log.error(`housekeeping ${slug}: ${why}`);
+      done(`failed — ${why.slice(0, 160)}`);
+      return 'failed';
+    } finally {
+      housekeepingNow.delete(slug);
+    }
+  }
+  // `/aven housekeeping now`: false when a turn (or a pass) is running for the project.
+  function runHousekeeping(project: ProjectConfig): boolean {
+    if (housekeepingNow.has(project.slug) || engine.projectBusy(project.slug)) return false;
+    void housekeepProject(project).catch(pollFail('housekeeping'));
     return true;
   }
 
@@ -893,6 +921,7 @@ export function createPollers(
       startIdleStop();
     },
     fireRoutine,
+    runHousekeeping,
     fireReview,
     endExpiredGrants,
     endGrant,

@@ -13,24 +13,15 @@
       "token": "",
       "payload": {
         "response_type": "ephemeral",
-        "text": ":broom: Housekeeping on for *alpha* — `daily 4:30` (UTC). Nightly janitor: stale-worktree reap; on a docker-in-docker project also the dockerd guard and a docker prune past 80% disk. `/aven housekeeping` shows the last run."
-      }
-    },
-    {
-      "method": "respond",
-      "token": "",
-      "payload": {
-        "response_type": "ephemeral",
-        "text": ":broom: Housekeeping running… (silent — check `/aven housekeeping` for the digest)"
+        "text": ":broom: Housekeeping running… (silent — check `/aven housekeeping` for the summary)"
       }
     }
   ],
   "engine": [],
   "pollers": [
     {
-      "fireRoutine": {
-        "token": "xoxb-THOME1111",
-        "id": "r1"
+      "runHousekeeping": {
+        "slug": "alpha"
       }
     }
   ]
