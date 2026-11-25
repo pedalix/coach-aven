@@ -207,7 +207,9 @@ session transcripts every night): there is no command, no routine and no schedul
 - **When it stops.** A finding given to three tidies and still listed no longer starts one — a false positive
   of the personal-data pattern must not buy a turn every night. It stays in the lint. A record someone changes
   later is due again.
-- **`CLAUDE.md`.** The mirror also notes a digest of each repository's `CLAUDE.md`. The first one is a
+- **`CLAUDE.md`.** The mirror also notes, per repository, git's id of `CLAUDE.md` on the default branch as last
+  fetched (`origin/HEAD`) — not the file in the checkout, which conversations in worktrees never update, and
+  nothing is pulled. The first one is a
   baseline; a change is one finding, and the tidy that was given it brings contradicting records into
   agreement with the file. The finding is judged from the digests in `tidy.json`, so a project whose mirror
   keeps failing is not tidied for it night after night.
