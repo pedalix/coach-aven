@@ -12,21 +12,26 @@ const verbsIn = (text: string, prefix: string): Set<string> => {
 };
 
 test('every Slack Home verb is on the web Home, or listed as one the web lacks', () => {
-  const slack = verbsIn(homeBullets({ messaging: true }).join('\n'), `${CMD} `);
-  const web = verbsIn(webHomeBullets({ messaging: true }).join('\n'), '`/');
+  const slack = verbsIn(homeBullets({ messaging: true, operatorControls: true }).join('\n'), `${CMD} `);
+  const web = verbsIn(webHomeBullets({ messaging: true, operatorControls: true }).join('\n'), '`/');
   const missing = [...slack].filter((v) => !web.has(v) && !(v in WEB_LACKS));
   assert.deepEqual(missing, [], `Slack Home verbs missing from webhome.ts (add them, or to WEB_LACKS with the reason): ${missing.join(', ')}`);
   for (const v of Object.keys(WEB_LACKS)) assert.ok(slack.has(v), `WEB_LACKS names ${v}, which the Slack Home no longer teaches`);
 });
 
 test('no Slack workspace words on the web Home: mentions, DMs, pickers, Slack Connect, workspaces', () => {
-  const text = webHomeBullets({ messaging: true }).join('\n');
+  const text = webHomeBullets({ messaging: true, operatorControls: true }).join('\n');
   for (const word of [/@-?mention/i, /\bDM\b/, /picker/i, /Slack/i, /workspace/i, new RegExp(CMD.replace('/', '\\/') + '\\b')]) {
     assert.doesNotMatch(text, word);
   }
 });
 
 test('the messaging bullets only with messaging', () => {
-  assert.ok(webHomeBullets({ messaging: true }).length > webHomeBullets().length);
+  assert.ok(webHomeBullets({ messaging: true, operatorControls: true }).length > webHomeBullets().length);
   assert.doesNotMatch(webHomeBullets().join('\n'), /\/asks/);
+});
+
+test('the operator-controls bullets only with the flag', () => {
+  assert.ok(webHomeBullets({ operatorControls: true }).length > webHomeBullets().length);
+  assert.doesNotMatch(webHomeBullets().join('\n'), /\/model|\/effort|\/operators/);
 });

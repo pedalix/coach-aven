@@ -253,6 +253,9 @@ export interface Config {
   // outbound-files, bucket 3). Off by default: unset or anything else names no outbox to the agent, reads nothing
   // from the sandbox after a turn and posts nothing — prompts and platform calls stay as they are.
   outboundFiles: boolean;
+  // OPERATOR_CONTROLS=1: named operators, a project's model and effort from chat, the operator's Home section
+  // (OpenSpec operator-controls). Off → the earlier operator rule, no new verbs, the same Home and Session card.
+  operatorControls: boolean;
   // Pin for the sandbox Claude Code CLI (x.y.z). Warm sandboxes converge to it in place at
   // chat prep / nightly housekeeping; the image build bakes the same pin. Unset → sandboxes
   // keep whatever their image shipped (and the daily drift check nags). See cliversion.ts.
@@ -513,6 +516,7 @@ export function loadConfig(): Config {
     claudeModel: process.env.CLAUDE_MODEL || undefined,
     repoSkills: repoSkillsEnv(process.env.REPO_SKILLS),
     outboundFiles: outboundFilesEnv(process.env.OUTBOUND_FILES),
+    operatorControls: operatorControlsEnv(process.env.OPERATOR_CONTROLS),
     claudeCliVersion: cliVersionEnv(),
     github: githubAuth(),
     ...(bitbucketAuth(process.env) ? { bitbucket: bitbucketAuth(process.env) } : {}),
@@ -579,5 +583,7 @@ export function autoStopMinutesEnv(raw: string | undefined): number {
 
 /** REPO_SKILLS: exactly `1` → on (agent-skills: repo skills load in multi-repo projects); unset or anything else → off. */
 export const repoSkillsEnv = (v: string | undefined): boolean => (v ?? '').trim() === '1';
+/** OPERATOR_CONTROLS: exactly `1` → on (operator-controls); unset or anything else → off. */
+export const operatorControlsEnv = (v: string | undefined): boolean => (v ?? '').trim() === '1';
 /** OUTBOUND_FILES: exactly `1` → on (outbound-files: the agent's outbox is posted into the thread); unset or anything else → off. */
 export const outboundFilesEnv = (v: string | undefined): boolean => (v ?? '').trim() === '1';

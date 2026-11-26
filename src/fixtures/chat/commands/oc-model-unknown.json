@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":x: Usage: `/aven model fable|opus|sonnet|haiku|default` — accepted: `fable`, `opus`, `sonnet`, `haiku`."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

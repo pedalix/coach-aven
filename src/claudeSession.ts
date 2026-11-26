@@ -29,6 +29,8 @@ import type { HostServerRoute, JsonRpc } from './hosttools.js';
 // (claudeSession.test.ts pins it).
 export interface ClaudeLaunchOpts {
   model?: string;
+  // `--effort <level>` right after the model; absent → no flag, the command as it always was.
+  effort?: string;
   mcpConfigPath?: string;
   resumeSessionId?: string;
   systemPrompt?: string;
@@ -65,6 +67,7 @@ export function claudeLaunch(o: ClaudeLaunchOpts): ClaudeLaunch {
     '--dangerously-skip-permissions', '--permission-prompt-tool', 'stdio', '--strict-mcp-config',
     '--settings', JSON.stringify(settings),
     ...(o.model ? ['--model', o.model] : []),
+    ...(o.effort ? ['--effort', o.effort] : []),
     ...(o.mcpConfigPath ? ['--mcp-config', o.mcpConfigPath] : []),
     ...(o.resumeSessionId ? ['--resume', o.resumeSessionId] : []),
     ...(o.systemPrompt ? ['--append-system-prompt', o.systemPrompt] : []),
@@ -83,7 +86,7 @@ export function claudeLaunch(o: ClaudeLaunchOpts): ClaudeLaunch {
     const resume = o.resumeSessionId ? `--resume ${o.resumeSessionId} ` : '';
     const sys = o.systemPrompt ? `--append-system-prompt ${sq(o.systemPrompt)} ` : '';
     const mcp = o.mcpConfigPath ? `--mcp-config ${sq(o.mcpConfigPath)} ` : '';
-    const model = o.model ? `--model ${sq(o.model)} ` : '';
+    const model = (o.model ? `--model ${sq(o.model)} ` : '') + (o.effort ? `--effort ${sq(o.effort)} ` : '');
     return (
       // CLI_PATH_ENV: the pinned per-sandbox Claude Code (cliversion.ts) wins over the image's.
       // gitIdentityEnv + --settings attribution: commits are authored by the bot's account and
@@ -488,6 +491,8 @@ export class ClaudeSession {
       // Passed as `--model` on spawn. Unset → the CLI's own default. Ignored on attach
       // (the running process already has its model).
       model?: string;
+      // Passed as `--effort` on spawn, as the model is; unset → no flag.
+      effort?: string;
       // Redact pasted secrets from user text before it goes to the process (scrub.ts).
       // undefined/true → on; false → the project opted out (ProjectConfig.scrubSecrets).
       scrubSecrets?: boolean;
@@ -622,10 +627,10 @@ export class ClaudeSession {
       return;
     }
     await this.sandbox.createSession(this.sessionKey);
-    const { model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession } = this.opts;
+    const { model, effort, mcpConfigPath, resumeSessionId, systemPrompt, avenSession } = this.opts;
     const extraArgs = [...(this.opts.ledger ? LEDGER_ARGS : []), ...addDirArgs(this.opts.addDirs)];
     const credit = this.opts.credit;
-    const command = claudeLaunch({ model, mcpConfigPath, resumeSessionId, systemPrompt, avenSession, ...(extraArgs.length ? { extraArgs } : {}), ...(credit ? { credit } : {}) }).command(this.opts.cwd);
+    const command = claudeLaunch({ model, ...(effort ? { effort } : {}), mcpConfigPath, resumeSessionId, systemPrompt, avenSession, ...(extraArgs.length ? { extraArgs } : {}), ...(credit ? { credit } : {}) }).command(this.opts.cwd);
     const started = await this.sandbox.startSessionCommand(this.sessionKey, command);
     this.cmdId = started.cmdId;
     // Stream stdout until the process exits; resolution/rejection both mean "process gone".

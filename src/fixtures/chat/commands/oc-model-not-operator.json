@@ -1,0 +1,30 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":lock: Changing a project's model is operator-only."
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*alpha* — model: the agent CLI's own default (nothing is set)."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

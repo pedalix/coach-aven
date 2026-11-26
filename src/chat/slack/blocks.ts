@@ -13,6 +13,7 @@ import { prUrls, mdToMrkdwn, fmtElapsed } from '../../format.js';
 import { trailView } from '../../steps.js';
 import { BAD_REASONS, type Tally } from '../../feedback.js';
 import { log } from '../../log.js';
+import { CLI_EFFORT_LEVELS, CLI_MODEL_NAMES } from '../../cliversion.js';
 import { captureError } from '../../sentry.js';
 import { stackHead } from '../../netretry.js';
 
@@ -857,7 +858,7 @@ export function packSections(bullets: string[], max = 2900): string[] {
 
 // The "How to use me" cheat-sheet, one bullet per entry (CLAUDE.md: every user-facing change
 // lands here). Exported so the Home-tab packing test can assert nothing is dropped or split.
-export function homeBullets(opts: { messaging?: boolean; outboundFiles?: boolean } = {}): string[] {
+export function homeBullets(opts: { messaging?: boolean; outboundFiles?: boolean; operatorControls?: boolean } = {}): string[] {
   return [
     ...(opts.messaging
       ? [
@@ -890,6 +891,13 @@ export function homeBullets(opts: { messaging?: boolean; outboundFiles?: boolean
     `• *Who may drive me* — \`${CMD} users\` shows this workspace's access (everyone, by default); admins can \`restrict\` to an allowlist and manage it with \`allow @user\` / \`deny @user\` / \`open\`.`,
     `• *Reload config* — \`${CMD} reload\` re-reads the project registry (projects.config.json + projects.d/*.md prompts) without a restart; applies to new sessions. _(Operators' home workspace only.)_`,
     `• *Lift a limit for a while* — \`${CMD} grant workflows [30m|2h]\` in a project channel lets my GitHub token change CI workflows (\`.github/workflows/\`) for that project, \`${CMD} grant actions [30m|2h]\` lets it start, re-run and cancel workflow runs (a deploy, say) — every thread of it, from the next message, 30 minutes by default and 4 hours at most; the channel sees when it starts and ends. \`${CMD} grant\` lists what is granted, \`${CMD} grant <capability> off\` ends one early. _(Operators' home workspace only.)_`,
+    // OPERATOR_CONTROLS (OpenSpec operator-controls): the two lines exist only on an installation that turned it on.
+    ...(opts.operatorControls
+      ? [
+          `• *Model and effort* — \`${CMD} model\` and \`${CMD} effort\` in a project channel show what that project's agent runs on; an operator changes it with \`${CMD} model ${CLI_MODEL_NAMES.join('|')}\` or \`${CMD} effort ${CLI_EFFORT_LEVELS.join('|')}\` (\`default\` returns to the installation's setting). It applies to conversations that start afterwards — *🔄 Restart session* brings a running thread over.`,
+          `• *Operators* — \`${CMD} operators\` lists who may run the operator commands; \`${CMD} operators add @person\` / \`remove @person\` change the list. While nobody is named, everyone in the home workspace is an operator; the first \`add\` makes it a list, the person who ran it included. _(Operators only.)_`,
+        ]
+      : []),
     '• *Connected sources* — projects with linked mail, chat or calendar archives are pulled every 15 minutes on the bot host and scrubbed before anything reaches me; ask me about a thread or a meeting and I cite the original.',
     '• *Pasted secrets stay here* — passwords, tokens, API keys and connection strings in what you type are redacted to `[REDACTED:…]` before the model sees them (same secret → same tag, so I can still tell them apart). Prefer linking to a vault entry over pasting a credential; if I ask for one, give me a *reference*, not the value.',
   ];
@@ -900,7 +908,7 @@ export function homeBullets(opts: { messaging?: boolean; outboundFiles?: boolean
 // registry — a client workspace must not see the fleet. The empty subset renders
 // onboardingHomeBlocks instead (see events.ts).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-export function homeBlocks(projects: ProjectConfig[], prefix: string, opts: { messaging?: boolean; outboundFiles?: boolean } = {}): any[] {
+export function homeBlocks(projects: ProjectConfig[], prefix: string, opts: { messaging?: boolean; outboundFiles?: boolean; operatorControls?: boolean } = {}): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blocks: any[] = [
     { type: 'header', text: { type: 'plain_text', text: '🧭 CoachAven' } },
@@ -928,7 +936,7 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string, opts: { me
   // list grew (and `CMD` can be longer than `/aven` on a dev install: every occurrence
   // widens the text), at which point views.publish rejected the whole view and the Home
   // tab spun forever for everyone — so the layout is computed, not assumed.
-  const bullets = homeBullets({ ...(opts.messaging ? { messaging: true } : {}), ...(opts.outboundFiles ? { outboundFiles: true } : {}) });
+  const bullets = homeBullets({ ...(opts.messaging ? { messaging: true } : {}), ...(opts.outboundFiles ? { outboundFiles: true } : {}), ...(opts.operatorControls ? { operatorControls: true } : {}) });
   blocks.push(
     { type: 'divider' },
     { type: 'section', text: { type: 'mrkdwn', text: '*How to use me*' } },

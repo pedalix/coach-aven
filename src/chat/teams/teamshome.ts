@@ -4,8 +4,9 @@
 // in the 1:1 chat or a reply chain, a private reply is a targeted message or the 1:1 chat, files come through
 // Microsoft Graph, and the installation (not a workspace) is the unit. Written in the same mrkdwn as homeBullets
 // (cards.ts renders it with mrkdwnToTeams). teamshome.test.ts keeps it in step with the Slack list.
+import { CLI_EFFORT_LEVELS, CLI_MODEL_NAMES } from '../../cliversion.js';
 
-export function teamsHomeBullets(opts: { messaging?: boolean } = {}): string[] {
+export function teamsHomeBullets(opts: { messaging?: boolean; operatorControls?: boolean } = {}): string[] {
   return [
     ...(opts.messaging
       ? [
@@ -37,6 +38,12 @@ export function teamsHomeBullets(opts: { messaging?: boolean } = {}): string[] {
     '• *Who may drive me* — `/users` shows who may (everyone in a bound channel, by default); the operators can `restrict` to an allowlist and manage it with `allow @person` / `deny @person` (a real mention) / `open`.',
     '• *Reload config* — `/reload` re-reads the project registry without a restart; applies to new conversations. _(Operators only.)_',
     '• *Lift a limit for a while* — `/grant workflows [30m|2h]` in a project channel lets my GitHub token change CI workflows for that project, `/grant actions [30m|2h]` lets it start, re-run and cancel workflow runs (a deploy, say), from the next message, 30 minutes by default and 4 hours at most; the channel sees when it starts and ends. `/grant` lists what is granted, `/grant <capability> off` ends one early. _(Operators only.)_',
+    ...(opts.operatorControls
+      ? [
+          `• *Model and effort* — \`/model\` and \`/effort\` in a project channel show what that project's agent runs on; an operator changes it with \`/model ${CLI_MODEL_NAMES.join('|')}\` or \`/effort ${CLI_EFFORT_LEVELS.join('|')}\` (\`default\` returns to the installation's setting). It applies to conversations that start afterwards — *🔄 Restart session* brings a running one over.`,
+          '• *Operators* — `/operators` lists who may run the operator commands: the people the installation\'s settings name, and those added here with `/operators add @person` (a real mention; `remove @person` takes one off). _(Operators only.)_',
+        ]
+      : []),
     '• *Connected sources* — projects with linked mail, chat or calendar archives are pulled regularly and scrubbed before anything reaches me; ask me about a conversation or a meeting and I cite the original.',
     '• *Pasted secrets stay here* — passwords, tokens, API keys and connection strings in what you type are redacted to `[REDACTED:…]` before the model sees them. Prefer a vault reference to a pasted credential.',
   ];

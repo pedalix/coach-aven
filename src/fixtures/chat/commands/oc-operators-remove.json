@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "🚫 <@U_MILO> is no longer an operator."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

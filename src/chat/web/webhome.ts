@@ -4,12 +4,14 @@
 // person has a private conversation per project, and everyone signed in belongs to one organization. Written in the
 // same mrkdwn as homeBullets (rendered by mrkdwnToHtml). webhome.test.ts keeps it in step with the Slack list: every
 // `/aven <verb>` there is here as `/<verb>`, or in WEB_LACKS with the reason.
+import { CLI_EFFORT_LEVELS, CLI_MODEL_NAMES } from '../../cliversion.js';
+
 /** Slack verbs the web chat does not offer yet (web-chat-driver task 5.1), with why — the test reads this. */
 export const WEB_LACKS: Record<string, string> = {
   autofix: 'the autofix watcher posts its Fix button to Slack or Teams only (web-chat-driver 5.1)',
 };
 
-export function webHomeBullets(opts: { messaging?: boolean; outboundFiles?: boolean } = {}): string[] {
+export function webHomeBullets(opts: { messaging?: boolean; outboundFiles?: boolean; operatorControls?: boolean } = {}): string[] {
   return [
     '• *Start a task* — post in a project\'s room: every top-level post starts a thread, no mention needed. Reply in the thread to continue; I remember the conversation.',
     '• *Ask privately* — each project has a 🔒 private conversation in the sidebar that only you see. Or type `/<your question>` anywhere: I answer where you are, for you alone.',
@@ -29,6 +31,12 @@ export function webHomeBullets(opts: { messaging?: boolean; outboundFiles?: bool
     '• *Notifications* — *🔔 Notify* (once your browser allows it) shows a notification for an answer while the tab is hidden; the tab title counts new activity.',
     '• *Who may use me* — `/users`: everyone who signs in; the operators administer it.',
     '• *Operators* — `/usage [days]` for tokens, cost and turns per project and how many answers helped; `/reload` re-reads the project registry (new conversations); `/grant workflows [30m|2h]` in a project\'s room lets my GitHub token change CI workflows for a while, `/grant actions [30m|2h]` start, re-run and cancel workflow runs (`/grant` lists, `/grant <capability> off` ends one).',
+    ...(opts.operatorControls
+      ? [
+          `• *Model and effort* — \`/model\` and \`/effort\` in a project's room show what its agent runs on; an operator changes it with \`/model ${CLI_MODEL_NAMES.join('|')}\` or \`/effort ${CLI_EFFORT_LEVELS.join('|')}\` (\`default\` returns to the installation's setting). It applies to threads that start afterwards — *🔄 Restart session* brings a running one over.`,
+          '• *Operators* — `/operators` lists who may run the operator commands. Here they are the people the installation\'s settings name. _(Operators.)_',
+        ]
+      : []),
     ...(opts.messaging
       ? [
           '• *Agents asking agents* — an agent configured to send can ask other agents, here or in another installation; the answer arrives in its own thread as quoted data. A message that would carry this project\'s data elsewhere waits as a *✋ Held* card until someone *Sends* or *Dismisses* it.',

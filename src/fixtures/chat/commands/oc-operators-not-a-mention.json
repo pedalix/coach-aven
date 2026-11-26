@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "Usage: `/aven operators add @person` (a real @-mention)."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

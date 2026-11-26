@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*Operators — this installation*\n_Nobody is named: everyone in the home workspace is an operator. The first `add` makes it a list (you included)._\n\nManage: `/aven operators add @person` · `remove @person`"
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

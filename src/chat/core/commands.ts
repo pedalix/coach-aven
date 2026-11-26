@@ -34,6 +34,7 @@ import { activeGrants, effectNote, grantListText, grantNotice, isActive, parseGr
 import { CMD, MAX_SLACK_TEXT, info, errText, shortRepo, notConfiguredText } from '../slack/blocks.js';
 import type { Actor, ChatCommand, ChatDriver } from '../driver.js';
 import type { PrivateView, ProjectStatus, StatusReport } from '../views.js';
+import { applyOperatorsCmd, isOperatorNow, operatorsListText, parseOperatorsCmd, parseSettingCmd, settingSetText, settingShowText } from '../../operators.js';
 import { log } from '../../log.js';
 
 const THINKING = ':hourglass_flowing_sand: thinking…';
@@ -56,6 +57,9 @@ export interface CommandDeps {
   // TEAMS_OPERATORS — the one tenant is "home" there, and a client's whole tenant must not
   // hold the operator keys.
   isOperator?: (user: string | undefined) => boolean;
+  // The config's operator names as written (Teams ids, the web's e-mails), for `/aven operators`: shown to
+  // operators, and counted by the rule that the last operator cannot be removed. Absent (Slack) = none.
+  configuredOperators?: readonly string[];
   // `/aven home` → the driver's Home surface for the caller. Slack has the App Home tab and
   // leaves this unset (the verb stays a question to the agent, as today); Teams has no tab, so
   // the Home card is posted into the 1:1 chat on demand.
@@ -386,7 +390,9 @@ export function createCommands(deps: CommandDeps) {
     const tid = normalizeTenant(tenant, homeTeamId);
     const myProjects = teamProjects(reg.current, tenant, homeTeamId);
     const isHome = tid === undefined;
-    const operator = isHome && (isOperator ? isOperator(cmd.actor.user) : true);
+    // OPERATOR_CONTROLS: the config's operators and the list kept in chat (operators.ts); off → the earlier rule.
+    const opCtx = { flag: cfg.operatorControls, isHome, ...(isOperator ? { configured: isOperator } : {}), list: store.listOperators() };
+    const operator = isOperatorNow(opCtx, cmd.actor.user);
     // guardTeam (the ack-capable half of the tenant gate): an installed-but-unmapped
     // workspace gets one clear ephemeral instead of Slack's dispatch timeout.
     // FAIL CLOSED when home is unresolved (first OAuth boot, empty store): teamProjects
@@ -441,7 +447,7 @@ export function createCommands(deps: CommandDeps) {
     }
 
     // Read-only surfaces stay open to viewers; everything else needs drive clearance.
-    const VIEWER_VERBS = new Set(['status', 'usage', 'users', 'access', 'memory', 'prompt', 'home', 'grant']);
+    const VIEWER_VERBS = new Set(['status', 'usage', 'users', 'access', 'memory', 'prompt', 'home', 'grant', ...(cfg.operatorControls ? ['operators', 'model', 'effort'] : [])]);
     if (!canDrive && !VIEWER_VERBS.has(verb ?? '')) {
       await say(deniedText(access));
       return;
@@ -536,6 +542,67 @@ export function createCommands(deps: CommandDeps) {
       } catch (err) {
         await say(`${errText(err)}\n_The previous config stays active._`);
       }
+      return;
+    }
+
+    // `/aven operators [add|remove @person]` → who may run the operator verbs (OpenSpec operator-controls). Operators
+    // only, listing included: the list names people and the config's own values.
+    if (verb === 'operators' && cfg.operatorControls) {
+      if (!operator) {
+        await say(':lock: `' + CMD + ' operators` is for operators.');
+        return;
+      }
+      const parsed = parseOperatorsCmd(cmdText.slice(verb.length), CMD);
+      const names = deps.configuredOperators ?? [];
+      if (parsed.action === 'list') {
+        await say(operatorsListText({ ...opCtx, configuredNames: names }, CMD));
+        return;
+      }
+      if (parsed.action === 'error') {
+        await say(parsed.message);
+        return;
+      }
+      if (!cmd.actor.user) {
+        await say(errText(new Error('no user id on this command')));
+        return;
+      }
+      const applied = applyOperatorsCmd({ ...opCtx, configuredCount: names.length }, parsed, cmd.actor.user, new Date());
+      if ('error' in applied) {
+        await say(`⚠️ ${applied.error}`);
+        return;
+      }
+      store.setOperators(applied.next);
+      log.info(`operators: ${parsed.action} ${parsed.userId} by ${cmd.actor.user} → ${applied.next.length} listed`);
+      await say(applied.note);
+      return;
+    }
+
+    // `/aven model|effort [<value>|default]` → what a NEW session of this channel's project starts with (OpenSpec
+    // operator-controls D3). Reading is open to viewers, like `/aven grant`; changing is the operators'.
+    if ((verb === 'model' || verb === 'effort') && cfg.operatorControls) {
+      const parsed = parseSettingCmd(verb, cmdText.slice(verb.length), CMD);
+      if (parsed.action === 'error') {
+        await say(`:x: ${parsed.message}`);
+        return;
+      }
+      const { project } = await channels.pickProject(d, cmd.conv, '', tenant);
+      if (!project) {
+        await say(':x: Use `' + CMD + ' ' + verb + '` from a project channel (e.g. `' + `${channels.prefixFor(tenant)}${myProjects[0]?.slug ?? 'my-project'}` + '`).');
+        return;
+      }
+      const installation = verb === 'model' ? cfg.claudeModel : undefined;
+      if (parsed.action === 'show') {
+        await say(settingShowText(verb, project.slug, store.getProjectSettings(project.slug)[verb], installation));
+        return;
+      }
+      if (!operator || !cmd.actor.user) {
+        await say(`:lock: Changing a project's ${verb} is operator-only.`);
+        return;
+      }
+      const value = parsed.action === 'set' ? parsed.value : undefined;
+      store.patchProjectSettings(project.slug, { [verb]: value ? { value, by: cmd.actor.user, at: new Date().toISOString() } : undefined });
+      log.info(`${verb}: ${project.slug} → ${value ?? 'default'} by ${cmd.actor.user}`);
+      await say(settingSetText(verb, project.slug, value, installation));
       return;
     }
 

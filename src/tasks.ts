@@ -317,6 +317,17 @@ export function endStoppedSession(session: ClaudeSession | undefined, notify: ((
   if (notice) notify?.(notice);
 }
 
+/**
+ * The model and effort a NEW session of the project starts with (OpenSpec operator-controls D3): what an operator
+ * set for the project in chat, else the installation's CLAUDE_MODEL, else nothing (the CLI's own). Without
+ * OPERATOR_CONTROLS the chat-set values are not read — exactly `{ model: cfg.claudeModel }`, as before.
+ */
+export function sessionModel(cfg: Pick<Config, 'claudeModel' | 'operatorControls'>, store: Pick<Store, 'getProjectSettings'>, slug: string): { model: string | undefined; effort?: string } {
+  if (!cfg.operatorControls) return { model: cfg.claudeModel };
+  const s = store.getProjectSettings(slug);
+  return { model: s.model?.value ?? cfg.claudeModel, ...(s.effort ? { effort: s.effort.value } : {}) };
+}
+
 export async function openChat(
   cfg: Config,
   store: Store,
@@ -506,7 +517,7 @@ export async function openChat(
         avenSession: opts.avenSession,
         scrubSecrets: opts.scrubSecrets,
         hostServers: opts.hostServers,
-        model: cfg.claudeModel,
+        ...sessionModel(cfg, store, opts.slug),
         credit: cfg.credit.kind, // the command's prefix (ccCreditEnv) + the apiKeySource check
         ...(opts.ledger ? { ledger: true } : {}),
         ...wiring,

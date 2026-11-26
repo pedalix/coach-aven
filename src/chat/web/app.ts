@@ -75,7 +75,7 @@ export const webSurface: SurfacePlugin = {
         const isOperator = (user: string | undefined) => isWebOperator(web, user, user ? store.getWebUser(user)?.email : undefined);
         const core = createInteractions({ cfg, store, reg, engine, homeTeamId: org, servedTenant, actor, prefixFor: () => '', messaging: messaging.messaging, ...(surface ? { surface } : {}) });
         const messages = createMessages({ store, reg, engine, channels, homeTeamId: org, actor, parkDmPick: core.parkDmPick, ...(surface ? { surface } : {}) });
-        const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: org, isOperator, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
+        const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: org, isOperator, configuredOperators: [...web.operators, ...(web.auth === 'link' ? [LOCAL_USER.user] : [])], home: core.home, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
         // `link`: a fresh key per boot, so a link in an old log line is dead (sessions survive: the cookie's secret persists).
         const loginKey = web.auth === 'link' ? randomBytes(32).toString('base64url') : undefined;
         const server = createWebServer({ cfg: web, store, reg, history, driver, core, messages, commands, filesRoot, outboundFiles: cfg.outboundFiles, ...(oidc ? { oidc } : {}), ...(loginKey ? { loginKey } : {}) });

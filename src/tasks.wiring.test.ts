@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Config } from './config.js';
 import { FactStore } from './facts.js';
-import { grantExtras, sessionWiring } from './tasks.js';
+import { grantExtras, sessionModel, sessionWiring } from './tasks.js';
 import { addDirArgs, claudeLaunch } from './claudeSession.js';
 
 const cfg = (repoSkills = false) => ({ sandbox: { workDir: '/root/work' }, repoSkills }) as unknown as Config;
@@ -141,4 +141,27 @@ test('bitbucket-repos: a Bitbucket project gets the helper and one auth.json wit
   assert.deepEqual(auth['bitbucket.org'], { username: 'reader@example.com', password: 'BB' });
   assert.deepEqual(auth['repo.registry.example'], { username: 'token', password: 'reg-secret' });
   assert.ok(!r.execs.some((c) => /BB|ghs_minted|reg-secret/.test(c.replace(/\/root\/\.bb-token/g, ''))), 'no value on a command line');
+});
+
+// operator-controls D3: a project's chat-set model and effort reach a new session only with the flag on.
+test('sessionModel: flag off is exactly the installation setting, whatever the state holds', () => {
+  const set = { getProjectSettings: () => ({ model: { value: 'opus', by: 'UDANA', at: '2026-03-02T10:00:00Z' }, effort: { value: 'high', by: 'UDANA', at: '2026-03-02T10:00:00Z' } }) };
+  assert.deepEqual(sessionModel({ claudeModel: 'claude-sonnet-5-5', operatorControls: false }, set, 'atlas'), { model: 'claude-sonnet-5-5' });
+  assert.deepEqual(sessionModel({ claudeModel: undefined, operatorControls: false }, set, 'atlas'), { model: undefined });
+});
+
+test('sessionModel: flag on, the chat-set value wins, and a project with nothing set starts as before', () => {
+  const none = { getProjectSettings: () => ({}) };
+  assert.deepEqual(sessionModel({ claudeModel: 'claude-sonnet-5-5', operatorControls: true }, none, 'atlas'), { model: 'claude-sonnet-5-5' });
+  const set = { getProjectSettings: (slug: string) => (slug === 'atlas' ? { model: { value: 'opus', by: 'UDANA', at: '2026-03-02T10:00:00Z' }, effort: { value: 'high', by: 'UDANA', at: '2026-03-02T10:00:00Z' } } : {}) };
+  assert.deepEqual(sessionModel({ claudeModel: 'claude-sonnet-5-5', operatorControls: true }, set, 'atlas'), { model: 'opus', effort: 'high' });
+  assert.deepEqual(sessionModel({ claudeModel: 'claude-sonnet-5-5', operatorControls: true }, set, 'borealis'), { model: 'claude-sonnet-5-5' });
+});
+
+test('claudeLaunch: --effort follows the model, and no effort leaves the command as it was', () => {
+  const base = claudeLaunch({ model: 'opus' });
+  const withEffort = claudeLaunch({ model: 'opus', effort: 'high' });
+  assert.equal(withEffort.command('/w'), base.command('/w').replace("--model 'opus' ", "--model 'opus' --effort 'high' "));
+  assert.deepEqual(withEffort.args.slice(withEffort.args.indexOf('--model'), withEffort.args.indexOf('--model') + 4), ['--model', 'opus', '--effort', 'high']);
+  assert.ok(!base.command('/w').includes('--effort') && !base.args.includes('--effort'));
 });

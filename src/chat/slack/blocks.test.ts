@@ -455,3 +455,12 @@ test('homeBlocks: with outbound files on, the *Share files* line says files come
   assert.equal(bullets.length, homeBullets().length, 'one line grew, none was added');
   assert.deepEqual(bullets.filter((b) => !b.startsWith('• *Share files*')), homeBullets().filter((b) => !b.startsWith('• *Share files*')));
 });
+
+test('homeBullets: the operator-controls lines only with the flag, every other bullet unchanged', () => {
+  const on = homeBullets({ operatorControls: true });
+  const added = on.filter((b) => !homeBullets().includes(b));
+  assert.equal(added.length, 2);
+  assert.match(added[0], /model fable\|opus\|sonnet\|haiku/);
+  assert.match(added[1], /operators add @person/);
+  assert.deepEqual(on.filter((b) => !added.includes(b)), homeBullets());
+});

@@ -2,27 +2,28 @@
 
 - [ ] 1.1 CLI-probe scenario on the pinned version: a session started with each accepted model name and with
       each effort level starts and answers; record the verdicts
-- [ ] 1.2 If the pinned CLI has no effort flag: mark the effort requirements as waiting for the next pin and
-      say so in the PR; continue without them
+- [x] 1.2 If the pinned CLI has no effort flag: mark the effort requirements as waiting for the next pin and
+      say so in the PR; continue without them — not the case: the help of 2.1.314 lists `--effort <level>`
+      (low, medium, high, xhigh, max) and model aliases; 1.1, a recorded run, still needs a probe credit
 
 ## 2. Operators
 
-- [ ] 2.1 `OPERATOR_CONTROLS` in `src/config.ts` (exactly `1` → on), `docs/configuration.md`
-- [ ] 2.2 Pure logic in `src/access.ts`: the operator rule (config ∪ chat list, nobody named → earlier rule),
+- [x] 2.1 `OPERATOR_CONTROLS` in `src/config.ts` (exactly `1` → on), `docs/configuration.md`
+- [x] 2.2 Pure logic in `src/access.ts`: the operator rule (config ∪ chat list, nobody named → earlier rule),
       the `operators` command grammar, add / remove with the first-add and last-operator rules; tests
-- [ ] 2.3 The list in `src/state.ts` (who added, when); survives a restart
-- [ ] 2.4 `/aven operators` in `src/chat/core/commands.ts`; one `isOperator` used by `reload`, `usage`, `asks`,
+- [x] 2.3 The list in `src/state.ts` (who added, when); survives a restart
+- [x] 2.4 `/aven operators` in `src/chat/core/commands.ts`; one `isOperator` used by `reload`, `usage`, `asks`,
       `grant` on all three platforms
-- [ ] 2.5 Test that with the flag off the Slack rule is today's
+- [x] 2.5 Test that with the flag off the Slack rule is today's
 
 ## 3. Model and effort per project
 
-- [ ] 3.1 Accepted names and levels in one constant beside the CLI pin; parsing and reply texts as pure logic
+- [x] 3.1 Accepted names and levels in one constant beside the CLI pin; parsing and reply texts as pure logic
       with tests
-- [ ] 3.2 Store the chat-set values with who and when (`src/state.ts`)
-- [ ] 3.3 Session start takes the project's value, then the installation's (`src/tasks.ts`,
+- [x] 3.2 Store the chat-set values with who and when (`src/state.ts`)
+- [x] 3.3 Session start takes the project's value, then the installation's (`src/tasks.ts`,
       `src/claudeSession.ts`); test that a project with nothing set starts exactly as today
-- [ ] 3.4 `/aven model`, `/aven effort` (set, `default`, read) in `src/chat/core/commands.ts`
+- [x] 3.4 `/aven model`, `/aven effort` (set, `default`, read) in `src/chat/core/commands.ts`
 
 ## 4. What an operator sees
 
@@ -37,9 +38,9 @@
 
 ## 5. Cheat-sheets and docs
 
-- [ ] 5.1 `homeBullets`, `src/chat/teams/teamshome.ts`, `src/chat/web/webhome.ts`: the new verbs, shown with
+- [x] 5.1 `homeBullets`, `src/chat/teams/teamshome.ts`, `src/chat/web/webhome.ts`: the new verbs, shown with
       the flag on
-- [ ] 5.2 `docs/runtime-config.md` (operators, model, effort, what reaches a running conversation),
+- [x] 5.2 `docs/runtime-config.md` (operators, model, effort, what reaches a running conversation),
       `docs/rollout.md` ledger row
 
 ## 6. Rollout

@@ -4,6 +4,7 @@ import { statePath } from './paths.js';
 import { splitTeam } from './teamkeys.js';
 import type { TeamAccess } from './access.js';
 import type { GrantRecord } from './grants.js';
+import type { ChatSetValue, OperatorEntry } from './operators.js';
 import { countKeyDay, inTaskKey, isOpen, type DeliveryRecord, type HeldMessage, type InTask, type MessagingState, type OutTask } from './messaging/records.js';
 import type { Marks } from './messaging/protocol.js';
 import type { OutboxRecord, RecordStore } from './messaging/transport.js';
@@ -124,6 +125,10 @@ export interface ProjectSettings {
   // The last housekeeping pass (OpenSpec nightly-housekeeping D3): when, and its one-line summary. The nightly
   // rule compares `at` with the project's newest turn; `/aven housekeeping` shows both.
   housekeeping?: { at: string; summary: string };
+  // The model and the effort an operator set for this project in chat (OpenSpec operator-controls D3): read when
+  // a session starts, so they reach new conversations only. Absent → the installation's setting.
+  model?: ChatSetValue;
+  effort?: ChatSetValue;
 }
 
 // An autofix subscription on one PR: the poller watches its CI + reviews and posts a Slack
@@ -181,6 +186,9 @@ interface StateShape {
   // Temporary project grants (OpenSpec project-grants), keyed "<slug>:<capability>" — at most one per pair. Operator-
   // only, so always the home tenant's: exportTenant/purgeTenant (client tenants) have nothing to carry.
   grants?: Record<string, GrantRecord>;
+  // Operators named in chat (OpenSpec operator-controls), with who added each and when. Read only with
+  // OPERATOR_CONTROLS=1; the config-named ones are the driver's.
+  operators?: OperatorEntry[];
   projectSettings?: Record<string, ProjectSettings>;
   // "<Org/repo>#<number>" → ISO timestamp it was auto-reviewed (dedup across restarts).
   reviewedPrs?: Record<string, string>;
@@ -458,6 +466,16 @@ export class Store {
     delete this.data.grants[key];
     this.save();
     return true;
+  }
+
+  // ── operators named in chat (operators.ts) ───────────────────────────────
+  listOperators(): OperatorEntry[] {
+    return this.data.operators ?? [];
+  }
+
+  setOperators(list: OperatorEntry[]): void {
+    this.data.operators = list;
+    this.save();
   }
 
   // ── per-project settings + auto-review dedup ─────────────────────────────
