@@ -98,8 +98,11 @@ Off: byte-identical Home and card (the existing snapshots prove it) and the earl
 
 ## Open Questions
 
-- **Per conversation?** The local habit is "this task is hard — raise the effort here". This change sets it per
-  project. A per-thread value on the card is the natural next step, once the per-project one has been used.
+- **Per conversation — decided as the next step (maintainer, 2026-11-26).** In general a model and an effort
+  belong to a conversation ("this task is hard — raise the effort here"), not to a project. This change sets
+  them per project because that needs no switch of a running session; once that path has been used on the
+  canary, a per-conversation value on the Session card follows as its own change. Open in it: whether the
+  pinned CLI can change either without restarting the session.
 - **Who may see costs.** `/aven usage` stays operator-only; whether the Home's section should carry a cost line
   per project is not decided.
 - **Which other settings.** The request named "settings" in general. Only model and effort are covered; the
