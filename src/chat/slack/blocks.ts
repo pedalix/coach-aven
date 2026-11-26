@@ -5,6 +5,7 @@
 
 import type { RoutineRecord, PrWatch } from '../../state.js';
 import type { AnswerOpts, FollowUp, ProjectStatus, RateMeta, SessionPanelInfo, StatusReport, TrailMeta } from '../views.js';
+import { operatorChoices, type OperatorPart, type OperatorProject } from '../../operators.js';
 import { MARKED_EVENT } from '../driver.js';
 import type { ProjectConfig, ProjectsRegistry } from '../../projects.js';
 import type { AskQuestion } from '../../claudeSession.js';
@@ -764,6 +765,49 @@ export function accessBlocks(project: ProjectConfig): any[] {
 // repos/MCP — ephemeral, so only the clicker sees it. `value` is the JSON the panel button
 // itself carried, reused unchanged on the restart button so its handler needs no new shape.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+// One project's control (OpenSpec operator-controls): a single menu — model, effort, grants — so a project costs
+// one block on the Home whatever the fleet's size. Every project's menu shares the action id; the option's value
+// names the project (operators.ts OperatorChoice).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+function operatorMenu(p: OperatorProject, home: boolean): any {
+  return {
+    type: 'static_select',
+    action_id: 'op_set',
+    placeholder: { type: 'plain_text', text: 'Change…' },
+    option_groups: operatorChoices(p, home).map((g) => ({
+      label: { type: 'plain_text', text: g.group },
+      options: g.options.map((o) => ({ text: { type: 'plain_text', text: o.label }, value: o.value })),
+    })),
+  };
+}
+
+// The operator's section of the Home: who the operators are, Reload, and a line with a menu per project. `room` is
+// how many blocks the view can still take (Slack refuses a Home over 100); projects past it are counted, not shown.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function operatorHomeBlocks(part: OperatorPart, room: number): any[] {
+  const who = part.everyone
+    ? `_Nobody is named: everyone in this workspace is an operator._ \`${CMD} operators add @person\` makes it a list.`
+    : `*Operators:* ${part.operators.join(', ') || '_none_'} · \`${CMD} operators\``;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const head: any[] = [
+    { type: 'divider' },
+    {
+      type: 'section',
+      text: { type: 'mrkdwn', text: `*🛠 Operator* — only operators see this section\n${who}` },
+      accessory: { type: 'button', text: { type: 'plain_text', text: '🔄 Reload config' }, action_id: 'op_reload', value: 'home' },
+    },
+    ...(part.note ? [{ type: 'section', text: { type: 'mrkdwn', text: part.note.slice(0, 2900) } }] : []),
+  ];
+  const fit = Math.max(0, room - head.length - 1);
+  const shown = part.projects.slice(0, fit);
+  const rest = part.projects.length - shown.length;
+  return [
+    ...head,
+    ...shown.map((p) => ({ type: 'section', block_id: `op:${p.slug}`.slice(0, 255), text: { type: 'mrkdwn', text: p.line }, accessory: operatorMenu(p, true) })),
+    ...(rest > 0 ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: `…and ${rest} more project(s): use \`${CMD} model\`, \`${CMD} effort\` and \`${CMD} grant\` in their channels.` }] }] : []),
+  ];
+}
+
 export function sessionPanelBlocks(info: SessionPanelInfo, value: string): any[] {
   const repos = info.repos.map((r) => `\`${shortRepo(r)}\``).join(', ');
   const mcp = info.mcp?.length ? info.mcp.map((m) => `\`${m}\``).join(', ') : '_none_';
@@ -805,6 +849,10 @@ export function sessionPanelBlocks(info: SessionPanelInfo, value: string): any[]
         },
       ],
     });
+  }
+  // Only an operator's card carries this (interactions.ts decides): the project's settings with their menu.
+  if (info.operator) {
+    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*🛠 Operator* — ${info.operator.line}` }, accessory: operatorMenu(info.operator, false) });
   }
   return blocks;
 }
@@ -895,7 +943,7 @@ export function homeBullets(opts: { messaging?: boolean; outboundFiles?: boolean
     ...(opts.operatorControls
       ? [
           `• *Model and effort* — \`${CMD} model\` and \`${CMD} effort\` in a project channel show what that project's agent runs on; an operator changes it with \`${CMD} model ${CLI_MODEL_NAMES.join('|')}\` or \`${CMD} effort ${CLI_EFFORT_LEVELS.join('|')}\` (\`default\` returns to the installation's setting). It applies to conversations that start afterwards — *🔄 Restart session* brings a running thread over.`,
-          `• *Operators* — \`${CMD} operators\` lists who may run the operator commands; \`${CMD} operators add @person\` / \`remove @person\` change the list. While nobody is named, everyone in the home workspace is an operator; the first \`add\` makes it a list, the person who ran it included. _(Operators only.)_`,
+          `• *Operators* — \`${CMD} operators\` lists who may run the operator commands; \`${CMD} operators add @person\` / \`remove @person\` change the list. While nobody is named, everyone in the home workspace is an operator; the first \`add\` makes it a list, the person who ran it included. An operator also gets a *🛠 Operator* section at the bottom of this tab — who the operators are, *🔄 Reload config*, and per project its model, effort and grants with a menu to change them — and the same menu for the thread's project on the *⚙️ Session* card. _(Operators only.)_`,
         ]
       : []),
     '• *Connected sources* — projects with linked mail, chat or calendar archives are pulled every 15 minutes on the bot host and scrubbed before anything reaches me; ask me about a thread or a meeting and I cite the original.',
@@ -908,7 +956,7 @@ export function homeBullets(opts: { messaging?: boolean; outboundFiles?: boolean
 // registry — a client workspace must not see the fleet. The empty subset renders
 // onboardingHomeBlocks instead (see events.ts).
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-export function homeBlocks(projects: ProjectConfig[], prefix: string, opts: { messaging?: boolean; outboundFiles?: boolean; operatorControls?: boolean } = {}): any[] {
+export function homeBlocks(projects: ProjectConfig[], prefix: string, opts: { messaging?: boolean; outboundFiles?: boolean; operatorControls?: boolean; operator?: OperatorPart; notice?: string } = {}): any[] {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const blocks: any[] = [
     { type: 'header', text: { type: 'plain_text', text: '🧭 CoachAven' } },
@@ -951,6 +999,10 @@ export function homeBlocks(projects: ProjectConfig[], prefix: string, opts: { me
       ],
     },
   );
+  // The operator's section goes last, so the cheat-sheet everyone shares stays where it was; it takes what is left
+  // of Slack's 100 blocks.
+  if (opts.operator) blocks.push(...operatorHomeBlocks(opts.operator, 100 - blocks.length));
+  else if (opts.notice) blocks.push({ type: 'divider' }, { type: 'section', text: { type: 'mrkdwn', text: opts.notice.slice(0, 2900) } });
   return blocks;
 }
 

@@ -7,6 +7,7 @@
 //   commands.ts — the /aven router and subcommand handlers
 //   chat/slack/events.ts — @mentions, thread replies, DMs, buttons, App Home
 //   pollers.ts  — scheduler + auto-review / autofix / YouTrack pollers
+import { createOperate } from '../core/operate.js';
 import { slackDriver } from './driver.js';
 import bolt from '@slack/bolt';
 import type { Installation } from '@slack/bolt';
@@ -252,8 +253,10 @@ export const slackSurface: SurfacePlugin = {
       hasHome: !!homeClient,
       ...(alertSink ? { alerts: alertSink } : {}),
       async wire({ engine, channels, pollers, messaging, surface }: SharedDeps): Promise<WiredSurface> {
-        registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, messaging: messaging.messaging, ...(surface ? { surface } : {}) });
-        registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
+        // One set of operator actions for the commands and for the Home's and the Session card's controls (operate.ts).
+        const operate = createOperate({ cfg, store, reg, pollers, ...(homeTeamId ? { homeTeamId } : {}), ...(surface ? { surface } : {}), onReload: () => messaging.reload() });
+        registerEvents(app, { cfg, store, reg, engine, channels, botUserId, homeTeamId, servedTenant, messaging: messaging.messaging, operate, ...(surface ? { surface } : {}) });
+        registerCommands(app, { cfg, store, reg, engine, channels, pollers, homeTeamId, onReload: () => messaging.reload(), asks: messaging.asks, operate, ...(surface ? { surface } : {}) });
         return {
           async start() {
             await app.start();

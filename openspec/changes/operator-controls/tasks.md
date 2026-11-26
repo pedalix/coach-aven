@@ -27,14 +27,15 @@
 
 ## 4. What an operator sees
 
-- [ ] 4.1 The per-project operator view model in `src/chat/core/`; the Home view and the Session card info
+- [x] 4.1 The per-project operator view model in `src/chat/core/`; the Home view and the Session card info
       carry it only for an operator with the flag on
-- [ ] 4.2 Slack: the Home's section and the card's part in `src/chat/slack/blocks.ts`, packed under the view
+- [x] 4.2 Slack: the Home's section and the card's part in `src/chat/slack/blocks.ts`, packed under the view
       limits; snapshots for an operator and for someone else, and unchanged snapshots with the flag off
-- [ ] 4.3 Teams (`src/chat/teams/cards.ts`) and web (`src/chat/web/webviews.ts`) render the same
-- [ ] 4.4 Actions in `src/chat/core/interactions.ts`: reload, grant, end grant, model, effort — each re-checks
+- [ ] 4.3 Teams (`src/chat/teams/cards.ts`) and web (`src/chat/web/webviews.ts`) render the same — the read-out
+      is rendered on both; the menu and Reload exist on Slack only, so this stays open
+- [x] 4.4 Actions in `src/chat/core/interactions.ts`: reload, grant, end grant, model, effort — each re-checks
       the operator rule and calls the command's handler
-- [ ] 4.5 A grant from the Home is announced in the project's conversation; refused when there is none
+- [x] 4.5 A grant from the Home is announced in the project's conversation; refused when there is none
 
 ## 5. Cheat-sheets and docs
 

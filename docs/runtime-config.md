@@ -574,6 +574,20 @@ The values live in `state.json` with who set them and when, and are read when a 
 `--effort`): the reach of `/aven reload`. A running conversation keeps what it started with until its session ends
 or someone presses *🔄 Restart session*. A model change moves cost; `/aven usage` attributes it per project as before.
 
+**What an operator sees.** Two places carry an operator part, and only for an operator — everyone else's Home and
+card are what they were:
+
+- **The Home.** A *🛠 Operator* section at the bottom: who the operators are, *🔄 Reload config*, and one line per
+  project of the home workspace — its model, effort and active grants — with a menu (model, effort, start or end a
+  grant). The outcome of a press is shown in the section itself, since the Home has no reply of its own. Slack caps
+  a Home at 100 blocks; projects that do not fit are counted, with the commands to use instead.
+- **The ⚙️ Session card.** The same line and menu for the thread's project; the outcome is a private reply.
+
+Every control checks the operator rule again when it is pressed (a Home can stay open for days) and then runs what
+the command runs (`src/chat/core/operate.ts` is the one implementation behind both). A grant pressed on the Home is
+announced in the project's own channel; pressed on the card, in the card's conversation. On Teams and in the web
+chat the two places are a read-out: the menu exists on Slack only, and the changes are typed there.
+
 | Env | Default | Meaning |
 | --- | --- | --- |
 | `OPERATOR_CONTROLS` | unset (off) | `1` turns on the operators list and a project's model and effort from chat |

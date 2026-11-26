@@ -6,6 +6,7 @@
 // messages, then the interaction surface's dialogs/private replies/Home; commands and
 // pollers add theirs later.
 
+import type { OperatorPart, OperatorProject } from '../operators.js';
 import type { AskQuestion } from '../claudeSession.js';
 import type { ProjectConfig } from '../projects.js';
 import type { PrWatch, RoutineRecord } from '../state.js';
@@ -119,6 +120,8 @@ export interface SessionPanelInfo {
   sessionSince?: string; // ChatRecord.updatedAt, ISO
   turnInFlight: boolean;
   prCreated: boolean;
+  // Only for an operator, with OPERATOR_CONTROLS: the project's model, effort and grants, with their controls.
+  operator?: OperatorProject;
 }
 
 // The `/aven status` report.
@@ -183,4 +186,4 @@ export type DialogView =
 // `prefix` is that tenant's channel-name wildcard. No projects → the onboarding view.
 // `messaging`: some project has a `messaging` block — the cheat-sheet explains agents asking agents (D17).
 // `outboundFiles`: the installation posts the agent's outbox (OUTBOUND_FILES=1) — the sheet says files can come back.
-export type HomeView = { kind: 'home'; projects: ProjectConfig[]; prefix: string; messaging?: boolean; outboundFiles?: boolean; operatorControls?: boolean } | { kind: 'onboarding' };
+export type HomeView = { kind: 'home'; projects: ProjectConfig[]; prefix: string; messaging?: boolean; outboundFiles?: boolean; operatorControls?: boolean; operator?: OperatorPart; notice?: string } | { kind: 'onboarding' };

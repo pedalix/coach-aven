@@ -3,6 +3,7 @@
 // design — Slack payloads are normalized here; what an interaction DOES lives in the
 // platform-neutral core (src/chat/core/interactions.ts), the actual work in the turn engine.
 
+import type { Operate } from '../core/operate.js';
 import type { ChatDriverName } from '../drivers.js';
 import { withSlackTables } from './tables.js';
 import type bolt from '@slack/bolt';
@@ -50,6 +51,8 @@ export interface EventDeps {
   homeTeamId?: string;
   // The surface this Slack listener is (undefined = the installation's default surface).
   surface?: ChatDriverName;
+  // The operator's actions (core/operate.ts), shared with the commands: the Home's section and the card's part.
+  operate?: Operate;
   // The tenant-gate predicate (slack.ts). The gate middleware passes block_actions
   // through for ack() reasons, so WRITE-capable button handlers re-check it here — an
   // offboarded workspace clicking a stale button must not fire a turn.
@@ -90,6 +93,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
     prefixFor: (t: string | undefined) => channels.prefixFor(t),
     ...(deps.messaging ? { messaging: deps.messaging } : {}),
     ...(deps.surface ? { surface: deps.surface } : {}),
+    ...(deps.operate ? { operate: deps.operate, projectConv: (d, project, tenant) => channels.channelIdForSlug(d, project, tenant) } : {}),
   });
   const messages = createMessages({ store, reg, engine, channels, homeTeamId, actor, parkDmPick: core.parkDmPick, ...(deps.surface ? { surface: deps.surface } : {}) });
 

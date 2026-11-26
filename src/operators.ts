@@ -10,6 +10,7 @@
 // the flag the earlier rule is the whole rule.
 
 import { CLI_EFFORT_LEVELS, CLI_MODEL_NAMES } from './cliversion.js';
+import { CAPABILITIES, DEFAULT_GRANT_MS, activeGrants, type GrantRecord } from './grants.js';
 
 /** One chat-listed operator, as state.json keeps it. */
 export interface OperatorEntry {
@@ -139,4 +140,100 @@ export const NEW_SESSIONS_NOTE = 'Conversations that start from now on use it; a
 export function settingSetText(name: SettingName, slug: string, value: string | undefined, installation: string | undefined): string {
   const what = value ? `\`${value}\`` : installation ? `the installation's default (\`${installation}\`)` : "the agent CLI's own default";
   return `✅ *${slug}* — ${name}: ${what}. ${NEW_SESSIONS_NOTE}`;
+}
+
+// ── what an operator sees (the Home's section, the Session card's part) ─────────────────────────────────────
+
+/** A value in force with where it comes from: set in chat, the installation's setting, or the CLI's own default. */
+export interface ShownSetting {
+  value?: string; // absent = the CLI's own default
+  source: 'chat' | 'installation' | 'cli';
+}
+/** One project as an operator sees it: what its next session starts on, and what it holds right now. */
+export interface OperatorProject {
+  slug: string;
+  model: ShownSetting;
+  effort: ShownSetting;
+  grants: { capability: string; until: string; by: string }[];
+  line: string; // the read-out, in mrkdwn (operatorProjectLine)
+}
+/** The operator's Home section. `note`: the outcome of the control just pressed — the Home has no reply of its own. */
+export interface OperatorPart {
+  operators: string[]; // one line each, as operatorsListText words them
+  everyone: boolean; // nobody is named: the everyone rule is in force
+  projects: OperatorProject[];
+  note?: string;
+}
+
+const shown = (chat: ChatSetValue | undefined, installation: string | undefined): ShownSetting =>
+  chat ? { value: chat.value, source: 'chat' } : installation ? { value: installation, source: 'installation' } : { source: 'cli' };
+
+export function operatorProject(
+  slug: string,
+  settings: { model?: ChatSetValue; effort?: ChatSetValue },
+  installationModel: string | undefined,
+  grants: GrantRecord[],
+  now: number,
+  tz: string,
+): OperatorProject {
+  const p = {
+    slug,
+    model: shown(settings.model, installationModel),
+    effort: shown(settings.effort, undefined),
+    grants: activeGrants(grants, slug, now).map((g) => ({ capability: g.capability, until: g.until, by: g.by })),
+  };
+  return { ...p, line: operatorProjectLine(p, tz) };
+}
+
+export function operatorPart(c: Pick<OperatorCtx, 'configured' | 'list'> & { configuredNames: readonly string[] }, projects: OperatorProject[], note?: string): OperatorPart {
+  return {
+    operators: [...c.configuredNames.map((n) => `\`${n}\` _(config)_`), ...c.list.map((e) => `<@${e.user}>`)],
+    everyone: everyoneRule(c),
+    projects,
+    ...(note ? { note } : {}),
+  };
+}
+
+export const shownText = (s: ShownSetting): string => (s.value ? `\`${s.value}\`${s.source === 'installation' ? ' _(installation)_' : ''}` : '_CLI default_');
+
+/** One mrkdwn line per project: `*atlas* — model `opus` · effort _CLI default_ · grants: `workflows` until 14:30`. */
+export function operatorProjectLine(p: Omit<OperatorProject, 'line'>, tz: string): string {
+  const hhmm = (iso: string) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
+  const grants = p.grants.length ? p.grants.map((g) => `\`${g.capability}\` until ${hhmm(g.until)}`).join(', ') : '_none_';
+  return `*${p.slug}* — model ${shownText(p.model)} · effort ${shownText(p.effort)} · grants: ${grants}`;
+}
+
+/** What a control carries: the project, what to change, the value. `h` marks a control on the Home. Short keys: a
+ *  Slack option's value is capped. */
+export interface OperatorChoice {
+  s: string; // slug
+  w: 'model' | 'effort' | 'grant' | 'ungrant';
+  v: string; // a model name, an effort level, `default`, or a capability
+  h?: 1;
+}
+
+/** The choices of one project's control, grouped as the menu shows them. */
+export function operatorChoices(p: OperatorProject, home: boolean): { group: string; options: { label: string; value: string }[] }[] {
+  const opt = (label: string, w: OperatorChoice['w'], v: string) => ({ label, value: JSON.stringify({ s: p.slug, w, v, ...(home ? { h: 1 } : {}) } satisfies OperatorChoice) });
+  const mins = DEFAULT_GRANT_MS / 60_000;
+  return [
+    { group: 'Model', options: [...CLI_MODEL_NAMES.map((m) => opt(`Model: ${m}`, 'model', m)), opt('Model: default', 'model', 'default')] },
+    { group: 'Effort', options: [...CLI_EFFORT_LEVELS.map((e) => opt(`Effort: ${e}`, 'effort', e)), opt('Effort: default', 'effort', 'default')] },
+    {
+      group: 'Grants',
+      options: Object.keys(CAPABILITIES).map((c) => (p.grants.some((g) => g.capability === c) ? opt(`End grant: ${c}`, 'ungrant', c) : opt(`Grant ${c} for ${mins} min`, 'grant', c))),
+    },
+  ];
+}
+
+export function parseOperatorChoice(raw: string): OperatorChoice | undefined {
+  try {
+    const v = JSON.parse(raw) as Partial<OperatorChoice>;
+    if (typeof v.s !== 'string' || typeof v.v !== 'string') return undefined;
+    if (v.w === 'model' || v.w === 'effort') return SETTING_VALUES[v.w].includes(v.v) || v.v === 'default' ? (v as OperatorChoice) : undefined;
+    if (v.w === 'grant' || v.w === 'ungrant') return Object.hasOwn(CAPABILITIES, v.v) ? (v as OperatorChoice) : undefined;
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }

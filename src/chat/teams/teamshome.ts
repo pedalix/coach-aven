@@ -41,7 +41,7 @@ export function teamsHomeBullets(opts: { messaging?: boolean; operatorControls?:
     ...(opts.operatorControls
       ? [
           `• *Model and effort* — \`/model\` and \`/effort\` in a project channel show what that project's agent runs on; an operator changes it with \`/model ${CLI_MODEL_NAMES.join('|')}\` or \`/effort ${CLI_EFFORT_LEVELS.join('|')}\` (\`default\` returns to the installation's setting). It applies to conversations that start afterwards — *🔄 Restart session* brings a running one over.`,
-          '• *Operators* — `/operators` lists who may run the operator commands: the people the installation\'s settings name, and those added here with `/operators add @person` (a real mention; `remove @person` takes one off). _(Operators only.)_',
+          '• *Operators* — `/operators` lists who may run the operator commands: the people the installation\'s settings name, and those added here with `/operators add @person` (a real mention; `remove @person` takes one off). An operator\'s Home card and *⚙️ Session* card also show each project\'s model, effort and grants. _(Operators only.)_',
         ]
       : []),
     '• *Connected sources* — projects with linked mail, chat or calendar archives are pulled regularly and scrubbed before anything reaches me; ask me about a conversation or a meeting and I cite the original.',

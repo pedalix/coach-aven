@@ -190,7 +190,7 @@ export function renderPrivateView(v: PrivateView, c: RenderCtx = {}): Rendered {
       const i = v.info;
       const session = i.hasSession ? h`active${i.sessionSince ? h` <em>(since ${i.sessionSince.slice(0, 16).replace('T', ' ')})</em>` : ''}` : h`<em>none yet — the next message starts one</em>`;
       return {
-        html: h`<div class="card session"><p>⚙️ <strong>${i.slug}</strong> — this thread's session</p><ul><li><strong>Repos:</strong> ${i.repos.map((r) => h`<code>${shortRepo(r)}</code>`).map((x, n) => (n ? h`, ${x}` : x))}</li><li><strong>Tools (MCP):</strong> ${i.mcp?.length ? i.mcp.map((m) => h`<code>${m}</code>`).map((x, n) => (n ? h`, ${x}` : x)) : h`<em>none</em>`}</li><li><strong>Session:</strong> ${session}</li><li><strong>Turn running:</strong> ${i.turnInFlight ? 'yes' : 'no'}</li>${i.prCreated ? h`<li><strong>PR:</strong> opened from this thread</li>` : ''}</ul></div>${i.hasSession ? actions([btn('🔄 Restart session', 'session_restart', v.value, 'danger confirm')]) : raw('')}`,
+        html: h`<div class="card session"><p>⚙️ <strong>${i.slug}</strong> — this thread's session</p><ul><li><strong>Repos:</strong> ${i.repos.map((r) => h`<code>${shortRepo(r)}</code>`).map((x, n) => (n ? h`, ${x}` : x))}</li><li><strong>Tools (MCP):</strong> ${i.mcp?.length ? i.mcp.map((m) => h`<code>${m}</code>`).map((x, n) => (n ? h`, ${x}` : x)) : h`<em>none</em>`}</li><li><strong>Session:</strong> ${session}</li><li><strong>Turn running:</strong> ${i.turnInFlight ? 'yes' : 'no'}</li>${i.prCreated ? h`<li><strong>PR:</strong> opened from this thread</li>` : ''}${i.operator ? h`<li>🛠 <strong>Operator</strong> — ${mrkdwnToHtml(i.operator.line)} <em>(change with <code>/model</code>, <code>/effort</code>, <code>/grant</code> in the room)</em></li>` : ''}</ul></div>${i.hasSession ? actions([btn('🔄 Restart session', 'session_restart', v.value, 'danger confirm')]) : raw('')}`,
         text: `Session — ${i.slug}`,
       };
     }
@@ -291,5 +291,11 @@ export function renderHomeView(v: HomeView, rooms: (slug: string) => string | un
     return h`<li>${url ? h`<a href="${url}"><strong>${p.slug}</strong></a>` : h`<strong>${p.slug}</strong>`} — ${p.repos.map(shortRepo).join(', ')}</li>`;
   });
   const bullets = webHomeBullets({ ...(v.messaging ? { messaging: true } : {}), ...(v.outboundFiles ? { outboundFiles: true } : {}), ...(v.operatorControls ? { operatorControls: true } : {}) }).map((b) => h`<li>${mrkdwnToHtml(b.replace(/^•\s*/, ''))}</li>`);
-  return h`<h2>CoachAven — your coding agent</h2><h3>Projects</h3><ul class="projects">${projects.length ? projects : h`<li><em>none</em></li>`}</ul><h3>How to use me</h3><ul class="cheatsheet">${bullets}</ul><p class="meta"><em>Commands are <code>/verb …</code> in any room, thread or private conversation; their replies are for you alone.</em></p>`;
+  // The operator's section (operator-controls): a read-out; here the changes are typed in the project's room.
+  const op = v.operator
+    ? h`<h3>🛠 Operator</h3><p class="meta"><em>Only operators see this section.</em></p>${v.operator.note ? h`<div class="note">${mrkdwnToHtml(v.operator.note)}</div>` : ''}${mrkdwnToHtml(`*Operators:* ${v.operator.operators.join(', ') || '_none_'}`)}<ul class="operator">${v.operator.projects.map((p) => h`<li>${mrkdwnToHtml(p.line)}</li>`)}</ul><p class="meta"><em>Change with <code>/model</code>, <code>/effort</code>, <code>/grant</code> in a project's room; <code>/reload</code> re-reads the config.</em></p>`
+    : v.notice
+      ? h`<div class="note">${mrkdwnToHtml(v.notice)}</div>`
+      : raw('');
+  return h`<h2>CoachAven — your coding agent</h2><h3>Projects</h3><ul class="projects">${projects.length ? projects : h`<li><em>none</em></li>`}</ul><h3>How to use me</h3><ul class="cheatsheet">${bullets}</ul><p class="meta"><em>Commands are <code>/verb …</code> in any room, thread or private conversation; their replies are for you alone.</em></p>${op}`;
 }
