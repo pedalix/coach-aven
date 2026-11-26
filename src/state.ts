@@ -129,6 +129,9 @@ export interface ProjectSettings {
   // a session starts, so they reach new conversations only. Absent → the installation's setting.
   model?: ChatSetValue;
   effort?: ChatSetValue;
+  // The model the CLI reported for this project's last session started WITHOUT a `--model` (operator-controls):
+  // what "default" means here when neither chat nor CLAUDE_MODEL names one.
+  cliModel?: string;
 }
 
 // An autofix subscription on one PR: the poller watches its CI + reviews and posts a Slack

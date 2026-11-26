@@ -31,7 +31,7 @@ import { log } from '../../log.js';
 import type { Actor, ChatAction, ChatDriver, DialogSubmit } from '../driver.js';
 import type { ActorGate } from './gates.js';
 import type { Messaging } from '../../messaging/service.js';
-import type { MessageView } from '../views.js';
+import type { HomeView, MessageView } from '../views.js';
 
 export interface InteractionDeps {
   cfg: Config;
@@ -61,6 +61,9 @@ export interface Interactions {
   actions: Record<string, ActionHandler>;
   submits: Record<string, SubmitHandler>;
   home: (actor: Actor & { user: string }, d: ChatDriver) => Promise<void>;
+  // The Home's view for this person, for a surface that serves the Home itself instead of having it published
+  // (the web chat's page): one place decides what a Home carries — the flags, the operator's section.
+  homeView: (actor: Pick<Actor, 'tenant' | 'user'>) => HomeView;
   // A DM with no project hint parks its question here until a project is picked; returns
   // the pick id the picker's options carry.
   parkDmPick: (pending: { channel: string; user: string; question: string }) => string;
@@ -524,19 +527,23 @@ export function createInteractions(deps: InteractionDeps): Interactions {
   // Each re-checks the operator rule at the press — a Home can stay open for days — and calls what the command
   // calls. A press on the Home is answered by the Home itself (it has no private reply): republished with the
   // outcome as its note. A press on the card is answered privately in the thread.
-  const operatorAction = async (a: ChatAction, d: ChatDriver, onHome: boolean, run: (op: Operate, user: string) => Promise<string>): Promise<void> => {
+  const operatorAction = async (a: ChatAction, d: ChatDriver, onHome: boolean, run: (op: Operate, user: string) => Promise<string>, slug?: string): Promise<void> => {
     if (!servedTenant(a.actor.tenant) || !a.actor.user || !deps.operate || !cfg.operatorControls) return;
     const user = a.actor.user;
-    const text = deps.operate.isOperator(a.actor) ? await run(deps.operate, user).catch((e: unknown) => `:x: ${e instanceof Error ? e.message : String(e)}`) : ':lock: This control is operator-only.';
+    const allowed = deps.operate.isOperator(a.actor);
+    const text = allowed ? await run(deps.operate, user).catch((e: unknown) => `:x: ${e instanceof Error ? e.message : String(e)}`) : ':lock: This control is operator-only.';
     if (onHome) await home({ ...a.actor, user }, d, text);
+    // The card's controls are redrawn from the new state in the card's place (a list keeps showing the last pick
+    // otherwise, and a grant's button would still say "Grant"); someone who may not press gets the words only.
+    else if (allowed && slug) await d.reply(a, { kind: 'operatorCard', project: deps.operate.project(slug), note: text }, { replace: true }).catch(() => {});
     else await d.reply(a, { kind: 'text', text }, { replace: false }).catch(() => {});
   };
   actions.op_reload = (a, d) => operatorAction(a, d, true, async (op) => op.reload(a.actor.tenant));
   actions.op_set = async (a, d) => {
     const c = parseOperatorChoice(a.value);
     if (!c) return;
+    const project = teamProjects(reg.current, a.actor.tenant, homeTeamId).find((p) => p.slug === c.s);
     await operatorAction(a, d, c.h === 1, async (op, user) => {
-      const project = teamProjects(reg.current, a.actor.tenant, homeTeamId).find((p) => p.slug === c.s);
       if (!project) return `:x: No project \`${c.s}\` here.`;
       if (c.w === 'model' || c.w === 'effort') return op.setSetting(c.w, project.slug, c.v === 'default' ? undefined : c.v, user);
       if (c.w === 'ungrant') return op.endGrant(project, c.v as CapabilityName, user);
@@ -544,26 +551,26 @@ export function createInteractions(deps: InteractionDeps): Interactions {
       const conv = c.h === 1 ? await deps.projectConv?.(d, project, a.actor.tenant) : a.where?.conv;
       if (!conv) return `:x: *${project.slug}* has no conversation I can announce a grant in — use the command there.`;
       return op.grant(d, project, c.v as CapabilityName, DEFAULT_GRANT_MS, user, conv, normalizeTenant(a.actor.tenant, homeTeamId));
-    });
+    }, project?.slug);
   };
 
-  const home = async (who: Actor & { user: string }, d: ChatDriver, note?: string): Promise<void> => {
+  const homeView = (who: Pick<Actor, 'tenant' | 'user'>, note?: string): HomeView => {
     const mine = servedTenant(who.tenant) ? teamProjects(reg.current, who.tenant, homeTeamId) : [];
+    return mine.length
+      ? {
+          kind: 'home',
+          projects: mine,
+          prefix: deps.prefixFor(who.tenant),
+          ...(deps.reg.current.projects.some((p) => p.messaging !== undefined) ? { messaging: true } : {}),
+          ...(cfg.outboundFiles ? { outboundFiles: true } : {}),
+          ...(cfg.operatorControls ? { operatorControls: true } : {}),
+          ...(operatorPartFor(who, note)),
+        }
+      : { kind: 'onboarding' };
+  };
+  const home = async (who: Actor & { user: string }, d: ChatDriver, note?: string): Promise<void> => {
     try {
-      await d.publishHome(
-        who.user,
-        mine.length
-          ? {
-              kind: 'home',
-              projects: mine,
-              prefix: deps.prefixFor(who.tenant),
-              ...(deps.reg.current.projects.some((p) => p.messaging !== undefined) ? { messaging: true } : {}),
-              ...(cfg.outboundFiles ? { outboundFiles: true } : {}),
-              ...(cfg.operatorControls ? { operatorControls: true } : {}),
-              ...(operatorPartFor(who, note)),
-            }
-          : { kind: 'onboarding' },
-      );
+      await d.publishHome(who.user, homeView(who, note));
     } catch (err) {
       log.error(`home publish failed: ${err instanceof Error ? err.message : String(err)}`);
     }
@@ -575,5 +582,5 @@ export function createInteractions(deps: InteractionDeps): Interactions {
     return pid;
   };
 
-  return { actions, submits, home, parkDmPick };
+  return { actions, submits, home, homeView, parkDmPick };
 }

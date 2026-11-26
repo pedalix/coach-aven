@@ -34,7 +34,7 @@ import { activeGrants, grantListText, parseGrantCmd } from '../../grants.js';
 import { CMD, MAX_SLACK_TEXT, info, errText, shortRepo, notConfiguredText } from '../slack/blocks.js';
 import type { Actor, ChatCommand, ChatDriver } from '../driver.js';
 import type { PrivateView, ProjectStatus, StatusReport } from '../views.js';
-import { applyOperatorsCmd, isOperatorNow, operatorsListText, parseOperatorsCmd, parseSettingCmd, settingShowText } from '../../operators.js';
+import { applyOperatorsCmd, isOperatorNow, operatorsListText, parseOperatorsCmd, parseSettingCmd } from '../../operators.js';
 import { createOperate, type Operate } from './operate.js';
 import { log } from '../../log.js';
 
@@ -543,9 +543,8 @@ export function createCommands(deps: CommandDeps) {
         await say(':x: Use `' + CMD + ' ' + verb + '` from a project channel (e.g. `' + `${channels.prefixFor(tenant)}${myProjects[0]?.slug ?? 'my-project'}` + '`).');
         return;
       }
-      const installation = verb === 'model' ? cfg.claudeModel : undefined;
       if (parsed.action === 'show') {
-        await say(settingShowText(verb, project.slug, store.getProjectSettings(project.slug)[verb], installation));
+        await say(operate.showSetting(verb, project.slug));
         return;
       }
       if (!operator || !cmd.actor.user) {

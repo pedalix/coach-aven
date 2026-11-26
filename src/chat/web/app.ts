@@ -81,7 +81,7 @@ export const webSurface: SurfacePlugin = {
         const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: org, isOperator, configuredOperators, operate, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
         // `link`: a fresh key per boot, so a link in an old log line is dead (sessions survive: the cookie's secret persists).
         const loginKey = web.auth === 'link' ? randomBytes(32).toString('base64url') : undefined;
-        const server = createWebServer({ cfg: web, store, reg, history, driver, core, messages, commands, filesRoot, outboundFiles: cfg.outboundFiles, ...(oidc ? { oidc } : {}), ...(loginKey ? { loginKey } : {}) });
+        const server = createWebServer({ cfg: web, store, reg, history, driver, core, messages, commands, filesRoot, ...(oidc ? { oidc } : {}), ...(loginKey ? { loginKey } : {}) });
         return {
           async start() {
             if (oidc) await oidc.warmup(); // a wrong issuer or an unreachable one fails the boot here, by name

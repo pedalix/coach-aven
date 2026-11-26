@@ -196,7 +196,7 @@ export function registerEvents(app: bolt.App, deps: EventDeps): void {
   // ── every other control → the core (src/chat/core/interactions.ts) ──────────
   // Exact action ids, plus the families whose action_id carries a suffix
   // (`answer_q:<qid>:<qi>:<oi>`, `submit_q:<qid>`, `mem_open:<n>` — unique per control).
-  const FAMILIES = new Set(['answer_q', 'submit_q', 'mem_open']);
+  const FAMILIES = new Set(['answer_q', 'submit_q', 'mem_open', 'op_set']);
   for (const id of Object.keys(core.actions)) {
     app.action(FAMILIES.has(id) ? new RegExp(`^${id}:`) : id, async ({ ack, action, body, client, context, respond }) => {
       await ack();

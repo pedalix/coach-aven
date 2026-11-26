@@ -466,47 +466,75 @@ test('homeBullets: the operator-controls lines only with the flag, every other b
 });
 
 // ── the operator's section and card part (OpenSpec operator-controls) ──────────────────────────────────────
-import { operatorHomeBlocks } from './blocks.js';
+import { operatorCardBlocks, operatorHomeBlocks } from './blocks.js';
 import { operatorProject, parseOperatorChoice, type OperatorPart } from '../../operators.js';
 
-const opProject = (slug: string, granted = false) =>
+const OP_NOW = Date.parse('2026-03-02T10:05:00.000Z');
+const opProject = (slug: string, o: { granted?: boolean; model?: string; effort?: string; cliModel?: string; installation?: string } = {}) =>
   operatorProject(
     slug,
-    { model: { value: 'opus', by: 'UDANA', at: '2026-03-02T10:00:00.000Z' } },
-    undefined,
-    granted ? [{ slug, capability: 'workflows', at: '2026-03-02T10:00:00.000Z', until: '2026-03-02T10:30:00.000Z', by: 'UDANA', channel: 'C1' }] : [],
-    Date.parse('2026-03-02T10:05:00.000Z'),
+    {
+      ...(o.model ? { model: { value: o.model, by: 'UDANA', at: '2026-03-02T10:00:00.000Z' } } : {}),
+      ...(o.effort ? { effort: { value: o.effort, by: 'UDANA', at: '2026-03-02T10:00:00.000Z' } } : {}),
+      ...(o.cliModel ? { cliModel: o.cliModel } : {}),
+    },
+    o.installation ? { model: o.installation } : {},
+    o.granted ? [{ slug, capability: 'workflows', at: '2026-03-02T10:00:00.000Z', until: '2026-03-02T10:30:00.000Z', by: 'UDANA', channel: 'C1' }] : [],
+    OP_NOW,
     'UTC',
   );
 const opPart = (n: number, extra: Partial<OperatorPart> = {}): OperatorPart => ({
   operators: ['<@UDANA>'],
   everyone: false,
-  projects: Array.from({ length: n }, (_, i) => opProject(`project-${i}`)),
+  projects: Array.from({ length: n }, (_, i) => opProject(`project-${i}`, { model: 'opus' })),
   ...extra,
 });
 const opProjects: ProjectConfig[] = [{ slug: 'atlas', repos: ['Org/atlas'] } as ProjectConfig];
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const labels = (el: any): string[] => el.options.map((o: any) => o.text.text);
 
 test('homeBlocks: without an operator part the Home is what it was; with one the section is appended', () => {
   const plain = homeBlocks(opProjects, 'aven-');
-  const withOp = homeBlocks(opProjects, 'aven-', { operator: { ...opPart(0), projects: [opProject('atlas', true)] } });
+  const withOp = homeBlocks(opProjects, 'aven-', { operator: { ...opPart(0), projects: [opProject('atlas', { model: 'opus', granted: true })] } });
   assert.deepEqual(withOp.slice(0, plain.length), plain);
   const extra = withOp.slice(plain.length);
-  assert.deepEqual(extra.map((b) => b.type), ['divider', 'section', 'section']);
+  assert.deepEqual(extra.map((b) => b.type), ['divider', 'section', 'section', 'actions']);
   assert.equal(extra[1].accessory.action_id, 'op_reload');
   assert.match(extra[1].text.text, /\*Operators:\* <@UDANA>/);
-  assert.match(extra[2].text.text, /\*atlas\* — model `opus` · effort _CLI default_ · grants: `workflows` until 10:30/);
-  assert.equal(extra[2].accessory.action_id, 'op_set');
+  assert.equal(extra[2].text.text, '*atlas* — model `opus` · effort `medium` _(default)_ · grants: `workflows` until 10:30');
+  assert.deepEqual(extra[3].elements.map((e: { action_id: string }) => e.action_id), ['op_set:model', 'op_set:effort', 'op_set:workflows', 'op_set:actions']);
 });
 
-test('operator menu: one select per project, grouped; an active grant offers its end; values parse and fit Slack', () => {
-  const [, , held, free] = operatorHomeBlocks({ ...opPart(0), projects: [opProject('atlas', true), opProject('a-project-with-a-rather-long-slug-name')] }, 100);
-  const groups = held.accessory.option_groups as { label: { text: string }; options: { text: { text: string }; value: string }[] }[];
-  assert.deepEqual(groups.map((g) => g.label.text), ['Model', 'Effort', 'Grants']);
-  assert.deepEqual(groups[0].options.map((o) => o.text.text), ['Model: fable', 'Model: opus', 'Model: sonnet', 'Model: haiku', 'Model: default']);
-  assert.deepEqual(groups[2].options.map((o) => o.text.text), ['End grant: workflows', 'Grant actions for 30 min']);
+test('operator controls: each list shows the value in force, and names the default instead of saying "default"', () => {
+  // Nothing set, the CLI reported its model: both lists stand on the named default.
+  const [, bare] = operatorCardBlocks(opProject('atlas', { cliModel: 'claude-opus-5-5' }), 'ok').slice(1);
+  const [m0, e0] = bare.elements;
+  assert.deepEqual(labels(m0), ['fable', 'opus', 'sonnet', 'haiku', 'claude-opus-5-5 (default)']);
+  assert.equal(m0.initial_option.text.text, 'claude-opus-5-5 (default)');
+  assert.deepEqual(labels(e0), ['low', 'medium', 'high', 'medium (default)']);
+  assert.equal(e0.initial_option.text.text, 'medium (default)');
+  // Set in chat: the chosen names are selected; the default option still names what default would give.
+  const [, set] = operatorCardBlocks(opProject('atlas', { model: 'sonnet', effort: 'high', installation: 'claude-opus-5-5' }), 'ok').slice(1);
+  assert.equal(set.elements[0].initial_option.text.text, 'sonnet');
+  assert.equal(labels(set.elements[0]).at(-1), 'claude-opus-5-5 (default)');
+  assert.equal(set.elements[1].initial_option.text.text, 'high');
+  assert.equal(labels(set.elements[1]).at(-1), 'medium (default)');
+  // Nobody has seen the default model yet: the word alone, and no level is claimed for the effort.
+  const [, unknown] = operatorCardBlocks(opProject('atlas'), 'ok').slice(1);
+  assert.equal(unknown.elements[0].initial_option.text.text, 'default');
+  assert.equal(unknown.elements[1].initial_option.text.text, 'default');
+});
+
+test('operator controls: a grant is a button that turns into its end while held; values parse and fit Slack', () => {
+  const [, , , held, , free] = operatorHomeBlocks({ ...opPart(0), projects: [opProject('atlas', { granted: true }), opProject('a-project-with-a-rather-long-slug-name')] }, 100);
+  const buttons = (b: { elements: { type: string; text: { text: string }; style?: string }[] }) => b.elements.filter((e) => e.type === 'button').map((e) => [e.text.text, e.style]);
+  assert.deepEqual(buttons(held), [['End workflows grant', 'danger'], ['Grant actions 30 min', undefined]]);
+  assert.deepEqual(buttons(free), [['Grant workflows 30 min', undefined], ['Grant actions 30 min', undefined]]);
+  assert.notEqual(held.block_id, free.block_id);
+  assert.ok(new Set(held.elements.map((e: { action_id: string }) => e.action_id)).size === held.elements.length, 'action ids are unique within the block');
   for (const b of [held, free]) {
-    for (const g of b.accessory.option_groups) {
-      for (const o of g.options) {
+    for (const el of b.elements) {
+      for (const o of el.options ?? [{ text: el.text, value: el.value }]) {
         assert.ok(o.text.text.length <= 75 && o.value.length <= 150, o.value);
         const c = parseOperatorChoice(o.value);
         assert.ok(c && c.h === 1, 'a Home control says so');
@@ -515,13 +543,21 @@ test('operator menu: one select per project, grouped; an active grant offers its
   }
 });
 
+test('operator controls: the block id changes with every render, so a control is drawn from the state', () => {
+  const at = (now: number) => operatorProject('atlas', {}, {}, [], now, 'UTC');
+  const a = operatorCardBlocks(at(1_000), 'ok')[2].block_id;
+  const b = operatorCardBlocks(at(2_000), 'ok')[2].block_id;
+  assert.match(a, /^op:atlas:/);
+  assert.notEqual(a, b);
+});
+
 test('operator section: the note is shown, the everyone rule is worded, and projects past the room are counted', () => {
   const noted = operatorHomeBlocks(opPart(1, { note: ':white_check_mark: Granted', everyone: true, operators: [] }), 100);
   assert.match(noted[1].text.text, /everyone in this workspace is an operator/);
   assert.equal(noted[2].text.text, ':white_check_mark: Granted');
-  const tight = operatorHomeBlocks(opPart(40), 12);
-  assert.equal(tight.length, 12);
-  assert.match(tight[11].elements[0].text, /…and 31 more project\(s\)/);
+  const tight = operatorHomeBlocks(opPart(40), 13);
+  assert.equal(tight.length, 13); // head 2 + 5 projects × 2 + the count
+  assert.match(tight[12].elements[0].text, /…and 35 more project\(s\)/);
   // A Home with a large fleet stays within Slack's 100 blocks.
   const many = Array.from({ length: 80 }, (_, i) => ({ slug: `project-${i}`, repos: [`Org/p${i}`] }) as ProjectConfig);
   assert.ok(homeBlocks(many, 'aven-', { operator: opPart(80) }).length <= 100);
@@ -534,13 +570,12 @@ test('homeBlocks: a notice without an operator part is one more section; nothing
   assert.equal(told.at(-1).text.text, ':lock: This control is operator-only.');
 });
 
-test('sessionPanelBlocks: an operator\'s card ends with the project\'s line and menu; anyone else\'s is unchanged', () => {
+test('sessionPanelBlocks: an operator\'s card ends with the project\'s line and controls; anyone else\'s is unchanged', () => {
   const info = { slug: 'atlas', repos: ['Org/atlas'], hasSession: true, turnInFlight: false, prCreated: false };
   const plain = sessionPanelBlocks(info, '{}');
   const op = sessionPanelBlocks({ ...info, operator: opProject('atlas') }, '{}');
   assert.deepEqual(op.slice(0, plain.length), plain);
-  assert.equal(op.length, plain.length + 1);
-  assert.equal(op.at(-1).accessory.action_id, 'op_set');
-  const c = parseOperatorChoice(op.at(-1).accessory.option_groups[0].options[0].value);
+  assert.equal(op.length, plain.length + 2);
+  const c = parseOperatorChoice(op.at(-1).elements[0].options[0].value);
   assert.ok(c && c.h === undefined, 'a card control is not a Home control');
 });

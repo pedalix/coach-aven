@@ -13,7 +13,7 @@ import { installationPermissions } from '../../github.js';
 import { githubRepos } from '../../repohost.js';
 import { effectNote, grantNotice, isActive, type CapabilityName, type GrantRecord } from '../../grants.js';
 import { errText } from '../slack/blocks.js';
-import { isOperatorNow, operatorPart, operatorProject, settingSetText, type OperatorCtx, type OperatorPart, type OperatorProject, type SettingName } from '../../operators.js';
+import { isOperatorNow, operatorPart, operatorProject, settingSetText, settingShowText, type OperatorCtx, type OperatorPart, type OperatorProject, type SettingName } from '../../operators.js';
 import type { Actor, ChatDriver } from '../driver.js';
 import { log } from '../../log.js';
 
@@ -42,6 +42,8 @@ export interface Operate {
   endGrant(project: ProjectConfig, capability: CapabilityName, by: string): Promise<string>;
   /** Set (`value`) or remove (undefined) a project's chat-set model or effort. */
   setSetting(name: SettingName, slug: string, value: string | undefined, by: string): string;
+  /** `/aven model|effort` with no argument: the value in force and where it comes from. */
+  showSetting(name: SettingName, slug: string): string;
   /** What an operator sees of one project. */
   project(slug: string): OperatorProject;
   /** The operator's Home section for this person, or undefined when they get none (flag off, not an operator). */
@@ -58,7 +60,8 @@ export function createOperate(deps: OperateDeps): Operate {
   });
   const isOperator = (actor: Pick<Actor, 'tenant' | 'user'>): boolean => isOperatorNow(ctx(actor.tenant), actor.user);
   const installationOf = (name: SettingName): string | undefined => (name === 'model' ? cfg.claudeModel : undefined);
-  const project = (slug: string): OperatorProject => operatorProject(slug, store.getProjectSettings(slug), cfg.claudeModel, store.listGrants(), Date.now(), ROUTINE_TZ);
+  const defaults = cfg.claudeModel ? { model: cfg.claudeModel } : {};
+  const project = (slug: string): OperatorProject => operatorProject(slug, store.getProjectSettings(slug), defaults, store.listGrants(), Date.now(), ROUTINE_TZ);
 
   return {
     ctx,
@@ -126,7 +129,11 @@ export function createOperate(deps: OperateDeps): Operate {
     setSetting(name, slug, value, by) {
       store.patchProjectSettings(slug, { [name]: value ? { value, by, at: new Date().toISOString() } : undefined });
       log.info(`${name}: ${slug} → ${value ?? 'default'} by ${by}`);
-      return settingSetText(name, slug, value, installationOf(name));
+      return settingSetText(name, slug, value, installationOf(name), installationOf(name) ? undefined : project(slug).defaults[name]);
+    },
+
+    showSetting(name, slug) {
+      return settingShowText(name, slug, store.getProjectSettings(slug)[name], installationOf(name), project(slug).defaults[name]);
     },
 
     part(actor, note) {
@@ -136,7 +143,7 @@ export function createOperate(deps: OperateDeps): Operate {
       const grants = store.listGrants();
       return operatorPart(
         { ...c, configuredNames: deps.configuredOperators ?? [] },
-        teamProjects(reg.current, actor.tenant, homeTeamId).map((p) => operatorProject(p.slug, store.getProjectSettings(p.slug), cfg.claudeModel, grants, now, ROUTINE_TZ)),
+        teamProjects(reg.current, actor.tenant, homeTeamId).map((p) => operatorProject(p.slug, store.getProjectSettings(p.slug), defaults, grants, now, ROUTINE_TZ)),
         note,
       );
     },

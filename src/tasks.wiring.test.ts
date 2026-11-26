@@ -158,6 +158,23 @@ test('sessionModel: flag on, the chat-set value wins, and a project with nothing
   assert.deepEqual(sessionModel({ claudeModel: 'claude-sonnet-5-5', operatorControls: true }, set, 'borealis'), { model: 'claude-sonnet-5-5' });
 });
 
+test('sessionModel: with no model named anywhere the session reports the CLI\'s own, recorded once as the project\'s default', () => {
+  const settings: Record<string, { cliModel?: string }> = {};
+  const patches: unknown[] = [];
+  const store = {
+    getProjectSettings: (slug: string) => settings[slug] ?? {},
+    patchProjectSettings: (slug: string, patch: { cliModel?: string }) => (patches.push(patch), (settings[slug] = { ...settings[slug], ...patch })),
+  };
+  const m = sessionModel({ claudeModel: undefined, operatorControls: true }, store as never, 'atlas');
+  assert.equal(m.model, undefined);
+  m.onInitModel?.('claude-opus-5-5');
+  m.onInitModel?.('claude-opus-5-5');
+  assert.deepEqual(patches, [{ cliModel: 'claude-opus-5-5' }]);
+  // A model named by the installation or in chat is known already: nothing to record.
+  assert.equal(sessionModel({ claudeModel: 'claude-sonnet-5-5', operatorControls: true }, store as never, 'atlas').onInitModel, undefined);
+  assert.equal(sessionModel({ claudeModel: undefined, operatorControls: false }, store as never, 'atlas').onInitModel, undefined);
+});
+
 test('claudeLaunch: --effort follows the model, and no effort leaves the command as it was', () => {
   const base = claudeLaunch({ model: 'opus' });
   const withEffort = claudeLaunch({ model: 'opus', effort: 'high' });

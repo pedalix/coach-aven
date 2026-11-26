@@ -135,7 +135,7 @@ test('the tenant gate drops a foreign tenant before any handler and logs it once
     tenantId: TENANT,
     driver: { remember: (m: { id: string }, thread: string | undefined) => seen.push(`remember:${m.id}:${thread ?? '-'}`) } as never,
     messages: { onMention: async (m: ChatMessage) => void seen.push(`mention:${m.text}`), onMessage: async (m: ChatMessage) => void seen.push(`message:${m.text}`) } as never,
-    core: { actions: {}, submits: {}, home: async () => {}, parkDmPick: () => '' },
+    core: { actions: {}, submits: {}, home: async () => {}, homeView: () => ({ kind: 'onboarding' }), parkDmPick: () => '' },
     commands: { run: async (c: ChatCommand) => void seen.push(`command:${c.text}`) } as never,
     onServiceUrl: (u) => seen.push(`url:${u}`),
     onPerson: (id, name, aad) => seen.push(`person:${id}:${name ?? '-'}:${aad ?? '-'}`),

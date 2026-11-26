@@ -186,6 +186,8 @@ export function renderPrivateView(v: PrivateView, c: RenderCtx = {}): Rendered {
         html: h`<p><strong>Memory — ${v.slug}</strong></p><div class="md">${md(v.markdown, c)}</div><div class="meta">${mk(v.note, c)}</div>${actions(v.topics.slice(0, 24).map((t) => btn((t.title || t.file).slice(0, 75), 'mem_open', JSON.stringify({ s: v.slug, f: t.file }))))}`,
         text: `Memory — ${v.slug}`,
       };
+    case 'operatorCard':
+      return { html: h`<div class="note">${mrkdwnToHtml(v.note)}</div>${mrkdwnToHtml(`🛠 *Operator* — ${v.project.line}`)}`, text: `Operator — ${v.project.slug}` };
     case 'sessionPanel': {
       const i = v.info;
       const session = i.hasSession ? h`active${i.sessionSince ? h` <em>(since ${i.sessionSince.slice(0, 16).replace('T', ' ')})</em>` : ''}` : h`<em>none yet — the next message starts one</em>`;
