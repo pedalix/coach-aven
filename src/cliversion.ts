@@ -39,6 +39,20 @@ export const PROBED_CLI_VERSIONS: readonly string[] = ['2.1.282', '2.1.292', '2.
 export const CLI_MODEL_NAMES: readonly string[] = ['fable', 'opus', 'sonnet', 'haiku'];
 export const CLI_EFFORT_LEVELS: readonly string[] = ['low', 'medium', 'high'];
 
+/**
+ * The effort a session runs with when none is passed — it depends on the model. From the CLI's documentation
+ * (code.claude.com/docs/en/model-config, read 2026-11-26): "Fable 5.2, Opus 5.5, Sonnet 5.5, and Haiku 5.5 default
+ * to `medium`, and Opus 4.7 defaults to `xhigh`"; other models are not named here, so they answer undefined and the
+ * chat says "default" without a level. An alias means the newest model of its family. The CLI does not report the
+ * effort in force, so this is what the documentation says, not a reading.
+ */
+export function defaultEffortFor(model: string | undefined): string | undefined {
+  if (!model) return undefined;
+  if (CLI_MODEL_NAMES.includes(model) || /(fable-5-2|opus-5-5|sonnet-5-5|haiku-5-5)/.test(model)) return 'medium';
+  if (/opus-4-7/.test(model)) return 'xhigh';
+  return undefined;
+}
+
 // The per-sandbox install prefix (npm --prefix → <prefix>/bin/claude, <prefix>/lib/node_modules).
 export const CLI_PREFIX = '/root/.local';
 // Env prefix for any command that must see the override first — claudeSession's spawn line.

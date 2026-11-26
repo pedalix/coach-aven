@@ -34,6 +34,7 @@ import {
   reportPostedBlocks,
   reportPromptModalView,
   sessionPanelBlocks,
+  operatorCardBlocks,
   statusBlocks,
   ticketLoadingView,
   ticketModalView,
@@ -108,6 +109,8 @@ export function renderPrivateView(v: PrivateView): { text: string; blocks?: any[
       return { text: v.text };
     case 'sessionPanel':
       return { text: `Session — ${v.info.slug}`, blocks: sessionPanelBlocks(v.info, v.value) };
+    case 'operatorCard':
+      return { text: `Operator — ${v.project.slug}`, blocks: operatorCardBlocks(v.project, v.note) };
     case 'markdown':
       // Sent as mrkdwn text, NOT markdown blocks: the ephemeral respond/response_url path
       // rejects Slack `markdown` blocks with a 500.

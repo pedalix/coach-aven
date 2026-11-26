@@ -5,7 +5,7 @@
 
 import type { RoutineRecord, PrWatch } from '../../state.js';
 import type { AnswerOpts, FollowUp, ProjectStatus, RateMeta, SessionPanelInfo, StatusReport, TrailMeta } from '../views.js';
-import { operatorChoices, type OperatorPart, type OperatorProject } from '../../operators.js';
+import { operatorControls, type OperatorPart, type OperatorProject } from '../../operators.js';
 import { MARKED_EVENT } from '../driver.js';
 import type { ProjectConfig, ProjectsRegistry } from '../../projects.js';
 import type { AskQuestion } from '../../claudeSession.js';
@@ -765,23 +765,45 @@ export function accessBlocks(project: ProjectConfig): any[] {
 // repos/MCP — ephemeral, so only the clicker sees it. `value` is the JSON the panel button
 // itself carried, reused unchanged on the restart button so its handler needs no new shape.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-// One project's control (OpenSpec operator-controls): a single menu — model, effort, grants — so a project costs
-// one block on the Home whatever the fleet's size. Every project's menu shares the action id; the option's value
-// names the project (operators.ts OperatorChoice).
+// One project's controls (OpenSpec operator-controls): a list for the model, a list for the effort — each showing the
+// value in force, the default by its name — and a button per capability that starts a grant or ends the held one.
+// The action ids are a family (`op_set:<what>`): Slack wants them unique within a block. The block id carries the
+// project and the render's `rev`, so every publish draws the controls from the state, not from the last press.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-function operatorMenu(p: OperatorProject, home: boolean): any {
-  return {
+function operatorActions(p: OperatorProject, home: boolean): any {
+  const c = operatorControls(p, home);
+  const option = (o: { label: string; value: string }) => ({ text: { type: 'plain_text', text: o.label.slice(0, 75) }, value: o.value });
+  const select = (what: 'model' | 'effort', l: (typeof c)['model']) => ({
     type: 'static_select',
-    action_id: 'op_set',
-    placeholder: { type: 'plain_text', text: 'Change…' },
-    option_groups: operatorChoices(p, home).map((g) => ({
-      label: { type: 'plain_text', text: g.group },
-      options: g.options.map((o) => ({ text: { type: 'plain_text', text: o.label }, value: o.value })),
-    })),
+    action_id: `op_set:${what}`,
+    placeholder: { type: 'plain_text', text: what === 'model' ? 'Model' : 'Effort' },
+    options: l.options.map(option),
+    initial_option: option(l.current),
+  });
+  return {
+    type: 'actions',
+    block_id: `op:${p.slug}:${p.rev}`.slice(0, 255),
+    elements: [
+      select('model', c.model),
+      select('effort', c.effort),
+      ...c.grants.map((g) => ({ type: 'button', text: { type: 'plain_text', text: g.label }, action_id: `op_set:${g.capability}`, value: g.value, ...(g.held ? { style: 'danger' } : {}) })),
+    ],
   };
 }
 
-// The operator's section of the Home: who the operators are, Reload, and a line with a menu per project. `room` is
+/** A project on the Home or the card: its line, then its controls. Two blocks. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+function operatorProjectBlocks(p: OperatorProject, home: boolean, lead = ''): any[] {
+  return [{ type: 'section', text: { type: 'mrkdwn', text: `${lead}${p.line}` } }, operatorActions(p, home)];
+}
+
+/** The answer to a press on the Session card's controls, in the card's place: the outcome, then the fresh controls. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
+export function operatorCardBlocks(p: OperatorProject, note: string): any[] {
+  return [{ type: 'section', text: { type: 'mrkdwn', text: note.slice(0, 2900) } }, ...operatorProjectBlocks(p, false, '*🛠 Operator* — ')];
+}
+
+// The operator's section of the Home: who the operators are, Reload, and a line with its controls per project. `room` is
 // how many blocks the view can still take (Slack refuses a Home over 100); projects past it are counted, not shown.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
 export function operatorHomeBlocks(part: OperatorPart, room: number): any[] {
@@ -798,12 +820,12 @@ export function operatorHomeBlocks(part: OperatorPart, room: number): any[] {
     },
     ...(part.note ? [{ type: 'section', text: { type: 'mrkdwn', text: part.note.slice(0, 2900) } }] : []),
   ];
-  const fit = Math.max(0, room - head.length - 1);
+  const fit = Math.max(0, Math.floor((room - head.length - 1) / 2)); // two blocks a project
   const shown = part.projects.slice(0, fit);
   const rest = part.projects.length - shown.length;
   return [
     ...head,
-    ...shown.map((p) => ({ type: 'section', block_id: `op:${p.slug}`.slice(0, 255), text: { type: 'mrkdwn', text: p.line }, accessory: operatorMenu(p, true) })),
+    ...shown.flatMap((p) => operatorProjectBlocks(p, true)),
     ...(rest > 0 ? [{ type: 'context', elements: [{ type: 'mrkdwn', text: `…and ${rest} more project(s): use \`${CMD} model\`, \`${CMD} effort\` and \`${CMD} grant\` in their channels.` }] }] : []),
   ];
 }
@@ -852,7 +874,7 @@ export function sessionPanelBlocks(info: SessionPanelInfo, value: string): any[]
   }
   // Only an operator's card carries this (interactions.ts decides): the project's settings with their menu.
   if (info.operator) {
-    blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `*🛠 Operator* — ${info.operator.line}` }, accessory: operatorMenu(info.operator, false) });
+    blocks.push(...operatorProjectBlocks(info.operator, false, '*🛠 Operator* — '));
   }
   return blocks;
 }
@@ -943,7 +965,7 @@ export function homeBullets(opts: { messaging?: boolean; outboundFiles?: boolean
     ...(opts.operatorControls
       ? [
           `• *Model and effort* — \`${CMD} model\` and \`${CMD} effort\` in a project channel show what that project's agent runs on; an operator changes it with \`${CMD} model ${CLI_MODEL_NAMES.join('|')}\` or \`${CMD} effort ${CLI_EFFORT_LEVELS.join('|')}\` (\`default\` returns to the installation's setting). It applies to conversations that start afterwards — *🔄 Restart session* brings a running thread over.`,
-          `• *Operators* — \`${CMD} operators\` lists who may run the operator commands; \`${CMD} operators add @person\` / \`remove @person\` change the list. While nobody is named, everyone in the home workspace is an operator; the first \`add\` makes it a list, the person who ran it included. An operator also gets a *🛠 Operator* section at the bottom of this tab — who the operators are, *🔄 Reload config*, and per project its model, effort and grants with a menu to change them — and the same menu for the thread's project on the *⚙️ Session* card. _(Operators only.)_`,
+          `• *Operators* — \`${CMD} operators\` lists who may run the operator commands; \`${CMD} operators add @person\` / \`remove @person\` change the list. While nobody is named, everyone in the home workspace is an operator; the first \`add\` makes it a list, the person who ran it included. An operator also gets a *🛠 Operator* section at the bottom of this tab — who the operators are, *🔄 Reload config*, and per project its model, effort and grants with controls to change them — and the same controls for the thread's project on the *⚙️ Session* card. _(Operators only.)_`,
         ]
       : []),
     '• *Connected sources* — projects with linked mail, chat or calendar archives are pulled every 15 minutes on the bot host and scrubbed before anything reaches me; ask me about a thread or a meeting and I cite the original.',

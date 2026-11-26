@@ -319,13 +319,30 @@ export function endStoppedSession(session: ClaudeSession | undefined, notify: ((
 
 /**
  * The model and effort a NEW session of the project starts with (OpenSpec operator-controls D3): what an operator
- * set for the project in chat, else the installation's CLAUDE_MODEL, else nothing (the CLI's own). Without
+ * set for the project in chat, else the installation's CLAUDE_MODEL, else nothing (the CLI's own — then the model its
+ * `system/init` names is recorded as the project's `cliModel`). Without
  * OPERATOR_CONTROLS the chat-set values are not read — exactly `{ model: cfg.claudeModel }`, as before.
  */
-export function sessionModel(cfg: Pick<Config, 'claudeModel' | 'operatorControls'>, store: Pick<Store, 'getProjectSettings'>, slug: string): { model: string | undefined; effort?: string } {
+export function sessionModel(
+  cfg: Pick<Config, 'claudeModel' | 'operatorControls'>,
+  store: Pick<Store, 'getProjectSettings'> & Partial<Pick<Store, 'patchProjectSettings'>>,
+  slug: string,
+): { model: string | undefined; effort?: string; onInitModel?: (model: string) => void } {
   if (!cfg.operatorControls) return { model: cfg.claudeModel };
   const s = store.getProjectSettings(slug);
-  return { model: s.model?.value ?? cfg.claudeModel, ...(s.effort ? { effort: s.effort.value } : {}) };
+  const model = s.model?.value ?? cfg.claudeModel;
+  return {
+    model,
+    ...(s.effort ? { effort: s.effort.value } : {}),
+    // No model named anywhere: the CLI picks. Record what it reports, so "default" can be shown by its name.
+    ...(!model && store.patchProjectSettings
+      ? {
+          onInitModel: (m: string) => {
+            if (store.getProjectSettings(slug).cliModel !== m) store.patchProjectSettings!(slug, { cliModel: m });
+          },
+        }
+      : {}),
+  };
 }
 
 export async function openChat(

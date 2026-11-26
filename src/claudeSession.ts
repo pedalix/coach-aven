@@ -515,6 +515,9 @@ export class ClaudeSession {
       // Every `system/init`: the names the session reports as its slash commands and skills (agent-skills —
       // the card withholds a project skill whose name a CLI command takes).
       onInitCommands?: (names: string[]) => void;
+      // The model the CLI says the session runs on (`system/init`), for the caller to record (operator-controls:
+      // what "default" is, concretely, when no `--model` was passed).
+      onInitModel?: (model: string) => void;
       // The installation's credit kind (api-key-credit D2/D3): the spawn command's prefix, and what each
       // `system/init`'s apiKeySource is checked against. Absent → today's subscription prefix and usage
       // records without `credit` (which count as subscription).
@@ -1123,6 +1126,13 @@ export class ClaudeSession {
     const version = typeof ev.claude_code_version === 'string' ? ev.claude_code_version : undefined;
     const capabilities = Array.isArray(ev.capabilities) ? ev.capabilities.filter((c: unknown): c is string => typeof c === 'string') : [];
     this.cli = { version: version ?? this.cli?.version, capabilities };
+    if (this.opts.onInitModel && typeof ev.model === 'string' && ev.model) {
+      try {
+        this.opts.onInitModel(ev.model);
+      } catch {
+        /* a recorder's failure never touches the session */
+      }
+    }
     if (this.opts.onInitCommands) {
       const names = [...(Array.isArray(ev.slash_commands) ? ev.slash_commands : []), ...(Array.isArray(ev.skills) ? ev.skills : [])].filter((n: unknown): n is string => typeof n === 'string');
       try {

@@ -38,8 +38,9 @@ function setup(o: { flag?: boolean; projectConv?: boolean } = {}) {
     ...(o.projectConv === false ? {} : { projectConv: async (_d: ChatDriver, p: { slug: string }) => `C_${p.slug}` }),
   });
   const homes = () => calls.filter((c) => c.op === 'publishHome').map((c) => c.args[1] as Extract<HomeView, { kind: 'home' }>);
-  const replies = () => calls.filter((c) => c.op === 'reply').map((c) => (c.args[1] as { text: string }).text);
-  return { store, core, d, calls, homes, replies, ended };
+  const replies = () => calls.filter((c) => c.op === 'reply').map((c) => { const v = c.args[1] as { text?: string; note?: string }; return v.text ?? v.note ?? ''; });
+  const cards = () => calls.filter((c) => c.op === 'reply').map((c) => ({ view: c.args[1] as Extract<PrivateView, { kind: 'operatorCard' }>, opts: c.args[2] as { replace?: boolean } }));
+  return { store, core, d, calls, homes, replies, cards, ended };
 }
 
 const DANA = { user: 'UDANA', by: 'UDANA', at: '2026-03-02T10:00:00.000Z' };
@@ -76,9 +77,10 @@ test('the Home shows an operator the section: operators, and each project of the
   assert.deepEqual(op.operators, ['<@UDANA>']);
   assert.equal(op.everyone, false);
   assert.deepEqual(op.projects.map((p) => p.slug), ['atlas', 'borealis']);
-  assert.deepEqual(op.projects[0].model, { value: 'opus', source: 'chat' });
+  assert.deepEqual(op.projects[0].model, { value: 'opus', set: true });
   assert.deepEqual(op.projects[0].grants.map((g) => g.capability), ['workflows']);
-  assert.match(op.projects[0].line, /\*atlas\* — model `opus` · effort _CLI default_ · grants: `workflows` until \d\d:\d\d/);
+  assert.match(op.projects[0].line, /\*atlas\* — model `opus` · effort `medium` _\(default\)_ · grants: `workflows` until \d\d:\d\d/);
+  assert.match(op.projects[1].line, /\*borealis\* — model _default_ · effort _default_/);
 });
 
 test('someone who is not an operator gets the Home and the card as they were', async () => {
@@ -112,7 +114,7 @@ test('a control pressed by someone who is no longer an operator changes nothing 
   assert.deepEqual(t.homes().map((h) => [h.operator, h.notice]), [[undefined, ':lock: This control is operator-only.'], [undefined, ':lock: This control is operator-only.']]);
 });
 
-test('model and effort from the card: stored as the command stores them, answered privately', async () => {
+test('model and effort from the card: stored as the command stores them, answered by the card redrawn in place', async () => {
   const t = setup();
   await t.core.actions.op_set(press('op_set', choice('model', 'opus')), t.d);
   await t.core.actions.op_set(press('op_set', choice('effort', 'high')), t.d);
@@ -121,6 +123,10 @@ test('model and effort from the card: stored as the command stores them, answere
   assert.equal(s.model?.by, 'UDANA');
   assert.equal(s.effort?.value, 'high');
   assert.match(t.replies()[0], /\*atlas\* — model: `opus`\. Conversations that start from now on/);
+  const second = t.cards()[1];
+  assert.equal(second.view.kind, 'operatorCard');
+  assert.deepEqual(second.opts, { replace: true });
+  assert.deepEqual([second.view.project.model, second.view.project.effort], [{ value: 'opus', set: true }, { value: 'high', set: true }]);
   await t.core.actions.op_set(press('op_set', choice('model', 'default')), t.d);
   assert.equal(t.store.getProjectSettings('atlas').model, undefined);
   assert.deepEqual(t.homes(), []);
@@ -144,10 +150,11 @@ test('a grant from the Home is announced in the project\'s own conversation, and
   assert.match(t.homes()[1].operator?.note ?? '', /Ended \*atlas\*'s `workflows` grant/);
 });
 
-test('a grant from the card is announced in the card\'s conversation', async () => {
+test('a grant from the card is announced in the card\'s conversation, and the redrawn card holds it', async () => {
   const t = setup();
   await t.core.actions.op_set(press('op_set', choice('grant', 'actions')), t.d);
   assert.equal(t.store.getGrant('atlas', 'actions')?.channel, 'C_THREAD');
+  assert.deepEqual(t.cards()[0].view.project.grants.map((g) => g.capability), ['actions']);
 });
 
 test('a grant from the Home is refused where the project has no conversation to announce it in', async () => {

@@ -133,7 +133,7 @@ test('a question card offers one button per option in the answer_q family, plus 
 // operator-controls: the read-out an operator gets; nobody else's Home or card changes.
 test('the operator read-out on the Home card and the Session card', async () => {
   const { operatorProject } = await import('../../operators.js');
-  const p = operatorProject('atlas', { model: { value: 'opus', by: 'UDANA', at: '2026-03-02T10:00:00.000Z' } }, undefined, [], 0, 'UTC');
+  const p = operatorProject('atlas', { model: { value: 'opus', by: 'UDANA', at: '2026-03-02T10:00:00.000Z' } }, {}, [], 0, 'UTC');
   const base: HomeView = { kind: 'home', projects: [], prefix: '' };
   const plain = renderHomeView(base).text ?? '';
   const op = renderHomeView({ ...base, operator: { operators: ['<@29:dana>'], everyone: false, projects: [p], note: ':white_check_mark: Granted' } }).text ?? '';

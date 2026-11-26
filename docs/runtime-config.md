@@ -578,15 +578,24 @@ or someone presses *🔄 Restart session*. A model change moves cost; `/aven usa
 card are what they were:
 
 - **The Home.** A *🛠 Operator* section at the bottom: who the operators are, *🔄 Reload config*, and one line per
-  project of the home workspace — its model, effort and active grants — with a menu (model, effort, start or end a
-  grant). The outcome of a press is shown in the section itself, since the Home has no reply of its own. Slack caps
+  project of the home workspace — its model, effort and active grants — followed by its controls: a list for the
+  model, a list for the effort (each standing on the value in force) and a button per capability that starts a
+  grant or ends the held one. The outcome of a press is shown in the section itself, since the Home has no reply of its own. Slack caps
   a Home at 100 blocks; projects that do not fit are counted, with the commands to use instead.
-- **The ⚙️ Session card.** The same line and menu for the thread's project; the outcome is a private reply.
+- **The ⚙️ Session card.** The same line and controls for the thread's project; a press is answered in the card's
+  place, with the outcome and the controls redrawn from the new state.
+
+A default is shown by its name, not as the word: `claude-opus-5-5 (default)`, `medium (default)`. The model's default
+is `CLAUDE_MODEL`, else what the CLI reported at the project's last session started without a model (recorded as
+`cliModel` in the project's settings; until one has run, the word "default" stands alone). The effort's default
+follows the model in force, as the CLI's documentation gives it (`defaultEffortFor` in `src/cliversion.ts`) — the CLI
+does not report the effort a session runs with, so this is the documented level, not a reading.
 
 Every control checks the operator rule again when it is pressed (a Home can stay open for days) and then runs what
 the command runs (`src/chat/core/operate.ts` is the one implementation behind both). A grant pressed on the Home is
 announced in the project's own channel; pressed on the card, in the card's conversation. On Teams and in the web
-chat the two places are a read-out: the menu exists on Slack only, and the changes are typed there.
+chat the two places are a read-out: the controls exist on Slack only, and the changes are typed there. The web
+chat's Home page takes the same view as `/home` (`homeView` in `src/chat/core/interactions.ts`).
 
 | Env | Default | Meaning |
 | --- | --- | --- |

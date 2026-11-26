@@ -55,6 +55,14 @@ function recorder() {
     actions: { cancel_turn: async (a: unknown) => void calls.push({ kind: 'action:cancel_turn', args: a }) },
     submits: { feedback: async (s: unknown) => void calls.push({ kind: 'submit:feedback', args: s }) },
     home: async (who: unknown) => void calls.push({ kind: 'home', args: who }),
+    // What the core decides a Home carries (interactions.ts homeView): here, an operator's section for `op` alone.
+    homeView: (who: { user?: string }) => ({
+      kind: 'home',
+      projects: [],
+      prefix: 'ignored-',
+      operatorControls: true,
+      ...(who.user === 'op' ? { operator: { operators: ['`op@corp.example` _(config)_'], everyone: false, projects: [{ slug: 'alpha', line: '*alpha* — model `opus`' }] } } : {}),
+    }),
     parkDmPick: () => 'dp1',
   } as unknown as Interactions;
   type Msg = { conv: string; id: string; thread?: string; text: string; direct: boolean; hasFiles: boolean; files(): Promise<{ refs: { name: string; url: string; mime: string; auth?: string }[]; bearer: string } | undefined> };
@@ -591,4 +599,16 @@ test('a button as the page renders it is a click the server takes — the browse
   const attr = (s: string) => s.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
   const r = await post('/action', { action: 'cancel_turn', value: attr(m[1]), sig: m[2], conv: 'room:alpha', thread: 'root9' }, { cookie, 'x-csrf': csrf('u1', cookie) });
   assert.equal(r.status, 202);
+});
+
+// The Home page is the core's Home view (the flags, the operator's section), with the page's own rooms.
+test('GET /: the page carries what the core puts on a Home — the operator section for an operator only', async () => {
+  const ann = sessionCookie('ann');
+  const plain = await (await get('/', { cookie: ann })).text();
+  assert.match(plain, /\/operators/); // the flag's cheat-sheet lines
+  assert.doesNotMatch(plain, /🛠 Operator/);
+  assert.match(plain, /href="\/r\/alpha"/); // the rooms are the page's, not the view's project list
+  const op = await (await get('/', { cookie: sessionCookie('op') })).text();
+  assert.match(op, /<h3>🛠 Operator<\/h3>/);
+  assert.match(op, /<strong>alpha<\/strong> — model <code>opus<\/code>/);
 });

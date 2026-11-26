@@ -160,7 +160,10 @@ export type PrivateView =
   | { kind: 'memoryIndex'; slug: string; markdown: string; note: string; topics: { title: string; file: string }[] }
   // `value` is the panel's own control payload (the conversation it describes), echoed by
   // its 🔄 Restart session button.
-  | { kind: 'sessionPanel'; info: SessionPanelInfo; value: string };
+  | { kind: 'sessionPanel'; info: SessionPanelInfo; value: string }
+  // What a press on the Session card's operator controls is answered with, in the card's place: the outcome and the
+  // project's controls drawn from the new state.
+  | { kind: 'operatorCard'; project: OperatorProject; note: string };
 
 // Pop-up dialogs (Slack: modals). Opened from a click; some are swapped in place once data
 // arrives (ticket: loading → ticket | unavailable).

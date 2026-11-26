@@ -9,7 +9,7 @@
 // driver names nobody, that is everyone in the home workspace. All of it only with OPERATOR_CONTROLS=1; without
 // the flag the earlier rule is the whole rule.
 
-import { CLI_EFFORT_LEVELS, CLI_MODEL_NAMES } from './cliversion.js';
+import { CLI_EFFORT_LEVELS, CLI_MODEL_NAMES, defaultEffortFor } from './cliversion.js';
 import { CAPABILITIES, DEFAULT_GRANT_MS, activeGrants, type GrantRecord } from './grants.js';
 
 /** One chat-listed operator, as state.json keeps it. */
@@ -128,34 +128,38 @@ export function parseSettingCmd(name: SettingName, rest: string, cmd: string): S
 /** What a new session of the project starts with: the chat-set value, else the installation's, else the CLI's own. */
 export const settingInForce = (chat: ChatSetValue | undefined, installation: string | undefined): string | undefined => chat?.value ?? installation;
 
-export function settingShowText(name: SettingName, slug: string, chat: ChatSetValue | undefined, installation: string | undefined): string {
+export function settingShowText(name: SettingName, slug: string, chat: ChatSetValue | undefined, installation: string | undefined, cliDefault?: string): string {
   if (chat) return `*${slug}* — ${name}: \`${chat.value}\`, set in chat by <@${chat.by}> on ${day(chat.at)}.`;
   if (installation) return `*${slug}* — ${name}: \`${installation}\`, the installation's default.`;
+  if (cliDefault) return `*${slug}* — ${name}: \`${cliDefault}\` (default — nothing is set).`;
   return `*${slug}* — ${name}: the agent CLI's own default (nothing is set).`;
 }
 
 /** The reach of a change is `/aven reload`'s: sessions that start afterwards. */
 export const NEW_SESSIONS_NOTE = 'Conversations that start from now on use it; a running conversation keeps what it started with until its session ends or is restarted (*⚙️ Session* → *🔄 Restart session*).';
 
-export function settingSetText(name: SettingName, slug: string, value: string | undefined, installation: string | undefined): string {
-  const what = value ? `\`${value}\`` : installation ? `the installation's default (\`${installation}\`)` : "the agent CLI's own default";
+export function settingSetText(name: SettingName, slug: string, value: string | undefined, installation: string | undefined, cliDefault?: string): string {
+  const what = value ? `\`${value}\`` : installation ? `the installation's default (\`${installation}\`)` : cliDefault ? `\`${cliDefault}\` (default)` : "the agent CLI's own default";
   return `✅ *${slug}* — ${name}: ${what}. ${NEW_SESSIONS_NOTE}`;
 }
 
 // ── what an operator sees (the Home's section, the Session card's part) ─────────────────────────────────────
 
-/** A value in force with where it comes from: set in chat, the installation's setting, or the CLI's own default. */
+/** A value in force, by name. `set`: an operator set it in chat; otherwise it is the default — the installation's
+ *  setting or what the CLI reported — and `value` is absent only while nobody has seen what the default is. */
 export interface ShownSetting {
-  value?: string; // absent = the CLI's own default
-  source: 'chat' | 'installation' | 'cli';
+  value?: string;
+  set: boolean;
 }
 /** One project as an operator sees it: what its next session starts on, and what it holds right now. */
 export interface OperatorProject {
   slug: string;
   model: ShownSetting;
   effort: ShownSetting;
+  defaults: { model?: string; effort?: string }; // what `default` would give, by name, when known
   grants: { capability: string; until: string; by: string }[];
   line: string; // the read-out, in mrkdwn (operatorProjectLine)
+  rev: string; // changes with every render: a control drawn from it starts from this state, not the last press
 }
 /** The operator's Home section. `note`: the outcome of the control just pressed — the Home has no reply of its own. */
 export interface OperatorPart {
@@ -165,24 +169,37 @@ export interface OperatorPart {
   note?: string;
 }
 
-const shown = (chat: ChatSetValue | undefined, installation: string | undefined): ShownSetting =>
-  chat ? { value: chat.value, source: 'chat' } : installation ? { value: installation, source: 'installation' } : { source: 'cli' };
+/** The installation's own model setting (CLAUDE_MODEL), when it has one. */
+export interface Defaults {
+  model?: string;
+}
+
+/** `opus` when set in chat; `claude-sonnet-5-5 (default)` for a known default; `default` while it is not known. */
+export const shownText = (s: ShownSetting): string => (s.set ? `\`${s.value}\`` : s.value ? `\`${s.value}\` _(default)_` : '_default_');
+/** The same without markup, for a menu: `opus`, `claude-sonnet-5-5 (default)`, `default`. */
+export const shownLabel = (s: ShownSetting): string => (s.set ? (s.value ?? '') : s.value ? `${s.value} (default)` : 'default');
 
 export function operatorProject(
   slug: string,
-  settings: { model?: ChatSetValue; effort?: ChatSetValue },
-  installationModel: string | undefined,
+  settings: { model?: ChatSetValue; effort?: ChatSetValue; cliModel?: string },
+  defaults: Defaults,
   grants: GrantRecord[],
   now: number,
   tz: string,
 ): OperatorProject {
+  // "Default", by name: the installation's setting, else what the CLI last reported for this project; the effort's
+  // default follows the model in force (cliversion.ts defaultEffortFor).
+  const dm = defaults.model ?? settings.cliModel;
+  const de = defaultEffortFor(settings.model?.value ?? dm);
   const p = {
     slug,
-    model: shown(settings.model, installationModel),
-    effort: shown(settings.effort, undefined),
+    model: settings.model ? { value: settings.model.value, set: true } : { ...(dm ? { value: dm } : {}), set: false },
+    effort: settings.effort ? { value: settings.effort.value, set: true } : { ...(de ? { value: de } : {}), set: false },
+    // What choosing `default` would give: the default model, and the effort the model in force defaults to.
+    defaults: { ...(dm ? { model: dm } : {}), ...(de ? { effort: de } : {}) },
     grants: activeGrants(grants, slug, now).map((g) => ({ capability: g.capability, until: g.until, by: g.by })),
   };
-  return { ...p, line: operatorProjectLine(p, tz) };
+  return { ...p, line: operatorProjectLine(p, tz), rev: now.toString(36) };
 }
 
 export function operatorPart(c: Pick<OperatorCtx, 'configured' | 'list'> & { configuredNames: readonly string[] }, projects: OperatorProject[], note?: string): OperatorPart {
@@ -194,10 +211,8 @@ export function operatorPart(c: Pick<OperatorCtx, 'configured' | 'list'> & { con
   };
 }
 
-export const shownText = (s: ShownSetting): string => (s.value ? `\`${s.value}\`${s.source === 'installation' ? ' _(installation)_' : ''}` : '_CLI default_');
-
-/** One mrkdwn line per project: `*atlas* — model `opus` · effort _CLI default_ · grants: `workflows` until 14:30`. */
-export function operatorProjectLine(p: Omit<OperatorProject, 'line'>, tz: string): string {
+/** One mrkdwn line per project: `*atlas* — model `opus` · effort `high` · grants: `workflows` until 14:30`. */
+export function operatorProjectLine(p: Pick<OperatorProject, 'slug' | 'model' | 'effort' | 'grants'>, tz: string): string {
   const hhmm = (iso: string) => new Intl.DateTimeFormat('en-GB', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
   const grants = p.grants.length ? p.grants.map((g) => `\`${g.capability}\` until ${hhmm(g.until)}`).join(', ') : '_none_';
   return `*${p.slug}* — model ${shownText(p.model)} · effort ${shownText(p.effort)} · grants: ${grants}`;
@@ -212,18 +227,35 @@ export interface OperatorChoice {
   h?: 1;
 }
 
-/** The choices of one project's control, grouped as the menu shows them. */
-export function operatorChoices(p: OperatorProject, home: boolean): { group: string; options: { label: string; value: string }[] }[] {
-  const opt = (label: string, w: OperatorChoice['w'], v: string) => ({ label, value: JSON.stringify({ s: p.slug, w, v, ...(home ? { h: 1 } : {}) } satisfies OperatorChoice) });
+export interface OperatorOption {
+  label: string;
+  value: string; // an OperatorChoice, as JSON
+}
+/**
+ * One project's controls: a list for the model and one for the effort — each with the value in force selected, the
+ * default named (`claude-sonnet-5-5 (default)`) — and one button per capability, which starts a grant or, while one
+ * is held, ends it.
+ */
+export function operatorControls(p: OperatorProject, home: boolean): {
+  model: { options: OperatorOption[]; current: OperatorOption };
+  effort: { options: OperatorOption[]; current: OperatorOption };
+  grants: (OperatorOption & { held: boolean; capability: string })[];
+} {
+  const opt = (label: string, w: OperatorChoice['w'], v: string): OperatorOption => ({ label, value: JSON.stringify({ s: p.slug, w, v, ...(home ? { h: 1 } : {}) } satisfies OperatorChoice) });
+  const list = (w: 'model' | 'effort', names: readonly string[], s: ShownSetting) => {
+    const dflt = opt(shownLabel({ ...(p.defaults[w] ? { value: p.defaults[w] } : {}), set: false }), w, 'default');
+    const options = [...names.map((n) => opt(n, w, n)), dflt];
+    return { options, current: (s.set && options.find((o) => o.label === s.value)) || dflt };
+  };
   const mins = DEFAULT_GRANT_MS / 60_000;
-  return [
-    { group: 'Model', options: [...CLI_MODEL_NAMES.map((m) => opt(`Model: ${m}`, 'model', m)), opt('Model: default', 'model', 'default')] },
-    { group: 'Effort', options: [...CLI_EFFORT_LEVELS.map((e) => opt(`Effort: ${e}`, 'effort', e)), opt('Effort: default', 'effort', 'default')] },
-    {
-      group: 'Grants',
-      options: Object.keys(CAPABILITIES).map((c) => (p.grants.some((g) => g.capability === c) ? opt(`End grant: ${c}`, 'ungrant', c) : opt(`Grant ${c} for ${mins} min`, 'grant', c))),
-    },
-  ];
+  return {
+    model: list('model', CLI_MODEL_NAMES, p.model),
+    effort: list('effort', CLI_EFFORT_LEVELS, p.effort),
+    grants: Object.keys(CAPABILITIES).map((c) => {
+      const held = p.grants.some((g) => g.capability === c);
+      return { ...(held ? opt(`End ${c} grant`, 'ungrant', c) : opt(`Grant ${c} ${mins} min`, 'grant', c)), held, capability: c };
+    }),
+  };
 }
 
 export function parseOperatorChoice(raw: string): OperatorChoice | undefined {

@@ -204,6 +204,8 @@ export function renderPrivateView(v: PrivateView): TeamsMessage {
       };
     case 'memoryIndex':
       return { text: `**Memory — ${v.slug}**\n\n${markdownToTeams(v.markdown)}${mrkdwnToTeams(v.note)}`.slice(0, MAX_TEAMS_TEXT) };
+    case 'operatorCard':
+      return { text: `${mrkdwnToTeams(v.note)}\n\n🛠 **Operator** — ${mrkdwnToTeams(v.project.line)}` };
     case 'sessionPanel': {
       const i = v.info;
       const lines =
