@@ -63,6 +63,9 @@ the terminal of `npm run orch`. Something missing here? Open an issue with the l
   the bot's user in the `docker` group.
 - **`image pull failed: …`** — the sandbox image `SANDBOX_IMAGE` names cannot be pulled by the sandbox host: a typo, a
   private registry without a login on that host, or a tag that was never pushed.
+- **`Docker on the sandbox host does not answer (wanted image …)`** — the image was not the problem: the engine on
+  the sandbox host did not answer `docker version` (stopped, hung, or the socket refused the bot). The line under it
+  is Docker's own.
 - **The clone fails** with git's own message — the repository in the projects config is still a placeholder, or the
   GitHub token does not reach it (a fine-grained token lists its repositories; an App must be installed on the
   owner).
