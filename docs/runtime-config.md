@@ -425,22 +425,49 @@ One set without the other opens no listener and logs which one is missing. With 
    `x-mcp-user` (the e-mail address) and `x-mcp-groups` (group names, comma-separated). A copy of either
    header sent by the client must not reach the bot.
 
-A target in the shape of the gateway kit's examples (the claim names are your identity provider's):
+A target that sets the three headers (agentgateway 1.5.0; checked on a bench with a signed test token, then
+in production). The target's policies **overwrite** `Authorization`, `x-mcp-user` and `x-mcp-groups`, so a
+client cannot spoof them. The claim names are your identity provider's (`id.example` is invented):
 
 ```yaml
     - name: agents
       mcp: { host: "http://<bot-host>:<port>/mcp" }
       policies:
         requestHeaderModifier: { set: { Authorization: "Bearer ${AGENT_MCP_TOKEN}" } }
-        transformations: { request: { set: { x-mcp-user: "jwt.email", x-mcp-groups: "jwt.groups.join(',')" } } }
+        transformations:
+          request:
+            set:
+              x-mcp-user: 'jwt["https://id.example/email"]'
+              x-mcp-groups: 'jwt["https://id.example/groups"].map(g, g.replace(":", "-")).join(",")'
 ```
 
-Through such a gateway the tools appear as `agents_agents`, `agents_send_message`, `agents_get_task` and
-`agents_cancel_task` (the gateway prefixes the target's name). The bot's port must be reachable from the
-gateway and from nothing else; in a container deployment publish it to the gateway's network only.
+Beside it: the backend `mcp: { prefixMode: always, statefulMode: stateless }` (the endpoint keeps no session),
+and an authorization rule that requires a non-empty e-mail claim, so a machine token without a person sees
+no tool. With `prefixMode: always` and a target named `agents` the tools appear to clients as
+`agents_agents`, `agents_send_message`, `agents_get_task` and `agents_cancel_task`. The bot's port must be
+reachable from the gateway and from nothing else; in a container deployment publish it to the gateway's
+network only.
 
-A call may be held up to 50 seconds (`waitSeconds`); a proxy in front of the bot needs a read timeout above
-that.
+**Group names.** A group name may not contain `:`, `/` or `,`, nor start with whitespace (`GROUP_RE` in
+`src/messaging/protocol.ts`; compared lower-cased). A group in the header that breaks this is dropped
+silently; in an `accept` entry it fails the configuration load. An identity provider whose group claim looks
+like `<project>:<role>` is therefore mapped at the gateway, as `:` → `-` above: the entry is
+`group:caldora-dev`, never `group:caldora:dev`.
+
+**Gateway and bot on different hosts, no private network.** Keep the listener on loopback and publish one
+exact path (`/mcp`) through the bot host's existing TLS reverse proxy. Allow only the gateway's egress
+address, turn buffering off, and give the proxy a read timeout above the endpoint's longest hold. A call is
+held up to 50 seconds (`waitSeconds`, `MAX_WAIT_MS` in `src/messaging/service.ts`); 75 s was used.
+
+**What clients did** (first rollout, 2026-11-25). A `send_message` held for 40 s and for 50 s through gateway,
+CDN and reverse proxy without a drop. A client whose answer was not ready after the wait called `get_task`
+by itself until the task ended (two calls for a 126 s task). One question runs in a cold session, so a broad
+code question cost about four to six times a short one: watch the cost per task in `/aven asks`.
+
+**Choosing the identity provider.** Client registration is per client. Some MCP clients use a separate client
+id for each connector unless the authorization server returns the `iss` parameter (RFC 9207) and advertises
+`authorization_response_iss_parameter_supported`. A server that accepts only pre-registered
+metadata-document clients then needs one registration per connector. Check both before choosing.
 
 ## Chat surfaces (`CHAT_SURFACES`)
 
