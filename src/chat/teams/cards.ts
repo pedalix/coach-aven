@@ -286,7 +286,7 @@ export function renderHomeView(v: HomeView): TeamsMessage {
   if (v.kind === 'onboarding') return { text: "👋 I'm CoachAven. This installation serves no projects yet — ask your operator to bind a channel." };
   const projects = v.projects.map((p: ProjectConfig) => `- **${p.slug}** — ${p.repos.join(', ')}${p.teamsChannel ? '' : ' _(no Teams channel bound yet)_'}`);
   // Teams' own cheat-sheet (teamshome.ts): mentions and reply chains, the 1:1 chat, files through Graph — no Slack words.
-  const bullets = teamsHomeBullets(v.messaging ? { messaging: true } : {}).map(mrkdwnToTeams);
+  const bullets = teamsHomeBullets({ ...(v.messaging ? { messaging: true } : {}), ...(v.operatorControls ? { operatorControls: true } : {}) }).map(mrkdwnToTeams);
   return {
     text:
       `**CoachAven — your coding agent**\n\n**Projects**\n${projects.join('\n') || '_none_'}\n\n` +

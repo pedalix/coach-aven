@@ -538,6 +538,46 @@ paragraph; a running conversation gets the per-turn line from its next message.
 | --- | --- | --- |
 | `OUTBOUND_FILES` | unset (off) | `1` names an outbox to the agent on every turn and posts what it saved there |
 
+## Operator controls (`OPERATOR_CONTROLS`)
+
+Off by default. `OPERATOR_CONTROLS=1` in the runtime `.env` (read once at boot) gives the chat a third level beside
+"reads along" and "may drive": the **operator**, a named person of the home workspace, and lets an operator set what a
+project's agent runs on without a file edit. OpenSpec `operator-controls`; the logic is `src/operators.ts` (pure,
+tested). With the switch unset nothing below exists: the words are not commands, and the operator rule is the earlier
+one.
+
+**Who is an operator.** A person the driver's own setting names (`TEAMS_OPERATORS`, the web's `WEB_OPERATORS`), or a
+person on the list kept in chat. Where neither names anyone the earlier rule holds — on Slack, whose driver has no such
+setting, everyone in the home workspace. Nobody outside the home workspace is ever an operator.
+
+- `/aven operators` — the list, to operators: each person, whether the config or the chat names them, and for a
+  chat-listed one who added them and when.
+- `/aven operators add @person` / `remove @person` — a real mention. On Slack the first `add` also names whoever ran
+  it, and from that moment everyone else in the home workspace stops being an operator (the reply says so, with the
+  list). A person named in the config cannot be removed in chat; the last operator cannot be removed when the config
+  names none. Going back to "everyone" is a hand edit of `operators` in `state.json`, on purpose.
+- The web chat has no mentions to type, so there the list is read-only and operators come from `WEB_OPERATORS`.
+
+The operator verbs — `reload`, `usage`, `asks`, `grant`, and the two below — all use this one rule.
+
+**A project's model and effort.** `/aven model <name>` and `/aven effort <level>` in a project's conversation, by an
+operator; `default` removes the project's value; with no argument anyone who may see the project's settings reads the
+value in force and where it comes from. Accepted names and levels are the ones the pinned CLI takes on its command
+line (`CLI_MODEL_NAMES`, `CLI_EFFORT_LEVELS` in `src/cliversion.ts`): aliases, not full model ids.
+
+| | first | then | then |
+| --- | --- | --- | --- |
+| model | the project's chat-set value | `CLAUDE_MODEL` | the CLI's own default |
+| effort | the project's chat-set value | — | the CLI's own default |
+
+The values live in `state.json` with who set them and when, and are read when a session **starts** (`--model`,
+`--effort`): the reach of `/aven reload`. A running conversation keeps what it started with until its session ends
+or someone presses *🔄 Restart session*. A model change moves cost; `/aven usage` attributes it per project as before.
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `OPERATOR_CONTROLS` | unset (off) | `1` turns on the operators list and a project's model and effort from chat |
+
 ## Repo skills (`REPO_SKILLS`)
 
 A multi-repo project's sessions start in the project folder, where no repo's `.claude/skills` is visible. With

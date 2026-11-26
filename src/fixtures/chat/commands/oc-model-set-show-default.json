@@ -1,0 +1,46 @@
+{
+  "calls": [
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*alpha* — model: the agent CLI's own default (nothing is set)."
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "✅ *alpha* — model: `opus`. Conversations that start from now on use it; a running conversation keeps what it started with until its session ends or is restarted (*⚙️ Session* → *🔄 Restart session*)."
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*alpha* — model: `opus`, set in chat by <@U_HUMAN> on 1970-01-01."
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "✅ *alpha* — model: the agent CLI's own default. Conversations that start from now on use it; a running conversation keeps what it started with until its session ends or is restarted (*⚙️ Session* → *🔄 Restart session*)."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

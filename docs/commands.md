@@ -41,3 +41,10 @@ Shown when a project has a `messaging` block ([`agent-messaging.md`](agent-messa
 
 - **Agents asking agents** — an agent configured to send can ask other agents or request work from them, in this installation or another one; the answer arrives in its own thread as quoted data from that agent, and its trail shows when an answer folded into a running turn. When a thread holds another client's data, a message that would carry it elsewhere waits as a **✋ Held** card: anyone who may drive the thread can **Send** it (once) or **Dismiss** it.
 - **Audit asks** — `/aven asks` lists the recent tasks between agents (held first, with cost), `/aven asks <task id>` shows a transcript, `/aven asks cancel <task id>` cancels one. _(Operators' home workspace only.)_
+
+## On an installation with operator controls
+
+Shown with `OPERATOR_CONTROLS=1` ([`runtime-config.md`](runtime-config.md#operator-controls-operator_controls)):
+
+- **Model and effort** — `/aven model` and `/aven effort` in a project channel show what that project's agent runs on; an operator changes it with `/aven model fable|opus|sonnet|haiku` or `/aven effort low|medium|high` (`default` returns to the installation's setting). It applies to conversations that start afterwards — **🔄 Restart session** brings a running thread over.
+- **Operators** — `/aven operators` lists who may run the operator commands; `/aven operators add @person` / `remove @person` change the list. While nobody is named, everyone in the home workspace is an operator; the first `add` makes it a list, the person who ran it included. _(Operators only.)_

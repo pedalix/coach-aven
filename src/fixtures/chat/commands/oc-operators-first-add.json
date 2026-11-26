@@ -1,0 +1,54 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "✅ <@U_MILO> is an operator. Operators are now a named list: <@U_HUMAN>, <@U_MILO> — everyone else in this workspace no longer is one."
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": "*Operators — this installation*\n• <@U_HUMAN> — added in chat by <@U_HUMAN> on 1970-01-01\n• <@U_MILO> — added in chat by <@U_HUMAN> on 1970-01-01\n\nManage: `/aven operators add @person` · `remove @person`"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":lock: Config reload is operator-only."
+      }
+    },
+    {
+      "method": "conversations.info",
+      "token": "xoxb-THOME1111",
+      "payload": {
+        "team_id": "THOME1111",
+        "channel": "C_HOME"
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":lock: Granting is operator-only."
+      }
+    },
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":lock: `/aven operators` is for operators."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

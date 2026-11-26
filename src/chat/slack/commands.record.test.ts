@@ -64,7 +64,8 @@ function recordingEngine(store: Store) {
   return { engine, log, busy };
 }
 
-async function twin(o: { asks?: CommandDeps['asks'] } = {}) {
+type TwinOpts = { asks?: CommandDeps['asks']; operatorControls?: boolean };
+async function twin(o: TwinOpts = {}) {
   const reg = {
     current: {
       projects: [
@@ -95,14 +96,14 @@ async function twin(o: { asks?: CommandDeps['asks'] } = {}) {
     { C_HOME: 'aven-alpha', C_BETA: 'aven-beta', C_CLIENT: 'aven-beta', C_MEM: `aven-${MEM}` },
     { F_HIDDEN: { id: 'F_HIDDEN', name: 'secret.pdf', mimetype: 'application/pdf', url_private_download: 'https://files/secret.pdf', size: 9 } },
   );
-  const cfg = { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 }, projectsConfigPath: '/nonexistent/projects.config.json' } as unknown as Config;
+  const cfg = { sandbox: { namePrefix: 'proj-', workDir: '/w', autoStopMinutes: 1 }, projectsConfigPath: '/nonexistent/projects.config.json', operatorControls: o.operatorControls === true } as unknown as Config;
   registerEvents(app, { cfg, store, reg: reg as never, engine: rec.engine, channels, botUserId: `UBOT_${HOME}`, homeTeamId: HOME, servedTenant });
   registerCommands(app, { cfg, store, reg: reg as never, engine: rec.engine, channels, pollers, homeTeamId: HOME, ...(o.asks ? { asks: o.asks } : {}) });
   return { receiver, api, store, ...rec, pollerLog, stop };
 }
 type Twin = Awaited<ReturnType<typeof twin>>;
 
-async function record(dir: string, name: string, run: (t: Twin) => Promise<void>, o: { asks?: CommandDeps['asks'] } = {}): Promise<void> {
+async function record(dir: string, name: string, run: (t: Twin) => Promise<void>, o: TwinOpts = {}): Promise<void> {
   const t = await twin(o);
   try {
     await run(t);
@@ -305,6 +306,74 @@ C('grant-off', async (t) => {
   await t.receiver.send(cmd('grant workflows off'));
   await t.receiver.send(cmd('grant'));
   assert.deepEqual(t.store.listGrants(), []);
+});
+// OPERATOR_CONTROLS (OpenSpec operator-controls): named operators, a project's model and effort. Off — the first
+// scenario — the new words are what any unknown word is, and nothing is stored.
+C('oc-off-model', async (t) => {
+  await t.receiver.send(cmd('model opus'));
+  assert.deepEqual(t.store.getProjectSettings('alpha'), {});
+});
+const OC = (name: string, run: (t: Twin) => Promise<void>) => test(`commands record: ${name}`, () => record('commands', name, run, { operatorControls: true }));
+const DANA = { user: 'U_DANA', by: 'U_DANA', at: '2026-03-02T10:00:00.000Z' };
+OC('oc-operators-list-nobody', (t) => t.receiver.send(cmd('operators')));
+OC('oc-operators-first-add', async (t) => {
+  await t.receiver.send(cmd('operators add <@U_MILO|milo>'));
+  assert.deepEqual(t.store.listOperators().map((e) => [e.user, e.by]), [['U_HUMAN', 'U_HUMAN'], ['U_MILO', 'U_HUMAN']]);
+  await t.receiver.send(cmd('operators'));
+  // A third person of the home workspace is no longer an operator: reload, grant and the list are refused.
+  await t.receiver.send(cmd('reload', { user: 'U_THIRD' }));
+  await t.receiver.send(cmd('grant workflows', { user: 'U_THIRD' }));
+  await t.receiver.send(cmd('operators', { user: 'U_THIRD' }));
+  assert.deepEqual(t.store.listGrants(), []);
+});
+OC('oc-operators-not-a-mention', async (t) => {
+  await t.receiver.send(cmd('operators add milo'));
+  assert.deepEqual(t.store.listOperators(), []);
+});
+OC('oc-operators-remove-last', async (t) => {
+  t.store.setOperators([{ ...DANA, user: 'U_HUMAN' }]);
+  await t.receiver.send(cmd('operators remove <@U_HUMAN>'));
+  assert.equal(t.store.listOperators().length, 1);
+});
+OC('oc-operators-remove', async (t) => {
+  t.store.setOperators([{ ...DANA, user: 'U_HUMAN' }, { ...DANA, user: 'U_MILO' }]);
+  await t.receiver.send(cmd('operators remove <@U_MILO>'));
+  assert.deepEqual(t.store.listOperators().map((e) => e.user), ['U_HUMAN']);
+});
+OC('oc-operators-client-workspace', async (t) => {
+  await t.receiver.send(cmd('operators add <@U2>', { team: CLIENT, channel: 'C_CLIENT' }));
+  assert.deepEqual(t.store.listOperators(), []);
+});
+OC('oc-model-set-show-default', async (t) => {
+  await t.receiver.send(cmd('model'));
+  await t.receiver.send(cmd('model opus'));
+  assert.deepEqual(t.store.getProjectSettings('alpha').model, { value: 'opus', by: 'U_HUMAN', at: '1970-01-01T00:00:00.000Z' });
+  assert.equal(t.store.getProjectSettings('beta').model, undefined);
+  await t.receiver.send(cmd('model'));
+  await t.receiver.send(cmd('model default'));
+  assert.equal(t.store.getProjectSettings('alpha').model, undefined);
+});
+OC('oc-model-unknown', async (t) => {
+  await t.receiver.send(cmd('model fastest'));
+  assert.deepEqual(t.store.getProjectSettings('alpha'), {});
+});
+OC('oc-model-not-operator', async (t) => {
+  t.store.setOperators([DANA]);
+  await t.receiver.send(cmd('model opus'));
+  await t.receiver.send(cmd('model'));
+  assert.deepEqual(t.store.getProjectSettings('alpha'), {});
+});
+OC('oc-model-unbound', async (t) => {
+  await t.receiver.send(cmd('model opus', { channel: 'C_RANDOM' }));
+});
+OC('oc-effort-set', async (t) => {
+  await t.receiver.send(cmd('effort high'));
+  assert.equal(t.store.getProjectSettings('alpha').effort?.value, 'high');
+  await t.receiver.send(cmd('effort'));
+});
+OC('oc-effort-unknown', async (t) => {
+  await t.receiver.send(cmd('effort extreme'));
+  assert.deepEqual(t.store.getProjectSettings('alpha'), {});
 });
 C('memory-unbound', (t) => t.receiver.send(cmd('memory', { channel: 'C_RANDOM' })));
 C('memory-bad-topic', (t) => t.receiver.send(cmd('memory ../etc', { channel: 'C_MEM' })));

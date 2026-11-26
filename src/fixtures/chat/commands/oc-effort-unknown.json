@@ -1,0 +1,14 @@
+{
+  "calls": [
+    {
+      "method": "respond",
+      "token": "",
+      "payload": {
+        "response_type": "ephemeral",
+        "text": ":x: Usage: `/aven effort low|medium|high|default` — accepted: `low`, `medium`, `high`."
+      }
+    }
+  ],
+  "engine": [],
+  "pollers": []
+}

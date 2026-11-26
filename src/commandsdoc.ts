@@ -15,6 +15,7 @@ export function bulletToMarkdown(bullet: string): string {
 export function commandsDoc(): string {
   const base = homeBullets().map(bulletToMarkdown);
   const messagingOnly = homeBullets({ messaging: true }).filter((b) => !homeBullets().includes(b)).map(bulletToMarkdown);
+  const operatorOnly = homeBullets({ operatorControls: true }).filter((b) => !homeBullets().includes(b)).map(bulletToMarkdown);
   return [
     '# Commands and buttons',
     '',
@@ -33,6 +34,12 @@ export function commandsDoc(): string {
     'Shown when a project has a `messaging` block ([`agent-messaging.md`](agent-messaging.md)):',
     '',
     ...messagingOnly,
+    '',
+    '## On an installation with operator controls',
+    '',
+    'Shown with `OPERATOR_CONTROLS=1` ([`runtime-config.md`](runtime-config.md#operator-controls-operator_controls)):',
+    '',
+    ...operatorOnly,
     '',
   ].join('\n');
 }

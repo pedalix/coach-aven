@@ -183,4 +183,4 @@ export type DialogView =
 // `prefix` is that tenant's channel-name wildcard. No projects → the onboarding view.
 // `messaging`: some project has a `messaging` block — the cheat-sheet explains agents asking agents (D17).
 // `outboundFiles`: the installation posts the agent's outbox (OUTBOUND_FILES=1) — the sheet says files can come back.
-export type HomeView = { kind: 'home'; projects: ProjectConfig[]; prefix: string; messaging?: boolean; outboundFiles?: boolean } | { kind: 'onboarding' };
+export type HomeView = { kind: 'home'; projects: ProjectConfig[]; prefix: string; messaging?: boolean; outboundFiles?: boolean; operatorControls?: boolean } | { kind: 'onboarding' };

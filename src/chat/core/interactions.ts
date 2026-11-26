@@ -515,6 +515,7 @@ export function createInteractions(deps: InteractionDeps): Interactions {
               prefix: deps.prefixFor(who.tenant),
               ...(deps.reg.current.projects.some((p) => p.messaging !== undefined) ? { messaging: true } : {}),
               ...(cfg.outboundFiles ? { outboundFiles: true } : {}),
+              ...(cfg.operatorControls ? { operatorControls: true } : {}),
             }
           : { kind: 'onboarding' },
       );

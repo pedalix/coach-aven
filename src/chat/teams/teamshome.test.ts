@@ -12,18 +12,23 @@ const verbsIn = (text: string, prefix: string): Set<string> => {
 };
 
 test('every Slack Home verb is on the Teams Home', () => {
-  const slack = verbsIn(homeBullets({ messaging: true }).join('\n'), `${CMD} `);
-  const teams = verbsIn(teamsHomeBullets({ messaging: true }).join('\n'), '`/');
+  const slack = verbsIn(homeBullets({ messaging: true, operatorControls: true }).join('\n'), `${CMD} `);
+  const teams = verbsIn(teamsHomeBullets({ messaging: true, operatorControls: true }).join('\n'), '`/');
   const missing = [...slack].filter((v) => !teams.has(v));
   assert.deepEqual(missing, [], `Slack Home verbs missing from teamshome.ts: ${missing.join(', ')}`);
 });
 
 test('no Slack words on the Teams Home: DMs, Slack Connect, workspaces, the Slack command', () => {
-  const text = teamsHomeBullets({ messaging: true }).join('\n');
+  const text = teamsHomeBullets({ messaging: true, operatorControls: true }).join('\n');
   for (const word of [/\bDMs?\b/, /Slack/i, /workspace/i, new RegExp(CMD.replace('/', '\\/') + '\\b')]) assert.doesNotMatch(text, word);
 });
 
 test('the messaging bullets only with messaging', () => {
-  assert.ok(teamsHomeBullets({ messaging: true }).length > teamsHomeBullets().length);
+  assert.ok(teamsHomeBullets({ messaging: true, operatorControls: true }).length > teamsHomeBullets().length);
   assert.doesNotMatch(teamsHomeBullets().join('\n'), /\/asks/);
+});
+
+test('the operator-controls bullets only with the flag', () => {
+  assert.ok(teamsHomeBullets({ operatorControls: true }).length > teamsHomeBullets().length);
+  assert.doesNotMatch(teamsHomeBullets().join('\n'), /\/model|\/effort|\/operators/);
 });
