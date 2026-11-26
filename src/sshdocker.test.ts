@@ -4,7 +4,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, listingStates, ensureSandboxScript, transportArgv, LOCAL_HOST, deleteSandboxScript, SshDockerDriver, bootScript, stopSandboxScript, runSsh, type SshRun, type SshRunOpts } from './sshdocker.js';
+import { sq, safeToken, execScript, startSessionScript, streamSessionScript, runningProbeScript, parseContainerStates, listingStates, ensureSandboxScript, imageScript, imageErrorText, DOCKER_SILENT_EXIT, transportArgv, LOCAL_HOST, deleteSandboxScript, SshDockerDriver, bootScript, stopSandboxScript, runSsh, type SshRun, type SshRunOpts } from './sshdocker.js';
 import type { Config } from './config.js';
 import { sandboxActivity } from './idlestop.js';
 
@@ -592,4 +592,34 @@ test('SshDockerDriver — a project image is pulled and run; without one, the in
   const runs = seen.filter((s) => isEnsure(s.script)).map((s) => s.script);
   assert.match(runs[0], /--privileged[\s\S]*--entrypoint sh 'registry\.example\/acme\/laravel:1'/);
   assert.match(runs[1], /--entrypoint sh 'img'/);
+});
+
+test('ensureImage — a silent engine is named as the host\'s fault, a refused pull as the image\'s, each with its words', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'img-'));
+  const fake = (body: string) => writeFileSync(join(dir, 'docker'), `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+  const run = (image: string) => {
+    const r = spawnSync('sh', ['-s'], { input: imageScript(image), env: { PATH: `${dir}:${process.env.PATH}` }, encoding: 'utf8' });
+    return { code: r.status ?? -1, stdout: r.stdout, stderr: r.stderr };
+  };
+  try {
+    fake('[ "$1 $2" = "image inspect" ] && exit 0; exit 1');
+    assert.deepEqual(run('registry.example/acme/plain:1'), { code: 0, stdout: 'present\n', stderr: '' });
+
+    fake('echo "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" >&2; exit 1');
+    const silent = run('registry.example/acme/plain:1');
+    assert.equal(silent.code, DOCKER_SILENT_EXIT);
+    const told = imageErrorText('registry.example/acme/plain:1', silent);
+    assert.match(told, /^Docker on the sandbox host does not answer \(wanted image registry\.example\/acme\/plain:1\)\nCannot connect to the Docker daemon/);
+    assert.doesNotMatch(told, /pull failed/);
+
+    fake('case "$1" in version) exit 0;; pull) echo "denied: requested access to the resource is denied" >&2; exit 1;; *) exit 1;; esac');
+    assert.match(imageErrorText('registry.example/acme/plain:1', run('registry.example/acme/plain:1')), /^image pull failed: registry\.example\/acme\/plain:1\ndenied: requested access/);
+
+    fake('case "$1" in version) exit 0;; pull) echo "Status: Downloaded newer image";; *) exit 1;; esac');
+    assert.equal(run('registry.example/acme/plain:1').code, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+  const { driver } = fakeHost(() => ({ code: 255, stderr: 'ssh: connect to host sandboxes.example port 22: Connection refused' }));
+  await assert.rejects(driver.ensureImage(), /image pull failed: img\nssh: connect to host/);
 });

@@ -638,6 +638,27 @@ class SshDockerHandle implements SandboxHandle {
   }
 }
 
+// Is the image on the host — else pull it. `docker image inspect` fails the same way for "not here" and for an
+// engine that does not answer, and a pull against a dead engine then blames the image (a locally built one "failed
+// to pull" for a whole night while Docker Desktop hung). So between the two the script asks the engine itself,
+// and exit 69 names the host, not the image.
+export const DOCKER_SILENT_EXIT = 69;
+
+export function imageScript(image: string): string {
+  return [
+    `docker image inspect ${sq(image)} >/dev/null 2>&1 && { echo present; exit 0; }`,
+    `docker version -f '{{.Server.Version}}' >/dev/null || exit ${DOCKER_SILENT_EXIT}`,
+    `docker pull ${sq(image)}`,
+  ].join('\n');
+}
+
+/** The pull's own words are on stderr; ssh's too, when the host itself is out of reach. */
+export function imageErrorText(image: string, r: SshResult): string {
+  const said = `${r.stderr}\n${r.stdout}`.trim().slice(0, 500);
+  if (r.code === DOCKER_SILENT_EXIT) return `Docker on the sandbox host does not answer (wanted image ${image})\n${said}`;
+  return `image pull failed: ${image}\n${said}`;
+}
+
 export class SshDockerDriver implements SandboxDriver {
   private readonly host: string;
   private readonly runtimeFlag: string;
@@ -661,11 +682,8 @@ export class SshDockerDriver implements SandboxDriver {
 
   async ensureImage(projectImage?: string): Promise<void> {
     const image = projectImage ?? this.cfg.snapshot.image;
-    const r = await this.onHost(
-      `docker image inspect ${sq(image)} >/dev/null 2>&1 && echo present || docker pull ${sq(image)}`,
-      { timeoutMs: 15 * 60_000 }, // first pull of the dind image is large
-    );
-    if (r.code !== 0) throw new Error(`image pull failed: ${image}\n${r.stdout.slice(0, 500)}`);
+    const r = await this.onHost(imageScript(image), { timeoutMs: 15 * 60_000 }); // first pull of the dind image is large
+    if (r.code !== 0) throw new Error(imageErrorText(image, r));
     if (r.stdout.trim() !== 'present') log.info(`pulled sandbox image ${image}`);
   }
 
