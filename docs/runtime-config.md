@@ -455,7 +455,7 @@ like `<project>:<role>` is therefore mapped at the gateway, as `:` → `-` above
 `group:caldora-dev`, never `group:caldora:dev`.
 
 **Gateway and bot on different hosts, no private network.** Keep the listener on loopback and publish one
-exact path (`/mcp`) through the bot host's existing TLS reverse proxy. Allow only the gateway's egress
+exact path through the bot host's existing TLS reverse proxy, passed to the listener's `/mcp`. Allow only the gateway's egress
 address, turn buffering off, and give the proxy a read timeout above the endpoint's longest hold. A call is
 held up to 50 seconds (`waitSeconds`, `MAX_WAIT_MS` in `src/messaging/service.ts`); 75 s was used.
 
