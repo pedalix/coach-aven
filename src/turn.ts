@@ -1005,7 +1005,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
     // both active, which resumeQueuedTurns dedupes by statusTs; the reverse order would
     // leave a gap where the turn is in neither and vanishes.
     store.patchChat(key, project.slug, {
-      inflight: { channel, statusTs: ts, msgThreadTs: threadTs, startedAt: new Date().toISOString(), turnId },
+      inflight: { channel, statusTs: ts, msgThreadTs: threadTs, startedAt: new Date().toISOString(), turnId, ...(msgTs ? { msgTs } : {}) },
     });
     journal.done(turnId);
     // Best-effort permalink to this thread so the agent can link a PR back to the Slack
@@ -1224,6 +1224,15 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
   // can hold a key's replays until its running turn has been recovered (else the replay
   // hits the still-busy session and errors).
   function resumeInflightTurns(driverFor: DriverFor): Map<string, Promise<void>> {
+    // The person's message leaves `working` for the turn's outcome, as at the end of a live turn — else the mark
+    // the first bot set stays forever. Best-effort: a mark that fails must not turn a delivered answer into the
+    // "couldn't recover" notice. A record from before `msgTs` (or a turn nobody wrote) has nothing to mark.
+    const settleMark = async (d: ChatDriver, inf: { channel: string; msgTs?: string }, outcome: 'done' | 'failed') => {
+      if (!inf.msgTs) return;
+      const userMsg = { conv: inf.channel, id: inf.msgTs };
+      await d.mark(userMsg, 'working', 'remove').catch(() => {});
+      await d.mark(userMsg, outcome, 'add').catch(() => {});
+    };
     const recovering = new Map<string, Promise<void>>();
     for (const chat of store.allChats()) {
       const inf = chat.inflight;
@@ -1245,6 +1254,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
             try {
               const d = driverForKey(driverFor, chat.threadTs);
               await d.update(status, { kind: 'text', text: '⚠️ The bot restarted while this turn was still being prepared — it never reached the agent. Send your message again.' });
+              await settleMark(d, inf, 'failed');
             } catch (e) {
               log.error(`resume ${chat.threadTs}: ${e instanceof Error ? e.message : String(e)}`);
             } finally {
@@ -1327,11 +1337,13 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
             // A recovered turn may have opened the PR — latch so the session panel reflects it.
             if (!chat.prCreated && prUrls(capped).length)
               store.patchChat(chat.threadTs, project.slug, { prCreated: true });
+            await settleMark(driver, inf, 'done');
           } else {
             await driver.update(status, {
               kind: 'text',
               text: `⚠️ The bot restarted mid-turn and couldn't recover the live result (${r.status}). The work may have finished in the thread or a PR — send a new message to continue.`,
             });
+            await settleMark(driver, inf, 'failed');
           }
         } catch (e) {
           // A recovery failure was previously swallowed (user saw a warning, Sentry saw
@@ -1344,6 +1356,7 @@ export function createTurnEngine(cfg: Config, store: Store, reg: RegistryRef, de
               text: "⚠️ The bot restarted mid-turn; couldn't recover this status. Send a new message to continue.",
             })
             .catch(() => {});
+          await settleMark(driver, inf, 'failed');
         } finally {
           store.patchChat(chat.threadTs, chat.slug, { inflight: undefined });
           held.release();

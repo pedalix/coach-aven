@@ -1,0 +1,36 @@
+[
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "100.5",
+      "text": "🔄 Reconnected after a restart — recovering this turn…",
+      "blocks": "[]"
+    }
+  },
+  {
+    "method": "chat.update",
+    "payload": {
+      "channel": "C1",
+      "ts": "100.5",
+      "text": "Recovered.",
+      "blocks": "[{\"type\":\"markdown\",\"text\":\"Recovered.\"}]"
+    }
+  },
+  {
+    "method": "reactions.remove",
+    "payload": {
+      "channel": "C1",
+      "timestamp": "100.1",
+      "name": "eyes"
+    }
+  },
+  {
+    "method": "reactions.add",
+    "payload": {
+      "channel": "C1",
+      "timestamp": "100.1",
+      "name": "white_check_mark"
+    }
+  }
+]
