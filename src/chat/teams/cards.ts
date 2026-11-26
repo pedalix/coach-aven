@@ -208,7 +208,9 @@ export function renderPrivateView(v: PrivateView): TeamsMessage {
       const i = v.info;
       const lines =
         `⚙️ **Session — ${i.slug}**\n\n- repos: ${i.repos.join(', ')}\n\n- tools: ${i.mcp?.join(', ') || 'none'}\n\n` +
-        `- session: ${i.hasSession ? `since ${i.sessionSince ?? '?'}` : 'none yet'}\n\n- turn: ${i.turnInFlight ? 'running' : 'idle'}\n\n- PR: ${i.prCreated ? 'created' : 'none'}`;
+        `- session: ${i.hasSession ? `since ${i.sessionSince ?? '?'}` : 'none yet'}\n\n- turn: ${i.turnInFlight ? 'running' : 'idle'}\n\n- PR: ${i.prCreated ? 'created' : 'none'}` +
+        // Only an operator's card carries it (operator-controls): the read-out; changing is the commands' here.
+        (i.operator ? `\n\n🛠 **Operator** — ${mrkdwnToTeams(i.operator.line)}\n\n_Change with \`/model\`, \`/effort\`, \`/grant\` in the project's channel._` : '');
       // Restart only when there is a session to forget (as on Slack); the value is the panel's own.
       return { card: card([text(lines)], i.hasSession ? [execute('🔄 Restart session', 'session_restart', v.value)] : []) };
     }
@@ -287,9 +289,17 @@ export function renderHomeView(v: HomeView): TeamsMessage {
   const projects = v.projects.map((p: ProjectConfig) => `- **${p.slug}** — ${p.repos.join(', ')}${p.teamsChannel ? '' : ' _(no Teams channel bound yet)_'}`);
   // Teams' own cheat-sheet (teamshome.ts): mentions and reply chains, the 1:1 chat, files through Graph — no Slack words.
   const bullets = teamsHomeBullets({ ...(v.messaging ? { messaging: true } : {}), ...(v.operatorControls ? { operatorControls: true } : {}) }).map(mrkdwnToTeams);
+  // The operator's section (operator-controls): a read-out; on Teams the changes are typed (`/model`, `/effort`, `/grant`, `/reload`).
+  const op = v.operator
+    ? `\n\n**🛠 Operator** — only operators see this\n\n${v.operator.note ? `${mrkdwnToTeams(v.operator.note)}\n\n` : ''}` +
+      `Operators: ${v.operator.operators.map(mrkdwnToTeams).join(', ') || '_none_'}\n\n${v.operator.projects.map((p) => `- ${mrkdwnToTeams(p.line)}`).join('\n')}\n\n` +
+      '_Change with `/model`, `/effort`, `/grant` in a project\'s channel; `/reload` re-reads the config; `/operators` manages this list._'
+    : v.notice
+      ? `\n\n${mrkdwnToTeams(v.notice)}`
+      : '';
   return {
     text:
       `**CoachAven — your coding agent**\n\n**Projects**\n${projects.join('\n') || '_none_'}\n\n` +
-      `**How to use me**\n\n${bullets.join('\n\n')}\n\n_In a channel, commands are \`@CoachAven /verb …\`; in our 1:1 chat or a reply chain, \`/verb …\`._`,
+      `**How to use me**\n\n${bullets.join('\n\n')}\n\n_In a channel, commands are \`@CoachAven /verb …\`; in our 1:1 chat or a reply chain, \`/verb …\`._` + op,
   };
 }

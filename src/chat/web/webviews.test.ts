@@ -101,3 +101,19 @@ test('controls carry the core’s action families and values', () => {
   assert.match(d, /name="reason" value="wrong"/);
   assert.match(renderDialogView(dialogs.reportPrompt).html.html, /data-multi="now"/);
 });
+
+// operator-controls: the read-out an operator gets; nobody else's Home or card changes.
+test('the operator read-out on the Home and the Session card', async () => {
+  const { operatorProject } = await import('../../operators.js');
+  const p = operatorProject('atlas', { model: { value: 'opus', by: 'UDANA', at: '2026-03-02T10:00:00.000Z' } }, undefined, [], 0, 'UTC');
+  const base: HomeView = { kind: 'home', projects: [], prefix: '' };
+  const plain = String(renderHomeView(base).html);
+  const op = String(renderHomeView({ ...base, operator: { operators: ['`dana@atlas.example` _(config)_'], everyone: false, projects: [p] } }).html);
+  assert.ok(op.startsWith(plain));
+  assert.match(op, /<h3>🛠 Operator<\/h3>/);
+  assert.match(op, /<strong>atlas<\/strong> — model <code>opus<\/code>/);
+  assert.match(String(renderHomeView({ ...base, notice: ':lock: This control is operator-only.' }).html), /<div class="note"><p>.*operator-only\.<\/p>\s*<\/div>$/);
+  const info = { slug: 'atlas', repos: ['Org/atlas'], hasSession: false, turnInFlight: false, prCreated: false };
+  assert.match(String(renderPrivateView({ kind: 'sessionPanel', info: { ...info, operator: p }, value: '{}' }).html), /🛠 <strong>Operator<\/strong>/);
+  assert.doesNotMatch(String(renderPrivateView({ kind: 'sessionPanel', info, value: '{}' }).html), /Operator/);
+});

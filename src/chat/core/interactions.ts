@@ -8,9 +8,13 @@
 // (a stale button in an offboarded workspace must not act), then the actor gate for anything
 // that steers (viewers may look at trails, tickets and session panels, not drive).
 
+import type { Operate } from './operate.js';
+import { parseOperatorChoice, type OperatorPart } from '../../operators.js';
+import { DEFAULT_GRANT_MS, type CapabilityName } from '../../grants.js';
 import type { Config } from '../../config.js';
 import type { Store } from '../../state.js';
-import { resolveBySlug, teamProjects, type RegistryRef } from '../../projects.js';
+import { resolveBySlug, teamProjects, type ProjectConfig, type RegistryRef } from '../../projects.js';
+import { normalizeTenant } from '../../teamkeys.js';
 import { keyFor } from '../surfaces.js';
 import type { ChatDriverName } from '../drivers.js';
 import type { TurnEngine } from '../../turn.js';
@@ -43,6 +47,11 @@ export interface InteractionDeps {
   prefixFor: (tenantId: string | undefined) => string;
   // Agent messaging (agent-messaging D9): Send / Dismiss on a held message.
   messaging?: () => Messaging | undefined;
+  // The operator's actions (operate.ts): the Home's operator section, the Session card's part and their controls
+  // exist only with it (and with OPERATOR_CONTROLS, for an operator).
+  operate?: Operate;
+  // Where a project's own conversation is, for a grant pressed on the Home (operator-controls D7).
+  projectConv?: (d: ChatDriver, project: ProjectConfig, tenant: string | undefined) => Promise<string | undefined>;
 }
 
 export type ActionHandler = (a: ChatAction, d: ChatDriver) => Promise<void>;
@@ -275,6 +284,7 @@ export function createInteractions(deps: InteractionDeps): Interactions {
             sessionSince: chat?.updatedAt,
             turnInFlight: engine.hasKey(v.key),
             prCreated: !!chat?.prCreated,
+            ...(cfg.operatorControls && deps.operate?.isOperator(a.actor) ? { operator: deps.operate.project(project.slug) } : {}),
           },
           value: a.value,
         })
@@ -503,7 +513,41 @@ export function createInteractions(deps: InteractionDeps): Interactions {
   // The home surface: only the viewer tenant's projects. An installed-but-unmapped tenant
   // gets the onboarding view — as does EVERYONE while home is unresolved (fail closed:
   // teamProjects would otherwise treat any viewer as home and leak the fleet).
-  const home = async (who: Actor & { user: string }, d: ChatDriver): Promise<void> => {
+  // `note` is the outcome of a control just pressed on the Home. It rides in the operator's section; a person who
+  // gets no section (no longer an operator) is still told, as the Home's notice.
+  const operatorPartFor = (who: Pick<Actor, 'tenant' | 'user'>, note?: string): { operator?: OperatorPart; notice?: string } => {
+    const part = deps.operate?.part(who, note);
+    return part ? { operator: part } : note ? { notice: note } : {};
+  };
+
+  // ── the operator's controls (OpenSpec operator-controls D6): the Home's section and the Session card's part ──
+  // Each re-checks the operator rule at the press — a Home can stay open for days — and calls what the command
+  // calls. A press on the Home is answered by the Home itself (it has no private reply): republished with the
+  // outcome as its note. A press on the card is answered privately in the thread.
+  const operatorAction = async (a: ChatAction, d: ChatDriver, onHome: boolean, run: (op: Operate, user: string) => Promise<string>): Promise<void> => {
+    if (!servedTenant(a.actor.tenant) || !a.actor.user || !deps.operate || !cfg.operatorControls) return;
+    const user = a.actor.user;
+    const text = deps.operate.isOperator(a.actor) ? await run(deps.operate, user).catch((e: unknown) => `:x: ${e instanceof Error ? e.message : String(e)}`) : ':lock: This control is operator-only.';
+    if (onHome) await home({ ...a.actor, user }, d, text);
+    else await d.reply(a, { kind: 'text', text }, { replace: false }).catch(() => {});
+  };
+  actions.op_reload = (a, d) => operatorAction(a, d, true, async (op) => op.reload(a.actor.tenant));
+  actions.op_set = async (a, d) => {
+    const c = parseOperatorChoice(a.value);
+    if (!c) return;
+    await operatorAction(a, d, c.h === 1, async (op, user) => {
+      const project = teamProjects(reg.current, a.actor.tenant, homeTeamId).find((p) => p.slug === c.s);
+      if (!project) return `:x: No project \`${c.s}\` here.`;
+      if (c.w === 'model' || c.w === 'effort') return op.setSetting(c.w, project.slug, c.v === 'default' ? undefined : c.v, user);
+      if (c.w === 'ungrant') return op.endGrant(project, c.v as CapabilityName, user);
+      // A grant is announced in a conversation: the card's own, or — from the Home — the project's.
+      const conv = c.h === 1 ? await deps.projectConv?.(d, project, a.actor.tenant) : a.where?.conv;
+      if (!conv) return `:x: *${project.slug}* has no conversation I can announce a grant in — use the command there.`;
+      return op.grant(d, project, c.v as CapabilityName, DEFAULT_GRANT_MS, user, conv, normalizeTenant(a.actor.tenant, homeTeamId));
+    });
+  };
+
+  const home = async (who: Actor & { user: string }, d: ChatDriver, note?: string): Promise<void> => {
     const mine = servedTenant(who.tenant) ? teamProjects(reg.current, who.tenant, homeTeamId) : [];
     try {
       await d.publishHome(
@@ -516,6 +560,7 @@ export function createInteractions(deps: InteractionDeps): Interactions {
               ...(deps.reg.current.projects.some((p) => p.messaging !== undefined) ? { messaging: true } : {}),
               ...(cfg.outboundFiles ? { outboundFiles: true } : {}),
               ...(cfg.operatorControls ? { operatorControls: true } : {}),
+              ...(operatorPartFor(who, note)),
             }
           : { kind: 'onboarding' },
       );

@@ -10,7 +10,7 @@ import { sourcesViews } from '../../sources/daemonclient.js';
 import { localDate } from '../../routineguard.js';
 import type { Config } from '../../config.js';
 import type { Store } from '../../state.js';
-import { loadProjects, projectOwnerTeam, registryPrivilegeWarnings, resolveBySlug, teamProjects, type ProjectConfig, type RegistryRef } from '../../projects.js';
+import { projectOwnerTeam, resolveBySlug, teamProjects, type ProjectConfig, type RegistryRef } from '../../projects.js';
 import { splitTeam, normalizeTenant } from '../../teamkeys.js';
 import { keyFor } from '../surfaces.js';
 import type { ChatDriverName } from '../drivers.js';
@@ -28,13 +28,14 @@ import { projectCwd } from '../../project.js';
 import { memoryFilePath } from '../../memory.js';
 import { snapshotLog, memoryRepoDir, readSnapshotFile } from '../../memjournal.js';
 import { lastPassText } from '../../housekeeping.js';
-import { countOpenPRs, getPrMeta, ciStatusForSha, listReviews, installationPermissions } from '../../github.js';
+import { countOpenPRs, getPrMeta, ciStatusForSha, listReviews } from '../../github.js';
 import { githubRepos } from '../../repohost.js';
-import { activeGrants, effectNote, grantListText, grantNotice, isActive, parseGrantCmd, type GrantRecord } from '../../grants.js';
+import { activeGrants, grantListText, parseGrantCmd } from '../../grants.js';
 import { CMD, MAX_SLACK_TEXT, info, errText, shortRepo, notConfiguredText } from '../slack/blocks.js';
 import type { Actor, ChatCommand, ChatDriver } from '../driver.js';
 import type { PrivateView, ProjectStatus, StatusReport } from '../views.js';
-import { applyOperatorsCmd, isOperatorNow, operatorsListText, parseOperatorsCmd, parseSettingCmd, settingSetText, settingShowText } from '../../operators.js';
+import { applyOperatorsCmd, isOperatorNow, operatorsListText, parseOperatorsCmd, parseSettingCmd, settingShowText } from '../../operators.js';
+import { createOperate, type Operate } from './operate.js';
 import { log } from '../../log.js';
 
 const THINKING = ':hourglass_flowing_sand: thinking…';
@@ -60,6 +61,8 @@ export interface CommandDeps {
   // The config's operator names as written (Teams ids, the web's e-mails), for `/aven operators`: shown to
   // operators, and counted by the rule that the last operator cannot be removed. Absent (Slack) = none.
   configuredOperators?: readonly string[];
+  // The operator's actions, shared with the interactions' controls (operate.ts). Absent → built from these deps.
+  operate?: Operate;
   // `/aven home` → the driver's Home surface for the caller. Slack has the App Home tab and
   // leaves this unset (the verb stays a question to the agent, as today); Teams has no tab, so
   // the Home card is posted into the 1:1 chat on demand.
@@ -127,6 +130,7 @@ function sourcesStatus(p: ProjectConfig, intervalMin: number): string {
 
 export function createCommands(deps: CommandDeps) {
   const { cfg, store, reg, engine, channels, pollers, homeTeamId, isOperator, home, surface } = deps;
+  const operate = deps.operate ?? createOperate({ cfg, store, reg, pollers, ...(homeTeamId ? { homeTeamId } : {}), ...(surface ? { surface } : {}), ...(isOperator ? { isOperator } : {}), ...(deps.configuredOperators ? { configuredOperators: deps.configuredOperators } : {}), ...(deps.onReload ? { onReload: deps.onReload } : {}) });
 
   // Gather a live snapshot for `/aven status`, scoped to ONE tenant (tid: undefined =
   // home): its projects, its sessions/turns (a shared slug must not reveal the other
@@ -345,37 +349,8 @@ export function createCommands(deps: CommandDeps) {
     const now = Date.now();
     if (parsed.action === 'list') return { kind: 'text', text: grantListText(project.slug, activeGrants(store.listGrants(), project.slug, now), ROUTINE_TZ) };
     if (!operator) return { kind: 'text', text: ':lock: Granting is operator-only.' };
-    const announce = async (text: string): Promise<string> =>
-      d.post({ conv: cmd.conv }, { kind: 'text', text }).then(
-        () => '',
-        (e: unknown) => {
-          log.warn(`grant: announcement not posted in ${cmd.conv}: ${e instanceof Error ? e.message : String(e)}`);
-          return ' _(The channel announcement could not be posted.)_';
-        },
-      );
-    if (parsed.action === 'off') {
-      const held = store.getGrant(project.slug, parsed.capability);
-      if (!held || !isActive(held, now)) return { kind: 'text', text: `:information_source: *${project.slug}* holds no \`${parsed.capability}\` grant.` };
-      // The pollers' end path: the notice goes where the grant was made (its channel and surface), not necessarily here.
-      await pollers.endGrant(held, cmd.actor.user);
-      return { kind: 'text', text: `:white_check_mark: Ended *${project.slug}*'s \`${parsed.capability}\` grant.` };
-    }
-    const rec: GrantRecord = {
-      slug: project.slug,
-      capability: parsed.capability,
-      at: new Date(now).toISOString(),
-      until: new Date(now + parsed.ms).toISOString(),
-      by: cmd.actor.user,
-      ...(tid ? { teamId: tid } : {}),
-      ...(surface ? { surface } : {}),
-      channel: cmd.conv,
-    };
-    store.setGrant(rec);
-    log.info(`grant: ${project.slug} ${parsed.capability} until ${rec.until} by ${cmd.actor.user}`);
-    const failed = await announce(grantNotice(rec, ROUTINE_TZ));
-    const repo = githubRepos(project.repos)[0];
-    const note = effectNote(cfg.github?.kind, parsed.capability, repo ? await installationPermissions(cfg, repo) : undefined);
-    return { kind: 'text', text: `:white_check_mark: Granted — it applies from the next message on.${failed}${note ? `\n:warning: ${note}` : ''}` };
+    if (parsed.action === 'off') return { kind: 'text', text: await operate.endGrant(project, parsed.capability, cmd.actor.user) };
+    return { kind: 'text', text: await operate.grant(d, project, parsed.capability, parsed.ms, cmd.actor.user, cmd.conv, tid) };
   }
 
   // ── /aven → private answer in the user's DM (per project) ───────────────────
@@ -391,7 +366,7 @@ export function createCommands(deps: CommandDeps) {
     const myProjects = teamProjects(reg.current, tenant, homeTeamId);
     const isHome = tid === undefined;
     // OPERATOR_CONTROLS: the config's operators and the list kept in chat (operators.ts); off → the earlier rule.
-    const opCtx = { flag: cfg.operatorControls, isHome, ...(isOperator ? { configured: isOperator } : {}), list: store.listOperators() };
+    const opCtx = operate.ctx(tenant);
     const operator = isOperatorNow(opCtx, cmd.actor.user);
     // guardTeam (the ack-capable half of the tenant gate): an installed-but-unmapped
     // workspace gets one clear ephemeral instead of Slack's dispatch timeout.
@@ -519,29 +494,7 @@ export function createCommands(deps: CommandDeps) {
         await say(':lock: Config reload is operator-only.');
         return;
       }
-      try {
-        const before = reg.current.projects.map((p) => p.slug);
-        const next = loadProjects(cfg.projectsConfigPath);
-        reg.current = next;
-        for (const w of registryPrivilegeWarnings(next)) log.warn(w);
-        const after = next.projects.map((p) => p.slug);
-        const added = after.filter((s) => !before.includes(s));
-        const removed = before.filter((s) => !after.includes(s));
-        const delta = [
-          added.length ? `added: ${added.join(', ')}` : '',
-          removed.length ? `removed: ${removed.join(', ')}` : '',
-        ]
-          .filter(Boolean)
-          .join(' · ');
-        // With a workspaces block the fleet count spans ALL tenants — say how many of
-        // them this workspace actually sees, so "8 project(s)" doesn't read as "8 here".
-        const mine = teamProjects(next, tenant, homeTeamId).length;
-        const scope = next.workspaces && mine !== after.length ? `, ${mine} in this workspace` : '';
-        const extra = deps.onReload?.() ?? [];
-        await say(`:arrows_counterclockwise: Config reloaded — ${after.length} project(s)${scope}${delta ? ` (${delta})` : ''}. New prompts/MCP apply to new sessions; running conversations keep their current setup.${extra.length ? `\nAgent messaging: ${extra.join('; ')}.` : ''}`);
-      } catch (err) {
-        await say(`${errText(err)}\n_The previous config stays active._`);
-      }
+      await say(operate.reload(tenant));
       return;
     }
 
@@ -599,10 +552,7 @@ export function createCommands(deps: CommandDeps) {
         await say(`:lock: Changing a project's ${verb} is operator-only.`);
         return;
       }
-      const value = parsed.action === 'set' ? parsed.value : undefined;
-      store.patchProjectSettings(project.slug, { [verb]: value ? { value, by: cmd.actor.user, at: new Date().toISOString() } : undefined });
-      log.info(`${verb}: ${project.slug} → ${value ?? 'default'} by ${cmd.actor.user}`);
-      await say(settingSetText(verb, project.slug, value, installation));
+      await say(operate.setSetting(verb, project.slug, parsed.action === 'set' ? parsed.value : undefined, cmd.actor.user));
       return;
     }
 

@@ -34,7 +34,7 @@ export function webHomeBullets(opts: { messaging?: boolean; outboundFiles?: bool
     ...(opts.operatorControls
       ? [
           `• *Model and effort* — \`/model\` and \`/effort\` in a project's room show what its agent runs on; an operator changes it with \`/model ${CLI_MODEL_NAMES.join('|')}\` or \`/effort ${CLI_EFFORT_LEVELS.join('|')}\` (\`default\` returns to the installation's setting). It applies to threads that start afterwards — *🔄 Restart session* brings a running one over.`,
-          '• *Operators* — `/operators` lists who may run the operator commands. Here they are the people the installation\'s settings name. _(Operators.)_',
+          '• *Operators* — `/operators` lists who may run the operator commands. Here they are the people the installation\'s settings name. An operator\'s Home and *⚙️ Session* card also show each project\'s model, effort and grants. _(Operators.)_',
         ]
       : []),
     ...(opts.messaging

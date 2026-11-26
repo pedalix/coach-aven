@@ -156,7 +156,7 @@ export function renderDialogView(v: DialogView): any {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
 export function renderHomeView(v: HomeView): any[] {
   return v.kind === 'home'
-    ? homeBlocks(v.projects, v.prefix, { ...(v.messaging ? { messaging: true } : {}), ...(v.outboundFiles ? { outboundFiles: true } : {}), ...(v.operatorControls ? { operatorControls: true } : {}) })
+    ? homeBlocks(v.projects, v.prefix, { ...(v.messaging ? { messaging: true } : {}), ...(v.outboundFiles ? { outboundFiles: true } : {}), ...(v.operatorControls ? { operatorControls: true } : {}), ...(v.operator ? { operator: v.operator } : {}), ...(v.notice ? { notice: v.notice } : {}) })
     : onboardingHomeBlocks();
 }
 

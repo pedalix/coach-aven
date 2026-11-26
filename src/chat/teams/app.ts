@@ -7,6 +7,7 @@
 //     (design D9); the public face and TLS are the host's reverse proxy's;
 //   - no OAuth installs: the bot identity comes from the infra/teams module's outputs.
 
+import { createOperate } from '../core/operate.js';
 import express from 'express';
 import { App, ExpressAdapter } from '@microsoft/teams.apps';
 import type { Config, TeamsConfig } from '../../config.js';
@@ -149,9 +150,10 @@ export const teamsSurface: SurfacePlugin = {
       async wire({ cfg, store, reg, engine, channels, pollers, messaging, surface }: SharedDeps): Promise<WiredSurface> {
       const actor = createActorGate(store, tenantId);
       const servedTenant = (t: string | undefined) => t === tenantId;
-      const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', messaging: messaging.messaging, ...(surface ? { surface } : {}) });
+      const operate = createOperate({ cfg, store, reg, pollers, homeTeamId: tenantId, isOperator, configuredOperators: teams.operators, onReload: () => messaging.reload(), ...(surface ? { surface } : {}) });
+      const core = createInteractions({ cfg, store, reg, engine, homeTeamId: tenantId, servedTenant, actor, prefixFor: () => '', messaging: messaging.messaging, operate, projectConv: (d, project, tenant) => channels.channelIdForSlug(d, project, tenant), ...(surface ? { surface } : {}) });
       const messages = createMessages({ store, reg, engine, channels, homeTeamId: tenantId, actor, parkDmPick: core.parkDmPick, ...(surface ? { surface } : {}) });
-      const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator, configuredOperators: teams.operators, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
+      const commands = createCommands({ cfg, store, reg, engine, channels, pollers, homeTeamId: tenantId, isOperator, configuredOperators: teams.operators, operate, home: core.home, onReload: () => messaging.reload(), asks: messaging.asks, ...(surface ? { surface } : {}) });
 
       registerEvents(app as unknown as TeamsAppLike, {
         tenantId,

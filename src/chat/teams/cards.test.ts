@@ -129,3 +129,21 @@ test('a question card offers one button per option in the answer_q family, plus 
   ]);
   assert.deepEqual(r.card?.actions?.map((a: { data: unknown }) => a.data), [{ action: 'submit_q', value: 'q1' }]);
 });
+
+// operator-controls: the read-out an operator gets; nobody else's Home or card changes.
+test('the operator read-out on the Home card and the Session card', async () => {
+  const { operatorProject } = await import('../../operators.js');
+  const p = operatorProject('atlas', { model: { value: 'opus', by: 'UDANA', at: '2026-03-02T10:00:00.000Z' } }, undefined, [], 0, 'UTC');
+  const base: HomeView = { kind: 'home', projects: [], prefix: '' };
+  const plain = renderHomeView(base).text ?? '';
+  const op = renderHomeView({ ...base, operator: { operators: ['<@29:dana>'], everyone: false, projects: [p], note: ':white_check_mark: Granted' } }).text ?? '';
+  assert.ok(op.startsWith(plain));
+  assert.match(op, /🛠 Operator/);
+  assert.match(op, /\*\*atlas\*\* — model `opus`/);
+  assert.match(op, /Granted/);
+  assert.ok((renderHomeView({ ...base, notice: ':lock: This control is operator-only.' }).text ?? '').endsWith('operator-only.'));
+  const info = { slug: 'atlas', repos: ['Org/atlas'], hasSession: false, turnInFlight: false, prCreated: false };
+  const card = JSON.stringify(renderPrivateView({ kind: 'sessionPanel', info: { ...info, operator: p }, value: '{}' }));
+  assert.match(card, /🛠 \*\*Operator\*\*/);
+  assert.doesNotMatch(JSON.stringify(renderPrivateView({ kind: 'sessionPanel', info, value: '{}' })), /Operator/);
+});
