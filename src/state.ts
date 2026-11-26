@@ -55,6 +55,9 @@ export interface ChatRecord {
     uuid?: string;
     // The turn's id — its outbox directory (outbox.ts): the recovery posts what the agent saved there.
     turnId?: string;
+    // The person's message this turn answers (absent on a turn nobody wrote: a routine, a poller): the
+    // recovery settles its `working` mark as the live turn does. A record from before this field has none.
+    msgTs?: string;
   };
   // The session was spawned with the message ledger (agent-messaging D13). A reattach follows this,
   // not the current configuration. Absent on every session of a project without `messaging`.

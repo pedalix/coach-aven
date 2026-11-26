@@ -561,6 +561,23 @@ test('turn record: recovered turn goes background, answer as a new message', asy
   );
 });
 
+// A record that names the person's message (written since `msgTs` joined the in-flight record): the recovery
+// settles its mark as a live turn does — 👀 off, the outcome on. The scenarios above keep a record without the
+// field, as written by an earlier version: they recover with no reaction calls at all.
+const inflightSeedWithMsg = (store: Store) => {
+  inflightSeed(store);
+  const inf = store.getChat('thread:100.1')!.inflight!;
+  store.patchChat('thread:100.1', 'alpha', { inflight: { ...inf, msgTs: '100.1' } });
+};
+
+test('turn record: a recovered turn settles the person’s message (working → done)', async () => {
+  await record('recover-marks-done', () => recover({}, inflightSeedWithMsg));
+});
+
+test('turn record: a turn that could not be recovered marks the person’s message failed', async () => {
+  await record('recover-marks-failed', () => recover({ adopt: async () => ({ ok: false, status: 'timeout', text: '' }) }, inflightSeedWithMsg));
+});
+
 test('turn record: in-flight turn not recoverable', async () => {
   await record('recover-lost', () => recover({ adopt: async () => ({ ok: false, status: 'timeout', text: '' }) }, inflightSeed));
 });
