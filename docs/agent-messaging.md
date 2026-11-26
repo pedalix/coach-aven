@@ -276,7 +276,8 @@ sequenceDiagram
 
 - **Turning it on.** Two settings on the installation (`AGENT_MCP_LISTEN`, `AGENT_MCP_TOKEN`), a route on
   its gateway, and a `user:` or `group:` entry in the `accept` of each project that should answer people —
-  `docs/runtime-config.md` → *Agents' MCP endpoint for people*. Nothing is open by default.
+  `docs/runtime-config.md` → *Agents' MCP endpoint for people* (a verified gateway recipe, the group-name
+  rule, a proxy between gateway and bot). Nothing is open by default.
 - **The tools** are the agents' own four: `agents` (the agents of this installation that accept you),
   `send_message`, `get_task`, `cancel_task`. Targets are agents of this installation only.
 - **One question, one task.** Every task starts a fresh session of the agent: it sees nothing of the
