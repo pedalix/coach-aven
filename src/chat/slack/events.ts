@@ -287,7 +287,8 @@ function toAction(
     message?: { ts?: string; thread_ts?: string; blocks?: unknown[] };
   };
   const conv = b.channel?.id;
-  const ctx: SlackActionCtx = { respond, triggerId: b.trigger_id, blocks: b.message?.blocks };
+  const thread = b.container?.thread_ts ?? b.message?.thread_ts;
+  const ctx: SlackActionCtx = { respond, triggerId: b.trigger_id, blocks: b.message?.blocks, ...(thread ? { threadTs: thread } : {}) };
   return {
     id,
     value: act.value ?? act.selected_option?.value ?? '',

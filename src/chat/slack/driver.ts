@@ -34,7 +34,6 @@ import {
   reportPostedBlocks,
   reportPromptModalView,
   sessionPanelBlocks,
-  operatorCardBlocks,
   statusBlocks,
   ticketLoadingView,
   ticketModalView,
@@ -109,8 +108,6 @@ export function renderPrivateView(v: PrivateView): { text: string; blocks?: any[
       return { text: v.text };
     case 'sessionPanel':
       return { text: `Session — ${v.info.slug}`, blocks: sessionPanelBlocks(v.info, v.value) };
-    case 'operatorCard':
-      return { text: `Operator — ${v.project.slug}`, blocks: operatorCardBlocks(v.project, v.note) };
     case 'markdown':
       // Sent as mrkdwn text, NOT markdown blocks: the ephemeral respond/response_url path
       // rejects Slack `markdown` blocks with a 500.
@@ -170,6 +167,9 @@ export interface SlackActionCtx {
   respond?: (msg: Record<string, unknown>) => Promise<unknown>;
   triggerId?: string;
   blocks?: unknown[];
+  // The thread the clicked message lives in. A response_url answer without it lands in the CHANNEL, even when the
+  // click was on a private message inside a thread — so every answer to a thread's click names its thread.
+  threadTs?: string;
 }
 const ctxOf = (a: Interaction): SlackActionCtx => (a.ctx ?? {}) as SlackActionCtx;
 
@@ -245,6 +245,7 @@ export function slackDriver(client: bolt.webApi.WebClient): SlackChatDriver {
       await respond({
         response_type: 'ephemeral',
         ...(opts?.replace === undefined ? {} : { replace_original: opts.replace }),
+        ...(ctxOf(to).threadTs ? { thread_ts: ctxOf(to).threadTs } : {}),
         text,
         ...(blocks ? { blocks } : {}),
       });

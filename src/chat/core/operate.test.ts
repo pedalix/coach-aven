@@ -38,8 +38,8 @@ function setup(o: { flag?: boolean; projectConv?: boolean } = {}) {
     ...(o.projectConv === false ? {} : { projectConv: async (_d: ChatDriver, p: { slug: string }) => `C_${p.slug}` }),
   });
   const homes = () => calls.filter((c) => c.op === 'publishHome').map((c) => c.args[1] as Extract<HomeView, { kind: 'home' }>);
-  const replies = () => calls.filter((c) => c.op === 'reply').map((c) => { const v = c.args[1] as { text?: string; note?: string }; return v.text ?? v.note ?? ''; });
-  const cards = () => calls.filter((c) => c.op === 'reply').map((c) => ({ view: c.args[1] as Extract<PrivateView, { kind: 'operatorCard' }>, opts: c.args[2] as { replace?: boolean } }));
+  const replies = () => calls.filter((c) => c.op === 'reply').map((c) => { const v = c.args[1] as { text?: string; info?: { note?: string } }; return v.text ?? v.info?.note ?? ''; });
+  const cards = () => calls.filter((c) => c.op === 'reply').map((c) => ({ view: c.args[1] as Extract<PrivateView, { kind: 'sessionPanel' }>, opts: c.args[2] as { replace?: boolean } }));
   return { store, core, d, calls, homes, replies, cards, ended };
 }
 
@@ -124,9 +124,13 @@ test('model and effort from the card: stored as the command stores them, answere
   assert.equal(s.effort?.value, 'high');
   assert.match(t.replies()[0], /\*atlas\* — model: `opus`\. Conversations that start from now on/);
   const second = t.cards()[1];
-  assert.equal(second.view.kind, 'operatorCard');
+  // The WHOLE card, in its own place: the session's lines as they were, the controls from the new state.
+  assert.equal(second.view.kind, 'sessionPanel');
   assert.deepEqual(second.opts, { replace: true });
-  assert.deepEqual([second.view.project.model, second.view.project.effort], [{ value: 'opus', set: true }, { value: 'high', set: true }]);
+  assert.deepEqual(second.view.info.repos, ['Org/atlas']);
+  assert.deepEqual([second.view.info.operator?.model, second.view.info.operator?.effort], [{ value: 'opus', set: true }, { value: 'high', set: true }]);
+  // …and it stays the card of this thread: its Restart still names the thread's session.
+  assert.deepEqual(JSON.parse(second.view.value), { key: 'thread:1.0', channel: 'C_THREAD', threadTs: '1.0' });
   await t.core.actions.op_set(press('op_set', choice('model', 'default')), t.d);
   assert.equal(t.store.getProjectSettings('atlas').model, undefined);
   assert.deepEqual(t.homes(), []);
@@ -154,7 +158,8 @@ test('a grant from the card is announced in the card\'s conversation, and the re
   const t = setup();
   await t.core.actions.op_set(press('op_set', choice('grant', 'actions')), t.d);
   assert.equal(t.store.getGrant('atlas', 'actions')?.channel, 'C_THREAD');
-  assert.deepEqual(t.cards()[0].view.project.grants.map((g) => g.capability), ['actions']);
+  assert.deepEqual(t.cards()[0].view.info.operator?.grants.map((g) => g.capability), ['actions']);
+  assert.match(t.cards()[0].view.info.note ?? '', /Granted/);
 });
 
 test('a grant from the Home is refused where the project has no conversation to announce it in', async () => {

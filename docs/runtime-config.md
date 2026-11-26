@@ -582,8 +582,9 @@ card are what they were:
   model, a list for the effort (each standing on the value in force) and a button per capability that starts a
   grant or ends the held one. The outcome of a press is shown in the section itself, since the Home has no reply of its own. Slack caps
   a Home at 100 blocks; projects that do not fit are counted, with the commands to use instead.
-- **The ⚙️ Session card.** The same line and controls for the thread's project; a press is answered in the card's
-  place, with the outcome and the controls redrawn from the new state.
+- **The ⚙️ Session card.** The same line and controls for the thread's project; a press redraws the whole card in its
+  place — the outcome on top, the session's lines and *🔄 Restart session* as they were, the controls from the new
+  state.
 
 A default is shown by its name, not as the word: `claude-opus-5-5 (default)`, `medium (default)`. The model's default
 is `CLAUDE_MODEL`, else what the CLI reported at the project's last session started without a model (recorded as
