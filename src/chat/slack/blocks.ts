@@ -797,12 +797,6 @@ function operatorProjectBlocks(p: OperatorProject, home: boolean, lead = ''): an
   return [{ type: 'section', text: { type: 'mrkdwn', text: `${lead}${p.line}` } }, operatorActions(p, home)];
 }
 
-/** The answer to a press on the Session card's controls, in the card's place: the outcome, then the fresh controls. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
-export function operatorCardBlocks(p: OperatorProject, note: string): any[] {
-  return [{ type: 'section', text: { type: 'mrkdwn', text: note.slice(0, 2900) } }, ...operatorProjectBlocks(p, false, '*🛠 Operator* — ')];
-}
-
 // The operator's section of the Home: who the operators are, Reload, and a line with its controls per project. `room` is
 // how many blocks the view can still take (Slack refuses a Home over 100); projects past it are counted, not shown.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Slack block union
@@ -847,7 +841,11 @@ export function sessionPanelBlocks(info: SessionPanelInfo, value: string): any[]
     .filter(Boolean)
     .join('\n');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const blocks: any[] = [{ type: 'section', text: { type: 'mrkdwn', text: lines } }];
+  const blocks: any[] = [
+    // The outcome of an operator control just pressed on this card (the card is redrawn whole, in place).
+    ...(info.note ? [{ type: 'section', text: { type: 'mrkdwn', text: info.note.slice(0, 2900) } }] : []),
+    { type: 'section', text: { type: 'mrkdwn', text: lines } },
+  ];
   if (info.hasSession) {
     blocks.push({
       type: 'actions',

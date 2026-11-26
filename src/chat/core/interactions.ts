@@ -31,7 +31,7 @@ import { log } from '../../log.js';
 import type { Actor, ChatAction, ChatDriver, DialogSubmit } from '../driver.js';
 import type { ActorGate } from './gates.js';
 import type { Messaging } from '../../messaging/service.js';
-import type { HomeView, MessageView } from '../views.js';
+import type { HomeView, MessageView, PrivateView } from '../views.js';
 
 export interface InteractionDeps {
   cfg: Config;
@@ -152,6 +152,27 @@ export function createInteractions(deps: InteractionDeps): Interactions {
   // the way a stale question is handled, instead of a dead control.
   const retiredProposal: ActionHandler = async (a, d) => {
     if (a.msg) await d.update(a.msg, { kind: 'text', text: '⌛ Proposals were retired — nothing was sent' }).catch(() => {});
+  };
+
+  // The ⚙️ Session card of a conversation, for this person: an operator's carries the project's controls
+  // (operator-controls); `note` is the outcome of a control just pressed on it.
+  const sessionPanel = (key: string, project: ProjectConfig, who: Pick<Actor, 'tenant' | 'user'>, value: string, note?: string): Extract<PrivateView, { kind: 'sessionPanel' }> => {
+    const chat = store.getChat(key);
+    return {
+      kind: 'sessionPanel',
+      info: {
+        slug: project.slug,
+        repos: project.repos,
+        mcp: project.mcp?.map((m) => m.name),
+        hasSession: !!chat?.sessionId,
+        sessionSince: chat?.updatedAt,
+        turnInFlight: engine.hasKey(key),
+        prCreated: !!chat?.prCreated,
+        ...(cfg.operatorControls && deps.operate?.isOperator(who) ? { operator: deps.operate.project(project.slug) } : {}),
+        ...(note ? { note } : {}),
+      },
+      value,
+    };
   };
 
   const actions: Record<string, ActionHandler> = {
@@ -275,22 +296,8 @@ export function createInteractions(deps: InteractionDeps): Interactions {
       const project = slug ? resolveBySlug(reg.current, slug) : undefined;
       if (!project) return;
       if (!a.actor.user) return;
-      const chat = store.getChat(v.key);
       await d
-        .postPrivate({ conv: v.channel, thread: v.threadTs }, a.actor.user, {
-          kind: 'sessionPanel',
-          info: {
-            slug: project.slug,
-            repos: project.repos,
-            mcp: project.mcp?.map((m) => m.name),
-            hasSession: !!chat?.sessionId,
-            sessionSince: chat?.updatedAt,
-            turnInFlight: engine.hasKey(v.key),
-            prCreated: !!chat?.prCreated,
-            ...(cfg.operatorControls && deps.operate?.isOperator(a.actor) ? { operator: deps.operate.project(project.slug) } : {}),
-          },
-          value: a.value,
-        })
+        .postPrivate({ conv: v.channel, thread: v.threadTs }, a.actor.user, sessionPanel(v.key, project, a.actor, a.value))
         .catch((e) => log.error(`session_panel ${v.key}: ${e instanceof Error ? e.message : String(e)}`));
     },
 
@@ -527,16 +534,21 @@ export function createInteractions(deps: InteractionDeps): Interactions {
   // Each re-checks the operator rule at the press — a Home can stay open for days — and calls what the command
   // calls. A press on the Home is answered by the Home itself (it has no private reply): republished with the
   // outcome as its note. A press on the card is answered privately in the thread.
-  const operatorAction = async (a: ChatAction, d: ChatDriver, onHome: boolean, run: (op: Operate, user: string) => Promise<string>, slug?: string): Promise<void> => {
+  const operatorAction = async (a: ChatAction, d: ChatDriver, onHome: boolean, run: (op: Operate, user: string) => Promise<string>, project?: ProjectConfig): Promise<void> => {
     if (!servedTenant(a.actor.tenant) || !a.actor.user || !deps.operate || !cfg.operatorControls) return;
     const user = a.actor.user;
     const allowed = deps.operate.isOperator(a.actor);
     const text = allowed ? await run(deps.operate, user).catch((e: unknown) => `:x: ${e instanceof Error ? e.message : String(e)}`) : ':lock: This control is operator-only.';
     if (onHome) await home({ ...a.actor, user }, d, text);
-    // The card's controls are redrawn from the new state in the card's place (a list keeps showing the last pick
-    // otherwise, and a grant's button would still say "Grant"); someone who may not press gets the words only.
-    else if (allowed && slug) await d.reply(a, { kind: 'operatorCard', project: deps.operate.project(slug), note: text }, { replace: true }).catch(() => {});
-    else await d.reply(a, { kind: 'text', text }, { replace: false }).catch(() => {});
+    // The card is redrawn WHOLE in its own place — the session's lines and Restart as they were, the controls from
+    // the new state (a list keeps showing the last pick otherwise, and a grant's button would still say "Grant").
+    // The card lives in its thread, so the thread names its conversation (the key the card was opened with).
+    // Someone who may not press, or a press with no thread to name the card, gets the words only.
+    else if (allowed && project && a.where?.thread) {
+      const key = keyFor(surface, a.actor.tenant, homeTeamId, `thread:${a.where.thread}`);
+      const value = JSON.stringify({ key, channel: a.where.conv, threadTs: a.where.thread });
+      await d.reply(a, sessionPanel(key, project, a.actor, value, text), { replace: true }).catch(() => {});
+    } else await d.reply(a, { kind: 'text', text }, { replace: false }).catch(() => {});
   };
   actions.op_reload = (a, d) => operatorAction(a, d, true, async (op) => op.reload(a.actor.tenant));
   actions.op_set = async (a, d) => {
@@ -551,7 +563,7 @@ export function createInteractions(deps: InteractionDeps): Interactions {
       const conv = c.h === 1 ? await deps.projectConv?.(d, project, a.actor.tenant) : a.where?.conv;
       if (!conv) return `:x: *${project.slug}* has no conversation I can announce a grant in — use the command there.`;
       return op.grant(d, project, c.v as CapabilityName, DEFAULT_GRANT_MS, user, conv, normalizeTenant(a.actor.tenant, homeTeamId));
-    }, project?.slug);
+    }, project);
   };
 
   const homeView = (who: Pick<Actor, 'tenant' | 'user'>, note?: string): HomeView => {

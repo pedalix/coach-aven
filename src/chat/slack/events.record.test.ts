@@ -318,6 +318,13 @@ test('events record: session_restart', () =>
     t.store.patchChat('thread:9.1', 'alpha', { sessionId: 'sess-1' });
     await t.receiver.send(action(HOME, 'session_restart', sessValue));
   }));
+// A click on a message inside a thread is answered in that thread: without thread_ts a response_url answer lands
+// in the channel (seen on the canary: the Session card's answer showed up in the channel as well).
+test('events record: session_restart in a thread', () =>
+  record('session-restart-in-thread', async (t) => {
+    t.store.patchChat('thread:9.1', 'alpha', { sessionId: 'sess-1' });
+    await t.receiver.send(action(HOME, 'session_restart', sessValue, 'C_HOME', '9.1'));
+  }));
 test('events record: session_restart while busy', () =>
   record('session-restart-busy', async (t) => {
     t.store.patchChat('thread:9.1', 'alpha', { sessionId: 'sess-1' });

@@ -466,7 +466,7 @@ test('homeBullets: the operator-controls lines only with the flag, every other b
 });
 
 // ── the operator's section and card part (OpenSpec operator-controls) ──────────────────────────────────────
-import { operatorCardBlocks, operatorHomeBlocks } from './blocks.js';
+import { operatorHomeBlocks } from './blocks.js';
 import { operatorProject, parseOperatorChoice, type OperatorPart } from '../../operators.js';
 
 const OP_NOW = Date.parse('2026-03-02T10:05:00.000Z');
@@ -490,6 +490,9 @@ const opPart = (n: number, extra: Partial<OperatorPart> = {}): OperatorPart => (
   ...extra,
 });
 const opProjects: ProjectConfig[] = [{ slug: 'atlas', repos: ['Org/atlas'] } as ProjectConfig];
+const CARD = { slug: 'atlas', repos: ['Org/atlas'], hasSession: false, turnInFlight: false, prCreated: false };
+// The operator's controls as the Session card carries them: its last block.
+const cardControls = (p: ReturnType<typeof opProject>) => sessionPanelBlocks({ ...CARD, operator: p }, '{}').at(-1);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const labels = (el: any): string[] => el.options.map((o: any) => o.text.text);
 
@@ -507,20 +510,20 @@ test('homeBlocks: without an operator part the Home is what it was; with one the
 
 test('operator controls: each list shows the value in force, and names the default instead of saying "default"', () => {
   // Nothing set, the CLI reported its model: both lists stand on the named default.
-  const [, bare] = operatorCardBlocks(opProject('atlas', { cliModel: 'claude-opus-5-5' }), 'ok').slice(1);
+  const bare = cardControls(opProject('atlas', { cliModel: 'claude-opus-5-5' }));
   const [m0, e0] = bare.elements;
   assert.deepEqual(labels(m0), ['fable', 'opus', 'sonnet', 'haiku', 'claude-opus-5-5 (default)']);
   assert.equal(m0.initial_option.text.text, 'claude-opus-5-5 (default)');
   assert.deepEqual(labels(e0), ['low', 'medium', 'high', 'medium (default)']);
   assert.equal(e0.initial_option.text.text, 'medium (default)');
   // Set in chat: the chosen names are selected; the default option still names what default would give.
-  const [, set] = operatorCardBlocks(opProject('atlas', { model: 'sonnet', effort: 'high', installation: 'claude-opus-5-5' }), 'ok').slice(1);
+  const set = cardControls(opProject('atlas', { model: 'sonnet', effort: 'high', installation: 'claude-opus-5-5' }));
   assert.equal(set.elements[0].initial_option.text.text, 'sonnet');
   assert.equal(labels(set.elements[0]).at(-1), 'claude-opus-5-5 (default)');
   assert.equal(set.elements[1].initial_option.text.text, 'high');
   assert.equal(labels(set.elements[1]).at(-1), 'medium (default)');
   // Nobody has seen the default model yet: the word alone, and no level is claimed for the effort.
-  const [, unknown] = operatorCardBlocks(opProject('atlas'), 'ok').slice(1);
+  const unknown = cardControls(opProject('atlas'));
   assert.equal(unknown.elements[0].initial_option.text.text, 'default');
   assert.equal(unknown.elements[1].initial_option.text.text, 'default');
 });
@@ -545,8 +548,8 @@ test('operator controls: a grant is a button that turns into its end while held;
 
 test('operator controls: the block id changes with every render, so a control is drawn from the state', () => {
   const at = (now: number) => operatorProject('atlas', {}, {}, [], now, 'UTC');
-  const a = operatorCardBlocks(at(1_000), 'ok')[2].block_id;
-  const b = operatorCardBlocks(at(2_000), 'ok')[2].block_id;
+  const a = cardControls(at(1_000)).block_id;
+  const b = cardControls(at(2_000)).block_id;
   assert.match(a, /^op:atlas:/);
   assert.notEqual(a, b);
 });
@@ -578,4 +581,13 @@ test('sessionPanelBlocks: an operator\'s card ends with the project\'s line and 
   assert.equal(op.length, plain.length + 2);
   const c = parseOperatorChoice(op.at(-1).elements[0].options[0].value);
   assert.ok(c && c.h === undefined, 'a card control is not a Home control');
+});
+
+test('sessionPanelBlocks: redrawn after a press, the card is whole — the outcome on top, then everything it had', () => {
+  const info = { slug: 'atlas', repos: ['Org/atlas'], hasSession: true, turnInFlight: false, prCreated: false, operator: opProject('atlas') };
+  const before = sessionPanelBlocks(info, '{}');
+  const after = sessionPanelBlocks({ ...info, note: ':white_check_mark: Ended *atlas*\'s `actions` grant.' }, '{}');
+  assert.equal(after[0].text.text, ':white_check_mark: Ended *atlas*\'s `actions` grant.');
+  assert.deepEqual(after.slice(1), before);
+  assert.ok(after.some((b) => b.type === 'actions' && b.elements[0].action_id === 'session_restart'), 'Restart session is still there');
 });
